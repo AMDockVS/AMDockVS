@@ -19,10 +19,12 @@ The active public API is organised by domain:
 ## Installation
 
 Python >= 3.12. The three MolSuite dependencies are not on PyPI yet, so they are
-installed from git first:
+installed from git first. PyMOL is required and must be installed from
+conda-forge because it is not distributed on PyPI:
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
+conda create -n amdockvs -c conda-forge python=3.12 pymol-open-source
+conda activate amdockvs
 pip install "ms_flow @ git+https://github.com/MolSuite/ms_flow"
 pip install "ms_components @ git+https://github.com/MolSuite/ms_components"
 pip install "ms_contactmap @ git+https://github.com/MolSuite/ms_contactmap"
@@ -52,7 +54,6 @@ pip install "amdock-vs[all]"   # or pick one: bblean, pockets, receptors
 | Tool | What for | Installation |
 |---|---|---|
 | `autogrid4` | ad4 scoring | `conda install -c conda-forge autogrid` |
-| `pymol-open-source` | docked 3D viewer | `conda install -c conda-forge pymol-open-source` |
 | `reduce` | `runtime.chemistry.protonate_receptors(method="reduce")` | `conda install -c conda-forge reduce` |
 | `pdb2pqr` | `runtime.chemistry.protonate_receptors(method="pdb2pqr")` | `pip install pdb2pqr` |
 
