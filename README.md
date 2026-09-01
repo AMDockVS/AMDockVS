@@ -1,43 +1,69 @@
 # AMDockVS
 
-`AMDockVS` expone un runtime compuesto sobre MolSuite. La ruta oficial es:
+`AMDockVS` exposes a composite runtime on top of MolSuite. The official entry point is:
 
 ```python
-from amdock import AMDockVSRuntime
+from amdockvs import AMDockVSRuntime
 ```
 
-La API pública activa está organizada por dominios:
+The active public API is organised by domain:
 
-- `runtime.loader`: carga de ligandos y receptores
-- `runtime.molecules`: scopes, filtros, sets y acceso al inventario molecular general
-- `runtime.complexes`: relaciones receptor-ligando explícitas para redocking y rescoring
-- `runtime.chemistry`: herramientas opcionales de preparación química para ligandos y receptores
-- `runtime.qsar`: descriptores, actividades, datasets y modelos QSAR
-- `runtime.pockets`: instalación y predicción de cavidades con P2Rank
-- `runtime.docking`: preparación con Meeko, grillas, docking y consultas de resultados
+- `runtime.loader`: ligand and receptor loading
+- `runtime.molecules`: scopes, filters, sets and access to the general molecular inventory
+- `runtime.complexes`: explicit receptor-ligand relations for redocking and rescoring
+- `runtime.chemistry`: optional chemical preparation tools for ligands and receptors
+- `runtime.qsar`: descriptors, activities, datasets and QSAR models
+- `runtime.pockets`: P2Rank installation and cavity prediction
+- `runtime.docking`: Meeko preparation, grids, docking and result queries
 
-## Instalación
+## Installation
 
-El flujo de docking con Vina requiere estas dependencias además de RDKit:
+Python >= 3.12. The three MolSuite dependencies are not on PyPI yet, so they are
+installed from git first:
 
-- `meeko>=0.7.1`
-- `vina>=1.2.7`
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install "ms_flow @ git+https://github.com/MolSuite/ms_flow"
+pip install "ms_components @ git+https://github.com/MolSuite/ms_components"
+pip install "ms_contactmap @ git+https://github.com/MolSuite/ms_contactmap"
+pip install "amdock-vs @ git+https://github.com/AMDockVS/AMDockVS"
+```
 
-Herramientas opcionales de receptor:
+Start the GUI:
 
-- `reduce` para `runtime.chemistry.protonate_receptors(method="reduce")`
-- `pdb2pqr` para `runtime.chemistry.protonate_receptors(method="pdb2pqr")`
-- `openmm` para `runtime.chemistry.minimize_receptors(...)`
+```bash
+amdockvs
+```
 
-P2Rank 2.5.1 se instala bajo demanda desde **Molecule Tools → Pocket
-Detection**. AMDockVS reutiliza primero
-`~/Downloads/p2rank_2.5.1.tar.gz`, si existe, y en caso contrario descarga la
-distribución oficial verificando su checksum. Java 17 también se instala bajo
-demanda en el entorno Conda activo después de comprobar con un `dry-run` que
-la transacción no sustituya Python, RDKit, PyMOL, PySide, NumPy, Vina o Meeko.
-P2Rank no se distribuye dentro de la aplicación.
+### Optional extras
 
-La misma operación está disponible en el backend:
+```bash
+pip install "amdock-vs[all]"   # or pick one: bblean, pockets, receptors
+```
+
+| Extra | What it adds |
+|---|---|
+| `bblean` | BitBIRCH clustering (GPL, invoked through its CLI, never imported) |
+| `pockets` | the jlink-trimmed JDK that P2Rank runs on |
+| `receptors` | OpenMM/PDBFixer receptor rebuilding and minimisation, ProDy fallbacks |
+
+### Non-pip dependencies (optional)
+
+| Tool | What for | Installation |
+|---|---|---|
+| `autogrid4` | ad4 scoring | `conda install -c conda-forge autogrid` |
+| `pymol-open-source` | docked 3D viewer | `conda install -c conda-forge pymol-open-source` |
+| `reduce` | `runtime.chemistry.protonate_receptors(method="reduce")` | `conda install -c conda-forge reduce` |
+| `pdb2pqr` | `runtime.chemistry.protonate_receptors(method="pdb2pqr")` | `pip install pdb2pqr` |
+
+P2Rank 2.5.1 is installed on demand from **Molecule Tools → Pocket Detection**.
+AMDockVS first reuses `~/Downloads/p2rank_2.5.1.tar.gz` if it exists, and
+otherwise downloads the official distribution and verifies its checksum. Java 17
+is likewise installed on demand into the active Conda environment, after a
+`dry-run` check that the transaction will not replace Python, RDKit, PyMOL,
+PySide, NumPy, Vina or Meeko. P2Rank is not redistributed inside the application.
+
+The same operation is available from the backend:
 
 ```python
 runtime.pockets.install_p2rank()
@@ -50,12 +76,12 @@ runtime.wait_for_job(job_id)
 sites = runtime.pockets.list_predictions(receptor_id=receptor_id)
 ```
 
-## Flujo mínimo
+## Minimal workflow
 
 ```python
 from pathlib import Path
 
-from amdock import AMDockVSRuntime
+from amdockvs import AMDockVSRuntime
 
 runtime = AMDockVSRuntime()
 try:
@@ -102,21 +128,25 @@ finally:
     runtime.shutdown()
 ```
 
-## Semántica async
+## Async semantics
 
-- `loader.*`, `qsar.compute_descriptors()`, `docking.prepare_*()` y `docking.run()` envían jobs y retornan `job_id` o `list[job_id]`.
-- `chemistry.*` también envía jobs por defecto; usa `wait=True` o `runtime.wait_for_job(...)` si quieres bloquear en notebooks.
-- La espera es explícita con `runtime.wait_for_job(...)` o `runtime.wait_for_jobs(...)`.
-- `runtime.docking.screen(...)` también es async por defecto. Usa `wait=True` solo cuando quieras un helper compuesto bloqueante.
+- `loader.*`, `qsar.compute_descriptors()`, `docking.prepare_*()` and `docking.run()` submit jobs and return a `job_id` or a `list[job_id]`.
+- `chemistry.*` also submits jobs by default; use `wait=True` or `runtime.wait_for_job(...)` to block in notebooks.
+- Waiting is explicit, through `runtime.wait_for_job(...)` or `runtime.wait_for_jobs(...)`.
+- `runtime.docking.screen(...)` is async by default too. Use `wait=True` only when you want a blocking composite helper.
 
-## Notas de diseño
+## Design notes
 
-- `stored_path` sigue apuntando al artefacto base importado.
-- `chemistry.*` registra una ruta química actual en metadata; los pasos posteriores la consumen si existe.
-- La preparación para Vina se guarda sobre `amdock_molecules`, sin una capa separada de trazabilidad por estado.
-- La lectura de inventario usa `molsuite.query.project_rows(...)`; no depende del helper privado `DataAccess`.
+- `stored_path` keeps pointing at the base imported artifact.
+- `chemistry.*` records a current chemical path in metadata; later steps consume it when present.
+- Vina preparation is stored on `amdock_molecules`, without a separate per-state traceability layer.
+- Inventory reads go through `molsuite.query.project_rows(...)`; they do not depend on the private `DataAccess` helper.
 
-## Ejemplos
+## Examples
 
 - [examples/pipeline_demo.py](examples/pipeline_demo.py)
 - [examples/runtime_quickstart.py](examples/runtime_quickstart.py)
+
+## License
+
+MIT — see [LICENSE](LICENSE).

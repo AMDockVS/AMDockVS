@@ -1,0 +1,99 @@
+[build-system]
+requires = ["setuptools>=77", "setuptools-scm>=8", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "AMDock-VS"
+dynamic = ["version"]  # from the git tag, see [tool.setuptools_scm]
+description = "AMDock — chemistry-focused virtual screening and docking desktop app built on the MolSuite orchestrator."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Mario S. Valdés-Tresanco" },
+    { name = "Mario E. Valdés-Tresanco" },
+    { name = "Ernesto Moreno" },
+    { name = "Pedro A. Valiente" },
+]
+keywords = ["docking", "virtual-screening", "autodock-vina", "cheminformatics", "molsuite", "structural-biology"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Environment :: X11 Applications :: Qt",
+]
+
+dependencies = [
+    # MolSuite stack
+    "ms_flow>=0.1",
+    "ms_components>=0.1",
+    "ms_contactmap>=0.1",
+    # Chemistry / structure
+    "rdkit>=2025.3.5",
+    "dimorphite-dl>=2.0.2,<3",
+    "meeko>=0.7.1",
+    "vina>=1.2.7",
+    # Non-pip runtime tool: ad4 scoring needs the autogrid4 binary on PATH (or $AMDOCK_AUTOGRID4).
+    #   conda install -c conda-forge autogrid
+    "gemmi>=0.6",
+    # Data / models
+    "numpy>=2.0.0",
+    "scipy>=1.15",  # cKDTree in the pocket/box geometry
+    "pandas>=2.3.1",
+    "pyarrow>=15",  # parquet sidecars for offloaded molecule source properties
+    "pydantic>=2.0",
+    "scikit-learn>=1.5",
+    "joblib>=1.3",  # model persistence for the QSAR models
+    "sqlalchemy>=2.0",
+    "sqlmodel>=0.0.24",
+    # UI
+    "PySide6>=6.5",
+    "pyqtgraph>=0.13",  # fast scatter for the chemical-universe view (QtCharts ghosts/stalls at scale)
+]
+
+[project.optional-dependencies]
+# bblean is GPL-3.0 while AMDock is MIT, so it is never imported: the diversity job shells out to
+# its `bb` console script (see amdockvs/selection/clustering.py). Optional because without it the
+# BitBIRCH method falls back to the lean in-tree implementation.
+bblean = ["bblean>=0.10"]
+# P2Rank is a Java tool: the JDK ships as a plain wheel (jlink-trimmed), the P2Rank
+# distribution itself is fetched on demand from Settings > External tools.
+pockets = ["jdk4py~=21.0"]
+# Optional receptor preparation: OpenMM/PDBFixer rebuild missing atoms and
+# minimise, ProDy is the fallback PDBQT path. All imported lazily — without
+# them those preparation options simply report they are unavailable.
+receptors = ["openmm>=8.1", "pdbfixer>=1.9", "prody>=2.4"]
+all = ["amdock-vs[bblean,pockets,receptors]"]
+
+[project.urls]
+Homepage = "https://github.com/AMDockVS/AMDockVS"
+Documentation = "https://amdockvs.github.io/"
+Issues = "https://github.com/AMDockVS/AMDockVS/issues"
+
+[project.scripts]
+amdockvs = "amdockvs.__main__:main"
+
+# The release tag is the only version there is: nothing to bump by hand, and
+# a tag that does not match the metadata becomes impossible.
+[tool.setuptools_scm]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+amdockvs = [
+    "*.toml",
+    "ui/resources/icons/*.svg",
+    "ui/resources/icons/*.png",
+    "ui/resources/styles/*.qss",
+    "ui/resources/images/*",
+    "data/*.json",
+]
