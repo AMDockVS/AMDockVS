@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   width="24"
+   height="24"
+   viewBox="0 0 24 24"
+   fill="none"
+   stroke="currentColor"
+   stroke-width="2"
+   stroke-linecap="round"
+   stroke-linejoin="round"
+   class="lucide lucide-cloud-snow-icon lucide-cloud-snow"
+   version="1.1"
+   id="svg7"
+   sodipodi:docname="docking.svg"
+   inkscape:version="1.4.4 (dcaf3e7d9e, 2026-05-05)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs7" />
+  <sodipodi:namedview
+     id="namedview7"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:zoom="23.71754"
+     inkscape:cx="9.296917"
+     inkscape:cy="13.808346"
+     inkscape:window-width="1920"
+     inkscape:window-height="1006"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="g8" />
+  <path
+     d="m 3.4607209,11.11783 a 7,7 0 1 0 12.9516931,4.119938 l 1.74511,-0.398363 a 4.5,4.5 0 0 0 0.603059,-8.5916731"
+     id="path1" />
+  <g
+     id="g8"
+     transform="matrix(0.94570765,0,0,0.94570765,4.4410253,0.65192374)">
+    <path
+       sodipodi:type="star"
+       style="fill:none;fill-rule:evenodd;paint-order:stroke markers fill"
+       id="path7"
+       inkscape:flatsided="true"
+       sodipodi:sides="6"
+       sodipodi:cx="6.1118011"
+       sodipodi:cy="20.809938"
+       sodipodi:r1="4.978971"
+       sodipodi:r2="4.3119154"
+       sodipodi:arg1="0.0059879524"
+       sodipodi:arg2="0.52958673"
+       inkscape:rounded="0"
+       inkscape:randomized="0"
+       d="M 11.090683,20.839752 8.5754226,25.136683 3.5965409,25.10687 1.1329194,20.780125 3.6481797,16.483194 8.6270614,16.513007 Z"
+       transform="matrix(0.92874814,0.51684492,-0.51684492,0.92874814,11.712727,-16.169264)" />
+    <path
+       style="fill:none"
+       d="M 6.6619057,3.9047209 4.9159491,4.8585065"
+       id="path8" />
+  </g>
+</svg>

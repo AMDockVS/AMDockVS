@@ -1,0 +1,14 @@
+[molecule_display]
+max_2d_preview_heavy_atoms = 50
+
+[batch_sizes]
+ligand = 1000
+receptor = 32
+
+[protonation.openbabel]
+version = "3.1.1"
+prefix = ""
+
+[protonation.pkasso]
+version = "0.6.1"
+prefix = ""
