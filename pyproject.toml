@@ -30,9 +30,9 @@ classifiers = [
 
 dependencies = [
     # MolSuite stack
-    "ms_flow>=0.1",
-    "ms_components>=0.1",
-    "ms_contactmap>=0.1",
+    "ms_flow",
+    "ms_components",
+    "ms_contactmap",
     # Chemistry / structure
     "rdkit>=2025.3.5",
     "dimorphite-dl>=2.0.2,<3",
