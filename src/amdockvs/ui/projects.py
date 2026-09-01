@@ -103,7 +103,11 @@ class ProjectsWidget(QDialog):
     def __init__(self, *, runtime: "AMDockVSRuntime", parent: QWidget | None = None):
         super().__init__(parent=parent)
 
-        self._owned_backend = ProjectCatalogBackend(app_id_filter=runtime.app_id)
+        self._owned_backend = ProjectCatalogBackend(
+            app_id_filter=runtime.app_id,
+            discover_apps=False,
+            app_modules=["amdockvs.manifest"],
+        )
         self.project_browser = ProjectsMenuWidget(
             app_id=runtime.app_id,
             backend=self._owned_backend,

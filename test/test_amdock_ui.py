@@ -17,7 +17,7 @@ from PySide6.QtWidgets import QApplication, QDockWidget, QMainWindow, QToolButto
 
 from amdockvs.ui.catalog import LIGANDS_VIEW_ID, MOLECULES_VIEW_ID, RECEPTOR_VIEW_ID
 from amdockvs.ui.main_window import AMDockVSMainWindow
-from amdockvs.ui.projects import ApplicationWidget
+from amdockvs.ui.projects import ApplicationWidget, ProjectsWidget
 from amdockvs.ui.workspace import ComplexWidget, LigandActivityWidget
 from amdockvs.ui.catalog.domain_views import COMPLEXES_VIEW_ID
 from amdockvs.ui.tools.docking import (
@@ -95,6 +95,21 @@ def test_amdock_ui_smoke_instantiates_without_project(tmp_path, monkeypatch):
     finally:
         if window is not None:
             window.close()
+        runtime.shutdown()
+
+
+def test_projects_widget_registers_amdock_manifest_outside_workspace(tmp_path, monkeypatch):
+    _patch_fake_home(monkeypatch, tmp_path)
+    monkeypatch.setenv("MS_FLOW_WORKSPACE_ROOT", str(tmp_path))
+
+    app = QApplication.instance() or QApplication(["amdockvs-projects-test"])
+    runtime = AMDockVSRuntime()
+    widget = ProjectsWidget(runtime=runtime)
+    try:
+        assert [manifest.app_id for manifest in widget._owned_backend.list_apps()] == ["amdockvs"]
+    finally:
+        widget.close()
+        app.processEvents()
         runtime.shutdown()
 
 
