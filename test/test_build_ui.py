@@ -129,20 +129,15 @@ def test_build_actions_are_right_aligned_and_tabs_fix_operation_scope(build_widg
     assert build_widget._cfg_protonate_receptors()["receptors"].molecule_type == MoleculeType.PROTEIN
 
 
-def test_each_build_tab_keeps_its_own_scope(build_widget):
-    assert build_widget.small_molecule_scope_combo.currentData() == "all"
-    assert build_widget.protein_scope_combo.currentData() == "all"
+def test_build_ops_run_on_whatever_the_molecules_table_shows(build_widget, monkeypatch):
+    # No scope selector here: the tool acts on the rows the catalog table shows.
+    catalog = SimpleNamespace(scope_ids=lambda: None)
+    monkeypatch.setattr(build_widget, "_catalog_molecules_widget", lambda: catalog)
+    assert build_widget._scope(MoleculeType.SMALL_MOLECULE).filters == {}
 
-    build_widget.small_molecule_scope_combo.setCurrentIndex(1)
-    build_widget._on_molecule_selection_changed([
-        SimpleNamespace(id=12, molecule_type=MoleculeType.SMALL_MOLECULE),
-        SimpleNamespace(id=31, molecule_type=MoleculeType.PROTEIN),
-    ])
-
-    small_scope = build_widget._scope(MoleculeType.SMALL_MOLECULE)
-    protein_scope = build_widget._scope(MoleculeType.PROTEIN)
-    assert small_scope.filters == {"id__in": [12]}
-    assert protein_scope.filters == {}
+    catalog.scope_ids = lambda: [12, 31]
+    assert build_widget._scope(MoleculeType.SMALL_MOLECULE).filters == {"id__in": [12, 31]}
+    assert build_widget._scope(MoleculeType.PROTEIN).filters == {"id__in": [12, 31]}
 
 
 def test_only_fix_structure_can_go_back_to_the_imported_structure(build_widget):
@@ -161,15 +156,6 @@ def test_only_fix_structure_can_go_back_to_the_imported_structure(build_widget):
         build_widget._cfg_minimize_receptors(),
     ):
         assert "structure_source" not in cfg
-
-
-def test_filtered_build_scope_uses_all_matching_table_rows(build_widget):
-    build_widget._bound_molecules_table = SimpleNamespace(all_filtered_ids=lambda: [4, 9])
-    build_widget.protein_scope_combo.setCurrentIndex(2)
-
-    scope = build_widget._scope(MoleculeType.PROTEIN)
-
-    assert scope.filters == {"id__in": [4, 9]}
 
 
 def test_build_protonation_buttons_use_chemistry_api(build_widget, monkeypatch):

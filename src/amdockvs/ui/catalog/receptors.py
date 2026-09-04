@@ -33,15 +33,10 @@ from amdockvs.io.receptor_preview import (
     build_receptor_import_preview,
     scan_receptor_structure,
 )
-from amdockvs.molecule_paths import current_molecule_path
 from amdockvs.models import MoleculeRecord
 from amdockvs.ui.catalog.common import BoundTableWidget
 from amdockvs.ui.drop_area import TablePlaceholder, drop_hint, icon_button
 from amdockvs.ui.resources.icons import icon
-from amdockvs.ui.tools.pymol_ribbon import (
-    apply_receptor_atom_coloring,
-    set_pymol_scene_context,
-)
 from amdockvs.vocab import FileFormat, MoleculeUsageClass
 from ms_components.ms_table import (
     AlignHint,
@@ -49,7 +44,6 @@ from ms_components.ms_table import (
     ColumnKind,
     FilterOperator,
     FilterSpec,
-    SortSpec,
     TableConfig,
     TableLoadMode,
     ToolbarAction,
@@ -784,7 +778,8 @@ def _receptor_table_config(runtime) -> TableConfig:
     return TableConfig(
         model_class=MoleculeRecord,
         columns=[
-            ColumnDef("id", label="ID", width=60, sortable=True, align=AlignHint.RIGHT),
+            ColumnDef("id", label="ID", width=60, sortable=True, align=AlignHint.RIGHT,
+                      kind=ColumnKind.INTEGER),
             ColumnDef("name", label="Name", width=220, sortable=True, filterable=True),
             ColumnDef("usage_class", label="Usage", width=110, sortable=True, filterable=True, visible=False,
                       kind=ColumnKind.CHOICE, choices=choices_from_class(MoleculeUsageClass)),
@@ -826,6 +821,7 @@ def _receptor_table_config(runtime) -> TableConfig:
 
 class ReceptorWidget(BoundTableWidget):
     delete_kind = "molecule"
+    selectable = True
 
     def __init__(self, *, runtime, parent=None):
         super().__init__(
@@ -841,36 +837,15 @@ class ReceptorWidget(BoundTableWidget):
         self._load_receptor_in_pymol(obj)
 
     def _load_receptor_in_pymol(self, receptor: MoleculeRecord) -> None:
-        receptor_path = current_molecule_path(receptor) or Path()
-        main_window = self.window()
-        detail_handler = getattr(main_window, "show_catalog_selection_details", None)
-        if callable(detail_handler):
-            detail_handler("receptor", receptor)
-        if not receptor_path.exists():
-            return
-        dock = getattr(main_window, "pymol_dock", None)
-        if dock is None:
-            return
-        cmd = getattr(dock, "cmd", None)
-        if cmd is None:
-            return
-        object_name = f"receptor_{getattr(receptor, 'id', 'selected')}"
-        try:
-            dock.show()
-            cmd.delete("all")
-            cmd.load(str(receptor_path), object_name)
-            apply_receptor_atom_coloring(cmd, object_name)
-            cmd.zoom(object_name, 3)
-            cmd.orient(object_name)
-            set_pymol_scene_context(
-                dock,
-                "receptor",
-                target=object_name,
-                selections={"receptor": object_name},
-                default_preset="amdockvs.receptor",
+        viewer = getattr(self.window(), "viewer", None)
+        if viewer is not None:
+            viewer.show_catalog_molecule(
+                receptor,
+                source="current",
+                object_prefix="receptor",
+                details_kind="receptor",
+                orient=True,
             )
-        except Exception:
-            return
 
 
 def import_receptors_from_file(window) -> None:
@@ -919,4 +894,3 @@ def register_receptors_workspace(window) -> None:
             parent=window.central_widget,
         ),
     )
-

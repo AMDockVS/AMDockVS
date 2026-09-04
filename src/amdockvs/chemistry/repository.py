@@ -11,6 +11,7 @@ from ms_flow.query import QuerySpec, db_pages
 
 from amdockvs.constants import RESOURCE_MOLECULES, TABLE_MOLECULES
 from amdockvs.models import MoleculeModel, MoleculeRecord
+from amdockvs.molecules.store import as_store
 from amdockvs.scopes import molecule_set_spec
 
 
@@ -78,17 +79,17 @@ def scope_spec(
 
 
 def iter_ligand_rows(
-    project_db,
+    source,
     *,
     ligand_set_id: int | None = None,
     filters: Mapping[str, Any] | None = None,
     fields: tuple[str, ...] = _ROW_FIELDS,
     batch_size: int = 128,
 ) -> Iterator[dict[str, Any]]:
-    yield from db_pages(
-        project_db,
+    """`source` is the ligand store, or the project db (which is what `vs` means)."""
+    yield from as_store(source).iter_rows(
         scope_spec(role_flag="is_ligand", molecule_set_id=ligand_set_id, filters=filters, fields=fields),
-        page_size=max(1, int(batch_size)),
+        batch_size=max(1, int(batch_size)),
     )
 
 

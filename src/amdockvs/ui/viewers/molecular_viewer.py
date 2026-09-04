@@ -6,7 +6,12 @@ from __future__ import annotations
 import contextlib
 from pathlib import Path
 
-from amdockvs.molecule_paths import current_molecule_path, get_default_project_root, stored_molecule_path
+from amdockvs.molecule_paths import (
+    current_molecule_path,
+    get_default_project_root,
+    preferred_molecule_path,
+    stored_molecule_path,
+)
 from amdockvs.summaries import DockingHitSummary
 from amdockvs.ui.tools.pymol_ribbon import (
     apply_ligand_atom_coloring,
@@ -360,9 +365,47 @@ class MolecularViewerController:
         except Exception:
             return
 
+    def show_catalog_molecule(
+        self,
+        molecule,
+        *,
+        source: str,
+        object_prefix: str,
+        details_kind: str,
+        orient: bool,
+    ) -> None:
+        """Show a catalog row while preserving its established object name and path policy."""
+        self.w.aux.show_catalog_selection_details(details_kind, molecule)
+        self._show_molecule(
+            molecule,
+            source=source,
+            object_prefix=object_prefix,
+            orient=orient,
+        )
+
     def show_molecule(self, molecule, mode: str) -> None:
-        path = current_molecule_path(molecule) if str(
-            mode or "").strip().lower() == "current" else stored_molecule_path(molecule)
+        self._show_molecule(
+            molecule,
+            source="current" if str(mode or "").strip().lower() == "current" else "stored",
+            object_prefix="molecule",
+            orient=True,
+        )
+
+    def _show_molecule(
+        self,
+        molecule,
+        *,
+        source: str,
+        object_prefix: str,
+        orient: bool,
+    ) -> None:
+        source = str(source or "").strip().lower()
+        if source == "current":
+            path = current_molecule_path(molecule)
+        elif source == "preferred":
+            path = preferred_molecule_path(molecule)
+        else:
+            path = stored_molecule_path(molecule)
         if path is None or not path.exists():
             return
         dock = self.w.pymol_dock
@@ -371,7 +414,7 @@ class MolecularViewerController:
         cmd = getattr(dock, "cmd", None)
         if cmd is None:
             return
-        object_name = f"molecule_{getattr(molecule, 'id', 'selected')}"
+        object_name = f"{object_prefix}_{getattr(molecule, 'id', 'selected')}"
         try:
             dock.show()
             cmd.delete("all")
@@ -396,10 +439,11 @@ class MolecularViewerController:
                 default_preset = ""
                 apply_scene_atom_coloring(self.w)
             cmd.zoom(object_name, 3)
-            try:
-                cmd.orient(object_name)
-            except Exception:
-                pass
+            if orient:
+                try:
+                    cmd.orient(object_name)
+                except Exception:
+                    pass
             set_pymol_scene_context(
                 dock,
                 context_kind,
@@ -447,15 +491,16 @@ class MolecularViewerController:
             except Exception:
                 pass
 
-    def show_complex(self, pair) -> None:
+    def show_complex(self, pair) -> bool:
         dock = self.w.pymol_dock
         if dock is None:
-            return
+            return False
         cmd = getattr(dock, "cmd", None)
         if cmd is None:
-            return
-        reference_path = Path(str(getattr(pair, "reference_receptor_path", "") or "").strip()).expanduser()
-        if not reference_path.is_absolute():
+            return False
+        raw_reference_path = str(getattr(pair, "reference_receptor_path", "") or "").strip()
+        reference_path = Path(raw_reference_path).expanduser() if raw_reference_path else None
+        if reference_path is not None and not reference_path.is_absolute():
             project_root = get_default_project_root()
             if project_root is not None:
                 reference_path = (project_root / reference_path).resolve()
@@ -466,8 +511,10 @@ class MolecularViewerController:
             int(getattr(pair, "receptor_molecule_id", 0) or 0)
         )
         ligand_path = stored_molecule_path(ligand) if ligand is not None else None
-        if not reference_path.exists():
-            return
+        if reference_path is None or not reference_path.exists():
+            reference_path = current_molecule_path(receptor) if receptor is not None else None
+        if reference_path is None or not reference_path.exists():
+            return False
         try:
             dock.show()
             cmd.delete("all")
@@ -500,7 +547,7 @@ class MolecularViewerController:
                 default_preset="amdockvs.complex",
             )
         except Exception:
-            return
+            return False
         if receptor is not None and self.w.grid_dock is not None:
             try:
                 self.w.grid_dock.focus_binding_site(
@@ -511,3 +558,4 @@ class MolecularViewerController:
                 self.show_grid_panel()
             except Exception:
                 pass
+        return True

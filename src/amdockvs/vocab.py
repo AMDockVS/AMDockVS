@@ -119,6 +119,45 @@ class ClusteringMethod:
     DBSCAN = "dbscan"
 
 
+class ProjectMode:
+    """Where a project's ligands live. Fixed when the project is created.
+
+    This is a storage contract, not a preference: it decides whether ligands are rows in
+    the project db or records inside shards on disk. Changing it would mean migrating (or
+    discarding) the whole library, so there is no setter.
+    """
+
+    VS = "vs"          # ligands materialized as rows; the whole catalog UI applies
+    HTPVS = "htpvs"    # ligands live in shards; only promoted hits ever become rows
+
+
+class ShardState:
+    """Where a shard is in the pipeline. `done` is what makes a re-run skip it."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    DONE = "done"
+    FAILED = "failed"
+
+
+class DispatchState:
+    """What happened to a source file handed to a cluster. Lives as long as the campaign."""
+
+    UPLOADED = "uploaded"
+    RUNNING = "running"
+    RETURNED = "returned"
+    FAILED = "failed"
+
+
+# Not a class attribute: `choices_from_class()` reads every attribute of a vocabulary class
+# as a value, and a tuple is not one.
+PROJECT_MODES = (ProjectMode.VS, ProjectMode.HTPVS)
+# What a human reads, positionally over PROJECT_MODES: the New Project combo and the toolbar
+# badge say the same thing. The badge is short because it sits in a toolbar.
+PROJECT_MODE_LABELS = ("Virtual screening", "High-throughput screening")
+PROJECT_MODE_BADGES = ("VS", "HTP-VS")
+
+
 __all__ = [
     "MoleculeType",
     "FileFormat",
@@ -131,4 +170,11 @@ __all__ = [
     "FingerprintType",
     "SimilarityMethod",
     "ClusteringMethod",
+    "ProjectMode",
+    "ShardState",
+    "DispatchState",
+    "PROJECT_MODES",
+    "PROJECT_MODE_LABELS",
+    "PROJECT_MODE_BADGES",
+    "PROJECT_MODES",
 ]

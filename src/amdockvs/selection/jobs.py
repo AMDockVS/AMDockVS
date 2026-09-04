@@ -15,11 +15,12 @@ from typing import Any, Iterator
 
 from pydantic import BaseModel, Field
 
-from ms_flow.query import QuerySpec, db_count, db_pages, db_rows
+from ms_flow.query import QuerySpec, db_rows
 from ms_flow.sinks import table_sink
 from ms_flow.tasking import job, task
 
 from amdockvs.configuration import batch_size_for
+from amdockvs.molecules.store import as_store, store_from_config
 from amdockvs.api_common import worker_file, worker_output_dir
 from amdockvs.constants import (
     AMDOCKVS_LOCAL_EXECUTORS,
@@ -73,15 +74,15 @@ def _scope_spec(params: SelectionClusterJobParams) -> QuerySpec:
     )
 
 
-def scope_molecule_rows(project_db, params: SelectionClusterJobParams) -> Iterator[dict[str, Any]]:
+def scope_molecule_rows(source, params: SelectionClusterJobParams) -> Iterator[dict[str, Any]]:
     """The molecules in the scope, in keyset pages. Flat rows: whoever wants to wrap them
-    does so on the consumer side."""
-    return db_pages(project_db, _scope_spec(params), page_size=batch_size_for("ligand"))
+    does so on the consumer side. `source` is the ligand store or the project db."""
+    return as_store(source).iter_rows(_scope_spec(params), batch_size=batch_size_for("ligand"))
 
 
-def scope_molecule_count(project_db, params: SelectionClusterJobParams) -> int:
+def scope_molecule_count(source, params: SelectionClusterJobParams) -> int:
     """How many molecules the scope holds — a COUNT, not a walk over the whole library."""
-    return db_count(project_db, _scope_spec(params))
+    return as_store(source).count(_scope_spec(params))
 
 
 def stored_fingerprints_for_ids(project_db, molecule_ids: list[int], *, radius: int, nbits: int) -> dict[int, bytes]:
@@ -125,7 +126,7 @@ def _fingerprint_from_file(row: dict[str, Any], *, radius: int, nbits: int) -> b
 
 
 def _write_packed_fingerprints(
-    project_db, params: SelectionClusterJobParams, *, out_dir: Path
+    project_db, params: SelectionClusterJobParams, *, out_dir: Path, store=None
 ) -> tuple[Path, Path, int]:
     """Dumps the scope to ``fingerprints.npy`` (bit-packed) + ``ids.npy``, in batches.
 
@@ -136,7 +137,7 @@ def _write_packed_fingerprints(
     """
     import numpy as np
 
-    total = scope_molecule_count(project_db, params)
+    total = scope_molecule_count(store or project_db, params)
     out_dir.mkdir(parents=True, exist_ok=True)
     fp_path, ids_path = out_dir / "fingerprints.npy", out_dir / "ids.npy"
     if not total:
@@ -147,7 +148,7 @@ def _write_packed_fingerprints(
     ids_out = np.lib.format.open_memmap(ids_path, mode="w+", dtype=np.int64, shape=(total,))
     written = 0
     try:
-        for batch in batched(scope_molecule_rows(project_db, params), batch_size_for("ligand")):
+        for batch in batched(scope_molecule_rows(store or project_db, params), batch_size_for("ligand")):
             ids = [int(row["id"]) for row in batch]
             # bounded `molecule_id__in` per batch instead of a scan of the whole fingerprint table
             stored = stored_fingerprints_for_ids(project_db, ids, radius=params.fp_radius, nbits=nbits)
@@ -300,7 +301,8 @@ def cluster_molecules_job(params: dict, config: dict | None = None) -> Iterator[
 
     run_id = parsed.cluster_run_id or uuid.uuid4().hex
     fp_path, ids_path, count = _write_packed_fingerprints(
-        project_db, parsed, out_dir=Path(project_root or ".") / "clustering_runs" / run_id
+        project_db, parsed, out_dir=Path(project_root or ".") / "clustering_runs" / run_id,
+        store=store_from_config(config_map),
     )
     if not count:
         return

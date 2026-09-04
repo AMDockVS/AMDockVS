@@ -9,6 +9,7 @@ from typing import Any, Iterable, Iterator, Mapping
 
 from ms_flow.core.database import ProjectStore
 from ms_flow.query import QuerySpec, db_count, db_pages, db_rows
+from sqlalchemy import func
 from sqlmodel import select
 
 from amdockvs.constants import (
@@ -629,6 +630,23 @@ def existing_result_pairs(
             for receptor_id, ligand_id in session.exec(statement.distinct()).all():
                 pairs.add((int(receptor_id), int(ligand_id)))
     return pairs
+
+
+def count_docking_results(project_db, *, run_id: str = "", score_lte: float | None = None) -> int:
+    """How many result rows a run has already written (optionally, only the ones under a score).
+
+    This is what a capped run asks between chunks: the answer lives in the database because
+    the rows are written there by the sink, in another process than the feed.
+    """
+    clauses = []
+    if str(run_id).strip():
+        clauses.append(DockingResultRecord.metrics["run_id"].as_string() == str(run_id).strip())
+    if score_lte is not None:
+        clauses.append(DockingResultRecord.score <= float(score_lte))
+    with project_db.get_session() as session:
+        return int(
+            session.exec(select(func.count()).select_from(DockingResultRecord).where(*clauses)).one()
+        )
 
 
 def list_docking_result_rows(

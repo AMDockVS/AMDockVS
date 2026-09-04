@@ -1,21 +1,12 @@
 from __future__ import annotations
 
-from pathlib import Path
-
-from amdockvs.models import ComplexRecord, MoleculeRecord
-from amdockvs.molecule_paths import current_molecule_path, get_default_project_root, stored_molecule_path
+from amdockvs.models import ComplexRecord
 from amdockvs.ui.catalog.common import BoundTableWidget
-from amdockvs.ui.tools.pymol_ribbon import (
-    apply_receptor_atom_coloring,
-    apply_receptor_ligand_atom_coloring,
-    set_pymol_scene_context,
-)
 from amdockvs.vocab import ComplexPurpose
 from ms_components.ms_table import (
     AlignHint,
     ColumnDef,
     ColumnKind,
-    SortSpec,
     TableConfig,
     TableLoadMode,
     choices_from_class,
@@ -70,72 +61,9 @@ class ComplexPairsWidget(BoundTableWidget):
 
     def _load_pair_in_pymol(self, pair: ComplexRecord) -> None:
         main_window = self.window()
-        dock = getattr(main_window, "pymol_dock", None)
-        if dock is None:
-            return
-        cmd = getattr(dock, "cmd", None)
-        if cmd is None:
-            return
-        reference_path = self._reference_receptor_path(pair)
-        receptor = self._molecule_by_id(int(getattr(pair, "receptor_molecule_id", 0) or 0))
-        ligand = self._molecule_by_id(int(getattr(pair, "ligand_molecule_id", 0) or 0))
-        if reference_path is None or not reference_path.exists():
-            reference_path = current_molecule_path(receptor) if receptor is not None else None
-        ligand_path = stored_molecule_path(ligand) if ligand is not None else None
-        if reference_path is None or not reference_path.exists():
-            return
-        try:
-            dock.show()
-            cmd.delete("all")
-            receptor_obj = f"complex_receptor_{int(pair.id or 0)}"
-            ligand_obj = f"complex_ligand_{int(pair.id or 0)}"
-            cmd.load(str(reference_path), receptor_obj)
-            if ligand_path is not None and ligand_path.exists():
-                cmd.load(str(ligand_path), ligand_obj)
-                try:
-                    cmd.show("sticks", ligand_obj)
-                    apply_receptor_ligand_atom_coloring(
-                        cmd,
-                        receptor_selection=receptor_obj,
-                        ligand_selections=[ligand_obj],
-                    )
-                    cmd.orient(ligand_obj)
-                except Exception:
-                    pass
-            else:
-                apply_receptor_atom_coloring(cmd, receptor_obj)
-            cmd.zoom("all", 3)
-            selections = {"receptor": receptor_obj}
-            if ligand_path is not None and ligand_path.exists():
-                selections["ligand"] = ligand_obj
-            set_pymol_scene_context(
-                dock,
-                "complex",
-                target="all",
-                selections=selections,
-                default_preset="amdockvs.complex",
-            )
-        except Exception:
-            return
-        detail_handler = getattr(main_window, "show_catalog_selection_details", None)
-        if callable(detail_handler):
-            detail_handler("complex", pair)
-
-    def _molecule_by_id(self, molecule_id: int) -> MoleculeRecord | None:
-        if molecule_id <= 0:
-            return None
-        return self.runtime.molecules.get(molecule_id)
-
-    @staticmethod
-    def _reference_receptor_path(pair: ComplexRecord) -> Path | None:
-        raw = str(getattr(pair, "reference_receptor_path", "") or "").strip()
-        if not raw:
-            return None
-        path = Path(raw).expanduser()
-        if path.is_absolute():
-            return path
-        project_root = get_default_project_root()
-        return (project_root / path).resolve() if project_root is not None else path.resolve()
+        viewer = getattr(main_window, "viewer", None)
+        if viewer is not None and viewer.show_complex(pair):
+            main_window.aux.show_catalog_selection_details("complex", pair)
 
 
 def open_complex_pairs_view(window) -> None:

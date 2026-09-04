@@ -1,20 +1,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Sequence
 import math
 from uuid import uuid4
 
+from amdockvs.chemistry.pipeline import LIGAND_STEPS, normalize_steps
 from amdockvs.chemistry.jobs import (
     LigandChemistryJobParams,
     ReceptorChemistryJobParams,
+    ShardChemistryJobParams,
     ligand_chemistry_job,
     receptor_chemistry_job,
+    shard_chemistry_job,
 )
 from amdockvs.constants import DEFAULT_LOCAL_CPU_EXECUTOR
 from amdockvs.molecules.api import ensure_molecule_set_ref
 from amdockvs.scopes import MoleculeSetRef
 from amdockvs.summaries import JobStatus
+from amdockvs.vocab import ShardState
 from amdockvs.api_common import MoleculeScope, scope_payload
 from amdockvs.chemistry.protonation_runtime import (
     ProtonationToolStatus,
@@ -54,7 +58,7 @@ class ChemistryAPI:
 
     def _submit_ligand_operation(
         self,
-        operation: str,
+        operation: str | list[Any],
         *,
         ligands: MoleculeSetRef | MoleculeScope | int | None = None,
         params: dict[str, Any] | None = None,
@@ -65,7 +69,8 @@ class ChemistryAPI:
         wait: bool = False,
     ) -> str | JobStatus:
         self.runtime._require_active_project()
-        ligand_set_ref = None if ligands is None or isinstance(ligands, MoleculeScope) else ensure_molecule_set_ref(self.runtime, ligands, name=f"chemistry_{operation}_input")
+        operation_label = "+".join(name for name, _ in normalize_steps(operation))
+        ligand_set_ref = None if ligands is None or isinstance(ligands, MoleculeScope) else ensure_molecule_set_ref(self.runtime, ligands, name=f"chemistry_{operation_label}_input")
         ligand_scope = scope_payload(ligands) if isinstance(ligands, MoleculeScope) else {}
         ligand_filters = dict(ligand_scope.get("filters") or {})
         if "molecule_type" not in ligand_filters:
@@ -137,6 +142,76 @@ class ChemistryAPI:
         if wait:
             return self.runtime.wait_for_job(job_id)
         return job_id
+
+    def run_ligand_pipeline(
+        self,
+        steps: Sequence[str | tuple[str, dict[str, Any]]],
+        *,
+        ligands: MoleculeSetRef | MoleculeScope | int | None = None,
+        structure_source: str = "current",
+        batch_size: int = 128,
+        executor_name: str = DEFAULT_LOCAL_CPU_EXECUTOR,
+        depends_on: list[str] | None = None,
+        wait: bool = False,
+    ) -> str | JobStatus:
+        """Run several chemistry steps in one pass over each batch.
+
+        `run_ligand_pipeline(["standardize", "protonate", "generate_3d"])` reads and writes every
+        ligand once; the three single-step jobs read and rewrite the whole library three times.
+
+        ponytail: the single-step methods below validate their own arguments (pH range, method
+        names, tool installs). Here the step params go through as given and the worker raises.
+        """
+        normalized = normalize_steps(steps)
+        if not normalized:
+            raise ValueError("run_ligand_pipeline needs at least one step.")
+        for name, _params in normalized:
+            if name not in LIGAND_STEPS:
+                raise ValueError(f"Unsupported ligand chemistry operation: {name}")
+        return self._submit_ligand_operation(
+            [[name, params] for name, params in normalized],
+            ligands=ligands,
+            params={},
+            structure_source=structure_source,
+            batch_size=batch_size,
+            executor_name=executor_name,
+            depends_on=depends_on,
+            wait=wait,
+        )
+
+    def run_shard_pipeline(
+        self,
+        steps: Sequence[str | tuple[str, dict[str, Any]]],
+        *,
+        state: str = ShardState.PENDING,
+        params: dict[str, Any] | None = None,
+        executor_name: str = DEFAULT_LOCAL_CPU_EXECUTOR,
+        depends_on: list[str] | None = None,
+        wait: bool = False,
+    ) -> str | JobStatus:
+        """The same steps as `run_ligand_pipeline`, over the shards of an `htpvs` project.
+
+        One shard per chunk, one file in and one file out. Shards already `done` are not fed,
+        so re-running after a crash resumes rather than recomputes.
+        """
+        normalized = normalize_steps(steps)
+        if not normalized:
+            raise ValueError("run_shard_pipeline needs at least one step.")
+        for name, _params in normalized:
+            if name not in LIGAND_STEPS:
+                raise ValueError(f"Unsupported ligand chemistry operation: {name}")
+        self.runtime._require_active_project()
+        job_id = self.runtime.submit_job(
+            shard_chemistry_job,
+            params=ShardChemistryJobParams(
+                operation=[[name, step_params] for name, step_params in normalized],
+                params=dict(params or {}),
+                state=state,
+            ).model_dump(mode="python"),
+            executor_name=executor_name,
+            depends_on=depends_on,
+        )
+        return self.runtime.wait_for_job(job_id) if wait else job_id
 
     def standardize_ligands(
         self,

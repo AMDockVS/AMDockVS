@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -15,6 +16,7 @@ RESOURCE_QSAR_MODELS = "qsar_models"
 RESOURCE_POCKET_PREDICTIONS = "pocket_predictions"
 RESOURCE_EXPORTS = "exports"
 RESOURCE_JOBS = "jobs"
+RESOURCE_SHARDS = "shards"
 
 TABLE_MOLECULES = "molecules"
 TABLE_MOLECULE_REPRESENTATIONS = "molecule_representations"
@@ -39,6 +41,8 @@ TABLE_QSAR_MODELS = "qsar_models"
 TABLE_QSAR_PREDICTIONS = "qsar_predictions"
 TABLE_SIMILARITY_RESULTS = "similarity_results"
 TABLE_CLUSTERING_RESULTS = "clustering_results"
+TABLE_SCREENING_SHARDS = "screening_shards"
+TABLE_SCREENING_DISPATCHES = "screening_dispatches"
 
 # Deprecated aliases kept temporarily while non-model consumers are migrated.
 TABLE_REPRESENTATIONS = TABLE_MOLECULE_REPRESENTATIONS
@@ -63,6 +67,7 @@ AMDOCKVS_PROJECT_RESOURCES = (
     ),
     ProjectResourceSpec(key=RESOURCE_EXPORTS, relative_path="exports", description="User exports"),
     ProjectResourceSpec(key=RESOURCE_JOBS, relative_path="jobs", description="App-level job artifacts"),
+    ProjectResourceSpec(key=RESOURCE_SHARDS, relative_path="data/shards", description="htpvs ligand shards"),
 )
 AMDOCKVS_DEFAULT_PROJECT_DIRS = tuple(spec.relative_path for spec in AMDOCKVS_PROJECT_RESOURCES)
 
@@ -91,6 +96,11 @@ DEFAULT_VINA_COMMAND = _default_vina_command()
 DEFAULT_VINA_BACKEND = "binary" if Path(DEFAULT_VINA_COMMAND).expanduser().exists() else "python"
 # TODO: evaluate an adaptive batch_size based on real load and docking backend.
 DEFAULT_DOCKING_BATCH_SIZE = 4
+
+# How many chunks a job batches into one sink transaction. Flushing every chunk makes the
+# writer the bottleneck and starves the pool — a 1.7 GB import sat at 2-3/14 CPUs busy until
+# this stopped being 1. Env override to tune per box without a code change.
+OUTPUT_FLUSH_EVERY = int(os.environ.get("AMDOCK_OUTPUT_FLUSH_EVERY", "16"))
 
 AMDOCKVS_LOCAL_EXECUTORS = ("thread", "compute")
 AMDOCKVS_PROCESS_EXECUTORS = ("compute",)

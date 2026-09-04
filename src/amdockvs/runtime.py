@@ -27,6 +27,7 @@ from amdockvs.configuration import (
 import amdockvs.models  # noqa: F401  # Ensure SQLModel metadata is registered before project DB setup.
 from amdockvs.molecule_paths import set_default_project_root
 from amdockvs.summaries import JobStatus, ProjectSummary
+from amdockvs.molecules.store import DbStore, general_ligand_count, library_kind
 
 if TYPE_CHECKING:
     from amdockvs.chemistry.api import ChemistryAPI
@@ -101,6 +102,7 @@ class AMDockVSRuntime(AppRuntime):
         self._qsar_api: QSARAPI | None = None
         self._docking_api: DockingAPI | None = None
         self._pocket_prediction_api: PocketPredictionAPI | None = None
+        self._ligand_store = None
 
     def _migrate_legacy_app_settings(self, configuration) -> None:
         """Move first-generation flat settings into AMDock's TOML provider once."""
@@ -242,6 +244,28 @@ class AMDockVSRuntime(AppRuntime):
         self.on_project_activated(context)
         return self._project_summary_from_context(context)
 
+    @property
+    def ligands_store(self):
+        """The row tools' view of the library. The shard tools build their own store."""
+        self._require_active_project()
+        return self._ligand_store
+
+    @property
+    def mode(self) -> str:
+        """Where the screening library lives, read off the data (`vs` = rows, `htpvs` = shards).
+
+        Not stored anywhere: a project becomes a campaign by holding shards, not by having been
+        declared one before it held anything.
+        """
+        self._require_active_project()
+        return library_kind(self.molsuite.project_db)
+
+    def general_ligand_count(self) -> int:
+        """How many screening ligands are rows here — what the importer asks before offering
+        to shard, since the two libraries cannot coexist."""
+        self._require_active_project()
+        return general_ligand_count(self.molsuite.project_db)
+
     def get_active_project(self) -> ProjectSummary:
         return self._project_summary_from_context(self._require_active_project())
 
@@ -257,6 +281,9 @@ class AMDockVSRuntime(AppRuntime):
         }
 
     def on_project_activated(self, context):
+        # Built once per project: a feed asks the runtime where the ligands are, it does not ask
+        # the mode — there is no mode to ask.
+        self._ligand_store = DbStore(self.molsuite.project_db)
         set_default_project_root(Path(context.path).expanduser().resolve())
         for configuration in self._configuration_sources:
             if hasattr(configuration, "set_project_root"):
@@ -265,6 +292,7 @@ class AMDockVSRuntime(AppRuntime):
 
     def close_project(self):
         super().close_project()
+        self._ligand_store = None
         for configuration in self._configuration_sources:
             if hasattr(configuration, "set_project_root"):
                 configuration.set_project_root(None)

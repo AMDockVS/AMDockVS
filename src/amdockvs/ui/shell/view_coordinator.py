@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QSizePolicy, QWidget
+from PySide6.QtWidgets import QLabel, QSizePolicy, QWidget
 
 from amdockvs.ui.catalog import (
     BINDING_SITES_VIEW_ID,
@@ -27,6 +27,7 @@ from amdockvs.ui.tools.molecules.filter import FILTER_ID
 from amdockvs.ui.tools.molecules.pocket_detection import POCKET_DETECTION_VIEW_ID
 from amdockvs.ui.tools.qsar.panels import PREDICTIONS_VIEW_ID, QSAR_MODELS_VIEW_ID
 from amdockvs.ui.tools.workflow_panel import WORKFLOW_VIEW_ID
+from amdockvs.vocab import PROJECT_MODE_BADGES, PROJECT_MODE_LABELS, PROJECT_MODES, ProjectMode
 from ms_components.ms_dockwidget.widget import Region
 
 
@@ -46,8 +47,8 @@ class ViewCoordinator:
     # "pick a tool". See build_catalog_toolbar.
     CATALOG_TABLES = (
         ("Molecules", MOLECULES_VIEW_ID, "catalog.svg"),
-        ("Ligands", LIGANDS_VIEW_ID, "ligands.svg"),
         ("Receptors", RECEPTOR_VIEW_ID, "receptor.svg"),
+        ("Ligands", LIGANDS_VIEW_ID, "ligands.svg"),
         ("Binding Sites", BINDING_SITES_VIEW_ID, "binding_site.svg"),
         ("Complexes", COMPLEX_PAIRS_VIEW_ID, "complexes.svg"),
         ("Activity", LIGAND_ACTIVITY_VIEW_ID, "activity.svg"),
@@ -67,6 +68,13 @@ class ViewCoordinator:
         ),
     )
 
+    # Palette roles, not hex: theming lives in ms_components. The colour is the only thing
+    # that changes with the mode — `vs` reads as plain text, `htpvs` gets the accent.
+    MODE_BADGE_CSS = (
+        "QLabel#mode_badge {{ margin: 0 6px; padding: 2px 8px; font-weight: 600;"
+        " border: 1px solid palette(mid); border-radius: 4px; color: {colour}; }}"
+    )
+
     # View > Toolbars. key -> (menu label, Qt style, icon px, font px, side-toolbar width).
     # Applies to every toolbar: the top catalog bar and the left/right dock toolbars.
     TOOLBAR_BUTTON_STYLES = {
@@ -80,9 +88,8 @@ class ViewCoordinator:
         self.w = window
         self.catalog_actions: dict[str, QAction] = {}
         self.catalog_toolbar = None
-        self.contextual_actions: list[tuple[str, object]] = []
-        self.aux_anchor = None
         self.workflow_action_button = None
+        self.mode_badge = None
 
     # -- central tabs --------------------------------------------------------------
 
@@ -120,8 +127,7 @@ class ViewCoordinator:
         whether the view's central tab is open (synced both ways); clicking the current
         view closes it, any other click opens/focuses it. The pressed state is the cue.
 
-        Sections: catalog tables | standing result views | the active tool's config-time
-        views, the last one repopulated by set_contextual_data_views on every tool change."""
+        Sections: catalog tables | standing result views | auxiliary-panel toggle."""
         from PySide6.QtWidgets import QToolBar
 
         self.catalog_actions = {}  # view_id -> checkable QAction
@@ -130,22 +136,47 @@ class ViewCoordinator:
         bar.setMovable(False)
         self.w.addToolBar(Qt.TopToolBarArea, bar)
         self.catalog_toolbar = bar
+        # Which storage contract the project runs under, first thing on the bar: in `htpvs`
+        # the catalog tables next to it do not hold the library, so the two belong together.
+        self.mode_badge = QLabel(bar)
+        self.mode_badge.setObjectName("mode_badge")
+        bar.addWidget(self.mode_badge)
+        bar.addSeparator()
+        self.sync_mode_badge()
         for entries in (self.CATALOG_TABLES, *self.STANDING_DATA_VIEWS):
             for entry in entries:
                 self._add_data_action(bar, *entry)
             bar.addSeparator()
-        # Everything past that trailing separator belongs to the active tool.
-        self.contextual_actions = []
         # The auxiliary-zone toggle is not a table: it floats right, past a stretch, so the
-        # tool's contextual views (inserted before it) never push it around.
+        # catalog actions never push it around.
         spacer = QWidget(bar)
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        self.aux_anchor = bar.addWidget(spacer)
+        bar.addWidget(spacer)
         # Neutral label on purpose: the toggle owns the band, not what lands in it.
         # The action itself belongs to the auxiliary zone; the bar only hosts it.
         self.w.aux.install_action(bar.addAction(load_icon("details.svg"), "Panel"))
         # Every toolbar button now exists (docks + actions + these), so one pass styles them all.
         self.set_toolbar_button_style(self.saved_toolbar_button_style())
+
+    def sync_mode_badge(self) -> None:
+        """Show where this project's screening library lives; nothing to show with no project.
+
+        Derived, not declared: it flips to HTP-VS when the project holds shards, which is why
+        it is refreshed after every finished job and not only on open.
+        """
+        if self.mode_badge is None:
+            return
+        mode = getattr(self.w.runtime, "mode", "") if self.w._has_active_project() else ""
+        index = PROJECT_MODES.index(mode) if mode in PROJECT_MODES else -1
+        self.mode_badge.setVisible(index >= 0)
+        if index < 0:
+            return
+        accent = "palette(highlight)" if mode == ProjectMode.HTPVS else "palette(text)"
+        self.mode_badge.setStyleSheet(self.MODE_BADGE_CSS.format(colour=accent))
+        self.mode_badge.setText(PROJECT_MODE_BADGES[index])
+        self.mode_badge.setToolTip(
+            f"Screening library: {PROJECT_MODE_LABELS[index]} — set by how the ligands were imported"
+        )
 
     def _add_data_action(self, bar, label: str, view_id: str, icon_name: str, before=None):
         action = QAction(load_icon(icon_name), label, bar)
@@ -155,20 +186,6 @@ class ViewCoordinator:
         action.triggered.connect(lambda _=False, v=view_id: self.on_catalog_clicked(v))
         self.catalog_actions[view_id] = action
         return action
-
-    def set_contextual_data_views(self, tool_view_id: str | None) -> None:
-        """Swap the tail section of the top toolbar to the active tool's data views."""
-        bar = self.catalog_toolbar
-        if bar is None:
-            return
-        for view_id, action in self.contextual_actions:
-            bar.removeAction(action)
-            self.catalog_actions.pop(view_id, None)
-        # No restyle pass needed: QToolBar applies its own style/iconSize to new actions.
-        self.contextual_actions = [
-            (view_id, self._add_data_action(bar, label, view_id, icon_name, self.aux_anchor))
-            for label, view_id, icon_name in self.w.tools.TOOL_DATA_VIEWS.get(tool_view_id, ())
-        ]
 
     def saved_toolbar_button_style(self) -> str:
         key = str(self.w._settings.value(self.TOOLBAR_STYLE_KEY, "icon_text") or "icon_text")

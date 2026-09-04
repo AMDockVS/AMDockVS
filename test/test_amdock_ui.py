@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QApplication, QDockWidget, QMainWindow, QToolButto
 
 from amdockvs.ui.catalog import LIGANDS_VIEW_ID, MOLECULES_VIEW_ID, RECEPTOR_VIEW_ID
 from amdockvs.ui.main_window import AMDockVSMainWindow
+from amdockvs.ui.shell.job_feedback import JobFeedbackController
 from amdockvs.ui.projects import ApplicationWidget, ProjectsWidget
 from amdockvs.ui.workspace import ComplexWidget, LigandActivityWidget
 from amdockvs.ui.catalog.domain_views import COMPLEXES_VIEW_ID
@@ -124,6 +125,8 @@ def test_amdock_ui_opens_molecule_view_for_active_project(tmp_path, monkeypatch)
     try:
         runtime.create_project(name="ui_project", folder=tmp_path / "project", description="ui test")
         window = AMDockVSMainWindow(runtime=runtime)
+        # The mode badge is the first thing on the top data toolbar (see ViewCoordinator).
+        assert window.views.mode_badge.text() == "VS"
         window.show()
         app.processEvents()
 
@@ -167,6 +170,8 @@ def test_amdock_ui_jobs_indicator_shows_when_leaving_jobs_tab(tmp_path, monkeypa
     try:
         runtime.create_project(name="ui_project", folder=tmp_path / "project", description="ui test")
         window = AMDockVSMainWindow(runtime=runtime)
+        # The mode badge is the first thing on the top data toolbar (see ViewCoordinator).
+        assert window.views.mode_badge.text() == "VS"
         window.show()
         app.processEvents()
 
@@ -207,32 +212,32 @@ def test_amdock_ui_toolbar_actions_track_open_views(tmp_path, monkeypatch):
         # Data views are checkable actions in the top toolbar (checked == tab open);
         # tools are checkable buttons in the left bar (checked == mounted in the panel).
         # Ligands/Receptors open by default; Molecules and Docking Studio start closed.
-        assert set(window._tool_action_buttons) >= {DOCKING_VIEW_ID}
-        assert set(window._catalog_actions) >= {MOLECULES_VIEW_ID, LIGANDS_VIEW_ID}
-        assert window._catalog_actions[LIGANDS_VIEW_ID].isChecked()
-        assert not window._catalog_actions[MOLECULES_VIEW_ID].isChecked()
+        assert set(window.tools.action_buttons) >= {DOCKING_VIEW_ID}
+        assert set(window.views.catalog_actions) >= {MOLECULES_VIEW_ID, LIGANDS_VIEW_ID}
+        assert window.views.catalog_actions[LIGANDS_VIEW_ID].isChecked()
+        assert not window.views.catalog_actions[MOLECULES_VIEW_ID].isChecked()
 
         # A catalog table opens as a central tab and checks its toolbar action.
         window.open_or_focus_view(MOLECULES_VIEW_ID)
         app.processEvents()
-        assert window._catalog_actions[MOLECULES_VIEW_ID].isChecked()
-        assert window._catalog_actions[LIGANDS_VIEW_ID].isChecked()
+        assert window.views.catalog_actions[MOLECULES_VIEW_ID].isChecked()
+        assert window.views.catalog_actions[LIGANDS_VIEW_ID].isChecked()
 
         # A tool (Docking Studio) opens in the LEFT tool panel — not a tab — and presses
         # its own button.
         tabs_before = window.central_widget.main_content_tabs.count()
         window.open_or_focus_view(DOCKING_VIEW_ID)
         app.processEvents()
-        assert window._active_tool == DOCKING_VIEW_ID
+        assert window.tools.active_tool == DOCKING_VIEW_ID
         assert window.tools_dock.isVisible()
         assert window.central_widget.main_content_tabs.count() == tabs_before  # no tab added
-        assert window._tool_action_buttons[DOCKING_VIEW_ID].isChecked()
+        assert window.tools.action_buttons[DOCKING_VIEW_ID].isChecked()
 
         # Hiding the tool panel releases the tool's button.
         window.dock_manager.toggle("tools", False)
         app.processEvents()
-        assert window._active_tool is None
-        assert not window._tool_action_buttons[DOCKING_VIEW_ID].isChecked()
+        assert window.tools.active_tool is None
+        assert not window.tools.action_buttons[DOCKING_VIEW_ID].isChecked()
 
         molecules_index = next(
             index
@@ -241,8 +246,8 @@ def test_amdock_ui_toolbar_actions_track_open_views(tmp_path, monkeypatch):
         )
         window.central_widget.on_tab_close(molecules_index)
         app.processEvents()
-        assert not window._catalog_actions[MOLECULES_VIEW_ID].isChecked()
-        assert window._catalog_actions[LIGANDS_VIEW_ID].isChecked()
+        assert not window.views.catalog_actions[MOLECULES_VIEW_ID].isChecked()
+        assert window.views.catalog_actions[LIGANDS_VIEW_ID].isChecked()
     finally:
         if window is not None:
             window.close()
@@ -411,10 +416,10 @@ def test_amdock_ui_domain_views_show_docking_summaries(tmp_path, monkeypatch):
                 return lambda *a, **k: None
 
         window.pymol_dock = SimpleNamespace(cmd=_Cmd(), show=lambda: None)
-        window._load_hit_in_pymol(hit, 1)
+        window.viewer.load_hit(hit, 1)
         assert window.pymol_dock.cmd.objects == [f"receptor_{hit.receptor_id}", "amdock_result_pose"]
         window.pymol_dock.cmd.delete("all")
-        window._load_hit_in_pymol(hit, 1)
+        window.viewer.load_hit(hit, 1)
         assert f"receptor_{hit.receptor_id}" in window.pymol_dock.cmd.objects
 
         assert len(runtime.docking.list_results()) == 4
@@ -427,7 +432,7 @@ def test_amdock_ui_domain_views_show_docking_summaries(tmp_path, monkeypatch):
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
 def test_amdock_ui_failure_message_is_summarized():
-    assert AMDockVSMainWindow._summarize_failure_message(
+    assert JobFeedbackController._summarize_failure_message(
         "prepare_ligands requires ligands with 3D conformers. Missing has_3d for 17 ligand(s). "
         "Run runtime.chemistry.generate_ligand_3d(...) before Vina preparation."
     ) == (
@@ -477,9 +482,8 @@ def test_amdock_ui_can_create_ligand_set_from_table_selection(tmp_path, monkeypa
 
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
-def test_tool_buttons_are_flat_and_contribute_contextual_data_views(tmp_path, monkeypatch):
-    """Left bar = one checkable button per tool (no menus); the active tool's result
-    tables appear in the top data toolbar and retire when it closes."""
+def test_tool_buttons_are_flat_and_keep_result_views_available(tmp_path, monkeypatch):
+    """Left bar = one checkable button per tool; result views remain available after close."""
     _patch_fake_home(monkeypatch, tmp_path)
 
     app = QApplication.instance() or QApplication(["amdockvs-ui"])
@@ -489,40 +493,42 @@ def test_tool_buttons_are_flat_and_contribute_contextual_data_views(tmp_path, mo
     try:
         runtime.create_project(name="ui_project", folder=tmp_path / "project", description="ui test")
         window = AMDockVSMainWindow(runtime=runtime)
+        # The mode badge is the first thing on the top data toolbar (see ViewCoordinator).
+        assert window.views.mode_badge.text() == "VS"
         window.show()
         app.processEvents()
 
-        tool_ids = {view_id for _a, _t, view_id, _i, _o in window._TOOL_ACTIONS}
-        assert tool_ids == set(window._TOOL_VIEW_IDS)  # left bar names tools, nothing else
-        assert not any(b.menu() for b in window._tool_action_buttons.values())  # no popups
+        tool_ids = {view_id for _a, _t, view_id, _i, _o in window.tools.TOOL_ACTIONS}
+        assert tool_ids == set(window.views.TOOL_VIEW_IDS)  # left bar names tools, nothing else
+        assert not any(b.menu() for b in window.tools.action_buttons.values())  # no popups
         assert not window.dock_manager.buttons["tools"].isVisible()  # redundant button gone
 
         # Result views outlive the tool that produced them: reachable with every tool closed.
-        standing = {v for group in window._STANDING_DATA_VIEWS for _l, v, _i in group}
+        standing = {v for group in window.views.STANDING_DATA_VIEWS for _l, v, _i in group}
         assert COMPLEXES_VIEW_ID in standing
         # Off-target and redocking are pivots of Docking Results, not entries of their own.
-        assert not {OFFTARGET_VIEW_ID, REDOCKING_VIEW_ID} & set(window._catalog_actions)
-        assert standing <= set(window._catalog_actions)
+        assert not {OFFTARGET_VIEW_ID, REDOCKING_VIEW_ID} & set(window.views.catalog_actions)
+        assert standing <= set(window.views.catalog_actions)
 
         # Prep Status is not a tab any more: it is the child table of Ligands/Receptors, so
         # it occupies the auxiliary zone while Docking is open and hands it back on close.
-        assert window._TOOL_AUX_VIEWS[DOCKING_VIEW_ID] == PREP_STATUS_VIEW_ID
-        assert PREP_STATUS_VIEW_ID not in window._catalog_actions
-        assert window._aux_occupant == window._AUX_DETAILS
+        assert window.aux.TOOL_AUX_VIEWS[DOCKING_VIEW_ID] == PREP_STATUS_VIEW_ID
+        assert PREP_STATUS_VIEW_ID not in window.views.catalog_actions
+        assert window.aux.occupant == window.aux.AUX_DETAILS
 
-        window.open_tool(DOCKING_VIEW_ID)
+        window.tools.open_tool(DOCKING_VIEW_ID)
         app.processEvents()
-        assert window._active_tool == DOCKING_VIEW_ID
-        assert window._tool_action_buttons[DOCKING_VIEW_ID].isChecked()
-        assert window._aux_occupant == PREP_STATUS_VIEW_ID
-        assert PREP_STATUS_VIEW_ID not in window._catalog_actions  # never a tab
+        assert window.tools.active_tool == DOCKING_VIEW_ID
+        assert window.tools.action_buttons[DOCKING_VIEW_ID].isChecked()
+        assert window.aux.occupant == PREP_STATUS_VIEW_ID
+        assert PREP_STATUS_VIEW_ID not in window.views.catalog_actions  # never a tab
 
-        window._on_tool_action(DOCKING_VIEW_ID, False)  # unchecking closes the tool
+        window.tools.on_tool_action(DOCKING_VIEW_ID, False)  # unchecking closes the tool
         app.processEvents()
-        assert window._active_tool is None
-        assert not window._tool_action_buttons[DOCKING_VIEW_ID].isChecked()
-        assert window._aux_occupant == window._AUX_DETAILS  # slot handed back
-        assert standing <= set(window._catalog_actions)  # results survived the tool closing
+        assert window.tools.active_tool is None
+        assert not window.tools.action_buttons[DOCKING_VIEW_ID].isChecked()
+        assert window.aux.occupant == window.aux.AUX_DETAILS  # slot handed back
+        assert standing <= set(window.views.catalog_actions)  # results survived the tool closing
     finally:
         if window is not None:
             window.close()
@@ -570,13 +576,13 @@ def test_ui_is_locked_until_a_project_is_open(tmp_path, monkeypatch):
         window.show()
         app.processEvents()
 
-        assert not window._catalog_toolbar.isEnabled()
+        assert not window.views.catalog_toolbar.isEnabled()
         assert not window.monitor_dock.isEnabled()
         assert not any(action.isEnabled() for action in window._project_actions)
         assert window.central_widget.isEnabled()  # the welcome screen stays clickable
 
         window._set_project_ui_enabled(True)
-        assert window._catalog_toolbar.isEnabled()
+        assert window.views.catalog_toolbar.isEnabled()
         assert window.monitor_dock.isEnabled()
         assert all(action.isEnabled() for action in window._project_actions)
     finally:

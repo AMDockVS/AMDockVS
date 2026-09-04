@@ -1,88 +1,19 @@
 from __future__ import annotations
 
-import hashlib
-import json
-from uuid import uuid4
-
-from PySide6.QtCore import QEvent, QObject, Qt, QTimer
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import (
-    QAbstractItemView,
-    QCheckBox,
     QComboBox,
-    QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
-    QMessageBox,
     QPushButton,
-    QScrollArea,
-    QSizePolicy,
-    QSpinBox,
-    QSplitter,
-    QStackedWidget,
-    QTabWidget,
-    QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
-    QWidget, QGridLayout,
-)
+    QWidget, )
+
 from amdockvs.ui.async_query import run_async
-from amdockvs.ui.widgets import right_aligned, split_button
-from amdockvs.ui.resources.icons import icon as load_icon
-from amdockvs.ui.catalog.common import BoundTableWidget
-from amdockvs.ui.catalog.ligands import LIGANDS_VIEW_ID
-from amdockvs.ui.catalog.receptors import RECEPTOR_VIEW_ID
-from amdockvs.ui.catalog.binding_sites import BINDING_SITES_VIEW_ID
-from amdockvs.ui.tools.molecules.build import BUILD_ID
-from amdockvs.constants import DEFAULT_LOCAL_CPU_EXECUTOR
-from amdockvs.docking.protocols import PROTOCOL_SCHEMA, protocol_hash, protocol_identity
-from amdockvs.docking.programs import GNINA_PROGRAM, VINA_PROGRAM, list_docking_programs
-from amdockvs.models import EngineState
-from amdockvs.vocab import MoleculeType
-from ms_components.ms_table import (
-    AlignHint,
-    ColumnDef,
-    ColumnKind,
-    FilterOperator,
-    FilterSpec,
-    SortSpec,
-    TableConfig,
-    TableLoadMode,
-)
-from ms_components.ms_stepper import Orientation, QStepper
-
-DOCKING_VIEW_ID = "workspace.docking"
-PREP_STATUS_VIEW_ID = "workspace.prep_status"
-DEFAULT_PROGRAM = VINA_PROGRAM.key
-MAX_REDOCKING_PROTOCOLS = 12
-# Non-terminal job statuses — a docking job in any of these is "live" for duplicate detection.
-_ACTIVE_JOB_STATUSES = ("pending", "running", "staging", "cancel_requested")
-
-def _spinbox(*, minimum: int, maximum: int, value: int) -> QSpinBox:
-    widget = QSpinBox()
-    widget.setRange(minimum, maximum)
-    widget.setValue(value)
-    return widget
-
-
-class _WheelGuard(QObject):
-    """Swallow wheel events on combos/spinboxes unless they have focus.
-
-    Inside a scroll area, the wheel otherwise changes the value under the cursor
-    instead of scrolling the page. With StrongFocus + this filter, the widget only
-    reacts to the wheel after you click into it; otherwise the wheel scrolls.
-    """
-
-    def eventFilter(self, obj, event) -> bool:
-        if event.type() == QEvent.Type.Wheel and not obj.hasFocus():
-            return True
-        return super().eventFilter(obj, event)
-
-
-
 
 class FlexibleResiduesPanel:
     """Flexible-residue candidates, selection and persistence component."""
@@ -235,8 +166,7 @@ class FlexibleResiduesPanel:
         for r in self._flex_candidate_rows:
             if r["key"] in sel:
                 continue
-            
-                
+
             it = QListWidgetItem(r["label"])
             it.setData(Qt.UserRole, r["key"])
             self.flex_candidates.addItem(it)

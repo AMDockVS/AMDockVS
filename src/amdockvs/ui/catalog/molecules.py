@@ -1,17 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from PySide6.QtWidgets import QMessageBox
 
-from amdockvs.molecule_paths import current_molecule_path, stored_molecule_path
 from amdockvs.models import MoleculeRecord
-from amdockvs.ui.tools.pymol_ribbon import (
-    apply_ligand_atom_coloring,
-    apply_receptor_atom_coloring,
-    apply_scene_atom_coloring,
-    set_pymol_scene_context,
-)
 from amdockvs.ui.catalog.common import (
     BoundTableWidget,
     PREVIEW_2D_COLUMN_FIELD,
@@ -24,9 +15,6 @@ from ms_components.ms_table import (
     AlignHint,
     ColumnDef,
     ColumnKind,
-    FilterOperator,
-    FilterSpec,
-    SortSpec,
     TableConfig,
     TableLoadMode,
     choices_from_class,
@@ -39,7 +27,8 @@ def _molecule_table_config(*, runtime) -> TableConfig:
     return TableConfig(
         model_class=MoleculeRecord,
         columns=[
-            ColumnDef("id", label="ID", width=60, sortable=True, align=AlignHint.RIGHT),
+            ColumnDef("id", label="ID", width=60, sortable=True, align=AlignHint.RIGHT,
+                      kind=ColumnKind.INTEGER),
             ColumnDef(
                 PREVIEW_2D_COLUMN_FIELD,
                 label="2D Image",
@@ -97,6 +86,7 @@ def _molecule_table_config(*, runtime) -> TableConfig:
 
 class MoleculeWidget(BoundTableWidget):
     delete_kind = "molecule"
+    selectable = True
 
     def __init__(self, *, runtime, parent=None):
         super().__init__(
@@ -134,55 +124,15 @@ class MoleculeWidget(BoundTableWidget):
 
     def _load_molecule_in_pymol(self, molecule: MoleculeRecord) -> None:
         source = next(reversed(self._structure_sources.values()), "original")
-        molecule_path = (
-            current_molecule_path(molecule) if source == "current" else stored_molecule_path(molecule)
-        ) or Path()
-        main_window = self.window()
-        detail_handler = getattr(main_window, "show_catalog_selection_details", None)
-        if callable(detail_handler):
-            detail_handler("molecule", molecule)
-        if not molecule_path.exists():
-            return
-        dock = getattr(main_window, "pymol_dock", None)
-        if dock is None:
-            return
-        cmd = getattr(dock, "cmd", None)
-        if cmd is None:
-            return
-        object_name = f"molecule_{getattr(molecule, 'id', 'selected')}"
-        try:
-            dock.show()
-            cmd.delete("all")
-            cmd.load(str(molecule_path), object_name)
-            if bool(getattr(molecule, "is_ligand", False)):
-                context_kind = "ligand"
-                context_role = "ligand"
-                default_preset = "amdockvs.ligand"
-                try:
-                    cmd.show("sticks", object_name)
-                    apply_ligand_atom_coloring(cmd, object_name)
-                except Exception:
-                    pass
-            elif bool(getattr(molecule, "is_receptor", False)):
-                context_kind = "receptor"
-                context_role = "receptor"
-                default_preset = "amdockvs.receptor"
-                apply_receptor_atom_coloring(cmd, object_name)
-            else:
-                context_kind = "generic"
-                context_role = "molecule"
-                default_preset = ""
-                apply_scene_atom_coloring(main_window)
-            cmd.zoom(object_name, 3)
-            set_pymol_scene_context(
-                dock,
-                context_kind,
-                target=object_name,
-                selections={context_role: object_name},
-                default_preset=default_preset,
+        viewer = getattr(self.window(), "viewer", None)
+        if viewer is not None:
+            viewer.show_catalog_molecule(
+                molecule,
+                source=source,
+                object_prefix="molecule",
+                details_kind="molecule",
+                orient=False,
             )
-        except Exception:
-            return
 
 
 def _require_project(window, *, title: str) -> bool:

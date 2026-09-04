@@ -1,7 +1,6 @@
 from amdockvs.ui.catalog.domain_views import (
     COMPLEXES_VIEW_ID,
     LIGAND_ACTIVITY_VIEW_ID,
-    # RECEPTOR_VIEW_ID,
     ComplexResultsViewWidget,
     LigandActivityViewWidget,
     register_complexes_workspace,

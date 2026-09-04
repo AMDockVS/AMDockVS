@@ -81,11 +81,6 @@ class MoleculeBuildWidget(QWidget):
         super().__init__(parent)
         self.runtime = runtime
         self._ready = False
-        self._bound_molecules_table = None
-        self._selected_ids = {
-            MoleculeType.SMALL_MOLECULE: [],
-            MoleculeType.PROTEIN: [],
-        }
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
         outer = QVBoxLayout(self)
@@ -101,12 +96,6 @@ class MoleculeBuildWidget(QWidget):
 
         self.batch_size_ligands = _spinbox(minimum=1, maximum=4096, value=128)
         self.batch_size_receptors = _spinbox(minimum=1, maximum=256, value=8)
-        small_scope_row = QHBoxLayout()
-        small_scope_row.addWidget(QLabel("Scope", self.small_molecules_tab))
-        self.small_molecule_scope_combo = self._scope_combo(self.small_molecules_tab)
-        small_scope_row.addWidget(self.small_molecule_scope_combo)
-        small_scope_row.addStretch(1)
-        small_layout.addLayout(small_scope_row)
         small_batch_row = QHBoxLayout()
         small_batch_row.addWidget(QLabel("Batch size", self.small_molecules_tab))
         small_batch_row.addWidget(self.batch_size_ligands)
@@ -243,12 +232,6 @@ class MoleculeBuildWidget(QWidget):
         small_layout.addWidget(self.ligand_min_box)
         small_layout.addStretch(1)
 
-        protein_scope_row = QHBoxLayout()
-        protein_scope_row.addWidget(QLabel("Scope", self.proteins_tab))
-        self.protein_scope_combo = self._scope_combo(self.proteins_tab)
-        protein_scope_row.addWidget(self.protein_scope_combo)
-        protein_scope_row.addStretch(1)
-        protein_layout.addLayout(protein_scope_row)
         protein_batch_row = QHBoxLayout()
         protein_batch_row.addWidget(QLabel("Batch size", self.proteins_tab))
         protein_batch_row.addWidget(self.batch_size_receptors)
@@ -345,8 +328,6 @@ class MoleculeBuildWidget(QWidget):
         self.ligand_protonation_method.currentIndexChanged.connect(
             self._sync_small_molecule_protonation_options
         )
-        self.small_molecule_scope_combo.currentIndexChanged.connect(self._on_scope_changed)
-        self.protein_scope_combo.currentIndexChanged.connect(self._on_scope_changed)
         self.tabs.currentChanged.connect(self._on_scope_changed)
         self._sync_receptor_protonation_options()
         self._sync_pkasso_options()
@@ -372,15 +353,6 @@ class MoleculeBuildWidget(QWidget):
         layout.setSpacing(8)
         scroll.setWidget(body)
         return scroll, layout
-
-    @staticmethod
-    def _scope_combo(parent: QWidget) -> QComboBox:
-        combo = QComboBox(parent)
-        combo.addItem("All", "all")
-        combo.addItem("Selected", "selected")
-        combo.addItem("Filtered", "filtered")
-        combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
-        return combo
 
     @staticmethod
     def _structure_combo(parent: QWidget) -> QComboBox:
@@ -409,24 +381,13 @@ class MoleculeBuildWidget(QWidget):
             return str(MoleculeType.PROTEIN)
         return str(MoleculeType.SMALL_MOLECULE)
 
-    def _scope_mode(self, molecule_type: str) -> str:
-        combo = (
-            self.protein_scope_combo
-            if molecule_type == MoleculeType.PROTEIN
-            else self.small_molecule_scope_combo
-        )
-        return str(combo.currentData() or "all")
-
     def _scope(self, molecule_type: str | None = None):
-        """What the ops run on. A type scope, so nothing is lost to a missing role flag."""
+        """What the ops run on: this type, narrowed to whatever the Molecules table shows."""
         resolved_type = str(molecule_type or self._selected_molecule_type())
         scope = self.runtime.molecules.select(molecule_type=resolved_type)
-        mode = self._scope_mode(resolved_type)
-        if mode == "selected":
-            ids = self._selected_ids[resolved_type]
-        elif mode == "filtered":
-            ids = self._filtered_molecule_ids()
-        else:
+        widget = self._catalog_molecules_widget()
+        ids = widget.scope_ids() if widget is not None else None
+        if ids is None:
             return scope
         return self.runtime.molecules.filter(scope, filters={"id__in": ids or [0]})
 
@@ -446,9 +407,6 @@ class MoleculeBuildWidget(QWidget):
         if widget is None:
             return
         molecule_type = self._selected_molecule_type()
-        self._bind_molecules_table(widget)
-        # Keep the complete type visible: Selected/Filtered choose what an operation processes,
-        # while the table remains the surface where that selection/filter can be changed.
         widget.push_scope(
             self._SCOPE_KEY,
             filters=[
@@ -463,34 +421,6 @@ class MoleculeBuildWidget(QWidget):
             empty_message="Nothing of this type to build on",
             show_action=False,
         )
-
-    def _bind_molecules_table(self, widget) -> None:
-        table = getattr(widget, "table", None)
-        if table is None or table is self._bound_molecules_table:
-            return
-        table.selection_changed.connect(self._on_molecule_selection_changed)
-        self._bound_molecules_table = table
-        self._on_molecule_selection_changed(table.get_selected_objects())
-
-    def _on_molecule_selection_changed(self, molecules: list[object]) -> None:
-        selected: dict[str, list[int]] = {}
-        for molecule in molecules or []:
-            molecule_type = str(getattr(molecule, "molecule_type", "") or "")
-            molecule_id = int(getattr(molecule, "id", 0) or 0)
-            if molecule_type in self._selected_ids and molecule_id > 0:
-                selected.setdefault(molecule_type, []).append(molecule_id)
-        # Table refreshes clear Qt selection; retain the last explicit non-empty choice per tab.
-        for molecule_type, ids in selected.items():
-            self._selected_ids[molecule_type] = sorted(set(ids))
-
-    def _filtered_molecule_ids(self) -> list[int]:
-        table = self._bound_molecules_table
-        if table is None:
-            widget = self._catalog_molecules_widget()
-            table = getattr(widget, "table", None) if widget is not None else None
-        if table is None:
-            return []
-        return [int(value) for value in table.all_filtered_ids() if int(value) > 0]
 
     def _on_scope_changed(self, *_args) -> None:
         self._sync_molecules_scope()

@@ -46,7 +46,7 @@ def test_protonation_promotes_new_artifact_without_overwriting_input(tmp_path):
     before = source.read_text(encoding="utf-8")
 
     result = transform_ligand_rows(
-        operation="protonate",
+        operations="protonate",
         output_dir=output_dir,
         rows=[{
             "id": 3,

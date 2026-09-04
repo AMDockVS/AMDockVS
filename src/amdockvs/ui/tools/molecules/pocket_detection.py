@@ -474,14 +474,9 @@ class PocketDetectionWidget(QWidget):
         profile_row.addWidget(self.profile_combo, 1)
         prediction_layout.addLayout(profile_row)
 
+        # No scope selector: this runs on the receptors the catalog table is showing.
         scope_row = QHBoxLayout()
-        scope_row.addWidget(QLabel("Scope", prediction_box))
-        self.scope_combo = QComboBox(prediction_box)
-        self.scope_combo.addItem("Active (all eligible receptors)", "active")
-        self.scope_combo.addItem("Selected (marked in table)", "selected")
-        self.scope_combo.addItem("Filtered (all matching table filters)", "filtered")
-        self.scope_combo.currentIndexChanged.connect(self._update_scope_label)
-        scope_row.addWidget(self.scope_combo, 1)
+        scope_row.addStretch(1)
         scope_row.addWidget(QLabel("Threads", prediction_box))
         self.threads_spin = QSpinBox(prediction_box)
         self.threads_spin.setRange(1, 128)
@@ -646,8 +641,8 @@ class PocketDetectionWidget(QWidget):
 
     def _sites_view(self):
         """The auxiliary Binding Sites panel, if it is on screen (it is the tool's output)."""
-        getter = getattr(self.window(), "aux_view", None)
-        return getter(POCKET_SITES_VIEW_ID) if callable(getter) else None
+        window = self.window()
+        return window.aux.page_for(POCKET_SITES_VIEW_ID) if window is not None else None
 
     def _focus_receptor(self, receptor_id: int | None) -> None:
         receptor_id = int(receptor_id or 0) or None
@@ -662,9 +657,6 @@ class PocketDetectionWidget(QWidget):
         if view is not None:
             view.refresh()
 
-    def _scope_mode(self) -> str:
-        return str(self.scope_combo.currentData() or "active")
-
     def _eligible_receptor_ids(self) -> list[int]:
         excluded = self._defined_ligand_ids if self.exclude_defined_checkbox.isChecked() else set()
         return sorted(
@@ -674,17 +666,15 @@ class PocketDetectionWidget(QWidget):
         )
 
     def _scope_receptor_ids(self) -> list[int]:
-        mode = self._scope_mode()
-        if mode == "selected":
-            receptor_id = int(self._focused_receptor_id or 0)
-            return [receptor_id] if receptor_id in set(self._eligible_receptor_ids()) else []
-        if mode == "filtered":
-            widget = self._catalog_receptor_widget()
-            table = getattr(widget, "table", None) if widget is not None else None
-            if table is None:
-                return []
-            return sorted({int(value) for value in table.all_filtered_ids() if int(value) > 0})
-        return self._eligible_receptor_ids()
+        # What the table shows narrows the eligible set; it does not widen it past the
+        # exclusion this tool applies (receptors that already have a defined ligand).
+        eligible = self._eligible_receptor_ids()
+        widget = self._catalog_receptor_widget()
+        scoped = widget.scope_ids() if widget is not None else None
+        if scoped is None:
+            return eligible
+        allowed = set(scoped)
+        return [receptor_id for receptor_id in eligible if receptor_id in allowed]
 
     def _update_scope_label(self, *_args) -> None:
         if not hasattr(self, "scope_label"):
@@ -692,9 +682,7 @@ class PocketDetectionWidget(QWidget):
         count = len(self._scope_receptor_ids())
         hidden = len(self._defined_ligand_ids) if self.exclude_defined_checkbox.isChecked() else 0
         hidden_text = f" · {hidden} with defined ligands hidden" if hidden else ""
-        self.scope_label.setText(
-            f"Scope «{self._scope_mode()}»: {count} receptor(s){hidden_text}"
-        )
+        self.scope_label.setText(f"Scope: {count} receptor(s){hidden_text}")
 
     def _run_prediction(self) -> None:
         receptor_ids = self._scope_receptor_ids()
@@ -702,7 +690,7 @@ class PocketDetectionWidget(QWidget):
             QMessageBox.information(
                 self,
                 "P2Rank",
-                "The selected scope contains no receptors.",
+                "The current scope contains no receptors.",
             )
             return
         if not self._tool_ready:
@@ -785,7 +773,7 @@ def register_pocket_detection_workspace(window) -> None:
         lambda: PocketDetectionWidget(runtime=window.runtime, parent=window.central_widget),
     )
     # Not a tab: the sites of the selected receptor belong under the Receptors table, in the
-    # auxiliary zone (main_window._TOOL_AUX_VIEWS).
+    # auxiliary zone (AuxiliaryPanelController.TOOL_AUX_VIEWS).
     window.register_main_view(
         POCKET_SITES_VIEW_ID,
         "Binding Sites",

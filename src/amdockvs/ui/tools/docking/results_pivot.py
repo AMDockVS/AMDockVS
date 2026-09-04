@@ -130,9 +130,9 @@ class ResultsPivotWidget(QWidget):
                 refreshed.connect(lambda changed=True, k=key: self._on_page_refreshed(k, changed))
         self.stack.setCurrentWidget(page)
         # Each pivot brings its own auxiliary panel (or none): tell the window to re-ask.
-        sync = getattr(self.window(), "_set_aux_occupant", None)
-        if callable(sync):
-            sync()
+        window = self.window()
+        if window is not None:
+            window.aux.set_occupant()
 
     def aux_panel(self):
         """Delegated to the pivot on screen — only Hits has a "Selected Result" panel."""

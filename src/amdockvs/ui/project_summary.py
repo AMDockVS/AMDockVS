@@ -92,8 +92,8 @@ def show_project_summary(window) -> None:
     mols = runtime.molecules
     counts = [
         ("Molecules", _safe_count(mols.count)),
-        ("Ligands", _safe_count(lambda: mols.count(mols.select(role="ligand")))),
         ("Receptors", _safe_count(lambda: mols.count(mols.select(role="receptor")))),
+        ("Ligands", _safe_count(lambda: mols.count(mols.select(role="ligand")))),
         ("Complexes", _safe_count(runtime.complexes.count)),
     ]
     grid = QGridLayout()

@@ -29,12 +29,6 @@ class ToolCoordinator:
         ("tool_docking", "Docking Studio", DOCKING_VIEW_ID, "target.svg", 6),
     )
 
-    # Config-time views: only meaningful while you are setting the tool up, so the top
-    # toolbar shows them only while that tool is open. tool view_id -> entries.
-    # Prep Status is no longer here: it is the child table of Ligands/Receptors, not a peer
-    # tab of them, so it moved to the auxiliary zone (see AuxiliaryPanelController).
-    TOOL_DATA_VIEWS: dict[str, tuple] = {}
-
     def __init__(self, window):
         self.w = window
         self.active_tool: str | None = None
@@ -61,7 +55,6 @@ class ToolCoordinator:
         if previous_tool is not None and previous_tool != view_id:
             self.sync_tool_action(previous_tool, False)
         self.sync_tool_action(view_id, True)
-        window.views.set_contextual_data_views(view_id)
         window.aux.set_occupant(view_id)
         window.dock_manager.toggle("tools", True)
         window.tools_dock.raise_()
@@ -74,7 +67,7 @@ class ToolCoordinator:
     def on_tools_dock_visibility(self, visible: bool) -> None:
         # Hiding the tool panel (its close button) closes the active tool: swap in an
         # empty placeholder, drop the widget, unpress its toolbar button and retire the
-        # data views it contributed to the top toolbar.
+        # auxiliary panel it contributed.
         if visible or self.active_tool is None:
             return
         closed, self.active_tool = self.active_tool, None
@@ -82,7 +75,6 @@ class ToolCoordinator:
         # tool's hideEvent, and a tool that throws in there must not strand the window
         # showing that tool's data views and auxiliary.
         self.sync_tool_action(closed, False)
-        self.w.views.set_contextual_data_views(None)
         self.w.aux.set_occupant(None)
         old = self.w.tools_dock.widget()
         self.w.tools_dock.setWidget(QWidget())  # keep the dock valid without a tool

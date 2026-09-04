@@ -5,6 +5,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -19,7 +20,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from amdockvs.io.jobs import SHARD_SUGGEST_BYTES
 from amdockvs.models.molecules import MoleculeType
+from amdockvs.vocab import ProjectMode
 from amdockvs.ui.drop_area import TablePlaceholder, drop_hint, icon_button
 from amdockvs.ui.catalog.ligands import LIGANDS_VIEW_ID
 from amdockvs.ui.catalog.receptors import RECEPTOR_VIEW_ID, ReceptorImportPanel
@@ -212,6 +215,23 @@ class LigandImportDialog(QDialog):
         )
         root.addWidget(self.tabs)
 
+        # --- where the library lands ---
+        # This is the whole "campaign mode" decision, and it lives here because it is a property
+        # of the library being imported, not of the project. One screening library per project:
+        # once the project holds one, the box is locked to match it.
+        self.shard_checkbox = QCheckBox(
+            "Screening library: keep on disk as shards (no rows, no catalog)", self
+        )
+        self.shard_checkbox.setToolTip(
+            "For libraries too big to materialize. The molecules stay in files; only hits are "
+            "ever written to the project. Receptors and reference ligands are unaffected."
+        )
+        self.shard_hint = QLabel("", self)
+        self.shard_hint.setWordWrap(True)
+        root.addWidget(self.shard_checkbox)
+        root.addWidget(self.shard_hint)
+        self._lock_shard_choice_to_project()
+
         # --- footer ---
         buttons = QDialogButtonBox(self)
         self.import_button = buttons.addButton("Import", QDialogButtonBox.AcceptRole)
@@ -235,6 +255,44 @@ class LigandImportDialog(QDialog):
         if paths:
             self.table.add_files(paths)
 
+    def _lock_shard_choice_to_project(self) -> None:
+        """A project that already has a screening library cannot get a second one."""
+        try:
+            sharded = self.runtime.mode == ProjectMode.HTPVS
+            rows = self.runtime.general_ligand_count()
+        except Exception:  # noqa: BLE001 — no active project yet (workflow step config)
+            return
+        if sharded:
+            self.shard_checkbox.setChecked(True)
+            self.shard_checkbox.setEnabled(False)
+            self.shard_hint.setText("This project's library is already sharded — imports go to shards.")
+        elif rows:
+            self.shard_checkbox.setChecked(False)
+            self.shard_checkbox.setEnabled(False)
+            self.shard_hint.setText(
+                f"This project already holds {rows} ligands as rows — imports go to the database."
+            )
+
+    def _suggest_shards(self) -> int:
+        """Total bytes of the small-molecule files queued; suggests shards past the threshold."""
+        total = 0
+        for path, kind in self.table.rows():
+            if kind != MoleculeType.SMALL_MOLECULE:
+                continue
+            try:
+                total += Path(path).stat().st_size
+            except OSError:
+                continue
+        if self.shard_checkbox.isEnabled() and total >= SHARD_SUGGEST_BYTES:
+            self.shard_checkbox.setChecked(True)
+            self.shard_hint.setText(
+                f"{total / (1024 ** 3):.1f} GB queued — sharding suggested. Importing this as rows "
+                "would write a row per molecule into the project database."
+            )
+        elif self.shard_checkbox.isEnabled():
+            self.shard_hint.setText("")
+        return total
+
     def _sync_tabs_enabled(self) -> None:
         # Item 9: every option tab is off until a small-molecule candidate exists.
         self.tabs.setEnabled(self.table.has_small_molecule())
@@ -245,6 +303,7 @@ class LigandImportDialog(QDialog):
             None,
         )
         self.activity_form.set_source_file(tabular)
+        self._suggest_shards()
 
     def _policy_mapping(self):
         policy = {"target_molecule_kinds": ["small_molecule"]}
@@ -267,11 +326,28 @@ class LigandImportDialog(QDialog):
             groups.setdefault(kind, []).append(path)
         total = sum(len(paths) for paths in groups.values())
 
+        shard = self.shard_checkbox.isChecked()
+        if not shard and self._suggest_shards() >= SHARD_SUGGEST_BYTES:
+            answer = QMessageBox.question(
+                self,
+                "Import Ligands",
+                "These files are large enough that importing them as rows will write millions of "
+                "rows into the project database.\n\nImport as shards instead?",
+                QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
+            )
+            if answer == QMessageBox.Cancel:
+                return None
+            shard = answer == QMessageBox.Yes
+
         def submit(rt):
             job_ids: list = []
             for kind, paths in groups.items():
                 prefilter = policy if kind == MoleculeType.SMALL_MOLECULE else None
-                res = rt.loader.load_ligands(paths, molecule_kind=kind, prefilter=prefilter)
+                # Only the screening library shards; other molecule types are curated rows.
+                if shard and kind == MoleculeType.SMALL_MOLECULE:
+                    res = rt.loader.shard_ligands(paths, molecule_kind=kind, prefilter=prefilter)
+                else:
+                    res = rt.loader.load_ligands(paths, molecule_kind=kind, prefilter=prefilter)
                 job_ids.extend(res if isinstance(res, (list, tuple)) else [res])
             return [j for j in job_ids if j]
 

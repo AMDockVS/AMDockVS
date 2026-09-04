@@ -217,6 +217,7 @@ def test_amdock_manifest_and_runtime_declare_project_resource_contract(tmp_path,
             "pocket_predictions",
             "exports",
             "jobs",
+            "shards",
         )
 
         project = runtime.create_project(

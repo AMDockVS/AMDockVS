@@ -14,7 +14,7 @@ from amdockvs.configuration import (
     MAX_2D_PREVIEW_HEAVY_ATOMS_PATH,
 )
 from amdockvs.molecule_paths import preferred_molecule_path
-from ms_components.ms_table import TableConfig, SmartTableView
+from ms_components.ms_table import FilterOperator, FilterSpec, TableConfig, SmartTableView
 
 
 _PREVIEW_WIDTH = 256
@@ -221,6 +221,9 @@ def project_table(runtime, config: TableConfig, parent: QWidget | None = None) -
 class BoundTableWidget(QWidget):
     # Subclasses set this to enable row deletion ("molecule" / "complex" / "result").
     delete_kind: str | None = None
+    # Subclasses set this to True to offer "Select" - turning the highlighted rows into an
+    # `id IN [...]` column filter. See _install_select.
+    selectable: bool = False
 
     # Re-emits the embedded table count in case a host needs it; the visible counter is the
     # one in the ms_table toolbar (show_record_count).
@@ -232,6 +235,7 @@ class BoundTableWidget(QWidget):
         self.runtime = runtime
         self._table: SmartTableView | None = None
         self._base_clauses: dict[str, object] = {}
+        self._base_context_actions: dict = dict(config.context_menu_actions or {})
         # What pop_scope() puts back where a scope overrode a filter (absent field = remove).
         self._default_filters = {f.field: deepcopy(f) for f in (config.default_filters or [])}
         self._scopes: dict[str, set[str]] = {}
@@ -261,6 +265,48 @@ class BoundTableWidget(QWidget):
         # Delete key removes the selected rows on any table that opts in via delete_kind.
         delete_shortcut = QShortcut(QKeySequence.StandardKey.Delete, self._table)
         delete_shortcut.activated.connect(self.delete_selected)
+        if self.selectable:
+            self._install_select(config)
+
+    # --- Scope = what the table shows -----------------------------------------------
+    # There is no scope object anywhere: a tool acts on the rows its table is showing, and
+    # narrowing the table is how you set that. "Select" is just a shortcut for typing the
+    # highlighted ids into the ID column filter by hand, so it shows up as an ordinary
+    # filter — visible in the header, cleared from the header.
+    def _install_select(self, config: TableConfig) -> None:
+        config.context_menu_actions = {
+            "Select": self._select_rows,
+            **dict(config.context_menu_actions or {}),
+        }
+
+    def _select_rows(self, objects) -> None:
+        ids = sorted({int(getattr(obj, "id", 0) or 0) for obj in objects or ()} - {0})
+        if ids and self._table is not None:
+            self._table.set_filter(FilterSpec("id", FilterOperator.IN, ids))
+
+    def scope_ids(self) -> list[int] | None:
+        """The ids of the rows this table shows, or None when it narrows nothing.
+
+        None is not "no rows": it means the user added no filter beyond the catalog's own
+        defaults and whatever the calling tool already pushed, so the caller's scope is
+        already right and nobody has to materialise every id.
+
+        ponytail: materialises the ids. The scale-free version is the builder's
+        to_query_spec() pushed down as a subquery — do that when a tool has to run on 10^5
+        filtered rows, not before.
+        """
+        if self._table is None or not self._is_narrowed():
+            return None
+        return [int(value) for value in self._table.all_filtered_ids() if int(value) > 0]
+
+    def _is_narrowed(self) -> bool:
+        # A tool's own pushed filters don't count: it already applies them to its scope, and
+        # treating them as narrowing would materialise the whole catalog on every refresh.
+        pushed = {field for fields in self._scopes.values() for field in fields}
+        return any(
+            spec.field not in pushed and self._default_filters.get(spec.field) != spec
+            for spec in self._table._builder.active_filters
+        )
 
     # --- Persisted per-table view preferences --------------------------------
     def _table_pref_path(self) -> str:
@@ -399,6 +445,7 @@ class BoundTableWidget(QWidget):
         for spec in filters:
             self.set_base_filter(spec.field, spec)
         self._scopes[key] = fields
+        self._table.set_config_actions_visible(False)
         self.set_base_clause(key, clause)
         self.set_toolbar_actions(key, actions)
         self.set_empty_state(empty_message, show_action=show_action)
@@ -409,6 +456,8 @@ class BoundTableWidget(QWidget):
             return
         for field in self._scopes.pop(key, ()):
             self.set_base_filter(field, self._default_filters.get(field))
+        if not self._scopes:
+            self._table.set_config_actions_visible(True)
         self.set_base_clause(key, None)
         self.set_toolbar_actions(key, ())
         self.set_empty_state(None)

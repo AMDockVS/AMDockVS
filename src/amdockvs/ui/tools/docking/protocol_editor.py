@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-import hashlib
-import json
 from uuid import uuid4
 
-from PySide6.QtCore import QEvent, QObject, Qt, QTimer
-from PySide6.QtGui import QFontDatabase
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -14,74 +11,27 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QListWidget,
-    QListWidgetItem,
-    QMessageBox,
     QPushButton,
-    QScrollArea,
-    QSizePolicy,
     QSpinBox,
-    QSplitter,
-    QStackedWidget,
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
-    QWidget, QGridLayout,
-)
-from amdockvs.ui.async_query import run_async
-from amdockvs.ui.widgets import right_aligned, split_button
-from amdockvs.ui.resources.icons import icon as load_icon
-from amdockvs.ui.catalog.common import BoundTableWidget
-from amdockvs.ui.catalog.ligands import LIGANDS_VIEW_ID
-from amdockvs.ui.catalog.receptors import RECEPTOR_VIEW_ID
-from amdockvs.ui.catalog.binding_sites import BINDING_SITES_VIEW_ID
-from amdockvs.ui.tools.molecules.build import BUILD_ID
-from amdockvs.constants import DEFAULT_LOCAL_CPU_EXECUTOR
-from amdockvs.docking.protocols import PROTOCOL_SCHEMA, protocol_hash, protocol_identity
-from amdockvs.docking.programs import GNINA_PROGRAM, VINA_PROGRAM, list_docking_programs
-from amdockvs.models import EngineState
-from amdockvs.vocab import MoleculeType
-from ms_components.ms_table import (
-    AlignHint,
-    ColumnDef,
-    ColumnKind,
-    FilterOperator,
-    FilterSpec,
-    SortSpec,
-    TableConfig,
-    TableLoadMode,
-)
-from ms_components.ms_stepper import Orientation, QStepper
+    QWidget, )
 
-DOCKING_VIEW_ID = "workspace.docking"
-PREP_STATUS_VIEW_ID = "workspace.prep_status"
+from amdockvs.docking.programs import GNINA_PROGRAM, VINA_PROGRAM, list_docking_programs
+from amdockvs.docking.protocols import PROTOCOL_SCHEMA, protocol_hash, protocol_identity
+from amdockvs.vocab import MoleculeType
+
 DEFAULT_PROGRAM = VINA_PROGRAM.key
 MAX_REDOCKING_PROTOCOLS = 12
-# Non-terminal job statuses — a docking job in any of these is "live" for duplicate detection.
-_ACTIVE_JOB_STATUSES = ("pending", "running", "staging", "cancel_requested")
+
 
 def _spinbox(*, minimum: int, maximum: int, value: int) -> QSpinBox:
     widget = QSpinBox()
     widget.setRange(minimum, maximum)
     widget.setValue(value)
     return widget
-
-
-class _WheelGuard(QObject):
-    """Swallow wheel events on combos/spinboxes unless they have focus.
-
-    Inside a scroll area, the wheel otherwise changes the value under the cursor
-    instead of scrolling the page. With StrongFocus + this filter, the widget only
-    reacts to the wheel after you click into it; otherwise the wheel scrolls.
-    """
-
-    def eventFilter(self, obj, event) -> bool:
-        if event.type() == QEvent.Type.Wheel and not obj.hasFocus():
-            return True
-        return super().eventFilter(obj, event)
-
-
 
 
 class ProtocolEditorWidget:
@@ -140,7 +90,8 @@ class ProtocolEditorWidget:
         self.duplicate_protocol_btn.clicked.connect(self._duplicate_selected_protocol)
         self.remove_protocol_btn = QPushButton("Remove", box)
         self.remove_protocol_btn.clicked.connect(self._remove_selected_protocol)
-        for button in (self.add_protocol_btn, self.replace_protocol_btn, self.duplicate_protocol_btn, self.remove_protocol_btn):
+        for button in (self.add_protocol_btn, self.replace_protocol_btn, self.duplicate_protocol_btn,
+                       self.remove_protocol_btn):
             buttons.addWidget(button)
         buttons.addStretch(1)
         layout.addLayout(buttons)
@@ -155,10 +106,12 @@ class ProtocolEditorWidget:
         self.experiment_kind_combo.currentIndexChanged.connect(self._on_experiment_config_changed)
         self.receptor_type_combo = QComboBox(box)
         self.receptor_type_combo.addItem("Protein", MoleculeType.PROTEIN)
-        self.receptor_type_combo.setToolTip("Only protein receptors are enabled for now; other receptor types will be added later.")
+        self.receptor_type_combo.setToolTip(
+            "Only protein receptors are enabled for now; other receptor types will be added later.")
         self.ligand_type_combo = QComboBox(box)
         self.ligand_type_combo.addItem("Small molecule", MoleculeType.SMALL_MOLECULE)
-        self.ligand_type_combo.setToolTip("Only small-molecule ligands are enabled for now; peptides/proteins will be added later.")
+        self.ligand_type_combo.setToolTip(
+            "Only small-molecule ligands are enabled for now; peptides/proteins will be added later.")
         for combo in (self.receptor_type_combo, self.ligand_type_combo):
             combo.currentIndexChanged.connect(self._on_experiment_config_changed)
         form.addRow("Experiment", self.experiment_kind_combo)
@@ -319,7 +272,8 @@ class ProtocolEditorWidget:
             parts.append(f"rerank={rescoring_text}")
         return " | ".join(parts)
 
-    def _make_protocol(self, *, program: str, config: dict, label: str | None = None, rescoring: list[dict] | None = None) -> dict:
+    def _make_protocol(self, *, program: str, config: dict, label: str | None = None,
+                       rescoring: list[dict] | None = None) -> dict:
         normalized_config = dict(config or {})
         normalized_rescoring = list(rescoring or [])
         protocol_hash = self._protocol_hash(program, normalized_config, normalized_rescoring)
@@ -411,7 +365,7 @@ class ProtocolEditorWidget:
                         break
             table.setCurrentCell(next_row, 0)
         table.resizeColumnsToContents()
-        if hasattr(self, "receptor_scope_combo"):
+        if hasattr(self, "receptor_scope_label"):
             self.refresh()
 
     def _selected_protocol_row(self) -> int:
@@ -532,7 +486,8 @@ class ProtocolEditorWidget:
 
     def _ligand_type(self) -> str:
         combo = getattr(self, "ligand_type_combo", None)
-        return str(combo.currentData() or MoleculeType.SMALL_MOLECULE) if combo is not None else MoleculeType.SMALL_MOLECULE
+        return str(
+            combo.currentData() or MoleculeType.SMALL_MOLECULE) if combo is not None else MoleculeType.SMALL_MOLECULE
 
     def _program_compatible(self, spec) -> bool:
         supports = getattr(spec, "supports", None)
@@ -594,12 +549,7 @@ class ProtocolEditorWidget:
 
     def _on_run_kind_changed(self) -> None:
         redocking = self._run_kind() == "redocking"
-        self._sync_ligand_scope_options()
         self._sync_ligand_table_filter()
-        if hasattr(self, "run_ligand_scope_combo"):
-            self.run_ligand_scope_combo.setEnabled(not redocking)
-        if hasattr(self, "run_receptor_scope_combo"):
-            self.run_receptor_scope_combo.setEnabled(not redocking)
         if hasattr(self, "run_button"):
             self.run_button.setText("Run Redocking" if redocking else "Run Docking")
         if hasattr(self, "check_status_label"):

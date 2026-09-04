@@ -52,38 +52,6 @@ except Exception:  # pragma: no cover - optional UI dependency
     pg = None
 
 
-
-def _receptor_table_config() -> TableConfig:
-    return TableConfig(
-        model_class=MoleculeRecord,
-        columns=[
-            ColumnDef("id", label="ID", width=60, sortable=True, align=AlignHint.RIGHT),
-            ColumnDef("name", label="Name", width=220, sortable=True, filterable=True),
-            ColumnDef("molecule_type", label="Type", width=140, sortable=True, filterable=True,
-                      kind=ColumnKind.CHOICE, choices=choices_from_class(MoleculeType)),
-            ColumnDef("usage_class", label="Usage", width=100, sortable=True, filterable=True, visible=False,
-                      kind=ColumnKind.CHOICE, choices=choices_from_class(MoleculeUsageClass)),
-            ColumnDef("source_index", label="Source Idx", width=100, sortable=True, align=AlignHint.RIGHT),
-            ColumnDef("n_atoms", label="Atoms", width=90, sortable=True, align=AlignHint.RIGHT),
-            ColumnDef("input_format", label="Format", width=90, sortable=True, filterable=True,
-                      kind=ColumnKind.CHOICE, choices=choices_from_class(FileFormat)),
-            ColumnDef("source", label="Source File", width=300, sortable=True),
-            ColumnDef("stored_path", label="Stored Path", width=300, sortable=True, visible=False),
-        ],
-        default_filters=[
-            FilterSpec("is_receptor", FilterOperator.EQ, True, label="role_receptor"),
-            FilterSpec("usage_class", FilterOperator.EQ, "general", label="general_only"),
-            FilterSpec("excluded", FilterOperator.EQ, False, label="selected_only"),
-        ],
-        # default_sort=[SortSpec("id", descending=True)],
-        page_size=20,
-        page_size_options=[10, 20, 50, 100],
-        show_row_numbers=True,
-        multi_select=True,
-        empty_message="No receptors loaded in the active project",
-    )
-
-
 #: Fields the results view can filter on, as (key, label). The key is what SQL understands:
 #: "score" is the column, the rest are JSON metrics of the same row.
 _RESULT_FILTER_FIELDS = (

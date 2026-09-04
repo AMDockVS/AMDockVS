@@ -7,7 +7,7 @@ from typing import Any, Iterator, Mapping
 
 from pydantic import BaseModel, Field
 
-from ms_flow.sinks import graph_sink
+from ms_flow.sinks import graph_sink, table_sink
 from ms_flow.specs import InputSource
 from ms_flow.tasking import job, task
 
@@ -15,11 +15,14 @@ from amdockvs.constants import (
     AMDOCKVS_LOCAL_EXECUTORS,
     AMDOCKVS_PROCESS_EXECUTORS,
     DEFAULT_LOAD_BATCH_SIZE,
+    OUTPUT_FLUSH_EVERY,
     RESOURCE_MOLECULES,
+    RESOURCE_SHARDS,
 )
 from amdockvs.io.loaders import estimate_record_chunks, stream_import_payload_batches
 from amdockvs.io.parsers import count_import_records
 from amdockvs.io.payloads import ImportPrefilterPolicy, MultithreadedSDFImportPayload
+from amdockvs.io.shards import write_ligand_shard
 from amdockvs.io.transformers import (
     build_import_graph_payload,
     materialize_import_batch,
@@ -36,20 +39,8 @@ from amdockvs.models import (
     MoleculeSet,
     MoleculeSetMember,
     MoleculeSourceProperty,
+    ScreeningShard,
 )
-
-
-# Chunks flushed to the project DB per sink-writer transaction. flush_every=1
-# forced one full graph-insert (8 tables + relations + RETURNING) per chunk on
-# the single sqlite writer, which can't keep up with 14 compute workers — the
-# writer falls behind, the inflight window fills, and CPUs starve at 2-3/14.
-# Batching many chunks into one transaction is what the SinkWriterPool +
-# _combined_db_payload are built for. Measured: flush_every=1 didn't finish a
-# 1.7GB import in 30 min; no-persist ran it in ~5 min at 13/14 CPUs busy.
-# ponytail: 16 fills batches from the ~18 chunks queued behind 14 running under
-# the 32-inflight cap; raise with max_inflight if a single writer still lags.
-# Env override so the batch size can be tuned per-box without a code change.
-IMPORT_OUTPUT_FLUSH_EVERY = int(os.environ.get("AMDOCK_IMPORT_FLUSH_EVERY", "16"))
 
 
 IMPORT_GRAPH_OUTPUT = graph_sink(
@@ -247,6 +238,14 @@ def iter_import_chunks(kind: str, params: dict[str, Any], config: dict[str, Any]
     )
 
 
+# A shard is a unit of work for one CPU on one machine, so it is much bigger than an import
+# batch: ~10k molecules is a few seconds of docking prep, not a few milliseconds of parsing.
+DEFAULT_SHARD_SIZE = int(os.environ.get("AMDOCK_SHARD_SIZE", "10000"))
+# Above this much input, importing as rows is almost certainly a mistake: the importer offers
+# shards instead. ponytail: bytes on disk, not a record count — one stat() per file against
+# parsing 40 GB to answer a question the size already answers.
+SHARD_SUGGEST_BYTES = int(os.environ.get("AMDOCK_SHARD_SUGGEST_BYTES", str(200 * 1024 * 1024)))
+
 # Offload SDF tags to parquet sidecars instead of persisting ~34 rows/mol into the
 # project DB. Env-toggle so it can be A/B'd; default on (props are load-on-demand).
 OFFLOAD_IMPORT_PROPERTIES = os.environ.get("AMDOCK_OFFLOAD_PROPS", "1") == "1"
@@ -285,7 +284,7 @@ def materialize_multithreaded_sdf_rows(payload: dict, progress_cb=None):
     supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
     # feed_mode="durable_feed",
     output_spec=IMPORT_GRAPH_OUTPUT,
-    output_flush_every=IMPORT_OUTPUT_FLUSH_EVERY,
+    output_flush_every=OUTPUT_FLUSH_EVERY,
     store_results=False,
 )
 def load_molecules_file_job(params: dict, config: dict | None = None) -> Iterator[dict]:
@@ -300,7 +299,7 @@ def load_molecules_file_job(params: dict, config: dict | None = None) -> Iterato
     supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
     # feed_mode="durable_feed",
     output_spec=IMPORT_GRAPH_OUTPUT,
-    output_flush_every=IMPORT_OUTPUT_FLUSH_EVERY,
+    output_flush_every=OUTPUT_FLUSH_EVERY,
     store_results=False,
 )
 def load_ligands_file_job(params: dict, config: dict | None = None) -> Iterator[dict]:
@@ -322,7 +321,7 @@ def load_ligands_file_job(params: dict, config: dict | None = None) -> Iterator[
     supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
     # feed_mode="durable_feed",
     output_spec=IMPORT_GRAPH_OUTPUT,
-    output_flush_every=IMPORT_OUTPUT_FLUSH_EVERY,
+    output_flush_every=OUTPUT_FLUSH_EVERY,
     store_results=False,
 )
 def load_receptors_file_job(params: dict, config: dict | None = None) -> Iterator[dict]:
@@ -345,7 +344,7 @@ def load_receptors_file_job(params: dict, config: dict | None = None) -> Iterato
     cpu_required=4,
     # feed_mode="durable_feed",
     output_spec=IMPORT_GRAPH_OUTPUT,
-    output_flush_every=IMPORT_OUTPUT_FLUSH_EVERY,
+    output_flush_every=OUTPUT_FLUSH_EVERY,
     store_results=False,
 )
 def load_ligands_multithreaded_sdf_job(params: dict, config: dict | None = None) -> Iterator[dict]:
@@ -368,6 +367,53 @@ def load_ligands_multithreaded_sdf_job(params: dict, config: dict | None = None)
         ).model_dump(mode="json")
         payload["storage_dir"] = worker_output_dir(storage_dir)
         yield payload
+
+
+class ShardLigandsParams(LoadFileParams):
+    """The import params, with the batch size read as *records per shard*."""
+
+    batch_size: int = Field(default=DEFAULT_SHARD_SIZE, ge=1)
+
+
+@task(
+    name="amdock_write_ligand_shard",
+    description="Write one span of a source library out as a shard file.",
+    executor="compute",
+    supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
+)
+def write_ligand_shard_task(payload: dict, progress_cb=None) -> list[dict]:
+    return [write_ligand_shard(payload)]
+
+
+@job(
+    task=write_ligand_shard_task,
+    name="amdock_shard_ligands_job",
+    params_model=ShardLigandsParams,
+    executor="compute",
+    supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
+    # Upsert on (source, shard_index): re-importing the same file rewrites its shards instead
+    # of duplicating the inventory.
+    output_spec=table_sink(
+        model=ScreeningShard, write_mode="upsert", conflict_keys=("source", "shard_index")
+    ),
+    output_flush_every=OUTPUT_FLUSH_EVERY,
+    store_results=False,
+)
+def shard_ligands_job(params: dict, config: dict | None = None) -> Iterator[dict]:
+    """`htpvs` import: the library is split, not materialized. `molecules` is never touched."""
+    params_map = {
+        **dict(params or {}),
+        "primary_role": "ligand",
+        "molecule_kind": str(dict(params or {}).get("molecule_kind") or "small_molecule"),
+    }
+    shard_dir = _resolve_storage_dir(
+        kind="ligand", params={"storage_resource": RESOURCE_SHARDS}, config=config or {}
+    )
+    for shard_index, chunk in enumerate(iter_import_chunks("ligand", params=params_map, config=config)):
+        # The chunk is already a byte span of the source; these two fields turn it into a shard.
+        chunk["shard_dir"] = worker_output_dir(shard_dir)
+        chunk["shard_index"] = shard_index
+        yield chunk
 
 
 def estimate_import_chunks(file_path: str | Path, *, batch_size: int) -> int:

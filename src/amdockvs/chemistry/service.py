@@ -4,18 +4,14 @@ import json
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Mapping, Sequence
 
-from amdockvs.chemistry.conformers import generate_conformer_ensemble
-from amdockvs.chemistry.protonation import protonate_molecule_batch
+from amdockvs.chemistry.pipeline import LIGAND_STEPS, normalize_steps, run_pipeline
 from amdockvs.chemistry.tools import (
     fix_receptor_pdb_file,
-    generate_ligand_3d,
-    minimize_ligand_molecule,
     minimize_receptor_openmm_file,
     protonate_receptor_pdb2pqr_file,
     protonate_receptor_reduce_file,
-    standardize_ligand_molecule,
 )
 from amdockvs.models.molecules import ModelSource, MoleculeModel
 from amdockvs.molecule_paths import (
@@ -151,18 +147,58 @@ def _write_ligand_conformer_files(
     return model_rows, active_relative_path, active_model_index
 
 
+def _ligand_state(steps: Sequence[tuple[str, Mapping[str, Any]]], result_mol) -> dict[str, Any]:
+    """The flags after the last step that speaks about each one.
+
+    Same values the single-operation branches used to set by hand; folding them makes a
+    multi-step run report what it actually produced instead of what its last step alone did.
+    """
+    has_hs = False
+    is_minimized = False
+    for name, step_params in steps:
+        if name == "standardize":
+            has_hs, is_minimized = False, False
+        elif name == "protonate":
+            has_hs, is_minimized = True, False
+        elif name == "generate_3d":
+            has_hs = bool(step_params.get("add_hs", True))
+            is_minimized = bool(
+                result_mol.HasProp("_amdock_is_minimized")
+                and result_mol.GetBoolProp("_amdock_is_minimized")
+            )
+        elif name == "conformers":
+            has_hs = bool(step_params.get("add_hs", True))
+            is_minimized = bool(step_params.get("optimize", True))
+        elif name == "minimize":
+            has_hs, is_minimized = True, True
+    return {
+        "has_hs": has_hs,
+        "has_3d": result_mol.GetNumConformers() > 0,
+        "is_minimized": is_minimized,
+    }
+
+
 def transform_ligand_rows(
     *,
-    operation: str,
+    operations: str | Sequence[Any],
     output_dir: Path,
     rows: Iterable[Mapping[str, Any]],
     params: Mapping[str, Any] | None = None,
     next_model_index_by_entity: Mapping[int, int] | None = None,
     progress_cb=None,
 ) -> dict[str, Any]:
-    operation_name = str(operation or "").strip().lower()
-    if operation_name not in {"standardize", "protonate", "generate_3d", "conformers", "minimize"}:
-        raise ValueError(f"Unsupported ligand chemistry operation: {operation}")
+    """Apply one or more chemistry steps to a batch of ligand rows.
+
+    `operations` is a step list — `[("standardize", {}), ("protonate", {"ph": 7.4})]` — or a
+    bare name for a single step. The batch goes through `run_pipeline` once and only the final
+    molecule is written, so standardize+protonate+3D leaves one file per ligand, not three.
+    """
+    resolved_steps = normalize_steps(operations)
+    if not resolved_steps:
+        raise ValueError("No ligand chemistry operation was given.")
+    for name, _step_params in resolved_steps:
+        if name not in LIGAND_STEPS:
+            raise ValueError(f"Unsupported ligand chemistry operation: {name}")
 
     normalized_params = dict(params or {})
     project_root = output_dir.expanduser().resolve().parent.parent
@@ -173,127 +209,61 @@ def transform_ligand_rows(
     failed_rows: list[dict[str, Any]] = []
     structure_source = str(normalized_params.get("structure_source") or "current")
     run_id = str(normalized_params.get("run_id") or "run")[:16]
-    protonated_by_id: dict[int, Any] = {}
-    loaded_protonation_inputs: dict[int, tuple[Path, Any]] = {}
-    if operation_name == "protonate":
-        for row in row_list:
-            ligand_id = int(row.get("id") or 0)
-            if ligand_id <= 0:
-                continue
+    # ponytail: one shared bag behind each step's own params, and every step takes only the
+    # keys its core declares. Two steps that name a parameter alike (`fragment_mode`) share the
+    # bag's value — pass it per step to tell them apart.
+    resolved_steps = [
+        (name, {**normalized_params, **dict(step_params)}) for name, step_params in resolved_steps
+    ]
+    operation_label = "+".join(name for name, _ in resolved_steps)
+    last_name, last_params = resolved_steps[-1]
+
+    # Load the whole batch first: protonation runs once over the set, so the pipeline needs
+    # every molecule in hand before the first step. A slot that fails to load carries its
+    # exception through the pipeline and lands in `failed_rows` below, still in position.
+    sources: list[Path | None] = []
+    batch: list[Any] = []
+    for index, row in enumerate(row_list, start=1):
+        source_path = None
+        loaded = None  # a `None` slot is not a failure: there is nothing to write back to
+        if int(row.get("id") or 0) > 0:
             try:
                 source_path = ligand_working_path(row, structure_source=structure_source)
-                loaded_protonation_inputs[ligand_id] = (source_path, _load_ligand_mol(source_path))
+                loaded = _load_ligand_mol(source_path)
             except Exception as exc:
-                failed_rows.append({"entity_id": ligand_id, "source_path": "", "error": str(exc)})
-        protonated_by_id = protonate_molecule_batch(
-            [(entity_id, item[1]) for entity_id, item in loaded_protonation_inputs.items()],
-            method=str(normalized_params.get("method") or "dimorphite"),
-            params=normalized_params,
-        )
-    for index, row in enumerate(row_list, start=1):
+                loaded = exc
+        # One append each, always: the write-back loop pairs these lists with `row_list`.
+        sources.append(source_path)
+        batch.append(loaded)
+        if progress_cb is not None:
+            progress_cb((index / max(1, len(row_list))) * 50.0)
+
+    results = run_pipeline(batch, resolved_steps)
+
+    for index, (row, source_path, result) in enumerate(zip(row_list, sources, results), start=1):
         ligand_id = int(row.get("id") or 0)
+        if progress_cb is not None:
+            progress_cb(50.0 + (index / max(1, len(row_list))) * 50.0)
         if ligand_id <= 0:
             continue
-        if operation_name == "protonate" and ligand_id not in loaded_protonation_inputs:
-            if progress_cb is not None:
-                progress_cb((index / max(1, len(row_list))) * 100.0)
+        if result is None or isinstance(result, Exception):
+            failed_rows.append(
+                {
+                    "entity_id": ligand_id,
+                    "source_path": str(row.get("current_path") or row.get("stored_path") or ""),
+                    "error": str(result) if result is not None else "No structure was produced.",
+                }
+            )
             continue
         try:
-            source_path = ligand_working_path(row, structure_source=structure_source)
             metadata = decode_metadata(row.get("extra_data"))
-            mol = loaded_protonation_inputs[ligand_id][1] if operation_name == "protonate" else _load_ligand_mol(source_path)
             model_rows: list[dict[str, Any]] = []
-            current_relative_path: str | None = None
             current_model_index = row.get("current_model_index")
             next_index = int(next_index_map.get(ligand_id, 0))
 
-            if operation_name == "standardize":
-                result_mol = standardize_ligand_molecule(
-                    mol,
-                    fragment_parent=bool(normalized_params.get("fragment_parent", True)),
-                    fragment_mode=normalized_params.get("fragment_mode"),
-                    neutralize=bool(normalized_params.get("neutralize", True)),
-                    canonicalize_tautomer=bool(normalized_params.get("canonicalize_tautomer", False)),
-                )
-                output_path = artifact_path_for_existing(
-                    output_dir,
-                    role="ligand",
-                    source_path=source_path,
-                    artifact_name=f"standardized_{run_id}",
-                    suffix=".sdf",
-                )
-                _write_ligand_mol(result_mol, output_path)
-                current_relative_path = _relative_to_project_root(output_path, project_root=project_root)
-                current_model_index = current_model_index if result_mol.GetNumConformers() > 0 else None
-                state = {"has_hs": False, "has_3d": result_mol.GetNumConformers() > 0, "is_minimized": False}
-            elif operation_name == "protonate":
-                result_mol = protonated_by_id.get(ligand_id)
-                if result_mol is None:
-                    raise ValueError("The selected protonation method returned no structure.")
-                method = str(normalized_params.get("method") or "dimorphite")
-                output_path = artifact_path_for_existing(
-                    output_dir,
-                    role="ligand",
-                    source_path=source_path,
-                    artifact_name=f"protonated_{method}_{run_id}",
-                    suffix=".sdf",
-                )
-                _write_ligand_mol(result_mol, output_path)
-                current_relative_path = _relative_to_project_root(output_path, project_root=project_root)
-                current_model_index = current_model_index if result_mol.GetNumConformers() > 0 else None
-                state = {"has_hs": True, "has_3d": result_mol.GetNumConformers() > 0, "is_minimized": False}
-            elif operation_name == "generate_3d":
-                result_mol = generate_ligand_3d(
-                    mol,
-                    add_hs=bool(normalized_params.get("add_hs", True)),
-                    random_seed=int(normalized_params.get("random_seed", 0xF00D)),
-                    optimize=bool(normalized_params.get("optimize", True)),
-                    fragment_mode=str(normalized_params.get("fragment_mode") or "largest_organic"),
-                    filter_metals=bool(normalized_params.get("filter_metals", True)),
-                    filter_simple_ions=bool(normalized_params.get("filter_simple_ions", True)),
-                )
-                current_model_index = next_index
-                output_path = artifact_path_for_existing(
-                    output_dir,
-                    role="ligand",
-                    source_path=source_path,
-                    artifact_name=f"model_{current_model_index}_{run_id}",
-                    suffix=".sdf",
-                )
-                _write_ligand_mol(result_mol, output_path)
-                current_relative_path = _relative_to_project_root(output_path, project_root=project_root)
-                generated_is_minimized = (
-                    result_mol.GetBoolProp("_amdock_is_minimized")
-                    if result_mol.HasProp("_amdock_is_minimized")
-                    else False
-                )
-                model_rows.append(
-                    {
-                        **MoleculeModel.build_row(
-                            molecule_id=ligand_id,
-                            model_index=int(current_model_index),
-                            file_path=current_relative_path,
-                            source=ModelSource.RDKIT,
-                            energy=None,
-                        )
-                    }
-                )
-                state = {
-                    "has_hs": bool(normalized_params.get("add_hs", True)),
-                    "has_3d": result_mol.GetNumConformers() > 0,
-                    "is_minimized": bool(generated_is_minimized),
-                }
-            elif operation_name == "conformers":
-                result_mol, _conf_ids = generate_conformer_ensemble(
-                    mol,
-                    num_conformers=int(normalized_params.get("num_conformers", 20)),
-                    add_hs=bool(normalized_params.get("add_hs", True)),
-                    random_seed=int(normalized_params.get("random_seed", 0xF00D)),
-                    prune_rms_thresh=float(normalized_params.get("prune_rms_thresh", 0.5)),
-                    optimize=bool(normalized_params.get("optimize", True)),
-                )
+            if last_name == "conformers":
                 model_rows, current_relative_path, current_model_index = _write_ligand_conformer_files(
-                    result_mol,
+                    result,
                     output_dir=output_dir,
                     source_path=source_path,
                     start_index=next_index,
@@ -301,50 +271,58 @@ def transform_ligand_rows(
                 )
                 for model_row in model_rows:
                     model_row["molecule_id"] = ligand_id
-                state = {
-                    "has_hs": bool(normalized_params.get("add_hs", True)),
-                    "has_3d": result_mol.GetNumConformers() > 0,
-                    "is_minimized": bool(normalized_params.get("optimize", True)),
-                }
                 output_path = project_root / str(current_relative_path or "")
             else:
-                result_mol = minimize_ligand_molecule(
-                    mol,
-                    forcefield=str(normalized_params.get("forcefield", "mmff")),
-                    max_iters=int(normalized_params.get("max_iters", 200)),
-                )
-                current_model_index = next_index
+                if last_name == "generate_3d":
+                    current_model_index = next_index
+                    artifact_name = f"model_{current_model_index}_{run_id}"
+                elif last_name == "minimize":
+                    current_model_index = next_index
+                    artifact_name = f"minimized_{current_model_index}"
+                else:
+                    # standardize / protonate keep whatever model was current, unless the
+                    # result has no coordinates at all.
+                    current_model_index = current_model_index if result.GetNumConformers() > 0 else None
+                    artifact_name = (
+                        f"standardized_{run_id}"
+                        if last_name == "standardize"
+                        else f"protonated_{last_params.get('method') or 'dimorphite'}_{run_id}"
+                    )
                 output_path = artifact_path_for_existing(
                     output_dir,
                     role="ligand",
                     source_path=source_path,
-                    artifact_name=f"minimized_{current_model_index}",
+                    artifact_name=artifact_name,
                     suffix=".sdf",
                 )
-                _write_ligand_mol(result_mol, output_path)
+                _write_ligand_mol(result, output_path)
                 current_relative_path = _relative_to_project_root(output_path, project_root=project_root)
-                model_rows.append(
-                    MoleculeModel.build_row(
-                        molecule_id=ligand_id,
-                        model_index=int(current_model_index),
-                        file_path=current_relative_path,
-                        source=ModelSource.RDKIT,
-                        energy=None,
+                if last_name in {"generate_3d", "minimize"}:
+                    model_rows.append(
+                        MoleculeModel.build_row(
+                            molecule_id=ligand_id,
+                            model_index=int(current_model_index),
+                            file_path=current_relative_path,
+                            source=ModelSource.RDKIT,
+                            energy=None,
+                        )
                     )
-                )
-                state = {"has_hs": True, "has_3d": True, "is_minimized": True}
 
+            state = {
+                **_ligand_state(resolved_steps, result),
+                "conformer_count": result.GetNumConformers(),
+            }
             updates.append(
                 {
                     "entity_id": ligand_id,
-                    "extra_data": merge_chemistry_metadata(metadata, operation=operation_name, path=output_path, source_path=source_path, params=normalized_params, state={**state, "conformer_count": result_mol.GetNumConformers()}, promote_current=operation_name != "conformers"),
-                    "operation_kind": f"chemistry_{operation_name}",
+                    "extra_data": merge_chemistry_metadata(metadata, operation=operation_label, path=output_path, source_path=source_path, params=normalized_params, state=state, promote_current=last_name != "conformers"),
+                    "operation_kind": f"chemistry_{operation_label}",
                     "current_path": str(current_relative_path or row.get("current_path") or ""),
                     "current_model_index": None if current_model_index is None else int(current_model_index),
-                    "state": {**state, "conformer_count": result_mol.GetNumConformers()},
+                    "state": state,
                     "model_rows": model_rows,
                     "operation_params": {
-                        "operation": operation_name,
+                        "operation": operation_label,
                         "source_path": str(source_path),
                         "output_path": str(output_path),
                         "current_path": str(current_relative_path or row.get("current_path") or ""),
@@ -360,8 +338,6 @@ def transform_ligand_rows(
                     "error": str(exc),
                 }
             )
-        if progress_cb is not None:
-            progress_cb((index / max(1, len(row_list))) * 100.0)
     return {
         "updates": updates,
         "failure_count": len(failed_rows),

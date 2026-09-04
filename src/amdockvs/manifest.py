@@ -7,6 +7,9 @@ from amdockvs.constants import (
     AMDOCKVS_SCOPE_ID,
 )
 
+# No `project_fields`: the campaign mode used to be one, asked before the project held any data.
+# It is derived now (`molecules.store.library_kind`) — a project is a campaign because it holds
+# shards, and that is decided at import, where the library actually is.
 manifest = AppManifest(
     app_id=AMDOCKVS_APP_ID,
     scope_id=AMDOCKVS_SCOPE_ID,

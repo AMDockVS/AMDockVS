@@ -1,65 +1,21 @@
 from __future__ import annotations
 
-import hashlib
-import json
-from uuid import uuid4
-
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer
-from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import (
-    QAbstractItemView,
-    QCheckBox,
     QComboBox,
-    QFormLayout,
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QListWidget,
-    QListWidgetItem,
     QMessageBox,
-    QPushButton,
     QScrollArea,
     QSizePolicy,
     QSpinBox,
-    QSplitter,
-    QStackedWidget,
-    QTabWidget,
-    QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
-    QWidget, QGridLayout,
+    QWidget,
 )
-from amdockvs.ui.async_query import run_async
-from amdockvs.ui.widgets import right_aligned, split_button
-from amdockvs.ui.resources.icons import icon as load_icon
-from amdockvs.ui.catalog.common import BoundTableWidget
 from amdockvs.ui.catalog.ligands import LIGANDS_VIEW_ID
 from amdockvs.ui.catalog.receptors import RECEPTOR_VIEW_ID
-from amdockvs.ui.catalog.binding_sites import BINDING_SITES_VIEW_ID
-from amdockvs.ui.tools.molecules.build import BUILD_ID
-from amdockvs.constants import DEFAULT_LOCAL_CPU_EXECUTOR
-from amdockvs.docking.protocols import PROTOCOL_SCHEMA, protocol_hash, protocol_identity
-from amdockvs.docking.programs import GNINA_PROGRAM, VINA_PROGRAM, list_docking_programs
-from amdockvs.models import EngineState
-from amdockvs.vocab import MoleculeType
-from ms_components.ms_table import (
-    AlignHint,
-    ColumnDef,
-    ColumnKind,
-    FilterOperator,
-    FilterSpec,
-    SortSpec,
-    TableConfig,
-    TableLoadMode,
-)
 from ms_components.ms_stepper import Orientation, QStepper
 
 DOCKING_VIEW_ID = "workspace.docking"
 PREP_STATUS_VIEW_ID = "workspace.prep_status"
-DEFAULT_PROGRAM = VINA_PROGRAM.key
-MAX_REDOCKING_PROTOCOLS = 12
-# Non-terminal job statuses — a docking job in any of these is "live" for duplicate detection.
-_ACTIVE_JOB_STATUSES = ("pending", "running", "staging", "cancel_requested")
 
 from amdockvs.ui.tools.docking.flexible_residues import FlexibleResiduesPanel
 from amdockvs.ui.tools.docking.preparation_panel import EngineStatePrepView, PreparationPanel
@@ -68,13 +24,6 @@ from amdockvs.ui.tools.docking.run_panel import RunPanel
 from amdockvs.ui.tools.docking.scope_panel import ScopePanel
 from amdockvs.docking.readiness import DockingReadinessService
 from amdockvs.docking.submission import DockingSubmissionService
-
-def _spinbox(*, minimum: int, maximum: int, value: int) -> QSpinBox:
-    widget = QSpinBox()
-    widget.setRange(minimum, maximum)
-    widget.setValue(value)
-    return widget
-
 
 class _WheelGuard(QObject):
     """Swallow wheel events on combos/spinboxes unless they have focus.
@@ -102,17 +51,13 @@ class DockingStudioWidget(
 ):
     # Cap on remembered selected ids per side (ligands/receptors) — a few thousand ints is
     # negligible RAM; beyond this the user almost certainly means "All" anyway.
-    _SELECTION_CAP = 2000
-
     def __init__(self, *, runtime, parent=None):
         super().__init__(parent)
         self.runtime = runtime
         self.readiness_service = DockingReadinessService(runtime)
         self.submission_service = DockingSubmissionService(runtime)
-        # Sticky selection memory: dynamic tables drop their Qt selection on scroll/refresh (and
-        # preparation clears it), so we remember the marked ids here. Capped to bound RAM.
-        self._selected_receptor_ids: list[int] = []
-        self._selected_ligand_ids: list[int] = []
+        # Selection lives in the mark store, not here: Qt's selection dies on scroll/refresh
+        # and preparation clears it. See ui/marks.py and ScopePanel's _selected_* properties.
         # The catalog Ligands table we're currently listening to (see _bind_ligand_table_signals).
         self._bound_ligand_table = None
         self._bound_receptor_table = None
@@ -294,12 +239,9 @@ class DockingStudioWidget(
                 if int(getattr(receptor, "id", 0) or 0) > 0
             }
         )
-        # Ignore empty updates: scroll/refresh/prepare clear the Qt selection — that's not the
-        # user deselecting everything, so keep the last real pick.
-        if ids:
-            self._selected_receptor_ids = ids[: self._SELECTION_CAP]
-        if self._focused_receptor_id is None and self._selected_receptor_ids:
-            self._focused_receptor_id = self._selected_receptor_ids[0]
+        # Highlighting a row only moves the PyMOL focus; what the run acts on is the marks.
+        if self._focused_receptor_id is None and ids:
+            self._focused_receptor_id = ids[0]
         self._req_preview_timer.start()
 
     def showEvent(self, event):

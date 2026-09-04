@@ -127,7 +127,7 @@ class AuxiliaryPanelController:
             # An occupant's size hint is tall enough to swallow the table on the first show;
             # seed a 70/30 split once. After that the splitter keeps whatever you drag.
             self._seeded = True
-            splitter = self.w.central_widget.central_widget
+            splitter = self.w.central_widget.content_splitter
             height = splitter.height()
             splitter.setSizes([height * 7 // 10, height * 3 // 10])
 

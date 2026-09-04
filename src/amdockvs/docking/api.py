@@ -325,25 +325,30 @@ class DockingAPI:
         # The offenders are only ever counted or shown to a user, so fetch a sample, not the
         # whole list: on a million-ligand library the full list is both the slow part and an
         # unreadable error message.
-        missing_has_3d = entity_ids(
-            project_db,
-            entity_kind="ligand",
-            engine=prep_engine,
-            set_id=set_id,
-            filters={**ligand_filters, "has_3d": False},
-            limit=MISSING_SAMPLE_SIZE + 1,
-        )
-        missing_total = (
-            len(missing_has_3d)
-            if len(missing_has_3d) <= MISSING_SAMPLE_SIZE
-            else count_entity_rows(
+        # The program says whether it needs coordinates: Meeko does, DiffDock docks from the
+        # SMILES. Asking anyway would block a program on a precondition it does not have.
+        missing_has_3d: list[int] = []
+        missing_total = 0
+        if program_spec.requires_ligand_3d:
+            missing_has_3d = entity_ids(
                 project_db,
                 entity_kind="ligand",
                 engine=prep_engine,
                 set_id=set_id,
                 filters={**ligand_filters, "has_3d": False},
+                limit=MISSING_SAMPLE_SIZE + 1,
             )
-        )
+            missing_total = (
+                len(missing_has_3d)
+                if len(missing_has_3d) <= MISSING_SAMPLE_SIZE
+                else count_entity_rows(
+                    project_db,
+                    entity_kind="ligand",
+                    engine=prep_engine,
+                    set_id=set_id,
+                    filters={**ligand_filters, "has_3d": False},
+                )
+            )
         return {
             "ready": bool(total) and not missing_has_3d,
             "operation": program_spec.operation_name("prepare_ligands"),
@@ -729,8 +734,18 @@ class DockingAPI:
             skip_existing: bool = True,
             compute_diagram: bool = False,
             diagram_format: str = "png",
+            hit_threshold: float | None = None,
+            hit_cap: int = 0,
     ) -> str:
+        """`hit_threshold`/`hit_cap`: keep only poses at or under the threshold, and stop the run
+        once `hit_cap` rows are written. Both off by default; a capped run needs both, since a
+        cap alone would just truncate the library in feed order."""
         self.runtime._require_active_project()
+        if hit_cap and hit_threshold is None:
+            raise ValueError(
+                "docking.run needs hit_threshold when hit_cap is set: the threshold is the "
+                "scientific criterion, the cap is only what makes the run end."
+            )
         program_spec = self.get_program_spec(program)
         ligand_set_ref = None if ligand_set is None or isinstance(ligand_set,
                                                                   MoleculeScope) else ensure_molecule_set_ref(
@@ -826,6 +841,8 @@ class DockingAPI:
             skip_existing=skip_existing,
             compute_diagram=bool(compute_diagram),
             diagram_format=str(diagram_format or "png"),
+            hit_threshold=hit_threshold,
+            hit_cap=max(0, int(hit_cap)),
         )
         return self.runtime.submit_job(
             docking_job,

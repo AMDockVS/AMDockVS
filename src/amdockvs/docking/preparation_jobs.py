@@ -13,7 +13,7 @@ from ms_flow.tasking import JobSpec
 
 from amdockvs.configuration import batch_size_for
 from amdockvs.api_common import project_root_from_output_dir, worker_output_dir, worker_path_fields
-from amdockvs.constants import AMDOCKVS_LOCAL_EXECUTORS
+from amdockvs.constants import AMDOCKVS_LOCAL_EXECUTORS, OUTPUT_FLUSH_EVERY
 from amdockvs.docking.repository import (
     iter_entity_rows,
     molecule_scope_spec,
@@ -280,7 +280,7 @@ class _PrepareEntitiesJobSpec(JobSpec):
     executor = "compute"
     supported_executors = AMDOCKVS_LOCAL_EXECUTORS
     output_spec = ENGINE_STATE_UPSERT
-    output_flush_every = 1
+    output_flush_every = OUTPUT_FLUSH_EVERY
     store_results = False
 
     @staticmethod

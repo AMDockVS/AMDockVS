@@ -7,13 +7,15 @@ from typing import Any, Iterator
 
 from pydantic import BaseModel, Field
 
-from ms_flow.sinks import graph_sink
+from ms_flow.sinks import graph_sink, table_sink
 from ms_flow.tasking import job, task
 
-from amdockvs.constants import AMDOCKVS_LOCAL_EXECUTORS
+from amdockvs.constants import AMDOCKVS_LOCAL_EXECUTORS, OUTPUT_FLUSH_EVERY
+from amdockvs.molecules.store import ShardStore, shard_scope_spec, store_from_config
 from amdockvs.api_common import (
     project_root_from_output_dir,
     restore_worker_paths,
+    worker_file,
     worker_output_dir,
     worker_path_fields,
 )
@@ -25,9 +27,12 @@ from amdockvs.chemistry.repository import (
     resolve_ligand_storage_dir,
     resolve_receptor_storage_dir,
 )
+from amdockvs.chemistry.pipeline import normalize_steps
 from amdockvs.chemistry.service import transform_ligand_rows, transform_receptor_rows
-from amdockvs.models import MoleculeModel, MoleculeRecord
+from amdockvs.chemistry.shards import transform_ligand_shard
+from amdockvs.models import MoleculeModel, MoleculeRecord, ScreeningShard
 from amdockvs.molecule_paths import set_default_project_root
+from amdockvs.vocab import ShardState
 
 
 # Chemistry operations update existing molecules (upsert by id) and may add new
@@ -87,7 +92,9 @@ def _chemistry_graph_payload(updates: list[dict[str, Any]]) -> dict[str, list[di
 
 
 class LigandChemistryJobParams(BaseModel):
-    operation: str
+    # A bare name, or a step list `[["standardize", {}], ["protonate", {"ph": 7.4}]]`. The
+    # service normalizes both, so a one-step call stays `operation="protonate"`.
+    operation: str | list[Any]
     batch_size: int = Field(default=128, ge=1)
     ligand_set_id: int | None = Field(default=None, ge=1)
     ligand_filters: dict[str, Any] = Field(default_factory=dict)
@@ -135,6 +142,7 @@ def _iter_ligand_chemistry_batches(
     db_path: Path,
     output_dir: Path,
     params: LigandChemistryJobParams,
+    store=None,
 ) -> Iterator[dict[str, Any]]:
     return _chemistry_batches(
         project_db=project_db,
@@ -142,12 +150,13 @@ def _iter_ligand_chemistry_batches(
         output_dir=output_dir,
         params=params,
         rows=iter_ligand_rows(
-            project_db,
+            store or project_db,
             ligand_set_id=params.ligand_set_id,
             filters=params.ligand_filters,
             batch_size=params.batch_size,
         ),
-        gpu=params.operation == "protonate" and bool(params.params.get("gpu")),
+        gpu=any(name == "protonate" for name, _ in normalize_steps(params.operation))
+        and bool(params.params.get("gpu")),
     )
 
 
@@ -183,7 +192,7 @@ def ligand_chemistry_task(payload: dict, progress_cb=None):
     set_default_project_root(project_root_from_output_dir(output_dir))
     rows = list(payload.get("rows") or [])
     result = transform_ligand_rows(
-        operation=str(payload.get("operation") or ""),
+        operations=payload.get("operation") or "",
         output_dir=output_dir,
         rows=rows,
         params=dict(payload.get("params") or {}),
@@ -238,7 +247,7 @@ def receptor_chemistry_task(payload: dict, progress_cb=None):
     executor="compute",
     supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
     output_spec=CHEMISTRY_GRAPH_OUTPUT,
-    output_flush_every=1,
+    output_flush_every=OUTPUT_FLUSH_EVERY,
     store_results=False,
 )
 def ligand_chemistry_job(params: dict, config: dict | None = None) -> Iterator[dict[str, Any]]:
@@ -252,6 +261,7 @@ def ligand_chemistry_job(params: dict, config: dict | None = None) -> Iterator[d
         db_path=project_db_path(project_db),
         output_dir=resolve_ligand_storage_dir(config_map),
         params=parsed,
+        store=store_from_config(config_map),
     )
 
 
@@ -262,7 +272,7 @@ def ligand_chemistry_job(params: dict, config: dict | None = None) -> Iterator[d
     executor="compute",
     supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
     output_spec=CHEMISTRY_GRAPH_OUTPUT,
-    output_flush_every=1,
+    output_flush_every=OUTPUT_FLUSH_EVERY,
     store_results=False,
 )
 def receptor_chemistry_job(params: dict, config: dict | None = None) -> Iterator[dict[str, Any]]:
@@ -279,6 +289,73 @@ def receptor_chemistry_job(params: dict, config: dict | None = None) -> Iterator
     )
 
 
+class ShardChemistryJobParams(BaseModel):
+    """The same step list as the row pipeline, run over shards instead of rows."""
+
+    operation: str | list[Any]
+    params: dict[str, Any] = Field(default_factory=dict)
+    # Which shards to feed. `pending` is the idempotent default: a shard that finished is
+    # already `done`, so re-running the job after a crash resumes instead of recomputing.
+    state: str = ShardState.PENDING
+
+
+@task(
+    name="amdock_shard_chemistry",
+    description="Run the ligand chemistry pipeline over one shard file.",
+    executor="compute",
+    supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
+)
+def shard_chemistry_task(payload: dict, progress_cb=None) -> list[dict]:
+    shard_path = Path(str(payload["shard_path"])).expanduser().resolve()
+    output_path = Path(str(payload["output_dir"])).expanduser().resolve() / shard_path.name
+    stats = transform_ligand_shard(shard_path, output_path, payload["steps"])
+    # A shard whose molecules all failed is still a done shard: it holds zero records now.
+    return [{
+        "source": payload["source"],
+        "shard_index": int(payload["shard_index"]),
+        "path": str(output_path),
+        "n_records": int(stats["n_records"]),
+        "state": ShardState.DONE,
+        "error": "" if not stats["n_failed"] else f"{stats['n_failed']} of {stats['n_input']} molecules failed",
+        "updated_at": datetime.now(),
+    }]
+
+
+@job(
+    task=shard_chemistry_task,
+    name="amdock_shard_chemistry_job",
+    params_model=ShardChemistryJobParams,
+    executor="compute",
+    supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
+    output_spec=table_sink(
+        model=ScreeningShard, write_mode="upsert", conflict_keys=("source", "shard_index")
+    ),
+    output_flush_every=OUTPUT_FLUSH_EVERY,
+    store_results=False,
+)
+def shard_chemistry_job(params: dict, config: dict | None = None) -> Iterator[dict[str, Any]]:
+    """One shard per chunk: one file in, one file out, one CPU."""
+    parsed = ShardChemistryJobParams(**params)
+    config_map = dict(config or {})
+    project_db = config_map.get("project_db")
+    if project_db is None:
+        raise ValueError("shard_chemistry_job requires project_db in config.")
+    steps = normalize_steps(parsed.operation)
+    label = "+".join(name for name, _ in steps)
+    resolved_steps = [(name, {**dict(parsed.params or {}), **step_params}) for name, step_params in steps]
+    for row in ShardStore(project_db).iter_rows(shard_scope_spec(state=parsed.state)):
+        shard_path = Path(str(row.get("path") or ""))
+        yield {
+            "shard_path": worker_file(shard_path),
+            # Beside the input, in a folder named after the pipeline: the shard the docking
+            # reads is whatever `path` points at now, and the original is still there.
+            "output_dir": worker_output_dir(shard_path.parent / label),
+            "source": str(row.get("source") or ""),
+            "shard_index": int(row.get("shard_index") or 0),
+            "steps": resolved_steps,
+        }
+
+
 __all__ = [
     "LigandChemistryJobParams",
     "ReceptorChemistryJobParams",
@@ -286,4 +363,7 @@ __all__ = [
     "ligand_chemistry_task",
     "receptor_chemistry_job",
     "receptor_chemistry_task",
+    "ShardChemistryJobParams",
+    "shard_chemistry_job",
+    "shard_chemistry_task",
 ]

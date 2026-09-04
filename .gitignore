@@ -266,3 +266,4 @@ chunk_payloads/
 scripts/*
 !scripts/README.md
 !scripts/build_tools_check.py
+!scripts/bootstrap_ray_worker.py

@@ -1,13 +1,7 @@
 from __future__ import annotations
 
-import hashlib
-import json
-from uuid import uuid4
-
-from PySide6.QtCore import QEvent, QObject, Qt, QTimer
-from PySide6.QtGui import QFontDatabase
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QAbstractItemView,
     QCheckBox,
     QComboBox,
     QFormLayout,
@@ -16,32 +10,18 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
-    QMessageBox,
-    QPushButton,
-    QScrollArea,
-    QSizePolicy,
     QSpinBox,
-    QSplitter,
     QStackedWidget,
-    QTabWidget,
-    QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
-    QWidget, QGridLayout,
+    QWidget,
 )
-from amdockvs.ui.async_query import run_async
 from amdockvs.ui.widgets import right_aligned, split_button
-from amdockvs.ui.resources.icons import icon as load_icon
 from amdockvs.ui.catalog.common import BoundTableWidget
 from amdockvs.ui.catalog.ligands import LIGANDS_VIEW_ID
 from amdockvs.ui.catalog.receptors import RECEPTOR_VIEW_ID
-from amdockvs.ui.catalog.binding_sites import BINDING_SITES_VIEW_ID
-from amdockvs.ui.tools.molecules.build import BUILD_ID
 from amdockvs.constants import DEFAULT_LOCAL_CPU_EXECUTOR
-from amdockvs.docking.protocols import PROTOCOL_SCHEMA, protocol_hash, protocol_identity
-from amdockvs.docking.programs import GNINA_PROGRAM, VINA_PROGRAM, list_docking_programs
+from amdockvs.docking.programs import list_docking_programs
 from amdockvs.models import EngineState
-from amdockvs.vocab import MoleculeType
 from ms_components.ms_table import (
     AlignHint,
     ColumnDef,
@@ -52,14 +32,8 @@ from ms_components.ms_table import (
     TableConfig,
     TableLoadMode,
 )
-from ms_components.ms_stepper import Orientation, QStepper
 
-DOCKING_VIEW_ID = "workspace.docking"
 PREP_STATUS_VIEW_ID = "workspace.prep_status"
-DEFAULT_PROGRAM = VINA_PROGRAM.key
-MAX_REDOCKING_PROTOCOLS = 12
-# Non-terminal job statuses — a docking job in any of these is "live" for duplicate detection.
-_ACTIVE_JOB_STATUSES = ("pending", "running", "staging", "cancel_requested")
 
 def _prep_error_message(files: object) -> str:
     if not isinstance(files, dict):
@@ -115,7 +89,7 @@ def _engine_state_table_config(*, role_type: str) -> TableConfig:
 
 # Ligand and receptor prep status were two registered views over the same `engines` table,
 # one filter value apart. They are one view with a role selector instead.
-_PREP_ROLES = (("Ligands", "ligand"), ("Receptors", "receptor"))
+_PREP_ROLES = (("Receptors", "receptor"), ("Ligands", "ligand"))
 
 
 class EngineStatePrepView(BoundTableWidget):
@@ -158,22 +132,6 @@ def _spinbox(*, minimum: int, maximum: int, value: int) -> QSpinBox:
     return widget
 
 
-class _WheelGuard(QObject):
-    """Swallow wheel events on combos/spinboxes unless they have focus.
-
-    Inside a scroll area, the wheel otherwise changes the value under the cursor
-    instead of scrolling the page. With StrongFocus + this filter, the widget only
-    reacts to the wheel after you click into it; otherwise the wheel scrolls.
-    """
-
-    def eventFilter(self, obj, event) -> bool:
-        if event.type() == QEvent.Type.Wheel and not obj.hasFocus():
-            return True
-        return super().eventFilter(obj, event)
-
-
-
-
 class PreparationPanel:
     """Ligand/receptor preparation component and preparation-status view."""
 
@@ -181,27 +139,10 @@ class PreparationPanel:
         page = QWidget(self)
         layout = QVBoxLayout(page)
 
-        # ONE scope selector (no separate source + prepare-scope combos, which could
-        # contradict each other). Each mode resolves to a transient MoleculeScope used for
-        # BOTH preparation and docking. Selected/Filtered are constrained by experiment:
-        # docking uses general ligands, redocking uses reference ligands.
-
-        # No ligand table here: the catalog Ligands tab IS the table, kept in sync with this
-        # scope through _sync_ligand_table_filter. Per-engine prep status is its own tab
-        # (PREP_STATUS_VIEW_ID) — only the counts stay, on the scope line below.
-        row = QHBoxLayout()
-        row.addWidget(QLabel("Scope", page))
-        self.ligand_scope_combo = QComboBox(page)
-        # Only as wide as its longest entry.
-        self.ligand_scope_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
-        self._sync_ligand_scope_options()
-        self.ligand_scope_combo.currentIndexChanged.connect(self._on_ligand_mode_changed)
-        row.addWidget(self.ligand_scope_combo)
-        # row.addStretch(1)
-        layout.addLayout(row)
-
-        # Counts ("N ligand(s) · M prepared · K failed") on their own line under the selector,
-        # so a long status never squeezes the combo.
+        # No scope selector and no ligand table here: the catalog Ligands tab IS both. This
+        # step prepares exactly the rows that table is showing, and _sync_ligand_table_filter
+        # keeps the experiment combination (type + usage class) on it. Per-engine prep status
+        # is its own tab (PREP_STATUS_VIEW_ID) — only the counts stay, on the line below.
         self.ligand_scope_label = QLabel("Ligand scope unresolved.", page)
         self.ligand_scope_label.setWordWrap(True)
         layout.addWidget(self.ligand_scope_label)
@@ -352,23 +293,7 @@ class PreparationPanel:
         layout = QVBoxLayout(page)
 
         # Scope: the counts + a collapsible context panel (Flexible residues) for the receptor
-        # focused in the catalog table.
-        row = QHBoxLayout()
-        row.addWidget(QLabel("Scope", page))
-        self.receptor_scope_combo = QComboBox(page)
-        self.receptor_scope_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
-
-
-        self.receptor_scope_combo.addItem("Active (all receptors)", "active")
-        self.receptor_scope_combo.addItem("Selected (marked in table)", "selected")
-        self.receptor_scope_combo.addItem("Filtered (all matching table filter)", "filtered")
-
-        self.receptor_scope_combo.currentIndexChanged.connect(self._on_receptor_mode_changed)
-        row.addWidget(self.receptor_scope_combo)
-        # row.addStretch(1)
-        layout.addLayout(row)
-
-        # Status text on the scope row instead of a line of its own (same as the Ligands step).
+        # focused in the catalog table. The scope itself is set on the Receptors table.
         self.receptor_scope_label = QLabel("Receptor scope unresolved.", page)
         self.receptor_scope_label.setWordWrap(True)
         layout.addWidget(self.receptor_scope_label)
@@ -482,9 +407,6 @@ class PreparationPanel:
         form.addRow(note)
         return self._in_scroll(page)
 
-    def _on_receptor_mode_changed(self) -> None:
-        self.refresh()
-
     def _selected_receptor_prep_target(self) -> str | None:
         item = self.receptor_prep_target_list.currentItem()
         return item.data(Qt.UserRole) if item is not None else None
@@ -528,9 +450,6 @@ class PreparationPanel:
             return None
 
     def _scope_usage_class(self) -> str:
-        mode = self._ligand_scope_mode()
-        if mode in {"general", "reference"}:
-            return mode
         return "reference" if self._run_kind() == "redocking" else "general"
 
     def _sync_ligand_table_filter(self) -> None:
@@ -656,24 +575,10 @@ class PreparationPanel:
         self._clear_flex_panel()
         self.flex_box.setEnabled(False)
 
-    def _on_ligand_mode_changed(self) -> None:
-        self._sync_ligand_table_filter()
-        # Selected/Filtered are read off the catalog table, so it has to be on screen.
-        if self._ligand_scope_mode() in ("selected", "filtered"):
-            opener = getattr(self.window(), "open_or_focus_view", None)
-            if callable(opener):
-                opener(LIGANDS_VIEW_ID)
-        self.refresh()
-
     def _on_ligand_selection_changed(self, objects: list[object]) -> None:
-        ids = sorted(
-            {int(getattr(o, "id", 0) or 0) for o in list(objects or []) if int(getattr(o, "id", 0) or 0) > 0}
-        )
-        # Ignore empty (scroll/prepare clears the table selection, not the user's intent).
-        if ids:
-            self._selected_ligand_ids = ids[: self._SELECTION_CAP]
-        if self._ligand_scope_mode() == "selected":
-            self._req_preview_timer.start()
+        # Highlighting rows does not change the scope - narrowing the table does (right-click > Select).
+        # This only keeps the preview honest while the user works in the table.
+        self._req_preview_timer.start()
 
     def _prepare_ligands(self) -> None:
         ligand_scope = self._prep_ligand_scope()
@@ -694,9 +599,6 @@ class PreparationPanel:
             self._error("Prepare Ligands", exc)
             return
         self._append_status("Ligand Preparation Submitted", {"job_ids": job_ids})
-        # The job is queued and the step is done: reset the scope to its default (a stale
-        # "Selected" would silently narrow the run too) and move on to Receptors.
-        self.ligand_scope_combo.setCurrentIndex(0)
         self.stepper.set_current_index(2)
 
     def _prepare_receptors(self) -> None:

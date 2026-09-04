@@ -5,13 +5,17 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from amdockvs.io.jobs import (
+    DEFAULT_SHARD_SIZE,
     estimate_import_chunks,
+    shard_ligands_job,
     load_molecules_file_job,
     load_ligands_file_job,
     load_ligands_multithreaded_sdf_job,
     load_receptors_file_job,
 )
 from amdockvs.api_common import PathLike, group_files, normalize_files
+from amdockvs.molecules.store import LIBRARY_ROWS, LIBRARY_SHARDS, check_library_target
+from amdockvs.vocab import MoleculeType
 
 
 # The executor loop keeps at most this many chunks in flight per job. It must be
@@ -115,6 +119,10 @@ class LoaderAPI:
         normalized_files = normalize_files(files, label="ligand files")
         if not normalized_files:
             return []
+        # One screening library per project (see molecules/store.py). Curated ligands are not
+        # a library, so they are free to coexist with a sharded one.
+        if str(primary_context or "general") == "general" and str(molecule_kind) == MoleculeType.SMALL_MOLECULE:
+            check_library_target(self.runtime.molsuite.project_db, target=LIBRARY_ROWS)
         effective_prefilter = None if not prefilter else dict(prefilter)
         # One job streams all files (like receptors): N files no longer means N jobs.
         params = {
@@ -135,6 +143,44 @@ class LoaderAPI:
                 max_job_cpu=None if max_job_cpus is None else max(1, int(max_job_cpus)),
                 depends_on=depends_on,
                 total_chunks=_total_import_chunks(normalized_files, batch_size=max(1, int(batch_size))),
+                max_inflight_tasks=DEFAULT_IMPORT_MAX_INFLIGHT,
+            )
+        ]
+
+    def shard_ligands(
+        self,
+        files: Iterable[PathLike],
+        *,
+        shard_size: int = DEFAULT_SHARD_SIZE,
+        executor_name: str = "compute",
+        depends_on: list[str] | None = None,
+        molecule_kind: str = "small_molecule",
+        prefilter: Mapping[str, Any] | None = None,
+    ) -> list[str]:
+        """The `htpvs` import: split the library into shards, materialize nothing.
+
+        Same feed as `load_ligands` — the byte-span splitter — with the record cap read as
+        shard size. What changes is the worker: it writes the span back out as a file and
+        registers a `screening_shards` row instead of parsing molecules into the project db.
+        """
+        normalized_files = normalize_files(files, label="ligand files")
+        if not normalized_files:
+            return []
+        check_library_target(self.runtime.molsuite.project_db, target=LIBRARY_SHARDS)
+        params: dict[str, Any] = {
+            "file_paths": [str(file_path) for file_path in normalized_files],
+            "batch_size": max(1, int(shard_size)),
+            "molecule_kind": str(molecule_kind or "small_molecule"),
+        }
+        if prefilter:
+            params["prefilter"] = dict(prefilter)
+        return [
+            self._submit_job(
+                shard_ligands_job,
+                params=params,
+                executor_name=executor_name,
+                depends_on=depends_on,
+                total_chunks=_total_import_chunks(normalized_files, batch_size=max(1, int(shard_size))),
                 max_inflight_tasks=DEFAULT_IMPORT_MAX_INFLIGHT,
             )
         ]

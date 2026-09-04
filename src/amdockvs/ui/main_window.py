@@ -28,7 +28,6 @@ from amdockvs.ui.catalog import (
 )
 from amdockvs.ui.main_content import MainContentWidget
 from amdockvs.ui.monitor import MONITOR_JOBS_VIEW_ID, MonitorSummaryDockWidget, register_monitor_views
-from amdockvs.ui.notifications import INFO
 from amdockvs.ui.projects import ApplicationWidget
 from amdockvs.ui.resources.icons import icon as load_icon
 from amdockvs.ui.shell.auxiliary_panel import AuxiliaryPanelController
@@ -204,8 +203,8 @@ class AMDockVSMainWindow(QMainWindow):
         register_qsar_panels(self)
         register_workflow_panel(self)
         install_pymol_toolbar(self)
-        register_ligands_workspace(self)
         register_receptors_workspace(self)
+        register_ligands_workspace(self)
         register_binding_sites_workspace(self)
         register_complex_pairs_workspace(self)
         register_complexes_workspace(self)
@@ -247,6 +246,7 @@ class AMDockVSMainWindow(QMainWindow):
         so a fresh project has its first step in front of the user. Molecules is the
         union view — nothing is imported *as* a molecule, so it's a poor landing tab."""
         # open_view() only returns the tab if it already exists; opening is open_or_focus_view().
+        self.open_or_focus_view(RECEPTOR_VIEW_ID)
         self.open_or_focus_view(LIGANDS_VIEW_ID)
         self.open_or_focus_view(RECEPTOR_VIEW_ID)
 
@@ -467,32 +467,14 @@ class AMDockVSMainWindow(QMainWindow):
 
     # -- views / tools / auxiliary (delegating to the shell controllers) -----------
 
-    _TOOL_VIEW_IDS = ViewCoordinator.TOOL_VIEW_IDS
-    _STANDING_DATA_VIEWS = ViewCoordinator.STANDING_DATA_VIEWS
-    _TOOL_ACTIONS = ToolCoordinator.TOOL_ACTIONS
-    _TOOL_AUX_VIEWS = AuxiliaryPanelController.TOOL_AUX_VIEWS
-    _AUX_DETAILS = AuxiliaryPanelController.AUX_DETAILS
-
     def register_main_view(self, view_id: str, title: str, factory, *, on_close=None) -> None:
         self.views.register_main_view(view_id, title, factory, on_close=on_close)
 
     def open_or_focus_view(self, view_id: str) -> QWidget:
         return self.views.open_or_focus_view(view_id)
 
-    def open_view(self, view_id: str) -> QWidget | None:
-        return self.views.open_view(view_id)
-
-    def open_tool(self, view_id: str) -> QWidget:
-        return self.tools.open_tool(view_id)
-
-    def aux_view(self, view_id: str) -> QWidget | None:
-        return self.aux.page_for(view_id)
-
     def show_catalog_selection_details(self, kind: str, obj) -> None:
         self.aux.show_catalog_selection_details(kind, obj)
-
-    def _set_aux_occupant(self, *args) -> None:
-        self.aux.set_occupant(*args)
 
     def _on_current_view_changed(self, view_id: str) -> None:
         self.viewer.hide_grid_panel()
@@ -508,29 +490,6 @@ class AMDockVSMainWindow(QMainWindow):
             self.jobs.update_jobs_statusbar()
         self.views.sync_workflow_action(str(view_id), bool(is_open))
         self.views.sync_catalog_action(str(view_id), bool(is_open))
-
-    @property
-    def _active_tool(self):
-        return self.tools.active_tool
-
-    @property
-    def _tool_action_buttons(self):
-        return self.tools.action_buttons
-
-    def _on_tool_action(self, view_id: str, checked: bool) -> None:
-        self.tools.on_tool_action(view_id, checked)
-
-    @property
-    def _catalog_actions(self):
-        return self.views.catalog_actions
-
-    @property
-    def _catalog_toolbar(self):
-        return self.views.catalog_toolbar
-
-    @property
-    def _aux_occupant(self):
-        return self.aux.occupant
 
     # -- jobs, notifications and monitor -------------------------------------------
 
@@ -548,36 +507,6 @@ class AMDockVSMainWindow(QMainWindow):
         self.monitor_dock.show()
         self.jobs.update_jobs_statusbar()
 
-    def post_notification(self, title: str, text: str = "", level: str = INFO) -> None:
-        self.jobs.post_notification(title, text, level)
-
-    def open_notifications(self) -> None:
-        self.jobs.open_notifications()
-
-    @property
-    def _notifications(self):
-        return self.jobs.notifications
-
-    @property
-    def _notification_bell(self):
-        return self.jobs.notification_bell
-
-    @property
-    def _rows_loaded_views(self):
-        return self.jobs.rows_loaded_views
-
-    @property
-    def _view_refresh_timer(self):
-        return self.jobs.view_refresh_timer
-
-    _summarize_failure_message = staticmethod(JobFeedbackController._summarize_failure_message)
-
-    def _on_project_snapshot_updated(self, snapshot) -> None:
-        self.jobs.on_project_snapshot_updated(snapshot)
-
-    def _refresh_current_view_in_background(self) -> None:
-        self.jobs.refresh_current_view_in_background()
-
     # -- PyMOL viewer ---------------------------------------------------------------
 
     def load_hit_in_pymol(self, hit: DockingHitSummary, pose_rank: int = 1) -> None:
@@ -585,9 +514,6 @@ class AMDockVSMainWindow(QMainWindow):
         # The 2D diagram follows the same selection; it only reads a file path, so this is free
         # even when the dock is hidden.
         self.diagram_dock.show_hit(hit, pose_rank)
-
-    def _load_hit_in_pymol(self, hit: DockingHitSummary, pose_rank: int = 1) -> None:
-        self.viewer.load_hit(hit, pose_rank)
 
     def focus_receptor_in_pymol(self, receptor) -> None:
         self.viewer.focus_receptor_in_pymol(receptor)
@@ -644,9 +570,11 @@ class AMDockVSMainWindow(QMainWindow):
         if active_context is None:
             self.setWindowTitle("AMDockVS")
             self._status_bar.project_indicator.set_project(None)
+            self.views.sync_mode_badge()
             return
         self.setWindowTitle(f"AMDockVS - {active_context.name}")
         self._status_bar.project_indicator.set_project(active_context.name)
+        self.views.sync_mode_badge()
 
     def _on_application_project_requested(self, project_id: str) -> None:
         if self._app_widget is not None:

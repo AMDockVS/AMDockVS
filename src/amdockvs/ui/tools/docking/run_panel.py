@@ -1,85 +1,30 @@
 from __future__ import annotations
 
-import hashlib
-import json
 from uuid import uuid4
 
-from PySide6.QtCore import QEvent, QObject, Qt, QTimer
-from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import (
-    QAbstractItemView,
     QCheckBox,
-    QComboBox,
     QFormLayout,
     QGroupBox,
-    QHBoxLayout,
     QLabel,
-    QListWidget,
-    QListWidgetItem,
     QMessageBox,
     QPushButton,
-    QScrollArea,
-    QSizePolicy,
     QSpinBox,
-    QSplitter,
-    QStackedWidget,
-    QTabWidget,
-    QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget, QGridLayout,
 )
-from amdockvs.ui.async_query import run_async
-from amdockvs.ui.widgets import right_aligned, split_button
-from amdockvs.ui.resources.icons import icon as load_icon
-from amdockvs.ui.catalog.common import BoundTableWidget
-from amdockvs.ui.catalog.ligands import LIGANDS_VIEW_ID
-from amdockvs.ui.catalog.receptors import RECEPTOR_VIEW_ID
-from amdockvs.ui.catalog.binding_sites import BINDING_SITES_VIEW_ID
-from amdockvs.ui.tools.molecules.build import BUILD_ID
-from amdockvs.constants import DEFAULT_LOCAL_CPU_EXECUTOR
-from amdockvs.docking.protocols import PROTOCOL_SCHEMA, protocol_hash, protocol_identity
-from amdockvs.docking.programs import GNINA_PROGRAM, VINA_PROGRAM, list_docking_programs
-from amdockvs.models import EngineState
-from amdockvs.vocab import MoleculeType
-from ms_components.ms_table import (
-    AlignHint,
-    ColumnDef,
-    ColumnKind,
-    FilterOperator,
-    FilterSpec,
-    SortSpec,
-    TableConfig,
-    TableLoadMode,
-)
-from ms_components.ms_stepper import Orientation, QStepper
 
-DOCKING_VIEW_ID = "workspace.docking"
-PREP_STATUS_VIEW_ID = "workspace.prep_status"
-DEFAULT_PROGRAM = VINA_PROGRAM.key
-MAX_REDOCKING_PROTOCOLS = 12
-# Non-terminal job statuses — a docking job in any of these is "live" for duplicate detection.
-_ACTIVE_JOB_STATUSES = ("pending", "running", "staging", "cancel_requested")
+from amdockvs.constants import DEFAULT_LOCAL_CPU_EXECUTOR
+from amdockvs.docking.programs import VINA_PROGRAM
+from amdockvs.ui.async_query import run_async
+from amdockvs.ui.widgets import split_button
+from amdockvs.vocab import MoleculeType
 
 def _spinbox(*, minimum: int, maximum: int, value: int) -> QSpinBox:
     widget = QSpinBox()
     widget.setRange(minimum, maximum)
     widget.setValue(value)
     return widget
-
-
-class _WheelGuard(QObject):
-    """Swallow wheel events on combos/spinboxes unless they have focus.
-
-    Inside a scroll area, the wheel otherwise changes the value under the cursor
-    instead of scrolling the page. With StrongFocus + this filter, the widget only
-    reacts to the wheel after you click into it; otherwise the wheel scrolls.
-    """
-
-    def eventFilter(self, obj, event) -> bool:
-        if event.type() == QEvent.Type.Wheel and not obj.hasFocus():
-            return True
-        return super().eventFilter(obj, event)
 
 
 from amdockvs.docking.planning import (
@@ -93,8 +38,6 @@ from amdockvs.docking.planning import (
 class RunPanel:
     """Readiness summary, validation and docking launch component."""
 
-
-
     def _build_preview_run_tab(self) -> QWidget:
         page = QWidget(self)
         layout = QVBoxLayout(page)
@@ -105,21 +48,14 @@ class RunPanel:
 
         run_scope_layout = QGridLayout(self.req_box)
 
+        # No scope selector: the run covers whatever the catalog tables are scoped to.
         run_scope_layout.addWidget(QLabel("Ligands:", page), 0, 0)
-        self.run_ligand_scope_combo = QComboBox(page)
-        self.run_ligand_scope_combo.addItem("All prepared", "all")
-        self.run_ligand_scope_combo.addItem("Selected", "selected")
-        run_scope_layout.addWidget(self.run_ligand_scope_combo, 0, 1)
         self.req_ligands_count = QLabel("—", page)  # prepared / total
-        run_scope_layout.addWidget(self.req_ligands_count, 0, 2, alignment=Qt.AlignmentFlag.AlignCenter)
+        run_scope_layout.addWidget(self.req_ligands_count, 0, 1, 1, 2)
 
         run_scope_layout.addWidget(QLabel("Receptors:", page), 1, 0)
-        self.run_receptor_scope_combo = QComboBox(page)
-        self.run_receptor_scope_combo.addItem("All prepared", "all")
-        self.run_receptor_scope_combo.addItem("Selected", "selected")
-        run_scope_layout.addWidget(self.run_receptor_scope_combo, 1, 1)
         self.req_receptors_count = QLabel("—", page)  # prepared / total
-        run_scope_layout.addWidget(self.req_receptors_count, 1, 2, alignment=Qt.AlignmentFlag.AlignCenter)
+        run_scope_layout.addWidget(self.req_receptors_count, 1, 1, 1, 2)
 
         # What the run actually costs: one docking per (ligand, receptor, protocol).
         run_scope_layout.addWidget(QLabel("Dockings:", page), 2, 0)
@@ -129,9 +65,6 @@ class RunPanel:
             "that already have a result for the same protocol are not run again."
         )
         run_scope_layout.addWidget(self.req_pairs_count, 2, 1, 1, 2)
-
-        self.run_ligand_scope_combo.currentIndexChanged.connect(lambda _i: self._check_requirements())
-        self.run_receptor_scope_combo.currentIndexChanged.connect(lambda _i: self._check_requirements())
 
         self.check_status_label = QLabel("Open this step to check.", page)
         self.check_status_label.setWordWrap(True)
@@ -203,21 +136,15 @@ class RunPanel:
             "run_kind": self._run_kind(),
             "receptor_type": self._receptor_type(),
             "ligand_type": self._ligand_type(),
-            "lig_mode": self._ligand_scope_mode(),
-            "rec_mode": self._receptor_scope_mode(),
-            "sel_lig": self._selection_ligand_ids(),
-            "filt_lig": self._filtered_ligand_ids(),
-            "sel_rec": list(self._selected_receptor_ids),
-            "filt_rec": self._filtered_receptor_ids(),
+            "sel_lig": self._selected_ligand_ids,
+            "sel_rec": self._selected_receptor_ids,
             "focused": self._focused_receptor_id,
             "prep_engines": self._selected_prep_engines(),
             "programs_chosen": bool(self._selected_protocols()),
         }
         sig = (
             step, inputs["program"], inputs["run_kind"], inputs["receptor_type"], inputs["ligand_type"],
-            inputs["lig_mode"], inputs["rec_mode"],
-            tuple(inputs["sel_lig"]), tuple(inputs["filt_lig"]),
-            tuple(inputs["sel_rec"]), tuple(inputs["filt_rec"]),
+            tuple(inputs["sel_lig"]), tuple(inputs["sel_rec"]),
             inputs["focused"], inputs["programs_chosen"], tuple(inputs["prep_engines"]),
         )
         if not force and sig == self._last_refresh_sig:
@@ -258,10 +185,7 @@ class RunPanel:
 
         if step == 1:  # Ligands — just the scope label.
             lig_scope = self._resolve_ligand_scope(
-                inp["lig_mode"],
-                inp["sel_lig"],
-                inp["filt_lig"],
-                run_kind=inp.get("run_kind", "docking"),
+                inp["sel_lig"], run_kind=inp.get("run_kind", "docking")
             )
             data["ligands_total"] = self.runtime.molecules.count(lig_scope)
             # One count per preparation family (K is the number of distinct engines, today 1):
@@ -282,7 +206,6 @@ class RunPanel:
                 self._count_failed_preparations(lig_scope, role_type="ligand", engine=engine)
                 for engine in inp["prep_engines"]
             )
-            data["lig_mode"] = inp["lig_mode"]
             return data
 
         if step == 3:  # Preview & Run — NO automatic scan at all; verification is explicit.
@@ -291,21 +214,14 @@ class RunPanel:
         # Receptors (2): cards + receptor scope label + receptor-only prep/grid status. Receptor
         # sets are small, so no ligand scan and no full requirement check here.
         self._fill_receptor_data(inp, data)
-        receptor_ids = self._resolve_receptor_ids(
-            inp["rec_mode"], inp["sel_rec"], inp["filt_rec"], inp["focused"]
-        )
-        data["preview"] = self._compute_receptor_preview(inp, receptor_ids)
+        data["preview"] = self._compute_receptor_preview(inp, self._resolve_receptor_ids(inp["sel_rec"]))
         return data
 
     def _fill_receptor_data(self, inp: dict, data: dict) -> None:
         # receptors_total is used only as a presence/gate signal + scope label; prep/grid
         # readiness comes from the check_receptors preview, so no extra prepared-count query here.
         data["receptors_total"] = self.runtime.molecules.count(self._receptor_scope())
-        receptor_ids = self._resolve_receptor_ids(
-            inp["rec_mode"], inp["sel_rec"], inp["filt_rec"], inp["focused"]
-        )
-        rec_label_scope = self._resolve_receptor_scope_for_label(inp["rec_mode"], receptor_ids)
-        data["rec_mode"] = inp["rec_mode"]
+        rec_label_scope = self._resolve_receptor_scope(inp["sel_rec"])
         data["rec_scope_total"] = self.runtime.molecules.count(rec_label_scope)
         prep_engine = self._prep_engine_for(inp["program"])
         data["rec_scope_prepared"] = self.runtime.molecules.count(
@@ -327,7 +243,7 @@ class RunPanel:
         try:
             status = self.runtime.docking.check_receptors(
                 program=inp["program"],
-                receptor_set=self._resolve_receptor_scope(inp["rec_mode"], receptor_ids),
+                receptor_set=self._resolve_receptor_scope(receptor_ids),
             )
         except Exception as exc:
             return {"kind": "error", "message": str(exc)}
@@ -370,9 +286,7 @@ class RunPanel:
             # Scope = which ligands (one, shared). "N prepared" is per family, so it lives on
             # the family rows below, not here — a single number would be one family's count
             # presented as the total.
-            self.ligand_scope_label.setText(
-                f"Scope «{data['lig_mode']}»: {data['ligands_total']} ligand(s){failed_text}"
-            )
+            self.ligand_scope_label.setText(f"{data['ligands_total']} ligand(s) in scope{failed_text}")
             self._set_prep_family_counts(
                 data.get("ligands_prepared_by_engine") or {}, int(data["ligands_total"])
             )
@@ -384,7 +298,7 @@ class RunPanel:
         receptor_failed = int(data.get("rec_scope_failed") or 0)
         failed_text = f" · {receptor_failed} failed" if receptor_failed else ""
         scope_text = (
-            f"Scope «{data['rec_mode']}»: {data['rec_scope_total']} receptor(s) · "
+            f"{data['rec_scope_total']} receptor(s) in scope · "
             f"{data['rec_scope_prepared']} prepared{failed_text}"
         )
         self.receptor_scope_label.setText(scope_text)
@@ -450,10 +364,8 @@ class RunPanel:
             "run_kind": self._run_kind(),
             "receptor_type": self._receptor_type(),
             "ligand_type": self._ligand_type(),
-            "lig_mode": self._run_lig_mode(),
-            "sel_lig": self._selection_ligand_ids(),
-            "rec_mode": self._run_rec_mode(),
-            "sel_rec": sorted({int(i) for i in self._selected_receptor_ids if int(i) > 0}),
+            "sel_lig": self._selected_ligand_ids,
+            "sel_rec": self._selected_receptor_ids,
             # For the pair count: one docking per (ligand, receptor, protocol).
             "protocols": [(str(p.get("program") or ""), str(p.get("hash") or "")) for p in self._selected_protocols()],
             "skip_existing": bool(self.skip_existing_check.isChecked()),
@@ -469,18 +381,8 @@ class RunPanel:
     def _compute_requirement_counts(self, inp: dict) -> dict:
         if inp.get("run_kind") == "redocking":
             return self._compute_redocking_requirement_counts(inp)
-        ligand_needs_selection = inp["lig_mode"] == "selected" and not inp["sel_lig"]
-        receptor_needs_selection = inp["rec_mode"] == "selected" and not inp["sel_rec"]
-        ligand_scope = None if ligand_needs_selection else self._run_lig_base_scope(
-            inp["lig_mode"], inp["sel_lig"]
-        )
-        receptor_scope = None
-        if not receptor_needs_selection:
-            receptor_scope = (
-                self._resolve_receptor_scope("selected", inp["sel_rec"])
-                if inp["rec_mode"] == "selected"
-                else self._receptor_scope()
-            )
+        ligand_scope = self._resolve_ligand_scope(inp["sel_lig"], run_kind=inp.get("run_kind", "docking"))
+        receptor_scope = self._resolve_receptor_scope(inp["sel_rec"])
         protocols = tuple(
             DockingProtocol(program=str(program), label=str(program), hash=str(hash_value))
             for program, hash_value in (inp.get("protocols") or ())
@@ -491,8 +393,6 @@ class RunPanel:
             protocols=protocols,
             program=inp["program"],
             skip_existing=bool(inp.get("skip_existing")),
-            ligand_needs_selection=ligand_needs_selection,
-            receptor_needs_selection=receptor_needs_selection,
         ).as_mapping()
 
     def _check_requirements(self) -> None:
@@ -545,9 +445,8 @@ class RunPanel:
                 else "; ".join(notes) + "."
             )
             return
-        # Each count reflects only its own side — an empty "Selected" on one doesn't touch the other.
-        self.req_ligands_count.setText("—" if lig["needs_selection"] else f"{lig['ready']} / {lig['total']}")
-        self.req_receptors_count.setText("—" if rec["needs_selection"] else f"{rec['ready']} / {rec['total']}")
+        self.req_ligands_count.setText(f"{lig['ready']} / {lig['total']} prepared")
+        self.req_receptors_count.setText(f"{rec['ready']} / {rec['total']} prepared")
         pairs = dict(result.get("pairs") or {})
         total_pairs = int(pairs.get("total") or 0)
         if not total_pairs:
@@ -558,10 +457,6 @@ class RunPanel:
             self.req_pairs_count.setText(f"{text} ({done} already docked)" if done else text)
         self.step_run.set_done(result["ready"])
         notes = []
-        if lig["needs_selection"]:
-            notes.append("mark ligands or set Ligands scope to 'All prepared'")
-        if rec["needs_selection"]:
-            notes.append("mark receptors or set Receptors scope to 'All prepared'")
         failures = []
         if int(lig.get("failed") or 0):
             failures.append(f"{int(lig['failed'])} ligand preparation failed")
@@ -570,8 +465,7 @@ class RunPanel:
         if failures:
             notes.append("; ".join(failures))
         if notes:
-            prefix = "Selected scope empty — " if lig["needs_selection"] or rec["needs_selection"] else ""
-            self.check_status_label.setText(prefix + "; ".join(notes) + ".")
+            self.check_status_label.setText("; ".join(notes) + ".")
         else:
             self.check_status_label.setText(
                 "Ready to run." if result["ready"] else "Nothing prepared to dock yet on one side."
@@ -600,7 +494,6 @@ class RunPanel:
         protocols = self._selected_protocols()
         params = {
             "run_kind": inp["run_kind"],
-            "lig_mode": inp["lig_mode"],
             "sel_lig": inp["sel_lig"],
             "protocols": protocols,
             "batch_size": int(self.batch_size.value()),
@@ -621,7 +514,8 @@ class RunPanel:
             self._warn("Workflow", "Select at least one compatible docking software first.")
             return None
         workflow_kind = "redocking" if params.get("run_kind") == "redocking" else "docking"
-        protocol_names = [str(protocol.get("label") or protocol.get("program") or "") for protocol in params.get("protocols", [])]
+        protocol_names = [str(protocol.get("label") or protocol.get("program") or "") for protocol in
+                          params.get("protocols", [])]
         if params.get("run_kind") == "redocking":
             protocol_summary = protocol_names[0] if len(protocol_names) == 1 else f"{len(protocol_names)} protocols"
         else:
@@ -673,9 +567,11 @@ class RunPanel:
         identity = DockingRunIdentity(
             receptor_type=str(inp.get("receptor_type") or MoleculeType.PROTEIN),
             ligand_type=str(inp.get("ligand_type") or MoleculeType.SMALL_MOLECULE),
-            ligand_mode=str(inp.get("lig_mode") or "all"),
+            # "selected" vs "all" is now just "is the table scoped?" — docking_signature only
+            # keeps the ids in the selected case.
+            ligand_mode="selected" if inp.get("sel_lig") else "all",
             ligand_ids=tuple(sorted(int(value) for value in (inp.get("sel_lig") or ()))),
-            receptor_mode=str(inp.get("rec_mode") or "all"),
+            receptor_mode="selected" if inp.get("sel_rec") else "all",
             receptor_ids=tuple(sorted(int(value) for value in (inp.get("sel_rec") or ()))),
         )
         return docking_signature(request, identity)
@@ -726,8 +622,7 @@ class RunPanel:
             if not complex_ids:
                 return {"warning": "No prepared original receptor-ligand pairs are ready for redocking."}
         else:
-            ligands = counts["ligands"]
-            ligands_ready = 0 if ligands["needs_selection"] else int(ligands["ready"])
+            ligands_ready = int(counts["ligands"]["ready"])
             if ligands_ready == 0 or not ready_receptor_ids:
                 missing = []
                 if ligands_ready == 0:
@@ -735,8 +630,8 @@ class RunPanel:
                 if not ready_receptor_ids:
                     missing.append("prepared receptors (with a grid)")
                 return {"warning": f"No {' or '.join(missing)} in scope — nothing to dock."}
-            ligand_scope = self._run_lig_base_scope(params["lig_mode"], params["sel_lig"])
-            receptor_scope = self._resolve_receptor_scope("selected", list(ready_receptor_ids))
+            ligand_scope = self._resolve_ligand_scope(params["sel_lig"], run_kind=params.get("run_kind", "docking"))
+            receptor_scope = self._resolve_receptor_scope(list(ready_receptor_ids))
         request = DockingRunRequest(
             run_kind=str(params.get("run_kind") or "docking"),
             ligand_scope=ligand_scope,

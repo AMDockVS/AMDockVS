@@ -17,6 +17,8 @@ class DockingProgramSpec:
     ligand_types: tuple[str, ...] = ("small_molecule",)
     experiment_kinds: tuple[str, ...] = ("docking", "redocking")
     requires_binding_site: bool = True
+    # DiffDock docks from the SMILES; everything that goes through Meeko needs coordinates.
+    requires_ligand_3d: bool = True
     requires_ligand_preparation: bool = True
     requires_receptor_preparation: bool = True
 

@@ -27,6 +27,7 @@ from amdockvs.docking.service import (
     iter_docking_batches_from_rows,
 )
 from amdockvs.docking.repository import (
+    count_docking_results,
     delete_results_for_receptors,
     docked_ligands_spec,
     entity_ids,
@@ -239,6 +240,10 @@ class DockingJobParams(BaseModel):
     skip_existing: bool = True
     compute_diagram: bool = False
     diagram_format: str = "png"
+    # Threshold AND cap, whichever binds first (§4). Off by default: `hit_cap=0` docks
+    # everything, which is what a `vs` run wants.
+    hit_threshold: float | None = None
+    hit_cap: int = Field(default=0, ge=0)
 
 
 class RedockingJobParams(BaseModel):
@@ -677,7 +682,18 @@ class DockingVinaJobSpec(JobSpec):
 
     @staticmethod
     def run_chunk(payload: dict):
-        return run_docking_chunk(payload)
+        rows = run_docking_chunk(payload)
+        threshold = payload.get("hit_threshold")
+        if threshold is None:
+            return rows
+        # The predicate half of the gate: stateless, so it runs where the poses are produced
+        # and the non-hits never travel back. ponytail: their pose files stay on disk and the
+        # pair has no row, so a re-run with skip_existing will dock it again — the campaign is
+        # capped anyway; add a "screened" marker table if resuming a capped run matters.
+        return [
+            row for row in rows
+            if row.get("score") is not None and float(row["score"]) <= float(threshold)
+        ]
 
     @staticmethod
     def build_chunks(params: dict, config: dict | None = None) -> Iterator[dict]:
@@ -685,10 +701,23 @@ class DockingVinaJobSpec(JobSpec):
         output_dir = resolve_docking_output_dir(params, config)
         enriched_params = dict(params)
         enriched_params["output_dir"] = str(output_dir)
+        project_db = (config or {}).get("project_db")
         for chunk in DockingPairsInput(batch_size=parsed.batch_size, item_key="pairs").iter_chunks(
             params=enriched_params,
             config=config or {},
         ):
+            # The cap half of the gate: the feed stops handing out work once the run has
+            # written its quota. ponytail: checked between chunks against the committed rows,
+            # so chunks already in flight can overshoot by their own row count — it bounds the
+            # campaign, the exact ceiling is the ingest gate (amdockvs.htp.materialize).
+            if parsed.hit_cap and project_db is not None:
+                written = count_docking_results(
+                    project_db, run_id=parsed.run_id, score_lte=parsed.hit_threshold
+                )
+                if written >= int(parsed.hit_cap):
+                    break
+            if parsed.hit_threshold is not None:
+                chunk["hit_threshold"] = float(parsed.hit_threshold)
             # Inline diagrams: flag rides on the chunk so run_docking_chunk renders in the
             # same worker after docking (no service.py plumbing needed).
             if parsed.compute_diagram:

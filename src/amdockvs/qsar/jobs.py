@@ -7,7 +7,7 @@ from typing import Any, Iterator
 
 from pydantic import BaseModel, Field
 
-from ms_flow.query import QuerySpec, db_pages
+from ms_flow.query import QuerySpec
 from ms_flow.sinks import graph_sink
 from ms_flow.tasking import job, task
 
@@ -23,6 +23,7 @@ from amdockvs.constants import (
 from amdockvs.molecule_paths import set_default_project_root
 from amdockvs.molecule_paths import preferred_molecule_path
 from amdockvs.models import FingerprintRecord, MoleculeRecord
+from amdockvs.molecules.store import as_store, store_from_config
 from amdockvs.models.descriptors import FingerprintType
 from amdockvs.scopes import molecule_set_spec, prepared_molecules_spec
 
@@ -161,10 +162,11 @@ def scope_spec(params: DescriptorJobParams) -> QuerySpec:
     )
 
 
-def _iter_descriptor_batches(project_db, params: DescriptorJobParams) -> Iterator[dict[str, list[dict[str, Any]]]]:
+def _iter_descriptor_batches(source, params: DescriptorJobParams) -> Iterator[dict[str, list[dict[str, Any]]]]:
+    """`source` is the ligand store or the project db."""
     batch_size = max(1, int(params.batch_size))
     fp_spec = {"radius": int(params.fp_radius), "nbits": int(params.fp_nbits)} if params.compute_fingerprints else None
-    rows = db_pages(project_db, scope_spec(params), page_size=batch_size)
+    rows = as_store(source).iter_rows(scope_spec(params), batch_size=batch_size)
     for batch in batched(rows, batch_size):
         items = [
             {
@@ -190,4 +192,4 @@ def calculate_molecule_descriptors_job(params: dict, config: dict | None = None)
     project_db = config_map.get("project_db")
     if project_db is None:
         raise ValueError("calculate_molecule_descriptors_job requires project_db in config.")
-    yield from _iter_descriptor_batches(project_db, parsed)
+    yield from _iter_descriptor_batches(store_from_config(config_map), parsed)

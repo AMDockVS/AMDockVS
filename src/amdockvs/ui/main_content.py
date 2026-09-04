@@ -55,8 +55,8 @@ class MainContentWidget(QStackedWidget):
         self.welcome = self._build_welcome()
         self.addWidget(self.welcome)
 
-        self.central_widget = QSplitter(Qt.Orientation.Vertical, self)
-        self.addWidget(self.central_widget)
+        self.content_splitter = QSplitter(Qt.Orientation.Vertical, self)
+        self.addWidget(self.content_splitter)
 
         self.main_content_tabs = QTabWidget(self)
         self.main_content_tabs.setTabsClosable(True)
@@ -65,10 +65,10 @@ class MainContentWidget(QStackedWidget):
         self.main_content_tabs.tabCloseRequested.connect(self.on_tab_close)
         self._preview_style.setParent(self.main_content_tabs)  # style is not owned by the widget
         self.main_content_tabs.tabBar().setStyle(self._preview_style)
-        self.central_widget.addWidget(self.main_content_tabs)
+        self.content_splitter.addWidget(self.main_content_tabs)
 
         self.aux_widget = QStackedWidget(self)
-        self.central_widget.addWidget(self.aux_widget)
+        self.content_splitter.addWidget(self.aux_widget)
         # ponytail: QSplitter hides the handle of the hidden widget; no need to remove it from the splitter
         self.aux_widget.setVisible(False)
 
@@ -115,7 +115,7 @@ class MainContentWidget(QStackedWidget):
         current = self._open_tabs.get(view_id)
         if current is not None:
             self.main_content_tabs.setCurrentWidget(current)
-            self.setCurrentWidget(self.central_widget)
+            self.setCurrentWidget(self.content_splitter)
             return current
 
         registered = self._view_factories.get(view_id)
@@ -135,7 +135,7 @@ class MainContentWidget(QStackedWidget):
             self._preview_open = view_id
             self._preview_style.preview_title = title
         self.main_content_tabs.setCurrentWidget(widget)
-        self.setCurrentWidget(self.central_widget)
+        self.setCurrentWidget(self.content_splitter)
         self.view_open_state_changed.emit(view_id, True)
         return widget
 
