@@ -1,7 +1,11 @@
+"""The docking and redocking jobs: database rows in, result rows out.
+
+One chunk is a batch of (ligand, receptor) pairs; the engine is chosen by the protocol and
+reached through :mod:`amdockvs.docking.engines.registry`. Post-processing jobs
+(interactions, diagrams) live in :mod:`amdockvs.docking.results.jobs`.
+"""
 from __future__ import annotations
 
-import json
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
@@ -10,41 +14,42 @@ from pydantic import BaseModel, Field
 from ms_flow.sinks import table_sink
 from ms_flow.specs import InputSource
 from ms_flow.tasking import JobSpec
-from sqlmodel import delete
 
-from amdockvs.configuration import batch_size_for
-from amdockvs.api_common import project_root_from_output_dir, worker_file, worker_output_dir
-from amdockvs.constants import (
+from amdockvs.core.configuration import batch_size_for
+from amdockvs.core.worker_io import worker_file, worker_output_dir
+from amdockvs.core.constants import (
     AMDOCKVS_LOCAL_EXECUTORS,
     DEFAULT_DOCKING_BATCH_SIZE,
     DEFAULT_VINA_BACKEND,
     DEFAULT_VINA_COMMAND,
 )
-from amdockvs.docking.service import (
+from amdockvs.docking.pairs import (
     build_docking_pair,
     build_failed_docking_pair,
-    grid_from_row,
     iter_docking_batches_from_rows,
 )
+from amdockvs.docking.preparation.state import grid_from_row
 from amdockvs.docking.repository import (
-    count_docking_results,
-    delete_results_for_receptors,
     docked_ligands_spec,
+    project_root_from_db,
+    resolve_project_path,
     entity_ids,
-    existing_result_pairs,
     iter_entity_rows,
     molecule_scope_spec,
     get_molecule_rows_by_ids,
     list_complex_rows,
-    list_docking_result_rows,
     list_entity_rows,
     resolve_docking_output_dir,
 )
-from amdockvs.docking.registry import run_docking_chunk
-from amdockvs.docking.interactions import collect_interaction_rows
+from amdockvs.docking.results.repository import (
+    count_docking_results,
+    delete_results_for_receptors,
+    existing_result_pairs,
+)
+from amdockvs.docking.engines.registry import run_docking_chunk
 from amdockvs.docking.protocols import DockingProtocolMetadata
 from ms_flow.query import db_count
-from amdockvs.models import DockingResultRecord, InteractionsResult
+from amdockvs.models import DockingResultRecord
 
 
 def _transport_docking_chunk(chunk: dict[str, Any]) -> dict[str, Any]:
@@ -188,35 +193,6 @@ def count_pending_redocking_pairs(
     )
 
 
-def _project_root_from_db(project_db) -> Path | None:
-    db_path = getattr(project_db, "db_path", None)
-    if db_path is None:
-        return None
-    return Path(db_path).expanduser().resolve().parent
-
-
-def _absolutize_pose_paths(rows: list[dict[str, Any]], project_db) -> list[dict[str, Any]]:
-    """`pose_path` is stored project-relative; the interaction pass runs from an arbitrary CWD in a worker.
-    Resolve it once here so every consumer (interactions, diagrams) gets a real file."""
-    project_root = _project_root_from_db(project_db)
-    for row in rows:
-        row["pose_path"] = _resolve_project_path(row.get("pose_path"), project_root)
-    return rows
-
-
-def _resolve_project_path(raw: Any, project_root: Path | None) -> str:
-    text = str(raw or "").strip()
-    if not text:
-        return ""
-    path = Path(text).expanduser()
-    if not path.is_absolute() and project_root is not None:
-        path = project_root / path
-    try:
-        return str(path.resolve())
-    except Exception:
-        return str(path)
-
-
 class DockingJobParams(BaseModel):
     output_dir: str | None = None
     batch_size: int = Field(default=DEFAULT_DOCKING_BATCH_SIZE, ge=1)
@@ -282,30 +258,7 @@ class RedockingJobParams(BaseModel):
     diagram_format: str = "png"
 
 
-class InteractionJobParams(BaseModel):
-    output_dir: str | None = None
-    result_ids: list[int] = Field(default_factory=list)
-    run_id: str = ""
-    receptor_id: int | None = Field(default=None, ge=1)
-    score_lte: float | None = None
-    pose_rank: int | None = Field(default=1, ge=1)
-    method: str = "ms_contactmap"
-    chunk_size: int = Field(default=128, ge=1)
-    replace_existing: bool = True
-
-
-class DiagramJobParams(BaseModel):
-    result_ids: list[int] = Field(default_factory=list)
-    run_id: str = ""
-    receptor_id: int | None = Field(default=None, ge=1)
-    score_lte: float | None = None
-    pose_rank: int | None = Field(default=1, ge=1)
-    fmt: str = "png"
-    chunk_size: int = Field(default=64, ge=1)
-    replace_existing: bool = False
-
-
-from amdockvs.docking.programs import chunk_resources
+from amdockvs.docking.engines.programs import chunk_resources
 
 
 def iter_docking_batches(
@@ -505,7 +458,7 @@ def iter_redocking_batches(
             molecule_ids.append(ligand_id)
     prep_engine = str(preparation_engine or engine)
     molecule_rows = get_molecule_rows_by_ids(project_db, molecule_ids, engine=prep_engine)
-    project_root = _project_root_from_db(project_db)
+    project_root = project_root_from_db(project_db)
     resolved_output_dir = Path(output_dir).expanduser().resolve()
     resolved_output_dir.mkdir(parents=True, exist_ok=True)
     normalized_batch_size = max(1, int(batch_size))
@@ -518,13 +471,13 @@ def iter_redocking_batches(
             continue
         # Prefer the frozen snapshot captured at pair creation; fall back to the ligand's
         # live path only for complexes imported before the snapshot existed.
-        reference_ligand_path = _resolve_project_path(
+        reference_ligand_path = resolve_project_path(
             complex_row.get("reference_ligand_path")
             or ligand_row.get("current_path")
             or ligand_row.get("stored_path"),
             project_root,
         )
-        reference_receptor_path = _resolve_project_path(
+        reference_receptor_path = resolve_project_path(
             complex_row.get("reference_receptor_path") or receptor_row.get("current_path") or receptor_row.get("stored_path"),
             project_root,
         )
@@ -737,7 +690,7 @@ class DockingJobSpec(JobSpec):
             # The cap half of the gate: the feed stops handing out work once the run has
             # written its quota. ponytail: checked between chunks against the committed rows,
             # so chunks already in flight can overshoot by their own row count — it bounds the
-            # campaign, the exact ceiling is the ingest gate (amdockvs.htp.materialize).
+            # campaign, the exact ceiling is the ingest gate (amdockvs.screening.materialize).
             if parsed.hit_cap and project_db is not None:
                 written = count_docking_results(
                     project_db, run_id=parsed.run_id, score_lte=parsed.hit_threshold
@@ -756,233 +709,6 @@ class DockingJobSpec(JobSpec):
 
 DockingVinaJobSpec = DockingJobSpec  # Backward-compatible import name.
 docking_job = DockingJobSpec.to_job_definition()
-
-
-def _interaction_result_rows(project_db, params: InteractionJobParams) -> list[dict[str, Any]]:
-    rows = list_docking_result_rows(
-        project_db,
-        result_ids=params.result_ids,
-        run_id=params.run_id,
-        receptor_id=params.receptor_id,
-        score_lte=params.score_lte,
-        pose_rank=params.pose_rank,
-    )
-    result_ids = [int(row.get("id") or 0) for row in rows if int(row.get("id") or 0) > 0]
-    if params.replace_existing and result_ids:
-        with project_db.get_session() as session:
-            session.exec(delete(InteractionsResult).where(InteractionsResult.docking_result_id.in_(result_ids)))
-            session.commit()
-    return _absolutize_pose_paths(rows, project_db)
-
-
-def _iter_interaction_chunks(
-    *,
-    project_db,
-    params: InteractionJobParams,
-    output_dir: Path,
-) -> Iterator[dict[str, Any]]:
-    rows = _interaction_result_rows(project_db, params)
-    chunk_size = max(1, int(params.chunk_size))
-    if not rows:
-        yield {"rows": [], "method": params.method, "output_dir": worker_output_dir(output_dir)}
-        return
-    for start in range(0, len(rows), chunk_size):
-        chunk_rows = rows[start:start + chunk_size]
-        for row in chunk_rows:
-            row["pose_path"] = worker_file(row.get("pose_path"))
-            metrics = dict(row.get("metrics") or {})
-            metrics["receptor_path"] = worker_file(metrics.get("receptor_path"), cache=True)
-            row["metrics"] = metrics
-        yield {
-            "rows": chunk_rows,
-            "method": params.method,
-            "output_dir": worker_output_dir(output_dir),
-        }
-
-
-def _relative_to_project(path: Path, project_root: Path | None) -> str:
-    if project_root is not None:
-        try:
-            return str(path.resolve().relative_to(project_root.resolve()))
-        except Exception:
-            pass
-    return str(path)
-
-
-def _write_interaction_report(
-    *,
-    output_dir: Path,
-    project_root: Path | None,
-    result_id: int,
-    row: Mapping[str, Any],
-    method: str,
-    interactions: list[dict[str, Any]],
-) -> str:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    path = output_dir / f"result_{int(result_id):09d}.interactions.json"
-    payload = {
-        "schema": "amdockvs.interactions.v1",
-        "generated_at": datetime.now().isoformat(),
-        "method": method,
-        "docking_result_id": int(result_id),
-        "receptor_molecule_id": int(row.get("receptor_molecule_id") or 0),
-        "ligand_molecule_id": int(row.get("ligand_molecule_id") or 0),
-        "engine": str(row.get("engine") or ""),
-        "pose_rank": int(row.get("pose_rank") or 1),
-        "score": row.get("score"),
-        "pose_path": str(row.get("pose_path") or ""),
-        "receptor_path": str((row.get("metrics") or {}).get("receptor_path") or ""),
-        "interaction_count": len(interactions),
-        "interactions": interactions,
-    }
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=True, default=str), encoding="utf-8")
-    return _relative_to_project(path, project_root)
-
-
-class InteractionJobSpec(JobSpec):
-    name = "amdock_interactions_job"
-    task_name = "amdock_compute_interactions"
-    description = "Compute protein-ligand interactions for docking poses."
-    params_model = InteractionJobParams
-    executor = "compute"
-    supported_executors = AMDOCKVS_LOCAL_EXECUTORS
-    output_spec = table_sink(model=InteractionsResult, write_mode="bulk")
-    output_flush_every = 25
-    store_results = False
-    required = ()
-    produces = ()
-
-    @staticmethod
-    def run_chunk(payload: dict):
-        rows_out: list[dict[str, Any]] = []
-        method = str(payload.get("method") or "ms_contactmap")
-        output_dir = Path(str(payload.get("output_dir") or "")).expanduser().resolve()
-        project_root = project_root_from_output_dir(output_dir)
-        for row in list(payload.get("rows") or []):
-            result_id = int(row.get("id") or 0)
-            if result_id <= 0:
-                continue
-            metrics = dict(row.get("metrics") or {})
-            pose_path = str(row.get("pose_path") or "")
-            receptor_path = str(metrics.get("receptor_path") or "")
-            interactions = collect_interaction_rows(
-                pose_path=pose_path,
-                receptor_path=receptor_path,
-                pose_rank=int(row.get("pose_rank") or 1),
-            )
-            json_path = _write_interaction_report(
-                output_dir=output_dir,
-                project_root=project_root,
-                result_id=result_id,
-                row=row,
-                method=method,
-                interactions=interactions,
-            )
-            if interactions:
-                for interaction in interactions:
-                    geometry = dict(interaction.get("geometry") or {})
-                    geometry["json_path"] = json_path
-                    interaction["geometry"] = geometry
-                rows_out.extend(InteractionsResult.build_rows(result_id, interactions))
-            else:
-                rows_out.extend(
-                    InteractionsResult.build_rows(
-                        result_id,
-                        [
-                            {
-                                "interaction_type": "none",
-                                "residue": "",
-                                "residue_index": 0,
-                                "distance": None,
-                                "geometry": {
-                                    "json_path": json_path,
-                                    "method": method,
-                                    "interaction_count": 0,
-                                },
-                            }
-                        ],
-                    )
-                )
-        return rows_out
-
-    @staticmethod
-    def build_chunks(params: dict, config: dict | None = None) -> Iterator[dict]:
-        config_map = dict(config or {})
-        project_db = config_map.get("project_db")
-        if project_db is None:
-            raise ValueError("InteractionJobSpec requires project_db in config.")
-        parsed = InteractionJobParams(**params)
-        output_dir = resolve_docking_output_dir({"output_dir": parsed.output_dir}, config_map) / "interactions"
-        yield from _iter_interaction_chunks(project_db=project_db, params=parsed, output_dir=output_dir)
-
-
-interactions_job = InteractionJobSpec.to_job_definition()
-
-
-def _diagram_result_rows(project_db, params: DiagramJobParams) -> list[dict[str, Any]]:
-    return _absolutize_pose_paths(
-        list_docking_result_rows(
-            project_db,
-            result_ids=params.result_ids,
-            run_id=params.run_id,
-            receptor_id=params.receptor_id,
-            score_lte=params.score_lte,
-            pose_rank=params.pose_rank,
-        ),
-        project_db,
-    )
-
-
-class DiagramJobSpec(JobSpec):
-    name = "amdock_diagram_job"
-    task_name = "amdock_render_interaction_diagrams"
-    description = "Render 2D protein-ligand interaction diagrams for docking poses."
-    params_model = DiagramJobParams
-    executor = "compute"
-    supported_executors = AMDOCKVS_LOCAL_EXECUTORS
-    output_spec = None  # writes PNG/SVG next to each pose; no DB rows
-    store_results = False
-    required = ()
-    produces = ()
-
-    @staticmethod
-    def run_chunk(payload: dict):
-        from amdockvs.docking.diagram import render_diagrams_for_result_rows
-
-        render_diagrams_for_result_rows(
-            list(payload.get("rows") or []),
-            fmt=str(payload.get("fmt") or "png"),
-            replace_existing=bool(payload.get("replace_existing")),
-            output_dir=str(payload.get("output_dir") or "") or None,
-        )
-        return []
-
-    @staticmethod
-    def build_chunks(params: dict, config: dict | None = None) -> Iterator[dict]:
-        config_map = dict(config or {})
-        project_db = config_map.get("project_db")
-        if project_db is None:
-            raise ValueError("DiagramJobSpec requires project_db in config.")
-        parsed = DiagramJobParams(**params)
-        rows = _diagram_result_rows(project_db, parsed)
-        output_dir = resolve_docking_output_dir({}, config_map)
-        chunk_size = max(1, int(parsed.chunk_size))
-        for start in range(0, len(rows), chunk_size) or [0]:
-            chunk_rows = rows[start:start + chunk_size]
-            for row in chunk_rows:
-                row["pose_path"] = worker_file(row.get("pose_path"))
-                metrics = dict(row.get("metrics") or {})
-                metrics["receptor_path"] = worker_file(metrics.get("receptor_path"), cache=True)
-                row["metrics"] = metrics
-            yield {
-                "rows": chunk_rows,
-                "fmt": parsed.fmt,
-                "replace_existing": parsed.replace_existing,
-                "output_dir": worker_output_dir(output_dir),
-            }
-
-
-diagram_job = DiagramJobSpec.to_job_definition()
 
 
 class RedockingJobSpec(JobSpec):

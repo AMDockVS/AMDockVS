@@ -15,7 +15,7 @@ from amdockvs.chemistry.tools import (
 )
 from amdockvs.io.formats import as_pdb
 from amdockvs.models.molecules import ModelSource, MoleculeModel
-from amdockvs.molecule_paths import (
+from amdockvs.core.paths import (
     artifact_path_for_existing,
     current_molecule_path,
     set_default_project_root,

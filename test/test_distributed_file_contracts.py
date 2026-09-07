@@ -2,8 +2,8 @@ from pathlib import Path
 
 from ms_flow.api import FileInputSpec, ProjectOutputDirSpec
 
-from amdockvs.docking import preparation_jobs
-from amdockvs.docking.preparation_jobs import PreparationJobParams, _iter_preparation_batches
+from amdockvs.docking.preparation import jobs as preparation_jobs
+from amdockvs.docking.preparation.jobs import PreparationJobParams, _iter_preparation_batches
 
 
 def test_preparation_chunk_declares_worker_input_and_project_output(monkeypatch, tmp_path):

@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QWidget, QGridLayout,
 )
 
-from amdockvs.constants import DEFAULT_LOCAL_CPU_EXECUTOR
+from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR
 from amdockvs.docking.planning import protocol_job_key
 from amdockvs.docking.shard_jobs import (
     HIT_MODE_THRESHOLD,
@@ -24,10 +24,10 @@ from amdockvs.docking.shard_jobs import (
     HIT_SAFETY_CAP,
     RANKED_PREFILTER_SCORE,
 )
-from amdockvs.docking.programs import get_docking_program
-from amdockvs.ui.async_query import run_async
-from amdockvs.ui.widgets import split_button
-from amdockvs.vocab import MoleculeType
+from amdockvs.docking.engines.programs import get_docking_program
+from amdockvs.ui.common.async_query import run_async
+from amdockvs.ui.common.widgets import split_button
+from amdockvs.core.vocab import MoleculeType
 
 def _spinbox(*, minimum: int, maximum: int, value: int) -> QSpinBox:
     widget = QSpinBox()

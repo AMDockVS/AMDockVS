@@ -4,10 +4,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping
 
-from amdockvs.api_common import MoleculeScope
+from amdockvs.molecules.scopes import MoleculeScope
 from amdockvs.docking.planning import DockingProtocol
-from amdockvs.docking.programs import get_docking_program
-from amdockvs.vocab import MoleculeType
+from amdockvs.docking.engines.programs import get_docking_program
+from amdockvs.core.vocab import MoleculeType
 
 
 ACTIVE_JOB_STATUSES = ("pending", "running", "staging", "cancel_requested")

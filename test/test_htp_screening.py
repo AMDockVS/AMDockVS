@@ -1,6 +1,6 @@
 from rdkit import Chem
 
-from amdockvs.htp.screening import HTPFilterConfig, evaluate_mol
+from amdockvs.screening.filters import HTPFilterConfig, evaluate_mol
 
 
 def _verdicts(smiles_names, config, **kwargs):

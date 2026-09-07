@@ -11,7 +11,7 @@ from amdockvs.ui.catalog.common import (
     molecule_2d_preview_paint_for_runtime,
     molecule_2d_preview_tooltip,
 )
-from amdockvs.vocab import FileFormat, MoleculeUsageClass
+from amdockvs.core.vocab import FileFormat, MoleculeUsageClass
 from ms_components.ms_table import (
     AlignHint,
     ColumnDef,

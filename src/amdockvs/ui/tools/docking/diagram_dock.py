@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from amdockvs.summaries import DockingHitSummary
+from amdockvs.project.summaries import DockingHitSummary
 from ms_components.ms_dockwidget.widget import DockManager, MSDockWidget
 
 _PLACEHOLDER = "Select a docking pose to see its 2D interaction diagram."
@@ -71,7 +71,7 @@ class InteractionDiagramDock(MSDockWidget):
         # A saved diagram is a JSON read plus a scene build (milliseconds), so the dock can
         # follow every click. Nothing saved: show the placeholder rather than the previous
         # pose's diagram, which would silently read as this one's.
-        from amdockvs.docking.diagram import load_pose_diagram
+        from amdockvs.docking.results.diagram import load_pose_diagram
 
         cached = load_pose_diagram(str(hit.output_path), self._pose_rank)
         label = f"{hit.ligand_name} · pose {self._pose_rank}"

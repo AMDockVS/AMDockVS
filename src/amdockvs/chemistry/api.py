@@ -14,14 +14,14 @@ from amdockvs.chemistry.jobs import (
     receptor_chemistry_job,
     shard_chemistry_job,
 )
-from amdockvs.constants import DEFAULT_LOCAL_CPU_EXECUTOR
+from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR
 from amdockvs.molecules.api import ensure_molecule_set_ref
-from amdockvs.molecules.store import has_shards
-from amdockvs.scopes import MoleculeSetRef
-from amdockvs.summaries import JobStatus
-from amdockvs.vocab import ShardState
-from amdockvs.api_common import MoleculeScope, scope_payload
-from amdockvs.chemistry.protonation_runtime import (
+from amdockvs.molecules.storage import has_shards
+from amdockvs.project.sets import MoleculeSetRef
+from amdockvs.project.summaries import JobStatus
+from amdockvs.core.vocab import ShardState
+from amdockvs.molecules.scopes import MoleculeScope, scope_payload
+from amdockvs.integrations.envs import (
     ProtonationToolStatus,
     install_protonation_tool,
     protonation_tool_status,

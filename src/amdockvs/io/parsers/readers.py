@@ -5,7 +5,7 @@ from typing import Any, Iterator
 
 from amdockvs.io._common import normalize_kind
 from amdockvs.io.formats import normalized_suffix
-from amdockvs.vocab import FileFormat
+from amdockvs.core.vocab import FileFormat
 
 
 # Above this size an exact scan costs ~1s+ per file; callers that only need a progress

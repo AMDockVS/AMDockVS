@@ -10,7 +10,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QMessageBox
 
 from amdockvs.ui.monitor import MONITOR_JOBS_VIEW_ID
-from amdockvs.ui.notifications import (
+from amdockvs.ui.shell.notifications import (
     ERROR,
     INFO,
     MAX_ENTRIES,
@@ -293,7 +293,7 @@ class JobFeedbackController:
         can't log to the monitor). Type-agnostic: non-import jobs write no tally, so draining is
         a no-op for them. Goes to the notification log so the breakdown is still there minutes
         later — a transient popup is exactly what made a filtered-out import undiagnosable."""
-        from amdockvs.constants import RESOURCE_MOLECULES
+        from amdockvs.core.constants import RESOURCE_MOLECULES
         from amdockvs.io.import_stats import IMPORTED, drain_import_stats, summarize
 
         try:

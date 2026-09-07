@@ -6,7 +6,7 @@ from datetime import datetime
 from ms_flow.core.database.project import ProjectStore
 from sqlmodel import select
 
-from amdockvs.docking import repository
+from amdockvs.docking.results import repository
 from amdockvs.models.docking import DockingResult
 from amdockvs.models.molecules import MoleculeRecord
 from amdockvs.molecules.repository import ligand_table_stats, receptor_table_stats

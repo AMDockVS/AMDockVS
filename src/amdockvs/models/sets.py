@@ -6,13 +6,13 @@ from datetime import datetime
 from sqlalchemy import UniqueConstraint, JSON
 from sqlmodel import SQLModel, Field
 
-from amdockvs.constants import (
+from amdockvs.core.constants import (
     TABLE_MOLECULE_SET_MEMBERS,
     TABLE_MOLECULE_SETS,
     TABLE_MOLECULES,
 )
 # Centralised vocabulary - re-exported so existing imports keep working.
-from amdockvs.vocab import SetPurpose
+from amdockvs.core.vocab import SetPurpose
 
 
 # ---------------------------------------------------------------------------

@@ -15,12 +15,12 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from amdockvs.ui.widgets import right_aligned, split_button
+from amdockvs.ui.common.widgets import right_aligned, split_button
 from amdockvs.ui.catalog.common import BoundTableWidget
 from amdockvs.ui.catalog.ligands import LIGANDS_VIEW_ID
 from amdockvs.ui.catalog.receptors import RECEPTOR_VIEW_ID
-from amdockvs.constants import DEFAULT_LOCAL_CPU_EXECUTOR
-from amdockvs.docking.programs import list_docking_programs
+from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR
+from amdockvs.docking.engines.programs import list_docking_programs
 from amdockvs.models import EngineState
 from ms_components.ms_table import (
     AlignHint,

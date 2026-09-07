@@ -10,66 +10,20 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QLabel, QSizePolicy, QWidget
 
-from amdockvs.ui.catalog import (
-    BINDING_SITES_VIEW_ID,
-    COMPLEX_PAIRS_VIEW_ID,
-    COMPLEXES_VIEW_ID,
-    LIGANDS_VIEW_ID,
-    MOLECULES_VIEW_ID,
-    RECEPTOR_VIEW_ID,
-    SHARDS_VIEW_ID,
+from amdockvs.ui.catalog import LIGANDS_VIEW_ID, SHARDS_VIEW_ID
+from amdockvs.ui.registry import (
+    CATALOG_TABLES,
+    PREVIEW_VIEW_IDS,
+    STANDING_DATA_VIEWS,
+    TOOL_VIEW_IDS,
 )
-from amdockvs.ui.catalog.domain_views import LIGAND_ACTIVITY_VIEW_ID
 from amdockvs.ui.resources.icons import icon as load_icon
-from amdockvs.ui.tools.docking.studio import DOCKING_VIEW_ID
-from amdockvs.ui.tools.molecules.build import BUILD_ID
-from amdockvs.ui.tools.molecules.diversity import SELECTION_VIEW_ID
-from amdockvs.ui.tools.molecules.filter import FILTER_ID
-from amdockvs.ui.tools.molecules.pocket_detection import POCKET_DETECTION_VIEW_ID
-from amdockvs.ui.tools.qsar.panels import PREDICTIONS_VIEW_ID, QSAR_MODELS_VIEW_ID
 from amdockvs.ui.tools.workflow_panel import WORKFLOW_VIEW_ID
-from amdockvs.vocab import PROJECT_MODE_BADGES, PROJECT_MODE_LABELS, PROJECT_MODES, ProjectMode
+from amdockvs.core.vocab import PROJECT_MODE_BADGES, PROJECT_MODE_LABELS, PROJECT_MODES, ProjectMode
 from ms_components.ms_dockwidget.widget import Region
 
 
 class ViewCoordinator:
-    # Views opened to look at something and then abandoned. They share one tab slot (§0.5),
-    # so they stop accumulating in the tab bar.
-    PREVIEW_VIEW_IDS = frozenset({QSAR_MODELS_VIEW_ID, BINDING_SITES_VIEW_ID, COMPLEX_PAIRS_VIEW_ID})
-
-    # Views that open in the left tool panel (beside the catalog tables) instead of a
-    # central tab. Everything else — catalog + result tables — opens as a tab.
-    TOOL_VIEW_IDS = frozenset({
-        FILTER_ID, SELECTION_VIEW_ID, BUILD_ID, POCKET_DETECTION_VIEW_ID, DOCKING_VIEW_ID,
-    })
-
-    # Catalog reference tables live in a top toolbar of checkable actions (checked = tab
-    # open), separated from the left tool buttons so "pick a table" doesn't collide with
-    # "pick a tool". See build_catalog_toolbar.
-    CATALOG_TABLES = (
-        ("Molecules", MOLECULES_VIEW_ID, "catalog.svg"),
-        ("Receptors", RECEPTOR_VIEW_ID, "receptor.svg"),
-        ("Ligands", LIGANDS_VIEW_ID, "ligands.svg"),
-        ("Shards", SHARDS_VIEW_ID, "cloud.svg"),
-        ("Binding Sites", BINDING_SITES_VIEW_ID, "binding_site.svg"),
-        ("Complexes", COMPLEX_PAIRS_VIEW_ID, "complexes.svg"),
-        ("Activity", LIGAND_ACTIVITY_VIEW_ID, "activity.svg"),
-    )
-
-    # Result views: once the data exists in the project it outlives the tool that produced
-    # it, so these stay reachable with every tool closed. One group per separator.
-    STANDING_DATA_VIEWS = (
-        (
-            # Off-target and Redocking are pivots inside this view, not entries of their own:
-            # the same results read differently (see tools/docking/results_pivot.py).
-            ("Docking Results", COMPLEXES_VIEW_ID, "docking_results.svg"),
-        ),
-        (
-            ("QSAR Models", QSAR_MODELS_VIEW_ID, "models.svg"),
-            ("Predictions", PREDICTIONS_VIEW_ID, "predictions.svg"),
-        ),
-    )
-
     # Palette roles, not hex: theming lives in ms_components. The colour is the only thing
     # that changes with the mode — `vs` reads as plain text, `htpvs` gets the accent.
     MODE_BADGE_CSS = (
@@ -98,11 +52,11 @@ class ViewCoordinator:
     def register_main_view(self, view_id: str, title: str, factory, *, on_close=None) -> None:
         self.w.central_widget.register_view(
             view_id, title, factory, on_close=on_close,
-            preview=view_id in self.PREVIEW_VIEW_IDS,
+            preview=view_id in PREVIEW_VIEW_IDS,
         )
 
     def open_or_focus_view(self, view_id: str) -> QWidget:
-        if view_id in self.TOOL_VIEW_IDS:
+        if view_id in TOOL_VIEW_IDS:
             return self.w.tools.open_tool(view_id)
         return self.w.central_widget.open_or_focus_view(view_id)
 
@@ -144,7 +98,7 @@ class ViewCoordinator:
         self.mode_badge.setObjectName("mode_badge")
         bar.addWidget(self.mode_badge)
         bar.addSeparator()
-        for entries in (self.CATALOG_TABLES, *self.STANDING_DATA_VIEWS):
+        for entries in (CATALOG_TABLES, *STANDING_DATA_VIEWS):
             for entry in entries:
                 self._add_data_action(bar, *entry)
             bar.addSeparator()

@@ -8,13 +8,9 @@ from sqlalchemy import and_, update as sql_update
 from sqlmodel import select
 from ms_flow.query import QuerySpec, db_count, db_pages
 
-from amdockvs.api_common import (
-    MoleculeScope,
-    merge_filter_mappings,
-    normalize_ids,
-    normalize_set_name,
-)
-from amdockvs.constants import TABLE_MOLECULES
+from amdockvs.core.normalize import merge_filter_mappings, normalize_ids, normalize_set_name
+from amdockvs.molecules.scopes import MoleculeScope
+from amdockvs.core.constants import TABLE_MOLECULES
 from amdockvs.models import (
     BindingSite,
     ComplexRecord,
@@ -24,8 +20,8 @@ from amdockvs.models import (
 )
 from amdockvs.models.molecules import sanitize_molecule_extra_data
 from amdockvs.molecules.fragments import fragment_entries_from_metadata, fragment_entry_by_index
-from amdockvs.molecule_paths import normalize_path, get_default_project_root
-from amdockvs.scopes import (
+from amdockvs.core.paths import normalize_path, get_default_project_root
+from amdockvs.project.sets import (
     MoleculeSetRef,
     create_molecule_snapshot_set,
     get_molecule_set,
@@ -33,7 +29,7 @@ from amdockvs.scopes import (
     prepared_molecules_spec,
     sync_all_molecule_in_set_flags,
 )
-from amdockvs.workflows import apply_workflow_filters
+from amdockvs.workflows.rules import apply_workflow_filters
 
 
 def ensure_molecule_set_ref(runtime: Any, source, *, name: str) -> MoleculeSetRef:
@@ -165,7 +161,7 @@ class MoleculeAPI:
         SmartTableView's external-clause hook.
         """
         self.runtime._require_active_project()
-        from amdockvs.filtering import sql as filter_sql
+        from amdockvs.molecules import filtering as filter_sql
 
         conditions = filter_sql.scope_conditions(self.runtime.molsuite.project_db, scope)
         return and_(*conditions) if conditions else None
@@ -179,7 +175,7 @@ class MoleculeAPI:
     ) -> dict[str, int]:
         """Count filter outcomes without mutating molecules."""
         self.runtime._require_active_project()
-        from amdockvs.filtering import sql as filter_sql
+        from amdockvs.molecules import filtering as filter_sql
 
         conditions = filter_sql.scope_conditions(self.runtime.molsuite.project_db, scope)
         prefix = str(exclusion_reason_prefix or "").strip()
@@ -199,7 +195,7 @@ class MoleculeAPI:
     ) -> tuple[int, int | None]:
         """Apply an evaluated filter or persist its matches as a molecule set."""
         self.runtime._require_active_project()
-        from amdockvs.filtering import sql as filter_sql
+        from amdockvs.molecules import filtering as filter_sql
 
         normalized_action = str(action or "").strip().lower()
         if normalized_action not in {"enrich", "recover", "tag"}:
@@ -228,7 +224,7 @@ class MoleculeAPI:
 
     def delete(self, molecule_ids: Iterable[int | str]) -> int:
         self.runtime._require_active_project()
-        from amdockvs.deletion import delete_molecules
+        from amdockvs.project.deletion import delete_molecules
 
         return delete_molecules(self.runtime.molsuite.project_db, normalize_ids(molecule_ids))
 
@@ -280,7 +276,7 @@ class MoleculeAPI:
         What the catalog bar needs to know and the only thing it needs the db for: Shards is
         there when there are shards, Ligands lights up when there is any ligand row at all.
         """
-        from amdockvs.molecules.store import has_shards, ligand_row_count
+        from amdockvs.molecules.storage import has_shards, ligand_row_count
 
         self.runtime._require_active_project()
         project_db = self.runtime.molsuite.project_db
@@ -291,7 +287,7 @@ class MoleculeAPI:
 
         Preparation is engine-specific and does not rewrite the chemical inventory.
         """
-        from amdockvs.molecules.store import ShardStore, iter_prepared_shards, shard_scope_spec
+        from amdockvs.molecules.storage import ShardStore, iter_prepared_shards, shard_scope_spec
 
         self.runtime._require_active_project()
         store = ShardStore(self.runtime.molsuite.project_db)

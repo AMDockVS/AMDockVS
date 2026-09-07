@@ -9,7 +9,7 @@ pytest.importorskip("PySide6")
 from PySide6.QtCore import QEventLoop, QTimer
 from PySide6.QtWidgets import QApplication
 
-from amdockvs.ui.async_query import run_async
+from amdockvs.ui.common.async_query import run_async
 
 
 def test_run_async_keeps_task_alive_and_returns_on_gui_thread():

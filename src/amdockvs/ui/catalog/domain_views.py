@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from amdockvs.ui.workspace import ComplexWidget, LigandActivityWidget
+from amdockvs.ui.catalog.activity import LigandActivityWidget
+from amdockvs.ui.catalog.results import ComplexWidget
 
 COMPLEXES_VIEW_ID = "workspace.complexes"
 LIGAND_ACTIVITY_VIEW_ID = "workspace.ligand_activity"
@@ -18,7 +19,7 @@ class LigandActivityViewWidget(LigandActivityWidget):
 
 def register_complexes_workspace(window) -> None:
     # Imported inside the factory: the pivots live under ui.tools.docking, which imports
-    # ui.workspace, which imports this package.
+    # ui.catalog.results, which imports this package.
     from amdockvs.ui.tools.docking.results_pivot import ResultsPivotWidget
 
     window.register_main_view(

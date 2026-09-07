@@ -21,9 +21,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget, )
 
-from amdockvs.docking.programs import GNINA_PROGRAM, VINA_PROGRAM, list_docking_programs
+from amdockvs.docking.engines.programs import GNINA_PROGRAM, VINA_PROGRAM, list_docking_programs
 from amdockvs.docking.protocols import PROTOCOL_SCHEMA, protocol_hash, protocol_identity
-from amdockvs.vocab import MoleculeType
+from amdockvs.core.vocab import MoleculeType
 
 DEFAULT_PROGRAM = VINA_PROGRAM.key
 MAX_REDOCKING_PROTOCOLS = 12
@@ -228,7 +228,7 @@ class ProtocolEditorWidget:
 
     def _docking_defaults(self):
         """User-configured docking defaults (amdockvs config, project layer included)."""
-        from amdockvs.configuration import app_config
+        from amdockvs.core.configuration import app_config
 
         return app_config(self.runtime).docking
 

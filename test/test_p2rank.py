@@ -12,12 +12,12 @@ import pytest
 from sqlmodel import select
 
 from amdockvs.models import BindingSite, MoleculeRecord
-from amdockvs.pockets.api import PocketPredictionAPI, defined_reference_ligands
-from amdockvs.pockets.jobs import (
+from amdockvs.binding_sites.api import BindingSiteAPI, defined_reference_ligands
+from amdockvs.binding_sites.jobs import (
     P2RankPredictionParams,
     p2rank_prediction_finalize,
 )
-from amdockvs.pockets.p2rank import (
+from amdockvs.binding_sites.p2rank import (
     P2RANK_VERSION,
     _safe_archive_members,
     ensure_p2rank,
@@ -114,12 +114,12 @@ def test_parse_p2rank_outputs_builds_binding_site_rows(tmp_path):
     assert Path(row["extra_data"]["points_path"]).is_file()
 
 
-def _pocket_api(project_store: ProjectStore) -> PocketPredictionAPI:
+def _pocket_api(project_store: ProjectStore) -> BindingSiteAPI:
     runtime = SimpleNamespace(
         molsuite=SimpleNamespace(project_db=project_store),
         _require_active_project=lambda: None,
     )
-    return PocketPredictionAPI(runtime)
+    return BindingSiteAPI(runtime)
 
 
 def test_prediction_plan_reuses_only_one_coherent_current_run(tmp_path):
@@ -170,7 +170,7 @@ def test_parsed_rows_go_through_the_real_sink_unchanged(tmp_path):
     the sink never does. This test writes through the same `output_spec` as the job, which is
     where it blew up.
     """
-    from amdockvs.pockets.jobs import p2rank_prediction_job
+    from amdockvs.binding_sites.jobs import p2rank_prediction_job
 
     output = tmp_path / "results" / "pockets" / "run" / "receptor_7"
     _write_outputs(output)
@@ -358,9 +358,9 @@ def test_ensure_p2rank_installs_verified_local_archive(tmp_path, monkeypatch):
     tools_home = tmp_path / "tools"
     monkeypatch.setenv("AMDOCK_TOOLS_HOME", str(tools_home))
     monkeypatch.delenv("AMDOCK_P2RANK_HOME", raising=False)
-    monkeypatch.setattr("amdockvs.pockets.p2rank.java_major_version", lambda _command=None: 17)
+    monkeypatch.setattr("amdockvs.binding_sites.p2rank.java_major_version", lambda _command=None: 17)
     monkeypatch.setattr(
-        "amdockvs.pockets.p2rank.find_java_command",
+        "amdockvs.binding_sites.p2rank.find_java_command",
         lambda: Path("/fake/java"),
     )
 

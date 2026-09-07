@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from amdockvs.docking.planning import DockingRunRequest, protocol_job_key
-from amdockvs.docking.programs import get_docking_program
+from amdockvs.docking.engines.programs import get_docking_program
 
 
 @dataclass(frozen=True)

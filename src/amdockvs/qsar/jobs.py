@@ -12,20 +12,20 @@ from ms_flow.sinks import graph_sink
 from ms_flow.tasking import job, task
 
 from amdockvs.chemistry.descriptors import calculate_descriptor_rows
-from amdockvs.api_common import worker_file
-from amdockvs.constants import (
+from amdockvs.core.worker_io import worker_file
+from amdockvs.core.constants import (
     AMDOCKVS_LOCAL_EXECUTORS,
     DEFAULT_DESCRIPTOR_BATCH_SIZE,
     TABLE_DESCRIPTORS,
     TABLE_FINGERPRINTS,
     TABLE_MOLECULES,
 )
-from amdockvs.molecule_paths import set_default_project_root
-from amdockvs.molecule_paths import preferred_molecule_path
+from amdockvs.core.paths import set_default_project_root
+from amdockvs.core.paths import preferred_molecule_path
 from amdockvs.models import FingerprintRecord, MoleculeRecord
-from amdockvs.molecules.store import as_store, store_from_config
+from amdockvs.molecules.storage import as_store, store_from_config
 from amdockvs.models.descriptors import FingerprintType
-from amdockvs.scopes import molecule_set_spec, prepared_molecules_spec
+from amdockvs.project.sets import molecule_set_spec, prepared_molecules_spec
 
 
 class DescriptorJobParams(BaseModel):

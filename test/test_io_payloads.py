@@ -8,7 +8,7 @@ sys.path.insert(0, "//src")
 
 from amdockvs.io.payloads import ImportBatchPayload, ImportPrefilterPolicy
 from amdockvs.io.transformers import build_import_graph_payload, materialize_import_batch
-from amdockvs.io.transformers.materializers import _active_binding_site_position
+from amdockvs.io.transformers.structures import _active_binding_site_position
 
 
 def test_import_prefilter_policy_uses_small_molecule_target_by_default():

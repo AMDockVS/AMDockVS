@@ -5,8 +5,8 @@ Replaces test_molecule_stream.py: MoleculeStream was deleted and its chunking/fi
 """
 from pathlib import Path
 
-from amdockvs.docking import preparation_jobs
-from amdockvs.docking.preparation_jobs import PreparationJobParams, _iter_preparation_batches
+from amdockvs.docking.preparation import jobs as preparation_jobs
+from amdockvs.docking.preparation.jobs import PreparationJobParams, _iter_preparation_batches
 
 
 def _fake_rows(pulled: list[int], total: int, prepared_path: str = ""):

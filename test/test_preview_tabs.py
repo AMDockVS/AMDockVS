@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QApplication, QWidget
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from amdockvs.ui.main_content import MainContentWidget
+from amdockvs.ui.shell.main_content import MainContentWidget
 
 
 def _content():

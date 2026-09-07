@@ -16,7 +16,7 @@ from typing import Any, Sequence
 import numpy as np
 from sqlmodel import select
 
-from amdockvs.constants import DEFAULT_LOCAL_CPU_EXECUTOR, RESOURCE_QSAR_MODELS
+from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR, RESOURCE_QSAR_MODELS
 from amdockvs.models import (
     ActivityRecord,
     FingerprintRecord,
@@ -89,10 +89,11 @@ from amdockvs.qsar.modeling import (
     save_model,
     supported_algorithms,
 )
-from amdockvs.api_common import MoleculeScope, PathLike, scope_payload
+from amdockvs.core.normalize import PathLike
+from amdockvs.molecules.scopes import MoleculeScope, scope_payload
 from amdockvs.molecules.api import ensure_molecule_set_ref
-from amdockvs.scopes import MoleculeSetRef, QSARModelRef
-from amdockvs.workflows import apply_workflow_filters
+from amdockvs.project.sets import MoleculeSetRef, QSARModelRef
+from amdockvs.workflows.rules import apply_workflow_filters
 
 QSAR_WORKFLOW = "qsar"
 
@@ -182,7 +183,7 @@ class QSARAPI:
 
     def _scaffold_keys(self, records) -> dict[int, str]:
         """molecule_id -> Bemis-Murcko scaffold SMILES (empty string when unparseable)."""
-        from amdockvs.molecule_paths import preferred_molecule_path
+        from amdockvs.core.paths import preferred_molecule_path
 
         try:
             from rdkit import Chem
@@ -328,7 +329,7 @@ class QSARAPI:
     def _structural_ligand_index(self, session) -> tuple[dict[str, int], dict[str, int]]:
         """(inchikey->id, canonical_smiles->id) over all ligands. Uses persisted representations
         when present (fast), otherwise computes keys from each ligand's stored structure file."""
-        from amdockvs.molecule_paths import preferred_molecule_path
+        from amdockvs.core.paths import preferred_molecule_path
 
         inchikey_to_id = {
             str(r.value): int(r.molecule_id)
@@ -1369,7 +1370,7 @@ class QSARAPI:
         """An RDKit mol for a ligand: from its stored structure file, else its canonical SMILES."""
         from rdkit import Chem
 
-        from amdockvs.molecule_paths import preferred_molecule_path
+        from amdockvs.core.paths import preferred_molecule_path
 
         path = preferred_molecule_path(rec)
         if path is not None and path.exists():

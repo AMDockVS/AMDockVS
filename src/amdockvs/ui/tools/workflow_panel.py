@@ -37,9 +37,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from amdockvs.orchestrator import STEP_NEEDS_CONFIG, STEP_RUNNING, WorkflowStep
+from amdockvs.workflows.orchestrator import STEP_NEEDS_CONFIG, STEP_RUNNING, WorkflowStep
 from amdockvs.ui.resources.icons import icon as load_icon
-from amdockvs.workflow_steps import (
+from amdockvs.workflows.steps import (
     DOCKING_VIEW_ID,
     PRESET_WORKFLOWS,
     STEP_SPECS,
@@ -663,7 +663,7 @@ class WorkflowPanel(QWidget):
             self._refresh_all()
             return
         self.run_btn.setEnabled(False)
-        from amdockvs.ui.async_query import run_async
+        from amdockvs.ui.common.async_query import run_async
 
         run_async(self.runner.materialize, self._on_launched, on_error=self._on_launched, busy=self)
 

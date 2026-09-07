@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from amdockvs.chemistry.descriptors import calculate_basic_descriptors
-from amdockvs.constants import STATUS_FLAG_PAINS, STATUS_FLAG_RO5_VIOLATION
-from amdockvs.molecule_paths import preferred_molecule_path
+from amdockvs.core.constants import STATUS_FLAG_PAINS, STATUS_FLAG_RO5_VIOLATION
+from amdockvs.core.paths import preferred_molecule_path
 
 SMALL_MOLECULE_FILTER_TYPE = "small_molecule"
 

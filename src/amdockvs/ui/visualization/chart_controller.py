@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QTimer
 
-from amdockvs.ui.async_query import run_async
+from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.catalog.domain_views import LIGAND_ACTIVITY_VIEW_ID
 from amdockvs.ui.tools.molecules.diversity import SELECTION_VIEW_ID
 from amdockvs.ui.tools.qsar.chart import render_structure_png
@@ -158,7 +158,7 @@ class ChartController:
         self._last_rendered_hover = mid
 
         def _work():
-            molblock = self.w.runtime.selection.molblock_for(mid)
+            molblock = self.w.runtime.diversity.molblock_for(mid)
             return render_structure_png(molblock, legend=f"centroid #{mid}") if molblock else b""
 
         run_async(_work, self._show_hovered_structure, on_error=lambda _e: None)

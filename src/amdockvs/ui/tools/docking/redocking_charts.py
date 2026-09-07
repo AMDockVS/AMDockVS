@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from amdockvs.docking.redocking_metrics import (
+from amdockvs.docking.results.redocking import (
     case_rmsds,
     funnel_points,
     rank_composition,

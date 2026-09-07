@@ -46,7 +46,7 @@ def test_runtime_ui_queries_cover_details_sets_filters_and_preparation(tmp_path,
         SmallMoleculeFilterRule,
     )
     from amdockvs.models import BindingSite, ComplexRecord, EngineState, LigandActivity, MoleculeRecord
-    from amdockvs.vocab import MoleculeType
+    from amdockvs.core.vocab import MoleculeType
 
     monkeypatch.setenv("HOME", str(tmp_path))
     runtime = AMDockVSRuntime()

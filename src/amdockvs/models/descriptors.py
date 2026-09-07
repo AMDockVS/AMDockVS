@@ -6,7 +6,7 @@ from typing import List
 from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, SQLModel, JSON
 
-from amdockvs.constants import (
+from amdockvs.core.constants import (
     TABLE_DESCRIPTOR_BLOCKS,
     TABLE_DESCRIPTOR_SCHEMAS,
     TABLE_DESCRIPTOR_VECTORS,
@@ -14,7 +14,7 @@ from amdockvs.constants import (
     TABLE_MOLECULES,
 )
 # Centralised vocabulary - re-exported so existing imports keep working.
-from amdockvs.vocab import FingerprintType
+from amdockvs.core.vocab import FingerprintType
 
 
 class DescriptorBlockRecord(SQLModel, table=True):

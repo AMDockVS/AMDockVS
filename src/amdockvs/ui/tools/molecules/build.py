@@ -20,10 +20,10 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from amdockvs.constants import DEFAULT_LOCAL_CPU_EXECUTOR
-from amdockvs.ui.async_query import run_async
+from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR
+from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.catalog.molecules import MOLECULES_VIEW_ID
-from amdockvs.vocab import MoleculeType
+from amdockvs.core.vocab import MoleculeType
 from ms_components.ms_table import FilterOperator, FilterSpec
 
 BUILD_ID = "moltools.build"

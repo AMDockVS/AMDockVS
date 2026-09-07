@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from amdockvs.ui.async_query import run_async
+from amdockvs.ui.common.async_query import run_async
 
 RESULTS_PIVOT_VIEW_ID = "workspace.complexes"  # keeps the tab identity of Docking Results
 
@@ -192,7 +192,7 @@ class ResultsPivotWidget(QWidget):
         elif key == _REDOCKING:
             from amdockvs.ui.tools.docking.redocking import RedockingWidget as cls
         else:
-            from amdockvs.ui.workspace import ComplexWidget as cls
+            from amdockvs.ui.catalog.results import ComplexWidget as cls
         return cls(
             runtime=self.runtime,
             load_hit_in_pymol=self._load_hit_in_pymol,

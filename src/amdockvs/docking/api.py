@@ -9,8 +9,8 @@ from uuid import uuid4
 from sqlalchemy import exists, or_
 from sqlmodel import select
 
-import amdockvs.docking.repository as repository
-from amdockvs.constants import (
+import amdockvs.docking.results.repository as results_repo
+from amdockvs.core.constants import (
     DEFAULT_DOCKING_BATCH_SIZE,
     DEFAULT_LOCAL_CPU_EXECUTOR,
     DEFAULT_VINA_BACKEND,
@@ -28,7 +28,7 @@ from amdockvs.docking.repository import (
 # How many offending ids a requirement check reports. They exist to be read by a human in a
 # dialog, and the caller gets the exact count separately.
 MISSING_SAMPLE_SIZE = 10
-from amdockvs.docking.programs import (
+from amdockvs.docking.engines.programs import (
     DockingEngineConfig,
     DockingProgramSpec,
     VINA_PROGRAM,
@@ -38,14 +38,16 @@ from amdockvs.docking.programs import (
 from amdockvs.docking.jobs import (
     count_pending_docking_pairs,
     count_pending_redocking_pairs,
-    DiagramJobParams,
     DockingJobParams,
-    InteractionJobParams,
     RedockingJobParams,
-    diagram_job,
     docking_job,
-    interactions_job,
     redocking_job,
+)
+from amdockvs.docking.results.jobs import (
+    DiagramJobParams,
+    InteractionJobParams,
+    diagram_job,
+    interactions_job,
 )
 from amdockvs.docking.protocols import DockingProtocolMetadata
 from amdockvs.docking.shard_jobs import (
@@ -56,55 +58,25 @@ from amdockvs.docking.shard_jobs import (
     recoverable_ranked_runs,
     select_hits as select_shard_hits,
 )
-from amdockvs.molecules.store import has_shards
-from amdockvs.htp.materialize import PAYLOAD_LIGHT
-from amdockvs.htp.campaign import list_targets, live_target_progress
-from amdockvs.docking.preparation_jobs import (
+from amdockvs.molecules.storage import has_shards
+from amdockvs.screening.materialize import PAYLOAD_LIGHT
+from amdockvs.screening.campaign import list_targets, live_target_progress
+from amdockvs.docking.preparation.jobs import (
     PreparationJobParams,
     PrepareLigandShardsJobParams,
     prepare_ligand_shards_job,
     prepare_ligands_job,
     prepare_receptors_job,
 )
-from amdockvs.api_common import MoleculeScope, PathLike, scope_payload
-from amdockvs.docking.residues import box_from_coords, residues_in_box
-from amdockvs.molecule_paths import preferred_molecule_path
+from amdockvs.core.normalize import PathLike
+from amdockvs.molecules.scopes import MoleculeScope, scope_payload
+from amdockvs.binding_sites.repository import active_site as _active_site
+from amdockvs.docking.residues import residues_in_box
+from amdockvs.core.paths import preferred_molecule_path
 from amdockvs.molecules.api import ensure_molecule_set_ref
 from amdockvs.models import BindingSite, EngineState, MoleculeRecord
-from amdockvs.scopes import ComplexSetRef, MoleculeSetRef
-from amdockvs.workflows import apply_workflow_filters
-
-
-def _read_atom_coords(path: Path) -> list[tuple[float, float, float]]:
-    """Atom coordinates from a molecule file. Fixed columns for PDB/PDBQT, RDKit for the rest."""
-    from amdockvs.io.formats import normalized_suffix, read_mol
-
-    if normalized_suffix(path) in {".pdb", ".pdbqt"}:
-        # Columns, not a parser: a box only needs coordinates, and this reads a structure the
-        # CCD does not know (UNL/LIG) just as well as one it does.
-        coords: list[tuple[float, float, float]] = []
-        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-            if not (line.startswith("ATOM") or line.startswith("HETATM")):
-                continue
-            try:
-                coords.append((float(line[30:38]), float(line[38:46]), float(line[46:54])))
-            except (ValueError, IndexError):
-                continue
-        return coords
-    mol = read_mol(path, sanitize=False, remove_hs=False)
-    if mol is None or mol.GetNumConformers() == 0:
-        return []
-    conf = mol.GetConformer()
-    return [
-        (float(p.x), float(p.y), float(p.z))
-        for p in (conf.GetAtomPosition(i) for i in range(mol.GetNumAtoms()))
-    ]
-
-
-def _active_site(session, receptor) -> BindingSite | None:
-    """The receptor's active site. A single FK hop: there is no index to match against."""
-    site_id = int(getattr(receptor, "active_binding_site_id", 0) or 0)
-    return None if site_id <= 0 else session.get(BindingSite, site_id)
+from amdockvs.project.sets import ComplexSetRef, MoleculeSetRef
+from amdockvs.workflows.rules import apply_workflow_filters
 
 
 def _validated_engine_config(
@@ -250,106 +222,13 @@ class DockingAPI:
 
     def delete_results(self, result_ids: list[int] | tuple[int, ...]) -> int:
         self.runtime._require_active_project()
-        from amdockvs.deletion import delete_docking_results
+        from amdockvs.project.deletion import delete_docking_results
 
         return delete_docking_results(self.runtime.molsuite.project_db, result_ids)
 
     @staticmethod
     def get_program_spec(program: str | None = None) -> DockingProgramSpec:
         return get_docking_program(program)
-
-    def list_binding_sites(self, *, molecule_id: int) -> list[BindingSite]:
-        self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
-            rows = session.exec(
-                select(BindingSite)
-                .where(BindingSite.molecule_id == int(molecule_id))
-                .order_by(BindingSite.id)
-            ).all()
-        return list(rows)
-
-    def save_binding_site(
-            self,
-            *,
-            molecule_id: int,
-            name: str = "",
-            source: str = "manual",
-            source_ref: str = "",
-            center: tuple[float, float, float],
-            size: tuple[float, float, float],
-            binding_site_id: int | None = None,
-            set_active: bool = False,
-            extra_data: dict[str, Any] | None = None,
-    ) -> BindingSite:
-        """Saves a site. Without `binding_site_id` it creates a new one; with it, rewrites that one."""
-        self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
-            molecule = session.get(MoleculeRecord, int(molecule_id))
-            if molecule is None:
-                raise ValueError(f"Molecule {molecule_id} does not exist.")
-            site = None if binding_site_id is None else session.get(BindingSite, int(binding_site_id))
-            if site is None:
-                site = BindingSite(molecule_id=int(molecule_id))
-            elif int(site.molecule_id) != int(molecule_id):
-                raise ValueError(
-                    f"Binding site {binding_site_id} belongs to molecule {site.molecule_id}."
-                )
-            site.name = str(name or "")
-            site.source = str(source or "manual")
-            site.source_ref = str(source_ref or "")
-            site.center_x = float(center[0])
-            site.center_y = float(center[1])
-            site.center_z = float(center[2])
-            site.size_x = float(size[0])
-            site.size_y = float(size[1])
-            site.size_z = float(size[2])
-            site.extra_data = dict(extra_data or {})
-            session.add(site)
-            session.flush()
-            if set_active:
-                molecule.active_binding_site_id = int(site.id or 0) or None
-                session.add(molecule)
-            session.commit()
-            session.refresh(site)
-            return site
-
-    def suggest_box_from_ligand(
-            self,
-            *,
-            ligand_id: int,
-            scale: float = 1.5,
-            padding: float = 4.0,
-    ) -> dict[str, Any]:
-        """Auto box from a reference ligand: center = its centroid, size = cubic box
-        derived from the ligand's radius of gyration. Returns {center, size, rg}."""
-        self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
-            ligand = session.get(MoleculeRecord, int(ligand_id))
-            if ligand is None:
-                raise ValueError(f"Molecule {ligand_id} does not exist.")
-            path = preferred_molecule_path(ligand)
-        if path is None or not Path(path).exists():
-            raise ValueError(f"Ligand {ligand_id} has no readable structure file.")
-        coords = _read_atom_coords(Path(path))
-        if not coords:
-            raise ValueError(f"No atom coordinates found in {Path(path).name}.")
-        return box_from_coords(coords, scale=float(scale), padding=float(padding))
-
-    def set_active_binding_site(self, *, molecule_id: int, binding_site_id: int | None) -> None:
-        self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
-            molecule = session.get(MoleculeRecord, int(molecule_id))
-            if molecule is None:
-                raise ValueError(f"Molecule {molecule_id} does not exist.")
-            if binding_site_id is not None:
-                site = session.get(BindingSite, int(binding_site_id))
-                if site is None or int(site.molecule_id) != int(molecule_id):
-                    raise ValueError(
-                        f"Binding site {binding_site_id} does not belong to molecule {molecule_id}."
-                    )
-            molecule.active_binding_site_id = None if binding_site_id is None else int(binding_site_id)
-            session.add(molecule)
-            session.commit()
 
     @staticmethod
     def _entity_filters_for_workflow(
@@ -720,7 +599,7 @@ class DockingAPI:
     ) -> dict[str, Any]:
         self.runtime._require_active_project()
         engine_name = str(engine or "vina")
-        site = self.save_binding_site(
+        site = self.runtime.binding_sites.save_site(
             molecule_id=int(receptor_id),
             name="Manual Site",
             source="manual",
@@ -1360,13 +1239,13 @@ class DockingAPI:
         )
 
     def list_results(self, *, limit: int = 5000, offset: int = 0):
-        return repository.list_results(self._project_db(), limit=limit, offset=offset)
+        return results_repo.list_results(self._project_db(), limit=limit, offset=offset)
 
     def result_stats(self):
-        return repository.get_docking_results_stats(self._project_db())
+        return results_repo.get_docking_results_stats(self._project_db())
 
     def top_hits(self, *, limit: int = 25, receptor_id: int | None = None, only_completed: bool = True):
-        return repository.list_top_hits(
+        return results_repo.list_top_hits(
             self._project_db(),
             limit=limit,
             receptor_id=receptor_id,
@@ -1389,7 +1268,7 @@ class DockingAPI:
             exclude_run_kind: str | None = "redocking",
     ):
         """(best pose, pose count) per ligand, one page at a time."""
-        return repository.list_ligand_result_summaries(
+        return results_repo.list_ligand_result_summaries(
             self._project_db(),
             limit=limit,
             offset=offset,
@@ -1421,7 +1300,7 @@ class DockingAPI:
             exclude_run_kind: str | None = None,
             offset: int = 0,
     ):
-        return repository.list_top_hits(
+        return results_repo.list_top_hits(
             self._project_db(),
             limit=limit,
             receptor_id=receptor_id,
@@ -1439,10 +1318,10 @@ class DockingAPI:
         )
 
     def hit(self, *, result_id: int):
-        return repository.get_hit(self._project_db(), result_id=int(result_id))
+        return results_repo.get_hit(self._project_db(), result_id=int(result_id))
 
     def result_protocols(self, *, receptor_id: int | None = None, exclude_run_kind: str | None = "redocking"):
-        return repository.list_result_protocols(
+        return results_repo.list_result_protocols(
             self._project_db(),
             receptor_id=receptor_id,
             exclude_run_kind=exclude_run_kind,
@@ -1519,16 +1398,16 @@ class DockingAPI:
 
     def diagram_path(self, *, pose_path: str, pose_rank: int = 1, fmt: str = "png") -> str:
         """Convention path for a pose's diagram (may not exist yet)."""
-        from amdockvs.docking.diagram import diagram_path_for
+        from amdockvs.docking.results.diagram import diagram_path_for
 
         suffix = ".svg" if str(fmt).lower() == "svg" else ".png"
         return str(diagram_path_for(pose_path, pose_rank, suffix=suffix))
 
     def list_interactions(self, *, result_id: int):
-        return repository.list_interactions(self._project_db(), result_id=int(result_id))
+        return results_repo.list_interactions(self._project_db(), result_id=int(result_id))
 
     def interaction_stats(self, *, result_ids: list[int] | None = None):
-        return repository.interaction_stats(self._project_db(), result_ids=result_ids)
+        return results_repo.interaction_stats(self._project_db(), result_ids=result_ids)
 
     def count_docked_pairs(
             self,
@@ -1538,7 +1417,7 @@ class DockingAPI:
             protocol_hash: str | None = None,
             run_kind: str | None = "screening",
     ) -> int:
-        return repository.count_docked_pairs(
+        return results_repo.count_docked_pairs(
             self._project_db(),
             engine=engine,
             receptor_ids=receptor_ids,
@@ -1547,10 +1426,10 @@ class DockingAPI:
         )
 
     def receptor_summaries(self):
-        return repository.list_receptor_result_summaries(self._project_db())
+        return results_repo.list_receptor_result_summaries(self._project_db())
 
     def pivot_availability(self) -> dict[str, bool]:
-        return repository.pivot_availability(self._project_db())
+        return results_repo.pivot_availability(self._project_db())
 
     def offtarget_rows(
             self,
@@ -1559,7 +1438,7 @@ class DockingAPI:
             ligand_ids: list[int] | None = None,
             limit: int = 50000,
     ):
-        return repository.list_offtarget_rows(
+        return results_repo.list_offtarget_rows(
             self._project_db(),
             receptor_ids=receptor_ids, ligand_ids=ligand_ids, limit=limit
         )

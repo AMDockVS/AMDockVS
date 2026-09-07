@@ -7,8 +7,8 @@ from typing import Any, Iterable, Iterator
 from sqlmodel import select
 
 from amdockvs.models import ComplexRecord, LigandActivity, MoleculeRecord
-from amdockvs.vocab import ComplexPurpose
-from amdockvs.scopes import ComplexRef, ComplexSetRef, create_complex_snapshot_set, list_complex_set_ids
+from amdockvs.core.vocab import ComplexPurpose
+from amdockvs.project.sets import ComplexRef, ComplexSetRef, create_complex_snapshot_set, list_complex_set_ids
 
 
 @dataclass
@@ -78,7 +78,7 @@ class ComplexAPI:
 
     def delete(self, complex_ids: Iterable[int | str]) -> int:
         self.runtime._require_active_project()
-        from amdockvs.deletion import delete_complexes
+        from amdockvs.project.deletion import delete_complexes
 
         return delete_complexes(self.runtime.molsuite.project_db, complex_ids)
 

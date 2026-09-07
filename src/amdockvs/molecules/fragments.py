@@ -5,7 +5,7 @@ from typing import Any, Mapping
 
 from amdockvs.chemistry.filtering import evaluate_small_molecule_filter_values
 from amdockvs.chemistry.state import molecule_state_metadata
-from amdockvs.molecule_paths import artifact_storage_path, get_default_project_root
+from amdockvs.core.paths import artifact_storage_path, get_default_project_root
 
 _ORGANIC_ATOMIC_NUMBERS = {
     1, 5, 6, 7, 8, 9, 14, 15, 16, 17, 34, 35, 53,

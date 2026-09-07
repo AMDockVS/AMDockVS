@@ -11,7 +11,7 @@ from ms_flow.sinks import graph_sink, table_sink
 from ms_flow.specs import InputSource
 from ms_flow.tasking import job, task
 
-from amdockvs.constants import (
+from amdockvs.core.constants import (
     AMDOCKVS_LOCAL_EXECUTORS,
     AMDOCKVS_PROCESS_EXECUTORS,
     DEFAULT_LOAD_BATCH_SIZE,
@@ -34,7 +34,7 @@ from amdockvs.io.transformers import (
     materialize_multithreaded_sdf_file,
     offload_source_properties,
 )
-from amdockvs.api_common import worker_output_dir
+from amdockvs.core.worker_io import worker_output_dir
 from amdockvs.models import (
     BindingSite,
     ComplexRecord,

@@ -34,7 +34,7 @@ from amdockvs.chemistry.filtering import (
     build_small_molecule_prefilter_rules,
 )
 from amdockvs.models.molecules import MoleculeType, MoleculeUsageClass
-from amdockvs.ui.async_query import run_async
+from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.catalog.molecules import MOLECULES_VIEW_ID
 
 FILTER_ID = "moltools.filter"

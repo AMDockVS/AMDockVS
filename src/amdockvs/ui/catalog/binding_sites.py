@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from amdockvs.models import BindingSite
 from amdockvs.ui.catalog.common import BoundTableWidget
-from amdockvs.vocab import BindingSiteSource
+from amdockvs.core.vocab import BindingSiteSource
 from ms_components.ms_table import (
     AlignHint,
     ColumnDef,

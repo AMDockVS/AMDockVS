@@ -10,7 +10,7 @@ from ms_flow.core.database.project import ProjectStore
 
 from amdockvs.docking.jobs import count_pending_docking_pairs, iter_docking_batches
 from amdockvs.docking.protocols import DockingProtocolMetadata
-from amdockvs.docking.service import iter_docking_batches_from_rows
+from amdockvs.docking.pairs import iter_docking_batches_from_rows
 from amdockvs.models.docking import DockingResult, EngineState
 from amdockvs.models.molecules import MoleculeRecord
 

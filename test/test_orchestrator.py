@@ -1,6 +1,6 @@
 import pytest
 
-from amdockvs.orchestrator import (
+from amdockvs.workflows.orchestrator import (
     STEP_RUNNING,
     WF_ABORTED,
     WF_COMPLETED,

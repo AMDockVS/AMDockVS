@@ -17,7 +17,7 @@ from ms_components.ms_stepper import Orientation, QStepper
 DOCKING_VIEW_ID = "workspace.docking"
 PREP_STATUS_VIEW_ID = "workspace.prep_status"
 
-from amdockvs.ui.tools.docking.flexible_residues import FlexibleResiduesPanel
+from amdockvs.ui.tools.binding_sites.flexible_residues import FlexibleResiduesPanel
 from amdockvs.ui.tools.docking.preparation_panel import EngineStatePrepView, PreparationPanel
 from amdockvs.ui.tools.docking.protocol_editor import ProtocolEditorWidget
 from amdockvs.ui.tools.docking.run_panel import RunPanel

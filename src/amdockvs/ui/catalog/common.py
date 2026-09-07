@@ -9,11 +9,11 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel
 
-from amdockvs.configuration import (
+from amdockvs.core.configuration import (
     DEFAULT_MAX_2D_PREVIEW_HEAVY_ATOMS,
     MAX_2D_PREVIEW_HEAVY_ATOMS_PATH,
 )
-from amdockvs.molecule_paths import preferred_molecule_path
+from amdockvs.core.paths import preferred_molecule_path
 from ms_components.ms_table import FilterOperator, FilterSpec, TableConfig, SmartTableView
 
 

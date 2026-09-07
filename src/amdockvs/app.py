@@ -117,7 +117,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     from ms_components.theme import apply_theme
     from ms_components.wheel import install_shift_hscroll, uninstall_shift_hscroll
 
-    from amdockvs.ui.theme import saved_base_font_pt, saved_theme_name
+    from amdockvs.ui.common.theme import saved_base_font_pt, saved_theme_name
     from amdockvs.ui.resources.icons.themed import shutdown_themed_icons
     apply_theme(saved_theme_name(), qt_app,
                 base_font_pt=saved_base_font_pt())  # ribbon recolor follows in main_window; live switch via Theme menu
@@ -126,7 +126,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     print("Creating splash…", time.time() - start)
     splash = None
     if not _splash_disabled():
-        from amdockvs.ui.splash import create_splash
+        from amdockvs.ui.shell.splash import create_splash
         print("Creating splash 2…", time.time() - start)
         splash = create_splash()
 

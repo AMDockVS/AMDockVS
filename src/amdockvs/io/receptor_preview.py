@@ -9,7 +9,8 @@ from typing import Any
 
 import gemmi
 
-from amdockvs.configuration import DEFAULT_BINDING_SITE_BOX_SIZE
+from amdockvs.binding_sites.from_structure import binding_site_specs_from_components
+from amdockvs.core.configuration import DEFAULT_BINDING_SITE_BOX_SIZE
 
 
 def _load_hetero_codes() -> dict[str, set[str]]:
@@ -187,7 +188,15 @@ def build_receptor_import_preview(scan: dict[str, Any], options: ReceptorImportO
         wanted = set(options.selected_reference_ligands)
         reference_ligands = [selector for selector in candidate_selectors if selector in wanted]
 
-    binding_site_specs = _build_binding_site_specs(components, options, reference_ligands=reference_ligands)
+    binding_site_specs = (
+        binding_site_specs_from_components(
+            components,
+            box_size=options.binding_site_box_size,
+            reference_ligands=reference_ligands,
+        )
+        if options.create_binding_sites_from_components
+        else []
+    )
     workflow = _build_workflow_payload(components, options)
     workflow["reference_ligands"] = list(reference_ligands)
     status, messages = _build_status(
@@ -809,46 +818,6 @@ def _parse_pdb_like_line(line: str) -> dict[str, Any] | None:
         "element": element,
         "is_polymer": _is_polymer_residue(resname),
     }
-
-
-def _build_binding_site_specs(
-    components: list[dict[str, Any]],
-    options: ReceptorImportOptions,
-    reference_ligands: list[str] | None = None,
-) -> list[dict[str, Any]]:
-    if not options.create_binding_sites_from_components:
-        return []
-    size = (float(options.binding_site_box_size),) * 3
-    # Only the kept reference ligands get a binding site (artifact copies were dropped upstream).
-    reference_set = None if reference_ligands is None else set(reference_ligands)
-    specs: list[dict[str, Any]] = []
-    for component in components:
-        component_class = component["component_class"]
-        if component_class == "ligand":
-            if reference_set is not None and str(component.get("selector") or "") not in reference_set:
-                continue
-            specs.append(
-                {
-                    "name": f"{component['resname']} site",
-                    "source": "ligand",
-                    "source_ref": component["selector"],
-                    "center": component["center"],
-                    "size": size,
-                    "extra_data": {"component_class": component_class, "selector": component["selector"]},
-                }
-            )
-        elif component_class == "metal" and component.get("is_coordinated"):
-            specs.append(
-                {
-                    "name": f"{component['resname']} metal site",
-                    "source": "metal",
-                    "source_ref": component["selector"],
-                    "center": component["center"],
-                    "size": size,
-                    "extra_data": {"component_class": component_class, "selector": component["selector"]},
-                }
-            )
-    return specs
 
 
 def _build_workflow_payload(components: list[dict[str, Any]], options: ReceptorImportOptions) -> dict[str, Any]:

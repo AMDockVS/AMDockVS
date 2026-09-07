@@ -13,7 +13,7 @@ def test_redocking_rmsd_does_not_realign_pose(tmp_path):
     from rdkit import Chem
     from rdkit.Chem import AllChem
 
-    from amdockvs.docking.rmsd import pose_rmsd_vs_reference
+    from amdockvs.docking.results.rmsd import pose_rmsd_vs_reference
 
     mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
     assert AllChem.EmbedMolecule(mol, randomSeed=7) == 0
@@ -45,7 +45,7 @@ def test_redocking_rmsd_keeps_identical_pose_near_zero(tmp_path):
     from rdkit import Chem
     from rdkit.Chem import AllChem
 
-    from amdockvs.docking.rmsd import pose_rmsd_vs_reference
+    from amdockvs.docking.results.rmsd import pose_rmsd_vs_reference
 
     mol = Chem.AddHs(Chem.MolFromSmiles("CCO"))
     assert AllChem.EmbedMolecule(mol, randomSeed=11) == 0
@@ -65,7 +65,7 @@ def test_redocking_rmsd_keeps_identical_pose_near_zero(tmp_path):
     assert rmsd is not None
     assert rmsd < 1.0e-6
 
-    from amdockvs.docking.rmsd import pose_rmsd_detail
+    from amdockvs.docking.results.rmsd import pose_rmsd_detail
 
     detail = pose_rmsd_detail(reference_ligand_path=ref_path, pose_path=pose_path)
     assert detail is not None

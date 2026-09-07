@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from amdockvs.models import BindingSite, ComplexRecord, MoleculeRecord
-from amdockvs.molecule_paths import get_default_project_root
+from amdockvs.core.paths import get_default_project_root
 class CatalogDetailsView(QWidget):
     """Molecule/complex inspector. Lives as a central tab that follows the catalog
     selection while open (was a bottom dock)."""

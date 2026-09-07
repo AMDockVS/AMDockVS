@@ -1,4 +1,4 @@
-from amdockvs.models.analisis import SimilarityResult, ClusteringResult, ClusteringRun
+from amdockvs.models.clustering import SimilarityResult, ClusteringResult, ClusteringRun
 from amdockvs.models.base import TimestampedRecord
 from amdockvs.models.complexes import ComplexRecord
 from amdockvs.models.descriptors import (

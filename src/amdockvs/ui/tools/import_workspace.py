@@ -22,8 +22,8 @@ from PySide6.QtWidgets import (
 
 from amdockvs.io.jobs import SHARD_SUGGEST_BYTES
 from amdockvs.models.molecules import MoleculeType
-from amdockvs.vocab import ProjectMode
-from amdockvs.ui.drop_area import TablePlaceholder, drop_hint, icon_button
+from amdockvs.core.vocab import ProjectMode
+from amdockvs.ui.common.drop_area import TablePlaceholder, drop_hint, icon_button
 from amdockvs.ui.catalog.ligands import LIGANDS_VIEW_ID
 from amdockvs.ui.catalog.shards import SHARDS_VIEW_ID
 from amdockvs.ui.catalog.receptors import RECEPTOR_VIEW_ID, ReceptorImportPanel
@@ -191,6 +191,23 @@ class LigandImportDialog(QDialog):
         top.addLayout(toolbar)
         root.addLayout(top, 1)
 
+        # --- where the library lands ---
+        # This is the whole "campaign mode" decision, and it lives here because it is a property
+        # of the library being imported, not of the project. One screening library per project:
+        # once the project holds one, the box is locked to match it.
+        self.shard_checkbox = QCheckBox(
+            "Screening library: keep on disk as shards (no rows, no catalog)", self
+        )
+        self.shard_checkbox.setToolTip(
+            "For libraries too big to materialize. The molecules stay in files; only hits are "
+            "ever written to the project. Receptors and reference ligands are unaffected."
+        )
+        self.shard_hint = QLabel("", self)
+        self.shard_hint.setWordWrap(True)
+        root.addWidget(self.shard_checkbox)
+        root.addWidget(self.shard_hint)
+        self._lock_shard_choice_to_project()
+
         # --- option tabs (separate scopes) ---
         self.tabs = QTabWidget(self)
         self.filters_form = ImportFilterCriteriaForm(self)
@@ -217,23 +234,6 @@ class LigandImportDialog(QDialog):
             "Diverse",
         )
         root.addWidget(self.tabs)
-
-        # --- where the library lands ---
-        # This is the whole "campaign mode" decision, and it lives here because it is a property
-        # of the library being imported, not of the project. One screening library per project:
-        # once the project holds one, the box is locked to match it.
-        self.shard_checkbox = QCheckBox(
-            "Screening library: keep on disk as shards (no rows, no catalog)", self
-        )
-        self.shard_checkbox.setToolTip(
-            "For libraries too big to materialize. The molecules stay in files; only hits are "
-            "ever written to the project. Receptors and reference ligands are unaffected."
-        )
-        self.shard_hint = QLabel("", self)
-        self.shard_hint.setWordWrap(True)
-        root.addWidget(self.shard_checkbox)
-        root.addWidget(self.shard_hint)
-        self._lock_shard_choice_to_project()
 
         # --- footer ---
         buttons = QDialogButtonBox(self)

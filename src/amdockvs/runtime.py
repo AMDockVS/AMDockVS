@@ -7,7 +7,7 @@ from uuid import UUID
 
 from ms_flow.runtime import AppRuntime
 
-from amdockvs.constants import (
+from amdockvs.core.constants import (
     AMDOCKVS_APP_ID,
     AMDOCKVS_APP_NAME,
     AMDOCKVS_DEFAULT_PROJECT_DIRS,
@@ -20,15 +20,15 @@ from amdockvs.constants import (
     RESOURCE_QSAR_MODELS,
     TABLE_SCREENING_SHARD_RUNS,
 )
-from amdockvs.configuration import (
+from amdockvs.core.configuration import (
     MAX_2D_PREVIEW_HEAVY_ATOMS,
     MAX_2D_PREVIEW_HEAVY_ATOMS_PATH,
     create_amdock_configuration,
 )
 import amdockvs.models  # noqa: F401  # Ensure SQLModel metadata is registered before project DB setup.
-from amdockvs.molecule_paths import set_default_project_root
-from amdockvs.summaries import JobStatus, ProjectSummary
-from amdockvs.molecules.store import DbStore, general_ligand_count, library_kind
+from amdockvs.core.paths import set_default_project_root
+from amdockvs.project.summaries import JobStatus, ProjectSummary
+from amdockvs.molecules.storage import DbStore, general_ligand_count, library_kind
 
 if TYPE_CHECKING:
     from amdockvs.chemistry.api import ChemistryAPI
@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from amdockvs.io.api import LoaderAPI
     from amdockvs.molecules.api import MoleculeAPI
     from amdockvs.qsar.api import QSARAPI
-    from amdockvs.pockets.api import PocketPredictionAPI
+    from amdockvs.binding_sites.api import BindingSiteAPI
 
 KNOWN_JOB_STATUSES = (
     "pending",
@@ -103,7 +103,7 @@ class AMDockVSRuntime(AppRuntime):
         self._chemistry_api: ChemistryAPI | None = None
         self._qsar_api: QSARAPI | None = None
         self._docking_api: DockingAPI | None = None
-        self._pocket_prediction_api: PocketPredictionAPI | None = None
+        self._binding_sites_api: BindingSiteAPI | None = None
         self._ligand_store = None
 
     def _migrate_legacy_app_settings(self, configuration) -> None:
@@ -174,20 +174,20 @@ class AMDockVSRuntime(AppRuntime):
         return self._docking_api
 
     @property
-    def pockets(self) -> PocketPredictionAPI:
-        if self._pocket_prediction_api is None:
-            from amdockvs.pockets.api import PocketPredictionAPI
+    def binding_sites(self) -> BindingSiteAPI:
+        if self._binding_sites_api is None:
+            from amdockvs.binding_sites.api import BindingSiteAPI
 
-            self._pocket_prediction_api = PocketPredictionAPI(self)
-        return self._pocket_prediction_api
+            self._binding_sites_api = BindingSiteAPI(self)
+        return self._binding_sites_api
 
     @property
-    def selection(self):
-        if getattr(self, "_selection_api", None) is None:
-            from amdockvs.selection.api import SelectionAPI
+    def diversity(self):
+        if getattr(self, "_diversity_api", None) is None:
+            from amdockvs.diversity.api import DiversityAPI
 
-            self._selection_api = SelectionAPI(self)
-        return self._selection_api
+            self._diversity_api = DiversityAPI(self)
+        return self._diversity_api
 
     def configuration_sources(self) -> tuple[object, ...]:
         return tuple(self._configuration_sources)
@@ -332,7 +332,7 @@ class AMDockVSRuntime(AppRuntime):
         """The single active workflow (a WorkflowRunner). Panels add steps to this shared
         instance via runtime.workflow.add_step(...); it persists for the session."""
         if getattr(self, "_workflow", None) is None:
-            from amdockvs.orchestrator import WorkflowRunner
+            from amdockvs.workflows.orchestrator import WorkflowRunner
 
             self._workflow = WorkflowRunner(self)
         return self._workflow

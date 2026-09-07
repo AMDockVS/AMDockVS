@@ -3,8 +3,8 @@
 Import keeps what its options say to keep; the preparation step decides what of that actually
 reaches Meeko. Both halves used to be overridden by a blanket polymer+metal whitelist.
 """
-from amdockvs.docking.service import receptor_excluded_resnames
-from amdockvs.docking.tools.vina_preparation import _without_resnames
+from amdockvs.docking.preparation.entities import receptor_excluded_resnames
+from amdockvs.docking.preparation.meeko import _without_resnames
 
 _BLOCK = "\n".join(
     [

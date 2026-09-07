@@ -3,7 +3,7 @@ from __future__ import annotations
 import inspect
 from types import SimpleNamespace
 
-from amdockvs.api_common import MoleculeScope
+from amdockvs.molecules.scopes import MoleculeScope
 from amdockvs.docking.planning import (
     DockingProtocol,
     DockingRunIdentity,
@@ -15,7 +15,7 @@ from amdockvs.docking.submission import DockingSubmissionService
 
 
 def test_docking_studio_is_a_small_coordinator_with_specialized_components():
-    from amdockvs.ui.tools.docking.flexible_residues import FlexibleResiduesPanel
+    from amdockvs.ui.tools.binding_sites.flexible_residues import FlexibleResiduesPanel
     from amdockvs.ui.tools.docking.preparation_panel import PreparationPanel
     from amdockvs.ui.tools.docking.protocol_editor import ProtocolEditorWidget
     from amdockvs.ui.tools.docking.run_panel import RunPanel

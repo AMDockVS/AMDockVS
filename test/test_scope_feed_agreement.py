@@ -12,11 +12,11 @@ from ms_flow.query import db_count
 
 from amdockvs.chemistry import repository as chemistry_repo
 from amdockvs.chemistry.jobs import LigandChemistryJobParams, _iter_ligand_chemistry_batches
-from amdockvs.docking.preparation_jobs import PreparationJobParams
-from amdockvs.docking.preparation_jobs import scope_spec as preparation_scope_spec
+from amdockvs.docking.preparation.jobs import PreparationJobParams
+from amdockvs.docking.preparation.jobs import scope_spec as preparation_scope_spec
 from amdockvs.models.molecules import MoleculeRecord
-from amdockvs.pockets.jobs import P2RankPredictionParams
-from amdockvs.pockets.jobs import scope_spec as pockets_scope_spec
+from amdockvs.binding_sites.jobs import P2RankPredictionParams
+from amdockvs.binding_sites.jobs import scope_spec as pockets_scope_spec
 from amdockvs.qsar.jobs import DescriptorJobParams, _iter_descriptor_batches
 from amdockvs.qsar.jobs import scope_spec as qsar_scope_spec
 

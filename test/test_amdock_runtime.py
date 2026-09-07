@@ -199,7 +199,7 @@ def test_load_receptors_headless_resolves_box_size(monkeypatch, tmp_path):
     explicit = fake_job.calls[0]["params"]["extra_data_patch_by_file"][key]["structure"]["import_profile"]
     from_config = fake_job.calls[1]["params"]["extra_data_patch_by_file"][key]["structure"]["import_profile"]
     assert explicit["binding_site_box_size"] == 24.0
-    from amdockvs.configuration import DEFAULT_BINDING_SITE_BOX_SIZE
+    from amdockvs.core.configuration import DEFAULT_BINDING_SITE_BOX_SIZE
 
     assert from_config["binding_site_box_size"] == DEFAULT_BINDING_SITE_BOX_SIZE
 
@@ -435,7 +435,7 @@ def test_amdock_runtime_import_prefilter_discards_ligands_early(tmp_path, monkey
 
     from ms_flow.query import db_rows
 
-    from amdockvs.constants import TABLE_MOLECULES
+    from amdockvs.core.constants import TABLE_MOLECULES
 
     runtime = AMDockVSRuntime()
     try:

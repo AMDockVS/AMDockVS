@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import amdockvs.ui.catalog  # noqa: F401 - imported first, it is what breaks the ui import cycle
 
 from amdockvs.ui.tools.docking.results_pivot import ResultsPivotWidget, _freshness_text_and_delay
-from amdockvs.ui.workspace import DockingResultsWidget
+from amdockvs.ui.catalog.results import DockingResultsWidget
 from amdockvs.models import DockingResultRecord, MoleculeRecord, ScreeningTarget
 from ms_components.ms_table import SmartTableView
 

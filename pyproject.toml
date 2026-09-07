@@ -58,7 +58,7 @@ dependencies = [
 
 [project.optional-dependencies]
 # bblean is GPL-3.0 while AMDock is MIT, so it is never imported: the diversity job shells out to
-# its `bb` console script (see amdockvs/selection/clustering.py). Optional because without it the
+# its `bb` console script (see amdockvs/diversity/clustering.py). Optional because without it the
 # BitBIRCH method falls back to the lean in-tree implementation.
 bblean = ["bblean>=0.10"]
 # P2Rank is a Java tool: the JDK ships as a plain wheel (jlink-trimmed), the P2Rank
@@ -90,7 +90,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 amdockvs = [
-    "*.toml",
+    "core/*.toml",
     "ui/resources/icons/*.svg",
     "ui/resources/icons/*.png",
     "ui/resources/styles/*.qss",

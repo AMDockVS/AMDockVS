@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from amdockvs.models import ComplexRecord
 from amdockvs.ui.catalog.common import BoundTableWidget
-from amdockvs.vocab import ComplexPurpose
+from amdockvs.core.vocab import ComplexPurpose
 from ms_components.ms_table import (
     AlignHint,
     ColumnDef,

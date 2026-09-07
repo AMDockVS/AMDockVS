@@ -6,9 +6,9 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
-from amdockvs.api_common import MoleculeScope
+from amdockvs.molecules.scopes import MoleculeScope
 from amdockvs.docking.protocols import PROTOCOL_SCHEMA, protocol_hash
-from amdockvs.scopes import MoleculeSetRef
+from amdockvs.project.sets import MoleculeSetRef
 
 
 @dataclass(frozen=True)

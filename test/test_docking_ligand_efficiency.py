@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from amdockvs.docking.engines import _count_heavy_atoms_pdbqt, _ligand_efficiency
+from amdockvs.docking.engines.vina import _count_heavy_atoms_pdbqt, _ligand_efficiency
 
 
 def test_count_heavy_atoms_skips_hydrogens(tmp_path: Path) -> None:

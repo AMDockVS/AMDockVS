@@ -13,11 +13,11 @@ from amdockvs.io.jobs import (
     load_ligands_multithreaded_sdf_job,
     load_receptors_file_job,
 )
-from amdockvs.api_common import PathLike, group_files, normalize_files
-from amdockvs.configuration import app_config
-from amdockvs.constants import RESOURCE_SHARDS
-from amdockvs.molecules.store import LIBRARY_ROWS, LIBRARY_SHARDS, check_library_target
-from amdockvs.vocab import MoleculeType
+from amdockvs.core.normalize import PathLike, group_files, normalize_files
+from amdockvs.core.configuration import app_config
+from amdockvs.core.constants import RESOURCE_SHARDS
+from amdockvs.molecules.storage import LIBRARY_ROWS, LIBRARY_SHARDS, check_library_target
+from amdockvs.core.vocab import MoleculeType
 
 
 # The executor loop keeps at most this many chunks in flight per job. It must be
@@ -239,7 +239,7 @@ class LoaderAPI:
         # This method owns the raw-intent -> import-maps assembly, so a headless caller gets the
         # same result as the UI (which just forwards its selections). Pre-assembled maps still win.
         if extra_data_patch_by_file is None and binding_site_specs_by_file is None:
-            from amdockvs.configuration import app_config
+            from amdockvs.core.configuration import app_config
             from amdockvs.io.receptor_preview import ReceptorImportOptions, build_receptor_import_maps
 
             box = (

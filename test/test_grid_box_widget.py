@@ -7,18 +7,18 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QAbstractButton, QApplication, QHeaderView
 
 from amdockvs.models import BindingSite, MoleculeRecord
-from amdockvs.ui.tools.docking.grid_box import (
+from amdockvs.ui.tools.binding_sites.box import (
     ACTIVE_SITE_ROLE,
     SITE_COLOR_ROLE,
     GridBoxSettingDockWidget,
 )
 
 
-class _DockingApi:
+class _BindingSitesApi:
     def __init__(self, sites: list[BindingSite]):
         self._sites = sites
 
-    def list_binding_sites(self, *, molecule_id: int) -> list[BindingSite]:
+    def list_sites(self, *, molecule_id: int) -> list[BindingSite]:
         assert molecule_id == 4
         return list(self._sites)
 
@@ -53,7 +53,7 @@ def grid_box_widget():
         ),
     ]
     widget = GridBoxSettingDockWidget(
-        runtime=SimpleNamespace(docking=_DockingApi(sites)),
+        runtime=SimpleNamespace(binding_sites=_BindingSitesApi(sites)),
     )
     widget.set_molecule(
         MoleculeRecord(

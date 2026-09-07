@@ -2,7 +2,7 @@
 
 import pytest
 
-import amdockvs.configuration  # noqa: F401  - pydantic before PySide6 (see test_ui_job_feedback)
+import amdockvs.core.configuration  # noqa: F401  - pydantic before PySide6 (see test_ui_job_feedback)
 
 pytest.importorskip("PySide6")
 
@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from PySide6.QtGui import QIcon  # noqa: E402
 
-from amdockvs.ui.notifications import (  # noqa: E402
+from amdockvs.ui.shell.notifications import (  # noqa: E402
     ERROR,
     INFO,
     WARNING,

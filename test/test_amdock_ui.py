@@ -18,8 +18,9 @@ from PySide6.QtWidgets import QApplication, QDockWidget, QMainWindow, QToolButto
 from amdockvs.ui.catalog import LIGANDS_VIEW_ID, MOLECULES_VIEW_ID, RECEPTOR_VIEW_ID
 from amdockvs.ui.main_window import AMDockVSMainWindow
 from amdockvs.ui.shell.job_feedback import JobFeedbackController
-from amdockvs.ui.projects import ApplicationWidget, ProjectsWidget
-from amdockvs.ui.workspace import ComplexWidget, LigandActivityWidget
+from amdockvs.ui.shell.projects import ApplicationWidget, ProjectsWidget
+from amdockvs.ui.catalog.activity import LigandActivityWidget
+from amdockvs.ui.catalog.results import ComplexWidget
 from amdockvs.ui.catalog.domain_views import COMPLEXES_VIEW_ID
 from amdockvs.ui.tools.docking import (
     DOCKING_VIEW_ID,
@@ -29,12 +30,13 @@ from amdockvs.ui.tools.docking import (
 )
 from amdockvs.ui.tools.docking.offtarget import OFFTARGET_VIEW_ID
 from amdockvs.ui.tools.docking.redocking import REDOCKING_VIEW_ID
-from amdockvs.ui.tools.molecules.pocket_detection import (
+from amdockvs.ui.tools.binding_sites.detection import (
     P2RANK_SCORE_COLORS,
     _score_palette_indices,
 )
 from amdockvs.ui.catalog.molecules import MoleculeWidget
 from amdockvs.ui.catalog.ligands import LigandWidget, _create_ligand_set
+from amdockvs.ui.registry import STANDING_DATA_VIEWS, TOOL_VIEW_IDS
 
 
 def _patch_fake_home(monkeypatch, fake_home: Path):
@@ -498,13 +500,14 @@ def test_tool_buttons_are_flat_and_keep_result_views_available(tmp_path, monkeyp
         window.show()
         app.processEvents()
 
-        tool_ids = {view_id for _a, _t, view_id, _i, _o in window.tools.TOOL_ACTIONS}
-        assert tool_ids == set(window.views.TOOL_VIEW_IDS)  # left bar names tools, nothing else
+        tool_ids = set(TOOL_VIEW_IDS)
+        # left bar names tools, nothing else: every button is a tool view and vice versa.
+        assert tool_ids == set(window.tools.action_buttons)
         assert not any(b.menu() for b in window.tools.action_buttons.values())  # no popups
         assert not window.dock_manager.buttons["tools"].isVisible()  # redundant button gone
 
         # Result views outlive the tool that produced them: reachable with every tool closed.
-        standing = {v for group in window.views.STANDING_DATA_VIEWS for _l, v, _i in group}
+        standing = {v for group in STANDING_DATA_VIEWS for _l, v, _i in group}
         assert COMPLEXES_VIEW_ID in standing
         # Off-target and redocking are pivots of Docking Results, not entries of their own.
         assert not {OFFTARGET_VIEW_ID, REDOCKING_VIEW_ID} & set(window.views.catalog_actions)

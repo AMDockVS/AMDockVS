@@ -5,30 +5,12 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QWidget
 
+from amdockvs.ui.registry import TOOLS
 from amdockvs.ui.resources.icons import icon as load_icon
-from amdockvs.ui.tools.docking.studio import DOCKING_VIEW_ID
-from amdockvs.ui.tools.molecules.build import BUILD_ID
-from amdockvs.ui.tools.molecules.diversity import SELECTION_VIEW_ID
-from amdockvs.ui.tools.molecules.filter import FILTER_ID
-from amdockvs.ui.tools.molecules.pocket_detection import POCKET_DETECTION_VIEW_ID
 from ms_components.ms_dockwidget.widget import Region
 
 
 class ToolCoordinator:
-    # -- Left toolbar: one flat checkable button per TOOL, no menus --
-    # The left bar names tools only (things that mount a config UI in the tools dock);
-    # anything that opens a central tab is data and lives in the top toolbar instead.
-    # Each: (action_id, title, view_id, icon, order). Order 1 is the (hidden) tools dock
-    # button, so tools start at 2; they share LEFT_BOTTOM, which puts an automatic
-    # separator between them and the panel toggles (Workflow -1 / Details 0, LEFT_TOP).
-    TOOL_ACTIONS = (
-        ("tool_filter", "Filter", FILTER_ID, "filter.svg", 2),
-        ("tool_diversity", "Diversity", SELECTION_VIEW_ID, "diversity.svg", 3),
-        ("tool_build", "Build", BUILD_ID, "build.svg", 4),
-        ("tool_pockets", "Pocket Detection", POCKET_DETECTION_VIEW_ID, "binding_site.svg", 5),
-        ("tool_docking", "Docking Studio", DOCKING_VIEW_ID, "target.svg", 6),
-    )
-
     def __init__(self, window):
         self.w = window
         self.active_tool: str | None = None
@@ -86,16 +68,16 @@ class ToolCoordinator:
         self.action_buttons = {}  # view_id -> QToolButton
         if self.w.dock_manager is None:
             return
-        for action_id, title, view_id, icon_name, order in self.TOOL_ACTIONS:
-            self.action_buttons[view_id] = self.w.dock_manager.add_action_button(
-                action_id,
+        for tool in TOOLS:
+            self.action_buttons[tool.view_id] = self.w.dock_manager.add_action_button(
+                tool.action_id,
                 region=Region.LEFT_BOTTOM,
-                order=order,
-                title=title,
-                icon=load_icon(icon_name),
-                tooltip=f"Open the {title} tool.",
+                order=tool.order,
+                title=tool.title,
+                icon=load_icon(tool.icon),
+                tooltip=f"Open the {tool.title} tool.",
                 checkable=True,
-                on_click=lambda checked, v=view_id: self.on_tool_action(v, checked),
+                on_click=lambda checked, v=tool.view_id: self.on_tool_action(v, checked),
             )
         # The tools dock's own button is redundant now that every tool opens it: a button
         # that can only show an empty panel. Hide it (explicit hide survives the toolbar

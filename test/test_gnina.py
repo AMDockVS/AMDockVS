@@ -6,7 +6,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from amdockvs.docking.gnina import GNINA, chunk_gpu_tokens, normalize_cnn_mode, run_gnina_docking_rows
+from amdockvs.docking.engines.gnina import GNINA, chunk_gpu_tokens, normalize_cnn_mode, run_gnina_docking_rows
 
 DATA = Path(__file__).resolve().parents[1] / "data" / "docking"
 

@@ -9,7 +9,7 @@ from sqlalchemy import Index, JSON, UniqueConstraint, text
 from pydantic import field_validator
 from sqlmodel import SQLModel, Field
 
-from amdockvs.constants import (
+from amdockvs.core.constants import (
     TABLE_BINDING_SITES,
     TABLE_MOLECULE_MODELS,
     TABLE_MOLECULE_REPRESENTATIONS,
@@ -18,9 +18,9 @@ from amdockvs.constants import (
 )
 from .base import TimestampedRecord
 
-# Domain vocabulary centralised in amdockvs.vocab. Re-exported here so existing
+# Domain vocabulary centralised in amdockvs.core.vocab. Re-exported here so existing
 # imports keep working (`from amdockvs.models.molecules import MoleculeType`).
-from amdockvs.vocab import (
+from amdockvs.core.vocab import (
     FileFormat,
     ModelSource,
     MoleculeType,

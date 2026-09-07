@@ -4,7 +4,7 @@ from typing import Any
 from sqlalchemy import Index, JSON, UniqueConstraint
 from sqlmodel import SQLModel, Field
 
-from amdockvs.constants import (
+from amdockvs.core.constants import (
     TABLE_BINDING_SITES,
     TABLE_CONSENSUS_SCORES,
     TABLE_DOCKING_RESULTS,
@@ -12,7 +12,7 @@ from amdockvs.constants import (
     TABLE_MOLECULES,
     TABLE_INTERACTION_RESULTS,
 )
-from amdockvs.vocab import BindingSiteSource
+from amdockvs.core.vocab import BindingSiteSource
 
 
 # ---------------------------------------------------------------------------

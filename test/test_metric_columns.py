@@ -10,7 +10,7 @@ from PySide6.QtWidgets import QApplication, QTableWidget
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from amdockvs.ui.workspace import _MetricColumns
+from amdockvs.ui.catalog.results import _MetricColumns
 
 
 def test_metric_columns_fill_and_toggle():

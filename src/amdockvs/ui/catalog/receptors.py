@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from amdockvs.configuration import app_config
+from amdockvs.core.configuration import app_config
 from amdockvs.io.formats import QT_FILE_FILTER
 from amdockvs.io.receptor_preview import (
     ReceptorImportOptions,
@@ -36,9 +36,9 @@ from amdockvs.io.receptor_preview import (
 )
 from amdockvs.models import MoleculeRecord
 from amdockvs.ui.catalog.common import BoundTableWidget
-from amdockvs.ui.drop_area import TablePlaceholder, drop_hint, icon_button
+from amdockvs.ui.common.drop_area import TablePlaceholder, drop_hint, icon_button
 from amdockvs.ui.resources.icons import icon
-from amdockvs.vocab import FileFormat, MoleculeUsageClass
+from amdockvs.core.vocab import FileFormat, MoleculeUsageClass
 from ms_components.ms_table import (
     AlignHint,
     ColumnDef,

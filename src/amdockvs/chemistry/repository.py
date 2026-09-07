@@ -9,10 +9,10 @@ from sqlalchemy import func, select
 from ms_flow.core.database import ProjectStore
 from ms_flow.query import QuerySpec, db_pages
 
-from amdockvs.constants import RESOURCE_MOLECULES, TABLE_MOLECULES
+from amdockvs.core.constants import RESOURCE_MOLECULES, TABLE_MOLECULES
 from amdockvs.models import MoleculeModel, MoleculeRecord
-from amdockvs.molecules.store import as_store
-from amdockvs.scopes import molecule_set_spec
+from amdockvs.molecules.storage import as_store
+from amdockvs.project.sets import molecule_set_spec
 
 
 def _resolve_role_storage_dir(config: Mapping[str, Any] | None, *, role: str) -> Path:

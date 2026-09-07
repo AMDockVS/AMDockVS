@@ -6,13 +6,13 @@ from __future__ import annotations
 import contextlib
 from pathlib import Path
 
-from amdockvs.molecule_paths import (
+from amdockvs.core.paths import (
     current_molecule_path,
     get_default_project_root,
     preferred_molecule_path,
     stored_molecule_path,
 )
-from amdockvs.summaries import DockingHitSummary
+from amdockvs.project.summaries import DockingHitSummary
 from amdockvs.ui.tools.pymol_ribbon import (
     apply_ligand_atom_coloring,
     apply_receptor_atom_coloring,

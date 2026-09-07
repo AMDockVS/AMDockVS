@@ -30,9 +30,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from amdockvs.docking.engines import count_heavy_atoms
-from amdockvs.summaries import DockingHitSummary
-from amdockvs.ui.async_query import run_async
+from amdockvs.docking.engines.vina import count_heavy_atoms
+from amdockvs.project.summaries import DockingHitSummary
+from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.tools.pymol_ribbon import (
     apply_ligand_atom_coloring,
     apply_receptor_atom_coloring,

@@ -1,12 +1,12 @@
 import pytest
 
-from amdockvs.orchestrator import (
+from amdockvs.workflows.orchestrator import (
     STEP_NEEDS_CONFIG,
     STEP_PENDING,
     WF_COMPLETED,
     WorkflowRunner,
 )
-from amdockvs.workflow_steps import STEP_SPECS, build_submit, is_configured, make_step
+from amdockvs.workflows.steps import STEP_SPECS, build_submit, is_configured, make_step
 
 
 class _Row:
@@ -74,7 +74,7 @@ def test_launch_gate_blocks_unconfigured_steps():
 def test_configure_step_with_submit_makes_it_runnable():
     # docking-style step: no spec config, configured by handing it an explicit submit (from the
     # panel's workflow_step_payload via the config dialog).
-    from amdockvs.orchestrator import STEP_NEEDS_CONFIG, WorkflowStep
+    from amdockvs.workflows.orchestrator import STEP_NEEDS_CONFIG, WorkflowStep
 
     rt = _FakeRuntime()
     r = WorkflowRunner(rt)
@@ -104,7 +104,7 @@ def test_every_spec_builds_a_callable():
 
 
 def test_presets_instantiate_with_import_needing_config():
-    from amdockvs.workflow_steps import PRESET_WORKFLOWS, build_preset
+    from amdockvs.workflows.steps import PRESET_WORKFLOWS, build_preset
 
     for name in PRESET_WORKFLOWS:
         steps = build_preset(name)
@@ -115,8 +115,8 @@ def test_presets_instantiate_with_import_needing_config():
 
 
 def test_vina_preset_docking_joins_both_branches():
-    from amdockvs.orchestrator import WorkflowRunner
-    from amdockvs.workflow_steps import build_preset
+    from amdockvs.workflows.orchestrator import WorkflowRunner
+    from amdockvs.workflows.steps import build_preset
 
     r = WorkflowRunner(_FakeRuntime())
     for s in build_preset("Vina docking"):
@@ -130,8 +130,8 @@ def test_vina_preset_docking_joins_both_branches():
 
 
 def test_build_route_is_linear_with_manual_interactive_steps():
-    from amdockvs.orchestrator import STEP_PENDING
-    from amdockvs.workflow_steps import build_route
+    from amdockvs.workflows.orchestrator import STEP_PENDING
+    from amdockvs.workflows.steps import build_route
 
     route = build_route("Vina docking")
     # strictly linear: each step depends on exactly the previous one (roots only for the first)
@@ -146,14 +146,14 @@ def test_build_route_is_linear_with_manual_interactive_steps():
 
 
 def test_vina_preset_mode_is_guided():
-    from amdockvs.workflow_steps import PRESET_WORKFLOWS
+    from amdockvs.workflows.steps import PRESET_WORKFLOWS
 
     assert PRESET_WORKFLOWS["Vina docking"].mode == "guided"
     assert PRESET_WORKFLOWS["Ligand preparation only"].mode == "auto"
 
 
 def test_clear_refuses_while_running_then_resets():
-    from amdockvs.orchestrator import STEP_RUNNING
+    from amdockvs.workflows.orchestrator import STEP_RUNNING
 
     rt = _FakeRuntime()
     r = WorkflowRunner(rt)

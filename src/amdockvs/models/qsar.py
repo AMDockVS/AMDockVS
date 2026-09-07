@@ -6,7 +6,7 @@ from datetime import datetime
 from sqlalchemy import JSON, UniqueConstraint, Index
 from sqlmodel import SQLModel, Field
 
-from amdockvs.constants import (
+from amdockvs.core.constants import (
     TABLE_LIGAND_ACTIVITIES,
     TABLE_MOLECULES,
     TABLE_QSAR_MODELS,

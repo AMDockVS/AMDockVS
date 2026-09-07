@@ -1,6 +1,6 @@
 from ms_flow.api import AppManifest
 
-from amdockvs.constants import (
+from amdockvs.core.constants import (
     AMDOCKVS_APP_ID,
     AMDOCKVS_APP_NAME,
     AMDOCKVS_PROJECT_RESOURCES,
@@ -8,7 +8,7 @@ from amdockvs.constants import (
 )
 
 # No `project_fields`: the campaign mode used to be one, asked before the project held any data.
-# It is derived now (`molecules.store.library_kind`) — a project is a campaign because it holds
+# It is derived now (`molecules.storage.library_kind`) — a project is a campaign because it holds
 # shards, and that is decided at import, where the library actually is.
 manifest = AppManifest(
     app_id=AMDOCKVS_APP_ID,

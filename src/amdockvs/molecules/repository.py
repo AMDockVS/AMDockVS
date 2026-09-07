@@ -10,8 +10,8 @@ from pathlib import Path
 
 from ms_flow.query import db_rows
 
-from amdockvs.constants import TABLE_BINDING_SITES, TABLE_ENGINES, TABLE_MOLECULES
-from amdockvs.summaries import (
+from amdockvs.core.constants import TABLE_BINDING_SITES, TABLE_ENGINES, TABLE_MOLECULES
+from amdockvs.project.summaries import (
     LigandTableStatsSummary,
     NumericRangeSummary,
     ReceptorTableStatsSummary,

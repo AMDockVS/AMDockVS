@@ -50,7 +50,7 @@ def test_sdf_activity_spec_from_property():
 
 def test_import_activity_marks_molecule_has_activity():
     from amdockvs.io.payloads import ImportPrefilterPolicy
-    from amdockvs.io.transformers.materializers import _apply_sdf_activity
+    from amdockvs.io.transformers.rows import _apply_sdf_activity
 
     row = {"source_properties": [{"key": "IC50", "value_text": "100"}], "has_activity": False}
     policy = ImportPrefilterPolicy(activity_property="IC50", activity_unit="nM", activity_transform="pIC50")

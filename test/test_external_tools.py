@@ -8,7 +8,7 @@ import pytest
 
 def test_every_managed_tool_reports_a_status(monkeypatch, tmp_path):
     monkeypatch.setenv("AMDOCK_TOOLS_HOME", str(tmp_path))
-    from amdockvs.external_tools import MANAGED_TOOLS, tool_statuses
+    from amdockvs.integrations.registry import MANAGED_TOOLS, tool_statuses
 
     statuses = tool_statuses(SimpleNamespace())
 
@@ -20,7 +20,7 @@ def test_every_managed_tool_reports_a_status(monkeypatch, tmp_path):
 
 def test_p2rank_plan_installs_java_only_when_missing(monkeypatch, tmp_path):
     monkeypatch.setenv("AMDOCK_TOOLS_HOME", str(tmp_path))
-    import amdockvs.external_tools as external_tools
+    import amdockvs.integrations.registry as external_tools
 
     monkeypatch.setattr(external_tools, "java_major_version", lambda _command=None: None)
     without_java = external_tools.install_steps(SimpleNamespace(), "p2rank")
@@ -34,8 +34,8 @@ def test_p2rank_plan_installs_java_only_when_missing(monkeypatch, tmp_path):
 
 def test_uninstall_removes_the_directory_and_is_idempotent(monkeypatch, tmp_path):
     monkeypatch.setenv("AMDOCK_TOOLS_HOME", str(tmp_path))
-    from amdockvs.external_tools import uninstall_tool
-    from amdockvs.pockets.p2rank import p2rank_home
+    from amdockvs.integrations.registry import uninstall_tool
+    from amdockvs.binding_sites.p2rank import p2rank_home
 
     home = Path(p2rank_home())
     (home / "bin").mkdir(parents=True)
@@ -47,7 +47,7 @@ def test_uninstall_removes_the_directory_and_is_idempotent(monkeypatch, tmp_path
 
 
 def test_unknown_tool_is_rejected():
-    from amdockvs.external_tools import get_tool
+    from amdockvs.integrations.registry import get_tool
 
     with pytest.raises(KeyError):
         get_tool("autodock5")

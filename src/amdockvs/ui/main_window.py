@@ -13,40 +13,22 @@ from PySide6.QtWidgets import (
 )
 
 from amdockvs.runtime import AMDockVSRuntime
-from amdockvs.summaries import DockingHitSummary
-from amdockvs.ui.catalog import (
-    COMPLEXES_VIEW_ID,
-    LIGANDS_VIEW_ID,
-    RECEPTOR_VIEW_ID,
-    register_binding_sites_workspace,
-    register_complex_pairs_workspace,
-    register_complexes_workspace,
-    register_ligand_activity_workspace,
-    register_ligands_workspace,
-    register_molecules_workspace,
-    register_receptors_workspace,
-    register_shards_workspace,
-)
-from amdockvs.ui.main_content import MainContentWidget
-from amdockvs.ui.monitor import MONITOR_JOBS_VIEW_ID, MonitorSummaryDockWidget, register_monitor_views
-from amdockvs.ui.projects import ApplicationWidget
+from amdockvs.project.summaries import DockingHitSummary
+from amdockvs.ui.catalog import COMPLEXES_VIEW_ID, LIGANDS_VIEW_ID, RECEPTOR_VIEW_ID
+from amdockvs.ui.shell.main_content import MainContentWidget
+from amdockvs.ui.monitor import MONITOR_JOBS_VIEW_ID, MonitorSummaryDockWidget
+from amdockvs.ui.shell.projects import ApplicationWidget
+from amdockvs.ui.registry import register_all
 from amdockvs.ui.resources.icons import icon as load_icon
 from amdockvs.ui.shell.auxiliary_panel import AuxiliaryPanelController
 from amdockvs.ui.shell.job_feedback import JobFeedbackController
 from amdockvs.ui.shell.tool_coordinator import ToolCoordinator
 from amdockvs.ui.shell.view_coordinator import ViewCoordinator
-from amdockvs.ui.statusbar import StatusBar
+from amdockvs.ui.shell.statusbar import StatusBar
 from amdockvs.ui.tools.docking.diagram_dock import InteractionDiagramDock
-from amdockvs.ui.tools.docking.studio import register_docking_workspace
-from amdockvs.ui.tools.docking.grid_box import GridBoxSettingDockWidget
-from amdockvs.ui.tools.molecules.build import register_build_workspace
-from amdockvs.ui.tools.molecules.diversity import register_selection_workspace
-from amdockvs.ui.tools.molecules.filter import register_filter_workspace
-from amdockvs.ui.tools.molecules.pocket_detection import register_pocket_detection_workspace
-from amdockvs.ui.tools.pymol_ribbon import install_pymol_toolbar
+from amdockvs.ui.tools.binding_sites.box import GridBoxSettingDockWidget
 from amdockvs.ui.tools.qsar.chart import Glowing2DDockWidget, QSARChartDockWidget
-from amdockvs.ui.tools.qsar.panels import register_qsar_panels
-from amdockvs.ui.tools.workflow_panel import WORKFLOW_VIEW_ID, register_workflow_panel
+from amdockvs.ui.tools.workflow_panel import WORKFLOW_VIEW_ID
 from amdockvs.ui.viewers.molecular_viewer import MolecularViewerController
 from amdockvs.ui.visualization.chart_controller import ChartController
 from ms_components.ms_dockwidget.widget import Behavior, DockManager, MSDockWidget, Region
@@ -194,23 +176,7 @@ class AMDockVSMainWindow(QMainWindow):
 
         self.central_widget = MainContentWidget()
         self.central_widget.open_project_requested.connect(self._open_projects_browser)
-        register_monitor_views(self)
-        register_molecules_workspace(self)
-        register_build_workspace(self)
-        register_filter_workspace(self)
-        register_selection_workspace(self)
-        register_pocket_detection_workspace(self)
-        register_docking_workspace(self)
-        register_qsar_panels(self)
-        register_workflow_panel(self)
-        install_pymol_toolbar(self)
-        register_receptors_workspace(self)
-        register_ligands_workspace(self)
-        register_shards_workspace(self)
-        register_binding_sites_workspace(self)
-        register_complex_pairs_workspace(self)
-        register_complexes_workspace(self)
-        register_ligand_activity_workspace(self)
+        register_all(self)
         self.central_widget.current_view_changed.connect(self._on_current_view_changed)
         self.setCentralWidget(self.central_widget)
         self.monitor_bridge.job_finished.connect(self.jobs.on_job_finished)
@@ -325,7 +291,7 @@ class AMDockVSMainWindow(QMainWindow):
 
         from ms_components.theme import THEMES
 
-        from amdockvs.ui.theme import saved_theme_name, set_theme
+        from amdockvs.ui.common.theme import saved_theme_name, set_theme
 
         self.setWindowIcon(load_icon("logo.svg"))
 
@@ -564,7 +530,7 @@ class AMDockVSMainWindow(QMainWindow):
     # -- project lifecycle ----------------------------------------------------------
 
     def _show_project_summary(self) -> None:
-        from amdockvs.ui.project_summary import show_project_summary
+        from amdockvs.ui.shell.project_summary import show_project_summary
         show_project_summary(self)
 
     def _sync_window_title(self) -> None:

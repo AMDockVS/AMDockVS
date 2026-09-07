@@ -1,0 +1,64 @@
+data_JXM_fixture
+loop_
+_chem_comp_bond.comp_id
+_chem_comp_bond.atom_id_1
+_chem_comp_bond.atom_id_2
+_chem_comp_bond.value_order
+_chem_comp_bond.pdbx_aromatic_flag
+_chem_comp_bond.pdbx_ordinal
+JXM C1 C2 sing Y 173
+JXM C1 C3 doub Y 174
+JXM C2 C4 doub Y 175
+JXM C3 C5 sing Y 176
+JXM C4 C6 sing Y 177
+JXM C5 C6 doub Y 178
+JXM C6 C19 sing N 179
+JXM C7 C8 doub N 180
+JXM C7 C9 sing N 181
+JXM C8 N21 sing N 182
+JXM C8 N22 sing N 183
+JXM C9 N23 sing N 184
+JXM C9 O25 doub N 185
+JXM C10 N21 doub N 186
+JXM C10 N23 sing N 187
+JXM C10 N24 sing N 188
+JXM C11 C12 sing N 189
+JXM C11 C17 sing N 190
+JXM C12 N23 sing N 191
+JXM C13 C15 sing N 192
+JXM C13 N22 sing N 193
+JXM C14 C16 sing N 194
+JXM C14 N22 sing N 195
+JXM C15 O26 sing N 196
+JXM C16 O26 sing N 197
+JXM C17 C20 sing N 198
+JXM C17 N24 sing N 199
+JXM C18 C19 sing N 200
+JXM C18 N24 sing N 201
+JXM C19 O27 sing N 202
+JXM C20 F28 sing N 203
+JXM C20 F29 sing N 204
+JXM C20 F30 sing N 205
+JXM C1 H1 sing N 206
+JXM C2 H2 sing N 207
+JXM C3 H3 sing N 208
+JXM C4 H4 sing N 209
+JXM C5 H5 sing N 210
+JXM C19 H19 sing N 211
+JXM C7 H7 sing N 212
+JXM C11 H111 sing N 213
+JXM C11 H112 sing N 214
+JXM C12 H121 sing N 215
+JXM C12 H122 sing N 216
+JXM C17 H17 sing N 217
+JXM C13 H131 sing N 218
+JXM C13 H132 sing N 219
+JXM C15 H151 sing N 220
+JXM C15 H152 sing N 221
+JXM C14 H141 sing N 222
+JXM C14 H142 sing N 223
+JXM C16 H161 sing N 224
+JXM C16 H162 sing N 225
+JXM C18 H181 sing N 226
+JXM C18 H182 sing N 227
+JXM O27 H27 sing N 228

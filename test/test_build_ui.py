@@ -18,7 +18,7 @@ from PySide6.QtWidgets import QApplication, QGroupBox, QPushButton
 
 from amdockvs.ui.catalog.molecules import MoleculeWidget
 from amdockvs.ui.tools.molecules.build import MoleculeBuildWidget
-from amdockvs.vocab import MoleculeType
+from amdockvs.core.vocab import MoleculeType
 
 
 class _FakeMolecules:

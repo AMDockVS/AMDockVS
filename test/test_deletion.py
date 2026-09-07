@@ -4,7 +4,7 @@ from contextlib import contextmanager
 
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from amdockvs.deletion import delete_complexes, delete_molecules
+from amdockvs.project.deletion import delete_complexes, delete_molecules
 from amdockvs.models import ComplexRecord, DockingResultRecord, MoleculeRecord
 
 

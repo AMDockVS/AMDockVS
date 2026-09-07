@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-from amdockvs.molecule_paths import preferred_molecule_path
+from amdockvs.core.paths import preferred_molecule_path
 
 
 def calculate_basic_descriptors(mol) -> dict[str, float | int]:

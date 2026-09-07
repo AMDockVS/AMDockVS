@@ -43,8 +43,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from amdockvs.models.molecules import MoleculeUsageClass
-from amdockvs.selection.api import SelectionAPI
-from amdockvs.ui.async_query import run_async
+from amdockvs.diversity.api import DiversityAPI
+from amdockvs.ui.common.async_query import run_async
 
 SELECTION_VIEW_ID = "moltools.diversity"
 
@@ -256,7 +256,7 @@ class DiversitySelectionWidget(QWidget):
         self.set_combo = QComboBox(box)  # Selection scope (usage classes + sets)
         self.set_combo.setToolTip("What to cluster — clustering is often aimed at a subset, not the whole library.")
         self.method_combo = QComboBox(box)
-        for name in SelectionAPI.supported_methods():
+        for name in DiversityAPI.supported_methods():
             self.method_combo.addItem(name, name)
 
         self.per_cluster_spin = QSpinBox(box)
@@ -332,7 +332,7 @@ class DiversitySelectionWidget(QWidget):
         register in ``CLUSTERING_METHODS``."""
         self._method_getters: dict[str, dict[str, Any]] = {}
         self._method_page_index: dict[str, int] = {}
-        for name in SelectionAPI.supported_methods():
+        for name in DiversityAPI.supported_methods():
             page = QWidget()
             form = QFormLayout(page)
             getters: dict[str, Any] = {}
@@ -456,10 +456,10 @@ class DiversitySelectionWidget(QWidget):
         )
 
     def _load_and_cluster(self, scope_kw: dict, cluster_kw: dict, seed: int) -> dict[str, Any]:
-        universe = self.runtime.selection.load_universe(
+        universe = self.runtime.diversity.load_universe(
             seed=seed, basis=self._basis, exclude_ids=self._seen_ids, **scope_kw
         )
-        analysis = self.runtime.selection.cluster_loaded(universe, **cluster_kw)
+        analysis = self.runtime.diversity.cluster_loaded(universe, **cluster_kw)
         return {"basis": universe.basis, "analysis": analysis.to_mapping()}
 
     def _on_previewed(self, payload: dict[str, Any]) -> None:
@@ -605,7 +605,7 @@ class DiversitySelectionWidget(QWidget):
 
     def _show_size_distribution(self) -> None:
         """Draw the compounds-per-cluster histogram over the current previews / viewed result."""
-        from amdockvs.selection.clustering import size_histogram
+        from amdockvs.diversity.clustering import size_histogram
 
         sizes = [int(c.get("size") or 0)
                  for group in self._selections for c in (group.get("clusters") or [])]
@@ -623,7 +623,7 @@ class DiversitySelectionWidget(QWidget):
     # --- saved results (durable, DB summary + parquet sidecar) ----------------
     def _refresh_results(self) -> None:
         try:
-            self._results_display = self.runtime.selection.list_clustering_results()
+            self._results_display = self.runtime.diversity.list_clustering_results()
         except Exception:  # noqa: BLE001 — an empty/absent table just means no runs yet
             self._results_display = []
         self.results_table.blockSignals(True)
@@ -647,7 +647,7 @@ class DiversitySelectionWidget(QWidget):
             return
         run_id = self._results_display[idx]["run_id"]
         run_async(
-            lambda: self.runtime.selection.load_clustering_result(run_id),
+            lambda: self.runtime.diversity.load_clustering_result(run_id),
             self._view_result, on_error=self._on_error, busy=self,
         )
 
@@ -713,7 +713,7 @@ class DiversitySelectionWidget(QWidget):
         cluster_kw = self._cluster_params()
         self.stats_label.setText("Sizing the selection…")
         run_async(
-            lambda: self.runtime.selection.scope_count(
+            lambda: self.runtime.diversity.scope_count(
                 molecule_set=scope_kw["molecule_set"], molecule_filters=scope_kw["molecule_filters"],
                 fp_radius=scope_kw["fp_radius"], fp_nbits=scope_kw["fp_nbits"],
             ),
@@ -727,7 +727,7 @@ class DiversitySelectionWidget(QWidget):
         user override up to the machine's cores, then submit the mf job requesting exactly that many."""
         import os
 
-        from amdockvs.selection.api import plan_cpus
+        from amdockvs.diversity.api import plan_cpus
 
         self._running = False
         self.run_button.setEnabled(True)
@@ -753,7 +753,7 @@ class DiversitySelectionWidget(QWidget):
         method = str(cluster_kw.get("method") or "bitbirch")
         threshold = float(cluster_kw.get("threshold") or 0.35)
         try:
-            job_id = self.runtime.selection.cluster_job(
+            job_id = self.runtime.diversity.cluster_job(
                 method=method, threshold=threshold, per_cluster=int(cluster_kw.get("per_cluster") or 1),
                 molecule_set=scope_kw["molecule_set"], molecule_filters=scope_kw["molecule_filters"],
                 fp_radius=scope_kw["fp_radius"], fp_nbits=scope_kw["fp_nbits"],
@@ -808,7 +808,7 @@ class DiversitySelectionWidget(QWidget):
         the saved result. The job already wrote the graph sidecar (PCA + clusters), so registering
         just reads it — nothing is recomputed."""
         run_id = pending["run_id"]
-        rows = self.runtime.selection.get_run(run_id)
+        rows = self.runtime.diversity.get_run(run_id)
         non_reps = [int(r["molecule_id"]) for r in rows if not r["is_centroid"]]
         n_clusters = len({int(r["cluster_id"]) for r in rows})
         n_reps = sum(1 for r in rows if r["is_centroid"])
@@ -816,7 +816,7 @@ class DiversitySelectionWidget(QWidget):
             self.runtime.molecules.set_excluded_state(non_reps, excluded=True, reason=pending["reason"])
             if non_reps else 0
         )
-        self.runtime.selection.register_run_from_sidecar(
+        self.runtime.diversity.register_run_from_sidecar(
             run_id, method=pending["method"], threshold=pending["threshold"],
             scope_label=pending["scope_label"],
             fp_radius=int(pending["fp_radius"]), fp_nbits=int(pending["fp_nbits"]),

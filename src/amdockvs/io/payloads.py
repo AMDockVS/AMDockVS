@@ -180,7 +180,7 @@ class ImportPrefilterPolicy(BaseModel):
         )
 
     def _htp_config(self):
-        from amdockvs.htp.screening import HTPFilterConfig
+        from amdockvs.screening.filters import HTPFilterConfig
 
         ranges = {k: tuple(v) for k, v in (self.property_ranges or {}).items()}
         if self.max_rotatable_bonds is not None:
@@ -219,7 +219,7 @@ class ImportPrefilterPolicy(BaseModel):
     def mol_filter(self):
         """Build a single ``passes(mol) -> bool`` predicate with config + QSAR model bound once,
         for the import stream to call per molecule (before any file/DB write)."""
-        from amdockvs.htp.screening import evaluate_mol
+        from amdockvs.screening.filters import evaluate_mol
 
         config = self._htp_config()
         qsar_predict = self._qsar_predict()

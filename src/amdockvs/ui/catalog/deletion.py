@@ -1,13 +1,13 @@
 """Delete the selected catalog rows off the GUI thread, then refresh.
 
 Wired to a 'Delete' ribbon action and the Delete key on every catalog table (via
-BoundTableWidget.delete_selected). The actual DB work runs in amdockvs.deletion through
+BoundTableWidget.delete_selected). The actual DB work runs in amdockvs.project.deletion through
 run_async so a big cascade never freezes the UI."""
 from __future__ import annotations
 
 from PySide6.QtWidgets import QMessageBox
 
-from amdockvs.ui.async_query import run_async
+from amdockvs.ui.common.async_query import run_async
 
 # kind -> human description of what also goes away
 _KINDS = {

@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from amdockvs.qsar.modeling import supported_algorithms
-from amdockvs.ui.async_query import run_async
+from amdockvs.ui.common.async_query import run_async
 from ms_components.ms_stepper import Orientation, QStepper
 
 QSAR_MODELS_VIEW_ID = "workspace.qsar_models"

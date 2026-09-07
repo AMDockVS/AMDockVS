@@ -27,11 +27,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from amdockvs.constants import DEFAULT_LOCAL_CPU_EXECUTOR
-from amdockvs.docking.programs import VINA_PROGRAM
+from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR
+from amdockvs.docking.engines.programs import VINA_PROGRAM
 from amdockvs.ui.tools.docking.redocking_charts import RedockingChartsPanel
-from amdockvs.summaries import DockingHitSummary
-from amdockvs.ui.async_query import run_async
+from amdockvs.project.summaries import DockingHitSummary
+from amdockvs.ui.common.async_query import run_async
 
 REDOCKING_VIEW_ID = "workspace.redocking"
 

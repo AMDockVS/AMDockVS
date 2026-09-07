@@ -55,7 +55,7 @@ def protocol_identity(config: Mapping[str, Any] | None, *, program: str = "") ->
     payload = dict(config or {})
     keys = IDENTITY_KEYS
     if program:
-        from amdockvs.docking.programs import get_docking_program
+        from amdockvs.docking.engines.programs import get_docking_program
 
         keys = get_docking_program(program).protocol_identity_keys
     return {key: payload[key] for key in keys if key in payload}

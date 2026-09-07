@@ -1,4 +1,3 @@
-from amdockvs.ui.tools.docking.flexible_residues import FlexibleResiduesPanel
 from amdockvs.ui.tools.docking.preparation_panel import EngineStatePrepView, PreparationPanel
 from amdockvs.ui.tools.docking.protocol_editor import ProtocolEditorWidget
 from amdockvs.ui.tools.docking.run_panel import RunPanel
@@ -15,7 +14,6 @@ __all__ = [
     "PREP_STATUS_VIEW_ID",
     "DockingStudioWidget",
     "EngineStatePrepView",
-    "FlexibleResiduesPanel",
     "PreparationPanel",
     "ProtocolEditorWidget",
     "RunPanel",
