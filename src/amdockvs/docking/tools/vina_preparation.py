@@ -25,20 +25,15 @@ def _prepare_ligand_3d_with_hs(mol):
 def _load_ligand_mol(source_path: Path):
     from rdkit import Chem
 
-    suffix = source_path.suffix.lower()
-    if suffix in {".sdf", ".sd", ".mol"}:
-        supplier = Chem.SDMolSupplier(str(source_path), removeHs=False)
-        mol = supplier[0] if supplier and len(supplier) > 0 else None
-    elif suffix == ".mol2":
-        mol = Chem.MolFromMol2File(str(source_path), sanitize=True, removeHs=False)
-    elif suffix == ".pdb":
-        mol = Chem.MolFromPDBFile(str(source_path), sanitize=True, removeHs=False)
-    elif suffix == ".pdbqt":
-        return Chem.Mol()
-    else:
-        raise ValueError(f"Ligand preparation does not support format '{suffix}'.")
+    from amdockvs.io.formats import is_readable, normalized_suffix, read_mol
+
+    if normalized_suffix(source_path) == ".pdbqt":
+        return Chem.Mol()  # already prepared: the caller copies it through untouched
+    if not is_readable(source_path):
+        raise ValueError(f"Ligand preparation does not support format '{source_path.suffix}'.")
+    mol = read_mol(source_path)
     if mol is None:
-        raise RuntimeError(f"RDKit could not parse ligand file: {source_path}")
+        raise RuntimeError(f"Could not parse ligand file: {source_path}")
     return mol
 
 
@@ -133,6 +128,26 @@ def _without_resnames(text: str, exclude: frozenset[str]) -> str:
     return "".join(kept)
 
 
+def _polymer_from_pdb(source: Path, receptor_text: str, templates, mk_prep):
+    """Meeko's own PDB reader, falling back to ProDy for the structures it refuses."""
+    from meeko import Polymer
+
+    try:
+        return Polymer.from_pdb_string(
+            receptor_text, templates, mk_prep, allow_bad_res=True, default_altloc="A",
+        )
+    except ValueError:
+        import prody
+
+        return Polymer.from_prody(
+            prody.parsePDB(str(_filtered_copy(source, receptor_text)), altloc="all"),
+            templates,
+            mk_prep,
+            allow_bad_res=True,
+            default_altloc="A",
+        )
+
+
 def prepare_receptor_vina_pdbqt(
     *,
     source_path: str | Path,
@@ -154,33 +169,17 @@ def prepare_receptor_vina_pdbqt(
         )
 
     try:
-        from meeko import MoleculePreparation, PDBQTWriterLegacy, Polymer, ResidueChemTemplates
+        from meeko import MoleculePreparation, PDBQTWriterLegacy, ResidueChemTemplates
     except ImportError as exc:
         raise RuntimeError("Python package 'meeko' is not available in the current environment.") from exc
 
     mk_prep = MoleculePreparation()
     templates = ResidueChemTemplates.create_from_defaults()
-    receptor_text = _without_resnames(source.read_text(encoding="utf-8"), exclude_resnames)
-    try:
-        polymer = Polymer.from_pdb_string(
-            receptor_text,
-            templates,
-            mk_prep,
-            allow_bad_res=True,
-            default_altloc="A",
-        )
-    except ValueError:
-        try:
-            import prody
-        except ImportError:
-            raise
-        polymer = Polymer.from_prody(
-            prody.parsePDB(str(_filtered_copy(source, receptor_text)), altloc="all"),
-            templates,
-            mk_prep,
-            allow_bad_res=True,
-            default_altloc="A",
-        )
+    from amdockvs.io.formats import as_pdb
+
+    with as_pdb(source) as readable:
+        receptor_text = _without_resnames(readable.read_text(encoding="utf-8"), exclude_resnames)
+        polymer = _polymer_from_pdb(readable, receptor_text, templates, mk_prep)
     # Mark the user-picked residues flexible before writing; this is what makes Meeko emit a
     # non-empty flex block. A bad/missing key is skipped, not fatal — one typo shouldn't sink prep.
     flex_applied: list[str] = []

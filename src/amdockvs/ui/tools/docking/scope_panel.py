@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from amdockvs.docking.programs import VINA_PROGRAM
+from amdockvs.ui.catalog.ligands import LIGANDS_VIEW_ID
+from amdockvs.ui.catalog.shards import SHARDS_VIEW_ID
+from amdockvs.vocab import ProjectMode
 
 class ScopePanel:
     """Molecule-scope resolver for the docking tool.
@@ -11,8 +14,58 @@ class ScopePanel:
     scope already is the answer.
     """
 
+    def _library_is_sharded(self) -> bool:
+        """Does this project's screening library live in shards instead of rows?
+
+        ponytail: asked on every refresh (one COUNT on a small indexed table) instead of
+        cached — it flips the moment the first shard import finishes, and a stale answer
+        would point the step at the wrong table exactly then.
+        """
+        try:
+            return str(self.runtime.mode) == ProjectMode.HTPVS
+        except Exception:  # noqa: BLE001 - no project open yet; the step shows nothing anyway
+            return False
+
+    def _ligand_scope_is_sharded(self) -> bool:
+        """Do this experiment's ligands live outside the project database?
+
+        Two independent questions, and only their combination decides. *Which* ligands comes
+        from the experiment: docking screens the general library, redocking re-docks the
+        reference cocrystals. *Where* they live comes from the project: rows in `vs`, shards
+        in `htpvs`. Reference ligands are curated rows in both modes, so only the general
+        library ever moves — which is why this is not simply "the project is htpvs".
+        """
+        return self._library_is_sharded() and self._run_kind() != "redocking"
+
+    def _focus_ligand_view(self) -> None:
+        """Follow the experiment: switching to redocking swaps Shards for Ligands under you.
+
+        Only while standing on the ligand step — anywhere else the tab the user is reading is
+        theirs, not the step's.
+        """
+        if self.stepper.current_index != self._PREP_STEP["ligand"]:
+            return
+        opener = getattr(self.window(), "open_or_focus_view", None)
+        if callable(opener):
+            opener(self._ligand_view_id())
+
+    def _sharded_library_message(self, action: str) -> str:
+        """Why this step refuses, in the caller's words ("prepared" / "docked")."""
+        return (
+            "This project's screening library is sharded on disk, so there are no ligand rows "
+            f"here. A sharded library is {action} as a campaign, over whole shards."
+        )
+
+    def _ligand_view_id(self) -> str:
+        """The catalog table that holds this experiment's ligands."""
+        return SHARDS_VIEW_ID if self._ligand_scope_is_sharded() else LIGANDS_VIEW_ID
+
     @property
     def _selected_ligand_ids(self) -> list[int]:
+        # A sharded scope's table lists shards, not molecules: its row ids are not molecule
+        # ids and narrowing by them would silently dock the wrong thing.
+        if self._ligand_scope_is_sharded():
+            return []
         widget = self._catalog_ligand_widget()
         return (widget.scope_ids() if widget is not None else None) or []
 

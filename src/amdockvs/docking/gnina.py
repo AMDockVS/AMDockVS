@@ -333,10 +333,5 @@ def _heavy_atoms(path: Path) -> int:
     return 0
 
 
-def _gnina_dock_runner(payload: dict) -> list[dict]:
+def gnina_dock_runner(payload: dict) -> list[dict]:
     return run_gnina_docking_rows(payload)
-
-
-from amdockvs.docking.engines import register_dock_runner  # noqa: E402
-
-register_dock_runner("gnina", _gnina_dock_runner)

@@ -8,20 +8,9 @@ from rdkit import Chem
 
 
 def _first_mol(path: Path, *, pose_rank: int = 1):
-    suffix = path.suffix.lower()
-    if suffix in {".sdf", ".sd"}:
-        supplier = Chem.SDMolSupplier(str(path), removeHs=False, sanitize=False)
-        index = max(0, int(pose_rank or 1) - 1)
-        if supplier is None or len(supplier) <= index:
-            return None
-        return supplier[index]
-    if suffix == ".mol2":
-        return Chem.MolFromMol2File(str(path), sanitize=False, removeHs=False)
-    if suffix == ".pdb":
-        return Chem.MolFromPDBFile(str(path), sanitize=False, removeHs=False)
-    if suffix == ".mol":
-        return Chem.MolFromMolFile(str(path), sanitize=False, removeHs=False)
-    return None
+    from amdockvs.io.formats import read_mol
+
+    return read_mol(path, sanitize=False, index=max(0, int(pose_rank or 1) - 1))
 
 
 def _heavy(mol):

@@ -274,6 +274,36 @@ class MoleculeAPI:
         set_id = int(source.id if isinstance(source, MoleculeSetRef) else source)
         return db_count(project_db, molecule_set_spec(set_id))
 
+    def library_shape(self) -> tuple[bool, int]:
+        """`(the library is sharded, how many ligand rows exist)` — two small indexed counts.
+
+        What the catalog bar needs to know and the only thing it needs the db for: Shards is
+        there when there are shards, Ligands lights up when there is any ligand row at all.
+        """
+        from amdockvs.molecules.store import has_shards, ligand_row_count
+
+        self.runtime._require_active_project()
+        project_db = self.runtime.molsuite.project_db
+        return bool(has_shards(project_db)), int(ligand_row_count(project_db))
+
+    def shard_counts(self, *, engine: str = "ad4") -> dict[str, int]:
+        """Inventory of the sharded library: shards, molecules in them, and how many are prepared.
+
+        Preparation is engine-specific and does not rewrite the chemical inventory.
+        """
+        from amdockvs.molecules.store import ShardStore, iter_prepared_shards, shard_scope_spec
+
+        self.runtime._require_active_project()
+        store = ShardStore(self.runtime.molsuite.project_db)
+        whole = shard_scope_spec(state=None)
+        prepared = list(iter_prepared_shards(self.runtime.molsuite.project_db, engine=engine))
+        return {
+            "shards": store.count(whole),
+            "records": store.record_count(whole),
+            "prepared": len(prepared),
+            "prepared_records": sum(int(row.get("n_records") or 0) for row in prepared),
+        }
+
     def list_fragments(self, molecule_id: int) -> list[dict[str, Any]]:
         self.runtime._require_active_project()
         with self.runtime.molsuite.project_db.get_session() as session:

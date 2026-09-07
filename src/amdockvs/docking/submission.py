@@ -49,6 +49,7 @@ class DockingSubmissionService:
                     skip_existing=request.skip_existing,
                     run_id=request.run_id,
                     protocol_metadata=protocol.to_mapping(),
+                    engine_config=config,
                     compute_diagram=request.compute_diagram,
                 )
         else:
@@ -56,10 +57,14 @@ class DockingSubmissionService:
                 raise ValueError("Docking requires ligand and receptor scopes.")
             for index, protocol in enumerate(request.protocols):
                 config = dict(protocol.config)
-                prep_engine = str(get_docking_program(protocol.program).preparation_engine)
-                ligand_scope = self.runtime.molecules.filter(
-                    request.ligand_scope,
-                    filters={"prepared": True, "prepared_engine_key": prep_engine},
+                program = get_docking_program(protocol.program)
+                ligand_scope = (
+                    self.runtime.molecules.filter(
+                        request.ligand_scope,
+                        filters={"prepared": True, "prepared_engine_key": program.preparation_engine},
+                    )
+                    if program.requires_ligand_preparation
+                    else request.ligand_scope
                 )
                 job_ids[protocol_job_key(protocol, index)] = self.runtime.docking.run(
                     program=protocol.program,
@@ -75,6 +80,7 @@ class DockingSubmissionService:
                     skip_existing=request.skip_existing,
                     run_id=request.run_id,
                     protocol_metadata=protocol.to_mapping(),
+                    engine_config=config,
                     compute_diagram=request.compute_diagram,
                 )
         interaction_job_id = ""

@@ -3,6 +3,7 @@ from amdockvs.io.parsers.readers import (
     iter_import_entries,
     iter_raw_records,
     iter_record_spans,
+    iter_record_span,
     read_record_span,
 )
 
@@ -11,5 +12,6 @@ __all__ = [
     "iter_import_entries",
     "iter_raw_records",
     "iter_record_spans",
+    "iter_record_span",
     "read_record_span",
 ]

@@ -57,9 +57,11 @@ def _ligand_table_config(*, runtime) -> TableConfig:
             ColumnDef("current_path", label="Current Path", width=300, sortable=True, visible=False),
             ColumnDef("stored_path", label="Stored Path", width=300, sortable=True, visible=False),
         ],
+        # ponytail: no usage_class default. Filtering to `general` here hid every reference
+        # cocrystal, and in a sharded project that left the table permanently empty — the
+        # library is not in it by design. The Usage column is filterable if you want one class.
         default_filters=[
             FilterSpec("is_ligand", FilterOperator.EQ, True, label="is_ligand"),
-            FilterSpec("usage_class", FilterOperator.EQ, "general", label="general_only"),
             FilterSpec("excluded", FilterOperator.EQ, False, label="selected_only"),
         ],
         # default_sort=[SortSpec("id", descending=True)],

@@ -1,5 +1,10 @@
 from amdockvs.docking.api import DockingAPI
 from amdockvs.docking.engines import run_vina_docking_rows
+from amdockvs.docking.registry import (
+    register_dock_runner,
+    register_docking_engine,
+    run_docking_chunk,
+)
 from amdockvs.docking.interactions import collect_interaction_rows
 from amdockvs.docking.repository import (
     get_receptor_metadata_json,
@@ -15,10 +20,12 @@ from amdockvs.docking.jobs import (
     DiagramJobParams,
     DiagramJobSpec,
     DockingJobParams,
+    DockingJobSpec,
     DockingVinaJobSpec,
     InteractionJobParams,
     InteractionJobSpec,
     RedockingJobParams,
+    RedockingJobSpec,
     RedockingVinaJobSpec,
     diagram_job,
     docking_job,
@@ -31,6 +38,19 @@ from amdockvs.docking.preparation_jobs import (
     PrepareReceptorsJobSpec,
     prepare_ligands_job,
     prepare_receptors_job,
+)
+from amdockvs.docking.preparations import (
+    PreparationProfile,
+    get_preparation_profile,
+    list_preparation_profiles,
+    register_preparation_profile,
+)
+from amdockvs.docking.programs import (
+    DockingEngineConfig,
+    DockingProgramSpec,
+    get_docking_program,
+    list_docking_programs,
+    register_docking_program,
 )
 from amdockvs.docking.planning import (
     DockingProtocol,
@@ -58,6 +78,9 @@ __all__ = [
     "DiagramJobParams",
     "DiagramJobSpec",
     "DockingJobParams",
+    "DockingJobSpec",
+    "DockingEngineConfig",
+    "DockingProgramSpec",
     "DockingProtocol",
     "DockingReadiness",
     "DockingReadinessService",
@@ -69,9 +92,11 @@ __all__ = [
     "InteractionJobParams",
     "InteractionJobSpec",
     "PreparationJobParams",
+    "PreparationProfile",
     "PrepareLigandsJobSpec",
     "PrepareReceptorsJobSpec",
     "RedockingJobParams",
+    "RedockingJobSpec",
     "RedockingVinaJobSpec",
     "build_docking_pair",
     "collect_interaction_rows",
@@ -81,10 +106,14 @@ __all__ = [
     "docking_signature",
     "interactions_job",
     "get_receptor_metadata_json",
+    "get_docking_program",
+    "get_preparation_profile",
     "grid_from_metadata_json",
     "grid_from_row",
     "iter_docking_batches_from_rows",
     "list_entity_rows",
+    "list_docking_programs",
+    "list_preparation_profiles",
     "list_receptor_ids_in_set",
     "merge_grid_metadata",
     "merge_prepared_metadata",
@@ -96,8 +125,13 @@ __all__ = [
     "project_db_path",
     "protocol_job_key",
     "redocking_job",
+    "register_dock_runner",
+    "register_docking_engine",
+    "register_docking_program",
+    "register_preparation_profile",
     "resolve_docking_output_dir",
     "resolve_storage_dir",
     "run_vina_docking_rows",
+    "run_docking_chunk",
     "update_receptor_metadata_json",
 ]

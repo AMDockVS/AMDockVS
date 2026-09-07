@@ -21,7 +21,13 @@ from amdockvs.models.docking import (
     EngineState,
     InteractionsResult,
 )
-from amdockvs.models.screening import ScreeningDispatch, ScreeningShard
+from amdockvs.models.screening import (
+    ScreeningDispatch,
+    ScreeningShard,
+    ScreeningShardRun,
+    ScreeningTarget,
+    ShardEngineState,
+)
 from amdockvs.models.qsar import QSARModel, QSARPrediction, LigandActivity
 from amdockvs.models.sets import MoleculeSet, MoleculeSetMember, SetRecord, SetItemRecord
 
@@ -53,6 +59,9 @@ __all__ = [
     "ClusteringResult",
     "ClusteringRun",
     "ScreeningShard",
+    "ShardEngineState",
+    "ScreeningShardRun",
+    "ScreeningTarget",
     "ScreeningDispatch",
     "ComplexRecord",
     "MoleculeSet",

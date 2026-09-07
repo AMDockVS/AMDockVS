@@ -175,6 +175,51 @@ class CatalogDetailsView(QWidget):
         self.json_text.setPlainText(json.dumps(metadata, indent=2, ensure_ascii=False, default=str))
         self._sync_actions()
 
+    def show_shard(self, shard) -> None:
+        """A shard is inventory, not a molecule: its own row plus what the file's header says.
+
+        Metadata only, by decision — a shard holds thousands of records and listing them here
+        would be the library walk that `htpvs` exists to avoid.
+        """
+        self._current_kind = "shard"
+        self._current_molecule = None
+        self._current_complex = None
+        self._current_binding_sites = []
+        self.summary_tree.clear()
+        path = Path(str(getattr(shard, "path", "") or ""))
+        self._add_section(
+            "Shard",
+            {
+                "ID": getattr(shard, "id", None),
+                "Index": getattr(shard, "shard_index", None),
+                "Records": getattr(shard, "n_records", None),
+                "State": getattr(shard, "state", None),
+                "Format": getattr(shard, "input_format", None),
+                "Source": getattr(shard, "source", None),
+                "Path": str(path),
+                "Size": f"{path.stat().st_size:,} bytes" if path.is_file() else "missing",
+                "Dispatch": getattr(shard, "dispatch_id", None),
+                "Created": getattr(shard, "created_at", None),
+                "Updated": getattr(shard, "updated_at", None),
+            },
+        )
+        error = str(getattr(shard, "error", "") or "")
+        if error:
+            self._add_section("Error", {"Message": error})
+        header = _shard_header(path)
+        # The one per-molecule thing worth surfacing: which ligands the last stage dropped and
+        # why. A sharded library has no per-molecule row to carry an error, so the header holds
+        # the tally and the `.failures.jsonl` beside the shard holds every id.
+        failures = dict((header.get("metadata") or {}).get("prep_failures") or {})
+        reasons = dict(failures.get("reasons") or {})
+        if reasons:
+            section = {reason: str(count) for reason, count in reasons.items()}
+            if failures.get("log"):
+                section["Log"] = str(failures["log"])
+            self._add_section("Preparation failures", section)
+        self.json_text.setPlainText(json.dumps(header, indent=2, ensure_ascii=False, default=str))
+        self._sync_actions()
+
     def clear_details(self) -> None:
         self._current_kind = ""
         self._current_molecule = None
@@ -284,3 +329,25 @@ class CatalogDetailsView(QWidget):
 
 
 __all__ = ["CatalogDetailsView"]
+
+
+def _shard_header(path: Path) -> dict:
+    """What the `.mshard` itself declares. Opening it is a header read, not a library walk."""
+    if not path.is_file():
+        return {"error": "shard file not found"}
+    try:
+        from ms_flow.core.data.shard import Shard
+
+        with Shard.open(path) as shard_file:
+            return {
+                "dataset_id": str(shard_file.dataset_id),
+                "shard_id": shard_file.shard_id,
+                "base_id": shard_file.base_id,
+                "slot_count": shard_file.slot_count,
+                "record_count": shard_file.record_count,
+                "kind": shard_file.kind,
+                "serializer": shard_file.serializer,
+                "metadata": shard_file.metadata,
+            }
+    except Exception as exc:  # noqa: BLE001 - a broken shard shows why, it does not blank the panel
+        return {"error": f"{type(exc).__name__}: {exc}"}

@@ -95,6 +95,7 @@ class DockingReadinessService:
         )
 
     def receptors(self, scope: MoleculeScope, *, program: str) -> EntityReadiness:
+        program_spec = get_docking_program(program)
         status = self.runtime.docking.check_receptors(program=program, receptor_set=scope)
         counts = dict(status.get("counts") or {})
         receptor_ids = tuple(int(value) for value in (status.get("receptor_ids") or ()) if int(value) > 0)
@@ -102,10 +103,10 @@ class DockingReadinessService:
         no_prep = {int(value) for value in (missing.get("receptors_prepared") or ())}
         no_grid = {int(value) for value in (missing.get("receptor_binding_sites") or ())}
         ready_ids = tuple(value for value in receptor_ids if value not in no_prep and value not in no_grid)
-        prep = self.preparation(
-            scope,
-            role_type="receptor",
-            engine=str(get_docking_program(program).preparation_engine),
+        prep = (
+            self.preparation(scope, role_type="receptor", engine=str(program_spec.preparation_engine))
+            if program_spec.requires_receptor_preparation
+            else EntityReadiness()
         )
         return EntityReadiness(
             total=int(counts.get("receptors_total") or 0),
@@ -153,11 +154,21 @@ class DockingReadinessService:
         receptor_needs_selection: bool = False,
     ) -> DockingReadiness:
         selected_protocols = tuple(protocols)
-        prep_engine = str(get_docking_program(program).preparation_engine)
+        program_spec = get_docking_program(program)
+        prep_engine = str(program_spec.preparation_engine)
+        ligand_count = (
+            int(self.runtime.molecules.count(ligand_scope))
+            if ligand_scope is not None and not program_spec.requires_ligand_preparation
+            else 0
+        )
         ligands = (
             EntityReadiness(needs_selection=True)
             if ligand_needs_selection or ligand_scope is None
-            else self.preparation(ligand_scope, role_type="ligand", engine=prep_engine)
+            else (
+                self.preparation(ligand_scope, role_type="ligand", engine=prep_engine)
+                if program_spec.requires_ligand_preparation
+                else EntityReadiness(total=ligand_count, ready=ligand_count)
+            )
         )
         receptors = (
             EntityReadiness(needs_selection=True)
@@ -187,7 +198,8 @@ class DockingReadinessService:
         complexes = tuple(self.runtime.complexes.list(purpose="redocking,reference"))
         ligand_ids = sorted({int(getattr(row, "ligand_molecule_id", 0) or 0) for row in complexes})
         receptor_ids = sorted({int(getattr(row, "receptor_molecule_id", 0) or 0) for row in complexes})
-        prep_engine = str(get_docking_program(program).preparation_engine)
+        program_spec = get_docking_program(program)
+        prep_engine = str(program_spec.preparation_engine)
         ligand_scope = self.runtime.molecules.filter(
             self.runtime.molecules.all(),
             filters={
@@ -197,9 +209,13 @@ class DockingReadinessService:
                 "excluded": False,
             },
         )
-        prepared_ligand_scope = self.runtime.molecules.filter(
-            ligand_scope,
-            filters={"prepared": True, "prepared_engine_key": prep_engine},
+        prepared_ligand_scope = (
+            self.runtime.molecules.filter(
+                ligand_scope,
+                filters={"prepared": True, "prepared_engine_key": prep_engine},
+            )
+            if program_spec.requires_ligand_preparation
+            else ligand_scope
         )
         prepared_ligand_ids = {
             int(value)
@@ -224,7 +240,11 @@ class DockingReadinessService:
             and int(getattr(row, "ligand_molecule_id", 0) or 0) in prepared_ligand_ids
             and int(getattr(row, "receptor_molecule_id", 0) or 0) in ready_receptors
         )
-        ligand_prep = self.preparation(ligand_scope, role_type="ligand", engine=prep_engine)
+        ligand_prep = (
+            self.preparation(ligand_scope, role_type="ligand", engine=prep_engine)
+            if program_spec.requires_ligand_preparation
+            else EntityReadiness()
+        )
         ligands = EntityReadiness(
             total=len(ligand_ids),
             ready=len(prepared_ligand_ids),

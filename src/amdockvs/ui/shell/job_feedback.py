@@ -26,7 +26,11 @@ class JobFeedbackController:
     # While a job is inserting rows: poll this often for the first fill, and stop waiting for
     # a full viewport after this long (show whatever exists).
     FIRST_FILL_TICK_MS = 250
-    FIRST_FILL_MAX_WAIT_S = 3.0
+    FIRST_FILL_MAX_WAIT_S = 1.0
+
+    def _live_refresh_interval_ms(self) -> int:
+        elapsed = max(0.0, time.monotonic() - self._run_started_at)
+        return 2000 if elapsed < 30.0 else 3000 if elapsed < 300.0 else 5000
 
     def __init__(self, window):
         self.w = window
@@ -336,7 +340,7 @@ class JobFeedbackController:
             # Rows are the user's now: only the totals tick, scrolling pulls new pages.
             # An empty table has nothing to preserve, so let it load rows again.
             if self._refresh_counts_only():
-                self.view_refresh_timer.start(3000)
+                self.view_refresh_timer.start(self._live_refresh_interval_ms())
                 return
             self.rows_loaded_views.discard(view_id)
         # Hybrid trigger: poll cheaply and load rows as soon as there are enough to fill the
@@ -354,7 +358,7 @@ class JobFeedbackController:
         if filled:
             self.rows_loaded_views.add(view_id)
         if self.jobs_active:
-            self.view_refresh_timer.start(3000 if filled else self.FIRST_FILL_TICK_MS)
+            self.view_refresh_timer.start(self._live_refresh_interval_ms() if filled else self.FIRST_FILL_TICK_MS)
 
     @staticmethod
     def _refresh_view_rows(widget) -> bool:

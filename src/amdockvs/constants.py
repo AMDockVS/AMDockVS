@@ -42,7 +42,10 @@ TABLE_QSAR_PREDICTIONS = "qsar_predictions"
 TABLE_SIMILARITY_RESULTS = "similarity_results"
 TABLE_CLUSTERING_RESULTS = "clustering_results"
 TABLE_SCREENING_SHARDS = "screening_shards"
+TABLE_SHARD_ENGINE_STATES = "shard_engine_states"
+TABLE_SCREENING_SHARD_RUNS = "screening_shard_runs"
 TABLE_SCREENING_DISPATCHES = "screening_dispatches"
+TABLE_SCREENING_TARGETS = "screening_targets"
 
 # Deprecated aliases kept temporarily while non-model consumers are migrated.
 TABLE_REPRESENTATIONS = TABLE_MOLECULE_REPRESENTATIONS
@@ -51,10 +54,7 @@ TABLE_SET_ITEMS = TABLE_MOLECULE_SET_MEMBERS
 TABLE_DESCRIPTORS = TABLE_DESCRIPTOR_VECTORS
 TABLE_RESULTS = TABLE_DOCKING_RESULTS
 TABLE_ACTIVITIES = TABLE_LIGAND_ACTIVITIES
-TABLE_LIGANDS = "ligands"
-TABLE_RECEPTORS = "receptors"
-VIEW_LIGANDS = "ligand_inventory"
-VIEW_RECEPTORS = "receptor_inventory"
+
 
 AMDOCKVS_PROJECT_RESOURCES = (
     ProjectResourceSpec(key=RESOURCE_MOLECULES, relative_path="data/molecules", description="General molecule artifacts"),

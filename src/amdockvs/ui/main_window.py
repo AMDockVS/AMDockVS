@@ -25,6 +25,7 @@ from amdockvs.ui.catalog import (
     register_ligands_workspace,
     register_molecules_workspace,
     register_receptors_workspace,
+    register_shards_workspace,
 )
 from amdockvs.ui.main_content import MainContentWidget
 from amdockvs.ui.monitor import MONITOR_JOBS_VIEW_ID, MonitorSummaryDockWidget, register_monitor_views
@@ -205,6 +206,7 @@ class AMDockVSMainWindow(QMainWindow):
         install_pymol_toolbar(self)
         register_receptors_workspace(self)
         register_ligands_workspace(self)
+        register_shards_workspace(self)
         register_binding_sites_workspace(self)
         register_complex_pairs_workspace(self)
         register_complexes_workspace(self)

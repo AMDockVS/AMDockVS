@@ -525,15 +525,9 @@ class SelectionAPI:
             path = preferred_molecule_path(rec) if rec is not None else None
         if path is None or not path.exists():
             return None
-        suffix = path.suffix.lower()
-        if suffix in {".sdf", ".mol"}:
-            mol = next(iter(Chem.SDMolSupplier(str(path), sanitize=True, removeHs=True)), None)
-        elif suffix == ".mol2":
-            mol = Chem.MolFromMol2File(str(path), sanitize=True, removeHs=True)
-        elif suffix in {".pdb", ".ent"}:
-            mol = Chem.MolFromPDBFile(str(path), sanitize=True, removeHs=True)
-        else:
-            mol = None
+        from amdockvs.io.formats import read_mol
+
+        mol = read_mol(path, remove_hs=True)
         return Chem.MolToMolBlock(mol) if mol is not None else None
 
     # --- saved results: durable summary row + parquet graph sidecar -----------

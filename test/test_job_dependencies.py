@@ -15,6 +15,7 @@ from amdockvs.runtime import AMDockVSRuntime, _job_category
         ("amdock_prepare_receptors_job", "prepare"),
         ("amdock_calculate_molecule_descriptors_job", "descriptors"),
         ("amdock_docking_job", "docking"),
+        ("amdock_dock_shards_job", "docking"),
         ("amdock_redocking_job", "docking"),
         ("something_unknown", None),
     ],
@@ -72,6 +73,11 @@ def test_docking_waits_for_prepare_chain():
     ])
     deps = rt.resolve_job_dependencies(_Job("amdock_docking_job"), None)
     assert set(deps) == {"imp1", "chem1", "prep1"}
+
+
+def test_shard_docking_waits_for_preparation_too():
+    rt = _FakeRuntime([_Status("prep1", "amdock_prepare_ligand_shards_job")])
+    assert rt.resolve_job_dependencies(_Job("amdock_dock_shards_job"), None) == ["prep1"]
 
 
 def test_import_has_no_prerequisites():

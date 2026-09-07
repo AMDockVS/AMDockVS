@@ -150,9 +150,15 @@ class ImportPrepareForm(QWidget):
             "Picks ONE canonical tautomer per molecule. Enumerating tautomers into separate "
             "molecules is a distinct step (planned for Molecule Tools), not this checkbox."
         )
+        self.split_fragments = _checkbox("Split fragments into separate molecules", checked=False)
+        self.split_fragments.setToolTip(
+            "Import keeps the largest organic fragment of each record. With this on, every other "
+            "distinct organic fragment enters as its own molecule (duplicates and ions skipped)."
+        )
         layout.addRow(self.add_hs)
         layout.addRow(self.gen_3d)
         layout.addRow(self.canonical_tautomer)
+        layout.addRow(self.split_fragments)
 
     def contribute(self, policy: dict[str, Any]) -> None:
         policy.update(
@@ -160,6 +166,7 @@ class ImportPrepareForm(QWidget):
                 "add_hs": self.add_hs.isChecked(),
                 "gen_3d": self.gen_3d.isChecked(),
                 "canonical_tautomer": self.canonical_tautomer.isChecked(),
+                "split_fragments": self.split_fragments.isChecked(),
             }
         )
 

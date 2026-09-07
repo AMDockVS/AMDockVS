@@ -28,7 +28,13 @@ from amdockvs.docking.repository import (
 # How many offending ids a requirement check reports. They exist to be read by a human in a
 # dialog, and the caller gets the exact count separately.
 MISSING_SAMPLE_SIZE = 10
-from amdockvs.docking.programs import DockingProgramSpec, VINA_PROGRAM, get_docking_program, list_docking_programs
+from amdockvs.docking.programs import (
+    DockingEngineConfig,
+    DockingProgramSpec,
+    VINA_PROGRAM,
+    get_docking_program,
+    list_docking_programs,
+)
 from amdockvs.docking.jobs import (
     count_pending_docking_pairs,
     count_pending_redocking_pairs,
@@ -41,8 +47,22 @@ from amdockvs.docking.jobs import (
     interactions_job,
     redocking_job,
 )
+from amdockvs.docking.protocols import DockingProtocolMetadata
+from amdockvs.docking.shard_jobs import (
+    HIT_MODE_THRESHOLD,
+    DockShardsJobParams,
+    dock_shards_job,
+    recover_ranked_hits,
+    recoverable_ranked_runs,
+    select_hits as select_shard_hits,
+)
+from amdockvs.molecules.store import has_shards
+from amdockvs.htp.materialize import PAYLOAD_LIGHT
+from amdockvs.htp.campaign import list_targets, live_target_progress
 from amdockvs.docking.preparation_jobs import (
     PreparationJobParams,
+    PrepareLigandShardsJobParams,
+    prepare_ligand_shards_job,
     prepare_ligands_job,
     prepare_receptors_job,
 )
@@ -56,9 +76,12 @@ from amdockvs.workflows import apply_workflow_filters
 
 
 def _read_atom_coords(path: Path) -> list[tuple[float, float, float]]:
-    """Atom coordinates from a ligand file. PDB/PDBQT via fixed columns; SDF/MOL via RDKit."""
-    suffix = path.suffix.lower()
-    if suffix in {".pdb", ".pdbqt", ".ent"}:
+    """Atom coordinates from a molecule file. Fixed columns for PDB/PDBQT, RDKit for the rest."""
+    from amdockvs.io.formats import normalized_suffix, read_mol
+
+    if normalized_suffix(path) in {".pdb", ".pdbqt"}:
+        # Columns, not a parser: a box only needs coordinates, and this reads a structure the
+        # CCD does not know (UNL/LIG) just as well as one it does.
         coords: list[tuple[float, float, float]] = []
         for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
             if not (line.startswith("ATOM") or line.startswith("HETATM")):
@@ -68,17 +91,7 @@ def _read_atom_coords(path: Path) -> list[tuple[float, float, float]]:
             except (ValueError, IndexError):
                 continue
         return coords
-    from rdkit import Chem
-
-    mol = (
-        Chem.MolFromPDBFile(str(path), removeHs=False)
-        if suffix == ".pdb"
-        else next(iter(Chem.SDMolSupplier(str(path), sanitize=False, removeHs=False)), None)
-        if suffix in {".sdf", ".mol"}
-        else Chem.MolFromMol2File(str(path), sanitize=False, removeHs=False)
-        if suffix == ".mol2"
-        else None
-    )
+    mol = read_mol(path, sanitize=False, remove_hs=False)
     if mol is None or mol.GetNumConformers() == 0:
         return []
     conf = mol.GetConformer()
@@ -94,6 +107,19 @@ def _active_site(session, receptor) -> BindingSite | None:
     return None if site_id <= 0 else session.get(BindingSite, site_id)
 
 
+def _validated_engine_config(
+    program: DockingProgramSpec,
+    overrides: dict[str, Any] | None,
+    **legacy,
+) -> dict[str, Any]:
+    values = (
+        {**legacy, **dict(overrides or {})}
+        if program.config_model is DockingEngineConfig
+        else dict(overrides or {})
+    )
+    return program.validate_config(values)
+
+
 @dataclass
 class DockingAPI:
     runtime: Any
@@ -104,6 +130,70 @@ class DockingAPI:
 
     def list_programs(self) -> tuple[DockingProgramSpec, ...]:
         return list_docking_programs()
+
+    def live_campaign_progress(
+        self,
+        *,
+        job_ids: list[str] | tuple[str, ...] = (),
+    ) -> dict[int, dict[str, int]]:
+        """Current per-receptor totals, including unfinished local MF chunks."""
+        self.runtime._require_active_project()
+        chunks = (
+            self.runtime.molsuite.get_job_chunks(
+                job_ids=list(job_ids),
+                statuses=("pending", "running", "staging"),
+                include_payload=True,
+            )
+            if job_ids
+            else []
+        )
+        return live_target_progress(list_targets(self.runtime.molsuite.project_db), chunks)
+
+    def recoverable_ranked_runs(self) -> list[dict[str, Any]]:
+        """Interrupted top-N campaigns recoverable from completed result shards."""
+        context = self.runtime._require_active_project()
+        return recoverable_ranked_runs(
+            self.runtime.molsuite.project_db,
+            project_root=context.path,
+        )
+
+    def select_hits(
+        self,
+        *,
+        run_id: str,
+        protocol_hash: str,
+        filters: dict[str, Any] | None = None,
+        top_n: int,
+    ) -> list[dict[str, Any]]:
+        """Select a recomputable Top-N from the durable HTP result dataset."""
+        context = self.runtime._require_active_project()
+        return select_shard_hits(
+            self.runtime.molsuite.project_db,
+            project_root=context.path,
+            run_id=run_id,
+            protocol_hash=protocol_hash,
+            filters=filters,
+            top_n=top_n,
+        )
+
+    def recover_ranked_hits(
+        self,
+        *,
+        run_id: str,
+        protocol_hash: str,
+        top_n: int,
+        threshold: float = 0.0,
+    ) -> dict[str, int]:
+        """Materialize the best available N without submitting docking work."""
+        context = self.runtime._require_active_project()
+        return recover_ranked_hits(
+            self.runtime.molsuite.project_db,
+            project_root=context.path,
+            run_id=run_id,
+            protocol_hash=protocol_hash,
+            top_n=top_n,
+            threshold=threshold,
+        )
 
     def preparation_summary(
             self,
@@ -377,6 +467,17 @@ class DockingAPI:
             check_required: bool = True,
     ) -> str:
         program_spec = self.get_program_spec(program)
+        if not program_spec.requires_ligand_preparation:
+            raise ValueError(f"Docking program '{program_spec.key}' does not require ligand preparation.")
+        if ligand_set is None:
+            self.runtime._require_active_project()
+            if has_shards(self.runtime.molsuite.project_db):
+                return self.prepare_ligand_shards(
+                    program=program_spec.key,
+                    force=force,
+                    executor_name=executor_name,
+                    depends_on=depends_on,
+                )
         # In a deferred pipeline (workflow) prepare is submitted up-front to WAIT for the 3D job,
         # so a submit-time has_3d gate would always fail — pass check_required=False to skip it;
         # the prepare job's chunk build runs after its dependencies and sees the 3D ligands.
@@ -415,6 +516,162 @@ class DockingAPI:
             depends_on=depends_on,
         )
 
+    def prepare_ligand_shards(
+            self,
+            *,
+            program: str = VINA_PROGRAM.key,
+            force: bool = False,
+            executor_name: str = DEFAULT_LOCAL_CPU_EXECUTOR,
+            depends_on: list[str] | None = None,
+    ) -> str:
+        """`prepare_ligands` for a sharded library: the unit of work is a shard, not a row.
+
+        No scope argument on purpose — a sharded library has no rows to select from, so the
+        whole inventory is the scope and narrowing it happened at import. One shard is one task.
+        """
+        self.runtime._require_active_project()
+        program_spec = self.get_program_spec(program)
+        if not program_spec.requires_ligand_preparation:
+            raise ValueError(f"Docking program '{program_spec.key}' does not require ligand preparation.")
+        if not program_spec.supports_shards:
+            raise ValueError(f"Docking program '{program_spec.key}' does not support sharded libraries.")
+        params = PrepareLigandShardsJobParams(
+            engine=program_spec.preparation_engine,
+            force=force,
+        )
+        return self.runtime.submit_job(
+            prepare_ligand_shards_job,
+            params=params.model_dump(mode="python"),
+            executor_name=executor_name,
+            depends_on=depends_on,
+        )
+
+    def run_shards(
+            self,
+            *,
+            program: str = VINA_PROGRAM.key,
+            receptor_set: MoleculeSetRef | MoleculeScope | int | None = None,
+            hit_threshold: float,
+            hit_cap: int,
+            hit_mode: str = HIT_MODE_THRESHOLD,
+            output_dir: PathLike | None = None,
+            exhaustiveness: int = 8,
+            num_modes: int = 9,
+            box_center: tuple[float, float, float] | None = None,
+            box_size: tuple[float, float, float] | None = None,
+            scoring_function: str = "vina",
+            vina_backend: str = DEFAULT_VINA_BACKEND,
+            vina_command: str = DEFAULT_VINA_COMMAND,
+            vina_cpu: int = 1,
+            seed: int = 0,
+            spacing: float = 0.375,
+            energy_range: float = 3.0,
+            min_rmsd: float = 1.0,
+            run_id: str | None = None,
+            protocol_metadata: dict | None = None,
+            engine_config: dict[str, Any] | None = None,
+            executor_name: str = DEFAULT_LOCAL_CPU_EXECUTOR,
+            depends_on: list[str] | None = None,
+            skip_existing: bool = True,
+            payload: str = PAYLOAD_LIGHT,
+            check_required: bool = True,
+            selected_from_receptor_id: int | None = None,
+            selected_top_n: int | None = None,
+    ) -> str:
+        """`run` for a sharded library: the campaign, with the gate that makes it end.
+
+        No ligand scope — the library is the inventory of prepared shards. `hit_threshold` and
+        `hit_cap` are required, not defaulted: a campaign without them writes back everything it
+        scored, which is the failure mode `htpvs` exists to prevent. A dependent off-target
+        stage sets `selected_from_receptor_id`; its deferred chunker reads that receptor's
+        durable Top-N and extracts only those records from the source shards.
+        """
+        self.runtime._require_active_project()
+        if selected_top_n is not None and selected_from_receptor_id is None:
+            raise ValueError("selected_top_n requires selected_from_receptor_id.")
+        if selected_from_receptor_id is not None:
+            if str(hit_mode) != "top_n":
+                raise ValueError("Off-target selection requires hit_mode='top_n'.")
+            if not str(run_id or "").strip():
+                raise ValueError("Off-target selection requires the reference run_id.")
+        if (box_center is None) ^ (box_size is None):
+            raise ValueError("docking.run requires both box_center and box_size when either one is provided.")
+        program_spec = self.get_program_spec(program)
+        if not program_spec.supports_shards:
+            raise ValueError(f"Docking program '{program_spec.key}' does not support sharded libraries.")
+        resolved_engine_config = _validated_engine_config(
+            program_spec,
+            engine_config,
+            exhaustiveness=exhaustiveness,
+            num_modes=num_modes,
+            scoring_function=scoring_function,
+            vina_backend=vina_backend,
+            vina_command=vina_command,
+            vina_cpu=vina_cpu,
+            seed=seed,
+            spacing=spacing,
+            energy_range=energy_range,
+            min_rmsd=min_rmsd,
+        )
+        receptor_set_ref = (
+            None if receptor_set is None or isinstance(receptor_set, MoleculeScope)
+            else ensure_molecule_set_ref(self.runtime, receptor_set, name="docking_receptor_input")
+        )
+        receptor_scope = scope_payload(receptor_set) if isinstance(receptor_set, MoleculeScope) else {}
+        receptor_filters = self._program_scope_filters(receptor_scope, role="receptor", program=program_spec)
+        params = DockShardsJobParams(
+            output_dir=(
+                str(Path(output_dir).expanduser().resolve()) if output_dir is not None
+                else str(self.runtime.get_project_resource_path("docking_results"))
+            ),
+            engine=program_spec.docking_engine,
+            preparation_engine=program_spec.preparation_engine,
+            receptor_set_id=None if receptor_set_ref is None else int(receptor_set_ref.id),
+            receptor_filters=receptor_filters,
+            exhaustiveness=int(resolved_engine_config.get("exhaustiveness", exhaustiveness)),
+            num_modes=int(resolved_engine_config.get("num_modes", num_modes)),
+            box_center=box_center,
+            box_size=box_size,
+            scoring_function=str(resolved_engine_config.get("scoring_function", scoring_function)),
+            vina_backend=str(resolved_engine_config.get("vina_backend", vina_backend)),
+            vina_command=str(resolved_engine_config.get("vina_command", vina_command)),
+            vina_cpu=int(resolved_engine_config.get("vina_cpu", vina_cpu)),
+            seed=int(resolved_engine_config.get("seed", seed)),
+            spacing=float(resolved_engine_config.get("spacing", spacing)),
+            energy_range=float(resolved_engine_config.get("energy_range", energy_range)),
+            min_rmsd=float(resolved_engine_config.get("min_rmsd", min_rmsd)),
+            run_id=str(run_id or uuid4().hex),
+            protocol_metadata=DockingProtocolMetadata.from_mapping(protocol_metadata or {}),
+            engine_config=resolved_engine_config,
+            hit_threshold=float(hit_threshold),
+            hit_cap=int(hit_cap),
+            hit_mode=str(hit_mode),
+            selected_from_receptor_id=selected_from_receptor_id,
+            selected_top_n=(int(selected_top_n) if selected_top_n is not None else int(hit_cap)),
+            skip_existing=skip_existing,
+            check_required=check_required,
+        )
+        return self.runtime.submit_job(
+            dock_shards_job,
+            params=params.model_dump(mode="python"),
+            executor_name=executor_name,
+            depends_on=depends_on,
+            cpu_required=program_spec.resource_requirements(resolved_engine_config)["cpu_required"],
+            # The gate lives in the parent, like the shard queue at import: it counts across
+            # chunks and it writes molecules, neither of which a worker can do.
+            result_handler_kwargs={
+                "project_db": self.runtime.molsuite.project_db,
+                "hit_cap": int(hit_cap),
+                "hit_threshold": float(hit_threshold),
+                "hit_mode": str(hit_mode),
+                "run_id": params.run_id,
+                "engine": params.engine,
+                "protocol_hash": str(params.protocol_metadata.hash or ""),
+                "payload": str(payload),
+                "selected_from_receptor_id": params.selected_from_receptor_id,
+            },
+        )
+
     def prepare_receptors(
             self,
             *,
@@ -428,6 +685,8 @@ class DockingAPI:
             depends_on: list[str] | None = None,
     ) -> str:
         program_spec = self.get_program_spec(program)
+        if not program_spec.requires_receptor_preparation:
+            raise ValueError(f"Docking program '{program_spec.key}' does not require receptor preparation.")
         receptor_set_ref = None if receptor_set is None or isinstance(receptor_set,
                                                                       MoleculeScope) else ensure_molecule_set_ref(
             self.runtime, receptor_set, name="prepare_receptors_input")
@@ -532,10 +791,12 @@ class DockingAPI:
             engine=program_spec.preparation_engine,
             set_id=None if ligand_set_ref is None else int(ligand_set_ref.id),
         )
-        unprepared_filters = {**ligand_filters, "prepared_engine": False}
         ligands_total = count_entity_rows(project_db, **ligand_scope, filters=ligand_filters)
-        missing_ligands = entity_ids(
-            project_db, **ligand_scope, filters=unprepared_filters, limit=MISSING_SAMPLE_SIZE + 1
+        unprepared_filters = {**ligand_filters, "prepared_engine": False}
+        missing_ligands = (
+            entity_ids(project_db, **ligand_scope, filters=unprepared_filters, limit=MISSING_SAMPLE_SIZE + 1)
+            if program_spec.requires_ligand_preparation
+            else []
         )
         ligands_missing = (
             len(missing_ligands)
@@ -552,8 +813,16 @@ class DockingAPI:
             order=("id",),
         )
         receptor_ids = [int(row.get("id") or 0) for row in receptor_rows if int(row.get("id") or 0) > 0]
-        ready_receptor_ids = {int(row.get("id") or 0) for row in receptor_rows if bool(row.get("prepared_engine"))}
-        ready_grid_receptor_ids = {int(row.get("id") or 0) for row in receptor_rows if bool(row.get("grid_engine"))}
+        ready_receptor_ids = {
+            int(row.get("id") or 0)
+            for row in receptor_rows
+            if not program_spec.requires_receptor_preparation or bool(row.get("prepared_engine"))
+        }
+        ready_grid_receptor_ids = {
+            int(row.get("id") or 0)
+            for row in receptor_rows
+            if not program_spec.requires_binding_site or bool(row.get("grid_engine"))
+        }
         missing_receptors_prepared = [value for value in receptor_ids if value not in ready_receptor_ids]
         missing_receptor_grids = [value for value in receptor_ids if value not in ready_grid_receptor_ids]
 
@@ -668,8 +937,16 @@ class DockingAPI:
             order=("id",),
         )
         receptor_ids = [int(row.get("id") or 0) for row in receptor_rows if int(row.get("id") or 0) > 0]
-        ready_prepared = {int(row.get("id") or 0) for row in receptor_rows if bool(row.get("prepared_engine"))}
-        ready_grid = {int(row.get("id") or 0) for row in receptor_rows if bool(row.get("grid_engine"))}
+        ready_prepared = {
+            int(row.get("id") or 0)
+            for row in receptor_rows
+            if not program_spec.requires_receptor_preparation or bool(row.get("prepared_engine"))
+        }
+        ready_grid = {
+            int(row.get("id") or 0)
+            for row in receptor_rows
+            if not program_spec.requires_binding_site or bool(row.get("grid_engine"))
+        }
         return {
             "receptor_ids": receptor_ids,
             "missing": {
@@ -713,7 +990,7 @@ class DockingAPI:
             ligand_set: MoleculeSetRef | MoleculeScope | int | None = None,
             receptor_set: MoleculeSetRef | MoleculeScope | int | None = None,
             output_dir: PathLike | None = None,
-            batch_size: int = DEFAULT_DOCKING_BATCH_SIZE,
+            batch_size: int | None = None,
             exhaustiveness: int = 8,
             num_modes: int = 9,
             box_center: tuple[float, float, float] | None = None,
@@ -728,6 +1005,7 @@ class DockingAPI:
             min_rmsd: float = 1.0,
             run_id: str | None = None,
             protocol_metadata: dict | None = None,
+            engine_config: dict[str, Any] | None = None,
             executor_name: str = DEFAULT_LOCAL_CPU_EXECUTOR,
             depends_on: list[str] | None = None,
             check_required: bool = True,
@@ -736,17 +1014,74 @@ class DockingAPI:
             diagram_format: str = "png",
             hit_threshold: float | None = None,
             hit_cap: int = 0,
+            hit_mode: str = HIT_MODE_THRESHOLD,
+            payload: str = PAYLOAD_LIGHT,
     ) -> str:
-        """`hit_threshold`/`hit_cap`: keep only poses at or under the threshold, and stop the run
-        once `hit_cap` rows are written. Both off by default; a capped run needs both, since a
-        cap alone would just truncate the library in feed order."""
+        """Run docking over the active library, selecting its row or shard adapter.
+
+        ``hit_threshold``/``hit_cap`` are optional for materialized rows and mandatory for a
+        sharded library, where returning every scored molecule would defeat the storage model.
+        """
         self.runtime._require_active_project()
+        if ligand_set is None and has_shards(self.runtime.molsuite.project_db):
+            if hit_threshold is None or int(hit_cap) <= 0:
+                raise ValueError(
+                    "docking.run over a sharded library requires hit_threshold and hit_cap."
+                )
+            if compute_diagram:
+                raise ValueError(
+                    "compute_diagram is not available during sharded docking; compute diagrams "
+                    "after hits have been materialized."
+                )
+            return self.run_shards(
+                program=program,
+                receptor_set=receptor_set,
+                hit_threshold=float(hit_threshold),
+                hit_cap=int(hit_cap),
+                hit_mode=hit_mode,
+                output_dir=output_dir,
+                exhaustiveness=exhaustiveness,
+                num_modes=num_modes,
+                box_center=box_center,
+                box_size=box_size,
+                scoring_function=scoring_function,
+                vina_backend=vina_backend,
+                vina_command=vina_command,
+                vina_cpu=vina_cpu,
+                seed=seed,
+                spacing=spacing,
+                energy_range=energy_range,
+                min_rmsd=min_rmsd,
+                run_id=run_id,
+                protocol_metadata=protocol_metadata,
+                engine_config=engine_config,
+                executor_name=executor_name,
+                depends_on=depends_on,
+                skip_existing=skip_existing,
+                payload=payload,
+                check_required=check_required,
+            )
         if hit_cap and hit_threshold is None:
             raise ValueError(
                 "docking.run needs hit_threshold when hit_cap is set: the threshold is the "
                 "scientific criterion, the cap is only what makes the run end."
             )
         program_spec = self.get_program_spec(program)
+        resolved_engine_config = _validated_engine_config(
+            program_spec,
+            engine_config,
+            exhaustiveness=exhaustiveness,
+            num_modes=num_modes,
+            scoring_function=scoring_function,
+            vina_backend=vina_backend,
+            vina_command=vina_command,
+            vina_cpu=vina_cpu,
+            seed=seed,
+            spacing=spacing,
+            energy_range=energy_range,
+            min_rmsd=min_rmsd,
+        )
+        resolved_batch_size = max(1, int(batch_size or DEFAULT_DOCKING_BATCH_SIZE))
         ligand_set_ref = None if ligand_set is None or isinstance(ligand_set,
                                                                   MoleculeScope) else ensure_molecule_set_ref(
             self.runtime, ligand_set, name="docking_ligand_input")
@@ -805,9 +1140,11 @@ class DockingAPI:
             receptor_filters=receptor_filters,
             protocol_metadata=protocol_metadata,
             skip_existing=skip_existing,
+            requires_ligand_preparation=program_spec.requires_ligand_preparation,
+            requires_receptor_preparation=program_spec.requires_receptor_preparation,
         )
         total_chunks = (
-            -(-pending_pairs // max(1, int(batch_size))) if pending_pairs > 0 else 0
+            -(-pending_pairs // resolved_batch_size) if pending_pairs > 0 else 0
         )
         resolved_output = (
             str(Path(output_dir).expanduser().resolve())
@@ -817,27 +1154,31 @@ class DockingAPI:
         resolved_run_id = str(run_id or uuid4().hex)
         params = DockingJobParams(
             output_dir=resolved_output,
-            batch_size=batch_size,
+            batch_size=resolved_batch_size,
             ligand_set_id=None if ligand_set_ref is None else int(ligand_set_ref.id),
             receptor_set_id=None if receptor_set_ref is None else int(receptor_set_ref.id),
             ligand_filters=ligand_filters,
             receptor_filters=receptor_filters,
             engine=program_spec.docking_engine,
             preparation_engine=program_spec.preparation_engine,
-            exhaustiveness=exhaustiveness,
-            num_modes=num_modes,
+            requires_ligand_preparation=program_spec.requires_ligand_preparation,
+            requires_receptor_preparation=program_spec.requires_receptor_preparation,
+            requires_binding_site=program_spec.requires_binding_site,
+            exhaustiveness=int(resolved_engine_config.get("exhaustiveness", exhaustiveness)),
+            num_modes=int(resolved_engine_config.get("num_modes", num_modes)),
             box_center=box_center,
             box_size=box_size,
-            scoring_function=scoring_function,
-            vina_backend=vina_backend,
-            vina_command=vina_command,
-            vina_cpu=vina_cpu,
-            seed=seed,
-            spacing=spacing,
-            energy_range=energy_range,
-            min_rmsd=min_rmsd,
+            scoring_function=str(resolved_engine_config.get("scoring_function", scoring_function)),
+            vina_backend=str(resolved_engine_config.get("vina_backend", vina_backend)),
+            vina_command=str(resolved_engine_config.get("vina_command", vina_command)),
+            vina_cpu=int(resolved_engine_config.get("vina_cpu", vina_cpu)),
+            seed=int(resolved_engine_config.get("seed", seed)),
+            spacing=float(resolved_engine_config.get("spacing", spacing)),
+            energy_range=float(resolved_engine_config.get("energy_range", energy_range)),
+            min_rmsd=float(resolved_engine_config.get("min_rmsd", min_rmsd)),
             run_id=resolved_run_id,
             protocol_metadata=dict(protocol_metadata or {}),
+            engine_config=resolved_engine_config,
             skip_existing=skip_existing,
             compute_diagram=bool(compute_diagram),
             diagram_format=str(diagram_format or "png"),
@@ -852,7 +1193,7 @@ class DockingAPI:
             # Each docking chunk runs one engine process that uses `vina_cpu` threads
             # internally, so reserve that many CPU tokens from the pool to avoid
             # oversubscription (pool limits concurrency to floor(cpus / vina_cpu)).
-            cpu_required=max(1, int(vina_cpu)),
+            cpu_required=program_spec.resource_requirements(resolved_engine_config)["cpu_required"],
             # Declare the real chunk total so progress = processed/total (not processed/emitted).
             total_chunks=total_chunks,
         )
@@ -880,6 +1221,7 @@ class DockingAPI:
             min_rmsd: float = 1.0,
             run_id: str | None = None,
             protocol_metadata: dict | None = None,
+            engine_config: dict[str, Any] | None = None,
             executor_name: str = DEFAULT_LOCAL_CPU_EXECUTOR,
             depends_on: list[str] | None = None,
             check_required: bool = True,
@@ -889,6 +1231,20 @@ class DockingAPI:
     ) -> str:
         self.runtime._require_active_project()
         program_spec = self.get_program_spec(program)
+        resolved_engine_config = _validated_engine_config(
+            program_spec,
+            engine_config,
+            exhaustiveness=exhaustiveness,
+            num_modes=num_modes,
+            scoring_function=scoring_function,
+            vina_backend=vina_backend,
+            vina_command=vina_command,
+            vina_cpu=vina_cpu,
+            seed=seed,
+            spacing=spacing,
+            energy_range=energy_range,
+            min_rmsd=min_rmsd,
+        )
         complex_set_id = None if complex_set is None else int(
             complex_set.id if isinstance(complex_set, ComplexSetRef) else complex_set)
         explicit_complex_ids = sorted({int(value) for value in (complex_ids or []) if int(value) > 0})
@@ -927,11 +1283,15 @@ class DockingAPI:
                 ligand_id = int(row.get("ligand_molecule_id") or 0)
                 receptor_row = molecule_rows.get(receptor_id) or {}
                 ligand_row = molecule_rows.get(ligand_id) or {}
-                if not bool(ligand_row.get("prepared_engine")):
+                if program_spec.requires_ligand_preparation and not bool(ligand_row.get("prepared_engine")):
                     missing["ligands_prepared"].append(ligand_id)
-                if not bool(receptor_row.get("prepared_engine")):
+                if program_spec.requires_receptor_preparation and not bool(receptor_row.get("prepared_engine")):
                     missing["receptors_prepared"].append(receptor_id)
-                if (box_center is None or box_size is None) and not bool(receptor_row.get("grid_engine")):
+                if (
+                    program_spec.requires_binding_site
+                    and (box_center is None or box_size is None)
+                    and not bool(receptor_row.get("grid_engine"))
+                ):
                     missing["receptor_binding_sites"].append(receptor_id)
             missing = {
                 key: sorted({int(value) for value in values if int(value) > 0})
@@ -946,6 +1306,7 @@ class DockingAPI:
         pending_pairs = count_pending_redocking_pairs(
             project_db=self.runtime.molsuite.project_db,
             engine=program_spec.docking_engine,
+            preparation_engine=program_spec.preparation_engine,
             complex_set_id=complex_set_id,
             complex_ids=explicit_complex_ids,
             purpose=purpose_text,
@@ -968,20 +1329,23 @@ class DockingAPI:
             complex_ids=explicit_complex_ids,
             purpose=purpose_text,
             engine=program_spec.docking_engine,
-            exhaustiveness=exhaustiveness,
-            num_modes=num_modes,
+            preparation_engine=program_spec.preparation_engine,
+            requires_binding_site=program_spec.requires_binding_site,
+            exhaustiveness=int(resolved_engine_config.get("exhaustiveness", exhaustiveness)),
+            num_modes=int(resolved_engine_config.get("num_modes", num_modes)),
             box_center=box_center,
             box_size=box_size,
-            scoring_function=scoring_function,
-            vina_backend=vina_backend,
-            vina_command=vina_command,
-            vina_cpu=vina_cpu,
-            seed=seed,
-            spacing=spacing,
-            energy_range=energy_range,
-            min_rmsd=min_rmsd,
+            scoring_function=str(resolved_engine_config.get("scoring_function", scoring_function)),
+            vina_backend=str(resolved_engine_config.get("vina_backend", vina_backend)),
+            vina_command=str(resolved_engine_config.get("vina_command", vina_command)),
+            vina_cpu=int(resolved_engine_config.get("vina_cpu", vina_cpu)),
+            seed=int(resolved_engine_config.get("seed", seed)),
+            spacing=float(resolved_engine_config.get("spacing", spacing)),
+            energy_range=float(resolved_engine_config.get("energy_range", energy_range)),
+            min_rmsd=float(resolved_engine_config.get("min_rmsd", min_rmsd)),
             run_id=resolved_run_id,
             protocol_metadata=dict(protocol_metadata or {}),
+            engine_config=resolved_engine_config,
             skip_existing=skip_existing,
             compute_diagram=bool(compute_diagram),
             diagram_format=str(diagram_format or "png"),
@@ -991,7 +1355,7 @@ class DockingAPI:
             params=params.model_dump(mode="python"),
             executor_name=executor_name,
             depends_on=depends_on,
-            cpu_required=max(1, int(vina_cpu)),
+            cpu_required=program_spec.resource_requirements(resolved_engine_config)["cpu_required"],
             total_chunks=total_chunks,
         )
 

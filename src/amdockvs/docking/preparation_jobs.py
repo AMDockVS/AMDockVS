@@ -12,7 +12,12 @@ from ms_flow.sinks import table_sink
 from ms_flow.tasking import JobSpec
 
 from amdockvs.configuration import batch_size_for
-from amdockvs.api_common import project_root_from_output_dir, worker_output_dir, worker_path_fields
+from amdockvs.api_common import (
+    project_root_from_output_dir,
+    worker_file,
+    worker_output_dir,
+    worker_path_fields,
+)
 from amdockvs.constants import AMDOCKVS_LOCAL_EXECUTORS, OUTPUT_FLUSH_EVERY
 from amdockvs.docking.repository import (
     iter_entity_rows,
@@ -20,9 +25,12 @@ from amdockvs.docking.repository import (
     project_db_path,
     resolve_storage_dir,
 )
-from amdockvs.docking.service import prepare_entities_rows, prepared_path_from_row
-from amdockvs.models import EngineState
+from amdockvs.docking.preparations import get_preparation_profile
+from amdockvs.docking.service import prepared_path_from_row
+from amdockvs.docking.shards import PREPARED_DIR
+from amdockvs.models import EngineState, ShardEngineState
 from amdockvs.molecule_paths import preferred_molecule_path, set_default_project_root
+from amdockvs.molecules.store import ShardStore, shard_scope_spec
 
 
 ENGINE_STATE_UPSERT = table_sink(
@@ -167,21 +175,18 @@ def _metadata_has_3d(raw_metadata: str | None) -> bool | None:
 
 
 def _path_has_3d(path: str | Path) -> bool:
-    source = Path(path).expanduser().resolve()
-    suffix = source.suffix.lower()
-    if suffix == ".pdbqt":
-        return True
-    if suffix in {".sdf", ".sd", ".mol"}:
-        from rdkit import Chem
+    from amdockvs.io.formats import normalized_suffix, read_mol
 
-        supplier = Chem.SDMolSupplier(str(source), removeHs=False)
-        mol = supplier[0] if supplier and len(supplier) > 0 else None
-        if mol is None or mol.GetNumConformers() == 0:
-            return False
-        return any(bool(mol.GetConformer(index).Is3D()) for index in range(mol.GetNumConformers()))
-    if suffix in {".pdb", ".mol2"}:
-        return True
-    return False
+    source = Path(path).expanduser().resolve()
+    suffix = normalized_suffix(source)
+    if suffix in {".pdbqt", ".pdb", ".mol2", ".cif"}:
+        return True  # coordinate formats: a file that parses at all has 3D
+    if suffix == ".smi":
+        return False
+    mol = read_mol(source)
+    if mol is None or mol.GetNumConformers() == 0:
+        return False
+    return any(bool(mol.GetConformer(index).Is3D()) for index in range(mol.GetNumConformers()))
 
 
 def _filter_ligands_with_3d(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -275,7 +280,7 @@ def _build_preparation_chunks(
 
 
 class _PrepareEntitiesJobSpec(JobSpec):
-    description = "Prepare ligands or receptors for AutoDock Vina with Meeko and persist EngineState rows."
+    description = "Prepare ligands or receptors with a registered profile and persist EngineState rows."
     params_model = PreparationJobParams
     executor = "compute"
     supported_executors = AMDOCKVS_LOCAL_EXECUTORS
@@ -288,7 +293,8 @@ class _PrepareEntitiesJobSpec(JobSpec):
         output_dir = Path(str(payload.get("output_dir") or "")).expanduser().resolve()
         set_default_project_root(project_root_from_output_dir(output_dir))
         entity_kind = str(payload.get("entity_kind") or "")
-        summary = prepare_entities_rows(
+        profile = get_preparation_profile(str(payload.get("engine") or "ad4"))
+        summary = profile.prepare_entities(
             entity_kind=entity_kind,
             engine=str(payload.get("engine") or "ad4"),
             output_dir=output_dir,
@@ -322,12 +328,123 @@ class PrepareReceptorsJobSpec(_PrepareEntitiesJobSpec):
         yield from _build_preparation_chunks(params=params, config=config, entity_kind="receptor")
 
 
+class PrepareLigandShardsJobParams(BaseModel):
+    """The sharded twin of `PreparationJobParams`: no set, filters, or sub-batching."""
+
+    engine: str = "ad4"
+    force: bool = False
+
+
+class PrepareLigandShardsJobSpec(JobSpec):
+    """Whole shards per chunk: molecules in, PDBQT text out, both inside `.mshard` containers."""
+
+    name = "amdock_prepare_ligand_shards_job"
+    task_name = "amdock_prepare_ligand_shards_task"
+    description = "Prepare a sharded screening library with a registered profile."
+    params_model = PrepareLigandShardsJobParams
+    executor = "compute"
+    supported_executors = AMDOCKVS_LOCAL_EXECUTORS
+    output_spec = table_sink(
+        model=ShardEngineState, write_mode="upsert", conflict_keys=("shard_id", "engine")
+    )
+    output_flush_every = OUTPUT_FLUSH_EVERY
+    store_results = False
+    required = ()
+    produces = ()
+
+    @staticmethod
+    def build_chunks(params: dict, config: dict | None = None) -> Iterator[dict[str, Any]]:
+        parsed = PrepareLigandShardsJobParams(**params)
+        config_map = dict(config or {})
+        project_db = config_map.get("project_db")
+        if project_db is None:
+            raise ValueError("prepare_ligand_shards_job requires project_db in config.")
+
+        from sqlmodel import select
+
+        with project_db.get_session() as session:
+            prepared_states = {
+                int(row.shard_id): row
+                for row in session.exec(
+                    select(ShardEngineState).where(ShardEngineState.engine == parsed.engine)
+                ).all()
+            }
+
+        def pending() -> Iterator[dict[str, Any]]:
+            for row in ShardStore(project_db).iter_rows(shard_scope_spec(state=None)):
+                shard_path = Path(str(row.get("path") or ""))
+                shard_id = int(row.get("id") or 0)
+                state = prepared_states.get(shard_id)
+                prepared_path = str(dict(state.files or {}).get("prepared") or "") if state else ""
+                prepared = bool(state and state.is_ready and prepared_path and Path(prepared_path).is_file())
+                # Compatibility with projects prepared before engine artifacts had their own
+                # table. A forced preparation writes the new state and completes the migration.
+                prepared = prepared or (
+                    parsed.engine == "ad4"
+                    and str(row.get("input_format") or "").lower() == "pdbqt"
+                    and shard_path.is_file()
+                )
+                if prepared and not parsed.force:
+                    continue
+                yield {
+                    "shard_id": shard_id,
+                    "shard_path": worker_file(shard_path),
+                    # Beside the input, in a folder named after the engine — same shape as the
+                    # chemistry pass, so a campaign's stages read as a chain of folders.
+                    "output_dir": worker_output_dir(
+                        shard_path.parent / PREPARED_DIR.format(engine=parsed.engine)
+                    ),
+                    "source": str(row.get("source") or ""),
+                    "shard_index": int(row.get("shard_index") or 0),
+                }
+
+        emitted = False
+        for shard in pending():
+            emitted = True
+            yield {"shards": [shard], "engine": parsed.engine}
+        if not emitted:
+            # MF still needs one chunk to close the job out cleanly when nothing is pending.
+            yield {"shards": [], "engine": parsed.engine}
+
+    @staticmethod
+    def run_chunk(payload: dict, progress_cb=None):
+        engine = str(payload.get("engine") or "ad4")
+        rows: list[dict[str, Any]] = []
+        for shard in list(payload.get("shards") or []):
+            source = Path(str(shard["shard_path"])).expanduser().resolve()
+            output_path = Path(str(shard["output_dir"])).expanduser().resolve() / source.name
+            profile = get_preparation_profile(engine)
+            if profile.prepare_shard is None:
+                raise ValueError(f"Preparation profile '{engine}' does not support sharded libraries.")
+            stats = profile.prepare_shard(source, output_path, engine=engine)
+            rows.append(
+                ShardEngineState.build_row(
+                    shard_id=int(shard["shard_id"]),
+                    engine=engine,
+                    files={"source": str(source), "prepared": str(output_path)},
+                    n_records=int(stats["n_records"]),
+                    is_ready=output_path.is_file(),
+                    error=(
+                        "" if not stats["n_failed"]
+                        else f"{stats['n_failed']} of {stats['n_input']} ligands failed"
+                    ),
+                )
+            )
+            if progress_cb is not None:
+                progress_cb((len(rows) / max(1, len(payload["shards"]))) * 100.0)
+        return rows
+
+
 prepare_ligands_job = PrepareLigandsJobSpec.to_job_definition()
 prepare_receptors_job = PrepareReceptorsJobSpec.to_job_definition()
+prepare_ligand_shards_job = PrepareLigandShardsJobSpec.to_job_definition()
 
 
 __all__ = [
     "PreparationJobParams",
+    "PrepareLigandShardsJobParams",
+    "PrepareLigandShardsJobSpec",
+    "prepare_ligand_shards_job",
     "PrepareLigandsJobSpec",
     "PrepareReceptorsJobSpec",
     "prepare_ligands_job",

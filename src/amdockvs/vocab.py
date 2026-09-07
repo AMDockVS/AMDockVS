@@ -132,12 +132,22 @@ class ProjectMode:
 
 
 class ShardState:
-    """Where a shard is in the pipeline. `done` is what makes a re-run skip it."""
+    """Lifecycle of the current chemical shard representation.
 
-    PENDING = "pending"
+    Preparation readiness and docking progress now live in engine/campaign-scoped tables.
+    ``prepared``, ``docking`` and ``docked`` remain readable for legacy projects only.
+    """
+
+    PENDING = "pending"      # imported, nothing run over it yet
     RUNNING = "running"
-    DONE = "done"
+    READY = "ready"          # chemistry pipeline done
+    PREPARED = "prepared"    # ligands rewritten as PDBQT: dockable
+    DOCKING = "docking"      # handed to a run, results not all back
+    DOCKED = "docked"
     FAILED = "failed"
+    # ponytail: rows written before the lifecycle existed say "done". Kept so they still read
+    # as a value; nothing writes it any more.
+    DONE = "done"
 
 
 class DispatchState:
@@ -146,6 +156,16 @@ class DispatchState:
     UPLOADED = "uploaded"
     RUNNING = "running"
     RETURNED = "returned"
+    FAILED = "failed"
+
+
+class TargetState:
+    """A receptor inside one campaign: scheduled before anything is docked against it."""
+
+    SCHEDULED = "scheduled"
+    RUNNING = "running"
+    DONE = "done"
+    CANCELED = "canceled"
     FAILED = "failed"
 
 
@@ -173,6 +193,7 @@ __all__ = [
     "ProjectMode",
     "ShardState",
     "DispatchState",
+    "TargetState",
     "PROJECT_MODES",
     "PROJECT_MODE_LABELS",
     "PROJECT_MODE_BADGES",

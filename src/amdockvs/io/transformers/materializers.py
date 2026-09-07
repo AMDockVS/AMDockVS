@@ -25,7 +25,7 @@ from amdockvs.models.molecules import (
     MoleculeUsageClass,
     sanitize_molecule_extra_data,
 )
-from amdockvs.vocab import BindingSiteSource, FileFormat, SetPurpose
+from amdockvs.vocab import BindingSiteSource, FileFormat
 from amdockvs.io.import_stats import (
     FILTERED_PREFILTER,
     FILTERED_PROPERTY,
@@ -44,7 +44,8 @@ from amdockvs.io.rows import (
     metadata_map_from_row,
     molecule_columns,
 )
-from amdockvs.molecules.fragments import write_fragment_files
+from amdockvs.io.formats import as_pdb, canonical_suffix
+from amdockvs.molecules.fragments import extra_fragment_molecules, write_fragment_files
 from amdockvs.molecule_paths import artifact_storage_path, managed_paths_for_source
 
 
@@ -262,11 +263,9 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
     molecule_models: list[dict[str, Any]] = []
     molecule_source_properties: list[dict[str, Any]] = []
     complexes: list[dict[str, Any]] = []
-    molecule_sets: list[dict[str, Any]] = []
-    molecule_set_members: list[dict[str, Any]] = []
     ligand_activities: list[dict[str, Any]] = []
     binding_sites: list[dict[str, Any]] = []
-    seen_set_refs: set[str] = set()
+    engine_states: list[dict[str, Any]] = []
 
     for row in rows:
         source = str(row.get("source") or "")
@@ -345,36 +344,6 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
                     "value_text": value_text,
                 }
             )
-        for set_spec in list(row.get("molecule_set_specs") or []):
-            set_ref = str(set_spec.get("set_ref") or "").strip()
-            existing_set_id = int(set_spec.get("existing_set_id") or 0)
-            member_payload = {
-                "molecule_ref": molecule_ref,
-                "is_grid_reference": bool(set_spec.get("is_grid_reference")),
-                "crystal_pose_path": str(set_spec.get("crystal_pose_path") or ""),
-                "use_as_pharmacophore": bool(set_spec.get("use_as_pharmacophore")),
-                "use_as_substructure": bool(set_spec.get("use_as_substructure")),
-                "created_at": row.get("created_at"),
-            }
-            if existing_set_id > 0:
-                member_payload["set_id"] = existing_set_id
-                molecule_set_members.append(member_payload)
-                continue
-            if not set_ref:
-                continue
-            if set_ref not in seen_set_refs:
-                molecule_sets.append(
-                    {
-                        "name": str(set_spec.get("name") or ""),
-                        "purpose": str(set_spec.get("purpose") or SetPurpose.CUSTOM),
-                        "description": str(set_spec.get("description") or ""),
-                        "created_at": row.get("created_at"),
-                        "$ref": set_ref,
-                    }
-                )
-                seen_set_refs.add(set_ref)
-            member_payload["set_ref"] = set_ref
-            molecule_set_members.append(member_payload)
         # One 'activity_spec' (single-endpoint / redocking-complex path) plus any 'activity_specs'
         # (multi-column import, e.g. Tox21's 12 assays) — each becomes its own ActivityRecord.
         activity_specs: list[dict[str, Any]] = []
@@ -423,6 +392,18 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
                     "updated_at": row.get("updated_at"),
                 }
             )
+        for engine_spec in list(row.get("engine_state_specs") or []):
+            engine_states.append(
+                {
+                    "molecule_ref": molecule_ref,
+                    "role_type": str(engine_spec.get("role_type") or role),
+                    "engine": str(engine_spec.get("engine") or "ad4"),
+                    "files": dict(engine_spec.get("files") or {}),
+                    "is_ready": bool(engine_spec.get("is_ready")),
+                    "created_at": row.get("created_at"),
+                    "updated_at": row.get("updated_at"),
+                }
+            )
         for position, site_spec in enumerate(list(row.get("binding_site_specs") or [])):
             center = tuple(site_spec.get("center") or (None, None, None))
             size = tuple(site_spec.get("size") or (None, None, None))
@@ -449,10 +430,9 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
         "molecule_models": molecule_models,
         "molecule_source_properties": molecule_source_properties,
         "complexes": complexes,
-        "molecule_sets": molecule_sets,
-        "molecule_set_members": molecule_set_members,
         "ligand_activities": ligand_activities,
         "binding_sites": binding_sites,
+        "engine_states": engine_states,
     }
 
 
@@ -513,9 +493,17 @@ def _build_row(
     molecule_kind: str,
     primary_role: str,
     primary_context: str,
-    usage_class: str = MoleculeUsageClass.GENERAL,
+    usage_class: str = "",
 ) -> dict[str, Any]:
     now = datetime.now()
+    # ponytail: usage_class is derived from the context unless the caller states one. Only the
+    # `general` context is the screening library; anything imported into a named context
+    # (reference, cocrystal, activity) is curated, and `general_ligand_count` must not see it.
+    resolved_usage = str(usage_class or "") or (
+        MoleculeUsageClass.GENERAL
+        if str(primary_context or "general").strip().lower() in ("", "general")
+        else MoleculeUsageClass.REFERENCE
+    )
     metadata_map = dict(metadata or {})
     effective_project_root = project_root or _infer_project_root(stored_path)
     state = metadata_map.get("state") if isinstance(metadata_map.get("state"), dict) else {}
@@ -533,7 +521,7 @@ def _build_row(
         extra_data=metadata_map,
         created_at=now,
         primary_context=str(primary_context or ""),
-        usage_class=str(usage_class or MoleculeUsageClass.GENERAL),
+        usage_class=resolved_usage,
     )
     return {
         **molecule_row,
@@ -545,7 +533,6 @@ def _build_row(
         "metadata_json": json.dumps(metadata_map, ensure_ascii=True),
         "source_properties": [],
         "complex_spec": None,
-        "molecule_set_specs": [],
         "activity_spec": None,
         "binding_site_specs": [],
         "has_3d": bool(state.get("has_3d", bool(molecule_row.get("has_3d")))),
@@ -614,16 +601,57 @@ def _active_binding_site_position(
 
 
 def _load_small_molecule_from_path(path: Path):
-    from rdkit import Chem
+    from amdockvs.io.formats import read_mol
 
-    suffix = path.suffix.lower()
-    if suffix in {".sdf", ".sd", ".mol"}:
-        return Chem.MolFromMolFile(str(path), sanitize=True, removeHs=False)
-    if suffix == ".mol2":
-        return Chem.MolFromMol2File(str(path), sanitize=True, removeHs=False)
-    if suffix == ".pdb":
-        return Chem.MolFromPDBFile(str(path), sanitize=True, removeHs=False)
-    return None
+    return read_mol(path)
+
+
+# Descriptors that survive a *deposited* PDB. A cocrystal ligand extracted from the RCSB carries no
+# CONECT records, so RDKit perceives connectivity by proximity and every bond comes out single.
+# Measured by round-tripping 6 drug-like molecules through a CONECT-less PDB
+# (test/test_cocrystal_descriptors.py): these five match the true value 6/6, while
+# mw/exact_mw/logp/tpsa/hbd/aromatic_ring_count/fraction_csp3 match 0/6.
+# ponytail: the rest stays NULL — a wrong MW is worse than no MW once a table filter reads it.
+# This is the last resort: cocrystal_ligand_descriptors tries the CCD first and only lands here for
+# a residue name the CCD does not know (a ligand drawn by a tool, named UNL/LIG).
+PDB_SAFE_DESCRIPTORS = (
+    "fragment_count",
+    "ring_count",
+    "hetero_atom_count",
+    "heavy_atom_count",
+    "formal_charge",
+)
+
+
+def cocrystal_ligand_descriptors(
+    path: Path, *, source_file: Path | None = None, resname: str = ""
+) -> dict[str, Any]:
+    """Descriptors for an extracted cocrystal ligand: all of them from a CIF, five from a PDB.
+
+    Bond orders come from the entry mmCIF if the receptor arrived as one, else from the CCD
+    component for ``resname`` (cached, ~10 KB). Only if both miss does this fall back to
+    PDB_SAFE_DESCRIPTORS, because a PDB alone cannot say.
+    """
+    from amdockvs.chemistry.descriptors import calculate_basic_descriptors
+    from amdockvs.io.ccd_bonds import ccd_component_file, ligand_from_cif
+
+    if not path.exists():
+        return {}
+    for lookup in (lambda: source_file, lambda: ccd_component_file(resname)):
+        cif = lookup()
+        if cif is None:
+            continue
+        mol = ligand_from_cif(cif, path, resname)
+        if mol is not None:
+            return calculate_basic_descriptors(mol)
+    try:
+        mol = _load_small_molecule_from_path(path)
+    except (OSError, ValueError):  # unreadable or malformed — descriptors are not worth an abort
+        return {}
+    if mol is None:
+        return {}
+    values = calculate_basic_descriptors(mol)
+    return {key: values[key] for key in PDB_SAFE_DESCRIPTORS if key in values}
 
 
 def _receptor_import_options_from_patch(extra_data_patch: dict[str, Any]) -> ReceptorImportOptions:
@@ -723,6 +751,88 @@ def _cocrystal_ligand_specs(
     return specs
 
 
+def _split_fragment_rows(
+    *,
+    batch: ImportBatchPayload,
+    project_root: Path,
+    source_index: int,
+    name: str,
+    mol,
+    parent_key: str,
+    input_format: str,
+    criteria,
+    source_properties: Any,
+    tally: dict[str, int],
+) -> Iterable[dict[str, Any]]:
+    """One row per *discarded* organic fragment, when `prefilter.split_fragments` is on.
+
+    The record's own row already carries the kept fragment; these are the co-components that
+    would otherwise be lost. They share the source record but need their own storage key, hence
+    `variant`. No activity is copied onto them: the assay measured the parent record, not a salt.
+    """
+    from rdkit import Chem
+
+    if not bool(getattr(batch.prefilter, "split_fragments", False)):
+        return
+    for fragment_index, fragment in extra_fragment_molecules(mol):
+        variant = f"frag{fragment_index:02d}"
+        paths = managed_paths_for_source(
+            storage_root=batch.storage_dir,
+            role=batch.primary_role or batch.kind,
+            source_file=batch.file_path,
+            source_index=source_index,
+            original_suffix=".sdf",
+            current_suffix=".sdf",
+            variant=variant,
+        )
+        fragment.SetProp("_Name", f"{name} [{variant}]")
+        mol_block = Chem.MolToMolBlock(fragment)
+        row = _build_row(
+            project_root=project_root,
+            source_file=batch.file_path,
+            source_index=source_index,
+            name=f"{name} [{variant}]",
+            n_atoms=fragment.GetNumAtoms(),
+            input_format=input_format,
+            stored_path=paths["original_path"],
+            current_path=paths["current_path"],
+            # Points back at the sibling that kept the record: same source index, and the
+            # fragment_index the parent's own `fragmentation.components` lists it under.
+            metadata={
+                **molecule_state_metadata(fragment),
+                "split_from": {
+                    "source_index": int(source_index),
+                    "parent_key": str(parent_key),
+                    "parent_name": str(name),
+                    "fragment_index": int(fragment_index),
+                },
+            },
+            molecule_kind=batch.molecule_kind,
+            primary_role=batch.primary_role,
+            primary_context=batch.primary_context,
+        )
+        row["source_properties"] = _source_properties_from_mapping(source_properties)
+        row, reason = _finalize_ligand_row_from_mol(
+            row=row,
+            mol=fragment,
+            storage_root=batch.storage_dir,
+            role=batch.primary_role or batch.kind,
+            storage_key=str(paths["key"]),
+            project_root=project_root,
+            current_path=paths["current_path"],
+            prefilter=batch.prefilter,
+            stored_path=paths["original_path"],
+            mol_block=mol_block,
+            criteria=criteria,
+            molecule_kind=batch.molecule_kind,
+        )
+        if reason is not None:
+            bump(tally, reason)
+            continue
+        bump(tally, IMPORTED)
+        yield row
+
+
 def _materialize_sdf_rows(
     *,
     batch: ImportBatchPayload,
@@ -812,6 +922,11 @@ def _materialize_sdf_rows(
             current_path.write_text(mol_block, encoding="utf-8")
         bump(tally, IMPORTED)
         yield row
+        yield from _split_fragment_rows(
+            batch=batch, project_root=project_root, source_index=source_index, name=name, mol=mol,
+            parent_key=str(paths["key"]), input_format=FileFormat.SDF, criteria=criteria,
+            source_properties=entry.get("source_properties"), tally=tally,
+        )
         _progress_update(progress_cb, index, total_entries)
 
 
@@ -910,6 +1025,11 @@ def _materialize_smiles_rows(
             current_path.write_text(resolved_mol_block, encoding="utf-8")
         bump(tally, IMPORTED)
         yield row
+        yield from _split_fragment_rows(
+            batch=batch, project_root=project_root, source_index=source_index, name=name, mol=mol,
+            parent_key=str(paths["key"]), input_format="smiles", criteria=criteria,
+            source_properties=entry.get("source_properties"), tally=tally,
+        )
         _progress_update(progress_cb, index, total_entries)
 
 
@@ -929,9 +1049,11 @@ def _materialize_structure_rows(
         source_file = Path(entry.get("source_file") or batch.file_path).expanduser().resolve()
         suffix = source_file.suffix.lower() or ".dat"
         if (batch.primary_role or batch.kind) == "receptor":
-            current_suffix = ".pdb"
+            current_suffix = canonical_suffix(batch.molecule_kind or MoleculeType.PROTEIN)
         elif str(batch.primary_role or batch.kind).strip().lower() == "ligand" and str(batch.molecule_kind or "").strip().lower() == MoleculeType.SMALL_MOLECULE:
             current_suffix = ".sdf"
+        elif suffix == ".pdbqt":
+            current_suffix = ".pdb"
         else:
             current_suffix = suffix
         paths = managed_paths_for_source(
@@ -949,32 +1071,36 @@ def _materialize_structure_rows(
         scan_payload = dict(metadata.pop("__scan", {}) or {})
         options = _receptor_import_options_from_patch(metadata) if (batch.primary_role or batch.kind) == "receptor" else None
         processing_summary: dict[str, Any] = {}
-        if options is not None and not scan_payload:
-            scan_payload = scan_receptor_structure(source_file)
         ligand_mol = None
-        if options is not None and scan_payload:
-            processing_summary = write_processed_receptor(
-                source_file,
-                current_path,
-                scan=scan_payload,
-                options=options,
-            )
-        else:
-            ligand_role = str(batch.primary_role or batch.kind).strip().lower() == "ligand"
-            if ligand_role and str(batch.molecule_kind or "").strip().lower() == MoleculeType.SMALL_MOLECULE:
-                ligand_mol = _load_small_molecule_from_path(source_file)
-            if ligand_mol is not None:
-                current_path.write_text("", encoding="utf-8")
+        # A PDBQT is an engine artifact, not a structure format: hand the scanners a PDB.
+        with as_pdb(source_file) as structure_source:
+            if options is not None and not scan_payload:
+                scan_payload = scan_receptor_structure(structure_source)
+            if options is not None and scan_payload:
+                processing_summary = write_processed_receptor(
+                    structure_source,
+                    current_path,
+                    scan=scan_payload,
+                    options=options,
+                )
             else:
-                shutil.copy2(source_file, current_path)
+                ligand_role = str(batch.primary_role or batch.kind).strip().lower() == "ligand"
+                if ligand_role and str(batch.molecule_kind or "").strip().lower() == MoleculeType.SMALL_MOLECULE:
+                    ligand_mol = _load_small_molecule_from_path(source_file)
+                if ligand_mol is not None:
+                    current_path.write_text("", encoding="utf-8")
+                else:
+                    shutil.copy2(structure_source, current_path)
         metadata = {
             **metadata,
             "processing": processing_summary,
         }
+        # Every structure format here carries coordinates; only SMILES-like inputs do not.
+        has_3d = current_suffix in {".pdb", ".pdbqt", ".mol2", ".cif", ".sdf"}
         metadata["state"] = {
-            "has_3d": current_suffix in {".pdb", ".pdbqt", ".mol2"},
-            "has_hs": current_suffix == ".pdbqt",
-            "conformer_count": 1 if current_suffix in {".pdb", ".pdbqt", ".mol2"} else 0,
+            "has_3d": has_3d,
+            "has_hs": ".pdbqt" in {current_suffix, suffix},
+            "conformer_count": 1 if has_3d else 0,
         }
         row = _build_row(
             project_root=project_root,
@@ -1005,6 +1131,17 @@ def _materialize_structure_rows(
                 bump(tally, reason)
                 _progress_update(progress_cb, index, total_entries)
                 continue
+        if suffix == ".pdbqt":
+            # The imported file already is what preparation would have produced: register it
+            # as the ad4 artifact so the molecule is dockable without re-preparing it.
+            row["engine_state_specs"] = [
+                {
+                    "role_type": str(batch.primary_role or batch.kind).strip().lower(),
+                    "engine": "ad4",
+                    "files": {"prepared": str(stored_path)},
+                    "is_ready": True,
+                }
+            ]
         row["binding_site_specs"] = [
             {
                 "name": str(item.get("name") or ""),
@@ -1042,7 +1179,7 @@ def _materialize_structure_rows(
                     role="receptor",
                     key=str(paths["key"]),
                     artifact_name="reference",
-                    suffix=".pdb",
+                    suffix=current_path.suffix or ".pdb",
                 )
                 shutil.copy2(current_path, reference_path)
                 reference_receptor_path = str(reference_path.relative_to(project_root))
@@ -1081,6 +1218,17 @@ def _materialize_structure_rows(
                     primary_role="ligand",
                     primary_context="cocrystal",
                     usage_class=MoleculeUsageClass.REFERENCE,
+                )
+                # This row skips _finalize_ligand_row_from_mol (the receptor route has no ligand
+                # Mol), so without this its descriptors stay NULL and any table filter on them
+                # drops the reference ligand silently. A .cif source gives all of them (deposited
+                # bond orders); a .pdb source gives only PDB_SAFE_DESCRIPTORS.
+                ligand_row.update(
+                    cocrystal_ligand_descriptors(
+                        ligand_current,
+                        source_file=source_file,
+                        resname=str(ligand_specs["selector"] or "").split(":")[0],
+                    )
                 )
                 ligand_row["complex_spec"] = {
                     "name": f"{source_file.stem}_{ligand_specs['selector']}",

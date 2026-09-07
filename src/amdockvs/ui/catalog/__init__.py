@@ -20,6 +20,7 @@ from amdockvs.ui.catalog.binding_sites import (
 from amdockvs.ui.catalog.ligands import LIGANDS_VIEW_ID, LigandWidget, register_ligands_workspace
 from amdockvs.ui.catalog.receptors import RECEPTOR_VIEW_ID, ReceptorWidget, register_receptors_workspace
 from amdockvs.ui.catalog.molecules import MOLECULES_VIEW_ID, MoleculeWidget, register_molecules_workspace
+from amdockvs.ui.catalog.shards import SHARDS_VIEW_ID, ShardsWidget, register_shards_workspace
 
 __all__ = [
     "COMPLEXES_VIEW_ID",
@@ -35,6 +36,8 @@ __all__ = [
     "MOLECULES_VIEW_ID",
     "MoleculeWidget",
     "RECEPTOR_VIEW_ID",
+    "SHARDS_VIEW_ID",
+    "ShardsWidget",
     "ReceptorWidget",
     "register_complex_pairs_workspace",
     "register_binding_sites_workspace",
@@ -43,4 +46,5 @@ __all__ = [
     "register_ligand_activity_workspace",
     "register_molecules_workspace",
     "register_receptors_workspace",
+    "register_shards_workspace",
 ]

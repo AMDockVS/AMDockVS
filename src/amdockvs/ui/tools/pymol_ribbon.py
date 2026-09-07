@@ -644,6 +644,14 @@ def _toggle_grid_panel(window, checked: bool) -> None:
     dock.set_side_panel_visible(bool(checked))
 
 
+def _sync_grid_action(action: QAction, visible: bool) -> None:
+    if action.isChecked() == bool(visible):
+        return
+    action.blockSignals(True)
+    action.setChecked(bool(visible))
+    action.blockSignals(False)
+
+
 # --- style memory & per-molecule view cache -------------------------------------------------
 # Two things persist across molecule switches: the chosen style per molecule *type* ("Keep
 # style"), and orientation+style per specific molecule (an LRU cache, max 20 — surfaces just
@@ -794,9 +802,8 @@ def _menu_action(menu, text: str, handler: Callable[[], None], *, tooltip: str =
 def install_pymol_toolbar(window) -> None:
     """Add AMDock's PyMOL presets and scene menu to the dock's control bar.
 
-    The quick actions (zoom/orient/rock/representation/scene presets) already live in the
-    dock's PymolControlBar; the menu holds the config shortcuts (background, camera, render,
-    coloring) and the AMDock grid-box toggle — what the old ribbon category duplicated.
+    The reusable control bar owns selection, view, display, hide and preset actions. This menu
+    holds only AMDock's infrequent scene configuration shortcuts.
     """
     dock = getattr(window, "pymol_dock", None)
     if dock is None or getattr(window, "_pymol_toolbar_installed", False):
@@ -861,12 +868,18 @@ def install_pymol_toolbar(window) -> None:
     gui_action.toggled.connect(lambda checked: _toggle_internal_gui(window, checked))
 
     if getattr(window, "grid_dock", None) is not None:
-        menu.addSeparator()
-        grid_action = menu.addAction("Grid Box")
-        grid_action.setCheckable(True)
+        grid_action = control_bar.add_action(
+            "Grid Box",
+            icon_name="box.svg",
+            tooltip="Show or hide the docking grid-box side panel.",
+            checkable=True,
+        )
         grid_action.setChecked(bool(getattr(dock, "is_side_panel_visible", lambda: False)()))
-        grid_action.setToolTip("Show or hide the docking grid-box side panel.")
         grid_action.toggled.connect(lambda checked: _toggle_grid_panel(window, checked))
+        dock.side_panel_visibility_changed.connect(
+            lambda visible: _sync_grid_action(grid_action, visible)
+        )
+        window._pymol_grid_action = grid_action
 
     action = control_bar.add_menu_action(
         "Scene",

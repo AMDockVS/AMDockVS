@@ -40,11 +40,9 @@ from amdockvs.docking.repository import (
     list_entity_rows,
     resolve_docking_output_dir,
 )
-from amdockvs.docking.engines import run_docking_chunk
+from amdockvs.docking.registry import run_docking_chunk
 from amdockvs.docking.interactions import collect_interaction_rows
 from amdockvs.docking.protocols import DockingProtocolMetadata
-import amdockvs.docking.autodock4  # noqa: F401  # registers the "autodock4" DOCK_RUNNER
-import amdockvs.docking.gnina  # noqa: F401  # registers the "gnina" DOCK_RUNNER
 from ms_flow.query import db_count
 from amdockvs.models import DockingResultRecord, InteractionsResult
 
@@ -84,6 +82,8 @@ def count_pending_docking_pairs(
     receptor_filters: Mapping[str, Any] | None,
     protocol_metadata: Mapping[str, Any] | None,
     skip_existing: bool,
+    requires_ligand_preparation: bool = True,
+    requires_receptor_preparation: bool = True,
 ) -> int:
     """Count exactly the receptor-ligand pairs that ``iter_docking_batches`` will emit.
 
@@ -92,8 +92,10 @@ def count_pending_docking_pairs(
     """
     ligand_scope = dict(ligand_filters or {})
     receptor_scope = dict(receptor_filters or {})
-    ligand_scope["prepared_engine"] = True
-    receptor_scope["prepared_engine"] = True
+    if requires_ligand_preparation:
+        ligand_scope["prepared_engine"] = True
+    if requires_receptor_preparation:
+        receptor_scope["prepared_engine"] = True
     receptor_ids = entity_ids(
         project_db,
         entity_kind="receptor",
@@ -140,6 +142,7 @@ def count_pending_redocking_pairs(
     *,
     project_db,
     engine: str,
+    preparation_engine: str | None = None,
     complex_set_id: int | None,
     complex_ids: list[int] | None,
     purpose: str,
@@ -157,7 +160,7 @@ def count_pending_redocking_pairs(
         for value in (row.get("receptor_molecule_id"), row.get("ligand_molecule_id"))
         if int(value or 0) > 0
     ]
-    molecules = get_molecule_rows_by_ids(project_db, molecule_ids, engine=engine)
+    molecules = get_molecule_rows_by_ids(project_db, molecule_ids, engine=preparation_engine or engine)
     candidates = [
         row for row in complex_rows
         if int(row.get("id") or 0) > 0
@@ -219,6 +222,9 @@ class DockingJobParams(BaseModel):
     batch_size: int = Field(default=DEFAULT_DOCKING_BATCH_SIZE, ge=1)
     engine: str = "vina"
     preparation_engine: str = "ad4"
+    requires_ligand_preparation: bool = True
+    requires_receptor_preparation: bool = True
+    requires_binding_site: bool = True
     ligand_set_id: int | None = Field(default=None, ge=1)
     receptor_set_id: int | None = Field(default=None, ge=1)
     ligand_filters: dict[str, Any] = Field(default_factory=dict)
@@ -237,6 +243,7 @@ class DockingJobParams(BaseModel):
     min_rmsd: float = Field(default=1.0, ge=0.0)
     run_id: str = ""
     protocol_metadata: DockingProtocolMetadata = Field(default_factory=DockingProtocolMetadata)
+    engine_config: dict[str, Any] = Field(default_factory=dict)
     skip_existing: bool = True
     compute_diagram: bool = False
     diagram_format: str = "png"
@@ -250,6 +257,8 @@ class RedockingJobParams(BaseModel):
     output_dir: str | None = None
     batch_size: int = Field(default=DEFAULT_DOCKING_BATCH_SIZE, ge=1)
     engine: str = "vina"
+    preparation_engine: str = "ad4"
+    requires_binding_site: bool = True
     complex_set_id: int | None = Field(default=None, ge=1)
     complex_ids: list[int] = Field(default_factory=list)
     purpose: str = "redocking"
@@ -267,6 +276,7 @@ class RedockingJobParams(BaseModel):
     min_rmsd: float = Field(default=1.0, ge=0.0)
     run_id: str = ""
     protocol_metadata: DockingProtocolMetadata = Field(default_factory=DockingProtocolMetadata)
+    engine_config: dict[str, Any] = Field(default_factory=dict)
     skip_existing: bool = True
     compute_diagram: bool = False
     diagram_format: str = "png"
@@ -295,7 +305,7 @@ class DiagramJobParams(BaseModel):
     replace_existing: bool = False
 
 
-from amdockvs.docking.gnina import chunk_gpu_tokens as _extra_chunk_tokens
+from amdockvs.docking.programs import chunk_resources
 
 
 def iter_docking_batches(
@@ -322,14 +332,20 @@ def iter_docking_batches(
     min_rmsd: float = 1.0,
     run_id: str = "",
     protocol_metadata: Mapping[str, Any] | DockingProtocolMetadata | None = None,
+    engine_config: Mapping[str, Any] | None = None,
     preparation_engine: str | None = None,
     skip_existing: bool = True,
+    requires_ligand_preparation: bool = True,
+    requires_receptor_preparation: bool = True,
+    requires_binding_site: bool = True,
 ) -> Iterator[dict]:
     prep_engine = str(preparation_engine or engine)
     normalized_ligand_filters = dict(ligand_filters or {})
     normalized_receptor_filters = dict(receptor_filters or {})
-    normalized_ligand_filters["prepared_engine"] = True
-    normalized_receptor_filters["prepared_engine"] = True
+    if requires_ligand_preparation:
+        normalized_ligand_filters["prepared_engine"] = True
+    if requires_receptor_preparation:
+        normalized_receptor_filters["prepared_engine"] = True
     receptor_rows = list_entity_rows(
         project_db,
         entity_kind="receptor",
@@ -418,8 +434,10 @@ def iter_docking_batches(
         min_rmsd=min_rmsd,
         run_id=str(run_id or ""),
         protocol_metadata=protocol_payload,
+        engine_config=engine_config,
         engine=engine,
         preparation_engine=prep_engine,
+        requires_binding_site=requires_binding_site,
     )
 
 
@@ -429,6 +447,7 @@ def iter_redocking_batches(
     output_dir: str | Path,
     batch_size: int = DEFAULT_DOCKING_BATCH_SIZE,
     engine: str = "vina",
+    preparation_engine: str | None = None,
     complex_set_id: int | None = None,
     complex_ids: list[int] | None = None,
     purpose: str = "redocking",
@@ -446,7 +465,9 @@ def iter_redocking_batches(
     min_rmsd: float = 1.0,
     run_id: str = "",
     protocol_metadata: Mapping[str, Any] | DockingProtocolMetadata | None = None,
+    engine_config: Mapping[str, Any] | None = None,
     skip_existing: bool = True,
+    requires_binding_site: bool = True,
 ) -> Iterator[dict]:
     complex_rows = list_complex_rows(
         project_db,
@@ -482,7 +503,8 @@ def iter_redocking_batches(
             molecule_ids.append(receptor_id)
         if ligand_id > 0:
             molecule_ids.append(ligand_id)
-    molecule_rows = get_molecule_rows_by_ids(project_db, molecule_ids, engine=engine)
+    prep_engine = str(preparation_engine or engine)
+    molecule_rows = get_molecule_rows_by_ids(project_db, molecule_ids, engine=prep_engine)
     project_root = _project_root_from_db(project_db)
     resolved_output_dir = Path(output_dir).expanduser().resolve()
     resolved_output_dir.mkdir(parents=True, exist_ok=True)
@@ -508,7 +530,7 @@ def iter_redocking_batches(
         )
         if (int(receptor_row.get("id") or 0), int(ligand_row.get("id") or 0)) in skip_pairs:
             continue  # already docked for this engine — lightweight skip
-        pair_grid = grid_from_row(receptor_row, engine=engine)
+        pair_grid = grid_from_row(receptor_row, engine=prep_engine)
         effective_center = (
             tuple(float(value) for value in box_center)
             if box_center is not None
@@ -520,7 +542,7 @@ def iter_redocking_batches(
             else tuple(float(value) for value in (pair_grid or {}).get("size", ()))
         )
         effective_spacing = float((pair_grid or {}).get("spacing") or spacing)
-        if len(effective_center) != 3 or len(effective_size) != 3:
+        if requires_binding_site and (len(effective_center) != 3 or len(effective_size) != 3):
             batch.append(
                 build_failed_docking_pair(
                     ligand_row=ligand_row,
@@ -543,7 +565,7 @@ def iter_redocking_batches(
                         receptor_row=receptor_row,
                         exhaustiveness=exhaustiveness,
                         num_modes=num_modes,
-                        engine=engine,
+                        engine=prep_engine,
                         complex_id=complex_id,
                         run_kind="redocking",
                         box_center=effective_center,
@@ -583,7 +605,8 @@ def iter_redocking_batches(
                 "min_rmsd": float(min_rmsd),
                 "run_id": str(run_id or ""),
                 "protocol_metadata": protocol_payload,
-                **_extra_chunk_tokens(engine, scoring_function),
+                "engine_config": dict(engine_config or {}),
+                **chunk_resources(engine, {**dict(engine_config or {}), "scoring_function": scoring_function}),
                 "report_name": report_name,
             }
             batch = []
@@ -604,7 +627,8 @@ def iter_redocking_batches(
             "min_rmsd": float(min_rmsd),
             "run_id": str(run_id or ""),
             "protocol_metadata": protocol_payload,
-            **_extra_chunk_tokens(engine, scoring_function),
+            "engine_config": dict(engine_config or {}),
+            **chunk_resources(engine, {**dict(engine_config or {}), "scoring_function": scoring_function}),
             "report_name": f"batch_tail_{len(batch)}.json",
         }
 
@@ -660,14 +684,18 @@ class DockingPairsInput(InputSource):
             min_rmsd=float(params_map.get("min_rmsd", 1.0)),
             run_id=str(params_map.get("run_id") or ""),
             protocol_metadata=dict(params_map.get("protocol_metadata") or {}),
+            engine_config=dict(params_map.get("engine_config") or {}),
             skip_existing=bool(params_map.get("skip_existing", True)),
+            requires_ligand_preparation=bool(params_map.get("requires_ligand_preparation", True)),
+            requires_receptor_preparation=bool(params_map.get("requires_receptor_preparation", True)),
+            requires_binding_site=bool(params_map.get("requires_binding_site", True)),
         )
 
 
-class DockingVinaJobSpec(JobSpec):
+class DockingJobSpec(JobSpec):
     name = "amdock_docking_job"
     task_name = "amdock_run_vina_docking_batch"
-    description = "Run AutoDock Vina docking for receptor-ligand pairs."
+    description = "Run a registered docking engine for receptor-ligand pairs."
     params_model = DockingJobParams
     executor = "compute"
     supported_executors = AMDOCKVS_LOCAL_EXECUTORS
@@ -726,7 +754,8 @@ class DockingVinaJobSpec(JobSpec):
             yield _transport_docking_chunk(chunk)
 
 
-docking_job = DockingVinaJobSpec.to_job_definition()
+DockingVinaJobSpec = DockingJobSpec  # Backward-compatible import name.
+docking_job = DockingJobSpec.to_job_definition()
 
 
 def _interaction_result_rows(project_db, params: InteractionJobParams) -> list[dict[str, Any]]:
@@ -956,10 +985,10 @@ class DiagramJobSpec(JobSpec):
 diagram_job = DiagramJobSpec.to_job_definition()
 
 
-class RedockingVinaJobSpec(JobSpec):
+class RedockingJobSpec(JobSpec):
     name = "amdock_redocking_job"
     task_name = "amdock_run_vina_redocking_batch"
-    description = "Run AutoDock Vina redocking for explicit complex receptor-ligand pairs."
+    description = "Run a registered docking engine for explicit complex receptor-ligand pairs."
     params_model = RedockingJobParams
     executor = "compute"
     supported_executors = AMDOCKVS_LOCAL_EXECUTORS
@@ -982,13 +1011,14 @@ class RedockingVinaJobSpec(JobSpec):
         config_map = dict(config or {})
         project_db = config_map.get("project_db")
         if project_db is None:
-            raise ValueError("RedockingVinaJobSpec requires project_db in config.")
+            raise ValueError("RedockingJobSpec requires project_db in config.")
         output_dir = resolve_docking_output_dir(params, config)
         for chunk in iter_redocking_batches(
             project_db=project_db,
             output_dir=output_dir,
             batch_size=parsed.batch_size,
             engine=str(parsed.engine or "vina"),
+            preparation_engine=parsed.preparation_engine,
             complex_set_id=parsed.complex_set_id,
             complex_ids=list(parsed.complex_ids or []),
             purpose=parsed.purpose,
@@ -1006,7 +1036,9 @@ class RedockingVinaJobSpec(JobSpec):
             min_rmsd=parsed.min_rmsd,
             run_id=parsed.run_id,
             protocol_metadata=parsed.protocol_metadata,
+            engine_config=parsed.engine_config,
             skip_existing=parsed.skip_existing,
+            requires_binding_site=parsed.requires_binding_site,
         ):
             if parsed.compute_diagram:
                 chunk["compute_diagram"] = True
@@ -1014,4 +1046,5 @@ class RedockingVinaJobSpec(JobSpec):
             yield _transport_docking_chunk(chunk)
 
 
-redocking_job = RedockingVinaJobSpec.to_job_definition()
+RedockingVinaJobSpec = RedockingJobSpec  # Backward-compatible import name.
+redocking_job = RedockingJobSpec.to_job_definition()

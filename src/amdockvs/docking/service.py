@@ -7,7 +7,7 @@ from typing import Any, Callable, Iterable, Iterator, Mapping
 
 from rdkit import Chem
 from amdockvs.constants import DEFAULT_VINA_BACKEND, DEFAULT_VINA_COMMAND
-from amdockvs.docking.gnina import chunk_gpu_tokens
+from amdockvs.docking.programs import chunk_resources
 from amdockvs.docking.tools import prepare_ligand_vina_pdbqt, prepare_ligand_vina_pdbqt_from_mol, prepare_receptor_vina_pdbqt
 from amdockvs.molecule_paths import normalize_path, preferred_molecule_path
 
@@ -130,18 +130,13 @@ def _storage_key(entity_kind: str, entity_id: int, *, engine: str) -> str:
 
 
 def _load_ligand_mol_for_preparation(source_path: Path):
-    suffix = source_path.suffix.lower()
-    if suffix in {".sdf", ".sd", ".mol"}:
-        supplier = Chem.SDMolSupplier(str(source_path), removeHs=False)
-        mol = supplier[0] if supplier and len(supplier) > 0 else None
-    elif suffix == ".mol2":
-        mol = Chem.MolFromMol2File(str(source_path), sanitize=True, removeHs=False)
-    elif suffix == ".pdb":
-        mol = Chem.MolFromPDBFile(str(source_path), sanitize=True, removeHs=False)
-    else:
-        raise ValueError(f"Ligand preparation does not support format '{suffix}'.")
+    from amdockvs.io.formats import is_readable, read_mol
+
+    if not is_readable(source_path):
+        raise ValueError(f"Ligand preparation does not support format '{source_path.suffix}'.")
+    mol = read_mol(source_path)
     if mol is None:
-        raise RuntimeError(f"RDKit could not parse ligand file: {source_path}")
+        raise RuntimeError(f"Could not parse ligand file: {source_path}")
     return mol
 
 
@@ -368,8 +363,10 @@ def iter_docking_batches_from_rows(
     min_rmsd: float = 1.0,
     run_id: str = "",
     protocol_metadata: Mapping[str, object] | None = None,
+    engine_config: Mapping[str, object] | None = None,
     engine: str = "vina",
     preparation_engine: str | None = None,
+    requires_binding_site: bool = True,
 ) -> Iterator[dict[str, object]]:
     # Prepared inputs/grids are stored under the preparation engine (e.g. AutoDock4
     # reuses Vina pdbqt prep); the chunk's `engine` tag selects the docking runner.
@@ -404,7 +401,7 @@ def iter_docking_batches_from_rows(
             effective_center = box_center
             effective_size = box_size
             effective_spacing = spacing
-            if effective_center is None or effective_size is None:
+            if requires_binding_site and (effective_center is None or effective_size is None):
                 pair_grid = grid_from_row(receptor_row, engine=prep_engine)
                 if pair_grid is not None:
                     resolved_center = tuple(float(value) for value in (pair_grid.get("center") or ()))
@@ -413,7 +410,7 @@ def iter_docking_batches_from_rows(
                         effective_center = resolved_center
                         effective_size = resolved_size
                         effective_spacing = float(pair_grid.get("spacing") or spacing)
-            if effective_center is None or effective_size is None:
+            if requires_binding_site and (effective_center is None or effective_size is None):
                 batch.append(
                     build_failed_docking_pair(
                         ligand_row=ligand_row,
@@ -464,7 +461,8 @@ def iter_docking_batches_from_rows(
                     "min_rmsd": float(min_rmsd),
                     "run_id": str(run_id or ""),
                     "protocol_metadata": protocol_payload,
-                    **chunk_gpu_tokens(engine, scoring_function),
+                    "engine_config": dict(engine_config or {}),
+                    **chunk_resources(engine, {**dict(engine_config or {}), "scoring_function": scoring_function}),
                     "report_name": f"batch_{batch_index:06d}.json",
                 }
                 batch = []
@@ -486,7 +484,8 @@ def iter_docking_batches_from_rows(
             "min_rmsd": float(min_rmsd),
             "run_id": str(run_id or ""),
             "protocol_metadata": protocol_payload,
-            **chunk_gpu_tokens(engine, scoring_function),
+            "engine_config": dict(engine_config or {}),
+            **chunk_resources(engine, {**dict(engine_config or {}), "scoring_function": scoring_function}),
             "report_name": f"batch_{batch_index:06d}.json",
         }
 

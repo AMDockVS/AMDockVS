@@ -42,6 +42,9 @@ class ImportPrefilterPolicy(BaseModel):
     add_hs: bool = False
     gen_3d: bool = False
     canonical_tautomer: bool = False  # standardize to ONE canonical tautomer (not enumeration)
+    # Multi-fragment records: import keeps one fragment and drops the rest. With this on, every
+    # *other* distinct organic fragment enters as a molecule of its own.
+    split_fragments: bool = False
     # HTP import-mode extensions: richer pre-materialization filters so huge libraries
     # (tens of millions) are culled while streaming, before any DB row or file is written.
     max_ro5_violations: int | None = Field(default=None, ge=0)

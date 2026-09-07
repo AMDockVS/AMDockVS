@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from amdockvs.io.jobs import (
-    DEFAULT_SHARD_SIZE,
+    MAX_SHARD_RECORDS,
     estimate_import_chunks,
     shard_ligands_job,
     load_molecules_file_job,
@@ -14,6 +14,8 @@ from amdockvs.io.jobs import (
     load_receptors_file_job,
 )
 from amdockvs.api_common import PathLike, group_files, normalize_files
+from amdockvs.configuration import app_config
+from amdockvs.constants import RESOURCE_SHARDS
 from amdockvs.molecules.store import LIBRARY_ROWS, LIBRARY_SHARDS, check_library_target
 from amdockvs.vocab import MoleculeType
 
@@ -25,7 +27,13 @@ from amdockvs.vocab import MoleculeType
 DEFAULT_IMPORT_MAX_INFLIGHT = 32
 
 
-def _total_import_chunks(files: list[Path], *, batch_size: int) -> int:
+
+def default_shard_size(*, runtime=None) -> int:
+    """Physical records per shard, independent of the source file format."""
+    return int(app_config(runtime).shards.records_per_shard)
+
+
+def _total_import_chunks(files: list[Path], *, batch_size: int, ramp: bool = True) -> int:
     """Declared chunk count for progress. Each chunk closes on whichever cap hits first — ~4MB of
     raw bytes OR ``batch_size`` records (loaders.stream_import_payload_batches) — so the record
     estimate alone is a floor: byte splits only add chunks. It must stay a floor, because the
@@ -35,7 +43,7 @@ def _total_import_chunks(files: list[Path], *, batch_size: int) -> int:
     total = 0
     for file_path in files:
         try:
-            total += estimate_import_chunks(file_path, batch_size=batch_size)
+            total += estimate_import_chunks(file_path, batch_size=batch_size, ramp=ramp)
         except Exception:  # noqa: BLE001 — best-effort hint; 1 chunk is always safe to declare
             total += 1
     return max(1, total)
@@ -151,7 +159,7 @@ class LoaderAPI:
         self,
         files: Iterable[PathLike],
         *,
-        shard_size: int = DEFAULT_SHARD_SIZE,
+        shard_size: int | None = None,
         executor_name: str = "compute",
         depends_on: list[str] | None = None,
         molecule_kind: str = "small_molecule",
@@ -167,9 +175,15 @@ class LoaderAPI:
         if not normalized_files:
             return []
         check_library_target(self.runtime.molsuite.project_db, target=LIBRARY_SHARDS)
+        records = (
+            default_shard_size(runtime=self.runtime)
+            if shard_size is None
+            else int(shard_size)
+        )
+        records = max(1, min(records, MAX_SHARD_RECORDS))
         params: dict[str, Any] = {
             "file_paths": [str(file_path) for file_path in normalized_files],
-            "batch_size": max(1, int(shard_size)),
+            "batch_size": records,
             "molecule_kind": str(molecule_kind or "small_molecule"),
         }
         if prefilter:
@@ -180,8 +194,17 @@ class LoaderAPI:
                 params=params,
                 executor_name=executor_name,
                 depends_on=depends_on,
-                total_chunks=_total_import_chunks(normalized_files, batch_size=max(1, int(shard_size))),
+                # ramp=False, like the feed: an over-declared total never completes.
+                total_chunks=_total_import_chunks(normalized_files, batch_size=records, ramp=False),
                 max_inflight_tasks=DEFAULT_IMPORT_MAX_INFLIGHT,
+                # The queue that cuts the shards lives here, in the parent: it needs the
+                # project's shard directory and its database, neither of which a job spec
+                # knows at declaration time.
+                result_handler_kwargs={
+                    "project_db": self.runtime.molsuite.project_db,
+                    "shard_dir": self.runtime.get_project_resource_path(RESOURCE_SHARDS),
+                    "shard_size": records,
+                },
             )
         ]
 

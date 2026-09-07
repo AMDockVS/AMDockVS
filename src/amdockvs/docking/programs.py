@@ -1,9 +1,49 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping
+from typing import Any, Callable, Literal, Mapping
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from amdockvs.workflows import apply_workflow_filters
+
+
+class DockingEngineConfig(BaseModel):
+    """Validated configuration passed unchanged from API to an engine runner.
+
+    Built-ins use the Vina-family fields below. A new program may supply its own
+    Pydantic model without adding fields to the shared Molsuite job contract.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    exhaustiveness: int = Field(default=8, ge=1)
+    num_modes: int = Field(default=9, ge=1)
+    scoring_function: str = "vina"
+    vina_backend: str = "python"
+    vina_command: str = "vina"
+    vina_cpu: int = Field(default=1, ge=1)
+    seed: int = 0
+    spacing: float = Field(default=0.375, gt=0.0)
+    energy_range: float = Field(default=3.0, ge=0.0)
+    min_rmsd: float = Field(default=1.0, ge=0.0)
+
+
+class GninaEngineConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    exhaustiveness: int = Field(default=8, ge=1, le=256)
+    num_modes: int = Field(default=9, ge=1, le=128)
+    vina_cpu: int = Field(default=1, ge=1, le=128, title="CPU per task")
+    scoring_function: Literal["rescore", "none", "refinement", "all"] = "rescore"
+    seed: int = 0
+
+
+class AutoDock4EngineConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    num_modes: int = Field(default=9, ge=1, le=128)
+    spacing: float = Field(default=0.375, gt=0.0)
 
 
 @dataclass(frozen=True)
@@ -21,6 +61,11 @@ class DockingProgramSpec:
     requires_ligand_3d: bool = True
     requires_ligand_preparation: bool = True
     requires_receptor_preparation: bool = True
+    supports_shards: bool = False
+    config_model: type[BaseModel] = DockingEngineConfig
+    protocol_identity_keys: tuple[str, ...] = ("scoring_function", "exhaustiveness")
+    gpu_scoring_functions: tuple[str, ...] = ()
+    resource_resolver: Callable[[Mapping[str, Any]], Mapping[str, int]] | None = None
 
     def supports(
         self,
@@ -63,6 +108,26 @@ class DockingProgramSpec:
     def operation_name(self, action: str) -> str:
         return f"docking.{self.key}.{action}"
 
+    def validate_config(self, value: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        return self.config_model.model_validate(dict(value or {})).model_dump(mode="python")
+
+    def resource_requirements(self, value: Mapping[str, Any] | None = None) -> dict[str, int]:
+        config = self.validate_config(value)
+        if self.resource_resolver is not None:
+            resources = {
+                str(key): max(0, int(amount))
+                for key, amount in self.resource_resolver(config).items()
+            }
+            resources.setdefault("cpu_required", 1)
+            return resources
+        resources = {
+            "cpu_required": max(1, int(config.get("cpu_required") or config.get("vina_cpu") or 1))
+        }
+        scoring = str(config.get("scoring_function") or "").strip().lower()
+        if scoring in {item.lower() for item in self.gpu_scoring_functions}:
+            resources["gpu_required"] = 1
+        return resources
+
     def required_jobs(self) -> dict[str, str]:
         jobs: dict[str, str] = {}
         if self.requires_ligand_preparation:
@@ -84,6 +149,9 @@ class AutoDockLikeProgram(DockingProgramSpec):
         workflow_key: str = "vina",
         preparation_engine: str = "ad4",
         docking_engine: str = "vina",
+        config_model: type[BaseModel] = DockingEngineConfig,
+        protocol_identity_keys: tuple[str, ...] = ("scoring_function", "exhaustiveness"),
+        gpu_scoring_functions: tuple[str, ...] = (),
     ):
         super().__init__(
             key=key,
@@ -97,6 +165,10 @@ class AutoDockLikeProgram(DockingProgramSpec):
             requires_binding_site=True,
             requires_ligand_preparation=True,
             requires_receptor_preparation=True,
+            supports_shards=True,
+            config_model=config_model,
+            protocol_identity_keys=protocol_identity_keys,
+            gpu_scoring_functions=gpu_scoring_functions,
         )
 
 
@@ -127,6 +199,8 @@ class GninaProgram(AutoDockLikeProgram):
             workflow_key="vina",
             preparation_engine="ad4",
             docking_engine="gnina",
+            config_model=GninaEngineConfig,
+            gpu_scoring_functions=("refinement", "all"),
         )
 
 
@@ -148,6 +222,8 @@ AUTODOCK4_PROGRAM = AutoDockLikeProgram(
     workflow_key="vina",
     preparation_engine="ad4",
     docking_engine="autodock4",
+    config_model=AutoDock4EngineConfig,
+    protocol_identity_keys=("num_modes", "spacing"),
 )
 
 _PROGRAMS: dict[str, DockingProgramSpec] = {
@@ -166,6 +242,15 @@ def list_docking_programs() -> tuple[DockingProgramSpec, ...]:
     return tuple(_PROGRAMS.values())
 
 
+def register_docking_program(program: DockingProgramSpec, *, replace: bool = False) -> None:
+    key = str(program.key or "").strip().lower()
+    if not key:
+        raise ValueError("A docking program requires a non-empty key.")
+    if key in _PROGRAMS and not replace:
+        raise ValueError(f"Docking program '{key}' is already registered.")
+    _PROGRAMS[key] = program
+
+
 def get_docking_program(value: str | None) -> DockingProgramSpec:
     normalized = str(value or "").strip().lower() or VINA_PROGRAM.key
     normalized = _PROGRAM_ALIASES.get(normalized, normalized)
@@ -176,14 +261,34 @@ def get_docking_program(value: str | None) -> DockingProgramSpec:
     return program
 
 
+def get_program_for_engine(engine: str) -> DockingProgramSpec:
+    normalized = str(engine or "").strip().lower()
+    for program in _PROGRAMS.values():
+        if program.docking_engine.lower() == normalized:
+            return program
+    raise ValueError(f"No docking program is registered for engine '{engine}'.")
+
+
+def chunk_resources(engine: str, config: Mapping[str, Any] | None = None) -> dict[str, int]:
+    resources = get_program_for_engine(engine).resource_requirements(config)
+    gpu = int(resources.get("gpu_required") or 0)
+    return {"_gpu_required": gpu} if gpu else {}
+
+
 __all__ = [
     "AUTODOCK_PROGRAM",
     "AutoDockLikeProgram",
     "DockingProgramSpec",
+    "DockingEngineConfig",
+    "GninaEngineConfig",
+    "AutoDock4EngineConfig",
     "GNINA_PROGRAM",
     "GninaProgram",
     "VINA_PROGRAM",
     "VinaProgram",
     "get_docking_program",
+    "get_program_for_engine",
+    "chunk_resources",
     "list_docking_programs",
+    "register_docking_program",
 ]

@@ -18,6 +18,7 @@ from amdockvs.constants import (
     RESOURCE_JOBS,
     RESOURCE_MOLECULES,
     RESOURCE_QSAR_MODELS,
+    TABLE_SCREENING_SHARD_RUNS,
 )
 from amdockvs.configuration import (
     MAX_2D_PREVIEW_HEAVY_ATOMS,
@@ -60,6 +61,7 @@ _JOB_CATEGORY_RULES = (
     ("prepare_", "prepare"),
     ("descriptor", "descriptors"),
     ("docking", "docking"),       # also matches redocking
+    ("_dock_", "docking"),         # amdock_dock_shards_job / future explicit dock_* jobs
     ("load_", "import"),
     ("materialize", "import"),
 )
@@ -281,6 +283,22 @@ class AMDockVSRuntime(AppRuntime):
         }
 
     def on_project_activated(self, context):
+        # SQLModel creates new app tables but intentionally does not alter existing ones.
+        # Keep this additive migration beside the app model that owns the column.
+        with self.molsuite.project_db.get_session() as session:
+            connection = session.connection()
+            columns = {
+                str(row[1])
+                for row in connection.exec_driver_sql(
+                    f"PRAGMA table_info({TABLE_SCREENING_SHARD_RUNS});"
+                ).fetchall()
+            }
+            if columns and "result_path" not in columns:
+                connection.exec_driver_sql(
+                    f"ALTER TABLE {TABLE_SCREENING_SHARD_RUNS} "
+                    "ADD COLUMN result_path VARCHAR DEFAULT '';"
+                )
+                session.commit()
         # Built once per project: a feed asks the runtime where the ligands are, it does not ask
         # the mode — there is no mode to ask.
         self._ligand_store = DbStore(self.molsuite.project_db)

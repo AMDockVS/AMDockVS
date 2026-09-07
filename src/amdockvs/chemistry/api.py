@@ -16,6 +16,7 @@ from amdockvs.chemistry.jobs import (
 )
 from amdockvs.constants import DEFAULT_LOCAL_CPU_EXECUTOR
 from amdockvs.molecules.api import ensure_molecule_set_ref
+from amdockvs.molecules.store import has_shards
 from amdockvs.scopes import MoleculeSetRef
 from amdockvs.summaries import JobStatus
 from amdockvs.vocab import ShardState
@@ -153,11 +154,15 @@ class ChemistryAPI:
         executor_name: str = DEFAULT_LOCAL_CPU_EXECUTOR,
         depends_on: list[str] | None = None,
         wait: bool = False,
+        shard_state: str = ShardState.PENDING,
     ) -> str | JobStatus:
-        """Run several chemistry steps in one pass over each batch.
+        """Run several chemistry steps in one pass over the active screening library.
 
         `run_ligand_pipeline(["standardize", "protonate", "generate_3d"])` reads and writes every
         ligand once; the three single-step jobs read and rewrite the whole library three times.
+
+        With no explicit row scope, a sharded library dispatches whole shards automatically.
+        Passing ``ligands`` always selects the row adapter for curated/reference molecules.
 
         ponytail: the single-step methods below validate their own arguments (pH range, method
         names, tool installs). Here the step params go through as given and the worker raises.
@@ -168,6 +173,16 @@ class ChemistryAPI:
         for name, _params in normalized:
             if name not in LIGAND_STEPS:
                 raise ValueError(f"Unsupported ligand chemistry operation: {name}")
+        if ligands is None:
+            self.runtime._require_active_project()
+            if has_shards(self.runtime.molsuite.project_db):
+                return self.run_shard_pipeline(
+                    normalized,
+                    state=shard_state,
+                    executor_name=executor_name,
+                    depends_on=depends_on,
+                    wait=wait,
+                )
         return self._submit_ligand_operation(
             [[name, params] for name, params in normalized],
             ligands=ligands,
@@ -200,6 +215,11 @@ class ChemistryAPI:
         for name, _params in normalized:
             if name not in LIGAND_STEPS:
                 raise ValueError(f"Unsupported ligand chemistry operation: {name}")
+        if any(name == "conformers" for name, _params in normalized):
+            raise ValueError(
+                "Sharded conformer ensembles are not supported: one shard record currently "
+                "stores one molecular structure. Generate conformers after materialization."
+            )
         self.runtime._require_active_project()
         job_id = self.runtime.submit_job(
             shard_chemistry_job,

@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from amdockvs.configuration import app_config
+from amdockvs.io.formats import QT_FILE_FILTER
 from amdockvs.io.receptor_preview import (
     ReceptorImportOptions,
     build_receptor_import_preview,
@@ -365,7 +366,7 @@ class ReceptorImportPanel(QWidget):
             self,
             "Add Receptor Files",
             "",
-            "Molecule files (*.sdf *.smi *.smiles *.txt *.mol2 *.pdb *.pdbqt);;All files (*)",
+            QT_FILE_FILTER,
         )
         self._add_paths(paths)
 

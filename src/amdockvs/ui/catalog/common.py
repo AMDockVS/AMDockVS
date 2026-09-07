@@ -99,15 +99,9 @@ def _molecule_svg_for_path(
     mol = None
     suffix = path.suffix.lower()
     try:
-        if suffix == ".sdf":
-            supplier = Chem.SDMolSupplier(str(path), sanitize=True, removeHs=False)
-            mol = next((item for item in supplier if item is not None), None)
-        elif suffix in {".mol", ".mdl"}:
-            mol = Chem.MolFromMolFile(str(path), sanitize=True, removeHs=False)
-        elif suffix == ".mol2":
-            mol = Chem.MolFromMol2File(str(path), sanitize=True, removeHs=False)
-        elif suffix == ".pdb":
-            mol = Chem.MolFromPDBFile(str(path), sanitize=True, removeHs=False)
+        from amdockvs.io.formats import read_mol
+
+        mol = read_mol(path)
 
     except Exception:
         mol = None

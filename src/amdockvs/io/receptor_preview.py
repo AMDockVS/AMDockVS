@@ -340,7 +340,12 @@ def write_processed_receptor(
         processed_model.remove_alternative_conformations()
     processed.add_model(processed_model)
     output.parent.mkdir(parents=True, exist_ok=True)
-    processed.write_pdb(str(output))
+    if output.suffix.lower() in {".cif", ".mmcif"}:
+        # mmCIF is the archive format: no 62-chain / 99,999-atom / 3-character-resname ceiling.
+        processed.setup_entities()
+        processed.make_mmcif_document().write_file(str(output))
+    else:
+        processed.write_pdb(str(output))
     return {
         "selected_chain_ids": selected_chain_ids,
         "selected_cocrystal_key": str(workflow.get("selected_cocrystal_key") or ""),

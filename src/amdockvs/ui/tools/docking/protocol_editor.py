@@ -7,10 +7,12 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QComboBox,
+    QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QSpinBox,
     QTabWidget,
@@ -50,6 +52,7 @@ class ProtocolEditorWidget:
 
         # One horizontal sub-tab per program, each holding that software's run settings.
         self._program_checks: dict[str, QCheckBox] = {}
+        self._program_config_widgets: dict[str, dict[str, QWidget]] = {}
         self.program_subtabs = QTabWidget(page)
         for spec in list_docking_programs():
             self.program_subtabs.addTab(self._build_program_config(spec), spec.label)
@@ -176,14 +179,52 @@ class ProtocolEditorWidget:
             form.addRow("CNN scoring", self.gnina_cnn_combo)
             form.addRow(gpu_hint)
         else:
-            hint = QLabel(
-                "Uses engine defaults (AutoDockTools GPF/DPF). Per-program settings will be "
-                "added here as engines are integrated.",
-                page,
-            )
-            hint.setWordWrap(True)
-            form.addRow(hint)
+            self._build_schema_config(form, spec, page)
         return page
+
+    def _build_schema_config(self, form: QFormLayout, spec, parent: QWidget) -> None:
+        widgets: dict[str, QWidget] = {}
+        defaults = spec.validate_config({})
+        for name, field in spec.config_model.model_json_schema().get("properties", {}).items():
+            field_type = field.get("type")
+            choices = list(field.get("enum") or [])
+            default = defaults.get(name)
+            if choices:
+                widget = QComboBox(parent)
+                for choice in choices:
+                    widget.addItem(str(choice), choice)
+                widget.setCurrentIndex(max(0, widget.findData(default)))
+            elif field_type == "integer":
+                widget = QSpinBox(parent)
+                widget.setRange(int(field.get("minimum", -1_000_000)), int(field.get("maximum", 1_000_000)))
+                widget.setValue(int(default or 0))
+            elif field_type == "number":
+                widget = QDoubleSpinBox(parent)
+                widget.setDecimals(6)
+                widget.setRange(float(field.get("exclusiveMinimum", field.get("minimum", -1e9))),
+                                float(field.get("maximum", 1e9)))
+                widget.setValue(float(default or 0.0))
+            elif field_type == "boolean":
+                widget = QCheckBox(parent)
+                widget.setChecked(bool(default))
+            else:
+                widget = QLineEdit(str(default or ""), parent)
+            widgets[name] = widget
+            form.addRow(str(field.get("title") or name.replace("_", " ").title()), widget)
+        self._program_config_widgets[spec.key] = widgets
+
+    def _schema_config_from_widgets(self, program: str) -> dict:
+        values: dict[str, object] = {}
+        for name, widget in self._program_config_widgets.get(program, {}).items():
+            if isinstance(widget, QComboBox):
+                values[name] = widget.currentData()
+            elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+                values[name] = widget.value()
+            elif isinstance(widget, QCheckBox):
+                values[name] = widget.isChecked()
+            elif isinstance(widget, QLineEdit):
+                values[name] = widget.text()
+        return values
 
     def _docking_defaults(self):
         """User-configured docking defaults (amdockvs config, project layer included)."""
@@ -223,9 +264,7 @@ class ProtocolEditorWidget:
                 "num_modes": int(self.gnina_num_modes.value()),
                 "vina_cpu": int(self.gnina_cpu.value()),
             }
-        return {
-            "num_modes": 9,
-        }
+        return self._schema_config_from_widgets(program)
 
     def _apply_protocol_config_to_widgets(self, protocol: dict) -> None:
         program = str(protocol.get("program") or DEFAULT_PROGRAM)
@@ -252,6 +291,19 @@ class ProtocolEditorWidget:
             self.gnina_exhaustiveness.setValue(int(config.get("exhaustiveness") or dd.exhaustiveness))
             self.gnina_num_modes.setValue(int(config.get("num_modes") or dd.num_modes))
             self.gnina_cpu.setValue(int(config.get("vina_cpu") or dd.cpu_per_task))
+        else:
+            for name, widget in self._program_config_widgets.get(program, {}).items():
+                value = config.get(name)
+                if value is None:
+                    continue
+                if isinstance(widget, QComboBox):
+                    widget.setCurrentIndex(max(0, widget.findData(value)))
+                elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+                    widget.setValue(value)
+                elif isinstance(widget, QCheckBox):
+                    widget.setChecked(bool(value))
+                elif isinstance(widget, QLineEdit):
+                    widget.setText(str(value))
 
     @staticmethod
     def _protocol_hash(program: str, config: dict, rescoring: list[dict] | None = None) -> str:
@@ -260,13 +312,16 @@ class ProtocolEditorWidget:
     def _protocol_label(self, program: str, config: dict, rescoring: list[dict] | None = None) -> str:
         # Same subset as the hash (`protocol_identity`): the label names what makes this protocol
         # different, so num_modes/backend/cpu stay out of it -- they don't move a pose.
-        identity = protocol_identity(config)
+        identity = protocol_identity(config, program=program)
         parts = [self._program_label(program)]
         scoring = str(identity.get("scoring_function") or "").strip()
         if scoring:
             parts.append(f"sf={scoring}")
         if "exhaustiveness" in identity:
             parts.append(f"exh={int(identity.get('exhaustiveness') or 8)}")
+        for key, value in identity.items():
+            if key not in {"scoring_function", "exhaustiveness"}:
+                parts.append(f"{key}={value}")
         rescoring_text = "None" if not rescoring else "+".join(str(item.get("program") or item) for item in rescoring)
         if rescoring_text != "None":
             parts.append(f"rerank={rescoring_text}")
@@ -550,6 +605,7 @@ class ProtocolEditorWidget:
     def _on_run_kind_changed(self) -> None:
         redocking = self._run_kind() == "redocking"
         self._sync_ligand_table_filter()
+        self._focus_ligand_view()
         if hasattr(self, "run_button"):
             self.run_button.setText("Run Redocking" if redocking else "Run Docking")
         if hasattr(self, "check_status_label"):
@@ -566,13 +622,13 @@ class ProtocolEditorWidget:
                 return str(spec.preparation_engine)
         return "ad4"
 
-    def _distinct_prep_programs(self) -> list[str]:
+    def _distinct_prep_programs(self, *, role: str = "ligand") -> list[str]:
         # Prepare once per distinct preparation_engine among selected programs (programs
         # that share an engine — e.g. AutoDock4 reuses Vina prep — collapse to one).
         specs = {spec.key: spec for spec in list_docking_programs()}
         chosen: dict[str, str] = {}
         for key in self._selected_programs():
             spec = specs.get(key)
-            if spec is not None:
+            if spec is not None and bool(getattr(spec, f"requires_{role}_preparation")):
                 chosen.setdefault(spec.preparation_engine, key)
-        return list(chosen.values()) or [DEFAULT_PROGRAM]
+        return list(chosen.values())

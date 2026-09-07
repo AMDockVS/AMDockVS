@@ -61,8 +61,8 @@ class BatchSizeConfiguration(BaseModel):
         1000,
         ge=1,
         le=100_000,
-        title="Ligands per batch",
-        description="Small molecules carried in a single job chunk.",
+        title="Materialized ligands per task (VS)",
+        description="Rows carried in one task for a materialized VS library.",
     )
     receptor: int = Field(
         32,
@@ -71,9 +71,43 @@ class BatchSizeConfiguration(BaseModel):
         title="Receptors per batch",
         description="Receptors carried in a single job chunk; lower than ligands because each is much larger.",
     )
+    shard: int = Field(
+        1,
+        ge=1,
+        le=1_000,
+        exclude=True,
+        json_schema_extra={"settings_hidden": True},
+        description="Deprecated compatibility field; one shard is always one task.",
+    )
 
     def for_kind(self, kind: str) -> int:
         return self.receptor if str(kind).strip().lower() == "receptor" else self.ligand
+
+
+class ShardStorageConfiguration(BaseModel):
+    """Physical shard layout and retention policy."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    records_per_shard: int = Field(
+        1000,
+        ge=1,
+        le=100_000,
+        title="Records per shard (HTP)",
+        description=(
+            "Physical records per HTP shard for inputs/outputs and any serializable info. This is independent "
+            "from batch_sizes.ligand, which controls row-processing job chunks."
+        ),
+    )
+
+    keep_history: bool = Field(
+        False,
+        title="Keep replaced shard sets",
+        description=(
+            "Keep previous shard sets after a successful replacement. Off minimizes files and "
+            "disk use; replacement must still commit the new set before deleting the old one."
+        ),
+    )
 
 
 class ManagedToolConfiguration(BaseModel):
@@ -133,6 +167,7 @@ class AMDockConfiguration(BaseModel):
     theme: ThemeConfiguration = ThemeConfiguration()
     docking: DockingDefaults = DockingDefaults()
     batch_sizes: BatchSizeConfiguration = BatchSizeConfiguration()
+    shards: ShardStorageConfiguration = ShardStorageConfiguration()
     protonation: ProtonationConfiguration = ProtonationConfiguration()
     # Per-table view prefs, keyed by a stable table id (the BoundTableWidget subclass name).
     tables: dict[str, TableViewState] = Field(
@@ -193,6 +228,7 @@ __all__ = [
     "ManagedToolConfiguration",
     "MonitorConfig",
     "ProtonationConfiguration",
+    "ShardStorageConfiguration",
     "TableSortPref",
     "TableViewState",
     "THEME_NAME_PATH",

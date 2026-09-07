@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from amdockvs.io._common import normalize_kind
+from amdockvs.io.formats import normalized_suffix
 from amdockvs.vocab import FileFormat
 
 
@@ -24,7 +25,7 @@ def count_import_records(file_path: str | Path, *, approx: bool = False) -> int:
     reading it whole — for progress hints only (a 240MB SDF: ~1.5s -> ~25ms).
     """
     source_path = Path(file_path).expanduser().resolve()
-    suffix = source_path.suffix.lower()
+    suffix = normalized_suffix(source_path)
     if approx:
         estimate = _sampled_record_count(source_path, suffix)
         if estimate is not None:
@@ -95,7 +96,7 @@ def iter_raw_records(
     """
     source_path = Path(file_path).expanduser().resolve()
     normalized_kind = normalize_kind(kind)
-    suffix = source_path.suffix.lower()
+    suffix = normalized_suffix(source_path)
 
     if suffix == ".sdf":
         return FileFormat.SDF, {}, _iter_raw_from_spans(source_path, FileFormat.SDF, skip_header=False)
@@ -204,27 +205,33 @@ def iter_record_spans(
     return input_format, parse_config, spans()
 
 
-def read_record_span(
+def iter_record_span(
     *,
     file_path: str | Path,
     input_format: str,
     offset: int,
     end: int,
     first_index: int = 0,
-) -> list[dict[str, Any]]:
-    """The records in a byte range, in the usual `{source_index, raw}` shape."""
+) -> Iterator[dict[str, Any]]:
+    """The records in a byte range, one at a time, in the usual `{source_index, raw}` shape.
+
+    Streamed because a shard writer hands each record straight to disk: the span never has to
+    exist in memory as a list, which is what lets the shard size be counted in records without
+    the record count dragging memory behind it.
+    """
     source_path = Path(file_path).expanduser().resolve()
     with source_path.open("rb") as handle:
         handle.seek(int(offset))
         blob = handle.read(max(0, int(end) - int(offset)))
     # The range starts at a complete record, so there is never a header to skip here.
     lines = iter(blob.splitlines(keepends=True))
-    return [
-        {"source_index": int(first_index) + position, "raw": raw.decode("utf-8", errors="ignore")}
-        for position, (raw, _start, _end) in enumerate(
-            _spans_for(input_format, lines, skip_header=False)
-        )
-    ]
+    for position, (raw, _start, _end) in enumerate(_spans_for(input_format, lines, skip_header=False)):
+        yield {"source_index": int(first_index) + position, "raw": raw.decode("utf-8", errors="ignore")}
+
+
+def read_record_span(**kwargs) -> list[dict[str, Any]]:
+    """`iter_record_span` as a list, for the callers that need to count before they parse."""
+    return list(iter_record_span(**kwargs))
 
 
 def _smiles_header_names(file_path: Path, delimiter: str) -> list[str]:
@@ -245,7 +252,7 @@ def iter_import_entries(
     """Return the normalized input format plus a lazy iterator of parsed entries."""
     source_path = Path(file_path).expanduser().resolve()
     normalized_kind = normalize_kind(kind)
-    suffix = source_path.suffix.lower()
+    suffix = normalized_suffix(source_path)
 
     if suffix == ".sdf":
         return FileFormat.SDF, _iter_sdf_entries(source_path)
@@ -339,5 +346,6 @@ __all__ = [
     "iter_import_entries",
     "iter_raw_records",
     "iter_record_spans",
+    "iter_record_span",
     "read_record_span",
 ]

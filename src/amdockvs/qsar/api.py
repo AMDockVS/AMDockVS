@@ -70,17 +70,10 @@ def _structural_keys_from_file(path: Path) -> tuple[str | None, str | None]:
         from rdkit import Chem
     except ImportError:
         return None, None
-    suffix = path.suffix.lower()
-    try:
-        if suffix in {".sdf", ".mol"}:
-            mol = next(iter(Chem.SDMolSupplier(str(path), sanitize=True, removeHs=True)), None)
-        elif suffix == ".mol2":
-            mol = Chem.MolFromMol2File(str(path), sanitize=True, removeHs=True)
-        elif suffix in {".pdb", ".ent"}:
-            mol = Chem.MolFromPDBFile(str(path), sanitize=True, removeHs=True)
-        else:
-            return None, None
-    except Exception:
+    from amdockvs.io.formats import read_mol
+
+    mol = read_mol(path, remove_hs=True)
+    if mol is None:
         return None, None
     return _structural_keys_from_mol(mol)
 from amdockvs.qsar.jobs import DescriptorJobParams, calculate_molecule_descriptors_job
@@ -202,13 +195,9 @@ class QSARAPI:
             path = preferred_molecule_path(rec)
             mol = None
             if path is not None and path.exists():
-                suffix = path.suffix.lower()
-                if suffix in {".sdf", ".mol"}:
-                    mol = next(iter(Chem.SDMolSupplier(str(path), sanitize=True, removeHs=True)), None)
-                elif suffix == ".mol2":
-                    mol = Chem.MolFromMol2File(str(path), sanitize=True, removeHs=True)
-                elif suffix in {".pdb", ".ent"}:
-                    mol = Chem.MolFromPDBFile(str(path), sanitize=True, removeHs=True)
+                from amdockvs.io.formats import read_mol
+
+                mol = read_mol(path, remove_hs=True)
             out[mid] = "" if mol is None else MurckoScaffold.MurckoScaffoldSmiles(mol=mol)
         return out
 
@@ -1384,13 +1373,11 @@ class QSARAPI:
 
         path = preferred_molecule_path(rec)
         if path is not None and path.exists():
-            suffix = path.suffix.lower()
-            if suffix in {".sdf", ".mol"}:
-                return next(iter(Chem.SDMolSupplier(str(path), sanitize=True, removeHs=True)), None)
-            if suffix == ".mol2":
-                return Chem.MolFromMol2File(str(path), sanitize=True, removeHs=True)
-            if suffix in {".pdb", ".ent"}:
-                return Chem.MolFromPDBFile(str(path), sanitize=True, removeHs=True)
+            from amdockvs.io.formats import read_mol
+
+            mol = read_mol(path, remove_hs=True)
+            if mol is not None:
+                return mol
         rep = session.exec(
             select(MoleculeRepresentation)
             .where(MoleculeRepresentation.molecule_id == int(rec.id or 0))

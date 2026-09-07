@@ -13,6 +13,7 @@ from amdockvs.chemistry.tools import (
     protonate_receptor_pdb2pqr_file,
     protonate_receptor_reduce_file,
 )
+from amdockvs.io.formats import as_pdb
 from amdockvs.models.molecules import ModelSource, MoleculeModel
 from amdockvs.molecule_paths import (
     artifact_path_for_existing,
@@ -86,20 +87,13 @@ def _relative_to_project_root(path: Path, *, project_root: Path) -> str:
 
 
 def _load_ligand_mol(path: Path):
-    from rdkit import Chem
+    from amdockvs.io.formats import is_readable, read_mol
 
-    suffix = path.suffix.lower()
-    if suffix in {".sdf", ".sd", ".mol"}:
-        supplier = Chem.SDMolSupplier(str(path), sanitize=True, removeHs=False)
-        mol = supplier[0] if supplier and len(supplier) > 0 else None
-    elif suffix == ".mol2":
-        mol = Chem.MolFromMol2File(str(path), sanitize=True, removeHs=False)
-    elif suffix == ".pdb":
-        mol = Chem.MolFromPDBFile(str(path), sanitize=True, removeHs=False)
-    else:
-        raise ValueError(f"Chemistry ligand tools do not support format '{suffix}'.")
+    if not is_readable(path):
+        raise ValueError(f"Chemistry ligand tools do not support format '{path.suffix}'.")
+    mol = read_mol(path)
     if mol is None:
-        raise ValueError(f"RDKit could not parse ligand file: {path}")
+        raise ValueError(f"Could not parse ligand file: {path}")
     return mol
 
 
@@ -377,63 +371,65 @@ def transform_receptor_rows(
         )
         current_model_index = 0 if not bool(row.get("has_3d")) and row.get("current_model_index") is None else int(next_index_map.get(receptor_id, 0))
         target_path: Path
-        if operation_name == "fix":
-            target_path = artifact_path_for_existing(
-                output_dir,
-                role="receptor",
-                source_path=source_path,
-                artifact_name=f"fixed_{current_model_index}",
-                suffix=".pdb",
-            )
-            fix_receptor_pdb_file(
-                source_path=source_path,
-                output_path=target_path,
-                add_missing_residues=bool(normalized_params.get("add_missing_residues", True)),
-                add_missing_atoms=bool(normalized_params.get("add_missing_atoms", True)),
-                replace_nonstandard=bool(normalized_params.get("replace_nonstandard", True)),
-                remove_heterogens=bool(normalized_params.get("remove_heterogens", False)),
-                keep_water=bool(normalized_params.get("keep_water", True)),
-            )
-            state = {"has_hs": False, "has_3d": True, "is_minimized": False, "fixed_with": "pdbfixer"}
-        elif operation_name == "protonate":
-            method = str(normalized_params.get("method") or "reduce").strip().lower()
-            suffix = ".pdb"  # pdb2pqr too: it writes the PQR as a sidecar, we register the PDB
-            target_path = artifact_path_for_existing(
-                output_dir,
-                role="receptor",
-                source_path=source_path,
-                artifact_name=f"protonated_{current_model_index}",
-                suffix=suffix,
-            )
-            if method == "reduce":
-                protonate_receptor_reduce_file(source_path=source_path, output_path=target_path)
-            elif method == "pdb2pqr":
-                protonate_receptor_pdb2pqr_file(
+        # pdbfixer, reduce, pdb2pqr and OpenMM all read PDB; the stored structure is mmCIF.
+        with as_pdb(source_path) as readable:
+            if operation_name == "fix":
+                target_path = artifact_path_for_existing(
+                    output_dir,
+                    role="receptor",
                     source_path=source_path,
-                    output_path=target_path,
-                    forcefield=str(normalized_params.get("forcefield", "AMBER")),
-                    ph=float(normalized_params.get("ph", 7.0)),
+                    artifact_name=f"fixed_{current_model_index}",
+                    suffix=".pdb",
                 )
+                fix_receptor_pdb_file(
+                    source_path=readable,
+                    output_path=target_path,
+                    add_missing_residues=bool(normalized_params.get("add_missing_residues", True)),
+                    add_missing_atoms=bool(normalized_params.get("add_missing_atoms", True)),
+                    replace_nonstandard=bool(normalized_params.get("replace_nonstandard", True)),
+                    remove_heterogens=bool(normalized_params.get("remove_heterogens", False)),
+                    keep_water=bool(normalized_params.get("keep_water", True)),
+                )
+                state = {"has_hs": False, "has_3d": True, "is_minimized": False, "fixed_with": "pdbfixer"}
+            elif operation_name == "protonate":
+                method = str(normalized_params.get("method") or "reduce").strip().lower()
+                suffix = ".pdb"  # pdb2pqr too: it writes the PQR as a sidecar, we register the PDB
+                target_path = artifact_path_for_existing(
+                    output_dir,
+                    role="receptor",
+                    source_path=source_path,
+                    artifact_name=f"protonated_{current_model_index}",
+                    suffix=suffix,
+                )
+                if method == "reduce":
+                    protonate_receptor_reduce_file(source_path=readable, output_path=target_path)
+                elif method == "pdb2pqr":
+                    protonate_receptor_pdb2pqr_file(
+                        source_path=readable,
+                        output_path=target_path,
+                        forcefield=str(normalized_params.get("forcefield", "AMBER")),
+                        ph=float(normalized_params.get("ph", 7.0)),
+                    )
+                else:
+                    raise ValueError("protonate_receptors method must be 'reduce' or 'pdb2pqr'.")
+                state = {"has_hs": True, "has_3d": True, "is_minimized": False, "protonation_model": method}
             else:
-                raise ValueError("protonate_receptors method must be 'reduce' or 'pdb2pqr'.")
-            state = {"has_hs": True, "has_3d": True, "is_minimized": False, "protonation_model": method}
-        else:
-            target_path = artifact_path_for_existing(
-                output_dir,
-                role="receptor",
-                source_path=source_path,
-                artifact_name=f"minimized_{current_model_index}",
-                suffix=".pdb",
-            )
-            forcefields = tuple(normalized_params.get("forcefields") or ("amber14-all.xml",))
-            minimize_receptor_openmm_file(
-                source_path=source_path,
-                output_path=target_path,
-                forcefields=forcefields,
-                max_iterations=int(normalized_params.get("max_iterations", 500)),
-                tolerance_kj_mol=float(normalized_params.get("tolerance_kj_mol", 10.0)),
-            )
-            state = {"has_hs": True, "has_3d": True, "is_minimized": True, "forcefield": list(forcefields)}
+                target_path = artifact_path_for_existing(
+                    output_dir,
+                    role="receptor",
+                    source_path=source_path,
+                    artifact_name=f"minimized_{current_model_index}",
+                    suffix=".pdb",
+                )
+                forcefields = tuple(normalized_params.get("forcefields") or ("amber14-all.xml",))
+                minimize_receptor_openmm_file(
+                    source_path=readable,
+                    output_path=target_path,
+                    forcefields=forcefields,
+                    max_iterations=int(normalized_params.get("max_iterations", 500)),
+                    tolerance_kj_mol=float(normalized_params.get("tolerance_kj_mol", 10.0)),
+                )
+                state = {"has_hs": True, "has_3d": True, "is_minimized": True, "forcefield": list(forcefields)}
 
         current_relative_path = _relative_to_project_root(target_path, project_root=project_root)
         updates.append(

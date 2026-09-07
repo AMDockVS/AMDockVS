@@ -15,6 +15,16 @@ from ms_flow.tasking import JobDefinition
 # Why each one has no sink. If one gains one, this test fails and its line must be deleted.
 WITHOUT_SINK = {
     "amdock_diagram_job": "writes no rows: it leaves PNG/SVG on disk.",
+    "amdock_shard_ligands_job": (
+        "declares a result_handler_factory instead: ShardQueueWriter writes the shard file and "
+        "its screening_shards row together, because only the parent process knows which records "
+        "share a shard. A table sink cannot write the file."
+    ),
+    "amdock_dock_shards_job": (
+        "declares a result_handler_factory instead: ShardHitWriter holds the hit gate, which "
+        "counts across chunks and decides which scored ligands become molecules at all. A sink "
+        "would write every pose back, which is what the sharded mode exists to prevent."
+    ),
 }
 
 

@@ -99,9 +99,10 @@ def stored_molecule_path(row: Mapping[str, Any] | Any) -> Path | None:
     return current_path or stored_path
 
 
-def molecule_storage_key(kind: str, source_file: Path, source_index: int) -> str:
+def molecule_storage_key(kind: str, source_file: Path, source_index: int, variant: str = "") -> str:
+    """`variant` distinguishes several molecules born from one source record (split fragments)."""
     stem = re.sub(r"[^a-zA-Z0-9_]+", "_", source_file.stem)[:32].strip("_") or "item"
-    seed = f"{source_file.resolve()}::{source_index}"
+    seed = f"{source_file.resolve()}::{source_index}::{variant}" if variant else f"{source_file.resolve()}::{source_index}"
     digest = hashlib.sha1(seed.encode("utf-8")).hexdigest()[:12]
     return f"{str(kind).strip().lower()}_{stem}_{int(source_index):09d}_{digest}"
 
@@ -163,8 +164,9 @@ def managed_paths_for_source(
     source_index: int,
     original_suffix: str,
     current_suffix: str | None = None,
+    variant: str = "",
 ) -> dict[str, Path | str]:
-    key = molecule_storage_key(str(role), source_file, source_index)
+    key = molecule_storage_key(str(role), source_file, source_index, variant)
     return {
         "key": key,
         "original_path": original_storage_path(storage_root, role=role, key=key, suffix=original_suffix),

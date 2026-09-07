@@ -30,17 +30,17 @@ def estimate_total_chunks(file_size_bytes: int) -> int:
     return max(1, math.ceil(max(0, int(file_size_bytes)) / IMPORT_CHUNK_BYTES))
 
 
-def estimate_record_chunks(records: int, batch_size: int) -> int:
+def estimate_record_chunks(records: int, batch_size: int, *, ramp: bool = True) -> int:
     """Chunks the record cap alone yields for ``records``, ramp-up included. This must not
     exceed what the feed really emits: a job whose declared total is unreachable never
-    completes."""
+    completes — so `ramp` here must match the `ramp` the feed runs with."""
     normalized_batch_size = max(1, int(batch_size))
     remaining = max(0, int(records))
     chunks = 0
-    for ramp in IMPORT_RAMP_UP_SIZES:
+    for ramp_size in (IMPORT_RAMP_UP_SIZES if ramp else ()):
         if remaining <= 0:
             break
-        remaining -= min(remaining, normalized_batch_size, ramp)
+        remaining -= min(remaining, normalized_batch_size, ramp_size)
         chunks += 1
     return max(1, chunks + math.ceil(remaining / normalized_batch_size))
 
@@ -57,6 +57,8 @@ def stream_import_payload_batches(
     prefilter: ImportPrefilterPolicy | Mapping[str, Any] | None = None,
     extra_data_patch: Mapping[str, Any] | None = None,
     binding_site_specs: list[Mapping[str, Any]] | None = None,
+    chunk_bytes: int = IMPORT_CHUNK_BYTES,
+    ramp: bool = True,
 ) -> Iterator[dict[str, Any]]:
     normalized_kind = normalize_kind(kind)
     source_path = Path(file_path).expanduser().resolve()
@@ -93,6 +95,7 @@ def stream_import_payload_batches(
             parse_config=dict(parse_config),
         ).model_dump(mode="json")
 
+    normalized_chunk_bytes = max(1, int(chunk_bytes))
     batch: list[dict[str, Any]] = []
     batch_bytes = 0
     emitted = 0
@@ -102,11 +105,17 @@ def stream_import_payload_batches(
             if "offset" in record
             else len(str(record.get("raw") or ""))
         )
-        ramp = IMPORT_RAMP_UP_SIZES[emitted] if emitted < len(IMPORT_RAMP_UP_SIZES) else normalized_batch_size
-        record_cap = min(normalized_batch_size, ramp)
-        # Close the current chunk on a byte budget (primary) or a record-count
-        # safety cap (so tiny SMILES lines can't build a giant task).
-        if batch and (batch_bytes + record_bytes > IMPORT_CHUNK_BYTES or len(batch) >= record_cap):
+        ramp_size = (
+            IMPORT_RAMP_UP_SIZES[emitted]
+            if ramp and emitted < len(IMPORT_RAMP_UP_SIZES)
+            else normalized_batch_size
+        )
+        record_cap = min(normalized_batch_size, ramp_size)
+        # Whichever cap hits first closes the chunk. Which of the two is the *intended* one is
+        # the caller's choice of values: the row import sizes by bytes (a chunk is a parse
+        # task), a shard import sizes by records (a shard is a batch, and a batch must not be
+        # split across two files) and leaves the byte budget as a guard against huge records.
+        if batch and (batch_bytes + record_bytes > normalized_chunk_bytes or len(batch) >= record_cap):
             yield _payload(batch)
             emitted += 1
             batch = []

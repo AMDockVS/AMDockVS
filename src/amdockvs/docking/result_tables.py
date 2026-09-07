@@ -7,7 +7,7 @@ widgets stay free of SQLAlchemy (see test_ui_api_boundary), and they import
 """
 from __future__ import annotations
 
-from sqlalchemy import Float, cast, distinct, exists, func, select
+from sqlalchemy import Float, cast, distinct, exists, func, or_, select
 from sqlalchemy.orm import aliased
 
 from ms_components.ms_table.table_config import (
@@ -21,7 +21,7 @@ from ms_components.ms_table.table_config import (
     TableLoadMode,
 )
 
-from amdockvs.models import DockingResultRecord, MoleculeRecord
+from amdockvs.models import DockingResultRecord, MoleculeRecord, ScreeningTarget
 
 
 def fmt_float(value: float | None) -> str:
@@ -99,6 +99,33 @@ _RECEPTOR_HAS_RESULTS = exists(
 )
 
 
+def _plan_field(column: str):
+    """A column of this receptor's latest campaign plan row, or NULL if it never had one.
+
+    The plan is one row per (run, receptor) written when the run is submitted and counted up
+    by the parent — so "how many ligands, how many done" is a single indexed lookup instead
+    of counting distinct ligands in `docking_results` for every receptor on screen.
+    """
+    target = aliased(ScreeningTarget)
+    return (
+        select(getattr(target, column))
+        .where(target.receptor_molecule_id == MoleculeRecord.id)
+        .order_by(target.id.desc())
+        .limit(1)
+        .correlate(MoleculeRecord)
+        .scalar_subquery()
+    )
+
+
+_RECEPTOR_SCHEDULED = exists(
+    select(ScreeningTarget.id).where(ScreeningTarget.receptor_molecule_id == MoleculeRecord.id)
+)
+# ponytail: plan first, results second. A campaign knows its own totals; a project docked the
+# old way has no plan rows, and there the correlated counts above are what it already paid.
+_LIGANDS = func.coalesce(_plan_field("ligands_total"), _EXPECTED_LIGANDS)
+_DOCKED = func.coalesce(_plan_field("ligands_done"), _RECEPTOR_DOCKED)
+
+
 def _pose_count_expr():
     pose = aliased(DockingResultRecord)
     return (
@@ -120,18 +147,23 @@ def results_receptor_config() -> TableConfig:
         model_class=MoleculeRecord,
         columns=[
             ColumnDef("name", label="Receptor", width=120),
+            ColumnDef("ligands", label="Ligands", kind=ColumnKind.INTEGER, align=AlignHint.RIGHT,
+                      expr=_LIGANDS, width=75, sortable=False),
             ColumnDef("docked", label="Docked", kind=ColumnKind.INTEGER, align=AlignHint.RIGHT,
-                      expr=_RECEPTOR_DOCKED, width=65, sortable=False),
-            ColumnDef("done", label="Done", kind=ColumnKind.INTEGER, align=AlignHint.RIGHT,
-                      expr=_RECEPTOR_DONE, width=65, sortable=False),
-            ColumnDef("missing", label="Missing", kind=ColumnKind.INTEGER, align=AlignHint.RIGHT,
-                      expr=_EXPECTED_LIGANDS - _RECEPTOR_DOCKED, width=70, sortable=False,
-                      formatter=lambda value: "" if int(value or 0) == 0 else str(int(value))),
-            ColumnDef("has_results", visible=False, expr=_RECEPTOR_HAS_RESULTS),
+                      expr=_DOCKED, width=70, sortable=False),
+            ColumnDef("pending", label="Pending", kind=ColumnKind.INTEGER, align=AlignHint.RIGHT,
+                      expr=_LIGANDS - _DOCKED, width=75, sortable=False,
+                      formatter=lambda value: "" if int(value or 0) <= 0 else f"{int(value):,}"),
+            ColumnDef("scored", label="Scored", visible=False, kind=ColumnKind.INTEGER,
+                      align=AlignHint.RIGHT, expr=_RECEPTOR_DONE, width=65, sortable=False),
+            # A receptor a run scheduled belongs here from the moment it is scheduled: in a
+            # campaign its results land at the end, and until then it would be invisible.
+            ColumnDef("in_play", visible=False,
+                      expr=or_(_RECEPTOR_HAS_RESULTS, _RECEPTOR_SCHEDULED)),
         ],
         default_filters=[
             FilterSpec("is_receptor", FilterOperator.EQ, True),
-            FilterSpec("has_results", FilterOperator.EQ, True),
+            FilterSpec("in_play", FilterOperator.EQ, True),
         ],
         default_sort=[],
         # page_size=20,
@@ -141,7 +173,7 @@ def results_receptor_config() -> TableConfig:
         show_filters=False,
         show_search=False,
         show_record_count=False,
-        empty_message="No docking results yet",
+        empty_message="No receptor has been docked or scheduled yet",
     )
 
 

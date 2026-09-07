@@ -195,7 +195,7 @@ class PreparationPanel:
         layout.addLayout(right_aligned(self.prepare_ligands_button))
         return page
 
-    def _prep_families(self) -> dict[str, list]:
+    def _prep_families(self, role: str = "ligand") -> dict[str, list]:
         """preparation_engine -> the programs that share it, for programs needing ligand prep.
 
         The engine is what EngineState is keyed by, so it — not the program — is the unit of
@@ -203,7 +203,7 @@ class PreparationPanel:
         """
         families: dict[str, list] = {}
         for spec in list_docking_programs():
-            if not spec.requires_ligand_preparation:
+            if not bool(getattr(spec, f"requires_{role}_preparation")):
                 continue
             families.setdefault(str(spec.preparation_engine), []).append(spec)
         return families
@@ -265,10 +265,11 @@ class PreparationPanel:
         page = QWidget(self)
         form = QFormLayout(page)
         self.prepare_ligand_batch_size = _spinbox(minimum=1, maximum=2048, value=64)
+        self.prepare_ligand_batch_label = QLabel("Prep batch", page)
         self.force_prepare_ligands = QCheckBox("Force re-prepare", page)
         # The Ligands table shows exactly what this step will process, so it follows this box.
         self.force_prepare_ligands.toggled.connect(lambda _=False: self._sync_ligand_table_filter())
-        form.addRow("Prep batch", self.prepare_ligand_batch_size)
+        form.addRow(self.prepare_ligand_batch_label, self.prepare_ligand_batch_size)
         form.addRow(self.force_prepare_ligands)
         return self._in_scroll(page)
 
@@ -318,13 +319,13 @@ class PreparationPanel:
         general_item.setData(Qt.UserRole, None)
         self.receptor_prep_target_list.addItem(general_item)
         self.receptor_prep_stack.addWidget(self._build_receptor_general_prep_page())
-        for spec in list_docking_programs():
-            if not spec.requires_receptor_preparation:
-                continue
-            item = QListWidgetItem(spec.label)
-            item.setData(Qt.UserRole, spec.key)
+        for engine, specs in self._prep_families("receptor").items():
+            item = QListWidgetItem(self._prep_family_label(engine, specs))
+            item.setData(Qt.UserRole, specs[0].key)
+            item.setData(Qt.UserRole + 1, engine)
+            item.setToolTip("Shared by: " + ", ".join(spec.label for spec in specs))
             self.receptor_prep_target_list.addItem(item)
-            self.receptor_prep_stack.addWidget(self._build_receptor_program_prep_page(spec))
+            self.receptor_prep_stack.addWidget(self._build_receptor_program_prep_page(specs[0]))
         self.receptor_prep_target_list.setCurrentRow(0)
         self.receptor_prep_target_list.currentRowChanged.connect(self.receptor_prep_stack.setCurrentIndex)
         prep_h.addWidget(self.receptor_prep_target_list)
@@ -416,12 +417,15 @@ class PreparationPanel:
             return
         selected = set(self._selected_programs())
         available = {spec.key for spec in self._available_program_specs()}
+        families = self._prep_families("receptor")
         for index in range(self.receptor_prep_target_list.count()):
             item = self.receptor_prep_target_list.item(index)
             key = item.data(Qt.UserRole)
+            engine = item.data(Qt.UserRole + 1)
+            keys = {spec.key for spec in families.get(engine, [])} if engine else set()
             if key is not None and hasattr(item, "setHidden"):
-                item.setHidden(key not in available)
-            enabled = key is None or (key in selected and key in available)
+                item.setHidden(not (keys & available))
+            enabled = key is None or bool(keys & selected & available)
             flags = item.flags()
             item.setFlags(flags | Qt.ItemIsEnabled if enabled else flags & ~Qt.ItemIsEnabled)
         current = self.receptor_prep_target_list.currentItem()
@@ -436,16 +440,17 @@ class PreparationPanel:
         ).failed
 
     def _catalog_ligand_widget(self):
-        """The catalog Ligands tab, if it is open — this step's ligand table.
+        """The catalog tab holding this step's ligands, if it is open.
 
-        Only ``open_view`` (never open_or_focus_view): syncing runs on every refresh and must
-        not pop a tab the user closed.
+        Which tab that is depends on the experiment and on where the library lives — see
+        `_ligand_view_id`. Only ``open_view`` (never open_or_focus_view): syncing runs on
+        every refresh and must not pop a tab the user closed.
         """
         central = getattr(self.window(), "central_widget", None)
         if central is None:
             return None
         try:
-            return central.open_view(LIGANDS_VIEW_ID)
+            return central.open_view(self._ligand_view_id())
         except Exception:  # noqa: BLE001 - a missing/failed view must not break refresh
             return None
 
@@ -463,6 +468,13 @@ class PreparationPanel:
         """
         widget = self._catalog_ligand_widget()
         if widget is None:
+            return
+        self._set_sharded_prep_mode(self._ligand_scope_is_sharded())
+        if self._ligand_scope_is_sharded():
+            # The shards table is the scope, whole: there is no molecule column to narrow on
+            # and no per-molecule preparation to hide rows for. Free the Ligands table on the
+            # way out — switching away from redocking is how we get here.
+            self._release_ligand_table()
             return
         usage_class = self._scope_usage_class()
         clause = self._unprepared_clause("ligand")
@@ -519,8 +531,15 @@ class PreparationPanel:
 
     def _release_ligand_table(self) -> None:
         """Hand the catalog Ligands table back, so closing the step doesn't leave it
-        silently filtered."""
-        widget = self._catalog_ligand_widget()
+        silently filtered. By view id, not by `_ligand_view_id()`: the run kind may have
+        changed since the scope was pushed, and the table that holds it is the one to free."""
+        central = getattr(self.window(), "central_widget", None)
+        if central is None:
+            return
+        try:
+            widget = central.open_view(LIGANDS_VIEW_ID)
+        except Exception:  # noqa: BLE001 - a missing/failed view must not break teardown
+            return
         if widget is not None:
             widget.pop_scope(self._SCOPE_KEY)
 
@@ -581,6 +600,9 @@ class PreparationPanel:
         self._req_preview_timer.start()
 
     def _prepare_ligands(self) -> None:
+        if self._ligand_scope_is_sharded():
+            self._prepare_ligand_shards()
+            return
         ligand_scope = self._prep_ligand_scope()
         # The prep-target list picks scope: "General" → all selected engines, else just one.
         target = self._selected_prep_target()
@@ -601,10 +623,37 @@ class PreparationPanel:
         self._append_status("Ligand Preparation Submitted", {"job_ids": job_ids})
         self.stepper.set_current_index(2)
 
+    def _set_sharded_prep_mode(self, sharded: bool) -> None:
+        """A physical shard is already the HTP task, so no second batch control applies."""
+        self.prepare_ligand_batch_label.setVisible(not sharded)
+        self.prepare_ligand_batch_size.setVisible(not sharded)
+
+    def _prepare_ligand_shards(self) -> None:
+        """Same button, same programs, shard-sized work: no scope, and the batch counts shards.
+
+        A sharded library has no rows to select — the "Force re-prepare" box still means what
+        it says.
+        """
+        target = self._selected_prep_target()
+        programs = self._distinct_prep_programs() if target is None else [target]
+        job_ids: dict[str, str] = {}
+        try:
+            for program in programs:
+                job_ids[program] = self.runtime.docking.prepare_ligand_shards(
+                    program=program,
+                    force=self.force_prepare_ligands.isChecked(),
+                    executor_name=DEFAULT_LOCAL_CPU_EXECUTOR,
+                )
+        except Exception as exc:
+            self._error("Prepare Ligands", exc)
+            return
+        self._append_status("Shard Preparation Submitted", {"job_ids": job_ids})
+        self.stepper.set_current_index(2)
+
     def _prepare_receptors(self) -> None:
         job_ids: dict[str, str] = {}
         target = self._selected_receptor_prep_target()
-        programs = self._distinct_prep_programs() if target is None else [target]
+        programs = self._distinct_prep_programs(role="receptor") if target is None else [target]
         try:
             receptor_scope = self._selected_receptor_scope()
             for program in programs:
@@ -653,7 +702,7 @@ class PreparationPanel:
 
         scope = self._selected_receptor_scope()
         target = self._selected_receptor_prep_target()
-        programs = self._distinct_prep_programs() if target is None else [target]
+        programs = self._distinct_prep_programs(role="receptor") if target is None else [target]
         batch = max(1, int(self.prepare_receptor_batch_size.value()))
         force = self.force_prepare_receptors.isChecked()
         waters = self.keep_waters_receptors.isChecked()

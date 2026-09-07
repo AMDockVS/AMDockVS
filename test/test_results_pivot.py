@@ -20,7 +20,7 @@ import amdockvs.ui.catalog  # noqa: F401 - imported first, it is what breaks the
 
 from amdockvs.ui.tools.docking.results_pivot import ResultsPivotWidget, _freshness_text_and_delay
 from amdockvs.ui.workspace import DockingResultsWidget
-from amdockvs.models import DockingResultRecord, MoleculeRecord
+from amdockvs.models import DockingResultRecord, MoleculeRecord, ScreeningTarget
 from ms_components.ms_table import SmartTableView
 
 
@@ -92,14 +92,16 @@ def test_a_pivot_opens_by_itself_once_its_data_lands():
     assert _rows(widget)["offtarget"] == (True, "Off-target (ligand × receptor)")
 
 
-def _job(task_type, *, done, total, status="running"):
+def _job(task_type, *, done, total, status="running", progress=0.0):
     return SimpleNamespace(
+        job_id=f"job-{task_type}",
         task_type=task_type,
         chunks_done=done,
         chunks_total=total,
         chunks_failed=0,
         chunks_stage_failed=0,
         status=status,
+        progress=progress,
     )
 
 
@@ -112,7 +114,7 @@ def test_view_level_activity_tracks_the_current_pivot_and_hides_when_done():
     ]))
 
     assert not widget.activity.isHidden()
-    assert widget.progress_label.text() == "Hits · 8 / 12 dockings"
+    assert widget.progress_label.text() == "Docking · 8 / 12 dockings"
     assert widget.updated_label.text() == "Waiting for new results…"
 
     widget.pivot_combo.setCurrentIndex(widget.pivot_combo.findData("redocking"))
@@ -123,6 +125,15 @@ def test_view_level_activity_tracks_the_current_pivot_and_hides_when_done():
         _job("amdock_redocking_job", done=4, total=4, status="completed"),
     ]))
     assert widget.activity.isHidden()
+
+
+def test_shard_docking_does_not_mix_chunk_and_molecule_progress():
+    widget = _widget(hits=True, offtarget=False, redocking=False)
+    widget._view_visible = True
+    widget._on_monitor_snapshot(SimpleNamespace(jobs=[
+        _job("amdock_dock_shards_job", done=0, total=6, progress=37.5),
+    ]))
+    assert widget.progress_label.text() == "Docking · 0 / 6 shard tasks"
 
 
 @pytest.mark.parametrize(
@@ -244,7 +255,13 @@ def test_live_hits_refreshes_receptor_aggregates_and_only_the_ligand_count():
         session.commit()
     widget = DockingResultsWidget(runtime=SimpleNamespace(
         molsuite=SimpleNamespace(project_db=db),
-        docking=SimpleNamespace(result_protocols=lambda **_kwargs: [], hit=lambda **_kwargs: None),
+        docking=SimpleNamespace(
+            result_protocols=lambda **_kwargs: [],
+            hit=lambda **_kwargs: None,
+            live_campaign_progress=lambda **_kwargs: {
+                41: {"ligands": 2, "docked": 2, "pending": 0},
+            },
+        ),
     ))
     widget._selected_receptor_id = 41
     widget._populate_protocol_combo([("p", "Vina")])
@@ -260,12 +277,112 @@ def test_live_hits_refreshes_receptor_aggregates_and_only_the_ligand_count():
 
     assert widget.refresh_counts() is True
     receptor = widget.receptor_table._model.get_row_data(0)
-    assert receptor["docked"] == 2
-    assert receptor["done"] == 2
+    # No campaign plan for this receptor, so the counters fall back to the results themselves.
+    assert receptor["docked"] == 2 and receptor["ligands"] == 2 and receptor["pending"] == ""  # 0 pending reads as blank
     assert widget.ligand_table.record_total == 2
     assert "2 records" in widget.ligand_table._result_count_label.text()
     assert widget.ligand_table._model.loaded_count == 1
 
+
+def test_live_campaign_progress_patches_cells_without_resetting_or_losing_selection():
+    QApplication.instance() or QApplication(["amdockvs-live-progress-test"])
+    db = _Db()
+    with db.get_session() as session:
+        session.add_all([
+            MoleculeRecord(id=41, name="4UWH", is_receptor=True),
+            ScreeningTarget(run_id="r1", receptor_molecule_id=41, receptor_name="4UWH",
+                            ligands_total=1000, ligands_done=0),
+        ])
+        session.commit()
+    widget = DockingResultsWidget(runtime=SimpleNamespace(
+        molsuite=SimpleNamespace(project_db=db),
+        docking=SimpleNamespace(
+            result_protocols=lambda **_kwargs: [],
+            hit=lambda **_kwargs: None,
+            live_campaign_progress=lambda **_kwargs: {
+                41: {"ligands": 1000, "docked": 37, "pending": 963},
+            },
+        ),
+    ))
+    widget.set_active_shard_jobs(["job-1"])
+    widget.receptor_table.select_first_row()
+    resets = []
+    widget.receptor_table._model.modelReset.connect(lambda: resets.append(True))
+
+    assert widget.refresh_counts() is True
+
+    row = widget.receptor_table._model.get_row_data(0)
+    assert row["docked"] == 37 and row["pending"] == "963"
+    assert widget.receptor_table.get_selected_object().id == 41
+    assert resets == []
+
+
+def test_dependent_offtarget_stage_adds_its_receptors_without_manual_refresh():
+    QApplication.instance() or QApplication(["amdockvs-offtarget-refresh-test"])
+    db = _Db()
+    progress = {
+        41: {"ligands": 1000, "docked": 1000, "pending": 0},
+    }
+    with db.get_session() as session:
+        session.add_all([
+            MoleculeRecord(id=41, name="Reference", is_receptor=True),
+            MoleculeRecord(id=42, name="Off-target", is_receptor=True),
+            ScreeningTarget(run_id="r1", receptor_molecule_id=41, receptor_name="Reference",
+                            ligands_total=1000, ligands_done=1000),
+        ])
+        session.commit()
+    widget = DockingResultsWidget(runtime=SimpleNamespace(
+        molsuite=SimpleNamespace(project_db=db),
+        docking=SimpleNamespace(
+            result_protocols=lambda **_kwargs: [],
+            hit=lambda **_kwargs: None,
+            live_campaign_progress=lambda **_kwargs: progress,
+        ),
+    ))
+    widget.set_active_shard_jobs(["reference", "off-target"])
+    widget.receptor_table.select_first_row()
+    resets = []
+    widget.receptor_table._model.modelReset.connect(lambda: resets.append(True))
+    assert widget.refresh_counts() is True
+
+    with db.get_session() as session:
+        session.add(ScreeningTarget(
+            run_id="r1", receptor_molecule_id=42, receptor_name="Off-target",
+            ligands_total=100, ligands_done=0,
+        ))
+        session.commit()
+    progress[42] = {"ligands": 100, "docked": 0, "pending": 100}
+
+    assert widget.refresh_counts() is True
+    assert [row.id for row in widget._loaded_objects(widget.receptor_table)] == [41, 42]
+    assert widget.receptor_table.get_selected_object().id == 41
+    assert len(resets) == 1
+
+    assert widget.refresh_counts() is True
+    assert len(resets) == 1
+
+
+
+def test_a_scheduled_receptor_is_listed_before_it_has_any_result():
+    """The campaign's own plan drives the receptor pane: counting `docking_results` per
+    receptor is both costlier and blind to a receptor whose results land at the end."""
+    QApplication.instance() or QApplication(["amdockvs-scheduled-test"])
+    db = _Db()
+    with db.get_session() as session:
+        session.add_all([
+            MoleculeRecord(id=7, name="4UWF", is_receptor=True),
+            ScreeningTarget(run_id="r1", receptor_molecule_id=7, receptor_name="4UWF",
+                            ligands_total=11950, ligands_done=27),
+        ])
+        session.commit()
+    widget = DockingResultsWidget(runtime=SimpleNamespace(
+        molsuite=SimpleNamespace(project_db=db),
+        docking=SimpleNamespace(result_protocols=lambda **_kwargs: [], hit=lambda **_kwargs: None),
+    ))
+    widget.receptor_table.refresh()
+    row = widget.receptor_table._model.get_row_data(0)
+    assert row["name"] == "4UWF" and row["ligands"] == 11950
+    assert row["docked"] == 27 and row["pending"] == "11,923"
 
 def test_live_ligand_reload_keeps_the_selected_ligand_context():
     QApplication.instance() or QApplication(["amdockvs-live-results-test"])

@@ -50,16 +50,21 @@ class DockingProtocolMetadata(BaseModel):
 IDENTITY_KEYS = ("scoring_function", "exhaustiveness")
 
 
-def protocol_identity(config: Mapping[str, Any] | None) -> dict[str, Any]:
+def protocol_identity(config: Mapping[str, Any] | None, *, program: str = "") -> dict[str, Any]:
     """The scientific subset of `config` — what the hash and the label are built from."""
     payload = dict(config or {})
-    return {key: payload[key] for key in IDENTITY_KEYS if key in payload}
+    keys = IDENTITY_KEYS
+    if program:
+        from amdockvs.docking.programs import get_docking_program
+
+        keys = get_docking_program(program).protocol_identity_keys
+    return {key: payload[key] for key in keys if key in payload}
 
 
 def protocol_hash(*, program: str, config: Mapping[str, Any], rescoring: list[dict[str, Any]] | None = None) -> str:
     payload = {
         "program": str(program),
-        "config": protocol_identity(config),
+        "config": protocol_identity(config, program=program),
         "rescoring": list(rescoring or []),
         "schema": PROTOCOL_SCHEMA,
     }

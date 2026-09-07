@@ -39,19 +39,9 @@ def _fit_quality_scale(heavy_atoms: int) -> float | None:
 
 
 def _load_rdkit_mol(path: Path):
-    try:
-        from rdkit import Chem
-    except ImportError:
-        return None
-    suffix = path.suffix.lower()
-    if suffix in {".sdf", ".sd", ".mol"}:
-        supplier = Chem.SDMolSupplier(str(path), sanitize=True, removeHs=False)
-        return supplier[0] if supplier and len(supplier) > 0 else None
-    if suffix == ".mol2":
-        return Chem.MolFromMol2File(str(path), sanitize=True, removeHs=False)
-    if suffix in {".pdb", ".ent"}:
-        return Chem.MolFromPDBFile(str(path), sanitize=True, removeHs=False)
-    return None
+    from amdockvs.io.formats import read_mol
+
+    return read_mol(path)
 
 
 def ligand_descriptors(path: str | Path | None, *, heavy_atoms_fallback: int = 0) -> dict[str, Any]:

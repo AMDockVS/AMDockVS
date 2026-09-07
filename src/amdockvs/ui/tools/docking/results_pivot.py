@@ -17,7 +17,10 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
+    QMessageBox,
+    QPushButton,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -32,7 +35,7 @@ _AVAILABILITY_POLL_SECONDS = 10.0
 
 # key -> (label, reason it is unavailable)
 _PIVOTS = (
-    (_HITS, "Hits (receptor › ligand › pose)", "No docking results yet"),
+    (_HITS, "Results (receptor › ligand › pose)", "No docking run yet"),
     (_OFFTARGET, "Off-target (ligand × receptor)", "Needs a ligand docked against 2 receptors"),
     (_REDOCKING, "Redocking (pose vs reference)", "No redocking runs yet"),
 )
@@ -81,6 +84,13 @@ class ResultsPivotWidget(QWidget):
         controls.addWidget(self.pivot_combo)
         self.reason_label = QLabel("", self)
         controls.addWidget(self.reason_label, 1)
+        self.recover_button = QPushButton("Recover Top N", self)
+        self.recover_button.setToolTip(
+            "Select the best available hits from completed result shards of an interrupted "
+            "ranked campaign. Docking is not run again."
+        )
+        self.recover_button.clicked.connect(self._load_recoverable_runs)
+        controls.addWidget(self.recover_button)
         self.activity = QWidget(self)
         activity_layout = QHBoxLayout(self.activity)
         activity_layout.setContentsMargins(0, 0, 0, 0)
@@ -103,6 +113,75 @@ class ResultsPivotWidget(QWidget):
         self._freshness_timer.setSingleShot(True)
         self._freshness_timer.timeout.connect(self._render_freshness)
         QTimer.singleShot(0, self._bind_monitor)
+
+    def _load_recoverable_runs(self) -> None:
+        self.recover_button.setEnabled(False)
+        run_async(
+            self.runtime.docking.recoverable_ranked_runs,
+            self._choose_recoverable_run,
+            on_error=self._recovery_error,
+        )
+
+    def _choose_recoverable_run(self, candidates: list[dict]) -> None:
+        self.recover_button.setEnabled(True)
+        if not candidates:
+            QMessageBox.information(
+                self,
+                "Recover Top N",
+                "No interrupted ranked campaign has completed result shards waiting to be recovered.",
+            )
+            return
+        labels = [
+            f"{row['protocol_label']} · {row['status']} · {row['scored']:,} scored · {row['run_id'][:8]}"
+            for row in candidates
+        ]
+        label, accepted = QInputDialog.getItem(
+            self,
+            "Recover Top N",
+            "Campaign:",
+            labels,
+            0,
+            False,
+        )
+        if not accepted:
+            return
+        candidate = candidates[labels.index(label)]
+        default_n = max(1, int(candidate.get("top_n") or min(100, int(candidate["scored"]))))
+        top_n, accepted = QInputDialog.getInt(
+            self,
+            "Recover Top N",
+            "Number of best available hits:",
+            default_n,
+            1,
+            1_000_000,
+        )
+        if not accepted:
+            return
+        self.recover_button.setEnabled(False)
+        run_async(
+            lambda: self.runtime.docking.recover_ranked_hits(
+                run_id=str(candidate["run_id"]),
+                protocol_hash=str(candidate["protocol_hash"]),
+                top_n=int(top_n),
+                threshold=float(candidate.get("threshold", 0.0)),
+            ),
+            self._recovery_finished,
+            on_error=self._recovery_error,
+        )
+
+    def _recovery_finished(self, result: dict) -> None:
+        self.recover_button.setEnabled(True)
+        QMessageBox.information(
+            self,
+            "Recover Top N",
+            f"Recovered {int(result.get('selected') or 0):,} hit(s) from "
+            f"{int(result.get('shards') or 0):,} completed result shard(s).",
+        )
+        self.refresh()
+
+    def _recovery_error(self, error: Exception) -> None:
+        self.recover_button.setEnabled(True)
+        QMessageBox.critical(self, "Recover Top N", str(error))
 
     # --- pivots ---------------------------------------------------------------
     def _build_page(self, key: str) -> QWidget:
@@ -130,9 +209,10 @@ class ResultsPivotWidget(QWidget):
                 refreshed.connect(lambda changed=True, k=key: self._on_page_refreshed(k, changed))
         self.stack.setCurrentWidget(page)
         # Each pivot brings its own auxiliary panel (or none): tell the window to re-ask.
-        window = self.window()
-        if window is not None:
-            window.aux.set_occupant()
+        # No aux zone when the widget stands alone (tests, or before it is docked).
+        aux = getattr(self.window(), "aux", None)
+        if aux is not None:
+            aux.set_occupant()
 
     def aux_panel(self):
         """Delegated to the pivot on screen — only Hits has a "Selected Result" panel."""
@@ -206,6 +286,17 @@ class ResultsPivotWidget(QWidget):
 
     def _on_monitor_snapshot(self, snapshot) -> None:
         self._monitor_snapshot = snapshot
+        page = self._pages.get(_HITS)
+        setter = getattr(page, "set_active_shard_jobs", None)
+        if callable(setter):
+            setter(
+                getattr(job, "job_id", "")
+                for job in list(getattr(snapshot, "jobs", ()) or ())
+                if self._job_kind(job) == _HITS
+                and "dock_shard" in str(getattr(job, "task_type", "") or "").lower()
+                and not bool(getattr(job, "is_terminal", False))
+                and str(getattr(job, "status", "") or "").lower() not in {"completed", "failed", "canceled"}
+            )
         self._update_activity()
 
     @staticmethod
@@ -213,7 +304,9 @@ class ResultsPivotWidget(QWidget):
         task_type = str(getattr(job, "task_type", "") or "").lower()
         if "redocking" in task_type:
             return _REDOCKING
-        if "docking" in task_type:
+        # `amdock_dock_shard_slice` is a docking job too — and it is the one that shows nothing
+        # in the table while it runs, so it is the one that most needs the progress line.
+        if "docking" in task_type or "dock_shard" in task_type:
             return _HITS
         return ""
 
@@ -238,7 +331,7 @@ class ResultsPivotWidget(QWidget):
             self._freshness_timer.stop()
             return
         labels = {
-            _HITS: "Hits",
+            _HITS: "Docking",
             _OFFTARGET: "Off-target",
             _REDOCKING: "Redocking",
         }
@@ -249,7 +342,9 @@ class ResultsPivotWidget(QWidget):
             + max(0, int(getattr(job, "chunks_stage_failed", 0) or 0))
             for job in jobs
         )
-        progress = f"{done:,} / {total:,} dockings" if total else f"{done:,} dockings completed"
+        sharded = any("dock_shard" in str(getattr(job, "task_type", "") or "").lower() for job in jobs)
+        unit = "shard tasks" if sharded else "dockings"
+        progress = f"{done:,} / {total:,} {unit}" if total else f"{done:,} {unit} completed"
         if failed:
             progress += f" · {failed:,} failed"
         progress_text = f"{labels[self._current_key]} · {progress}"

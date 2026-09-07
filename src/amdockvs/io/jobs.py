@@ -17,12 +17,17 @@ from amdockvs.constants import (
     DEFAULT_LOAD_BATCH_SIZE,
     OUTPUT_FLUSH_EVERY,
     RESOURCE_MOLECULES,
-    RESOURCE_SHARDS,
 )
-from amdockvs.io.loaders import estimate_record_chunks, stream_import_payload_batches
+from ms_flow.core.data.shard import MAX_RECORDS as MAX_SHARD_RECORDS
+
+from amdockvs.io.loaders import (
+    IMPORT_CHUNK_BYTES,
+    estimate_record_chunks,
+    stream_import_payload_batches,
+)
 from amdockvs.io.parsers import count_import_records
 from amdockvs.io.payloads import ImportPrefilterPolicy, MultithreadedSDFImportPayload
-from amdockvs.io.shards import write_ligand_shard
+from amdockvs.io.shards import filter_ligand_span, shard_queue_writer
 from amdockvs.io.transformers import (
     build_import_graph_payload,
     materialize_import_batch,
@@ -33,13 +38,11 @@ from amdockvs.api_common import worker_output_dir
 from amdockvs.models import (
     BindingSite,
     ComplexRecord,
+    EngineState,
     LigandActivity,
     MoleculeModel,
     MoleculeRecord,
-    MoleculeSet,
-    MoleculeSetMember,
     MoleculeSourceProperty,
-    ScreeningShard,
 )
 
 
@@ -57,14 +60,10 @@ IMPORT_GRAPH_OUTPUT = graph_sink(
             "validate_model": False,
         },
         {"name": "complexes", "model": ComplexRecord, "validate_model": False},
-        {"name": "molecule_sets", "model": MoleculeSet, "validate_model": False},
-        {
-            "name": "molecule_set_members",
-            "model": MoleculeSetMember,
-            "validate_model": False,
-        },
         {"name": "ligand_activities", "model": LigandActivity, "validate_model": False},
         {"name": "binding_sites", "model": BindingSite, "validate_model": False},
+        # A PDBQT import arrives already prepared: the file *is* the engine artifact.
+        {"name": "engine_states", "model": EngineState, "validate_model": False},
     ),
     relations=(
         {
@@ -81,6 +80,12 @@ IMPORT_GRAPH_OUTPUT = graph_sink(
         },
         {
             "source_node": "binding_sites",
+            "source_ref_field": "molecule_ref",
+            "target_node": "molecules",
+            "fk_field": "molecule_id",
+        },
+        {
+            "source_node": "engine_states",
             "source_ref_field": "molecule_ref",
             "target_node": "molecules",
             "fk_field": "molecule_id",
@@ -117,18 +122,6 @@ IMPORT_GRAPH_OUTPUT = graph_sink(
             "source_ref_field": "activity_ref",
             "target_node": "ligand_activities",
             "fk_field": "activity_id",
-        },
-        {
-            "source_node": "molecule_set_members",
-            "source_ref_field": "molecule_ref",
-            "target_node": "molecules",
-            "fk_field": "molecule_id",
-        },
-        {
-            "source_node": "molecule_set_members",
-            "source_ref_field": "set_ref",
-            "target_node": "molecule_sets",
-            "fk_field": "set_id",
         },
         {
             "source_node": "ligand_activities",
@@ -188,6 +181,9 @@ def _resolve_storage_dir(*, kind: str, params: Mapping[str, Any], config: Mappin
 @dataclass(frozen=True)
 class FileInput(InputSource):
     kind: str = ""
+    # Defaults are the row import's: bytes govern, ramp-up on. A shard import flips both.
+    chunk_bytes: int = IMPORT_CHUNK_BYTES
+    ramp: bool = True
 
     def iter_items(self, params: dict[str, Any], config: dict[str, Any]) -> Iterator[dict[str, Any]]:
         raise NotImplementedError("FileInput uses iter_chunks() directly.")
@@ -226,21 +222,32 @@ class FileInput(InputSource):
                 prefilter=parsed.prefilter,
                 extra_data_patch=patch_by_file.get(str(resolved_file), parsed.extra_data_patch),
                 binding_site_specs=binding_by_file.get(str(resolved_file), parsed.binding_site_specs),
+                chunk_bytes=self.chunk_bytes,
+                ramp=self.ramp,
             ):
                 chunk["storage_dir"] = worker_output_dir(storage_dir)
                 yield chunk
 
 
-def iter_import_chunks(kind: str, params: dict[str, Any], config: dict[str, Any] | None = None) -> Iterator[dict]:
-    yield from FileInput(kind=kind, batch_size=DEFAULT_LOAD_BATCH_SIZE).iter_chunks(
-        params=params,
-        config=config or {},
-    )
+def iter_import_chunks(
+    kind: str,
+    params: dict[str, Any],
+    config: dict[str, Any] | None = None,
+    *,
+    chunk_bytes: int = IMPORT_CHUNK_BYTES,
+    ramp: bool = True,
+) -> Iterator[dict]:
+    yield from FileInput(
+        kind=kind, batch_size=DEFAULT_LOAD_BATCH_SIZE, chunk_bytes=chunk_bytes, ramp=ramp
+    ).iter_chunks(params=params, config=config or {})
 
 
-# A shard is a unit of work for one CPU on one machine, so it is much bigger than an import
-# batch: ~10k molecules is a few seconds of docking prep, not a few milliseconds of parsing.
-DEFAULT_SHARD_SIZE = int(os.environ.get("AMDOCK_SHARD_SIZE", "10000"))
+# One shard is one batch: the batch that produced it is the only writer it ever has, which is
+# what makes concurrent writes impossible instead of coordinated. So the shard is sized in
+# *records*, not bytes — a batch that had to spill into a second file would break that.
+# The guard, not the knob: it only ever closes a shard *early*, and a shard closed by it says
+# so in its metadata. If it fires in normal operation the records are huge — lower the size.
+SHARD_MAX_BYTES = int(os.environ.get("AMDOCK_SHARD_MAX_BYTES", str(256 * 1024 * 1024)))
 # Above this much input, importing as rows is almost certainly a mistake: the importer offers
 # shards instead. ponytail: bytes on disk, not a record count — one stat() per file against
 # parsing 40 GB to answer a question the size already answers.
@@ -372,30 +379,28 @@ def load_ligands_multithreaded_sdf_job(params: dict, config: dict | None = None)
 class ShardLigandsParams(LoadFileParams):
     """The import params, with the batch size read as *records per shard*."""
 
-    batch_size: int = Field(default=DEFAULT_SHARD_SIZE, ge=1)
+    batch_size: int = Field(ge=1, le=MAX_SHARD_RECORDS)
 
 
 @task(
-    name="amdock_write_ligand_shard",
-    description="Write one span of a source library out as a shard file.",
+    name="amdock_filter_ligand_span",
+    description="Filter one span of a source library; the survivors go back to the shard queue.",
     executor="compute",
     supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
 )
-def write_ligand_shard_task(payload: dict, progress_cb=None) -> list[dict]:
-    return [write_ligand_shard(payload)]
+def filter_ligand_span_task(payload: dict, progress_cb=None) -> list[dict]:
+    return filter_ligand_span(payload)
 
 
 @job(
-    task=write_ligand_shard_task,
+    task=filter_ligand_span_task,
     name="amdock_shard_ligands_job",
     params_model=ShardLigandsParams,
     executor="compute",
     supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
-    # Upsert on (source, shard_index): re-importing the same file rewrites its shards instead
-    # of duplicating the inventory.
-    output_spec=table_sink(
-        model=ScreeningShard, write_mode="upsert", conflict_keys=("source", "shard_index")
-    ),
+    # No output_spec: `ShardQueueWriter` is the sink. It writes the shard *and* its inventory
+    # row, because only the parent can say which records share a shard.
+    result_handler_factory=shard_queue_writer,
     output_flush_every=OUTPUT_FLUSH_EVERY,
     store_results=False,
 )
@@ -406,18 +411,15 @@ def shard_ligands_job(params: dict, config: dict | None = None) -> Iterator[dict
         "primary_role": "ligand",
         "molecule_kind": str(dict(params or {}).get("molecule_kind") or "small_molecule"),
     }
-    shard_dir = _resolve_storage_dir(
-        kind="ligand", params={"storage_resource": RESOURCE_SHARDS}, config=config or {}
+    # The chunk is a parse work-unit now, not a shard: how many records survive it is the
+    # queue's problem, and where they land is `ShardQueueWriter`'s.
+    yield from iter_import_chunks(
+        "ligand", params=params_map, config=config, chunk_bytes=SHARD_MAX_BYTES, ramp=False
     )
-    for shard_index, chunk in enumerate(iter_import_chunks("ligand", params=params_map, config=config)):
-        # The chunk is already a byte span of the source; these two fields turn it into a shard.
-        chunk["shard_dir"] = worker_output_dir(shard_dir)
-        chunk["shard_index"] = shard_index
-        yield chunk
 
 
-def estimate_import_chunks(file_path: str | Path, *, batch_size: int) -> int:
+def estimate_import_chunks(file_path: str | Path, *, batch_size: int, ramp: bool = True) -> int:
     # approx=True: this only feeds the progress bar's declared total, and it runs on the GUI
     # thread at submit time — an exact scan of a big library froze the UI for seconds.
     expected_records = count_import_records(file_path, approx=True)
-    return estimate_record_chunks(expected_records, batch_size)
+    return estimate_record_chunks(expected_records, batch_size, ramp=ramp)

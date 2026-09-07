@@ -17,6 +17,7 @@ from amdockvs.ui.catalog import (
     LIGANDS_VIEW_ID,
     MOLECULES_VIEW_ID,
     RECEPTOR_VIEW_ID,
+    SHARDS_VIEW_ID,
 )
 from amdockvs.ui.catalog.domain_views import LIGAND_ACTIVITY_VIEW_ID
 from amdockvs.ui.resources.icons import icon as load_icon
@@ -49,6 +50,7 @@ class ViewCoordinator:
         ("Molecules", MOLECULES_VIEW_ID, "catalog.svg"),
         ("Receptors", RECEPTOR_VIEW_ID, "receptor.svg"),
         ("Ligands", LIGANDS_VIEW_ID, "ligands.svg"),
+        ("Shards", SHARDS_VIEW_ID, "cloud.svg"),
         ("Binding Sites", BINDING_SITES_VIEW_ID, "binding_site.svg"),
         ("Complexes", COMPLEX_PAIRS_VIEW_ID, "complexes.svg"),
         ("Activity", LIGAND_ACTIVITY_VIEW_ID, "activity.svg"),
@@ -142,7 +144,6 @@ class ViewCoordinator:
         self.mode_badge.setObjectName("mode_badge")
         bar.addWidget(self.mode_badge)
         bar.addSeparator()
-        self.sync_mode_badge()
         for entries in (self.CATALOG_TABLES, *self.STANDING_DATA_VIEWS):
             for entry in entries:
                 self._add_data_action(bar, *entry)
@@ -155,6 +156,8 @@ class ViewCoordinator:
         # Neutral label on purpose: the toggle owns the band, not what lands in it.
         # The action itself belongs to the auxiliary zone; the bar only hosts it.
         self.w.aux.install_action(bar.addAction(load_icon("details.svg"), "Panel"))
+        # After the actions exist, not before: the badge and the bar say the same thing.
+        self.sync_mode_badge()
         # Every toolbar button now exists (docks + actions + these), so one pass styles them all.
         self.set_toolbar_button_style(self.saved_toolbar_button_style())
 
@@ -169,6 +172,7 @@ class ViewCoordinator:
         mode = getattr(self.w.runtime, "mode", "") if self.w._has_active_project() else ""
         index = PROJECT_MODES.index(mode) if mode in PROJECT_MODES else -1
         self.mode_badge.setVisible(index >= 0)
+        self.sync_catalog_availability()
         if index < 0:
             return
         accent = "palette(highlight)" if mode == ProjectMode.HTPVS else "palette(text)"
@@ -177,6 +181,38 @@ class ViewCoordinator:
         self.mode_badge.setToolTip(
             f"Screening library: {PROJECT_MODE_LABELS[index]} — set by how the ligands were imported"
         )
+
+    def sync_catalog_availability(self) -> None:
+        """Which catalog tables this project has anything to say with.
+
+        Never a rename: a table always means the same thing. Shards only exist in a project
+        whose library was imported sharded, so its button is absent everywhere else. Ligands
+        stays — it is the reference cocrystals (redocking, QSAR) and the hits promoted out of
+        a campaign — but in a sharded project it is greyed until one of those exists, because
+        the screening library is *not* in it and its empty state would offer the wrong import.
+        """
+        shards_action = self.catalog_actions.get(SHARDS_VIEW_ID)
+        ligands_action = self.catalog_actions.get(LIGANDS_VIEW_ID)
+        sharded, ligand_rows = self._library_shape()
+        if shards_action is not None:
+            shards_action.setVisible(sharded)
+            if not sharded:
+                self.w.central_widget.close_view(SHARDS_VIEW_ID)
+        if ligands_action is not None:
+            ligands_action.setEnabled(bool(ligand_rows) or not sharded)
+
+    def _library_shape(self) -> tuple[bool, int]:
+        """`(library is sharded, how many ligand rows exist)` — two small indexed counts.
+
+        ponytail: read on every badge sync (project open + end of each job) rather than cached;
+        both flip exactly when a job finishes, which is when this runs.
+        """
+        if not self.w._has_active_project():
+            return False, 0
+        try:
+            return self.w.runtime.molecules.library_shape()
+        except Exception:  # noqa: BLE001 - a project that cannot be read shows the plain bar
+            return False, 0
 
     def _add_data_action(self, bar, label: str, view_id: str, icon_name: str, before=None):
         action = QAction(load_icon(icon_name), label, bar)

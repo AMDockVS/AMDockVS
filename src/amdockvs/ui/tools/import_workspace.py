@@ -25,6 +25,7 @@ from amdockvs.models.molecules import MoleculeType
 from amdockvs.vocab import ProjectMode
 from amdockvs.ui.drop_area import TablePlaceholder, drop_hint, icon_button
 from amdockvs.ui.catalog.ligands import LIGANDS_VIEW_ID
+from amdockvs.ui.catalog.shards import SHARDS_VIEW_ID
 from amdockvs.ui.catalog.receptors import RECEPTOR_VIEW_ID, ReceptorImportPanel
 from amdockvs.ui.tools.molecules.filter import (
     ImportActivityForm,
@@ -33,7 +34,7 @@ from amdockvs.ui.tools.molecules.filter import (
     finalize_import_prefilter_policy,
 )
 
-_LIGAND_FILTER = "Molecule files (*.sdf *.smi *.smiles *.txt *.csv *.tsv *.mol2 *.pdb *.pdbqt);;All files (*)"
+from amdockvs.io.formats import QT_FILE_FILTER as _LIGAND_FILTER
 
 # Per-row molecule type choices. Default (first) is small molecule — the common ligand case.
 _TYPE_CHOICES = (
@@ -168,6 +169,8 @@ class LigandImportDialog(QDialog):
         self._defer = bool(defer)
         self.deferred_submit = None
         self.deferred_name = ""
+        self._target_sharded = False
+        self._project_sharded = False
         self.setWindowTitle("Import Ligands")
         self.resize(760, 580)
         root = QVBoxLayout(self)
@@ -262,10 +265,16 @@ class LigandImportDialog(QDialog):
             rows = self.runtime.general_ligand_count()
         except Exception:  # noqa: BLE001 — no active project yet (workflow step config)
             return
+        self._project_sharded = sharded
         if sharded:
+            # ponytail: checked, but not locked. A sharded project still takes curated ligands
+            # (cocrystals to redock, an activity set to train on); those are rows, not a second
+            # library, so unticking here means "reference", not "shard this too".
             self.shard_checkbox.setChecked(True)
-            self.shard_checkbox.setEnabled(False)
-            self.shard_hint.setText("This project's library is already sharded — imports go to shards.")
+            self.shard_hint.setText(
+                "This project's library is sharded — ticked, these files join the shards. "
+                "Untick to bring them in as reference ligands (rows: cocrystals, activity sets)."
+            )
         elif rows:
             self.shard_checkbox.setChecked(False)
             self.shard_checkbox.setEnabled(False)
@@ -283,6 +292,8 @@ class LigandImportDialog(QDialog):
                 total += Path(path).stat().st_size
             except OSError:
                 continue
+        if self._project_sharded:  # the checkbox already says where this goes; keep that hint
+            return total
         if self.shard_checkbox.isEnabled() and total >= SHARD_SUGGEST_BYTES:
             self.shard_checkbox.setChecked(True)
             self.shard_hint.setText(
@@ -327,7 +338,7 @@ class LigandImportDialog(QDialog):
         total = sum(len(paths) for paths in groups.values())
 
         shard = self.shard_checkbox.isChecked()
-        if not shard and self._suggest_shards() >= SHARD_SUGGEST_BYTES:
+        if not shard and not self._project_sharded and self._suggest_shards() >= SHARD_SUGGEST_BYTES:
             answer = QMessageBox.question(
                 self,
                 "Import Ligands",
@@ -339,15 +350,23 @@ class LigandImportDialog(QDialog):
                 return None
             shard = answer == QMessageBox.Yes
 
+        self._target_sharded = shard  # where _do_import should land the user
+
         def submit(rt):
             job_ids: list = []
+            # A row import into a sharded project is curated by definition — the library is on
+            # disk, so these cannot be a second one. Read at run time: a workflow step may be
+            # configured before the project holds any shards.
+            context = "reference" if (not shard and rt.mode == ProjectMode.HTPVS) else "general"
             for kind, paths in groups.items():
                 prefilter = policy if kind == MoleculeType.SMALL_MOLECULE else None
                 # Only the screening library shards; other molecule types are curated rows.
                 if shard and kind == MoleculeType.SMALL_MOLECULE:
                     res = rt.loader.shard_ligands(paths, molecule_kind=kind, prefilter=prefilter)
                 else:
-                    res = rt.loader.load_ligands(paths, molecule_kind=kind, prefilter=prefilter)
+                    res = rt.loader.load_ligands(
+                        paths, molecule_kind=kind, prefilter=prefilter, primary_context=context
+                    )
                 job_ids.extend(res if isinstance(res, (list, tuple)) else [res])
             return [j for j in job_ids if j]
 
@@ -373,7 +392,9 @@ class LigandImportDialog(QDialog):
         except Exception as exc:
             QMessageBox.critical(self, "Import Ligands", f"Could not submit ligand import job:\n{exc}")
             return
-        _land_on_view(self.parent(), LIGANDS_VIEW_ID)
+        # Land where the molecules are actually going: staying on an empty Ligands table
+        # while a shard import runs reads as "nothing happened".
+        _land_on_view(self.parent(), SHARDS_VIEW_ID if self._target_sharded else LIGANDS_VIEW_ID)
         _nudge_monitor(self.parent())
         self.accept()
 

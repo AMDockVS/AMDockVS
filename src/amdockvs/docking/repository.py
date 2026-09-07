@@ -21,6 +21,7 @@ from amdockvs.constants import (
     TABLE_MOLECULE_SET_MEMBERS,
     TABLE_MOLECULES,
     TABLE_INTERACTION_RESULTS,
+    TABLE_SCREENING_TARGETS,
 )
 from amdockvs.models import BindingSite, ComplexRecord, DockingResultRecord, EngineState, MoleculeRecord
 from amdockvs.models.molecules import sanitize_molecule_extra_data
@@ -1233,9 +1234,12 @@ def pivot_availability(project_db) -> dict[str, bool]:
         project_db,
         query=(
             "SELECT "
-            f"EXISTS(SELECT 1 FROM {TABLE_DOCKING_RESULTS} h "
+            f"(EXISTS(SELECT 1 FROM {TABLE_DOCKING_RESULTS} h "
             "WHERE COALESCE(JSON_EXTRACT(h.metrics, '$.run_kind'), 'screening') != 'redocking' "
-            "LIMIT 1) AS hits, "
+            "LIMIT 1) "
+            # A campaign's receptors are on screen from the moment they are scheduled, so the
+            # pivot has something to show long before the first result row exists.
+            f"OR EXISTS(SELECT 1 FROM {TABLE_SCREENING_TARGETS} LIMIT 1)) AS hits, "
             f"EXISTS(SELECT 1 FROM {TABLE_DOCKING_RESULTS} rd "
             "WHERE COALESCE(JSON_EXTRACT(rd.metrics, '$.run_kind'), 'screening') = 'redocking' "
             "LIMIT 1) AS redocked, "

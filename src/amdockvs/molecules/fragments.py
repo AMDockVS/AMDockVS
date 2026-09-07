@@ -149,6 +149,50 @@ def largest_ligand_fragment(mol):
     )
 
 
+# A co-component enters as its own molecule only if it is comparable in size to the one kept.
+# ponytail: one ratio, no absolute floor — a counterion (acetate, TFA, mesylate) is always a
+# small fraction of the drug it salts. Raise it if borderline co-crystals slip through.
+SPLIT_MIN_SIZE_RATIO = 0.5
+
+
+def extra_fragment_molecules(mol) -> list[tuple[int, Any]]:
+    """`(fragment_index, mol)` for each co-component worth importing on its own.
+
+    `largest_ligand_fragment` keeps one component and the rest is lost; with `split_fragments`
+    on, these come back as molecules. A record with two real fragments yields its second one;
+    a salt yields nothing, because a counterion is small next to what it salts.
+
+    Filtered out: non-organic and ionic components, duplicates of the kept fragment or of each
+    other (canonical SMILES), and anything under `SPLIT_MIN_SIZE_RATIO` of the kept fragment.
+    `fragment_index` matches the parent's `fragmentation.components`, so the row can point back.
+    """
+    from rdkit import Chem
+
+    frags = Chem.GetMolFrags(Chem.Mol(mol), asMols=True, sanitizeFrags=False)
+    if len(frags) <= 1:
+        return []
+    kept = largest_ligand_fragment(mol)
+    kept_smiles = _canonical_smiles(kept)
+    min_heavy_atoms = SPLIT_MIN_SIZE_RATIO * int(kept.GetNumHeavyAtoms() or 0)
+    seen = {kept_smiles} if kept_smiles else set()
+    extras: list[tuple[int, Any]] = []
+    for index, frag in enumerate(frags, start=1):
+        try:
+            sanitized = _sanitize_fragment(frag)
+        except Exception:
+            continue
+        if not _has_carbon(sanitized) or _component_role(sanitized) != "fragment":
+            continue
+        if int(sanitized.GetNumHeavyAtoms() or 0) < min_heavy_atoms:
+            continue
+        smiles = _canonical_smiles(sanitized)
+        if not smiles or smiles in seen:
+            continue
+        seen.add(smiles)
+        extras.append((index, sanitized))
+    return extras
+
+
 def analyze_ligand_fragments(
     *,
     mol,

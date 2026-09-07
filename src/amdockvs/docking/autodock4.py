@@ -295,11 +295,6 @@ def autodock4_dock_runner(payload: dict) -> list[dict]:
     return rows
 
 
-from amdockvs.docking.engines import register_dock_runner  # noqa: E402
-
-register_dock_runner("autodock4", autodock4_dock_runner)
-
-
 if __name__ == "__main__":
     sample = (
         "DOCKED: MODEL        1\n"

@@ -52,16 +52,9 @@ def _rdkit_mol(path: Path, *, pose_rank: int = 1):
         from rdkit import Chem
     except ImportError:
         return None
-    suffix = path.suffix.lower()
-    if suffix in {".sdf", ".sd", ".mol"}:
-        supplier = Chem.SDMolSupplier(str(path), sanitize=False, removeHs=False)
-        index = max(0, int(pose_rank or 1) - 1)
-        return supplier[index] if supplier and len(supplier) > index else None
-    if suffix == ".mol2":
-        return Chem.MolFromMol2File(str(path), sanitize=False, removeHs=False)
-    if suffix in {".pdb", ".pdbqt", ".ent"}:
-        return Chem.MolFromPDBFile(str(path), sanitize=False, removeHs=False)
-    return None
+    from amdockvs.io.formats import read_mol
+
+    return read_mol(path, sanitize=False, index=max(0, int(pose_rank or 1) - 1))
 
 
 def _write_ligand_pdb(path: Path, *, pose_rank: int, output_path: Path) -> bool:

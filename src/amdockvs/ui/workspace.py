@@ -141,6 +141,8 @@ class DockingResultsWidget(QWidget):
         self._ligand_refreshing = False
         self._auto_select_ligand = False
         self._auto_select_pose = False
+        self._active_shard_job_ids: tuple[str, ...] = ()
+        self._known_campaign_target_ids: set[int] = set()
         self.filters_changed.connect(lambda: self._refresh_ligands(auto_select=True))
 
         outer = QVBoxLayout(self)
@@ -660,15 +662,46 @@ class DockingResultsWidget(QWidget):
         return bool(force or self.ligand_table._model.loaded_count >= capacity)
 
     def refresh_counts(self) -> bool:
-        # Receptors contain live aggregate columns (Docked/Done/Missing), so refresh that
-        # small window while preserving selection.  Ligands only needs its COUNT refreshed:
-        # rebuilding its score-sorted rows would move the user's selection and reload PyMOL.
-        self._receptor_refreshing = True
-        try:
-            self.receptor_table.refresh_preserving_view()
-        finally:
-            self._receptor_refreshing = False
-        return bool(self.ligand_table.refresh_counts())
+        if not self._active_shard_job_ids:
+            # Row-mode docking has no campaign target counters; keep its existing SQL refresh.
+            self._receptor_refreshing = True
+            try:
+                self.receptor_table.refresh_preserving_view()
+            finally:
+                self._receptor_refreshing = False
+            return bool(self.ligand_table.refresh_counts())
+        # Patch only the three aggregate cells. A model reset here used to repaint the table
+        # and reselect its row every three seconds while docking was running.
+        progress = self.runtime.docking.live_campaign_progress(job_ids=self._active_shard_job_ids)
+        patches = {
+            receptor_id: {
+                "ligands": values["ligands"],
+                "docked": values["docked"],
+                "pending": "" if values["pending"] <= 0 else f"{values['pending']:,}",
+            }
+            for receptor_id, values in progress.items()
+        }
+        loaded_ids = {
+            int(getattr(row, "id", 0) or 0)
+            for row in self._loaded_objects(self.receptor_table)
+        }
+        new_ids = set(patches).difference(self._known_campaign_target_ids)
+        self._known_campaign_target_ids.update(patches)
+        if new_ids.difference(loaded_ids):
+            # A dependent off-target job plans its receptors only when its source becomes
+            # ready. Pull those new rows once; subsequent ticks can keep patching in place.
+            self._receptor_refreshing = True
+            try:
+                self.receptor_table.refresh_preserving_view()
+            finally:
+                self._receptor_refreshing = False
+        changed = self.receptor_table.patch_loaded_rows("id", patches)
+        count_changed = bool(self.ligand_table.refresh_counts())
+        self.data_refreshed.emit(bool(changed or count_changed))
+        return True
+
+    def set_active_shard_jobs(self, job_ids) -> None:
+        self._active_shard_job_ids = tuple(str(job_id) for job_id in job_ids if str(job_id))
 
     def refresh_view(self) -> None:
         self._receptor_refreshing = True

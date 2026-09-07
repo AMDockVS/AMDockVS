@@ -10,12 +10,12 @@ import uuid
 from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 
 from amdockvs.constants import DEFAULT_VINA_BACKEND, DEFAULT_VINA_COMMAND
-from amdockvs.api_common import project_root_from_output_dir
 from amdockvs.docking.metrics import docking_metrics
 from amdockvs.docking.rmsd import pose_rmsd_detail
-from amdockvs.molecule_paths import get_default_project_root, set_default_project_root
+from amdockvs.molecule_paths import get_default_project_root
 
 def _require_pdbqt(path: Path, *, kind: str) -> None:
     if path.suffix.lower() != ".pdbqt":
@@ -189,21 +189,11 @@ def count_heavy_atoms(path: Path) -> int:
     """Heavy-atom count from any ligand file. PDBQT via AD types (no RDKit needed),
     everything else (SDF/MOL/PDB) via RDKit. 0 if unreadable. Used to backfill LE for
     results docked before LE was stored in metrics."""
-    suffix = path.suffix.lower()
-    if suffix == ".pdbqt":
-        return _count_heavy_atoms_pdbqt(path)
-    try:
-        from rdkit import Chem
-    except ImportError:
-        return 0
-    if suffix in {".sdf", ".mol"}:
-        mol = next(iter(Chem.SDMolSupplier(str(path), sanitize=False, removeHs=True)), None)
-    elif suffix in {".pdb", ".ent"}:
-        mol = Chem.MolFromPDBFile(str(path), sanitize=False, removeHs=True)
-    elif suffix == ".mol2":
-        mol = Chem.MolFromMol2File(str(path), sanitize=False, removeHs=True)
-    else:
-        return 0
+    if path.suffix.lower() == ".pdbqt":
+        return _count_heavy_atoms_pdbqt(path)  # column scan: no RDKit, no bond perception
+    from amdockvs.io.formats import read_mol
+
+    mol = read_mol(path, sanitize=False, remove_hs=True)
     return mol.GetNumHeavyAtoms() if mol is not None else 0
 
 
@@ -384,6 +374,8 @@ def run_vina_docking_rows(
     run_id: str = "",
     protocol_metadata: dict | None = None,
     report_name: str | None = None,
+    pair_callback: Callable[[list[dict]], None] | None = None,
+    collect_rows: bool = True,
 ) -> list[dict]:
     resolved_output_dir = Path(output_dir).expanduser().resolve()
     resolved_output_dir.mkdir(parents=True, exist_ok=True)
@@ -393,6 +385,7 @@ def run_vina_docking_rows(
 
     rows: list[dict] = []
     failures: list[dict] = []
+    success_count = 0
     project_root = get_default_project_root()
     vina_cache: dict[tuple, object] = {}
     ad4_map_cache: dict[tuple, str] = {}
@@ -430,17 +423,21 @@ def run_vina_docking_rows(
             "scoring_function": str(scoring_function),
         }
         if invalid_reason:
-            failures.append(
-                {
-                    "complex_id": complex_id,
-                    "run_kind": run_kind,
-                    "ligand_id": ligand_id,
-                    "receptor_id": receptor_id,
-                    "ligand_path": ligand_path_logical,
-                    "receptor_path": receptor_path_logical,
-                    "error": invalid_reason,
-                }
-            )
+            failure = {
+                "complex_id": complex_id,
+                "run_kind": run_kind,
+                "ligand_id": ligand_id,
+                "receptor_id": receptor_id,
+                "ligand_path": ligand_path_logical,
+                "receptor_path": receptor_path_logical,
+                "error": invalid_reason,
+            }
+            failures.append(failure)
+            failed_row = _failed_docking_row(failure, protocol_payload=protocol_payload)
+            if collect_rows:
+                rows.append(failed_row)
+            if pair_callback is not None:
+                pair_callback([failed_row])
             continue
         try:
             if not ligand_path.exists():
@@ -552,20 +549,24 @@ def run_vina_docking_rows(
                 "protocol": protocol_payload,
             }
         except Exception as exc:
-            failures.append(
-                {
-                    "complex_id": complex_id,
-                    "run_kind": run_kind,
-                    "ligand_id": ligand_id,
-                    "receptor_id": receptor_id,
-                    "ligand_path": ligand_path_logical,
-                    "receptor_path": receptor_path_logical,
-                    "reference_ligand_path": reference_ligand_logical,
-                    "reference_receptor_path": reference_receptor_logical,
-                    "error": str(exc),
-                    "grid": grid_payload,
-                }
-            )
+            failure = {
+                "complex_id": complex_id,
+                "run_kind": run_kind,
+                "ligand_id": ligand_id,
+                "receptor_id": receptor_id,
+                "ligand_path": ligand_path_logical,
+                "receptor_path": receptor_path_logical,
+                "reference_ligand_path": reference_ligand_logical,
+                "reference_receptor_path": reference_receptor_logical,
+                "error": str(exc),
+                "grid": grid_payload,
+            }
+            failures.append(failure)
+            failed_row = _failed_docking_row(failure, protocol_payload=protocol_payload)
+            if collect_rows:
+                rows.append(failed_row)
+            if pair_callback is not None:
+                pair_callback([failed_row])
             continue
         pose_path_text = str(output_sdf_path)
         if project_root is not None:
@@ -575,6 +576,7 @@ def run_vina_docking_rows(
         with suppress(Exception):
             heavy_atoms = _count_heavy_atoms_pdbqt(ligand_path)
         ligand_source_path = _resolve_optional_path(pair.get("ligand_source_path"), project_root)
+        pair_rows: list[dict] = []
         for index, energy_row in enumerate(energies_list, start=1):
             pose_score = float(energy_row[0]) if len(energy_row) else 0.0
             rmsd_detail = pose_rmsd_detail(
@@ -590,7 +592,7 @@ def run_vina_docking_rows(
                 heavy_atoms_fallback=heavy_atoms,
                 descriptors=pair.get("ligand_descriptors"),
             )
-            rows.append(
+            pair_rows.append(
                 {
                     "receptor_molecule_id": receptor_id,
                     "ligand_molecule_id": ligand_id,
@@ -613,6 +615,11 @@ def run_vina_docking_rows(
                     "created_at": datetime.now(),
                 }
             )
+        success_count += 1
+        if collect_rows:
+            rows.extend(pair_rows)
+        if pair_callback is not None:
+            pair_callback(pair_rows)
     if failures:
         report_dir = resolved_output_dir / "_reports"
         report_dir.mkdir(parents=True, exist_ok=True)
@@ -624,7 +631,7 @@ def run_vina_docking_rows(
                     "backend": normalized_backend,
                     "generated_at": datetime.now().isoformat(),
                     "pair_count": len(pairs),
-                    "success_count": len({(row["ligand_molecule_id"], row["receptor_molecule_id"]) for row in rows}),
+                    "success_count": success_count,
                     "failure_count": len(failures),
                     "run_id": str(run_id or ""),
                     "failures": failures,
@@ -634,35 +641,33 @@ def run_vina_docking_rows(
             ),
             encoding="utf-8",
         )
-    # Surface failed pairs as result rows (score=None, metrics.status="failed") so a genuine
-    # docking failure doesn't silently vanish from stats/list_results. The report file above
-    # is just extra diagnostics.
-    for failure in failures:
-        rows.append(
-            {
-                "receptor_molecule_id": int(failure.get("receptor_id") or 0),
-                "ligand_molecule_id": int(failure.get("ligand_id") or 0),
-                "engine": "vina",
-                "pose_rank": 1,
-                "score": None,
-                "score_type": "vina_score",
-                "pose_path": "",
-                "rmsd_vs_reference": None,
-                "metrics": {
-                    "status": "failed",
-                    "error": str(failure.get("error") or ""),
-                    "run_kind": str(failure.get("run_kind") or "screening"),
-                    "complex_id": failure.get("complex_id"),
-                    "ligand_path": str(failure.get("ligand_path") or ""),
-                    "receptor_path": str(failure.get("receptor_path") or ""),
-                    "reference_ligand_path": str(failure.get("reference_ligand_path") or ""),
-                    "reference_receptor_path": str(failure.get("reference_receptor_path") or ""),
-                    "protocol": protocol_payload,
-                },
-                "created_at": datetime.now(),
-            }
-        )
     return rows
+
+
+def _failed_docking_row(failure: dict, *, protocol_payload: dict) -> dict:
+    """One failed pair in the same shape as a successful rank-1 result."""
+    return {
+        "receptor_molecule_id": int(failure.get("receptor_id") or 0),
+        "ligand_molecule_id": int(failure.get("ligand_id") or 0),
+        "engine": "vina",
+        "pose_rank": 1,
+        "score": None,
+        "score_type": "vina_score",
+        "pose_path": "",
+        "rmsd_vs_reference": None,
+        "metrics": {
+            "status": "failed",
+            "error": str(failure.get("error") or ""),
+            "run_kind": str(failure.get("run_kind") or "screening"),
+            "complex_id": failure.get("complex_id"),
+            "ligand_path": str(failure.get("ligand_path") or ""),
+            "receptor_path": str(failure.get("receptor_path") or ""),
+            "reference_ligand_path": str(failure.get("reference_ligand_path") or ""),
+            "reference_receptor_path": str(failure.get("reference_receptor_path") or ""),
+            "protocol": protocol_payload,
+        },
+        "created_at": datetime.now(),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -691,44 +696,25 @@ def _vina_dock_runner(payload: dict) -> list[dict]:
         run_id=str(payload.get("run_id") or ""),
         protocol_metadata=dict(payload.get("protocol_metadata") or {}),
         report_name=str(payload.get("report_name") or "").strip() or None,
+        pair_callback=payload.get("_pair_callback"),
+        collect_rows=bool(payload.get("_collect_rows", True)),
     )
 
 
-DOCK_RUNNERS: dict = {
-    "vina": _vina_dock_runner,
-}
-
-
-def register_dock_runner(engine: str, runner) -> None:
-    DOCK_RUNNERS[str(engine).strip().lower()] = runner
-
-
-def run_docking_chunk(payload: dict) -> list[dict]:
-    output_dir = str(payload.get("output_dir") or "").strip()
-    if output_dir:
-        set_default_project_root(project_root_from_output_dir(output_dir))
-    engine = str(payload.get("engine") or "vina").strip().lower()
-    runner = DOCK_RUNNERS.get(engine)
-    if runner is None:
-        raise ValueError(
-            f"No docking runner registered for engine '{engine}'. "
-            f"Registered engines: {sorted(DOCK_RUNNERS)}."
-        )
-    rows = runner(payload)
-    if payload.get("compute_diagram") and rows:
-        # Same-process 2D diagrams, opt-in. Isolated per pose in a subprocess, so a
-        # diagram failure never touches the docking rows we just produced.
-        from amdockvs.docking.diagram import render_diagrams_for_result_rows
-
-        render_diagrams_for_result_rows(
-            rows, fmt=str(payload.get("diagram_format") or "png")
-        )
-    return rows
+from amdockvs.docking.registry import (  # noqa: E402 - compatibility exports
+    DOCK_RUNNERS,
+    load_builtin_docking_engines,
+    register_dock_runner,
+    register_docking_engine,
+    run_docking_chunk,
+)
 
 
 __all__ = [
     "run_vina_docking_rows",
     "DOCK_RUNNERS",
     "register_dock_runner",
+    "register_docking_engine",
+    "load_builtin_docking_engines",
     "run_docking_chunk",
 ]

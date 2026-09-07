@@ -315,7 +315,7 @@ def shard_chemistry_task(payload: dict, progress_cb=None) -> list[dict]:
         "shard_index": int(payload["shard_index"]),
         "path": str(output_path),
         "n_records": int(stats["n_records"]),
-        "state": ShardState.DONE,
+        "state": ShardState.READY,
         "error": "" if not stats["n_failed"] else f"{stats['n_failed']} of {stats['n_input']} molecules failed",
         "updated_at": datetime.now(),
     }]
@@ -341,6 +341,10 @@ def shard_chemistry_job(params: dict, config: dict | None = None) -> Iterator[di
     if project_db is None:
         raise ValueError("shard_chemistry_job requires project_db in config.")
     steps = normalize_steps(parsed.operation)
+    if any(name == "conformers" for name, _params in steps):
+        raise ValueError(
+            "Sharded conformer ensembles are not supported by the one-record-per-molecule format."
+        )
     label = "+".join(name for name, _ in steps)
     resolved_steps = [(name, {**dict(parsed.params or {}), **step_params}) for name, step_params in steps]
     for row in ShardStore(project_db).iter_rows(shard_scope_spec(state=parsed.state)):

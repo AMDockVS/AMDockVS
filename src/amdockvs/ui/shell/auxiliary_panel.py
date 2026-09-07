@@ -158,6 +158,8 @@ class AuxiliaryPanelController:
             view.clear_details()
         elif str(selection[0]).strip().lower() == "complex":
             view.show_complex(selection[1])
+        elif str(selection[0]).strip().lower() == "shard":
+            view.show_shard(selection[1])
         else:
             view.show_molecule(selection[1])
 
@@ -179,6 +181,14 @@ class AuxiliaryPanelController:
             window.viewer.hide_grid_panel()
             return
         normalized_kind = str(kind or "").strip().lower()
+        if normalized_kind == "shard":
+            # Nothing to draw: a shard is a file of thousands of molecules, none of them "the" one.
+            if details is not None:
+                details.show_shard(obj)
+            if window.grid_dock is not None:
+                window.grid_dock.clear_molecule()
+            window.viewer.hide_grid_panel()
+            return
         if normalized_kind == "complex":
             if details is not None:
                 details.show_complex(obj)

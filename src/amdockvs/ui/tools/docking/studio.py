@@ -184,7 +184,7 @@ class DockingStudioWidget(
         # Preview & Run is the step *before* the results, so it opens them: the run lands there.
         from amdockvs.ui.catalog.domain_views import COMPLEXES_VIEW_ID  # circular at import time
 
-        view_id = {1: LIGANDS_VIEW_ID, 2: RECEPTOR_VIEW_ID, 3: COMPLEXES_VIEW_ID}.get(
+        view_id = {1: self._ligand_view_id(), 2: RECEPTOR_VIEW_ID, 3: COMPLEXES_VIEW_ID}.get(
             self.stepper.current_index
         )
         if view_id is not None:
