@@ -1,5 +1,6 @@
 import sys
 import time
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,14 @@ from amdockvs import AMDockVSRuntime
 from amdockvs.docking.protocols import protocol_hash
 from amdockvs.io.api import LoaderAPI
 from amdockvs.manifest import manifest
+
+
+def test_manifest_uses_distribution_version():
+    try:
+        expected = version("AMDock-VS")
+    except PackageNotFoundError:
+        expected = "0+unknown"
+    assert manifest.version == expected
 
 
 def _patch_fake_home(monkeypatch, fake_home: Path):
