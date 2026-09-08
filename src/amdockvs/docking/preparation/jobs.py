@@ -11,9 +11,9 @@ from ms_flow.query import QuerySpec
 from ms_flow.sinks import table_sink
 from ms_flow.tasking import JobSpec
 
-from amdockvs.core.configuration import batch_size_for
+from amdockvs.core.configuration import DEFAULT_OUTPUT_FLUSH_EVERY, batch_size_for
 from amdockvs.core.worker_io import project_root_from_output_dir, worker_file, worker_output_dir, worker_path_fields
-from amdockvs.core.constants import AMDOCKVS_LOCAL_EXECUTORS, OUTPUT_FLUSH_EVERY
+from amdockvs.core.constants import AMDOCKVS_LOCAL_EXECUTORS
 from amdockvs.docking.repository import (
     iter_entity_rows,
     molecule_scope_spec,
@@ -280,7 +280,7 @@ class _PrepareEntitiesJobSpec(JobSpec):
     executor = "compute"
     supported_executors = AMDOCKVS_LOCAL_EXECUTORS
     output_spec = ENGINE_STATE_UPSERT
-    output_flush_every = OUTPUT_FLUSH_EVERY
+    output_flush_every = DEFAULT_OUTPUT_FLUSH_EVERY
     store_results = False
 
     @staticmethod
@@ -342,7 +342,7 @@ class PrepareLigandShardsJobSpec(JobSpec):
     output_spec = table_sink(
         model=ShardEngineState, write_mode="upsert", conflict_keys=("shard_id", "engine")
     )
-    output_flush_every = OUTPUT_FLUSH_EVERY
+    output_flush_every = DEFAULT_OUTPUT_FLUSH_EVERY
     store_results = False
     required = ()
     produces = ()

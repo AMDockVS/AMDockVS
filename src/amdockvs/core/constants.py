@@ -7,6 +7,8 @@ from pathlib import Path
 
 from ms_flow.api import ProjectResourceSpec
 
+from amdockvs.core.configuration import app_config
+
 AMDOCKVS_APP_ID = "amdockvs"
 AMDOCKVS_SCOPE_ID = "docking"
 AMDOCKVS_APP_NAME = "AMDockVS"
@@ -71,9 +73,6 @@ AMDOCKVS_PROJECT_RESOURCES = (
 )
 AMDOCKVS_DEFAULT_PROJECT_DIRS = tuple(spec.relative_path for spec in AMDOCKVS_PROJECT_RESOURCES)
 
-DEFAULT_LOAD_BATCH_SIZE = 1000
-DEFAULT_DESCRIPTOR_BATCH_SIZE = 1000
-
 STATUS_FLAG_PAINS = 1 << 0
 STATUS_FLAG_RO5_VIOLATION = 1 << 1
 
@@ -84,23 +83,30 @@ STATUS_FLAG_RO5_VIOLATION = 1 << 1
 DEFAULT_LOCAL_CPU_EXECUTOR = "compute"
 
 
-def _default_vina_command() -> str:
-    executable_dir = Path(sys.executable).expanduser().resolve().parent
-    sibling_vina = executable_dir / "vina"
-    if sibling_vina.exists():
-        return str(sibling_vina)
+def vina_command(runtime=None) -> str:
+    """The vina executable: the configured path, else a sibling of this interpreter, else PATH.
+
+    Resolved on demand rather than frozen at import, so pointing Settings at another build
+    takes effect without restarting.
+    """
+    configured = str(app_config(runtime).external_tools.vina_path or "").strip()
+    if configured:
+        return str(Path(configured).expanduser())
+    sibling = Path(sys.executable).expanduser().resolve().parent / "vina"
+    if sibling.exists():
+        return str(sibling)
     return shutil.which("vina") or "vina"
 
 
-DEFAULT_VINA_COMMAND = _default_vina_command()
-DEFAULT_VINA_BACKEND = "binary" if Path(DEFAULT_VINA_COMMAND).expanduser().exists() else "python"
-# TODO: evaluate an adaptive batch_size based on real load and docking backend.
-DEFAULT_DOCKING_BATCH_SIZE = 4
+def vina_backend(runtime=None) -> str:
+    """`binary` when the executable is really there, `python` (the bindings) otherwise."""
+    return "binary" if Path(vina_command(runtime)).expanduser().exists() else "python"
 
-# How many chunks a job batches into one sink transaction. Flushing every chunk makes the
-# writer the bottleneck and starves the pool — a 1.7 GB import sat at 2-3/14 CPUs busy until
-# this stopped being 1. Env override to tune per box without a code change.
-OUTPUT_FLUSH_EVERY = int(os.environ.get("AMDOCK_OUTPUT_FLUSH_EVERY", "16"))
+
+# Module-level defaults for signatures evaluated at import time; call the functions above
+# wherever a runtime is available.
+DEFAULT_VINA_COMMAND = vina_command()
+DEFAULT_VINA_BACKEND = vina_backend()
 
 AMDOCKVS_LOCAL_EXECUTORS = ("thread", "compute")
 AMDOCKVS_PROCESS_EXECUTORS = ("compute",)

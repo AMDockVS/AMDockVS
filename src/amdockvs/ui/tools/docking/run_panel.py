@@ -16,12 +16,12 @@ from PySide6.QtWidgets import (
     QWidget, QGridLayout,
 )
 
+from amdockvs.core.configuration import app_config
 from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR
 from amdockvs.docking.planning import protocol_job_key
 from amdockvs.docking.shard_jobs import (
     HIT_MODE_THRESHOLD,
     HIT_MODE_TOP_N,
-    HIT_SAFETY_CAP,
     RANKED_PREFILTER_SCORE,
 )
 from amdockvs.docking.engines.programs import get_docking_program
@@ -631,6 +631,10 @@ class RunPanel:
             on_error=self._on_docking_error,
         )
 
+    def _hit_ceiling(self) -> int:
+        """Unattended-run ceiling on hits (settings > shards > hit_cap)."""
+        return int(app_config(getattr(self, "runtime", None)).shards.hit_cap)
+
     def _docking_params(self) -> tuple[dict, dict]:
         inp = self._requirement_inputs()
         protocols = self._selected_protocols()
@@ -643,7 +647,7 @@ class RunPanel:
             "hit_cap": (
                 int(self.hit_cap.value())
                 if str(self.hit_mode_combo.currentData() or "") == HIT_MODE_TOP_N
-                else HIT_SAFETY_CAP
+                else self._hit_ceiling()
             ),
             "hit_mode": str(self.hit_mode_combo.currentData() or HIT_MODE_TOP_N),
             "offtarget_reference_id": (
@@ -786,14 +790,14 @@ class RunPanel:
         self.hit_cap_label.setText(
             "Reference Top-N" if ranked and reference_id is not None
             else "Keep best per receptor" if ranked
-            else f"Ceiling ({HIT_SAFETY_CAP:,} hits)"
+            else f"Ceiling ({self._hit_ceiling():,} hits)"
         )
         self.hit_cap.setToolTip(
             "How many hits the run keeps per receptor; with an off-target reference, this is "
             "the reference Top-N propagated to every secondary receptor."
             if ranked else
             f"Not a criterion here — by-threshold keeps every ligand under the cutoff. The run "
-            f"still stops at {HIT_SAFETY_CAP:,} hits so a generous receptor cannot write the "
+            f"still stops at {self._hit_ceiling():,} hits so a generous receptor cannot write the "
             f"whole library into the project unattended."
         )
         self.offtarget_reference_combo.setEnabled(ranked and len(self._ready_receptor_options) > 1)

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from amdockvs.core.configuration import app_config
+from amdockvs.core.paths import tools_home
 
 
 SUPPORTED_MANAGED_TOOLS = {"openbabel", "pkasso"}
@@ -21,15 +22,6 @@ class ProtonationToolStatus:
     prefix: Path
     command: Path | None
     message: str
-
-
-def _data_home() -> Path:
-    configured = str(os.environ.get("AMDOCK_TOOLS_HOME") or "").strip()
-    if configured:
-        return Path(configured).expanduser().resolve()
-    xdg_data = str(os.environ.get("XDG_DATA_HOME") or "").strip()
-    root = Path(xdg_data).expanduser() if xdg_data else Path.home() / ".local" / "share"
-    return (root / "AMDockVS" / "tools").resolve()
 
 
 def _tool_config(runtime, name: str):
@@ -46,7 +38,7 @@ def managed_prefix(runtime, name: str) -> Path:
     configured = str(tool.prefix or "").strip()
     if configured:
         return Path(configured).expanduser().resolve()
-    return (_data_home() / "protonation" / name / str(tool.version)).resolve()
+    return (tools_home(runtime) / "protonation" / name / str(tool.version)).resolve()
 
 
 def prefix_python(prefix: Path) -> Path:

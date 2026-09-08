@@ -34,15 +34,22 @@ from amdockvs.diversity.jobs import (
     stored_fingerprints_for_ids,
 )
 
+from amdockvs.core.configuration import (
+    DEFAULT_DIVERSITY_SAMPLE_LIMIT,
+    batch_size_for,
+    DEFAULT_INLINE_RUN_LIMIT,
+    DEFAULT_MOLECULES_PER_CPU,
+)
+
 # Interactive preview never clusters more than this inline; larger scopes are sampled for the view
 # and the full library is handed to MolSuite via ``cluster_job``. Full clustering of millions of
 # molecules is minutes-to-hours (linear in N) — it does not belong on any UI-side thread.
-DEFAULT_SAMPLE_LIMIT = 2000
+DEFAULT_SAMPLE_LIMIT = DEFAULT_DIVERSITY_SAMPLE_LIMIT
 
 # ``run_selection`` clusters a scope inline (off the GUI thread) — a scripting/small-scope helper.
 # The interactive Run always goes through the parallel job (``cluster_job``); this is only a safety
 # net so a direct inline call on a huge scope fails loudly instead of hanging.
-INLINE_RUN_LIMIT = 50000
+INLINE_RUN_LIMIT = DEFAULT_INLINE_RUN_LIMIT
 # The PCA graph basis is fitted on this many random molecules (SVD is superlinear in N), then every
 # point is projected onto it — a cheap matmul — so the graph scales while clustering stays full-scope.
 PROJECT_FIT_SAMPLE = 2000
@@ -50,7 +57,7 @@ PROJECT_FIT_SAMPLE = 2000
 # CPU/parallelism policy for the Run job: one CPU per this many molecules (hybrid — the UI suggests
 # ``plan_cpus(n)`` and lets the user override), capped at the machine's cores. 1 CPU → single-tree
 # BitBIRCH; >1 → bblean multiround with that many processes, and the job requests exactly that many.
-MOLECULES_PER_CPU = 25000
+MOLECULES_PER_CPU = DEFAULT_MOLECULES_PER_CPU
 
 
 def _reservoir_sample(
@@ -184,6 +191,7 @@ class DiversityAPI:
             )
         num_cpus = max(1, int(num_cpus))
         params = SelectionClusterJobParams(
+            batch_size=batch_size_for("ligand", self.runtime),
             method=method,
             threshold=threshold,
             per_cluster=per_cluster,
@@ -227,6 +235,7 @@ class DiversityAPI:
 
         self.runtime._require_active_project()
         params = SelectionClusterJobParams(
+            batch_size=batch_size_for("ligand", self.runtime),
             molecule_set_id=None if molecule_set is None else int(getattr(molecule_set, "id", molecule_set)),
             molecule_filters=dict(molecule_filters or {}),
             fp_radius=fp_radius,
@@ -336,6 +345,7 @@ class DiversityAPI:
         (no fingerprint load, no clustering). Reads ids only via the MolSuite query API."""
         self.runtime._require_active_project()
         params = SelectionClusterJobParams(
+            batch_size=batch_size_for("ligand", self.runtime),
             molecule_set_id=None if molecule_set is None else int(getattr(molecule_set, "id", molecule_set)),
             molecule_filters=dict(molecule_filters or {}),
             fp_radius=fp_radius,
@@ -370,6 +380,7 @@ class DiversityAPI:
 
         self.runtime._require_active_project()
         params = SelectionClusterJobParams(
+            batch_size=batch_size_for("ligand", self.runtime),
             molecule_set_id=None if molecule_set is None else int(getattr(molecule_set, "id", molecule_set)),
             molecule_filters=dict(molecule_filters or {}),
             fp_radius=fp_radius,

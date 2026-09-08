@@ -10,7 +10,8 @@ from pydantic import BaseModel, Field
 from ms_flow.sinks import graph_sink, table_sink
 from ms_flow.tasking import job, task
 
-from amdockvs.core.constants import AMDOCKVS_LOCAL_EXECUTORS, OUTPUT_FLUSH_EVERY
+from amdockvs.core.configuration import DEFAULT_OUTPUT_FLUSH_EVERY
+from amdockvs.core.constants import AMDOCKVS_LOCAL_EXECUTORS
 from amdockvs.molecules.storage import ShardStore, shard_scope_spec, store_from_config
 from amdockvs.core.worker_io import project_root_from_output_dir, restore_worker_paths, worker_file, worker_output_dir, worker_path_fields
 from amdockvs.chemistry.repository import (
@@ -241,7 +242,7 @@ def receptor_chemistry_task(payload: dict, progress_cb=None):
     executor="compute",
     supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
     output_spec=CHEMISTRY_GRAPH_OUTPUT,
-    output_flush_every=OUTPUT_FLUSH_EVERY,
+    output_flush_every=DEFAULT_OUTPUT_FLUSH_EVERY,
     store_results=False,
 )
 def ligand_chemistry_job(params: dict, config: dict | None = None) -> Iterator[dict[str, Any]]:
@@ -266,7 +267,7 @@ def ligand_chemistry_job(params: dict, config: dict | None = None) -> Iterator[d
     executor="compute",
     supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
     output_spec=CHEMISTRY_GRAPH_OUTPUT,
-    output_flush_every=OUTPUT_FLUSH_EVERY,
+    output_flush_every=DEFAULT_OUTPUT_FLUSH_EVERY,
     store_results=False,
 )
 def receptor_chemistry_job(params: dict, config: dict | None = None) -> Iterator[dict[str, Any]]:
@@ -324,7 +325,7 @@ def shard_chemistry_task(payload: dict, progress_cb=None) -> list[dict]:
     output_spec=table_sink(
         model=ScreeningShard, write_mode="upsert", conflict_keys=("source", "shard_index")
     ),
-    output_flush_every=OUTPUT_FLUSH_EVERY,
+    output_flush_every=DEFAULT_OUTPUT_FLUSH_EVERY,
     store_results=False,
 )
 def shard_chemistry_job(params: dict, config: dict | None = None) -> Iterator[dict[str, Any]]:

@@ -19,7 +19,7 @@ from ms_flow.query import QuerySpec, db_rows
 from ms_flow.sinks import table_sink
 from ms_flow.tasking import job, task
 
-from amdockvs.core.configuration import batch_size_for
+from amdockvs.core.configuration import DEFAULT_LIGAND_BATCH_SIZE
 from amdockvs.molecules.storage import as_store, store_from_config
 from amdockvs.core.worker_io import worker_file, worker_output_dir
 from amdockvs.core.constants import (
@@ -54,6 +54,9 @@ class SelectionClusterJobParams(BaseModel):
     fp_nbits: int = Field(default=2048, ge=64)
     cluster_run_id: str = Field(default="")
     num_processes: int = Field(default=1, ge=1)  # >1 → bblean multiround (parallel); matches cpu_required
+    # Resolved on the submit side, where a runtime (and so the project's settings layer) exists;
+    # a worker only ever sees the number it was handed.
+    batch_size: int = Field(default=DEFAULT_LIGAND_BATCH_SIZE, ge=1)
 
 
 def _scope_spec(params: SelectionClusterJobParams) -> QuerySpec:
@@ -77,7 +80,7 @@ def _scope_spec(params: SelectionClusterJobParams) -> QuerySpec:
 def scope_molecule_rows(source, params: SelectionClusterJobParams) -> Iterator[dict[str, Any]]:
     """The molecules in the scope, in keyset pages. Flat rows: whoever wants to wrap them
     does so on the consumer side. `source` is the ligand store or the project db."""
-    return as_store(source).iter_rows(_scope_spec(params), batch_size=batch_size_for("ligand"))
+    return as_store(source).iter_rows(_scope_spec(params), batch_size=int(params.batch_size))
 
 
 def scope_molecule_count(source, params: SelectionClusterJobParams) -> int:
@@ -148,7 +151,7 @@ def _write_packed_fingerprints(
     ids_out = np.lib.format.open_memmap(ids_path, mode="w+", dtype=np.int64, shape=(total,))
     written = 0
     try:
-        for batch in batched(scope_molecule_rows(store or project_db, params), batch_size_for("ligand")):
+        for batch in batched(scope_molecule_rows(store or project_db, params), int(params.batch_size)):
             ids = [int(row["id"]) for row in batch]
             # bounded `molecule_id__in` per batch instead of a scan of the whole fingerprint table
             stored = stored_fingerprints_for_ids(project_db, ids, radius=params.fp_radius, nbits=nbits)

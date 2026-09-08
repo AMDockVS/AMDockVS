@@ -20,12 +20,11 @@ from amdockvs.molecules.storage import LIBRARY_ROWS, LIBRARY_SHARDS, check_libra
 from amdockvs.core.vocab import MoleculeType
 
 
-# The executor loop keeps at most this many chunks in flight per job. It must be
-# comfortably above the CPU count (≥2x) so compute can run ahead while results
-# are staged/persisted; at 16 (the old default) chunks waiting to persist filled
-# the window and starved the CPU pool. 32 covers a 14-16 CPU box at 2x.
-DEFAULT_IMPORT_MAX_INFLIGHT = 32
-
+def import_max_inflight(runtime=None) -> int:
+    """Chunks in flight per import job. Must stay comfortably above the CPU count (>=2x) so
+    compute runs ahead while results are staged; at 16 the chunks waiting to persist filled
+    the window and starved the pool. The default, 32, covers a 14-16 CPU box."""
+    return int(app_config(runtime).batch_sizes.import_max_inflight)
 
 
 def default_shard_size(*, runtime=None) -> int:
@@ -108,7 +107,7 @@ class LoaderAPI:
                 max_job_cpu=None if max_job_cpus is None else max(1, int(max_job_cpus)),
                 depends_on=depends_on,
                 total_chunks=_total_import_chunks(normalized_files, batch_size=max(1, int(batch_size))),
-                max_inflight_tasks=DEFAULT_IMPORT_MAX_INFLIGHT,
+                max_inflight_tasks=import_max_inflight(self.runtime),
             )
         ]
 
@@ -151,7 +150,7 @@ class LoaderAPI:
                 max_job_cpu=None if max_job_cpus is None else max(1, int(max_job_cpus)),
                 depends_on=depends_on,
                 total_chunks=_total_import_chunks(normalized_files, batch_size=max(1, int(batch_size))),
-                max_inflight_tasks=DEFAULT_IMPORT_MAX_INFLIGHT,
+                max_inflight_tasks=import_max_inflight(self.runtime),
             )
         ]
 
@@ -196,7 +195,7 @@ class LoaderAPI:
                 depends_on=depends_on,
                 # ramp=False, like the feed: an over-declared total never completes.
                 total_chunks=_total_import_chunks(normalized_files, batch_size=records, ramp=False),
-                max_inflight_tasks=DEFAULT_IMPORT_MAX_INFLIGHT,
+                max_inflight_tasks=import_max_inflight(self.runtime),
                 # The queue that cuts the shards lives here, in the parent: it needs the
                 # project's shard directory and its database, neither of which a job spec
                 # knows at declaration time.

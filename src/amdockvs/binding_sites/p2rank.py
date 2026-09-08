@@ -18,6 +18,8 @@ from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+from amdockvs.core.configuration import app_config
+from amdockvs.core.paths import tools_home
 from amdockvs.models import BindingSite
 from typing import Any, Iterable
 
@@ -43,20 +45,18 @@ class P2RankInstallation:
     message: str
 
 
-def _data_home() -> Path:
-    configured = str(os.environ.get("AMDOCK_TOOLS_HOME") or "").strip()
-    if configured:
-        return Path(configured).expanduser().resolve()
-    xdg = str(os.environ.get("XDG_DATA_HOME") or "").strip()
-    base = Path(xdg).expanduser() if xdg else Path.home() / ".local" / "share"
-    return (base / "AMDockVS" / "tools").resolve()
+def p2rank_home(version: str = P2RANK_VERSION, runtime=None) -> Path:
+    """The P2Rank install to use: env, then the configured directory, then AMDock's own.
 
-
-def p2rank_home(version: str = P2RANK_VERSION) -> Path:
+    The version stays pinned in code (it keys P2RANK_ARCHIVE_SHA256); what a user needs
+    to override is *where* an existing install lives.
+    """
     configured = str(os.environ.get("AMDOCK_P2RANK_HOME") or "").strip()
+    if not configured:
+        configured = str(app_config(runtime).external_tools.p2rank_home or "").strip()
     if configured:
         return Path(configured).expanduser().resolve()
-    return _data_home() / "p2rank" / str(version)
+    return tools_home(runtime) / "p2rank" / str(version)
 
 
 def find_java_command() -> Path | None:
@@ -210,7 +210,7 @@ def ensure_p2rank(
 
     temporary_archive: Path | None = None
     if selected is None:
-        cache_dir = _data_home() / "downloads"
+        cache_dir = tools_home() / "downloads"
         cache_dir.mkdir(parents=True, exist_ok=True)
         selected = cache_dir / f"p2rank_{version}.tar.gz"
         if not selected.is_file():

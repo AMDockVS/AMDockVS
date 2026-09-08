@@ -51,10 +51,15 @@ def box_from_coords(
     *,
     scale: float = 1.5,
     padding: float = 4.0,
+    minimum: float = 12.0,
+    maximum: float = 30.0,
 ) -> dict:
-    """{center, size, rg}: center = centroid, size = cubic box from radius of gyration."""
+    """{center, size, rg}: center = centroid, size = cubic box from radius of gyration.
+
+    Defaults mirror `[binding_sites]` in the packaged config; callers holding a runtime
+    should pass the configured values (see BindingSitesApi.suggest_box_from_ligand)."""
     rg = radius_of_gyration(coords)
-    edge = box_edge_from_rg(rg, scale=scale, padding=padding)
+    edge = box_edge_from_rg(rg, scale=scale, padding=padding, minimum=minimum, maximum=maximum)
     return {"center": centroid(coords), "size": (edge, edge, edge), "rg": rg}
 
 

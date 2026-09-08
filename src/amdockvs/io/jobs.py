@@ -11,11 +11,15 @@ from ms_flow.sinks import graph_sink, table_sink
 from ms_flow.specs import InputSource
 from ms_flow.tasking import job, task
 
+from amdockvs.core.configuration import (
+    DEFAULT_LIGAND_BATCH_SIZE,
+    DEFAULT_OUTPUT_FLUSH_EVERY,
+    DEFAULT_SHARD_MAX_BYTES,
+    DEFAULT_SHARD_SUGGEST_BYTES,
+)
 from amdockvs.core.constants import (
     AMDOCKVS_LOCAL_EXECUTORS,
     AMDOCKVS_PROCESS_EXECUTORS,
-    DEFAULT_LOAD_BATCH_SIZE,
-    OUTPUT_FLUSH_EVERY,
     RESOURCE_MOLECULES,
 )
 from ms_flow.core.data.shard import MAX_RECORDS as MAX_SHARD_RECORDS
@@ -138,7 +142,7 @@ class LoadFileParams(BaseModel):
     file_paths: list[Path] = Field(default_factory=list)
     storage_dir: Path | None = None
     storage_resource: str | None = None
-    batch_size: int = Field(default=DEFAULT_LOAD_BATCH_SIZE, ge=1)
+    batch_size: int = Field(default=DEFAULT_LIGAND_BATCH_SIZE, ge=1)
     primary_role: str = ""
     primary_context: str = "general"
     molecule_kind: str = "unknown"
@@ -238,7 +242,7 @@ def iter_import_chunks(
     ramp: bool = True,
 ) -> Iterator[dict]:
     yield from FileInput(
-        kind=kind, batch_size=DEFAULT_LOAD_BATCH_SIZE, chunk_bytes=chunk_bytes, ramp=ramp
+        kind=kind, batch_size=DEFAULT_LIGAND_BATCH_SIZE, chunk_bytes=chunk_bytes, ramp=ramp
     ).iter_chunks(params=params, config=config or {})
 
 
@@ -247,11 +251,11 @@ def iter_import_chunks(
 # *records*, not bytes — a batch that had to spill into a second file would break that.
 # The guard, not the knob: it only ever closes a shard *early*, and a shard closed by it says
 # so in its metadata. If it fires in normal operation the records are huge — lower the size.
-SHARD_MAX_BYTES = int(os.environ.get("AMDOCK_SHARD_MAX_BYTES", str(256 * 1024 * 1024)))
+SHARD_MAX_BYTES = int(os.environ.get("AMDOCK_SHARD_MAX_BYTES") or DEFAULT_SHARD_MAX_BYTES)
 # Above this much input, importing as rows is almost certainly a mistake: the importer offers
 # shards instead. ponytail: bytes on disk, not a record count — one stat() per file against
 # parsing 40 GB to answer a question the size already answers.
-SHARD_SUGGEST_BYTES = int(os.environ.get("AMDOCK_SHARD_SUGGEST_BYTES", str(200 * 1024 * 1024)))
+SHARD_SUGGEST_BYTES = int(os.environ.get("AMDOCK_SHARD_SUGGEST_BYTES") or DEFAULT_SHARD_SUGGEST_BYTES)
 
 # Offload SDF tags to parquet sidecars instead of persisting ~34 rows/mol into the
 # project DB. Env-toggle so it can be A/B'd; default on (props are load-on-demand).
@@ -291,7 +295,7 @@ def materialize_multithreaded_sdf_rows(payload: dict, progress_cb=None):
     supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
     # feed_mode="durable_feed",
     output_spec=IMPORT_GRAPH_OUTPUT,
-    output_flush_every=OUTPUT_FLUSH_EVERY,
+    output_flush_every=DEFAULT_OUTPUT_FLUSH_EVERY,
     store_results=False,
 )
 def load_molecules_file_job(params: dict, config: dict | None = None) -> Iterator[dict]:
@@ -306,7 +310,7 @@ def load_molecules_file_job(params: dict, config: dict | None = None) -> Iterato
     supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
     # feed_mode="durable_feed",
     output_spec=IMPORT_GRAPH_OUTPUT,
-    output_flush_every=OUTPUT_FLUSH_EVERY,
+    output_flush_every=DEFAULT_OUTPUT_FLUSH_EVERY,
     store_results=False,
 )
 def load_ligands_file_job(params: dict, config: dict | None = None) -> Iterator[dict]:
@@ -328,7 +332,7 @@ def load_ligands_file_job(params: dict, config: dict | None = None) -> Iterator[
     supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
     # feed_mode="durable_feed",
     output_spec=IMPORT_GRAPH_OUTPUT,
-    output_flush_every=OUTPUT_FLUSH_EVERY,
+    output_flush_every=DEFAULT_OUTPUT_FLUSH_EVERY,
     store_results=False,
 )
 def load_receptors_file_job(params: dict, config: dict | None = None) -> Iterator[dict]:
@@ -351,7 +355,7 @@ def load_receptors_file_job(params: dict, config: dict | None = None) -> Iterato
     cpu_required=4,
     # feed_mode="durable_feed",
     output_spec=IMPORT_GRAPH_OUTPUT,
-    output_flush_every=OUTPUT_FLUSH_EVERY,
+    output_flush_every=DEFAULT_OUTPUT_FLUSH_EVERY,
     store_results=False,
 )
 def load_ligands_multithreaded_sdf_job(params: dict, config: dict | None = None) -> Iterator[dict]:
@@ -401,7 +405,7 @@ def filter_ligand_span_task(payload: dict, progress_cb=None) -> list[dict]:
     # No output_spec: `ShardQueueWriter` is the sink. It writes the shard *and* its inventory
     # row, because only the parent can say which records share a shard.
     result_handler_factory=shard_queue_writer,
-    output_flush_every=OUTPUT_FLUSH_EVERY,
+    output_flush_every=DEFAULT_OUTPUT_FLUSH_EVERY,
     store_results=False,
 )
 def shard_ligands_job(params: dict, config: dict | None = None) -> Iterator[dict]:

@@ -31,6 +31,7 @@ from ms_flow.tasking import JobSpec
 from ms_flow.core.data.shard import Shard
 
 from amdockvs.core.worker_io import worker_file, worker_output_dir
+from amdockvs.core.configuration import DEFAULT_HIT_SAFETY_CAP
 from amdockvs.core.constants import AMDOCKVS_LOCAL_EXECUTORS, DEFAULT_VINA_BACKEND, DEFAULT_VINA_COMMAND
 from amdockvs.docking.engines.registry import run_docking_chunk
 from amdockvs.docking.engines.programs import chunk_resources
@@ -77,8 +78,9 @@ HIT_MODES = (HIT_MODE_THRESHOLD, HIT_MODE_TOP_N)
 
 # By-threshold has no hit count of its own — "everything under the cutoff" is the criterion.
 # This is only the unattended-run ceiling: a campaign that reaches it has a wrong threshold,
-# not a lucky library.
-HIT_SAFETY_CAP = 100_000
+# not a lucky library. Settings > shards > hit_cap; this is the packaged default for code
+# evaluated before a runtime exists.
+HIT_SAFETY_CAP = DEFAULT_HIT_SAFETY_CAP
 
 # The prefilter a ranked run uses: none. Docking scores are negative, so this only drops poses
 # that did not bind at all — "best N of the whole run" must not quietly exclude what the user

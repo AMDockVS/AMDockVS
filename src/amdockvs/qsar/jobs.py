@@ -13,9 +13,9 @@ from ms_flow.tasking import job, task
 
 from amdockvs.chemistry.descriptors import calculate_descriptor_rows
 from amdockvs.core.worker_io import worker_file
+from amdockvs.core.configuration import DEFAULT_LIGAND_BATCH_SIZE
 from amdockvs.core.constants import (
     AMDOCKVS_LOCAL_EXECUTORS,
-    DEFAULT_DESCRIPTOR_BATCH_SIZE,
     TABLE_DESCRIPTORS,
     TABLE_FINGERPRINTS,
     TABLE_MOLECULES,
@@ -29,7 +29,7 @@ from amdockvs.project.sets import molecule_set_spec, prepared_molecules_spec
 
 
 class DescriptorJobParams(BaseModel):
-    batch_size: int = Field(default=DEFAULT_DESCRIPTOR_BATCH_SIZE, ge=1)
+    batch_size: int = Field(default=DEFAULT_LIGAND_BATCH_SIZE, ge=1)
     molecule_set_id: int | None = Field(default=None, ge=1)
     molecule_filters: dict[str, Any] = Field(default_factory=dict)
     only_missing: bool = Field(default=False)

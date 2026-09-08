@@ -10,8 +10,8 @@ from sqlalchemy import exists, or_
 from sqlmodel import select
 
 import amdockvs.docking.results.repository as results_repo
+from amdockvs.core.configuration import DEFAULT_DOCKING_BATCH_SIZE, app_config, batch_size_for
 from amdockvs.core.constants import (
-    DEFAULT_DOCKING_BATCH_SIZE,
     DEFAULT_LOCAL_CPU_EXECUTOR,
     DEFAULT_VINA_BACKEND,
     DEFAULT_VINA_COMMAND,
@@ -960,7 +960,7 @@ class DockingAPI:
             energy_range=energy_range,
             min_rmsd=min_rmsd,
         )
-        resolved_batch_size = max(1, int(batch_size or DEFAULT_DOCKING_BATCH_SIZE))
+        resolved_batch_size = max(1, int(batch_size or app_config(self.runtime).batch_sizes.docking))
         ligand_set_ref = None if ligand_set is None or isinstance(ligand_set,
                                                                   MoleculeScope) else ensure_molecule_set_ref(
             self.runtime, ligand_set, name="docking_ligand_input")
@@ -1034,6 +1034,7 @@ class DockingAPI:
         params = DockingJobParams(
             output_dir=resolved_output,
             batch_size=resolved_batch_size,
+            row_batch_size=batch_size_for("ligand", self.runtime),
             ligand_set_id=None if ligand_set_ref is None else int(ligand_set_ref.id),
             receptor_set_id=None if receptor_set_ref is None else int(receptor_set_ref.id),
             ligand_filters=ligand_filters,

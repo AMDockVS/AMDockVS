@@ -6,8 +6,9 @@ from pathlib import Path
 from typing import Any
 
 
+from amdockvs.core.configuration import DEFAULT_TEMPERATURE_K
+
 R_KCAL_MOL_K = 0.00198720425864083
-DEFAULT_TEMPERATURE_K = 298.15
 
 
 def predicted_ki_m(delta_g_kcal_mol: float, *, temperature_k: float = DEFAULT_TEMPERATURE_K) -> float | None:

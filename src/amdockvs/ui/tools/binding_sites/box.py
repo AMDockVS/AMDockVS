@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from amdockvs.core.configuration import app_config
 from amdockvs.models import BindingSite, MoleculeRecord
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.resources.icons import icon as load_icon
@@ -590,12 +591,21 @@ class GridBoxSettingDockWidget(QWidget):
         receptor_vdw = [a[3] for a in receptor_atoms]
         selection_list = [tuple(float(v) for v in p) for p in selection_coords]
 
+        geometry = app_config(getattr(self.window(), "runtime", None)).binding_sites
+
         def compute() -> tuple[dict, str]:
             # LIGSITE pocket detection when possible; fall back to the bounded-push heuristic if
             # scipy is missing or no accessible pocket is found near the selection. Runs off the
             # GUI thread — a large receptor's voxel grid can take ~1s.
             try:
-                box = pseudo_pocket_box(receptor_xyz, receptor_vdw, selection_list)
+                box = pseudo_pocket_box(
+                    receptor_xyz,
+                    receptor_vdw,
+                    selection_list,
+                    max_burial=geometry.cavity_max_burial,
+                    padding=geometry.box_padding,
+                    max_edge=geometry.box_max_edge,
+                )
                 return box, ("accessible surface (no deep pocket)" if box.get("fallback") else "detected pocket")
             except Exception:
                 return pseudo_ligand_box(receptor_xyz, selection_list), "centroid push (fallback)"

@@ -14,6 +14,7 @@ from uuid import uuid4
 
 from sqlmodel import select
 
+from amdockvs.core.configuration import app_config
 from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR, RESOURCE_POCKET_PREDICTIONS
 from amdockvs.models import BindingSite, MoleculeRecord
 from amdockvs.core.paths import preferred_molecule_path
@@ -368,11 +369,13 @@ class BindingSiteAPI:
             self,
             *,
             ligand_id: int,
-            scale: float = 1.5,
-            padding: float = 4.0,
+            scale: float | None = None,
+            padding: float | None = None,
     ) -> dict[str, Any]:
         """Auto box from a reference ligand: center = its centroid, size = cubic box
-        derived from the ligand's radius of gyration. Returns {center, size, rg}."""
+        derived from the ligand's radius of gyration. Returns {center, size, rg}.
+
+        `scale`/`padding` default to the configured geometry (settings > binding_sites)."""
         self.runtime._require_active_project()
         with self.runtime.molsuite.project_db.get_session() as session:
             ligand = session.get(MoleculeRecord, int(ligand_id))
@@ -384,7 +387,14 @@ class BindingSiteAPI:
         coords = _read_atom_coords(Path(path))
         if not coords:
             raise ValueError(f"No atom coordinates found in {Path(path).name}.")
-        return box_from_coords(coords, scale=float(scale), padding=float(padding))
+        geometry = app_config(self.runtime).binding_sites
+        return box_from_coords(
+            coords,
+            scale=geometry.box_scale if scale is None else float(scale),
+            padding=geometry.box_padding if padding is None else float(padding),
+            minimum=geometry.box_min_edge,
+            maximum=geometry.box_max_edge,
+        )
 
     def set_active_site(self, *, molecule_id: int, binding_site_id: int | None) -> None:
         self.runtime._require_active_project()

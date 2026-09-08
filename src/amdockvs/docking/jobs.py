@@ -15,11 +15,10 @@ from ms_flow.sinks import table_sink
 from ms_flow.specs import InputSource
 from ms_flow.tasking import JobSpec
 
-from amdockvs.core.configuration import batch_size_for
+from amdockvs.core.configuration import DEFAULT_DOCKING_BATCH_SIZE, DEFAULT_LIGAND_BATCH_SIZE
 from amdockvs.core.worker_io import worker_file, worker_output_dir
 from amdockvs.core.constants import (
     AMDOCKVS_LOCAL_EXECUTORS,
-    DEFAULT_DOCKING_BATCH_SIZE,
     DEFAULT_VINA_BACKEND,
     DEFAULT_VINA_COMMAND,
 )
@@ -196,6 +195,9 @@ def count_pending_redocking_pairs(
 class DockingJobParams(BaseModel):
     output_dir: str | None = None
     batch_size: int = Field(default=DEFAULT_DOCKING_BATCH_SIZE, ge=1)
+    # Rows per DB page while walking the ligand scope — unrelated to `batch_size` (pairs per
+    # task). Resolved on the submit side so the project's settings layer reaches the worker.
+    row_batch_size: int = Field(default=DEFAULT_LIGAND_BATCH_SIZE, ge=1)
     engine: str = "vina"
     preparation_engine: str = "ad4"
     requires_ligand_preparation: bool = True
@@ -266,6 +268,7 @@ def iter_docking_batches(
     project_db,
     output_dir: str | Path,
     batch_size: int = DEFAULT_DOCKING_BATCH_SIZE,
+    row_batch_size: int = DEFAULT_LIGAND_BATCH_SIZE,
     engine: str = "vina",
     ligand_set_id: int | None = None,
     receptor_set_id: int | None = None,
@@ -365,7 +368,7 @@ def iter_docking_batches(
                     "prepared_engine_path", "prepared_files",
                     "heavy_atom_count", "mw", "logp", "tpsa", "hbd", "hba"),
             order=("id",),
-            batch_size=batch_size_for("ligand"),
+            batch_size=int(row_batch_size),
         )
 
     yield from iter_docking_batches_from_rows(
@@ -617,6 +620,7 @@ class DockingPairsInput(InputSource):
             project_db=project_db,
             output_dir=output_dir,
             batch_size=int(params_map.get("batch_size", self.batch_size)),
+            row_batch_size=int(params_map.get("row_batch_size") or DEFAULT_LIGAND_BATCH_SIZE),
             engine=str(params_map.get("engine") or "vina"),
             preparation_engine=str(params_map.get("preparation_engine") or params_map.get("engine") or "ad4"),
             ligand_set_id=params_map.get("ligand_set_id"),

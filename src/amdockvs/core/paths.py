@@ -2,12 +2,31 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any, Mapping
 
+from amdockvs.core.configuration import app_config
+
 
 _DEFAULT_PROJECT_ROOT: Path | None = None
+
+
+def tools_home(runtime=None) -> Path:
+    """Where AMDock installs the third-party tools it manages (p2rank, protonation envs).
+
+    Env var wins so an HPC job can be pointed elsewhere without touching a config file;
+    then the setting; then the XDG data directory.
+    """
+    configured = str(os.environ.get("AMDOCK_TOOLS_HOME") or "").strip()
+    if not configured:
+        configured = str(app_config(runtime).external_tools.tools_home or "").strip()
+    if configured:
+        return Path(configured).expanduser().resolve()
+    xdg = str(os.environ.get("XDG_DATA_HOME") or "").strip()
+    base = Path(xdg).expanduser() if xdg else Path.home() / ".local" / "share"
+    return (base / "AMDockVS" / "tools").resolve()
 
 
 def normalize_path(raw_path: str | Path | None) -> Path | None:

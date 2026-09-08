@@ -1,13 +1,40 @@
 [molecule_display]
 max_2d_preview_heavy_atoms = 50
 
+[docking]
+temperature_k = 298.15
+
 [batch_sizes]
 ligand = 1000
 receptor = 32
+docking = 4
+output_flush_every = 16
+import_max_inflight = 32
 
 [shards]
 records_per_shard = 1000
 keep_history = false
+max_bytes = 268435456
+suggest_bytes = 209715200
+hit_cap = 100000
+
+[binding_sites]
+box_scale = 1.5
+box_padding = 4.0
+box_min_edge = 12.0
+box_max_edge = 30.0
+cavity_max_burial = 10.0
+
+# Empty paths mean "autodetect"; see ExternalToolsConfiguration.
+[external_tools]
+tools_home = ""
+vina_path = ""
+p2rank_home = ""
+
+[diversity]
+inline_run_limit = 50000
+molecules_per_cpu = 25000
+sample_limit = 2000
 
 [protonation.openbabel]
 version = "3.1.1"
