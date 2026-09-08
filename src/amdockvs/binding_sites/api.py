@@ -13,6 +13,7 @@ from typing import Any, Iterable, Mapping
 from uuid import uuid4
 
 from sqlmodel import select
+from ms_flow.selection import Selection
 
 from amdockvs.core.configuration import app_config
 from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR, RESOURCE_POCKET_PREDICTIONS
@@ -26,6 +27,7 @@ from amdockvs.binding_sites.p2rank import (
     ensure_p2rank,
     p2rank_status,
 )
+from amdockvs.binding_sites.scopes import BindingSiteScope
 
 
 def defined_reference_ligands(extra_data: Any) -> list[str]:
@@ -87,6 +89,50 @@ class P2RankPredictionPlan:
 @dataclass
 class BindingSiteAPI:
     runtime: Any
+
+    def _selection(self, scope: BindingSiteScope) -> Selection[BindingSite]:
+        return Selection(
+            scope=scope,
+            _stream=lambda: self._stream_scope(scope),
+            _count=lambda: sum(1 for _ in self._stream_scope(scope)),
+        )
+
+    def _stream_scope(self, scope: BindingSiteScope):
+        self.runtime._require_active_project()
+        if scope.limit is not None and scope.limit <= 0:
+            return
+        with self.runtime.molsuite.project_db.get_session() as session:
+            statement = select(BindingSite)
+            if scope.molecule_id is not None:
+                statement = statement.where(BindingSite.molecule_id == int(scope.molecule_id))
+            if scope.source is not None:
+                statement = statement.where(BindingSite.source == str(scope.source))
+            rows = list(session.exec(statement.order_by(BindingSite.molecule_id, BindingSite.id)))
+        matched = 0
+        for row in rows:
+            if scope.run_id is not None and str((row.extra_data or {}).get("run_id") or "") != scope.run_id:
+                continue
+            yield row
+            matched += 1
+            if scope.limit is not None and matched >= scope.limit:
+                return
+
+    def select(
+        self,
+        *,
+        molecule_id: int | None = None,
+        source: str | None = None,
+        run_id: str | None = None,
+        limit: int | None = None,
+    ) -> Selection[BindingSite]:
+        """Build a lazy binding-site selection."""
+        self.runtime._require_active_project()
+        return self._selection(BindingSiteScope(
+            molecule_id=None if molecule_id is None else int(molecule_id),
+            source=str(source) if source is not None else None,
+            run_id=str(run_id) if run_id is not None else None,
+            limit=None if limit is None else max(0, int(limit)),
+        ))
 
     def tool_status(self) -> P2RankInstallation:
         return p2rank_status()
@@ -220,22 +266,7 @@ class BindingSiteAPI:
         receptor_id: int | None = None,
         run_id: str | None = None,
     ) -> list[BindingSite]:
-        self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
-            statement = select(BindingSite).where(BindingSite.source == "p2rank")
-            if receptor_id is not None:
-                statement = statement.where(BindingSite.molecule_id == int(receptor_id))
-            rows = session.exec(
-                statement.order_by(BindingSite.molecule_id, BindingSite.id)
-            ).all()
-            result = list(rows)
-        if run_id:
-            result = [
-                row
-                for row in result
-                if str((row.extra_data or {}).get("run_id") or "") == str(run_id)
-            ]
-        return result
+        return list(self.select(molecule_id=receptor_id, source="p2rank", run_id=run_id))
 
     def delete_sites(self, binding_site_ids: Iterable[int]) -> int:
         """Deletes sites by id. The counterpart of prediction being additive."""
@@ -311,14 +342,7 @@ class BindingSiteAPI:
         )
 
     def list_sites(self, *, molecule_id: int) -> list[BindingSite]:
-        self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
-            rows = session.exec(
-                select(BindingSite)
-                .where(BindingSite.molecule_id == int(molecule_id))
-                .order_by(BindingSite.id)
-            ).all()
-        return list(rows)
+        return list(self.select(molecule_id=molecule_id))
 
     def save_site(
             self,

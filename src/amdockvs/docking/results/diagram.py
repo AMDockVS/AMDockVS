@@ -91,6 +91,7 @@ def build_pose_diagram(
         return None
 
     from ms_contactmap import build_diagram
+    from amdockvs.io.formats import as_pdb
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
@@ -103,7 +104,12 @@ def build_pose_diagram(
         # as_pdb_block strips the PDBQT tail (which buries the element column) and the
         # per-half END records. The TER keeps the ligand a residue of its own instead of the
         # last residue of the receptor chain.
-        receptor_text = as_pdb_block(receptor.read_text(encoding="utf-8", errors="ignore"))
+        # Receptors are canonically stored as mmCIF, but the complex handed to
+        # ms_contactmap must be fixed-column PDB (also true for PDBQT inputs).
+        with as_pdb(receptor) as readable_receptor:
+            receptor_text = as_pdb_block(
+                readable_receptor.read_text(encoding="utf-8", errors="ignore")
+            )
         ligand_text = as_pdb_block(
             ligand_pdb.read_text(encoding="utf-8", errors="ignore"),
             chain=chain,

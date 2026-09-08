@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from itertools import batched
+from itertools import batched, islice
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import exists, or_
 from sqlmodel import select
+from ms_flow.selection import Selection
 
 import amdockvs.docking.results.repository as results_repo
 from amdockvs.core.configuration import DEFAULT_DOCKING_BATCH_SIZE, app_config, batch_size_for
@@ -69,10 +70,11 @@ from amdockvs.docking.preparation.jobs import (
     prepare_receptors_job,
 )
 from amdockvs.core.normalize import PathLike
-from amdockvs.molecules.scopes import MoleculeScope, scope_payload
+from amdockvs.molecules.scopes import MoleculeScope, is_molecule_scope, scope_payload
 from amdockvs.binding_sites.repository import active_site as _active_site
 from amdockvs.docking.residues import residues_in_box
 from amdockvs.core.paths import preferred_molecule_path
+from amdockvs.io.formats import as_pdb
 from amdockvs.molecules.api import ensure_molecule_set_ref
 from amdockvs.models import BindingSite, EngineState, MoleculeRecord
 from amdockvs.project.sets import ComplexSetRef, MoleculeSetRef
@@ -280,10 +282,9 @@ class DockingAPI:
     ) -> dict[str, Any]:
         self.runtime._require_active_project()
         program_spec = self.get_program_spec(program)
-        ligand_set_ref = None if ligand_set is None or isinstance(ligand_set,
-                                                                  MoleculeScope) else ensure_molecule_set_ref(
+        ligand_set_ref = None if ligand_set is None or is_molecule_scope(ligand_set) else ensure_molecule_set_ref(
             self.runtime, ligand_set, name="prepare_ligands_check_input")
-        ligand_scope = scope_payload(ligand_set) if isinstance(ligand_set, MoleculeScope) else {}
+        ligand_scope = scope_payload(ligand_set) if is_molecule_scope(ligand_set) else {}
         ligand_filters = self._program_scope_filters(ligand_scope, role="ligand", program=program_spec)
         project_db = self.runtime.molsuite.project_db
         set_id = None if ligand_set_ref is None else int(ligand_set_ref.id)
@@ -338,6 +339,7 @@ class DockingAPI:
             self,
             *,
             program: str = VINA_PROGRAM.key,
+            ligands: MoleculeSetRef | MoleculeScope | Selection[MoleculeRecord] | int | None = None,
             ligand_set: MoleculeSetRef | MoleculeScope | int | None = None,
             batch_size: int | None = None,  # None -> settings (batch_sizes.ligand)
             force: bool = False,
@@ -345,6 +347,10 @@ class DockingAPI:
             depends_on: list[str] | None = None,
             check_required: bool = True,
     ) -> str:
+        if ligands is not None:
+            if ligand_set is not None:
+                raise ValueError("Pass either ligands or ligand_set, not both.")
+            ligand_set = ligands
         program_spec = self.get_program_spec(program)
         if not program_spec.requires_ligand_preparation:
             raise ValueError(f"Docking program '{program_spec.key}' does not require ligand preparation.")
@@ -376,10 +382,9 @@ class DockingAPI:
                     f"Missing has_3d for {missing_count} ligand(s): {shown}. "
                     "Run runtime.chemistry.generate_3d_ligands(...) first."
                 )
-        ligand_set_ref = None if ligand_set is None or isinstance(ligand_set,
-                                                                  MoleculeScope) else ensure_molecule_set_ref(
+        ligand_set_ref = None if ligand_set is None or is_molecule_scope(ligand_set) else ensure_molecule_set_ref(
             self.runtime, ligand_set, name="prepare_ligands_input")
-        ligand_scope = scope_payload(ligand_set) if isinstance(ligand_set, MoleculeScope) else {}
+        ligand_scope = scope_payload(ligand_set) if is_molecule_scope(ligand_set) else {}
         ligand_filters = self._program_scope_filters(ligand_scope, role="ligand", program=program_spec)
         params = PreparationJobParams(
             batch_size=batch_size,
@@ -493,10 +498,10 @@ class DockingAPI:
             min_rmsd=min_rmsd,
         )
         receptor_set_ref = (
-            None if receptor_set is None or isinstance(receptor_set, MoleculeScope)
+            None if receptor_set is None or is_molecule_scope(receptor_set)
             else ensure_molecule_set_ref(self.runtime, receptor_set, name="docking_receptor_input")
         )
-        receptor_scope = scope_payload(receptor_set) if isinstance(receptor_set, MoleculeScope) else {}
+        receptor_scope = scope_payload(receptor_set) if is_molecule_scope(receptor_set) else {}
         receptor_filters = self._program_scope_filters(receptor_scope, role="receptor", program=program_spec)
         params = DockShardsJobParams(
             output_dir=(
@@ -555,6 +560,7 @@ class DockingAPI:
             self,
             *,
             program: str = VINA_PROGRAM.key,
+            receptors: MoleculeSetRef | MoleculeScope | Selection[MoleculeRecord] | int | None = None,
             receptor_set: MoleculeSetRef | MoleculeScope | int | None = None,
             batch_size: int | None = None,  # None -> settings (batch_sizes.receptor)
             force: bool = False,
@@ -563,13 +569,16 @@ class DockingAPI:
             executor_name: str = DEFAULT_LOCAL_CPU_EXECUTOR,
             depends_on: list[str] | None = None,
     ) -> str:
+        if receptors is not None:
+            if receptor_set is not None:
+                raise ValueError("Pass either receptors or receptor_set, not both.")
+            receptor_set = receptors
         program_spec = self.get_program_spec(program)
         if not program_spec.requires_receptor_preparation:
             raise ValueError(f"Docking program '{program_spec.key}' does not require receptor preparation.")
-        receptor_set_ref = None if receptor_set is None or isinstance(receptor_set,
-                                                                      MoleculeScope) else ensure_molecule_set_ref(
+        receptor_set_ref = None if receptor_set is None or is_molecule_scope(receptor_set) else ensure_molecule_set_ref(
             self.runtime, receptor_set, name="prepare_receptors_input")
-        receptor_scope = scope_payload(receptor_set) if isinstance(receptor_set, MoleculeScope) else {}
+        receptor_scope = scope_payload(receptor_set) if is_molecule_scope(receptor_set) else {}
         receptor_filters = self._program_scope_filters(receptor_scope, role="receptor", program=program_spec)
         params = PreparationJobParams(
             batch_size=batch_size,
@@ -651,14 +660,12 @@ class DockingAPI:
     ) -> dict[str, Any]:
         self.runtime._require_active_project()
         program_spec = self.get_program_spec(program)
-        ligand_set_ref = None if ligand_set is None or isinstance(ligand_set,
-                                                                  MoleculeScope) else ensure_molecule_set_ref(
+        ligand_set_ref = None if ligand_set is None or is_molecule_scope(ligand_set) else ensure_molecule_set_ref(
             self.runtime, ligand_set, name="docking_check_ligand_input")
-        receptor_set_ref = None if receptor_set is None or isinstance(receptor_set,
-                                                                      MoleculeScope) else ensure_molecule_set_ref(
+        receptor_set_ref = None if receptor_set is None or is_molecule_scope(receptor_set) else ensure_molecule_set_ref(
             self.runtime, receptor_set, name="docking_check_receptor_input")
-        ligand_scope = scope_payload(ligand_set) if isinstance(ligand_set, MoleculeScope) else {}
-        receptor_scope = scope_payload(receptor_set) if isinstance(receptor_set, MoleculeScope) else {}
+        ligand_scope = scope_payload(ligand_set) if is_molecule_scope(ligand_set) else {}
+        receptor_scope = scope_payload(receptor_set) if is_molecule_scope(receptor_set) else {}
         ligand_filters = self._program_scope_filters(ligand_scope, role="ligand", program=program_spec)
         receptor_filters = self._program_scope_filters(receptor_scope, role="receptor", program=program_spec)
         project_db = self.runtime.molsuite.project_db
@@ -755,12 +762,15 @@ class DockingAPI:
         if path is None or not path.exists():
             return []
         try:
-            text = path.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
+            with as_pdb(path) as readable_receptor:
+                residues = residues_in_box(
+                    readable_receptor.read_text(encoding="utf-8", errors="ignore"), center, size
+                )
+        except (OSError, ValueError):
             return []
         return [
             {"key": r.key, "label": r.label, "chain": r.chain, "resname": r.resname, "resnum": r.resnum}
-            for r in residues_in_box(text, center, size)
+            for r in residues
         ]
 
     def get_flexible_residues(self, *, receptor_id: int) -> list[str]:
@@ -801,10 +811,10 @@ class DockingAPI:
         program_spec = self.get_program_spec(program)
         receptor_set_ref = (
             None
-            if receptor_set is None or isinstance(receptor_set, MoleculeScope)
+            if receptor_set is None or is_molecule_scope(receptor_set)
             else ensure_molecule_set_ref(self.runtime, receptor_set, name="docking_check_receptor_input")
         )
-        receptor_scope = scope_payload(receptor_set) if isinstance(receptor_set, MoleculeScope) else {}
+        receptor_scope = scope_payload(receptor_set) if is_molecule_scope(receptor_set) else {}
         receptor_filters = self._program_scope_filters(receptor_scope, role="receptor", program=program_spec)
         receptor_rows = list_entity_rows(
             self.runtime.molsuite.project_db,
@@ -839,18 +849,21 @@ class DockingAPI:
             },
         }
 
-    def _grid_from_receptor_set(
+    def _grid_from_receptor_source(
             self,
-            receptor_set_ref: MoleculeSetRef | None,
+            receptor_source,
             *,
             engine: str,
     ) -> tuple[tuple[float, float, float], tuple[float, float, float], float] | None:
-        if receptor_set_ref is None:
+        if receptor_source is None:
             return None
-        receptor_ids = list_receptor_ids_in_set(
-            self.runtime.molsuite.project_db,
-            receptor_set_id=int(receptor_set_ref.id),
-        )
+        if is_molecule_scope(receptor_source):
+            receptor_ids = list(islice(self.runtime.molecules.stream_ids(receptor_source), 2))
+        else:
+            receptor_ids = list_receptor_ids_in_set(
+                self.runtime.molsuite.project_db,
+                receptor_set_id=int(receptor_source.id),
+            )
         if len(receptor_ids) != 1:
             return None
         grid = self.get_grid(receptor_id=receptor_ids[0], engine=engine)
@@ -866,6 +879,8 @@ class DockingAPI:
             self,
             *,
             program: str = VINA_PROGRAM.key,
+            ligands: MoleculeSetRef | MoleculeScope | Selection[MoleculeRecord] | int | None = None,
+            receptors: MoleculeSetRef | MoleculeScope | Selection[MoleculeRecord] | int | None = None,
             ligand_set: MoleculeSetRef | MoleculeScope | int | None = None,
             receptor_set: MoleculeSetRef | MoleculeScope | int | None = None,
             output_dir: PathLike | None = None,
@@ -901,6 +916,14 @@ class DockingAPI:
         ``hit_threshold``/``hit_cap`` are optional for materialized rows and mandatory for a
         sharded library, where returning every scored molecule would defeat the storage model.
         """
+        if ligands is not None:
+            if ligand_set is not None:
+                raise ValueError("Pass either ligands or ligand_set, not both.")
+            ligand_set = ligands
+        if receptors is not None:
+            if receptor_set is not None:
+                raise ValueError("Pass either receptors or receptor_set, not both.")
+            receptor_set = receptors
         self.runtime._require_active_project()
         if ligand_set is None and has_shards(self.runtime.molsuite.project_db):
             if hit_threshold is None or int(hit_cap) <= 0:
@@ -961,18 +984,19 @@ class DockingAPI:
             min_rmsd=min_rmsd,
         )
         resolved_batch_size = max(1, int(batch_size or app_config(self.runtime).batch_sizes.docking))
-        ligand_set_ref = None if ligand_set is None or isinstance(ligand_set,
-                                                                  MoleculeScope) else ensure_molecule_set_ref(
+        ligand_set_ref = None if ligand_set is None or is_molecule_scope(ligand_set) else ensure_molecule_set_ref(
             self.runtime, ligand_set, name="docking_ligand_input")
-        receptor_set_ref = None if receptor_set is None or isinstance(receptor_set,
-                                                                      MoleculeScope) else ensure_molecule_set_ref(
+        receptor_set_ref = None if receptor_set is None or is_molecule_scope(receptor_set) else ensure_molecule_set_ref(
             self.runtime, receptor_set, name="docking_receptor_input")
-        ligand_scope = scope_payload(ligand_set) if isinstance(ligand_set, MoleculeScope) else {}
-        receptor_scope = scope_payload(receptor_set) if isinstance(receptor_set, MoleculeScope) else {}
+        ligand_scope = scope_payload(ligand_set) if is_molecule_scope(ligand_set) else {}
+        receptor_scope = scope_payload(receptor_set) if is_molecule_scope(receptor_set) else {}
         ligand_filters = self._program_scope_filters(ligand_scope, role="ligand", program=program_spec)
         receptor_filters = self._program_scope_filters(receptor_scope, role="receptor", program=program_spec)
         if box_center is None or box_size is None:
-            resolved_grid = self._grid_from_receptor_set(receptor_set_ref, engine=program_spec.preparation_engine)
+            resolved_grid = self._grid_from_receptor_source(
+                receptor_set if is_molecule_scope(receptor_set) else receptor_set_ref,
+                engine=program_spec.preparation_engine,
+            )
             if resolved_grid is not None:
                 box_center, box_size, spacing = resolved_grid
         if (box_center is None) ^ (box_size is None):
@@ -983,8 +1007,8 @@ class DockingAPI:
         # making progress hover near 50-60% regardless of actual completion).
         requirement_check = self.check_required(
             program=program_spec.key,
-            ligand_set=ligand_set if isinstance(ligand_set, MoleculeScope) else ligand_set_ref,
-            receptor_set=receptor_set if isinstance(receptor_set, MoleculeScope) else receptor_set_ref,
+            ligand_set=ligand_set if is_molecule_scope(ligand_set) else ligand_set_ref,
+            receptor_set=receptor_set if is_molecule_scope(receptor_set) else receptor_set_ref,
         )
         if check_required and not bool(requirement_check.get("ready")):
             missing = dict(requirement_check.get("missing") or {})

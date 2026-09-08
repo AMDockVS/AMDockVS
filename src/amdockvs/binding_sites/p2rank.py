@@ -414,27 +414,32 @@ def run_p2rank_prediction(payload: dict[str, Any]) -> list[dict[str, Any]]:
         raise RuntimeError(f"P2Rank requires Java 17+; invalid Java command: {java_path}")
 
     profile = str(payload.get("profile") or "default").strip().lower()
-    command = [
-        str(command_path),
-        "predict",
-        "-f",
-        str(receptor_path),
-        "-o",
-        str(output_dir),
-        "-threads",
-        str(max(1, int(payload.get("threads") or 1))),
-        "-visualizations",
-        "1",
-        "-vis_renderers",
-        "pymol",
-    ]
-    if profile == "alphafold":
-        command.extend(["-c", "alphafold"])
     env = dict(os.environ)
     java_home = java_path.parent.parent
     env["JAVA_HOME"] = str(java_home)
     env["PATH"] = f"{java_path.parent}{os.pathsep}{env.get('PATH', '')}"
-    _run_managed(command, cwd=command_path.parent, env=env)
+    # P2Rank's BioJava reader cannot load every valid mmCIF emitted by Gemmi.
+    # AMDock stores receptors as mmCIF, so use the project's PDB tool boundary.
+    from amdockvs.io.formats import as_pdb
+
+    with as_pdb(receptor_path) as readable_receptor:
+        command = [
+            str(command_path),
+            "predict",
+            "-f",
+            str(readable_receptor),
+            "-o",
+            str(output_dir),
+            "-threads",
+            str(max(1, int(payload.get("threads") or 1))),
+            "-visualizations",
+            "1",
+            "-vis_renderers",
+            "pymol",
+        ]
+        if profile == "alphafold":
+            command.extend(["-c", "alphafold"])
+        _run_managed(command, cwd=command_path.parent, env=env)
     return parse_p2rank_outputs(
         output_dir=output_dir,
         receptor_id=int(payload.get("receptor_id") or 0),

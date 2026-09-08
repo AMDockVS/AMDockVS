@@ -7,9 +7,10 @@ from typing import Any, Iterable, Iterator, Mapping
 from sqlalchemy import and_, update as sql_update
 from sqlmodel import select
 from ms_flow.query import QuerySpec, db_count, db_pages
+from ms_flow.selection import Selection
 
 from amdockvs.core.normalize import merge_filter_mappings, normalize_ids, normalize_set_name
-from amdockvs.molecules.scopes import MoleculeScope
+from amdockvs.molecules.scopes import MoleculeScope, as_molecule_scope, is_molecule_scope
 from amdockvs.core.constants import TABLE_MOLECULES
 from amdockvs.models import (
     BindingSite,
@@ -39,14 +40,17 @@ def ensure_molecule_set_ref(runtime: Any, source, *, name: str) -> MoleculeSetRe
             if status.status != "completed":
                 raise RuntimeError(status)
         return source
-    if isinstance(source, MoleculeScope):
+    if is_molecule_scope(source):
         return runtime.molecules.create_set(source, name=name, kind="snapshot")
     return MoleculeSetRef(id=int(source), kind="snapshot")
 
 
-def _molecule_spec(scope: MoleculeScope) -> QuerySpec:
+def _molecule_spec(scope: MoleculeScope | Selection[Any]) -> QuerySpec:
     """MoleculeScope -> QuerySpec. Membership and preparation state live in other tables and are
     declared as subqueries: the DB resolves them and no id list is ever materialised."""
+    scope = as_molecule_scope(scope)
+    if scope is None:
+        raise ValueError("A molecule scope is required.")
     filters = dict(scope.filters or {})
     in_specs: list[QuerySpec] = []
     if scope.source_set_id is not None:
@@ -154,7 +158,7 @@ class MoleculeAPI:
         self.runtime._require_active_project()
         sync_all_molecule_in_set_flags(self.runtime.molsuite.project_db)
 
-    def scope_clause(self, scope: MoleculeScope):
+    def scope_clause(self, scope: MoleculeScope | Selection[Any]):
         """Opaque SmartTable adapter for a public molecule scope.
 
         ORM expressions stay behind the AMDock API; UI callers only pass the returned value to
@@ -163,12 +167,12 @@ class MoleculeAPI:
         self.runtime._require_active_project()
         from amdockvs.molecules import filtering as filter_sql
 
-        conditions = filter_sql.scope_conditions(self.runtime.molsuite.project_db, scope)
+        conditions = filter_sql.scope_conditions(self.runtime.molsuite.project_db, as_molecule_scope(scope))
         return and_(*conditions) if conditions else None
 
     def evaluate_filter(
         self,
-        scope: MoleculeScope,
+        scope: MoleculeScope | Selection[Any],
         criteria,
         *,
         exclusion_reason_prefix: str = "",
@@ -177,7 +181,7 @@ class MoleculeAPI:
         self.runtime._require_active_project()
         from amdockvs.molecules import filtering as filter_sql
 
-        conditions = filter_sql.scope_conditions(self.runtime.molsuite.project_db, scope)
+        conditions = filter_sql.scope_conditions(self.runtime.molsuite.project_db, as_molecule_scope(scope))
         prefix = str(exclusion_reason_prefix or "").strip()
         if prefix:
             conditions.append(MoleculeRecord.exclusion_reason.like(f"{prefix}%"))
@@ -185,7 +189,7 @@ class MoleculeAPI:
 
     def apply_filter(
         self,
-        scope: MoleculeScope,
+        scope: MoleculeScope | Selection[Any],
         criteria,
         *,
         action: str,
@@ -200,7 +204,7 @@ class MoleculeAPI:
         normalized_action = str(action or "").strip().lower()
         if normalized_action not in {"enrich", "recover", "tag"}:
             raise ValueError(f"Unsupported molecule-filter action: {action!r}")
-        conditions = filter_sql.scope_conditions(self.runtime.molsuite.project_db, scope)
+        conditions = filter_sql.scope_conditions(self.runtime.molsuite.project_db, as_molecule_scope(scope))
         prefix = str(exclusion_reason_prefix or "").strip()
         if prefix:
             conditions.append(MoleculeRecord.exclusion_reason.like(f"{prefix}%"))
@@ -228,45 +232,68 @@ class MoleculeAPI:
 
         return delete_molecules(self.runtime.molsuite.project_db, normalize_ids(molecule_ids))
 
-    def all(self, *, source: MoleculeSetRef | int | None = None, order: tuple[str, ...] = ("id",)) -> MoleculeScope:
+    def _selection(self, scope: MoleculeScope) -> Selection[MoleculeRecord]:
+        return Selection(
+            scope=scope,
+            _stream=lambda: self._stream_scope(scope),
+            _count=lambda: self._count_scope(scope),
+        )
+
+    def all(
+        self, *, source: MoleculeSetRef | int | None = None, order: tuple[str, ...] = ("id",)
+    ) -> Selection[MoleculeRecord]:
         self.runtime._require_active_project()
         source_set_id = int(source.id if isinstance(source, MoleculeSetRef) else source) if source is not None else None
-        return MoleculeScope(filters={}, source_set_id=source_set_id, order=tuple(order))
+        return self._selection(MoleculeScope(filters={}, source_set_id=source_set_id, order=tuple(order)))
 
     def filter(
         self,
-        scope: MoleculeScope | None = None,
+        scope: MoleculeScope | Selection[MoleculeRecord] | None = None,
         *,
         filters: Mapping[str, Any] | None = None,
         order: tuple[str, ...] | None = None,
-    ) -> MoleculeScope:
+    ) -> Selection[MoleculeRecord]:
         self.runtime._require_active_project()
-        base = scope or self.all()
-        return MoleculeScope(
+        base = as_molecule_scope(scope) if scope is not None else as_molecule_scope(self.all())
+        assert base is not None
+        return self._selection(MoleculeScope(
             filters=merge_filter_mappings(base.filters, filters),
             source_set_id=base.source_set_id,
             order=tuple(order or base.order),
             limit=base.limit,
-        )
+        ))
 
-    def stream(self, scope: MoleculeScope | None = None) -> Iterator[Any]:
+    def _stream_scope(self, scope: MoleculeScope) -> Iterator[MoleculeRecord]:
         self.runtime._require_active_project()
-        spec = _molecule_spec(scope or self.all())
+        spec = _molecule_spec(scope)
         for row in db_pages(self.runtime.molsuite.project_db, spec):
             yield MoleculeRecord.model_validate(row)
 
-    def stream_ids(self, scope: MoleculeScope | None = None) -> Iterator[int]:
+    def stream(self, scope: MoleculeScope | Selection[MoleculeRecord] | None = None) -> Iterator[MoleculeRecord]:
+        """Compatibility entry point; prefer iterating the returned Selection."""
+        resolved = as_molecule_scope(scope) if scope is not None else as_molecule_scope(self.all())
+        assert resolved is not None
+        yield from self._stream_scope(resolved)
+
+    def stream_ids(self, scope: MoleculeScope | Selection[MoleculeRecord] | None = None) -> Iterator[int]:
         self.runtime._require_active_project()
-        spec = _molecule_spec(scope or self.all())
+        resolved = as_molecule_scope(scope) if scope is not None else as_molecule_scope(self.all())
+        assert resolved is not None
+        spec = _molecule_spec(resolved)
         spec = replace(spec, fields=("id",))
         for row in db_pages(self.runtime.molsuite.project_db, spec):
             yield int(row.get("id") or 0)
 
-    def count(self, source: MoleculeSetRef | MoleculeScope | int | None = None) -> int:
+    def _count_scope(self, scope: MoleculeScope) -> int:
+        return db_count(self.runtime.molsuite.project_db, _molecule_spec(scope))
+
+    def count(self, source: MoleculeSetRef | MoleculeScope | Selection[MoleculeRecord] | int | None = None) -> int:
         self.runtime._require_active_project()
         project_db = self.runtime.molsuite.project_db
-        if source is None or isinstance(source, MoleculeScope):
-            return db_count(project_db, _molecule_spec(source or self.all()))
+        if source is None or is_molecule_scope(source):
+            resolved = as_molecule_scope(source) if source is not None else as_molecule_scope(self.all())
+            assert resolved is not None
+            return self._count_scope(resolved)
         set_id = int(source.id if isinstance(source, MoleculeSetRef) else source)
         return db_count(project_db, molecule_set_spec(set_id))
 
@@ -390,7 +417,7 @@ class MoleculeAPI:
         mw_min: float | None = None,
         mw_max: float | None = None,
         limit: int | None = None,
-    ) -> MoleculeScope:
+    ) -> Selection[MoleculeRecord]:
         self.runtime._require_active_project()
         source_set_id = int(source.id if isinstance(source, MoleculeSetRef) else source) if source is not None else None
         normalized_role = str(role or "").strip().lower() or None
@@ -432,12 +459,12 @@ class MoleculeAPI:
             filters["excluded"] = False
         elif effective_excluded is True:
             filters["excluded"] = True
-        return MoleculeScope(
+        return self._selection(MoleculeScope(
             filters={key: value for key, value in filters.items() if value is not None},
             source_set_id=source_set_id,
             order=("id",),
             limit=limit,
-        )
+        ))
 
     @staticmethod
     def _normalize_usage_class_filter(value: str | Iterable[str] | None) -> str | tuple[str, ...] | None:
@@ -459,14 +486,14 @@ class MoleculeAPI:
 
     def create_set(
         self,
-        source: MoleculeScope | Iterable[int | str],
+        source: MoleculeScope | Selection[MoleculeRecord] | Iterable[int | str],
         *,
         name: str | None = None,
         kind: str = "manual",
         metadata: dict | None = None,
     ) -> MoleculeSetRef:
         self.runtime._require_active_project()
-        molecule_ids = list(self.stream_ids(source)) if isinstance(source, MoleculeScope) else normalize_ids(source)
+        molecule_ids = list(self.stream_ids(source)) if is_molecule_scope(source) else normalize_ids(source)
         return create_molecule_snapshot_set(
             self.runtime.molsuite.project_db,
             name=normalize_set_name(name, fallback="molecule_set"),

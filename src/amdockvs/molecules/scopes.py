@@ -8,6 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from ms_flow.selection import Selection
+
 
 @dataclass(frozen=True)
 class MoleculeScope:
@@ -17,7 +19,23 @@ class MoleculeScope:
     limit: int | None = None
 
 
-def scope_payload(scope: MoleculeScope | None) -> dict[str, Any]:
+def as_molecule_scope(value: MoleculeScope | Selection[Any] | None) -> MoleculeScope | None:
+    """Extract the serializable molecule query from a fluent selection."""
+    if isinstance(value, Selection):
+        value = value.scope
+    if value is not None and not isinstance(value, MoleculeScope):
+        raise TypeError(f"Expected MoleculeScope or Selection, got {type(value).__name__}.")
+    return value
+
+
+def is_molecule_scope(value: object) -> bool:
+    return isinstance(value, MoleculeScope) or (
+        isinstance(value, Selection) and isinstance(value.scope, MoleculeScope)
+    )
+
+
+def scope_payload(scope: MoleculeScope | Selection[Any] | None) -> dict[str, Any]:
+    scope = as_molecule_scope(scope)
     if scope is None:
         return {}
     return {
@@ -28,4 +46,4 @@ def scope_payload(scope: MoleculeScope | None) -> dict[str, Any]:
     }
 
 
-__all__ = ["MoleculeScope", "scope_payload"]
+__all__ = ["MoleculeScope", "as_molecule_scope", "is_molecule_scope", "scope_payload"]

@@ -90,7 +90,7 @@ from amdockvs.qsar.modeling import (
     supported_algorithms,
 )
 from amdockvs.core.normalize import PathLike
-from amdockvs.molecules.scopes import MoleculeScope, scope_payload
+from amdockvs.molecules.scopes import MoleculeScope, as_molecule_scope, is_molecule_scope, scope_payload
 from amdockvs.molecules.api import ensure_molecule_set_ref
 from amdockvs.project.sets import MoleculeSetRef, QSARModelRef
 from amdockvs.workflows.rules import apply_workflow_filters
@@ -104,16 +104,21 @@ class QSARAPI:
 
     # --- scope / feature helpers ---------------------------------------------
     def _qsar_scope(self, molecule_set: MoleculeSetRef | MoleculeScope | int | None) -> MoleculeScope:
-        if isinstance(molecule_set, MoleculeScope):
+        if is_molecule_scope(molecule_set):
+            scope = as_molecule_scope(molecule_set)
+            assert scope is not None
             return MoleculeScope(
-                filters=apply_workflow_filters(molecule_set.filters, workflow=QSAR_WORKFLOW, role="ligand"),
-                source_set_id=molecule_set.source_set_id,
-                order=tuple(molecule_set.order or ("id",)),
-                limit=molecule_set.limit,
+                filters=apply_workflow_filters(scope.filters, workflow=QSAR_WORKFLOW, role="ligand"),
+                source_set_id=scope.source_set_id,
+                order=tuple(scope.order or ("id",)),
+                limit=scope.limit,
             )
         if molecule_set is None:
-            return self.runtime.molecules.select(role="ligand", workflow=QSAR_WORKFLOW)
-        return self.runtime.molecules.select(source=molecule_set, role="ligand", workflow=QSAR_WORKFLOW)
+            scope = self.runtime.molecules.select(role="ligand", workflow=QSAR_WORKFLOW).scope
+        else:
+            scope = self.runtime.molecules.select(source=molecule_set, role="ligand", workflow=QSAR_WORKFLOW).scope
+        assert isinstance(scope, MoleculeScope)
+        return scope
 
     def _ligands(self, molecule_set) -> list[MoleculeRecord]:
         return list(self.runtime.molecules.stream(self._qsar_scope(molecule_set)))
@@ -682,10 +687,10 @@ class QSARAPI:
         self.runtime._require_active_project()
         molecule_set_ref = (
             None
-            if molecule_set is None or isinstance(molecule_set, MoleculeScope)
+            if molecule_set is None or is_molecule_scope(molecule_set)
             else ensure_molecule_set_ref(self.runtime, molecule_set, name="qsar_descriptor_input")
         )
-        molecule_scope = scope_payload(molecule_set) if isinstance(molecule_set, MoleculeScope) else {}
+        molecule_scope = scope_payload(molecule_set) if is_molecule_scope(molecule_set) else {}
         filters = apply_workflow_filters(
             {**dict(molecule_scope.get("filters") or {}), "excluded": False},
             workflow=QSAR_WORKFLOW,

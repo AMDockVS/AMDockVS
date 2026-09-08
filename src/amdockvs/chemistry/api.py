@@ -20,7 +20,7 @@ from amdockvs.molecules.storage import has_shards
 from amdockvs.project.sets import MoleculeSetRef
 from amdockvs.project.summaries import JobStatus
 from amdockvs.core.vocab import ShardState
-from amdockvs.molecules.scopes import MoleculeScope, scope_payload
+from amdockvs.molecules.scopes import MoleculeScope, is_molecule_scope, scope_payload
 from amdockvs.integrations.envs import (
     ProtonationToolStatus,
     install_protonation_tool,
@@ -45,7 +45,7 @@ class ChemistryAPI:
         source: MoleculeSetRef | MoleculeScope | int | None,
     ) -> int | None:
         try:
-            if isinstance(source, MoleculeScope):
+            if is_molecule_scope(source):
                 if str(role).strip():
                     role_key = "is_ligand" if str(role).strip() == "ligand" else "is_receptor"
                     scope = self.runtime.molecules.filter(source, filters={role_key: True})
@@ -71,8 +71,8 @@ class ChemistryAPI:
     ) -> str | JobStatus:
         self.runtime._require_active_project()
         operation_label = "+".join(name for name, _ in normalize_steps(operation))
-        ligand_set_ref = None if ligands is None or isinstance(ligands, MoleculeScope) else ensure_molecule_set_ref(self.runtime, ligands, name=f"chemistry_{operation_label}_input")
-        ligand_scope = scope_payload(ligands) if isinstance(ligands, MoleculeScope) else {}
+        ligand_set_ref = None if ligands is None or is_molecule_scope(ligands) else ensure_molecule_set_ref(self.runtime, ligands, name=f"chemistry_{operation_label}_input")
+        ligand_scope = scope_payload(ligands) if is_molecule_scope(ligands) else {}
         ligand_filters = dict(ligand_scope.get("filters") or {})
         if "molecule_type" not in ligand_filters:
             # A scope stated by molecular type has already said what to act on; forcing the
@@ -115,8 +115,8 @@ class ChemistryAPI:
         wait: bool = False,
     ) -> str | JobStatus:
         self.runtime._require_active_project()
-        receptor_set_ref = None if receptors is None or isinstance(receptors, MoleculeScope) else ensure_molecule_set_ref(self.runtime, receptors, name=f"chemistry_receptor_{operation}_input")
-        receptor_scope = scope_payload(receptors) if isinstance(receptors, MoleculeScope) else {}
+        receptor_set_ref = None if receptors is None or is_molecule_scope(receptors) else ensure_molecule_set_ref(self.runtime, receptors, name=f"chemistry_receptor_{operation}_input")
+        receptor_scope = scope_payload(receptors) if is_molecule_scope(receptors) else {}
         receptor_filters = dict(receptor_scope.get("filters") or {})
         if "molecule_type" not in receptor_filters:
             receptor_filters["is_receptor"] = True  # same rule as ligands above

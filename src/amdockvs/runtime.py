@@ -38,6 +38,8 @@ if TYPE_CHECKING:
     from amdockvs.molecules.api import MoleculeAPI
     from amdockvs.qsar.api import QSARAPI
     from amdockvs.binding_sites.api import BindingSiteAPI
+    from amdockvs.integrations.api import ToolAPI
+    from amdockvs.shards import ShardAPI
 
 KNOWN_JOB_STATUSES = (
     "pending",
@@ -104,6 +106,8 @@ class AMDockVSRuntime(AppRuntime):
         self._qsar_api: QSARAPI | None = None
         self._docking_api: DockingAPI | None = None
         self._binding_sites_api: BindingSiteAPI | None = None
+        self._tools_api: ToolAPI | None = None
+        self._shards_api: ShardAPI | None = None
         self._ligand_store = None
 
     def _migrate_legacy_app_settings(self, configuration) -> None:
@@ -180,6 +184,24 @@ class AMDockVSRuntime(AppRuntime):
 
             self._binding_sites_api = BindingSiteAPI(self)
         return self._binding_sites_api
+
+    @property
+    def tools(self) -> ToolAPI:
+        """Optional external programs managed by AMDockVS."""
+        if self._tools_api is None:
+            from amdockvs.integrations.api import ToolAPI
+
+            self._tools_api = ToolAPI(self)
+        return self._tools_api
+
+    @property
+    def shards(self) -> ShardAPI:
+        """Access registered shard containers without wrapping their records."""
+        if self._shards_api is None:
+            from amdockvs.shards import ShardAPI
+
+            self._shards_api = ShardAPI(self)
+        return self._shards_api
 
     @property
     def diversity(self):
@@ -400,6 +422,28 @@ class AMDockVSRuntime(AppRuntime):
         self._require_active_project()
         snapshot = self.molsuite.wait_for_job(str(job_id), poll_s=poll_s)
         return self._job_status_from_snapshot(snapshot)
+
+    def watch_job(self, job_id: str, *, follow: bool = True, poll_s: float = 0.2) -> JobStatus:
+        """Display tqdm progress in a terminal or notebook and return the job status."""
+        self._require_active_project()
+        from ms_flow.progress import watch_job
+
+        snapshot = watch_job(self.molsuite, str(job_id), follow=follow, poll_s=poll_s)
+        return self._job_status_from_snapshot(snapshot)
+
+    def watch_jobs(
+        self,
+        job_ids: Iterable[str],
+        *,
+        follow: bool = True,
+        poll_s: float = 0.2,
+    ) -> dict[str, JobStatus]:
+        """Display concurrent tqdm progress for several jobs."""
+        self._require_active_project()
+        from ms_flow.progress import watch_jobs
+
+        snapshots = watch_jobs(self.molsuite, job_ids, follow=follow, poll_s=poll_s)
+        return {job_id: self._job_status_from_snapshot(snapshot) for job_id, snapshot in snapshots.items()}
 
     def wait_for_jobs(
         self,
