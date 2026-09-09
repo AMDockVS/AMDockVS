@@ -3,7 +3,7 @@ from __future__ import annotations
 import random
 from pathlib import Path
 
-from PySide6.QtCore import QElapsedTimer, QPointF, QRectF, Qt, QThread
+from PySide6.QtCore import QElapsedTimer, QEvent, QPointF, QRectF, Qt, QThread
 from PySide6.QtGui import (
     QColor,
     QFont,
@@ -16,7 +16,7 @@ from PySide6.QtGui import (
     QRadialGradient,
     QTransform,
 )
-from PySide6.QtWidgets import QApplication, QSplashScreen
+from PySide6.QtWidgets import QApplication, QSplashScreen, QWidget
 
 # ponytail: the protein artwork is a bundled asset; the frame around it is painted at runtime.
 _WIDTH = 640
@@ -274,6 +274,14 @@ def _build_pixmap() -> QPixmap:
 class Splash(QSplashScreen):
     MIN_VISIBLE_MS = 3500  # keep the splash up long enough to read (measured from creation)
 
+    def event(self, event: QEvent) -> bool:
+        # QSplashScreen waits up to one second inside its Show handler for the native
+        # window to become visible. Qt 6.10 exhausts that timeout here; create_splash()
+        # performs the equivalent check against isExposed() without the fixed delay.
+        if event.type() == QEvent.Type.Show:
+            return QWidget.event(self, event)
+        return super().event(event)
+
     def __init__(self) -> None:
         super().__init__(_build_pixmap())
         self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
@@ -304,5 +312,9 @@ def create_splash() -> Splash:
     splash._shown.start()
     # Force the first frame now so the splash is visible before the heavy imports block the thread.
     splash.repaint()
-    QApplication.processEvents()
+    exposure_timer = QElapsedTimer()
+    exposure_timer.start()
+    while not splash.windowHandle().isExposed() and exposure_timer.elapsed() < 250:
+        QApplication.processEvents()
+        QThread.msleep(5)
     return splash
