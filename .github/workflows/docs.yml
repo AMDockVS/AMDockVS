@@ -30,7 +30,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: 3.x
-      - run: pip install zensical "mkdocstrings[python]" mike
+      - run: pip install zensical "mkdocstrings[python]" "mike @ git+https://github.com/squidfunk/mike.git"
       - name: Configure Git author
         run: |
           git config user.name "github-actions[bot]"
