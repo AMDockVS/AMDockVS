@@ -44,6 +44,7 @@ TABLE_QSAR_PREDICTIONS = "qsar_predictions"
 TABLE_SIMILARITY_RESULTS = "similarity_results"
 TABLE_CLUSTERING_RESULTS = "clustering_results"
 TABLE_SCREENING_SHARDS = "screening_shards"
+TABLE_SHARD_GENERATIONS = "shard_generations"
 TABLE_SHARD_ENGINE_STATES = "shard_engine_states"
 TABLE_SCREENING_SHARD_RUNS = "screening_shard_runs"
 TABLE_SCREENING_DISPATCHES = "screening_dispatches"
@@ -110,3 +111,11 @@ DEFAULT_VINA_BACKEND = vina_backend()
 
 AMDOCKVS_LOCAL_EXECUTORS = ("thread", "compute")
 AMDOCKVS_PROCESS_EXECUTORS = ("compute",)
+
+# Jobs whose worker only touches its payload and the paths staged with it — no project.db,
+# no GUI state — can run off this machine. "hpc" is a *backend*, not a name: the executor is
+# registered under whatever the user called the worker, and MF matches the backend when the
+# name is not in this tuple. An HPC chunk costs no local CPU token
+# (`hpc_adapter.consumes_local_cpu_tokens is False`), so a cluster run and a local run
+# proceed at the same time instead of taking turns.
+AMDOCKVS_OFFLOADABLE_EXECUTORS = ("thread", "compute", "hpc")
