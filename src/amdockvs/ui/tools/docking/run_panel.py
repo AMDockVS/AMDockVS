@@ -1,23 +1,19 @@
 from __future__ import annotations
 
+import html
 from uuid import uuid4
 
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
-    QFormLayout,
-    QGroupBox,
     QLabel,
     QMessageBox,
-    QPushButton,
     QSpinBox,
-    QVBoxLayout,
-    QWidget, QGridLayout,
+    QWidget,
 )
 
 from amdockvs.core.configuration import app_config
-from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR
 from amdockvs.docking.planning import protocol_job_key
 from amdockvs.docking.shard_jobs import (
     HIT_MODE_THRESHOLD,
@@ -26,8 +22,10 @@ from amdockvs.docking.shard_jobs import (
 )
 from amdockvs.docking.engines.programs import get_docking_program
 from amdockvs.ui.common.async_query import run_async
-from amdockvs.ui.common.widgets import split_button
+from amdockvs.ui.common.job_follower import JobFollower
+from amdockvs.ui.common.widgets import RunDestinationCombo, gate_workflow_save, split_button
 from amdockvs.core.vocab import MoleculeType
+from ms_components.tool_panel import ToolPanel
 
 def _spinbox(*, minimum: int, maximum: int, value: int) -> QSpinBox:
     widget = QSpinBox()
@@ -48,44 +46,26 @@ class RunPanel:
     """Readiness summary, validation and docking launch component."""
 
     def _build_preview_run_tab(self) -> QWidget:
-        page = QWidget(self)
-        layout = QVBoxLayout(page)
+        panel = ToolPanel(self)
 
-        # Plain QGroupBox: pyqtgraph's collapsible one used to live here, and its setCollapsed
+        # Plain section: pyqtgraph's collapsible group box used to live here, and its setCollapsed
         # runs setVisible over EVERY child — which re-showed the busy overlay for good.
-        self.req_box = QGroupBox("Run Scope", page)
-
-        run_scope_layout = QGridLayout(self.req_box)
+        self.req_box = panel.add_section("Run Scope")
 
         # No scope selector: the run covers whatever the catalog tables are scoped to.
-        run_scope_layout.addWidget(QLabel("Ligands:", page), 0, 0)
-        self.req_ligands_count = QLabel("—", page)  # prepared / total
-        run_scope_layout.addWidget(self.req_ligands_count, 0, 1, 1, 2)
-
-        run_scope_layout.addWidget(QLabel("Receptors:", page), 1, 0)
-        self.req_receptors_count = QLabel("—", page)  # prepared / total
-        run_scope_layout.addWidget(self.req_receptors_count, 1, 1, 1, 2)
-
-        # What the run actually costs: one docking per (ligand, receptor, protocol).
-        run_scope_layout.addWidget(QLabel("Dockings:", page), 2, 0)
-        self.req_pairs_count = QLabel("—", page)  # to run / total pairs
-        self.req_pairs_count.setToolTip(
-            "Ligands x receptors x selected programs. With 'Skip pairs already docked' on, pairs "
-            "that already have a result for the same protocol are not run again."
-        )
-        run_scope_layout.addWidget(self.req_pairs_count, 2, 1, 1, 2)
-
-        self.check_status_label = QLabel("Open this step to check.", page)
+        self.req_ligands_count = QLabel("—", self.req_box)  # prepared / total
+        self.req_box.add_row("Ligands", self.req_ligands_count)
+        self.req_receptors_count = QLabel("—", self.req_box)  # prepared / total
+        self.req_box.add_row("Receptors", self.req_receptors_count)
+        self.check_status_label = QLabel("Open this step to check.", self.req_box)
         self.check_status_label.setWordWrap(True)
-        run_scope_layout.addWidget(self.check_status_label, 3, 0, 1, 3)
-
-        layout.addWidget(self.req_box)
+        self.req_box.add_row(self.check_status_label)
 
         # Sharded library only: a campaign writes back only what passes the gate. Without a
         # threshold and a cap it would materialize the whole library as molecule rows, which is
         # the failure mode the sharded mode exists to avoid — so both are required, not optional.
-        self.hits_box = QGroupBox("Screening hits", page)
-        hits_layout = QFormLayout(self.hits_box)
+        self.hits_box = panel.add_section("Screening hits")
+        hits_layout = self.hits_box.form
         self.hit_threshold = QDoubleSpinBox(self.hits_box)
         self.hit_threshold.setRange(-100.0, 0.0)
         self.hit_threshold.setDecimals(1)
@@ -124,22 +104,26 @@ class RunPanel:
             "are scored and discarded. The cap ends the campaign once that many hits are in."
         )
         self.hits_box.setVisible(False)
-        layout.addWidget(self.hits_box)
-        # Run resources — program-specific settings (CPU per task, exhaustiveness…) live on
+        # Run options — program-specific settings (CPU per task, exhaustiveness…) live on
         # the Programs step, not here.
-        run_box = QGroupBox("Run resources", page)
-        run_layout = QFormLayout(run_box)
+        run_box = panel.add_section("Run options")
+        run_layout = run_box.form
+        advanced = panel.advanced
         # One docking pair per chunk by default so independent, long-running dockings
         # spread across the executor pool instead of serializing inside one chunk.
         self.batch_size = _spinbox(minimum=1, maximum=1024, value=1)
+        self.batch_size_label = QLabel("Batch size", advanced)
+        advanced.add_row(self.batch_size_label, self.batch_size)
+        self.run_destination = RunDestinationCombo(advanced, self.runtime)
+        advanced.add_row("Run on", self.run_destination)
+        # Hide the label too, not just the combo: a lone "Run on" caption is worse than nothing.
+        advanced.form.setRowVisible(self.run_destination, self.run_destination.count() > 1)
         self.skip_existing_check = QCheckBox("Skip pairs already docked", run_box)
         self.skip_existing_check.setChecked(True)
         self.skip_existing_check.setToolTip(
             "Before running, drop receptor–ligand pairs that already have results for this "
             "engine (a single indexed scan). Uncheck to re-dock and replace previous results."
         )
-        self.batch_size_label = QLabel("Batch Size", run_box)
-        run_layout.addRow(self.batch_size_label, self.batch_size)
         run_layout.addRow(self.skip_existing_check)
         self.compute_interactions_check = QCheckBox("Compute interactions after docking", run_box)
         self.compute_interactions_check.setToolTip(
@@ -154,23 +138,28 @@ class RunPanel:
             "Leave it off and render on demand from Results instead."
         )
         run_layout.addRow(self.render_diagrams_check)
-        self.run_button = split_button("Run Docking", run_box, on_click=self._run_docking)
-        self.run_button.menu().addAction(
+
+        self.run_bar = bar = panel.action_bar
+        # Idle, the headline is the Dockings count and the detail mirrors the preparations the
+        # Run waits for (managed, with their Cancel, on their own steps). While a docking runs
+        # (re-attached from the monitor: submitting closes the studio), the bar follows it.
+        self.docking_jobs = JobFollower(self, bar, noun="Docking")
+        self.ligand_prep_jobs.finished.connect(self._on_prep_finished)
+        self.receptor_prep_jobs.finished.connect(self._on_prep_finished)
+        self._docking_held = False
+        self.req_pairs_count = bar.headline  # to run / total pairs
+        self.req_pairs_count.setText("Dockings not checked yet")
+        self.req_pairs_count.setToolTip(
+            "Ligands x receptors x selected programs. With 'Skip pairs already docked' on, pairs "
+            "that already have a result for the same protocol are not run again."
+        )
+        self.run_button = split_button("Run Docking", bar, on_click=self._run_docking)
+        gate_workflow_save(self.run_button.menu().addAction(
             "Save to workflow…", self._add_docking_to_workflow
-        ).setToolTip(
-            "Queue this docking (current scope and settings) as a step in the active workflow "
-            "instead of running it now."
-        )
-        run_layout.addRow(self.run_button)
-        self.open_results_button = QPushButton("Open Results", run_box)
-        self.open_results_button.clicked.connect(
-            lambda: self.window().central_widget.open_or_focus_view("workspace.complexes")
-        )
-        run_layout.addRow(self.open_results_button)
-        layout.addWidget(run_box)
-        layout.addStretch(1)
+        ))
+        bar.add_action(self.run_button)
         self._on_run_kind_changed()
-        return page
+        return panel
 
     def _refresh_requirement_preview(self) -> None:
         # Debounced entry point — just (re)dispatches the off-thread aggregate.
@@ -189,6 +178,7 @@ class RunPanel:
             "step": step,
             "program": self._program(),
             "run_kind": self._run_kind(),
+            "sharded": self._ligand_scope_is_sharded(),  # reads the source selector: GUI thread
             "receptor_type": self._receptor_type(),
             "ligand_type": self._ligand_type(),
             "sel_lig": self._selected_ligand_ids,
@@ -198,7 +188,7 @@ class RunPanel:
             "programs_chosen": bool(self._selected_protocols()),
         }
         sig = (
-            step, inputs["program"], inputs["run_kind"], inputs["receptor_type"], inputs["ligand_type"],
+            step, inputs["program"], inputs["run_kind"], inputs["sharded"], inputs["receptor_type"], inputs["ligand_type"],
             tuple(inputs["sel_lig"]), tuple(inputs["sel_rec"]),
             inputs["focused"], inputs["programs_chosen"], tuple(inputs["prep_engines"]),
         )
@@ -209,7 +199,7 @@ class RunPanel:
         token = self._refresh_token
         # The scope value is what visibly lags on huge libraries — a small inline spinner on it
         # (not a whole-panel overlay) is the right weight for a single label.
-        busy_label = {1: self.ligand_scope_label, 2: self.receptor_scope_label}.get(step)
+        busy_label = {1: self.ligand_bar.headline, 2: self.receptor_bar.headline}.get(step)
         run_async(
             lambda: self._compute_refresh(inputs),
             lambda data: self._on_refresh_done(data, token, sig),
@@ -239,7 +229,7 @@ class RunPanel:
             return data
 
         if step == 1:  # Ligands — just the scope label.
-            if inp.get("run_kind") != "redocking" and self._library_is_sharded():
+            if inp.get("sharded"):
                 # No molecule rows to count: the library is on disk, so count shards instead.
                 counts = self.runtime.molecules.shard_counts()
                 data["sharded"] = True
@@ -354,9 +344,10 @@ class RunPanel:
         if data.get("sharded"):
             total = int(data.get("shards_total") or 0)
             prepared = int(data.get("shards_prepared") or 0)
-            self.ligand_scope_label.setText(
-                f"{total} shard(s) · {data['shard_records']} molecule(s) — sharded library, "
-                f"{prepared} shard(s) prepared. Preparation runs over whole shards."
+            self._set_scope_summary(
+                self.ligand_bar,
+                f"{total} shard(s) · {data['shard_records']} molecule(s)",
+                f"{prepared} shard(s) prepared · preparation runs over whole shards",
             )
             # Per-engine family counts are a molecule-row idea: a shard is prepared for the
             # engine that rewrote it, and its row carries no engine breakdown.
@@ -367,11 +358,14 @@ class RunPanel:
         self.prepare_ligands_button.setEnabled(True)
         if "ligands_prepared" in data:
             ligand_failed = int(data.get("ligands_failed") or 0)
-            failed_text = f" · {ligand_failed} failed" if ligand_failed else ""
             # Scope = which ligands (one, shared). "N prepared" is per family, so it lives on
-            # the family rows below, not here — a single number would be one family's count
+            # the family rows, not here — a single number would be one family's count
             # presented as the total.
-            self.ligand_scope_label.setText(f"{data['ligands_total']} ligand(s) in scope{failed_text}")
+            self._set_scope_summary(
+                self.ligand_bar,
+                f"{data['ligands_total']} ligand(s) in scope",
+                f"{ligand_failed} failed" if ligand_failed else "",
+            )
             self._set_prep_family_counts(
                 data.get("ligands_prepared_by_engine") or {}, int(data["ligands_total"])
             )
@@ -382,11 +376,9 @@ class RunPanel:
             return
         receptor_failed = int(data.get("rec_scope_failed") or 0)
         failed_text = f" · {receptor_failed} failed" if receptor_failed else ""
-        scope_text = (
-            f"{data['rec_scope_total']} receptor(s) in scope · "
-            f"{data['rec_scope_prepared']} prepared{failed_text}"
-        )
-        self.receptor_scope_label.setText(scope_text)
+        scope_text = f"{data['rec_scope_total']} receptor(s) in scope"
+        prep_text = f"{data['rec_scope_prepared']} prepared{failed_text}"
+        self._set_scope_summary(self.receptor_bar, scope_text, prep_text)
 
         p = data["preview"]
         if p["kind"] == "no_receptors":
@@ -403,9 +395,11 @@ class RunPanel:
 
         # Grid coverage rides on the scope line — the only Active Site number the PyMOL Grid
         # Box panel doesn't already show.
-        self.receptor_scope_label.setText(
-            f"{scope_text} · {grid_ready} with grid"
-            + (f" · {max(0, rec_total - grid_ready)} missing" if grid_ready < rec_total else "")
+        self._set_scope_summary(
+            self.receptor_bar,
+            scope_text,
+            f"{prep_text} · {grid_ready} with grid"
+            + (f" · {max(0, rec_total - grid_ready)} missing" if grid_ready < rec_total else ""),
         )
         # A receptor is ready when it's both prepared AND has a grid; mark on the weakest link.
         self._mark_step(self.step_receptors, min(rec_ready, grid_ready), rec_total)
@@ -422,6 +416,12 @@ class RunPanel:
             step.set_warning(True)
         else:
             step.set_error(True)
+
+    @staticmethod
+    def _set_scope_summary(bar, headline: str, detail: str = "") -> None:
+        # A running preparation owns the bar; its outcome stays until the next refresh after it.
+        if not bar.is_running:
+            bar.set_summary(headline, detail)
 
     @staticmethod
     def _short(value: object) -> str:
@@ -512,7 +512,10 @@ class RunPanel:
         # Automatic + off-thread. Triggered on entering the step, whenever a run-scope combo
         # changes, and by the live poll. No busy overlay: the status line below says "Checking…",
         # and the counts on screen stay valid while the new ones are computed.
-        if self.stepper.current_index != 3 or self._check_inflight:
+        if self.stepper.current_index != 3:
+            return
+        self._sync_prep_note()  # the live poll ticks while jobs run: the note climbs with it
+        if self._check_inflight:
             return  # single-flight: on a big set one count can outlast the poll interval
         self._check_inflight = True
         self.check_status_label.setText("Checking…")
@@ -547,12 +550,12 @@ class RunPanel:
             reference_id = result.get("offtarget_reference_id")
             if reference_id is not None and receptors > 1:
                 second_stage = min(int(self.hit_cap.value()), records) * (receptors - 1)
-                self.req_pairs_count.setText(
+                self._pairs_text(
                     f"{records} reference + up to {second_stage} off-target docking(s)"
                 )
             else:
                 chunks = max(0, int(lig.get("ready") or 0)) * receptors
-                self.req_pairs_count.setText(
+                self._pairs_text(
                     f"{records * receptors} docking(s) in {chunks} chunk(s)"
                 )
             self.step_run.set_done(bool(result.get("ready")))
@@ -565,7 +568,7 @@ class RunPanel:
             self.req_ligands_count.setText(f"{lig['ready']} / {lig['total']}")
             self.req_receptors_count.setText(f"{rec['ready']} / {rec['total']}")
             # Redocking runs the original pairs, so the pair count is the ready-complex count.
-            self.req_pairs_count.setText(f"{int(rec.get('ready') or 0)} original pair(s)")
+            self._pairs_text(f"{int(rec.get('ready') or 0)} original pair(s)")
             self.step_run.set_done(result["ready"])
             notes = []
             if int(result.get("total_complexes") or 0) == 0:
@@ -592,11 +595,11 @@ class RunPanel:
         pairs = dict(result.get("pairs") or {})
         total_pairs = int(pairs.get("total") or 0)
         if not total_pairs:
-            self.req_pairs_count.setText("—")
+            self._pairs_text("No dockings in scope")
         else:
             done = int(pairs.get("already") or 0)
-            text = f"{int(pairs.get('to_run') or 0)} to run of {total_pairs}"
-            self.req_pairs_count.setText(f"{text} ({done} already docked)" if done else text)
+            text = f"{int(pairs.get('to_run') or 0)} of {total_pairs} docking(s) to run"
+            self._pairs_text(f"{text} ({done} already docked)" if done else text)
         self.step_run.set_done(result["ready"])
         notes = []
         failures = []
@@ -621,6 +624,16 @@ class RunPanel:
         if not params["protocols"]:
             self._warn("Run Docking", "Select at least one compatible docking software first.")
             return
+        if self._preparing():
+            # Readiness is counted at submit (prepared receptors, pairs to dock), so a run sent
+            # mid-preparation would dock only what is ready now: hold it until preparation ends.
+            # ponytail: closing the studio drops the held run; a server-side deferred submit
+            # would survive it.
+            self._docking_held = True
+            self._run_text = self.run_button.text()
+            self.run_button.setText("Queued — waits for preparation")
+            self.run_button.setEnabled(False)
+            return
         signature = self._docking_signature(inp, params)
         self.run_button.setEnabled(False)
         # No busy overlay here: the disabled Run button already says "working", and dimming the
@@ -630,6 +643,52 @@ class RunPanel:
             lambda conflict: self._after_conflict_check(conflict, inp, params, signature),
             on_error=self._on_docking_error,
         )
+
+    def _preparing(self) -> list:
+        """The Ligands/Receptors bars still following a preparation launched here."""
+        return [bar for follower, bar in ((self.ligand_prep_jobs, self.ligand_bar),
+                                          (self.receptor_prep_jobs, self.receptor_bar)) if follower.job_ids]
+
+    def _pairs_text(self, text: str) -> None:
+        if not self.run_bar.is_running:  # the running docking owns the headline
+            self.req_pairs_count.setText(text)
+
+    def attach_active_jobs(self, jobs) -> int | None:
+        """Follow unfinished jobs no bar follows yet (launched before the studio was reopened,
+        or from elsewhere). Returns the step of the furthest one attached, if any."""
+        followers = ((3, self.docking_jobs, ("docking", "_dock_")),
+                     (2, self.receptor_prep_jobs, ("prepare_receptor",)),
+                     (1, self.ligand_prep_jobs, ("prepare_ligand",)))
+        attached = None
+        for step, follower, keys in followers:
+            active = [job for job in jobs if not job.is_terminal
+                      and any(key in str(job.task_type).lower() for key in keys)]
+            if follower.job_ids or not active:
+                continue
+            follower.follow([(follower.noun, job.job_id) for job in active])
+            for job in active:
+                follower.on_upserted(job.job_id, job)
+            attached = max(attached or 0, step)
+        return attached
+
+    def _sync_prep_note(self) -> None:
+        if self.run_bar.is_running:
+            return
+        # Read-only mirror of the preparation bars: what the Run is still waiting for.
+        note = " · ".join(bar.headline.text() for bar in self._preparing())
+        self.run_bar.detail.setText(html.escape(f"{note} · Run Docking waits for it") if note else "")
+
+    def _on_prep_finished(self, status: str) -> None:
+        self._sync_prep_note()
+        if not self._docking_held or (status == "completed" and self._preparing()):
+            return  # nothing queued, or the other side is still preparing
+        self._docking_held = False
+        self.run_button.setText(self._run_text)
+        self.run_button.setEnabled(True)
+        if status == "completed":
+            self._run_docking()
+        else:
+            self._warn("Run Docking", f"Preparation {status}: the queued docking run was not launched.")
 
     def _hit_ceiling(self) -> int:
         """Unattended-run ceiling on hits (settings > shards > hit_cap)."""
@@ -655,7 +714,7 @@ class RunPanel:
                 if self.offtarget_reference_combo.currentData() is not None
                 else None
             ),
-            "executor_name": DEFAULT_LOCAL_CPU_EXECUTOR,
+            "executor_name": self.run_destination.executor_name(),
             "skip_existing": bool(self.skip_existing_check.isChecked()),
             "compute_interactions": bool(self.compute_interactions_check.isChecked()),
             "compute_diagram": bool(self.render_diagrams_check.isChecked()),

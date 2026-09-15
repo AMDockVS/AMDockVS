@@ -26,16 +26,27 @@ class ScopePanel:
         except Exception:  # noqa: BLE001 - no project open yet; the step shows nothing anyway
             return False
 
-    def _ligand_scope_is_sharded(self) -> bool:
-        """Do this experiment's ligands live outside the project database?
+    def _ligand_source(self) -> str:
+        """`shards` or `rows`: where this experiment reads its ligands from.
 
-        Two independent questions, and only their combination decides. *Which* ligands comes
-        from the experiment: docking screens the general library, redocking re-docks the
-        reference cocrystals. *Where* they live comes from the project: rows in `vs`, shards
-        in `htpvs`. Reference ligands are curated rows in both modes, so only the general
-        library ever moves — which is why this is not simply "the project is htpvs".
+        Rows are the only answer in `vs`, and for redocking everywhere (it re-docks the
+        reference cocrystals, curated rows in both modes). A sharded project offers docking
+        both — the library on disk or the curated rows beside it — and the tool's own
+        selector picks; without the selector it screens the library.
         """
-        return self._library_is_sharded() and self._run_kind() != "redocking"
+        if not self._library_is_sharded() or self._run_kind() == "redocking":
+            return "rows"
+        combo = getattr(self, "ligand_source_combo", None)
+        return str(combo.currentData() or "shards") if combo is not None else "shards"
+
+    def _ligand_scope_is_sharded(self) -> bool:
+        """Do this experiment's ligands live outside the project database?"""
+        return self._ligand_source() == "shards"
+
+    def _ligand_usage_class(self, run_kind: str) -> str:
+        """Docking reads the general rows — except in `htpvs`, where every ligand row is curated."""
+        redocking = str(run_kind or "") == "redocking"
+        return "reference" if redocking or self._library_is_sharded() else "general"
 
     def _focus_ligand_view(self) -> None:
         """Follow the experiment: switching to redocking swaps Shards for Ligands under you.
@@ -88,7 +99,7 @@ class ScopePanel:
             molecule_kind=self._ligand_type(),
             workflow=VINA_PROGRAM.workflow_key,
             excluded=False,
-            usage_class="reference" if str(run_kind or "") == "redocking" else "general",
+            usage_class=self._ligand_usage_class(run_kind),
         )
         if scope_ids:
             scope = self.runtime.molecules.filter(scope, filters={"id__in": list(scope_ids)})

@@ -9,7 +9,6 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -18,12 +17,12 @@ from PySide6.QtWidgets import (
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
-    QVBoxLayout,
     QWidget, )
 
 from amdockvs.docking.engines.programs import GNINA_PROGRAM, VINA_PROGRAM, list_docking_programs
 from amdockvs.docking.protocols import PROTOCOL_SCHEMA, protocol_hash, protocol_identity
 from amdockvs.core.vocab import MoleculeType
+from ms_components.tool_panel import ToolPanel
 
 DEFAULT_PROGRAM = VINA_PROGRAM.key
 MAX_REDOCKING_PROTOCOLS = 12
@@ -40,41 +39,37 @@ class ProtocolEditorWidget:
     """Program and protocol editor component for Docking Studio."""
 
     def _build_programs_tab(self) -> QWidget:
-        page = QWidget(self)
-        layout = QVBoxLayout(page)
-        layout.addWidget(self._build_experiment_setup(page))
+        # Nothing to launch on this step, so the panel has no action bar.
+        panel = ToolPanel(self)
+        self._build_experiment_setup(panel.add_section("Experiment Setup"))
 
-        self.protocol_mode_box = QGroupBox("Software Run Set", page)
-        protocol_layout = QVBoxLayout(self.protocol_mode_box)
+        self.protocol_mode_box = panel.add_section("Software Run Set")
         self.protocol_mode_label = QLabel("", self.protocol_mode_box)
         self.protocol_mode_label.setWordWrap(True)
-        protocol_layout.addWidget(self.protocol_mode_label)
+        self.protocol_mode_box.add_row(self.protocol_mode_label)
 
         # One horizontal sub-tab per program, each holding that software's run settings.
         self._program_checks: dict[str, QCheckBox] = {}
         self._program_config_widgets: dict[str, dict[str, QWidget]] = {}
-        self.program_subtabs = QTabWidget(page)
+        self.program_subtabs = QTabWidget(self.protocol_mode_box)
         for spec in list_docking_programs():
             self.program_subtabs.addTab(self._build_program_config(spec), spec.label)
         self._refresh_program_availability()
-        protocol_layout.addWidget(self.program_subtabs)
-        layout.addWidget(self.protocol_mode_box)
-        layout.addWidget(self._build_protocols_box(page), 1)
+        self.protocol_mode_box.add_row(self.program_subtabs)
+        self._build_protocols_box(panel.add_section("Validation Protocol Set"))
         self._ensure_default_protocol()
         self._sync_protocol_ui()
-        return page
+        return panel
 
-    def _build_protocols_box(self, parent: QWidget) -> QWidget:
-        box = QGroupBox("Validation Protocol Set", parent)
+    def _build_protocols_box(self, box) -> None:
         self.protocol_set_box = box
-        layout = QVBoxLayout(box)
         self.protocol_set_label = QLabel(
             "Redocking compares a bounded set of protocol variants. Add only complete variants "
             f"you intend to validate; maximum {MAX_REDOCKING_PROTOCOLS}. Rescoring is 'None' until a backend is integrated.",
             box,
         )
         self.protocol_set_label.setWordWrap(True)
-        layout.addWidget(self.protocol_set_label)
+        box.add_row(self.protocol_set_label)
         self.protocol_table = QTableWidget(0, 5, box)
         self.protocol_table.setHorizontalHeaderLabels(["Label", "Program", "Scoring", "Config", "Rescoring"])
         self.protocol_table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -82,7 +77,7 @@ class ProtocolEditorWidget:
         self.protocol_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.protocol_table.setMinimumHeight(180)
         self.protocol_table.currentCellChanged.connect(lambda *_args: self._load_selected_protocol_into_editor())
-        layout.addWidget(self.protocol_table, 1)
+        box.add_row(self.protocol_table)
         buttons = QHBoxLayout()
         self.add_protocol_btn = QPushButton("Add variant", box)
         self.add_protocol_btn.setToolTip("Add the current program settings as a redocking validation variant.")
@@ -97,12 +92,10 @@ class ProtocolEditorWidget:
                        self.remove_protocol_btn):
             buttons.addWidget(button)
         buttons.addStretch(1)
-        layout.addLayout(buttons)
-        return box
+        box.add_row(buttons)
 
-    def _build_experiment_setup(self, parent: QWidget) -> QWidget:
-        box = QGroupBox("Experiment Setup", parent)
-        form = QFormLayout(box)
+    def _build_experiment_setup(self, box) -> None:
+        form = box.form
         self.experiment_kind_combo = QComboBox(box)
         self.experiment_kind_combo.addItem("Docking", "docking")
         self.experiment_kind_combo.addItem("Redocking", "redocking")
@@ -115,16 +108,25 @@ class ProtocolEditorWidget:
         self.ligand_type_combo.addItem("Small molecule", MoleculeType.SMALL_MOLECULE)
         self.ligand_type_combo.setToolTip(
             "Only small-molecule ligands are enabled for now; peptides/proteins will be added later.")
-        for combo in (self.receptor_type_combo, self.ligand_type_combo):
+        # htpvs only: docking screens the sharded library or the curated rows beside it.
+        self.ligand_source_combo = QComboBox(box)
+        self.ligand_source_combo.addItem("Screening library (shards)", "shards")
+        self.ligand_source_combo.addItem("Reference ligands (rows)", "rows")
+        for combo in (self.receptor_type_combo, self.ligand_type_combo, self.ligand_source_combo):
             combo.currentIndexChanged.connect(self._on_experiment_config_changed)
         form.addRow("Experiment", self.experiment_kind_combo)
+        form.addRow("Ligands from", self.ligand_source_combo)
         form.addRow("Receptor type", self.receptor_type_combo)
         form.addRow("Ligand type", self.ligand_type_combo)
-        return box
+        self._experiment_form = form
+        form.setRowVisible(self.ligand_source_combo, False)
 
     def _build_program_config(self, spec) -> QWidget:
         page = QWidget(self)
         form = QFormLayout(page)
+        # Same form look as the ToolPanel sections around it.
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.FieldsStayAtSizeHint)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         use = QCheckBox(f"Run {spec.label}", page)
         use.setToolTip("Docking mode: include this software as an independent job.")
         if spec.key == DEFAULT_PROGRAM:
@@ -420,7 +422,7 @@ class ProtocolEditorWidget:
                         break
             table.setCurrentCell(next_row, 0)
         table.resizeColumnsToContents()
-        if hasattr(self, "receptor_scope_label"):
+        if hasattr(self, "receptor_bar"):
             self.refresh()
 
     def _selected_protocol_row(self) -> int:
@@ -594,7 +596,32 @@ class ProtocolEditorWidget:
         self._refresh_receptor_prep_targets()
         self._refresh_protocol_table()
 
+    def _sync_ligand_source_choice(self) -> None:
+        """Offer shards vs rows only where both can exist, and only the choices that can run.
+
+        Shown in `htpvs` alone. Rows need curated ligand rows to exist; redocking re-docks the
+        reference cocrystals, which are rows, so it cannot take shards.
+        """
+        combo = self.ligand_source_combo
+        try:
+            sharded, ligand_rows = self.runtime.molecules.library_shape()
+        except Exception:  # noqa: BLE001 - no project open yet
+            sharded, ligand_rows = False, 0
+        redocking = self._run_kind() == "redocking"
+        self._experiment_form.setRowVisible(combo, bool(sharded))
+        combo.model().item(0).setEnabled(not redocking)
+        combo.model().item(1).setEnabled(bool(ligand_rows))
+        wanted = "rows" if redocking or (combo.currentData() == "rows" and ligand_rows) else "shards"
+        combo.blockSignals(True)
+        combo.setCurrentIndex(combo.findData(wanted))
+        combo.blockSignals(False)
+        combo.setToolTip(
+            "Redocking re-docks the reference cocrystals: rows only." if redocking
+            else "" if ligand_rows else "No reference ligands yet: import some as rows to dock them."
+        )
+
     def _on_experiment_config_changed(self) -> None:
+        self._sync_ligand_source_choice()
         self._refresh_program_availability()
         self._sync_protocol_ui()
         self._on_run_kind_changed()

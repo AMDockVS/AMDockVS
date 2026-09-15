@@ -3,23 +3,21 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QFormLayout,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
     QSpinBox,
     QStackedWidget,
-    QVBoxLayout,
     QWidget,
 )
-from amdockvs.ui.common.widgets import right_aligned, split_button
+from amdockvs.ui.common.job_follower import JobFollower
+from amdockvs.ui.common.widgets import RunDestinationCombo, gate_workflow_save, split_button
+from ms_components.tool_panel import ToolPanel
 from amdockvs.ui.catalog.common import BoundTableWidget
 from amdockvs.ui.catalog.ligands import LIGANDS_VIEW_ID
 from amdockvs.ui.catalog.receptors import RECEPTOR_VIEW_ID
-from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR
 from amdockvs.docking.engines.programs import list_docking_programs
 from amdockvs.models import EngineState
 from ms_components.ms_table import (
@@ -89,12 +87,9 @@ def _engine_state_table_config(*, role_type: str) -> TableConfig:
 
 # Ligand and receptor prep status were two registered views over the same `engines` table,
 # one filter value apart. They are one view with a role selector instead.
-_PREP_ROLES = (("Receptors", "receptor"), ("Ligands", "ligand"))
-
-
 class EngineStatePrepView(BoundTableWidget):
-    """Prepared/not per (molecule, engine), from the `engines` table. The role combo
-    swaps the base filter in place — same table, same columns, one population at a time."""
+    """Prepared/not per (molecule, engine), from the `engines` table. The Docking Studio step
+    picks the role (`set_role`) — same table, same columns, one population at a time."""
 
     def __init__(self, *, runtime, role_type: str = "ligand", parent=None):
         super().__init__(
@@ -103,22 +98,12 @@ class EngineStatePrepView(BoundTableWidget):
             empty_text="Open or create a project to inspect preparation status.",
             parent=parent,
         )
-        if self._table is None:  # no active project: nothing to filter
-            return
-        self._role_selector = QComboBox()
-        for label, value in _PREP_ROLES:
-            self._role_selector.addItem(label, value)
-        self._role_selector.setCurrentIndex(max(0, self._role_selector.findData(role_type)))
-        self._role_selector.currentIndexChanged.connect(lambda _index: self._apply_role())
-        row = QHBoxLayout()
-        row.setContentsMargins(8, 6, 8, 2)
-        row.addWidget(QLabel("Role:"))
-        row.addWidget(self._role_selector)
-        row.addStretch(1)
-        self.layout().insertLayout(0, row)
+        self.role = role_type
 
-    def _apply_role(self) -> None:
-        role = str(self._role_selector.currentData())
+    def set_role(self, role: str) -> None:
+        if role == self.role or self._table is None:  # no active project: nothing to filter
+            return
+        self.role = role
         self.set_base_filter(
             "role_type", FilterSpec("role_type", FilterOperator.EQ, role, label="role")
         )
@@ -136,25 +121,22 @@ class PreparationPanel:
     """Ligand/receptor preparation component and preparation-status view."""
 
     def _build_ligands_tab(self) -> QWidget:
-        page = QWidget(self)
-        layout = QVBoxLayout(page)
-
         # No scope selector and no ligand table here: the catalog Ligands tab IS both. This
         # step prepares exactly the rows that table is showing, and _sync_ligand_table_filter
         # keeps the experiment combination (type + usage class) on it. Per-engine prep status
-        # is its own tab (PREP_STATUS_VIEW_ID) — only the counts stay, on the line below.
-        self.ligand_scope_label = QLabel("Ligand scope unresolved.", page)
-        self.ligand_scope_label.setWordWrap(True)
-        layout.addWidget(self.ligand_scope_label)
+        # is its own tab (PREP_STATUS_VIEW_ID) — only the counts stay, on the action bar.
+        panel = ToolPanel(self)
 
         # Preparation area (image-3 design): a vertical target list on the left drives a
-        # QStackedWidget of option pages — row 0 = General Options (orchestration: batch,
-        # force re-prepare), then ONE page per preparation *family*, not per program: Vina,
+        # QStackedWidget of option pages — row 0 = General Options (force re-prepare), then
+        # ONE page per preparation *family*, not per program: Vina,
         # gnina and AutoDock4 all write a single EngineState row with engine="ad4", so
         # listing them separately showed three targets for one job. Families not implied by
         # the Programs step are disabled in the list.
-        prep_box = QGroupBox("Ligand preparation", page)
+        prep_section = panel.add_section("Ligand preparation")
+        prep_box = QWidget(prep_section.body)
         prep_h = QHBoxLayout(prep_box)
+        prep_h.setContentsMargins(0, 0, 0, 0)
 
         self.prep_target_list = QListWidget(prep_box)
         self.prep_target_list.setMaximumWidth(170)
@@ -181,19 +163,27 @@ class PreparationPanel:
         # Floor for the options pane: its pages are scroll areas (no real minimum), so without
         # this the layout can crush the box until the controls are unreachable.
         prep_box.setMinimumHeight(200)
-        layout.addWidget(prep_box, 1)
+        prep_section.add_row(prep_box)
 
-        # The launch button sits OUTSIDE the options group, bottom-right: it acts on the whole
-        # step, not on the option page that happens to be selected, and inside the group box the
-        # layout stretched it to the full height of the pane.
-        self.prepare_ligands_button = split_button(
-            "Prepare Ligands", page, on_click=self._prepare_ligands, primary=True
-        )
-        self.prepare_ligands_button.menu().addAction(
+        advanced = panel.advanced
+        self.prepare_ligand_batch_size = _spinbox(minimum=1, maximum=2048, value=64)
+        self.prepare_ligand_batch_label = QLabel("Batch size", advanced)
+        advanced.add_row(self.prepare_ligand_batch_label, self.prepare_ligand_batch_size)
+        self.ligand_prep_destination = RunDestinationCombo(advanced, self.runtime)
+        advanced.add_row("Run on", self.ligand_prep_destination)
+        advanced.form.setRowVisible(self.ligand_prep_destination, self.ligand_prep_destination.count() > 1)
+
+        # The launch button acts on the whole step, not on the option page that happens to be
+        # selected, so it lives on the action bar.
+        self.ligand_bar = panel.action_bar
+        self.prepare_ligands_button = split_button("Prepare Ligands", self.ligand_bar, on_click=self._prepare_ligands)
+        gate_workflow_save(self.prepare_ligands_button.menu().addAction(
             "Save to workflow…", self._save_prepare_ligands_to_workflow
-        ).setToolTip("Add 'Prepare ligands' (current settings) as a workflow step — updates it if already there.")
-        layout.addLayout(right_aligned(self.prepare_ligands_button))
-        return page
+        ))
+        self.ligand_bar.add_action(self.prepare_ligands_button)
+        self.ligand_bar.set_summary("Ligand scope unresolved.")
+        self.ligand_prep_jobs = JobFollower(self, self.ligand_bar, noun="Ligand preparation")
+        return panel
 
     def _prep_families(self, role: str = "ligand") -> dict[str, list]:
         """preparation_engine -> the programs that share it, for programs needing ligand prep.
@@ -262,14 +252,12 @@ class PreparationPanel:
 
     def _build_general_prep_page(self) -> QWidget:
         # Options common to every preparation method.
+        # Batch size and Run on live in the step's Advanced section.
         page = QWidget(self)
         form = QFormLayout(page)
-        self.prepare_ligand_batch_size = _spinbox(minimum=1, maximum=2048, value=64)
-        self.prepare_ligand_batch_label = QLabel("Prep batch", page)
         self.force_prepare_ligands = QCheckBox("Force re-prepare", page)
         # The Ligands table shows exactly what this step will process, so it follows this box.
         self.force_prepare_ligands.toggled.connect(lambda _=False: self._sync_ligand_table_filter())
-        form.addRow(self.prepare_ligand_batch_label, self.prepare_ligand_batch_size)
         form.addRow(self.force_prepare_ligands)
         return self._in_scroll(page)
 
@@ -290,26 +278,27 @@ class PreparationPanel:
         return self._in_scroll(page)
 
     def _build_receptors_tab(self) -> QWidget:
-        page = QWidget(self)
-        layout = QVBoxLayout(page)
-
-        # Scope: the counts + a collapsible context panel (Flexible residues) for the receptor
-        # focused in the catalog table. The scope itself is set on the Receptors table.
-        self.receptor_scope_label = QLabel("Receptor scope unresolved.", page)
-        self.receptor_scope_label.setWordWrap(True)
-        layout.addWidget(self.receptor_scope_label)
-
         # No receptor table here either: the catalog Receptors tab IS the table (same deal as
         # the Ligands step), kept in sync by _sync_receptor_table_filter. Flexible residues
-        # still follow the row you click there.
-        self.receptor_side_panel = self._build_receptor_side_panel(page)
-        layout.addWidget(self.receptor_side_panel, 1)
+        # follow the row you click there; the scope counts ride on the action bar.
+        panel = ToolPanel(self)
+
+        # Flexible residues only make sense once the focused receptor has an active site, so
+        # the section stays disabled until it does. No "Active Site" box: which BS is active
+        # and its center/size are already on the PyMOL Grid Box panel.
+        self.flex_box = panel.add_section(
+            "Flexible residues", checkable=True, checked=False, collapse_when_unchecked=True
+        )
+        self.flex_box.add_row(self._build_flex_residues_box(self.flex_box.body))
+        self.flex_box.setEnabled(False)
 
         # Preparation comes AFTER the binding site: flexible residues chosen above feed into the
         # prepared receptor. Vertical target list (General Options + one page per program that
-        # requires receptor prep) driving a stacked widget, plus the big Prepare button.
-        prep_box = QGroupBox("Receptor preparation", page)
+        # requires receptor prep) driving a stacked widget.
+        prep_section = panel.add_section("Receptor preparation")
+        prep_box = QWidget(prep_section.body)
         prep_h = QHBoxLayout(prep_box)
+        prep_h.setContentsMargins(0, 0, 0, 0)
 
         self.receptor_prep_target_list = QListWidget(prep_box)
         self.receptor_prep_target_list.setMaximumWidth(170)
@@ -334,45 +323,33 @@ class PreparationPanel:
         # Splitter instead of stacked boxes: the step then fits any height on its own, which
         # is what lets it drop the scroll area (and its scrollbar inside the table's).
         prep_box.setMinimumHeight(200)  # same reason as the Ligands step
+        prep_section.add_row(prep_box)
 
-        layout.addWidget(prep_box, 1)
-        # Outside the group, bottom-right — same reason as the Ligands step.
+        advanced = panel.advanced
+        self.prepare_receptor_batch_size = _spinbox(minimum=1, maximum=256, value=8)
+        advanced.add_row("Batch size", self.prepare_receptor_batch_size)
+        self.receptor_prep_destination = RunDestinationCombo(advanced, self.runtime)
+        advanced.add_row("Run on", self.receptor_prep_destination)
+        advanced.form.setRowVisible(self.receptor_prep_destination, self.receptor_prep_destination.count() > 1)
+
+        # On the action bar — same reason as the Ligands step.
+        self.receptor_bar = panel.action_bar
         self.prepare_receptor_button = split_button(
-            "Prepare Receptors", page, on_click=self._prepare_receptors, primary=True
+            "Prepare Receptors", self.receptor_bar, on_click=self._prepare_receptors
         )
-        self.prepare_receptor_button.menu().addAction(
+        gate_workflow_save(self.prepare_receptor_button.menu().addAction(
             "Save to workflow…", self._save_prepare_receptors_to_workflow
-        ).setToolTip("Add 'Prepare receptors' (current settings) as a workflow step — updates it if already there.")
-        layout.addLayout(right_aligned(self.prepare_receptor_button))
-        return page
-
-    def _build_receptor_side_panel(self, parent: QWidget) -> QWidget:
-        # Collapsible context panel (mockup's green column) for the focused receptor.
-        panel = QWidget(parent)
-        panel.setObjectName("recSidePanel")
-        # panel.setStyleSheet(
-        #     "#recSidePanel { background:#16291f; border:1px solid #3a7d5a; border-radius:8px; }"
-        # )
-        v = QVBoxLayout(panel)
-        v.setContentsMargins(8, 8, 8, 8)
-        v.setSpacing(8)
-
-        # No "Active Site" box: which BS is active and its center/size are already on the
-        # PyMOL Grid Box panel. The only number not shown there (how many receptors have a
-        # grid) rides along on the scope line, and Binding Sites opens from the scope row.
-
-        # Flexible residues only make sense once the receptor has an active site → disabled
-        # until the focused receptor has a grid.
-        self.flex_box = self._build_flex_residues_box(panel)
-        self.flex_box.setEnabled(False)
-        v.addWidget(self.flex_box, 1)
+        ))
+        self.receptor_bar.add_action(self.prepare_receptor_button)
+        self.receptor_bar.set_summary("Receptor scope unresolved.")
+        self.receptor_prep_jobs = JobFollower(self, self.receptor_bar, noun="Receptor preparation")
         return panel
 
     def _build_receptor_general_prep_page(self) -> QWidget:
         # Options common to every receptor preparation method.
+        # Batch size and Run on live in the step's Advanced section.
         page = QWidget(self)
         form = QFormLayout(page)
-        self.prepare_receptor_batch_size = _spinbox(minimum=1, maximum=256, value=8)
         self.force_prepare_receptors = QCheckBox("Force re-prepare", page)
         # The Receptors table shows exactly what this step will process, so it follows this box.
         self.force_prepare_receptors.toggled.connect(lambda _=False: self._sync_receptor_table_filter())
@@ -390,7 +367,6 @@ class PreparationPanel:
             "Keep cofactors (HEM, NAD, FAD, ...) in the receptor PDBQT. Off leaves an empty "
             "cofactor pocket the ligand can dock into."
         )
-        form.addRow("Prep batch", self.prepare_receptor_batch_size)
         form.addRow(self.force_prepare_receptors)
         form.addRow(self.keep_waters_receptors)
         form.addRow(self.keep_cofactors_receptors)
@@ -455,7 +431,7 @@ class PreparationPanel:
             return None
 
     def _scope_usage_class(self) -> str:
-        return "reference" if self._run_kind() == "redocking" else "general"
+        return self._ligand_usage_class(self._run_kind())
 
     def _sync_ligand_table_filter(self) -> None:
         """Push the experiment combination (ligand type + usage class) onto the catalog
@@ -615,13 +591,21 @@ class PreparationPanel:
                     ligand_set=ligand_scope,
                     batch_size=max(1, int(self.prepare_ligand_batch_size.value())),
                     force=self.force_prepare_ligands.isChecked(),
-                    executor_name=DEFAULT_LOCAL_CPU_EXECUTOR,
+                    executor_name=self.ligand_prep_destination.executor_name(),
                 )
         except Exception as exc:
+            self._follow_prep(self.ligand_prep_jobs, job_ids)
             self._error("Prepare Ligands", exc)
             return
-        self._append_status("Ligand Preparation Submitted", {"job_ids": job_ids})
+        self._follow_prep(self.ligand_prep_jobs, job_ids)
         self.stepper.set_current_index(2)
+
+    def _follow_prep(self, follower, job_ids: dict[str, str], unit: str = "batches") -> None:
+        # ponytail: one entry per program; they run side by side, so "step i of n" only
+        # means "job i". Fine while every selected program shares one prep family (K=1).
+        if job_ids:
+            # The noun says ligand/receptor; the program is noise (families share one prep).
+            follower.follow([(follower.noun, job_id) for job_id in job_ids.values()], unit=unit)
 
     def _set_sharded_prep_mode(self, sharded: bool) -> None:
         """A physical shard is already the HTP task, so no second batch control applies."""
@@ -629,7 +613,7 @@ class PreparationPanel:
         self.prepare_ligand_batch_size.setVisible(not sharded)
 
     def _prepare_ligand_shards(self) -> None:
-        """Same button, same programs, shard-sized work: no scope, and the batch counts shards.
+        """Same button, same programs, shard-sized work: no scope and no batch — one shard is one task.
 
         A sharded library has no rows to select — the "Force re-prepare" box still means what
         it says.
@@ -642,12 +626,13 @@ class PreparationPanel:
                 job_ids[program] = self.runtime.docking.prepare_ligand_shards(
                     program=program,
                     force=self.force_prepare_ligands.isChecked(),
-                    executor_name=DEFAULT_LOCAL_CPU_EXECUTOR,
+                    executor_name=self.ligand_prep_destination.executor_name(),
                 )
         except Exception as exc:
+            self._follow_prep(self.ligand_prep_jobs, job_ids, unit="shards")
             self._error("Prepare Ligands", exc)
             return
-        self._append_status("Shard Preparation Submitted", {"job_ids": job_ids})
+        self._follow_prep(self.ligand_prep_jobs, job_ids, unit="shards")
         self.stepper.set_current_index(2)
 
     def _prepare_receptors(self) -> None:
@@ -664,15 +649,18 @@ class PreparationPanel:
                     force=self.force_prepare_receptors.isChecked(),
                     keep_waters=self.keep_waters_receptors.isChecked(),
                     keep_cofactors=self.keep_cofactors_receptors.isChecked(),
-                    executor_name=DEFAULT_LOCAL_CPU_EXECUTOR,
+                    executor_name=self.receptor_prep_destination.executor_name(),
                 )
         except ValueError as exc:
+            self._follow_prep(self.receptor_prep_jobs, job_ids)
             self._warn("Prepare Receptor", str(exc))
             return
         except Exception as exc:
+            self._follow_prep(self.receptor_prep_jobs, job_ids)
             self._error("Prepare Receptor", exc)
             return
-        self._append_status("Receptor Preparation Submitted", {"job_ids": job_ids, "receptor_ids": self._effective_receptor_ids()})
+        self._follow_prep(self.receptor_prep_jobs, job_ids)
+        self.stepper.set_current_index(3)
 
     def _save_prepare_ligands_to_workflow(self) -> None:
         from amdockvs.ui.tools.workflow_panel import save_to_workflow
@@ -684,7 +672,8 @@ class PreparationPanel:
         programs = self._distinct_prep_programs() if target is None else [target]
         batch = max(1, int(self.prepare_ligand_batch_size.value()))
         force = self.force_prepare_ligands.isChecked()
-        executor = DEFAULT_LOCAL_CPU_EXECUTOR
+        # Captured now, not at run time: a workflow step keeps the destination it was saved with.
+        executor = self.ligand_prep_destination.executor_name()
 
         def submit(rt, programs=programs, scope=scope, batch=batch, force=force, executor=executor):
             return [
@@ -707,7 +696,7 @@ class PreparationPanel:
         force = self.force_prepare_receptors.isChecked()
         waters = self.keep_waters_receptors.isChecked()
         cofactors = self.keep_cofactors_receptors.isChecked()
-        executor = DEFAULT_LOCAL_CPU_EXECUTOR
+        executor = self.receptor_prep_destination.executor_name()
 
         def submit(rt, programs=programs, scope=scope, batch=batch, force=force, executor=executor,
                    waters=waters, cofactors=cofactors):

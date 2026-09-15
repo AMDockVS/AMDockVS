@@ -1,6 +1,6 @@
 """2D protein-ligand interaction diagram for the pose selected in Results.
 
-Lives under PyMOL (Region.RIGHT_BOTTOM): the 3D pose and its 2D contact map are the two
+Lives under PyMOL (Region.BOTTOM_RIGHT, bottom-in-lateral): the 3D pose and its 2D contact map are the two
 readings of the same thing, so they share the right column. The diagram is a live Qt scene
 (ms_contactmap's `InteractionDiagramWidget`) -- zoomable, draggable residues, rotate/mirror/
 recompute in its toolbar -- not a rendered image.

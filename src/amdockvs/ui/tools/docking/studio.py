@@ -101,6 +101,7 @@ class DockingStudioWidget(
         # end — on a big set that wait is long. Runs only on the Run step; the monitor snapshot
         # switches it on/off, so an idle project never polls.
         self._jobs_active = 0
+        self._reopened = False  # the first snapshot re-attaches running jobs and picks the step
         self._check_inflight = False
         self._prep_poll_timer = QTimer(self)
         self._prep_poll_timer.setInterval(4000)
@@ -132,16 +133,13 @@ class DockingStudioWidget(
             parent=self,
         )
         self.step_programs = self.stepper.add_step("Programs", "select & configure")
-        self.step_programs.add_widget(self._in_scroll(self._build_programs_tab()))
+        self._mount(self.step_programs, self._build_programs_tab())
         self.step_ligands = self.stepper.add_step("Ligands", "select & prepare")
-        # The scroll area is a safety net, not the layout: both steps are built on splitters
-        # whose minimum (~530 / ~710px) is well under a normal viewport, so the outer scrollbar
-        # only shows up in a genuinely tiny window instead of always, as it used to.
-        self.step_ligands.add_widget(self._in_scroll(self._build_ligands_tab()))
+        self._mount(self.step_ligands, self._build_ligands_tab())
         self.step_receptors = self.stepper.add_step("Receptors", "prepare & grid")
-        self.step_receptors.add_widget(self._in_scroll(self._build_receptors_tab()))
+        self._mount(self.step_receptors, self._build_receptors_tab())
         self.step_run = self.stepper.add_step("Preview & Run", "review & launch")
-        self.step_run.add_widget(self._in_scroll(self._build_preview_run_tab()))
+        self._mount(self.step_run, self._build_preview_run_tab())
         self.stepper.step_changed.connect(self._on_step_changed)
         outer.addWidget(self.stepper, 1)
 
@@ -164,6 +162,12 @@ class DockingStudioWidget(
         self._sync_receptor_table_filter()
         self.refresh()
 
+    @staticmethod
+    def _mount(step, panel: QWidget) -> None:
+        # The ToolPanel brings its own margins, scroll area and action bar.
+        step.body_layout.setContentsMargins(0, 0, 0, 0)
+        step.add_widget(panel)
+
     def _in_scroll(self, inner: QWidget) -> QScrollArea:
         # Each step scrolls vertically so tall content (table + prep + engine panel) is never
         # clipped; horizontal scrollbar off so a wide page can't stretch the whole window.
@@ -184,13 +188,16 @@ class DockingStudioWidget(
         # Preview & Run is the step *before* the results, so it opens them: the run lands there.
         from amdockvs.ui.catalog.domain_views import COMPLEXES_VIEW_ID  # circular at import time
 
-        view_id = {1: self._ligand_view_id(), 2: RECEPTOR_VIEW_ID, 3: COMPLEXES_VIEW_ID}.get(
-            self.stepper.current_index
-        )
+        index = self.stepper.current_index
+        view_id = {1: self._ligand_view_id(), 2: RECEPTOR_VIEW_ID, 3: COMPLEXES_VIEW_ID}.get(index)
         if view_id is not None:
             opener = getattr(self.window(), "open_or_focus_view", None)
             if callable(opener):
                 opener(view_id)
+        # The auxiliary zone follows the table: prepared ligands under Ligands, receptors under Receptors.
+        aux = getattr(self.window(), "aux", None)
+        if index in (1, 2) and aux is not None:
+            aux.page_for(PREP_STATUS_VIEW_ID).set_role("ligand" if index == 1 else "receptor")
         self._req_preview_timer.start()
         # Entering Preview & Run auto-checks (no manual button); _check_requirements self-gates.
         self._check_requirements()
@@ -206,6 +213,12 @@ class DockingStudioWidget(
         """Monitor heartbeat: poll the counts only while something is actually running."""
         self._jobs_active = int(getattr(snapshot, "jobs_active", 0) or 0)
         self._sync_prep_poll()
+        if not self._ready or snapshot is None:
+            return
+        step = self.attach_active_jobs(list(getattr(snapshot, "jobs", ()) or ()))
+        if step is not None and not self._reopened:
+            self.stepper.set_current_index(step)  # reopened mid-run: land where the run is shown
+        self._reopened = True
 
     def _sync_prep_poll(self) -> None:
         want = self._jobs_active > 0 and self.stepper.current_index == 3
@@ -262,6 +275,7 @@ class DockingStudioWidget(
         # GUI-thread only: the embedded tables load via their own (paged) models, and the
         # prep-target lists are cheap. Every counting/requirement query is pushed off-thread
         # by _dispatch_refresh so this never blocks, regardless of molecule-set size.
+        self._sync_ligand_source_choice()  # two small indexed counts: the choice follows the data
         self._sync_ligand_table_filter()
         self._sync_receptor_table_filter()
         self._refresh_prep_targets()

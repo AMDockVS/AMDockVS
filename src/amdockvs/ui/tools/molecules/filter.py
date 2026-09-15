@@ -272,7 +272,10 @@ class ImportActivityForm(QWidget):
 
     def set_source_file(self, path: str | None) -> None:
         """Called by the import dialog when the file list changes: sniff the CSV's numeric columns
-        and offer them as pre-ticked chips. Hidden for SDF / no file."""
+        and offer them as unticked chips. Hidden for SDF / no file.
+
+        Unticked on purpose: a numeric column is not an assay, and pre-ticking turned every
+        tabular import into an activity import."""
         for chip in self._chips.values():
             chip.setParent(None)
         self._chips.clear()
@@ -282,7 +285,6 @@ class ImportActivityForm(QWidget):
             return
         for column, kind in self._detected_kinds.items():
             chip = QCheckBox(f"{column}  ({kind})", self._chips_host)
-            chip.setChecked(True)
             self._chips_layout.addWidget(chip)
             self._chips[column] = chip
         self.columns_box.setVisible(True)

@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR
+from amdockvs.ui.common.widgets import gate_workflow_save
 from amdockvs.docking.engines.programs import VINA_PROGRAM
 from amdockvs.ui.tools.docking.redocking_charts import RedockingChartsPanel
 from amdockvs.project.summaries import DockingHitSummary
@@ -90,6 +91,7 @@ class RedockingWidget(QWidget):
         self.add_workflow_button = QPushButton("Save to workflow", self)
         self.add_workflow_button.setToolTip("Save this redocking (current settings) as a step in the active workflow — updates the existing redocking step if there is one.")
         self.add_workflow_button.clicked.connect(self._add_to_workflow)
+        gate_workflow_save(self.add_workflow_button)
         run_row.addWidget(self.add_workflow_button)
         self.add_workflow_button.setVisible(False)
         outer.addLayout(run_row)
