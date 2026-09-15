@@ -232,19 +232,19 @@ class ViewCoordinator:
         self.workflow_action_button = None
         if self.w.dock_manager is None:
             return
-        try:
-            self.workflow_action_button = self.w.dock_manager.add_action_button(
-                "workflow",
-                region=Region.LEFT_TOP,
-                order=-1,  # above every dock button (Catalog is order 1)
-                title="Workflow",
-                icon=load_icon("workflow.svg"),
-                tooltip="Show/hide the active workflow pipeline.",
-                checkable=True,
-                on_click=self.on_workflow_toggled,
-            )
-        except Exception:
-            pass  # quick-access is optional chrome; never block window construction on it
+        # try:
+        #     self.workflow_action_button = self.w.dock_manager.add_action_button(
+        #         "workflow",
+        #         region=Region.LEFT_TOP,
+        #         order=-1,  # above every dock button (Catalog is order 1)
+        #         title="Workflow",
+        #         icon=load_icon("workflow.svg"),
+        #         tooltip="Show/hide the active workflow pipeline.",
+        #         checkable=True,
+        #         on_click=self.on_workflow_toggled,
+        #     )
+        # except Exception:
+        #     pass  # quick-access is optional chrome; never block window construction on it
 
     def on_workflow_toggled(self, checked: bool) -> None:
         # User clicked the sidebar action: open the tab when checked, close it when unchecked.
