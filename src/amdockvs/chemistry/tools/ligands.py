@@ -109,9 +109,9 @@ def protonate_ligand_molecule(mol):
 def generate_ligand_3d(
     mol,
     *,
-    add_hs: bool = True,
     random_seed: int = 0xF00D,
-    optimize: bool = True,
+    method: str = "etkdgv3",
+    attempts: int = 1,
     fragment_mode: str = "largest_organic",
     filter_metals: bool = True,
     filter_simple_ions: bool = True,
@@ -126,29 +126,39 @@ def generate_ligand_3d(
         filter_metals=filter_metals,
         filter_simple_ions=filter_simple_ions,
     )
-    if add_hs:
-        work_mol = Chem.AddHs(work_mol)
-    params = AllChem.ETKDGv3()
+    # ETKDG needs explicit Hs; AddHs only fills implicit ones, so protonated Hs are kept.
+    work_mol = Chem.AddHs(work_mol)
+    presets = {"etkdgv3": AllChem.ETKDGv3, "sretkdgv3": AllChem.srETKDGv3}
+    preset = presets.get(str(method or "etkdgv3").strip().lower())
+    if preset is None:
+        raise ValueError(f"Unsupported 3D embedding method: {method}")
+    params = preset()
     params.randomSeed = int(random_seed)
-    conf_id = AllChem.EmbedMolecule(work_mol, params)
-    print(f"RDKit generated a 3D conformer: {conf_id}")
-    if conf_id < 0:
+    params.numThreads = 1  # the executor already parallelizes by process
+    num_confs = max(1, int(attempts))
+    conf_ids = list(AllChem.EmbedMultipleConfs(work_mol, numConfs=num_confs, params=params))
+    if not conf_ids:
+        # Random starting coordinates rescue large molecules and macrocycles the default start fails on.
+        params.useRandomCoords = True
+        conf_ids = list(AllChem.EmbedMultipleConfs(work_mol, numConfs=num_confs, params=params))
+    if not conf_ids:
         raise ValueError("RDKit could not generate a 3D conformer.")
-    optimized = False
-    if optimize:
+    minimized = False
+    if len(conf_ids) > 1:
+        # Best of N: raw embeddings have no comparable energy, so each attempt is optimized first.
+        results = None
         if AllChem.MMFFHasAllMoleculeParams(work_mol):
-            try:
-                AllChem.MMFFOptimizeMolecule(work_mol, confId=conf_id)
-                optimized = True
-            except Exception:
-                optimized = False
-        if not optimized and AllChem.UFFHasAllMoleculeParams(work_mol):
-            try:
-                AllChem.UFFOptimizeMolecule(work_mol, confId=conf_id)
-                optimized = True
-            except Exception:
-                optimized = False
-    work_mol.SetBoolProp("_amdock_is_minimized", bool(optimized))
+            results = AllChem.MMFFOptimizeMoleculeConfs(work_mol, numThreads=1)
+        elif AllChem.UFFHasAllMoleculeParams(work_mol):
+            results = AllChem.UFFOptimizeMoleculeConfs(work_mol, numThreads=1)
+        best = 0
+        if results:
+            minimized = True
+            best = min(range(len(results)), key=lambda index: results[index][1])
+        keep = Chem.Conformer(work_mol.GetConformer(conf_ids[best]))
+        work_mol.RemoveAllConformers()
+        work_mol.AddConformer(keep, assignId=True)
+    work_mol.SetBoolProp("_amdock_is_minimized", minimized)
     return work_mol
 
 
@@ -157,19 +167,48 @@ def minimize_ligand_molecule(
     *,
     forcefield: str = "mmff",
     max_iters: int = 200,
+    prune_rms_thresh: float = 0.0,
 ):
     from rdkit import Chem
     from rdkit.Chem import AllChem
 
     work_mol = Chem.Mol(mol)
     if work_mol.GetNumConformers() == 0:
-        work_mol = generate_ligand_3d(work_mol, add_hs=True, optimize=False)
+        work_mol = generate_ligand_3d(work_mol)
     normalized_forcefield = str(forcefield or "mmff").strip().lower()
+    # Every conformer, so an ensemble minimizes as a whole; a single conformer is the same call.
     if normalized_forcefield == "mmff" and AllChem.MMFFHasAllMoleculeParams(work_mol):
-        AllChem.MMFFOptimizeMolecule(work_mol, maxIters=int(max_iters))
+        results = AllChem.MMFFOptimizeMoleculeConfs(work_mol, numThreads=1, maxIters=int(max_iters))
     else:
-        AllChem.UFFOptimizeMolecule(work_mol, maxIters=int(max_iters))
+        results = AllChem.UFFOptimizeMoleculeConfs(work_mol, numThreads=1, maxIters=int(max_iters))
+    if float(prune_rms_thresh) > 0 and work_mol.GetNumConformers() > 1:
+        work_mol = _prune_minimized_conformers(
+            work_mol, [energy for _not_converged, energy in results], float(prune_rms_thresh)
+        )
     return work_mol
+
+
+def _prune_minimized_conformers(mol, energies, threshold: float):
+    """Minimization can drop neighbouring conformers into one basin: keep the lowest-energy one.
+
+    Survivors come out sorted by energy, so the first conformer — the current model — is the lowest.
+    """
+    from rdkit import Chem
+    from rdkit.Chem import rdMolAlign
+
+    heavy = Chem.RemoveHs(mol)
+    conformers = list(mol.GetConformers())
+    kept: list[int] = []
+    # ponytail: O(n²) symmetry-aware alignments; AllChem.GetConformerRMSMatrix if big ensembles get slow.
+    for index in sorted(range(len(conformers)), key=energies.__getitem__):
+        conf_id = conformers[index].GetId()
+        if all(rdMolAlign.GetBestRMS(heavy, heavy, conf_id, kept_id) >= threshold for kept_id in kept):
+            kept.append(conf_id)
+    survivors = [Chem.Conformer(mol.GetConformer(conf_id)) for conf_id in kept]
+    mol.RemoveAllConformers()
+    for conformer in survivors:
+        mol.AddConformer(conformer, assignId=True)
+    return mol
 
 
 __all__ = [
