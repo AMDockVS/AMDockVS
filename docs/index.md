@@ -6,16 +6,14 @@ It uses MolSuite for projects, task orchestration, executors, and data flow.
 
 ## Install
 
-AMDockVS requires Python 3.12. Until the MolSuite packages are published on
-PyPI, install them from Git before installing AMDockVS:
+AMDockVS requires Python 3.12. The MolSuite packages and PyMOL (the
+`pymol-open-source` alpha wheels, through `ms_components`) are installed
+automatically from PyPI, so no conda environment is needed:
 
 ```bash
-conda create -n amdockvs -c conda-forge python=3.12 pymol-open-source
-conda activate amdockvs
-pip install "ms_flow @ git+https://github.com/MolSuite/ms_flow"
-pip install "ms_components @ git+https://github.com/MolSuite/ms_components"
-pip install "ms_contactmap @ git+https://github.com/MolSuite/ms_contactmap"
-pip install "amdock-vs @ git+https://github.com/AMDockVS/AMDockVS"
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install AMDockVS
 ```
 
 Start the desktop application with:

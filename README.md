@@ -18,17 +18,13 @@ The active public API is organised by domain:
 
 ## Installation
 
-Python >= 3.12. The three MolSuite dependencies are not on PyPI yet, so they are
-installed from git first. PyMOL is required and must be installed from
-conda-forge because it is not distributed on PyPI:
+Python >= 3.12. The MolSuite packages and PyMOL (the `pymol-open-source` alpha
+wheels, via `ms_components`) are installed automatically from PyPI:
 
 ```bash
-conda create -n amdockvs -c conda-forge python=3.12 pymol-open-source
-conda activate amdockvs
-pip install "ms_flow @ git+https://github.com/MolSuite/ms_flow"
-pip install "ms_components @ git+https://github.com/MolSuite/ms_components"
-pip install "ms_contactmap @ git+https://github.com/MolSuite/ms_contactmap"
-pip install "amdock-vs @ git+https://github.com/AMDockVS/AMDockVS"
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install AMDockVS
 ```
 
 Start the GUI:
@@ -40,7 +36,7 @@ amdockvs
 ### Optional extras
 
 ```bash
-pip install "amdock-vs[all]"   # or pick one: bblean, pockets, receptors
+pip install "AMDockVS[all]"   # or pick one: bblean, pockets, receptors
 ```
 
 | Extra | What it adds |

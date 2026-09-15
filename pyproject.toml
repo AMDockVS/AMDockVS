@@ -68,7 +68,7 @@ pockets = ["jdk4py~=21.0"]
 # minimise, ProDy is the fallback PDBQT path. All imported lazily — without
 # them those preparation options simply report they are unavailable.
 receptors = ["openmm>=8.1", "pdbfixer>=1.9", "prody>=2.4"]
-all = ["amdock-vs[bblean,pockets,receptors]"]
+all = ["amdockvs[bblean,pockets,receptors]"]
 
 [project.urls]
 Homepage = "https://github.com/AMDockVS/AMDockVS"
