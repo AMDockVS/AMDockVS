@@ -15,7 +15,7 @@ import_max_inflight = 32
 records_per_shard = 1000
 keep_history = false
 max_bytes = 268435456
-suggest_bytes = 209715200
+suggest_records = 500000
 hit_cap = 100000
 
 [binding_sites]

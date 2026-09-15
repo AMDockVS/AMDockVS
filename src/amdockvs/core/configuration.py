@@ -142,12 +142,12 @@ class ShardStorageConfiguration(BaseModel):
         description="Hard ceiling for one shard file; a source larger than this is split.",
     )
 
-    suggest_bytes: int = Field(
-        200 * 1024 * 1024,
-        ge=1024 * 1024,
-        le=2 * 1024 * 1024 * 1024 - 1,
-        title="Suggested shard size (bytes)",
-        description="Size above which the importer proposes sharding instead of a materialized import.",
+    suggest_records: int = Field(
+        500_000,
+        ge=1,
+        le=1_000_000_000,
+        title="Suggest shards above (molecules)",
+        description="Queued molecules above which the importer proposes sharding instead of a materialized import.",
     )
 
     hit_cap: int = Field(
@@ -339,7 +339,7 @@ DEFAULT_DOCKING_BATCH_SIZE = _PACKAGED_DEFAULT.batch_sizes.docking
 DEFAULT_OUTPUT_FLUSH_EVERY = _PACKAGED_DEFAULT.batch_sizes.output_flush_every
 DEFAULT_IMPORT_MAX_INFLIGHT = _PACKAGED_DEFAULT.batch_sizes.import_max_inflight
 DEFAULT_SHARD_MAX_BYTES = _PACKAGED_DEFAULT.shards.max_bytes
-DEFAULT_SHARD_SUGGEST_BYTES = _PACKAGED_DEFAULT.shards.suggest_bytes
+DEFAULT_SHARD_SUGGEST_RECORDS = _PACKAGED_DEFAULT.shards.suggest_records
 DEFAULT_HIT_SAFETY_CAP = _PACKAGED_DEFAULT.shards.hit_cap
 DEFAULT_INLINE_RUN_LIMIT = _PACKAGED_DEFAULT.diversity.inline_run_limit
 DEFAULT_MOLECULES_PER_CPU = _PACKAGED_DEFAULT.diversity.molecules_per_cpu
@@ -393,7 +393,7 @@ __all__ = [
     "DEFAULT_MAX_2D_PREVIEW_HEAVY_ATOMS",
     "DEFAULT_OUTPUT_FLUSH_EVERY",
     "DEFAULT_SHARD_MAX_BYTES",
-    "DEFAULT_SHARD_SUGGEST_BYTES",
+    "DEFAULT_SHARD_SUGGEST_RECORDS",
     "DEFAULT_TEMPERATURE_K",
     "DiversityConfiguration",
     "DockingDefaults",
