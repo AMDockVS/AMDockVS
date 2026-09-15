@@ -9,7 +9,6 @@ import time
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QMessageBox
 
-from amdockvs.ui.monitor import MONITOR_JOBS_VIEW_ID
 from amdockvs.ui.shell.notifications import (
     ERROR,
     INFO,
@@ -129,13 +128,10 @@ class JobFeedbackController:
         self.w.monitor_bridge.request_refresh()
 
     def _jobs_surfaces_open(self) -> bool:
-        # A jobs surface is "on screen" only when the summary dock is visible or the
-        # jobs view is the CURRENT tab — a jobs view sitting in a background tab does
-        # not count, otherwise the status bar indicator would stay hidden with nothing
-        # else showing. There must always be a monitor indicator visible.
-        dock_visible = self.w.monitor_dock is not None and self.w.monitor_dock.isVisible()
-        jobs_is_current = str(self.w.central_widget.current_view_id()) == MONITOR_JOBS_VIEW_ID
-        return bool(dock_visible or jobs_is_current)
+        # The status-bar indicator steps aside only while the Jobs window is on screen, so
+        # there is always one monitor indicator visible.
+        dialog = self.w.jobs_dialog
+        return dialog is not None and dialog.isVisible()
 
     def update_jobs_statusbar(self, snapshot=None) -> None:
         active, progress = self.jobs_status

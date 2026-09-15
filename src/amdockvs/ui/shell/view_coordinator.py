@@ -110,6 +110,12 @@ class ViewCoordinator:
         # Neutral label on purpose: the toggle owns the band, not what lands in it.
         # The action itself belongs to the auxiliary zone; the bar only hosts it.
         self.w.aux.install_action(bar.addAction(load_icon("details.svg"), "Panel"))
+        # Jobs opens a window, not a region: the tools show their own progress, so the full
+        # monitor is on demand. Disabled with no project like the rest of the bar.
+        bar.addSeparator()
+        self.jobs_action = bar.addAction(load_icon("cpu.svg"), "Jobs")
+        self.jobs_action.setToolTip("Open the Jobs monitor.")
+        self.jobs_action.triggered.connect(self.w.open_jobs_monitor)
         # After the actions exist, not before: the badge and the bar say the same thing.
         self.sync_mode_badge()
         # Every toolbar button now exists (docks + actions + these), so one pass styles them all.

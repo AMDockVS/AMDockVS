@@ -2,7 +2,19 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QHBoxLayout, QMenu, QSizePolicy, QToolButton, QWidget
+from PySide6.QtWidgets import QComboBox, QHBoxLayout, QMenu, QSizePolicy, QToolButton, QWidget
+
+from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR
+
+# ponytail: off until a workflow can run steps that wait on other jobs; flip it on then.
+WORKFLOW_SAVE_READY = False
+
+
+def gate_workflow_save(control) -> None:
+    """Disable a 'Save to workflow' button or menu action until workflows can chain jobs."""
+    if not WORKFLOW_SAVE_READY:
+        control.setEnabled(False)
+        control.setToolTip("Not available yet: a workflow cannot run steps that depend on other jobs.")
 
 
 def split_button(text: str, parent: QWidget, *, on_click, primary: bool = False) -> QToolButton:

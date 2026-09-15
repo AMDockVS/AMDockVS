@@ -5,7 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel
 
@@ -14,7 +14,12 @@ from amdockvs.core.configuration import (
     MAX_2D_PREVIEW_HEAVY_ATOMS_PATH,
 )
 from amdockvs.core.paths import preferred_molecule_path
+from amdockvs.ui.common.job_follower import JobFollower
 from ms_components.ms_table import FilterOperator, FilterSpec, TableConfig, SmartTableView
+from ms_components.tool_panel import ActionBar
+
+# How long a finished run's outcome stays under the table before the strip hides.
+_JOB_BAR_LINGER_MS = 4000
 
 
 _PREVIEW_WIDTH = 256
@@ -233,6 +238,8 @@ class BoundTableWidget(QWidget):
         # What pop_scope() puts back where a scope overrode a filter (absent field = remove).
         self._default_filters = {f.field: deepcopy(f) for f in (config.default_filters or [])}
         self._scopes: dict[str, set[str]] = {}
+        self._job_bar: ActionBar | None = None
+        self._jobs: JobFollower | None = None
 
         layout = QVBoxLayout(self)
         # No wrapper margins: Qt's default ~11px would inset the whole table relative to the
@@ -261,6 +268,29 @@ class BoundTableWidget(QWidget):
         delete_shortcut.activated.connect(self.delete_selected)
         if self.selectable:
             self._install_select(config)
+
+    # --- Jobs filling this table ------------------------------------------------------
+    def follow_jobs(self, job_ids, *, noun: str, stage: str) -> None:
+        """A progress strip under the table while the jobs that fill it run; hides after.
+
+        Built on first use, so a table nobody follows carries no bar. Same ActionBar +
+        JobFollower as the tool panels: progress, Cancel, and a link to the Jobs monitor.
+        """
+        job_ids = [str(job_id) for job_id in job_ids or () if job_id]
+        if not job_ids:
+            return
+        if self._job_bar is None:
+            self._job_bar = ActionBar(self)
+            self.layout().addWidget(self._job_bar)
+            self._jobs = JobFollower(self, self._job_bar, noun=noun)
+            self._jobs.finished.connect(lambda _status: QTimer.singleShot(_JOB_BAR_LINGER_MS, self._hide_job_bar))
+        self._jobs.noun = noun
+        self._jobs.follow([(stage, job_id) for job_id in job_ids])
+        self._job_bar.show()
+
+    def _hide_job_bar(self) -> None:
+        if self._job_bar is not None and not self._job_bar.is_running:  # a newer run keeps it
+            self._job_bar.hide()
 
     # --- Scope = what the table shows -----------------------------------------------
     # There is no scope object anywhere: a tool acts on the rows its table is showing, and
