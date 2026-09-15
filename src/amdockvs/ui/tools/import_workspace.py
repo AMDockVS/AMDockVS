@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -10,8 +10,10 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
     QMessageBox,
     QTableWidget,
@@ -20,10 +22,19 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from amdockvs.io.jobs import SHARD_SUGGEST_BYTES
+from amdockvs.io.jobs import SHARD_SUGGEST_RECORDS
+from amdockvs.io.parsers.readers import count_import_records
 from amdockvs.models.molecules import MoleculeType
 from amdockvs.core.vocab import ProjectMode
-from amdockvs.ui.common.drop_area import TablePlaceholder, drop_hint, icon_button
+from amdockvs.ui.common.drop_area import (
+    USER_INPUT_SOURCE,
+    TablePlaceholder,
+    drop_hint,
+    icon_button,
+    toolbar_separator,
+    write_user_input,
+)
+from amdockvs.ui.catalog.common import BoundTableWidget
 from amdockvs.ui.catalog.ligands import LIGANDS_VIEW_ID
 from amdockvs.ui.catalog.shards import SHARDS_VIEW_ID
 from amdockvs.ui.catalog.receptors import RECEPTOR_VIEW_ID, ReceptorImportPanel
@@ -35,6 +46,7 @@ from amdockvs.ui.tools.molecules.filter import (
 )
 
 from amdockvs.io.formats import QT_FILE_FILTER as _LIGAND_FILTER
+from ms_components.theme import color
 
 # Per-row molecule type choices. Default (first) is small molecule — the common ligand case.
 _TYPE_CHOICES = (
@@ -46,9 +58,14 @@ _TYPE_CHOICES = (
 )
 
 
-def _land_on_view(window, view_id: str) -> None:
-    if window is not None and hasattr(window, "open_or_focus_view"):
-        window.open_or_focus_view(view_id)
+def _land_on_view(window, view_id: str, job_ids=(), *, noun: str = "Import") -> None:
+    """Open the table the import fills and put the jobs' progress under it, where the eye is."""
+    if window is None or not hasattr(window, "open_or_focus_view"):
+        return
+    view = window.open_or_focus_view(view_id)
+    table = view if isinstance(view, BoundTableWidget) else view.findChild(BoundTableWidget)
+    if table is not None:
+        table.follow_jobs(job_ids, noun=noun, stage="Importing")
 
 
 def _nudge_monitor(window) -> None:
@@ -60,10 +77,11 @@ def _nudge_monitor(window) -> None:
 
 
 class FileDropTable(QTableWidget):
-    """Drag-and-drop file list with Name / Type / Format / Path columns and a per-row type combo."""
+    """Drag-and-drop file list with Name / Type / Format / Path / As Reference columns, a per-row
+    type combo and a per-row reference mark."""
 
     rows_changed = Signal()
-    _COLUMNS = ("Name", "Type", "Format", "Path")
+    _COLUMNS = ("Name", "Type", "Format", "Path", "As Reference")
 
     def __init__(self, parent=None):
         super().__init__(0, len(self._COLUMNS), parent)
@@ -75,8 +93,9 @@ class FileDropTable(QTableWidget):
         header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(3, QHeaderView.Stretch)
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
         self.setAcceptDrops(True)
-        self._placeholder = TablePlaceholder(self, drop_hint("ligand"))
+        self.placeholder = TablePlaceholder(self, drop_hint("ligand"))
 
     # ---- rows ----
     def _paths(self) -> set[str]:
@@ -118,6 +137,14 @@ class FileDropTable(QTableWidget):
         path_item.setFlags(path_item.flags() & ~Qt.ItemIsEditable)
         self.setItem(row, 3, path_item)
 
+        as_reference = QCheckBox(self)
+        as_reference.setToolTip(
+            "Curated set (cocrystals, measured actives): imported as rows, never shards, and the "
+            "only files the Activity tab reads measurements from."
+        )
+        as_reference.toggled.connect(self.rows_changed)
+        self.setCellWidget(row, 4, as_reference)
+
     def remove_selected(self) -> None:
         rows = sorted({index.row() for index in self.selectedIndexes()}, reverse=True)
         for row in rows:
@@ -133,6 +160,10 @@ class FileDropTable(QTableWidget):
             kind = self.cellWidget(row, 1).currentData()
             out.append((path, kind))
         return out
+
+    def reference_paths(self) -> set[str]:
+        """Paths ticked 'As Reference'."""
+        return {self.item(row, 3).text() for row in range(self.rowCount()) if self.cellWidget(row, 4).isChecked()}
 
     def has_small_molecule(self) -> bool:
         return any(kind == MoleculeType.SMALL_MOLECULE for _, kind in self.rows())
@@ -181,12 +212,18 @@ class LigandImportDialog(QDialog):
         top.addWidget(self.table, 1)
 
         toolbar = QVBoxLayout()
+        self._source_labels: dict[str, str] = {}  # temp carrier path → real origin ("user input")
         self.add_button = icon_button(self, "file-plus.svg", "Add files")
+        self.add_text_button = icon_button(self, "text-input.svg", "Add SMILES (one per line, optional name)")
         self.remove_button = icon_button(self, "shredder.svg", "Remove selected files")
         self.add_button.clicked.connect(self._on_add)
+        self.add_text_button.clicked.connect(self._on_add_text)
+        self.table.placeholder.clicked.connect(self._on_add)
         self.remove_button.clicked.connect(self.table.remove_selected)
-        for button in (self.add_button, self.remove_button):
-            toolbar.addWidget(button)
+        toolbar.addWidget(self.add_button)
+        toolbar.addWidget(self.add_text_button)
+        toolbar.addWidget(toolbar_separator(self))
+        toolbar.addWidget(self.remove_button)
         toolbar.addStretch(1)
         top.addLayout(toolbar)
         root.addLayout(top, 1)
@@ -195,18 +232,35 @@ class LigandImportDialog(QDialog):
         # This is the whole "campaign mode" decision, and it lives here because it is a property
         # of the library being imported, not of the project. One screening library per project:
         # once the project holds one, the box is locked to match it.
-        self.shard_checkbox = QCheckBox(
-            "Screening library: keep on disk as shards (no rows, no catalog)", self
-        )
+        # Framed and always explained: it is the most consequential choice in the dialog, and
+        # the frame turns to the warning accent while it is ticked.
+        self._record_counts: dict[str, int] = {}
+        self.shard_box = QFrame(self)
+        self.shard_box.setObjectName("shardBox")
+        box_layout = QVBoxLayout(self.shard_box)
+        self.shard_checkbox = QCheckBox("Screening library: keep on disk as shards", self.shard_box)
+        bold = self.shard_checkbox.font()
+        bold.setBold(True)
+        self.shard_checkbox.setFont(bold)
         self.shard_checkbox.setToolTip(
-            "For libraries too big to materialize. The molecules stay in files; only hits are "
-            "ever written to the project. Receptors and reference ligands are unaffected."
+            "For libraries too big to materialize. Receptors and reference ligands are unaffected."
         )
-        self.shard_hint = QLabel("", self)
+        description = QLabel(
+            "Molecules stay in files on disk: no rows, no catalog, and only docking hits are ever "
+            "written to the project. This sets how the whole project screens — one screening "
+            "library per project.",
+            self.shard_box,
+        )
+        description.setWordWrap(True)
+        self.shard_hint = QLabel("", self.shard_box)
         self.shard_hint.setWordWrap(True)
-        root.addWidget(self.shard_checkbox)
-        root.addWidget(self.shard_hint)
+        self.shard_hint.setVisible(False)
+        for widget in (self.shard_checkbox, description, self.shard_hint):
+            box_layout.addWidget(widget)
+        root.addWidget(self.shard_box)
+        self.shard_checkbox.toggled.connect(self._style_shard_box)
         self._lock_shard_choice_to_project()
+        self._style_shard_box()
 
         # --- option tabs (separate scopes) ---
         self.tabs = QTabWidget(self)
@@ -234,6 +288,8 @@ class LigandImportDialog(QDialog):
             "Diverse",
         )
         root.addWidget(self.tabs)
+        self._reference_count = 0
+        self._activity_source: str | None = None
 
         # --- footer ---
         buttons = QDialogButtonBox(self)
@@ -258,6 +314,17 @@ class LigandImportDialog(QDialog):
         if paths:
             self.table.add_files(paths)
 
+    def _on_add_text(self) -> None:
+        """Typed SMILES become a .smi file; the molecules' source says "user input"."""
+        text, ok = QInputDialog.getMultiLineText(
+            self, "Add SMILES", "One SMILES per line, optionally followed by a name:"
+        )
+        if not ok or not text.strip():
+            return
+        path = write_user_input(text, ".smi")
+        self._source_labels[path] = USER_INPUT_SOURCE
+        self.table.add_files([path])
+
     def _lock_shard_choice_to_project(self) -> None:
         """A project that already has a screening library cannot get a second one."""
         try:
@@ -271,56 +338,103 @@ class LigandImportDialog(QDialog):
             # (cocrystals to redock, an activity set to train on); those are rows, not a second
             # library, so unticking here means "reference", not "shard this too".
             self.shard_checkbox.setChecked(True)
-            self.shard_hint.setText(
+            self._set_shard_hint(
                 "This project's library is sharded — ticked, these files join the shards. "
                 "Untick to bring them in as reference ligands (rows: cocrystals, activity sets)."
             )
         elif rows:
             self.shard_checkbox.setChecked(False)
             self.shard_checkbox.setEnabled(False)
-            self.shard_hint.setText(
+            self._set_shard_hint(
                 f"This project already holds {rows} ligands as rows — imports go to the database."
             )
 
+    def _style_shard_box(self, *_args) -> None:
+        # The accent is read at style time, so changeEvent re-runs this on a theme switch.
+        checked = self.shard_checkbox.isChecked()
+        accent = color("yellow").name()
+        border = accent if checked else "palette(mid)"
+        self.shard_box.setStyleSheet(
+            f"QFrame#shardBox {{ border: 1px solid {border}; border-radius: 4px; }}"
+        )
+        self.shard_hint.setStyleSheet(f"color: {accent};" if checked else "color: palette(mid);")
+
+    def _set_shard_hint(self, text: str) -> None:
+        # Hidden while empty: a blank word-wrapped label still reserves a line inside the frame.
+        self.shard_hint.setText(text)
+        self.shard_hint.setVisible(bool(text))
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        if event.type() in (QEvent.PaletteChange, QEvent.ApplicationPaletteChange) and hasattr(self, "shard_box"):
+            self._style_shard_box()
+
     def _suggest_shards(self) -> int:
-        """Total bytes of the small-molecule files queued; suggests shards past the threshold."""
+        """Approximate molecules queued in the small-molecule files; suggests shards past the threshold."""
         total = 0
+        references = self.table.reference_paths()  # curated sets never shard, so they don't count
         for path, kind in self.table.rows():
-            if kind != MoleculeType.SMALL_MOLECULE:
+            if kind != MoleculeType.SMALL_MOLECULE or path in references:
                 continue
-            try:
-                total += Path(path).stat().st_size
-            except OSError:
-                continue
+            # ponytail: counted once per path (a sampled estimate above 32 MB, exact below);
+            # a file edited while the dialog is open keeps its first count.
+            if path not in self._record_counts:
+                try:
+                    self._record_counts[path] = count_import_records(path, approx=True)
+                except OSError:
+                    self._record_counts[path] = 0
+            total += self._record_counts[path]
         if self._project_sharded:  # the checkbox already says where this goes; keep that hint
             return total
-        if self.shard_checkbox.isEnabled() and total >= SHARD_SUGGEST_BYTES:
+        if self.shard_checkbox.isEnabled() and total >= SHARD_SUGGEST_RECORDS:
             self.shard_checkbox.setChecked(True)
-            self.shard_hint.setText(
-                f"{total / (1024 ** 3):.1f} GB queued — sharding suggested. Importing this as rows "
+            self._set_shard_hint(
+                f"⚠ ~{total:,} molecules queued — sharding suggested. Importing them as rows "
                 "would write a row per molecule into the project database."
             )
         elif self.shard_checkbox.isEnabled():
-            self.shard_hint.setText("")
+            self._set_shard_hint("")
         return total
+
+    def _sync_activity_tab(self) -> None:
+        """Measurements only come with a file marked 'As Reference'.
+
+        Nothing is inferred from the file: a numeric column is not an assay. The mark is the
+        declaration, and making it brings the Activity tab forward. A reference file is always
+        rows, so activities can never be dropped by a shard import.
+        """
+        references = self.table.reference_paths()
+        index = self.tabs.indexOf(self.activity_form)
+        self.tabs.setTabEnabled(index, bool(references))
+        self.tabs.setTabToolTip(
+            index, "" if references else "Tick 'As Reference' on the files that carry activities."
+        )
+        if len(references) > self._reference_count:
+            self.tabs.setCurrentWidget(self.activity_form)
+        self._reference_count = len(references)
+        # The first tabular reference file feeds the column picker; re-sniffed only when it
+        # changes, so ticking another row does not reset the chips the user already picked.
+        tabular = next(
+            (path for path, _kind in self.table.rows()
+             if path in references and Path(path).suffix.lower() in {".csv", ".tsv", ".txt", ".smi", ".smiles"}),
+            None,
+        )
+        if tabular != self._activity_source:
+            self._activity_source = tabular
+            self.activity_form.set_source_file(tabular)
 
     def _sync_tabs_enabled(self) -> None:
         # Item 9: every option tab is off until a small-molecule candidate exists.
         self.tabs.setEnabled(self.table.has_small_molecule())
-        # Feed the first tabular file to the Activity tab so it can auto-detect activity columns.
-        tabular = next(
-            (path for path, _kind in self.table.rows()
-             if Path(path).suffix.lower() in {".csv", ".tsv", ".txt", ".smi", ".smiles"}),
-            None,
-        )
-        self.activity_form.set_source_file(tabular)
+        self._sync_activity_tab()
         self._suggest_shards()
 
-    def _policy_mapping(self):
+    def _policy_mapping(self, *, reference: bool = False):
         policy = {"target_molecule_kinds": ["small_molecule"]}
         self.filters_form.contribute(policy)
         self.prepare_form.contribute(policy)
-        self.activity_form.contribute(policy)
+        if reference:  # measurements belong to the files marked as reference, nobody else
+            self.activity_form.contribute(policy)
         return finalize_import_prefilter_policy(policy)
 
     def workflow_submit(self):
@@ -332,25 +446,32 @@ class LigandImportDialog(QDialog):
             QMessageBox.information(self, "Import Ligands", "Add at least one ligand file.")
             return None
         policy = self._policy_mapping()
-        groups: dict[str, list[str]] = {}
+        reference_policy = self._policy_mapping(reference=True)
+        references = self.table.reference_paths()
+        source_labels = {path: self._source_labels[path] for path, _kind in rows if path in self._source_labels}
+        groups: dict[tuple[str, bool], list[str]] = {}
         for path, kind in rows:
-            groups.setdefault(kind, []).append(path)
-        total = sum(len(paths) for paths in groups.values())
+            groups.setdefault((kind, path in references), []).append(path)
+        total = len(rows)
 
         shard = self.shard_checkbox.isChecked()
-        if not shard and not self._project_sharded and self._suggest_shards() >= SHARD_SUGGEST_BYTES:
+        queued = self._suggest_shards() if not shard and not self._project_sharded else 0
+        if queued >= SHARD_SUGGEST_RECORDS:
             answer = QMessageBox.question(
                 self,
                 "Import Ligands",
-                "These files are large enough that importing them as rows will write millions of "
-                "rows into the project database.\n\nImport as shards instead?",
+                f"Importing these files as rows will write ~{queued:,} rows into the project "
+                "database.\n\nImport as shards instead?",
                 QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
             )
             if answer == QMessageBox.Cancel:
                 return None
             shard = answer == QMessageBox.Yes
 
-        self._target_sharded = shard  # where _do_import should land the user
+        # Where _do_import should land the user: Shards only if something actually goes there.
+        self._target_sharded = shard and any(
+            kind == MoleculeType.SMALL_MOLECULE and path not in references for path, kind in rows
+        )
 
         def submit(rt):
             job_ids: list = []
@@ -358,14 +479,17 @@ class LigandImportDialog(QDialog):
             # disk, so these cannot be a second one. Read at run time: a workflow step may be
             # configured before the project holds any shards.
             context = "reference" if (not shard and rt.mode == ProjectMode.HTPVS) else "general"
-            for kind, paths in groups.items():
-                prefilter = policy if kind == MoleculeType.SMALL_MOLECULE else None
-                # Only the screening library shards; other molecule types are curated rows.
-                if shard and kind == MoleculeType.SMALL_MOLECULE:
+            for (kind, reference), paths in groups.items():
+                small = kind == MoleculeType.SMALL_MOLECULE
+                prefilter = (reference_policy if reference else policy) if small else None
+                # Only the screening library shards; reference files and other types are rows.
+                if shard and small and not reference:
                     res = rt.loader.shard_ligands(paths, molecule_kind=kind, prefilter=prefilter)
                 else:
                     res = rt.loader.load_ligands(
-                        paths, molecule_kind=kind, prefilter=prefilter, primary_context=context
+                        paths, molecule_kind=kind, prefilter=prefilter,
+                        primary_context="reference" if reference else context,
+                        source_labels=source_labels,
                     )
                 job_ids.extend(res if isinstance(res, (list, tuple)) else [res])
             return [j for j in job_ids if j]
@@ -388,13 +512,13 @@ class LigandImportDialog(QDialog):
             return
         submit, _name = payload
         try:
-            submit(self.runtime)
+            job_ids = submit(self.runtime)
         except Exception as exc:
             QMessageBox.critical(self, "Import Ligands", f"Could not submit ligand import job:\n{exc}")
             return
         # Land where the molecules are actually going: staying on an empty Ligands table
         # while a shard import runs reads as "nothing happened".
-        _land_on_view(self.parent(), SHARDS_VIEW_ID if self._target_sharded else LIGANDS_VIEW_ID)
+        _land_on_view(self.parent(), SHARDS_VIEW_ID if self._target_sharded else LIGANDS_VIEW_ID, job_ids)
         _nudge_monitor(self.parent())
         self.accept()
 
@@ -441,7 +565,8 @@ class ReceptorImportDialog(QDialog):
             # Dimer case: flagged receptors also enter the general screening set as biopolymer ligands.
             if ligand_role_files:
                 res2 = rt.loader.load_ligands(
-                    ligand_role_files, molecule_kind=MoleculeType.PROTEIN, primary_context="general"
+                    ligand_role_files, molecule_kind=MoleculeType.PROTEIN, primary_context="general",
+                    source_labels=import_request.get("source_labels"),
                 )
                 job_ids.extend(res2 if isinstance(res2, (list, tuple)) else [res2])
             return [j for j in job_ids if j]
@@ -464,11 +589,11 @@ class ReceptorImportDialog(QDialog):
             return
         submit, _name = payload
         try:
-            submit(self.runtime)
+            job_ids = submit(self.runtime)
         except Exception as exc:
             QMessageBox.critical(self, "Import Receptors", f"Could not submit receptor import job:\n{exc}")
             return
-        _land_on_view(self.parent(), RECEPTOR_VIEW_ID)
+        _land_on_view(self.parent(), RECEPTOR_VIEW_ID, job_ids)
         _nudge_monitor(self.parent())
         self.accept()
 
