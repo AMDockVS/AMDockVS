@@ -1,17 +1,23 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Sequence
 import math
 from uuid import uuid4
 
 from amdockvs.chemistry.pipeline import LIGAND_STEPS, normalize_steps
+from ms_flow.query import db_count
+
 from amdockvs.chemistry.jobs import (
     LigandChemistryJobParams,
     ReceptorChemistryJobParams,
+    ReceptorPredictionJobParams,
     ShardChemistryJobParams,
     ligand_chemistry_job,
+    prediction_scope_spec,
     receptor_chemistry_job,
+    receptor_prediction_job,
     shard_chemistry_job,
 )
 from amdockvs.chemistry.tools.esmfold import ESM_TOKEN_ENV, FAST_MODEL, api_token
@@ -517,6 +523,53 @@ class ChemistryAPI:
             depends_on=depends_on,
             wait=wait,
         )
+
+    def predict_receptors(
+            self,
+            *,
+            receptors: MoleculeSetRef | MoleculeScope | int | None = None,
+            model: str = FAST_MODEL,
+            force: bool = False,
+            depends_on: list[str] | None = None,
+            wait: bool = False,
+    ) -> str | JobStatus:
+        """Predict protein structures from sequence with the ESMFold API (thread executor).
+
+        Only proteins without 3D by default; `force=True` predicts again and repoints current_path
+        to the new model. The token comes from ESM_API_KEY and is never stored.
+        """
+        self.runtime._require_active_project()
+        if not api_token():
+            raise RuntimeError(f"{ESM_TOKEN_ENV} is not set: paste your Biohub API token first.")
+        receptor_set_ref = None if receptors is None or is_molecule_scope(receptors) else ensure_molecule_set_ref(self.runtime, receptors, name="chemistry_receptor_predict_input")
+        receptor_scope = scope_payload(receptors) if is_molecule_scope(receptors) else {}
+        receptor_filters = dict(receptor_scope.get("filters") or {})
+        if "molecule_type" not in receptor_filters:
+            receptor_filters["is_receptor"] = True
+        if receptor_scope.get("limit") is not None:
+            receptor_filters["_limit"] = receptor_scope.get("limit")
+        params = ReceptorPredictionJobParams(
+            model=model,
+            force=bool(force),
+            receptor_set_id=None if receptor_set_ref is None else int(receptor_set_ref.id),
+            receptor_filters=receptor_filters if force else {**receptor_filters, "has_3d": False},
+        )
+        project_db = self.runtime.molsuite.project_db
+        total_items = db_count(project_db, prediction_scope_spec(params))
+        # An empty scope with proteins in it means they all have 3D already. An empty scope with
+        # no proteins at all may be an import still running: submit and let the job wait for it.
+        if total_items == 0 and not force and db_count(project_db, prediction_scope_spec(params.model_copy(update={"receptor_filters": receptor_filters}))):
+            raise ValueError("Every protein in scope already has a 3D structure; tick Force to predict again.")
+        job_id = self.runtime.submit_job(
+            receptor_prediction_job,
+            params=params.model_dump(mode="python"),
+            executor_name="thread",
+            depends_on=depends_on,
+            total_chunks=total_items or None,
+        )
+        if wait:
+            return self.runtime.wait_for_job(job_id)
+        return job_id
 
 
 __all__ = ["ChemistryAPI"]

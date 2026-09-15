@@ -7,6 +7,7 @@ from typing import Any, Iterator
 
 from pydantic import BaseModel, Field
 
+from ms_flow.query import db_pages
 from ms_flow.sinks import graph_sink, table_sink
 from ms_flow.tasking import job, task
 
@@ -21,13 +22,17 @@ from amdockvs.chemistry.repository import (
     project_db_path,
     resolve_ligand_storage_dir,
     resolve_receptor_storage_dir,
+    scope_spec,
+    sequences_by_molecule_ids,
 )
 from amdockvs.chemistry.pipeline import normalize_steps
 from amdockvs.chemistry.service import transform_ligand_rows, transform_receptor_rows
 from amdockvs.chemistry.shards import transform_ligand_shard
-from amdockvs.models import MoleculeModel, MoleculeRecord, ScreeningShard
-from amdockvs.core.paths import set_default_project_root
-from amdockvs.core.vocab import ShardState
+from amdockvs.chemistry.tools.esmfold import FAST_MODEL, predict_structure, sequence_from_structure
+from amdockvs.io.shards import shard_generation_writer
+from amdockvs.models import MoleculeModel, MoleculeRecord
+from amdockvs.core.paths import artifact_storage_path, current_molecule_path, molecule_storage_key, set_default_project_root
+from amdockvs.core.vocab import ModelSource, ShardState
 
 
 # Chemistry operations update existing molecules (upsert by id) and may add new
@@ -284,6 +289,137 @@ def receptor_chemistry_job(params: dict, config: dict | None = None) -> Iterator
     )
 
 
+class ReceptorPredictionJobParams(BaseModel):
+    model: str = FAST_MODEL
+    force: bool = False
+    receptor_set_id: int | None = Field(default=None, ge=1)
+    receptor_filters: dict[str, Any] = Field(default_factory=dict)
+
+
+# Like CHEMISTRY_GRAPH_OUTPUT, plus stored_path: a sequence-only protein's first model is its
+# canonical structure, so the prediction fills both paths. extra_data is left untouched.
+PREDICTION_GRAPH_OUTPUT = graph_sink(
+    nodes=(
+        {
+            "name": "molecules",
+            "model": MoleculeRecord,
+            "columns": [
+                "id", "stored_path", "current_path", "current_model_index",
+                "has_3d", "has_hs", "is_minimized", "conformer_count", "updated_at",
+            ],
+            "write_mode": "upsert",
+            "conflict_keys": ["id"],
+            "validate_model": False,
+        },
+        {"name": "molecule_models", "model": MoleculeModel, "validate_model": False},
+    ),
+)
+
+_PREDICTION_FIELDS = ("id", "source", "source_index", "stored_path", "current_path", "current_model_index", "has_3d")
+
+
+def prediction_scope_spec(params: ReceptorPredictionJobParams):
+    return scope_spec(
+        role_flag="is_receptor",
+        molecule_set_id=params.receptor_set_id,
+        filters=params.receptor_filters,
+        fields=_PREDICTION_FIELDS,
+        require_structure=False,
+    )
+
+
+@task(
+    name="amdock_receptor_prediction",
+    description="Predict one protein structure from its sequence with the ESMFold API.",
+    executor="thread",
+    supported_executors=("thread",),
+)
+def receptor_prediction_task(payload: dict, progress_cb=None):
+    """One protein per chunk: a failed call fails that protein only, not credits spent on others."""
+    output_dir = Path(str(payload["output_dir"])).expanduser().resolve()
+    project_root = project_root_from_output_dir(output_dir)
+    set_default_project_root(project_root)
+    row = dict(payload["row"])
+    receptor_id = int(row["id"])
+    sequence = str(payload.get("sequence") or "")
+    if not sequence:
+        structure = current_molecule_path(row)
+        if structure is None or not structure.is_file():
+            raise ValueError(f"Receptor {receptor_id} has neither a sequence nor a structure to read one from.")
+        sequence = sequence_from_structure(structure)
+    model_index = int(payload["model_index"])
+    # variant=id: labelled sources ("user input") repeat across imports, the molecule id does not.
+    key = molecule_storage_key("receptor", Path(str(row.get("source") or "receptor")), int(row.get("source_index") or 0), variant=str(receptor_id))
+    target = artifact_storage_path(output_dir, role="receptor", key=key, artifact_name=f"esmfold_{model_index}", suffix=".cif")
+    metrics, files = predict_structure(sequence, target, model=str(payload["model"]))
+    if metrics.get("potential_sequence_of_concern"):
+        print(f"ESMFold flagged receptor {receptor_id} as a potential sequence of concern.")
+    if progress_cb is not None:
+        progress_cb(100.0)
+
+    def relative(path) -> str:
+        return str(Path(path).resolve().relative_to(project_root))
+
+    current_path = relative(target)
+    return {
+        "molecules": [{
+            "id": receptor_id,
+            "stored_path": str(payload.get("stored_path") or "") or current_path,
+            "current_path": current_path,
+            "current_model_index": model_index,
+            "has_3d": True,
+            "has_hs": False,
+            "is_minimized": False,
+            "conformer_count": 1,
+            "updated_at": datetime.now(),
+        }],
+        "molecule_models": [
+            MoleculeModel.build_row(
+                molecule_id=receptor_id,
+                model_index=model_index,
+                file_path=current_path,
+                source=ModelSource.ESMFOLD,
+                metrics=metrics,
+                files={name: relative(path) for name, path in files.items()},
+            )
+        ],
+    }
+
+
+@job(
+    task=receptor_prediction_task,
+    name="amdock_receptor_prediction_job",
+    params_model=ReceptorPredictionJobParams,
+    executor="thread",
+    supported_executors=("thread",),
+    output_spec=PREDICTION_GRAPH_OUTPUT,
+    output_flush_every=1,  # every chunk is paid for: persist it as soon as it lands
+    store_results=False,
+)
+def receptor_prediction_job(params: dict, config: dict | None = None) -> Iterator[dict[str, Any]]:
+    parsed = ReceptorPredictionJobParams(**params)
+    config_map = dict(config or {})
+    project_db = config_map.get("project_db")
+    if project_db is None:
+        raise ValueError("receptor_prediction_job requires project_db in config.")
+    output_dir = worker_output_dir(resolve_receptor_storage_dir(config_map))
+    for page in batched(db_pages(project_db, prediction_scope_spec(parsed), page_size=32), 32):
+        rows = [dict(row) for row in page if parsed.force or not bool(row.get("has_3d"))]
+        ids = [int(row["id"]) for row in rows]
+        sequences = sequences_by_molecule_ids(project_db, ids)
+        max_index = max_model_index_by_molecule_ids(project_db, ids)
+        for row in rows:
+            receptor_id = int(row["id"])
+            yield {
+                "row": worker_path_fields(row, "stored_path", "current_path"),
+                "stored_path": str(row.get("stored_path") or ""),
+                "sequence": sequences.get(receptor_id, ""),
+                "model_index": max_index[receptor_id] + 1 if receptor_id in max_index else 0,
+                "model": parsed.model,
+                "output_dir": output_dir,
+            }
+
+
 class ShardChemistryJobParams(BaseModel):
     """The same step list as the row pipeline, run over shards instead of rows."""
 
@@ -350,6 +486,10 @@ def shard_chemistry_job(params: dict, config: dict | None = None) -> Iterator[di
             "Sharded conformer ensembles are not supported by the one-record-per-molecule format."
         )
     resolved_steps = [(name, {**dict(parsed.params or {}), **step_params}) for name, step_params in steps]
+    if not parsed.generation_id or not parsed.output_dir:
+        raise ValueError("shard_chemistry_job requires a generation to write into.")
+    # One directory per generation, so forgetting a generation is deleting a directory.
+    output_dir = worker_output_dir(parsed.output_dir)
     for row in ShardStore(project_db).iter_rows(shard_scope_spec(state=parsed.state)):
         shard_path = Path(str(row.get("path") or ""))
         yield {
@@ -365,6 +505,10 @@ def shard_chemistry_job(params: dict, config: dict | None = None) -> Iterator[di
 __all__ = [
     "LigandChemistryJobParams",
     "ReceptorChemistryJobParams",
+    "ReceptorPredictionJobParams",
+    "prediction_scope_spec",
+    "receptor_prediction_job",
+    "receptor_prediction_task",
     "ligand_chemistry_job",
     "ligand_chemistry_task",
     "receptor_chemistry_job",
