@@ -56,9 +56,36 @@ def mol_from_record(raw: str, input_format: str):
         supplier = Chem.ForwardSDMolSupplier(io.BytesIO(str(raw).encode()), sanitize=True, removeHs=False)
         return next(iter(supplier), None)
     if input_format == FileFormat.SMILES:
-        tokens = str(raw).strip().split()
-        return Chem.MolFromSmiles(tokens[0]) if tokens else None
+        tokens = str(raw).strip().split(maxsplit=1)
+        if not tokens:
+            return None
+        mol = Chem.MolFromSmiles(tokens[0])
+        # The rest of the line is the record's name, and a shard has no row to keep it in:
+        # identity has to travel inside the molecule or it is gone after the first transform.
+        if mol is not None and len(tokens) > 1:
+            mol.SetProp("_Name", tokens[1].strip())
+        return mol
     return None
+
+
+def smiles_record(raw: str, parse_config: dict[str, Any]) -> str:
+    """One SMILES-table line -> `SMILES name`, which is what a shard record has to be.
+
+    A shard header says SMILES and nothing else: the source's delimiter, column order and
+    header do not travel with it. So the dialect is applied once, here, on the way in — and
+    every reader downstream (`mol_from_record`, the preparation step, the cluster script) gets
+    a line it can parse with no knowledge of where it came from.
+    """
+    from amdockvs.io.transformers.smiles import smiles_tokens
+
+    tokens = smiles_tokens(raw, parse_config or {})
+    if not tokens:
+        return ""
+    smiles_col = int((parse_config or {}).get("smiles_col") or 0)
+    name_col = int((parse_config or {}).get("name_col") or 1)
+    smiles = tokens[smiles_col] if 0 <= smiles_col < len(tokens) else tokens[0]
+    name = tokens[name_col] if 0 <= name_col < len(tokens) else ""
+    return f"{smiles} {name}".strip()
 
 
 def filter_ligand_span(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -79,6 +106,8 @@ def filter_ligand_span(payload: dict[str, Any]) -> list[dict[str, Any]]:
         first_index=batch.span_first_index,
     ):
         raw = str(record.get("raw") or "")
+        if batch.input_format == FileFormat.SMILES:
+            raw = smiles_record(raw, dict(batch.parse_config or {}))
         if passes is not None:
             mol = mol_from_record(raw, batch.input_format)
             if mol is None or not passes(cull_mol(mol, batch)):
@@ -203,4 +232,5 @@ __all__ = [
     "mol_from_record",
     "payload_kind_for",
     "shard_queue_writer",
+    "smiles_record",
 ]

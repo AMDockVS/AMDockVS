@@ -122,6 +122,16 @@ def _materialize_smiles_rows(
         )
         _progress_update(progress_cb, index, total_entries)
 
+def smiles_tokens(raw: str, config: dict[str, Any]) -> list[str]:
+    """The columns of one SMILES-table line, in the dialect the feed sniffed.
+
+    Shared with the shard import, which has to apply the same dialect before the line is
+    stored: a shard header says SMILES and carries no delimiter.
+    """
+    delimiter = str(config.get("delimiter") or " ")
+    return [token.strip() for token in (raw.split(",") if delimiter == "," else raw.split())]
+
+
 def _parse_smiles_line(raw: str, config: dict[str, Any], *, source_index: int, stem: str) -> dict[str, Any]:
     """Parse one raw SMILES-table line into {smiles, name, mol, source_properties}.
 
@@ -129,11 +139,10 @@ def _parse_smiles_line(raw: str, config: dict[str, Any], *, source_index: int, s
     surfacing extra header columns as source properties like SDF tags do."""
     from rdkit import Chem
 
-    delimiter = str(config.get("delimiter") or " ")
     smiles_col = int(config.get("smiles_col") or 0)
     name_col = int(config.get("name_col") or 1)
     header_names = list(config.get("header_names") or [])
-    tokens = [t.strip() for t in (raw.split(",") if delimiter == "," else raw.split())]
+    tokens = smiles_tokens(raw, config)
     smiles = tokens[smiles_col] if 0 <= smiles_col < len(tokens) else ""
     mol = Chem.MolFromSmiles(smiles) if smiles else None
     name = tokens[name_col] if (0 <= name_col < len(tokens) and tokens[name_col]) else f"{stem}_{source_index}"
