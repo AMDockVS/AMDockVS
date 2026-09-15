@@ -4,7 +4,6 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import (
     QComboBox,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -19,8 +18,10 @@ class FlexibleResiduesPanel:
     """Flexible-residue candidates, selection and persistence component."""
 
     def _build_flex_residues_box(self, page: QWidget) -> QWidget:
-        box = QGroupBox("Flexible residues", page)
+        # The host section carries the title and the on/off switch.
+        box = QWidget(page)
         lay = QVBoxLayout(box)
+        lay.setContentsMargins(0, 0, 0, 0)
         row = QHBoxLayout()
         row.addWidget(QLabel("Candidates from", box))
         self.flex_source_combo = QComboBox(box)
@@ -153,6 +154,9 @@ class FlexibleResiduesPanel:
         self._flex_receptor_id = rid
         self._flex_candidate_rows = residues
         self._flex_selected_keys = set(selected)
+        if selected:
+            # The residues apply at preparation whether or not the section is open: show them.
+            self.flex_box.setChecked(True)
         for r in residues:
             self._flex_labels[r["key"]] = r["label"]
         self._render_flex_lists()
