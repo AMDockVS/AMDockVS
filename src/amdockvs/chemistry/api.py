@@ -173,6 +173,10 @@ class ChemistryAPI:
         for name, _params in normalized:
             if name not in LIGAND_STEPS:
                 raise ValueError(f"Unsupported ligand chemistry operation: {name}")
+        normalized = [
+            (name, self._protonate_params(**params) if name == "protonate" else params)
+            for name, params in normalized
+        ]
         if ligands is None:
             self.runtime._require_active_project()
             if has_shards(self.runtime.molsuite.project_db):
@@ -206,8 +210,9 @@ class ChemistryAPI:
     ) -> str | JobStatus:
         """The same steps as `run_ligand_pipeline`, over the shards of an `htpvs` project.
 
-        One shard per chunk, one file in and one file out. Shards already `done` are not fed,
-        so re-running after a crash resumes rather than recomputes.
+        One shard per chunk, one file in and one file out. The run writes into a new
+        generation and only switches to it if it finishes, so a crashed run changes nothing
+        and the retry simply starts over from the generation that is still the library.
         """
         normalized = normalize_steps(steps)
         if not normalized:
@@ -215,21 +220,35 @@ class ChemistryAPI:
         for name, _params in normalized:
             if name not in LIGAND_STEPS:
                 raise ValueError(f"Unsupported ligand chemistry operation: {name}")
+        normalized = [
+            (name, self._protonate_params(**params) if name == "protonate" else params)
+            for name, params in normalized
+        ]
         if any(name == "conformers" for name, _params in normalized):
             raise ValueError(
                 "Sharded conformer ensembles are not supported: one shard record currently "
                 "stores one molecular structure. Generate conformers after materialization."
             )
         self.runtime._require_active_project()
+        project_db = self.runtime.molsuite.project_db
+        # Opened here, before anything runs: the feed needs its output directory and the
+        # result handler needs its id, and neither can invent one of its own without the two
+        # disagreeing about where the generation lives.
+        label = "+".join(name for name, _ in normalized)
+        shards_root = Path(self.runtime.get_project_resource_path(RESOURCE_SHARDS))
+        generation_id = create_generation(project_db, step=label, shard_dir=shards_root)
         job_id = self.runtime.submit_job(
             shard_chemistry_job,
             params=ShardChemistryJobParams(
                 operation=[[name, step_params] for name, step_params in normalized],
                 params=dict(params or {}),
                 state=state,
+                generation_id=generation_id,
+                output_dir=str(shards_root / f"gen_{generation_id:04d}_{label}"),
             ).model_dump(mode="python"),
             executor_name=executor_name,
             depends_on=depends_on,
+            result_handler_kwargs={"project_db": project_db, "generation_id": generation_id},
         )
         return self.runtime.wait_for_job(job_id) if wait else job_id
 
@@ -278,8 +297,34 @@ class ChemistryAPI:
         depends_on: list[str] | None = None,
         wait: bool = False,
     ) -> str | JobStatus:
+        return self._submit_ligand_operation(
+            "protonate",
+            ligands=ligands,
+            params=self._protonate_params(method=method, ph=ph, model=model, threads=threads, gpu=gpu),
+            structure_source=structure_source,
+            batch_size=batch_size,
+            executor_name=executor_name,
+            depends_on=depends_on,
+            wait=wait,
+        )
+
+    def _protonate_params(
+        self,
+        *,
+        method: str = "dimorphite",
+        ph: float = 7.4,
+        model: str = "molgpka",
+        threads: int = 1,
+        gpu: bool = False,
+        **_resolved: Any,
+    ) -> dict[str, Any]:
+        """Validate protonation settings and resolve the external tool, for any caller.
+
+        Shared by `protonate_ligands` and the pipelines, so a step list gets the same checks
+        (and the same `tool_command`) as the single-step call.
+        """
         normalized_method = str(method or "dimorphite").strip().lower()
-        if normalized_method not in {"dimorphite", "openbabel", "pkasso", "polar_hydrogens"}:
+        if normalized_method not in {"dimorphite", "openbabel", "pkasso", "explicit_hs"}:
             raise ValueError(f"Unsupported small-molecule protonation method: {method}")
         if not 0.0 <= float(ph) <= 14.0:
             raise ValueError("pH must be between 0 and 14.")
@@ -299,24 +344,15 @@ class ChemistryAPI:
             if not status.installed or status.command is None:
                 raise RuntimeError(f"{status.message} Install its runtime from Build first.")
             params["tool_command"] = str(status.command)
-        return self._submit_ligand_operation(
-            "protonate",
-            ligands=ligands,
-            params=params,
-            structure_source=structure_source,
-            batch_size=batch_size,
-            executor_name=executor_name,
-            depends_on=depends_on,
-            wait=wait,
-        )
+        return params
 
     def generate_3d_ligands(
         self,
         *,
         ligands: MoleculeSetRef | MoleculeScope | int | None = None,
-        add_hs: bool = True,
         random_seed: int = 0xF00D,
-        optimize: bool = True,
+        method: str = "etkdgv3",
+        attempts: int = 1,
         fragment_mode: str = "keep",
         filter_metals: bool = False,
         filter_simple_ions: bool = False,
@@ -330,9 +366,9 @@ class ChemistryAPI:
             "generate_3d",
             ligands=ligands,
             params={
-                "add_hs": add_hs,
                 "random_seed": random_seed,
-                "optimize": optimize,
+                "method": str(method),
+                "attempts": int(attempts),
                 "fragment_mode": str(fragment_mode or "largest_organic"),
                 "filter_metals": filter_metals,
                 "filter_simple_ions": filter_simple_ions,
@@ -372,7 +408,6 @@ class ChemistryAPI:
         *,
         ligands: MoleculeSetRef | MoleculeScope | int | None = None,
         num_conformers: int = 20,
-        add_hs: bool = True,
         random_seed: int = 0xF00D,
         prune_rms_thresh: float = 0.5,
         optimize: bool = True,
@@ -387,7 +422,6 @@ class ChemistryAPI:
             ligands=ligands,
             params={
                 "num_conformers": int(num_conformers),
-                "add_hs": bool(add_hs),
                 "random_seed": int(random_seed),
                 "prune_rms_thresh": float(prune_rms_thresh),
                 "optimize": bool(optimize),
