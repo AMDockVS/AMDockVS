@@ -521,14 +521,12 @@
 import, preparation, QSAR, binding-site analysis, docking, and result inspection.
 It uses MolSuite for projects, task orchestration, executors, and data flow.</p>
 <h2 id="install">Install<a class="headerlink" href="#install" title="Permanent link">&para;</a></h2>
-<p>AMDockVS requires Python 3.12. Until the MolSuite packages are published on
-PyPI, install them from Git before installing AMDockVS:</p>
-<div class="highlight"><pre><span></span><code>conda<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>amdockvs<span class="w"> </span>-c<span class="w"> </span>conda-forge<span class="w"> </span><span class="nv">python</span><span class="o">=</span><span class="m">3</span>.12<span class="w"> </span>pymol-open-source
-conda<span class="w"> </span>activate<span class="w"> </span>amdockvs
-pip<span class="w"> </span>install<span class="w"> </span><span class="s2">"ms_flow @ git+https://github.com/MolSuite/ms_flow"</span>
-pip<span class="w"> </span>install<span class="w"> </span><span class="s2">"ms_components @ git+https://github.com/MolSuite/ms_components"</span>
-pip<span class="w"> </span>install<span class="w"> </span><span class="s2">"ms_contactmap @ git+https://github.com/MolSuite/ms_contactmap"</span>
-pip<span class="w"> </span>install<span class="w"> </span><span class="s2">"amdock-vs @ git+https://github.com/AMDockVS/AMDockVS"</span>
+<p>AMDockVS requires Python 3.12. The MolSuite packages and PyMOL (the
+<code>pymol-open-source</code> alpha wheels, through <code>ms_components</code>) are installed
+automatically from PyPI, so no conda environment is needed:</p>
+<div class="highlight"><pre><span></span><code>python3.12<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>.venv
+<span class="nb">source</span><span class="w"> </span>.venv/bin/activate
+pip<span class="w"> </span>install<span class="w"> </span>AMDockVS
 </code></pre></div>
 <p>Start the desktop application with:</p>
 <div class="highlight"><pre><span></span><code>amdockvs
