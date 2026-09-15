@@ -384,6 +384,27 @@ def test_a_scheduled_receptor_is_listed_before_it_has_any_result():
     assert row["name"] == "4UWF" and row["ligands"] == 11950
     assert row["docked"] == 27 and row["pending"] == "11,923"
 
+
+def test_a_row_mode_plan_counts_docked_from_its_results():
+    """Row-mode runs plan with ligands_done=0 and write a row per docked pair."""
+    QApplication.instance() or QApplication(["amdockvs-row-plan-test"])
+    db = _Db()
+    with db.get_session() as session:
+        session.add_all([
+            MoleculeRecord(id=8, name="4UWG", is_receptor=True),
+            ScreeningTarget(run_id="r2", receptor_molecule_id=8, ligands_total=901),
+            *[DockingResultRecord(receptor_molecule_id=8, ligand_molecule_id=100 + i,
+                                  engine="vina", pose_rank=1, score=-7.0) for i in range(3)],
+        ])
+        session.commit()
+    widget = DockingResultsWidget(runtime=SimpleNamespace(
+        molsuite=SimpleNamespace(project_db=db),
+        docking=SimpleNamespace(result_protocols=lambda **_kwargs: [], hit=lambda **_kwargs: None),
+    ))
+    widget.receptor_table.refresh()
+    row = widget.receptor_table._model.get_row_data(0)
+    assert row["ligands"] == 901 and row["docked"] == 3 and row["pending"] == "898"
+
 def test_live_ligand_reload_keeps_the_selected_ligand_context():
     QApplication.instance() or QApplication(["amdockvs-live-results-test"])
     db = _Db()

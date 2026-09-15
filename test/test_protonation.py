@@ -13,18 +13,13 @@ def _write_mol(path: Path, smiles: str) -> None:
     path.write_text(Chem.MolToMolBlock(molecule), encoding="utf-8")
 
 
-def test_polar_hydrogens_keeps_only_heteroatom_hydrogens():
-    source = Chem.MolFromSmiles("CCO")
+def test_explicit_hs_adds_every_hydrogen_and_keeps_charges():
+    source = Chem.MolFromSmiles("[NH3+]CCC(=O)[O-]")
 
-    result = protonate_molecule_batch([(7, source)], method="polar_hydrogens", params={})[7]
+    result = protonate_molecule_batch([(7, source)], method="explicit_hs", params={})[7]
 
-    explicit_h_parents = {
-        neighbor.GetAtomicNum()
-        for atom in result.GetAtoms()
-        if atom.GetAtomicNum() == 1
-        for neighbor in atom.GetNeighbors()
-    }
-    assert explicit_h_parents == {8}
+    assert sum(atom.GetAtomicNum() == 1 for atom in result.GetAtoms()) == 7
+    assert Chem.MolToSmiles(Chem.RemoveHs(result)) == Chem.MolToSmiles(source)
 
 
 def test_structure_source_selects_original_or_current(tmp_path):
@@ -56,7 +51,7 @@ def test_protonation_promotes_new_artifact_without_overwriting_input(tmp_path):
             "extra_data": {},
             "has_3d": False,
         }],
-        params={"method": "polar_hydrogens", "structure_source": "current", "run_id": "abc123"},
+        params={"method": "explicit_hs", "structure_source": "current", "run_id": "abc123"},
     )
 
     update = result["updates"][0]

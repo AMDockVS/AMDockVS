@@ -49,7 +49,7 @@ def test_every_promoted_tunable_has_a_settings_field():
     """The sections this pass introduced, so a later edit cannot quietly drop one."""
     promoted = {
         "batch_sizes": ("docking", "output_flush_every", "import_max_inflight"),
-        "shards": ("max_bytes", "suggest_bytes", "hit_cap"),
+        "shards": ("max_bytes", "suggest_records", "hit_cap"),
         "docking": ("temperature_k",),
         "binding_sites": ("box_scale", "box_padding", "box_min_edge", "box_max_edge", "cavity_max_burial"),
         "external_tools": ("tools_home", "vina_path", "p2rank_home"),

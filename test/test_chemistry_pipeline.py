@@ -83,7 +83,7 @@ def test_multi_step_rows_write_one_file_and_report_the_folded_state(tmp_path):
         sources.append(path)
 
     result = transform_ligand_rows(
-        operations=[("standardize", {}), ("protonate", {"method": "polar_hydrogens"}), ("generate_3d", {})],
+        operations=[("standardize", {}), ("protonate", {"method": "explicit_hs"}), ("generate_3d", {})],
         output_dir=output_dir,
         rows=[_row(index, path) for index, path in enumerate(sources, start=1)],
         params={"structure_source": "current", "run_id": "multi"},
@@ -101,6 +101,69 @@ def test_multi_step_rows_write_one_file_and_report_the_folded_state(tmp_path):
     # One pass, one artifact per ligand — not one per step.
     written = [path for path in output_dir.rglob("*.sdf") if path.parent != artifacts]
     assert len(written) == len(SMILES)
+
+
+def _mmff_energies(mol):
+    from rdkit.Chem import AllChem
+
+    props = AllChem.MMFFGetMoleculeProperties(mol)
+    return [
+        AllChem.MMFFGetMoleculeForceField(mol, props, confId=conformer.GetId()).CalcEnergy()
+        for conformer in mol.GetConformers()
+    ]
+
+
+def test_minimize_optimizes_every_conformer_of_an_ensemble():
+    steps = [("conformers", {"num_conformers": 4, "prune_rms_thresh": 0.0, "optimize": False})]
+    ensemble = run_pipeline([Chem.MolFromSmiles("CCCCCCO")], steps)[0]
+
+    before = _mmff_energies(ensemble)
+    after = _mmff_energies(run_pipeline([ensemble], [("minimize", {})])[0])
+
+    assert len(after) == len(before) > 1
+    assert all(minimized < raw for minimized, raw in zip(after, before))
+
+
+def test_minimize_prunes_conformers_that_converged_and_sorts_by_energy():
+    from rdkit.Chem import rdMolAlign
+
+    # From measurement: 27 distinct ETKDG conformers of this molecule collapse to 5-6 duplicate pairs under MMFF.
+    steps = [("conformers", {"num_conformers": 30, "random_seed": 42, "prune_rms_thresh": 0.5, "optimize": False})]
+    ensemble = run_pipeline([Chem.MolFromSmiles("OC1CCN(CC1)C1CCC(CC1)C(=O)N1CCCC1")], steps)[0]
+
+    pruned = run_pipeline([ensemble], [("minimize", {"prune_rms_thresh": 0.5})])[0]
+
+    heavy = Chem.RemoveHs(pruned)
+    ids = [conformer.GetId() for conformer in heavy.GetConformers()]
+    assert 1 < len(ids) < ensemble.GetNumConformers()
+    assert all(rdMolAlign.GetBestRMS(heavy, heavy, a, b) >= 0.5 for i, a in enumerate(ids) for b in ids[:i])
+    energies = _mmff_energies(pruned)
+    assert energies == sorted(energies)
+
+
+def test_minimize_after_conformers_still_writes_the_ensemble(tmp_path):
+    from amdockvs.chemistry.service import transform_ligand_rows
+
+    output_dir = tmp_path / "project" / "data" / "molecules"
+    source = output_dir / "original" / "lig.sdf"
+    source.parent.mkdir(parents=True)
+    source.write_text(Chem.MolToMolBlock(Chem.MolFromSmiles("CCCCCCO")), encoding="utf-8")
+
+    result = transform_ligand_rows(
+        operations=[
+            ("generate_3d", {}),
+            ("conformers", {"num_conformers": 4, "prune_rms_thresh": 0.0, "optimize": False}),
+            ("minimize", {}),
+        ],
+        output_dir=output_dir,
+        rows=[_row(1, source)],
+        params={"structure_source": "current", "run_id": "ens"},
+        next_model_index_by_entity={1: 0},
+    )
+
+    update, = result["updates"]
+    assert len(update["model_rows"]) == update["state"]["conformer_count"] > 1
+    assert update["state"]["is_minimized"] is True
 
 
 def test_a_broken_row_does_not_take_the_batch_down(tmp_path):

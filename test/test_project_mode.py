@@ -120,6 +120,27 @@ def test_the_import_dialog_routes_the_library_to_the_chosen_store(runtime, tmp_p
     assert dialog._target_sharded  # and the dialog lands on Shards, not on an empty Ligands
 
 
+def test_the_import_dialog_suggests_shards_by_molecule_count(runtime, tmp_path, monkeypatch):
+    """The suggestion counts molecules, not bytes: a tiny file over the threshold still ticks it."""
+    pytest.importorskip("PySide6")
+    from PySide6.QtWidgets import QApplication
+
+    from amdockvs.ui.tools import import_workspace
+    from amdockvs.ui.tools.import_workspace import LigandImportDialog
+
+    QApplication.instance() or QApplication(["amdockvs-import-test"])
+    monkeypatch.setattr(import_workspace, "SHARD_SUGGEST_RECORDS", 3)
+    small, library = tmp_path / "small.smi", tmp_path / "lib.smi"
+    small.write_text("CCO a\nCCN b\n")
+    library.write_text("CCO a\nCCN b\nCCC c\n")
+
+    dialog = LigandImportDialog(runtime=runtime, defer=True)
+    dialog.table.add_files([str(small)])
+    assert not dialog.shard_checkbox.isChecked()
+    dialog.table.add_files([str(library)])
+    assert dialog.shard_checkbox.isChecked() and "~5 molecules" in dialog.shard_hint.text()
+
+
 def test_the_import_dialog_defaults_to_the_existing_library(runtime, tmp_path):
     """Sharded project: shards are the default, but curated ligands can still come in as rows."""
     pytest.importorskip("PySide6")
@@ -145,6 +166,46 @@ def test_the_import_dialog_defaults_to_the_existing_library(runtime, tmp_path):
     submit(SimpleNamespace(loader=loader, mode=ProjectMode.HTPVS))
     # Rows in a sharded project are curated by definition — never a second screening library.
     assert contexts == ["reference"] and not dialog._target_sharded
+
+
+def test_activities_only_come_with_the_reference_mark(runtime, tmp_path):
+    """No file is an activity file until it is marked: its columns are offered unticked, and
+    a marked file is always rows (reference) carrying the activities while the rest of the
+    same import still shards without them."""
+    pytest.importorskip("PySide6")
+    from PySide6.QtWidgets import QApplication
+
+    from amdockvs.ui.tools.import_workspace import LigandImportDialog
+
+    QApplication.instance() or QApplication(["amdockvs-import-test"])
+    library, actives = tmp_path / "lib.smi", tmp_path / "actives.csv"
+    library.write_text("CCO one\n")
+    actives.write_text("smiles,IC50\nCCO,1.5\nCCN,20\n")
+    dialog = LigandImportDialog(runtime=runtime, defer=True)
+    dialog.table.add_files([str(library), str(actives)])
+    dialog.shard_checkbox.setChecked(True)
+    index = dialog.tabs.indexOf(dialog.activity_form)
+    assert not dialog.tabs.isTabEnabled(index)
+
+    dialog.table.cellWidget(1, 4).setChecked(True)  # actives.csv: As Reference
+    assert dialog.tabs.isTabEnabled(index) and dialog.tabs.currentWidget() is dialog.activity_form
+    chips = dialog.activity_form._chips
+    assert chips and not any(chip.isChecked() for chip in chips.values())
+    dialog.activity_form.activity_property.setText("IC50")
+
+    calls: list[tuple] = []
+
+    def record(store, kw):
+        calls.append((store, kw.get("primary_context"), "activity_property" in (kw["prefilter"] or {})))
+        return ["j"]
+
+    loader = type("Loader", (), {
+        "shard_ligands": lambda self, paths, **kw: record("shards", kw),
+        "load_ligands": lambda self, paths, **kw: record("rows", kw),
+    })()
+    submit, _name = dialog.workflow_submit()
+    submit(SimpleNamespace(loader=loader, mode=ProjectMode.VS))
+    assert sorted(calls) == [("rows", "reference", True), ("shards", None, False)]
 
 
 def test_reference_ligands_are_not_the_screening_library(runtime, tmp_path):

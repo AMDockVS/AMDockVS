@@ -11,8 +11,6 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
-from ms_flow.query import db_pages
-
 from amdockvs import AMDockVSRuntime
 from amdockvs.molecules.storage import ShardStore, shard_scope_spec
 from amdockvs.core.vocab import ProjectMode, ShardState
@@ -69,13 +67,20 @@ def test_htpvs_import_shards_and_the_pipeline_runs_over_them(tmp_path, monkeypat
         )
         assert status.status == "completed"
 
-        done = list(db_pages(runtime.molsuite.project_db, shard_scope_spec(state=None)))
-        assert len(done) == 9  # processed in place: 9 shards, not 18
-        assert {row["state"] for row in done} == {ShardState.READY}
-        assert store.record_count(shard_scope_spec(state=ShardState.READY)) == 60
+        # The run wrote a new generation; the store reads only the active one. Its parent is
+        # still on disk (kept for a redo), so a raw table read would see 18.
+        done = list(store.iter_rows(shard_scope_spec(state=None)))
+        assert len(done) == 9
+        # Pending again: what ran over a generation is its `step`, not a per-row flag, so the
+        # next step feeds on these.
+        assert {row["state"] for row in done} == {ShardState.PENDING}
+        assert store.record_count() == 60
         for row in done:
             output = Path(row["path"])
-            assert output.is_file() and output.parent.name == "standardize+generate_3d+minimize"
+            assert output.is_file()
+            assert output.parent.name.startswith("gen_")
+            assert output.parent.name.endswith("_standardize+generate_3d+minimize")
+        assert not set(row["path"] for row in done) & set(row["path"] for row in shards)
         # 3D is what the pipeline was asked for, so the shard now carries conformers...
         from amdockvs.chemistry.shards import read_shard
 
@@ -86,12 +91,15 @@ def test_htpvs_import_shards_and_the_pipeline_runs_over_them(tmp_path, monkeypat
         in_ids, _in_mols = read_shard(source_shard["path"])
         assert out_ids and set(out_ids) <= set(in_ids)
 
-        # Idempotency: nothing is pending, so a second run has no work to do.
-        assert not list(store.iter_rows())
+        # A second run is the next generation, not a no-op: it reads the one above, and the
+        # window stays two deep, so the imported shards (now a grandparent) are gone.
         again = runtime.chemistry.run_shard_pipeline(
             ["standardize"], executor_name="thread", wait=True
         )
         assert again.status == "completed"
-        assert store.record_count(shard_scope_spec(state=None)) == 60
+        chained = list(store.iter_rows(shard_scope_spec(state=None)))
+        assert len(chained) == 9 and store.record_count() == 60
+        assert all(Path(row["path"]).parent.name.endswith("_standardize") for row in chained)
+        assert not any(Path(row["path"]).exists() for row in shards)
     finally:
         runtime.shutdown()

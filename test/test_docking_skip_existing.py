@@ -105,6 +105,19 @@ def test_without_skip_the_whole_cross_product_is_emitted(tmp_path):
     store.dispose()
 
 
+def test_the_feed_plans_every_receptor_before_its_first_chunk(tmp_path):
+    from amdockvs.screening.campaign import list_targets
+
+    store = _project(tmp_path)
+    feed = iter_docking_batches(project_db=store, output_dir=tmp_path / "out", batch_size=8,
+                                engine=ENGINE, box_center=(0.0, 0.0, 0.0), box_size=(12.0, 12.0, 12.0),
+                                run_id="r1")
+    next(feed)  # only the first receptor's pairs exist yet
+    targets = list_targets(store, run_id="r1")
+    assert [(t["receptor_molecule_id"], t["ligands_total"]) for t in targets] == [(1, N_LIGANDS), (2, N_LIGANDS)]
+    store.dispose()
+
+
 def test_receptor_major_needs_a_re_iterable_ligand_source():
     ligands = [{"id": 1}, {"id": 2}]
     receptors = [{"id": 10}, {"id": 11}]

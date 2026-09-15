@@ -20,6 +20,12 @@ WITHOUT_SINK = {
         "its screening_shards row together, because only the parent process knows which records "
         "share a shard. A table sink cannot write the file."
     ),
+    "amdock_shard_chemistry_job": (
+        "declares a result_handler_factory instead: ShardGenerationWriter writes the rows into "
+        "a generation nothing reads yet and flips the active pointer once, at the end. The "
+        "upsert-on-(source, shard_index) sink it replaced repointed the inventory one chunk at "
+        "a time, so a job that died mid-run left half the library on the new step."
+    ),
     "amdock_dock_shards_job": (
         "declares a result_handler_factory instead: ShardHitWriter holds the hit gate, which "
         "counts across chunks and decides which scored ligands become molecules at all. A sink "

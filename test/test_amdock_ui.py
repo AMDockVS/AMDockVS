@@ -93,8 +93,8 @@ def test_amdock_ui_smoke_instantiates_without_project(tmp_path, monkeypatch):
         window.show()
         app.processEvents()
         assert window.windowTitle() == "AMDockVS"
-        assert window.monitor_dock is not None
-        assert window.monitor_dock.summary_widget is not None
+        assert window.views.jobs_action.text() == "Jobs"
+        assert window.jobs_dialog is None  # built on first open
     finally:
         if window is not None:
             window.close()
@@ -136,7 +136,7 @@ def test_amdock_ui_opens_molecule_view_for_active_project(tmp_path, monkeypatch)
             assert isinstance(window._app_widget, ApplicationWidget)
             assert window._app_widget.get_total_projects() >= 1
 
-        snapshot = window.monitor_dock.refresh_now()
+        snapshot = window.monitor_bridge.refresh_now()
         view = window.central_widget.open_or_focus_view("workspace.molecules")
         app.processEvents()
         assert view is not None
@@ -146,15 +146,6 @@ def test_amdock_ui_opens_molecule_view_for_active_project(tmp_path, monkeypatch)
         assert snapshot.has_project is True
         assert snapshot.project_name == "ui_project"
 
-        jobs_view = window.open_jobs_monitor()
-        app.processEvents()
-        assert jobs_view is not None
-        assert not window.monitor_dock.isVisible()
-
-        jobs_index = window.central_widget.main_content_tabs.currentIndex()
-        window.central_widget.on_tab_close(jobs_index)
-        app.processEvents()
-        assert window.monitor_dock.isVisible()
     finally:
         if window is not None:
             window.close()
@@ -162,7 +153,7 @@ def test_amdock_ui_opens_molecule_view_for_active_project(tmp_path, monkeypatch)
 
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
-def test_amdock_ui_jobs_indicator_shows_when_leaving_jobs_tab(tmp_path, monkeypatch):
+def test_amdock_ui_jobs_dialog_is_one_window_and_the_indicator_steps_aside(tmp_path, monkeypatch):
     _patch_fake_home(monkeypatch, tmp_path)
 
     app = QApplication.instance() or QApplication(["amdockvs-ui"])
@@ -178,19 +169,22 @@ def test_amdock_ui_jobs_indicator_shows_when_leaving_jobs_tab(tmp_path, monkeypa
         app.processEvents()
 
         window.central_widget.open_or_focus_view("workspace.molecules")
-        window.open_jobs_monitor()  # hides the dock, jobs view becomes current
+        tabs = window.central_widget.main_content_tabs.count()
+        window.views.jobs_action.trigger()
         app.processEvents()
-        # On the Jobs tab the full view is the surface, so no status-bar indicator.
-        assert not window.monitor_dock.isVisible()
+        dialog = window.jobs_dialog
+        # A window, not a tab: the central area is untouched and the indicator steps aside.
+        assert dialog is not None and dialog.isVisible() and not dialog.isModal()
+        assert window.central_widget.main_content_tabs.count() == tabs
         assert not window._status_bar.jobs_indicator.isVisible()
+        assert window.open_jobs_monitor() is dialog  # single instance
 
-        # Leave the Jobs tab WITHOUT closing it (jobs view stays as a background tab).
-        window.central_widget.open_or_focus_view("workspace.molecules")
+        dialog.close()
         app.processEvents()
-        # Dock is still hidden and Jobs isn't the current tab -> the status-bar
-        # indicator must appear so a monitor indicator is always visible.
-        assert not window.monitor_dock.isVisible()
+        # Closed -> the status-bar indicator is back, so a monitor indicator is always visible.
+        assert not dialog.isVisible()
         assert window._status_bar.jobs_indicator.isVisible()
+        assert window.open_jobs_monitor() is dialog
     finally:
         if window is not None:
             window.close()
@@ -373,6 +367,43 @@ def test_amdock_ui_domain_views_show_docking_summaries(tmp_path, monkeypatch):
                        docking_view.run_button):
             assert button.popupMode() == QToolButton.MenuButtonPopup
             assert [a.text() for a in button.menu().actions()] == ["Save to workflow…"]
+            assert not button.menu().actions()[0].isEnabled()  # workflows can't chain jobs yet
+
+        # The auxiliary prep table follows the step's table.
+        docking_view.stepper.set_current_index(2)
+        assert window.aux.page_for(PREP_STATUS_VIEW_ID).role == "receptor"
+        docking_view.stepper.set_current_index(1)
+        assert window.aux.page_for(PREP_STATUS_VIEW_ID).role == "ligand"
+
+        # Run Docking while a preparation launched here still runs is held, not submitted.
+        warnings = []
+        docking_view._warn = lambda *a: warnings.append(a)
+        docking_view.receptor_prep_jobs.follow([("Receptor preparation", "job-x")])
+        docking_view.ligand_prep_jobs.follow([("Ligand preparation", "job-y")])
+        docking_view._run_docking()
+        assert not warnings and not docking_view.run_button.isEnabled()
+        # Preview only mirrors the preparations: their Cancel stays on their own steps.
+        assert not docking_view.run_bar.is_running
+        docking_view.ligand_prep_jobs.on_finished("job-y", "completed")
+        assert not docking_view.run_button.isEnabled()  # receptors still going
+        docking_view.receptor_prep_jobs.on_finished("job-x", "failed")
+        assert docking_view.run_button.isEnabled() and warnings  # failed prep: nothing launched
+
+        # Reopened while a docking runs: the first snapshot re-attaches it to Preview (with Cancel).
+        from types import SimpleNamespace
+
+        running = SimpleNamespace(job_id="job-d", task_type="amdock_docking_job", status="running",
+                                  is_terminal=False, chunks_done=214, chunks_total=1802,
+                                  feed_exhausted=True, chunks_running=4, chunks_failed=0)
+        docking_view._reopened = False
+        docking_view.on_jobs_snapshot(SimpleNamespace(jobs_active=1, jobs=[running]))
+        assert docking_view.stepper.current_index == 3 and docking_view.run_bar.is_running
+        assert "Docking — 214 / 1" in docking_view.req_pairs_count.text()
+        docking_view._pairs_text("No dockings in scope")  # a count refresh must not clobber it
+        assert "214" in docking_view.req_pairs_count.text()
+        docking_view.docking_jobs.on_finished("job-d", "canceled")
+        assert not docking_view.run_bar.is_running
+        docking_view.on_jobs_snapshot(SimpleNamespace(jobs_active=0, jobs=[]))  # idle again
 
         # Live "prepared / total": polls only while a job runs AND the Run step is up, and a
         # repeated snapshot must not restart the countdown (the bridge ticks every 500 ms).
@@ -539,9 +570,9 @@ def test_tool_buttons_are_flat_and_keep_result_views_available(tmp_path, monkeyp
 
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
-def test_prep_status_role_selector_swaps_the_filter_in_place(tmp_path, monkeypatch):
+def test_prep_status_role_swaps_the_filter_in_place(tmp_path, monkeypatch):
     """Ligand/receptor prep status is one view over the `engines` table, not two: the
-    role combo swaps the base filter instead of registering a second view."""
+    studio step swaps the base filter instead of registering a second view."""
     _patch_fake_home(monkeypatch, tmp_path)
 
     app = QApplication.instance() or QApplication(["amdockvs-ui"])
@@ -556,9 +587,8 @@ def test_prep_status_role_selector_swaps_the_filter_in_place(tmp_path, monkeypat
             return str(spec.value)
 
         assert role() == "ligand"
-        assert view._role_selector.count() == 2
 
-        view._role_selector.setCurrentIndex(view._role_selector.findData("receptor"))
+        view.set_role("receptor")
         app.processEvents()
         assert role() == "receptor"
     finally:
@@ -580,13 +610,13 @@ def test_ui_is_locked_until_a_project_is_open(tmp_path, monkeypatch):
         app.processEvents()
 
         assert not window.views.catalog_toolbar.isEnabled()
-        assert not window.monitor_dock.isEnabled()
+        assert not window.diagram_dock.isEnabled()
         assert not any(action.isEnabled() for action in window._project_actions)
         assert window.central_widget.isEnabled()  # the welcome screen stays clickable
 
         window._set_project_ui_enabled(True)
         assert window.views.catalog_toolbar.isEnabled()
-        assert window.monitor_dock.isEnabled()
+        assert window.diagram_dock.isEnabled()
         assert all(action.isEnabled() for action in window._project_actions)
     finally:
         if window is not None:

@@ -46,6 +46,15 @@ def test_ligand_table_follows_experiment_and_library(mode, run_kind, view_id):
     assert panel._ligand_scope_is_sharded() is (view_id == SHARDS_VIEW_ID)
 
 
+def test_a_sharded_project_can_dock_its_reference_rows():
+    """htpvs: the tool's selector may pick rows, and there every ligand row is curated."""
+    panel = _Panel("htpvs", "docking")
+    panel.ligand_source_combo = SimpleNamespace(currentData=lambda: "rows")
+    assert panel._ligand_view_id() == LIGANDS_VIEW_ID
+    assert panel._ligand_usage_class("docking") == "reference"
+    assert _Panel("vs", "docking")._ligand_usage_class("docking") == "general"
+
+
 def test_no_project_no_shards():
     """`runtime.mode` blows up with no project open; the step must not."""
     panel = _Panel(None, "docking")

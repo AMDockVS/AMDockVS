@@ -139,11 +139,33 @@ def test_generate_ligand_3d_keeps_embedded_conformer_when_forcefield_params_are_
     monkeypatch.setattr(AllChem, "MMFFHasAllMoleculeParams", lambda _mol: False)
     monkeypatch.setattr(AllChem, "UFFHasAllMoleculeParams", lambda _mol: False)
 
-    result = generate_ligand_3d(mol, optimize=True, fragment_mode="keep", filter_metals=False, filter_simple_ions=False)
+    result = generate_ligand_3d(mol, attempts=3, fragment_mode="keep", filter_metals=False, filter_simple_ions=False)
 
     assert result.GetNumConformers() == 1
     assert result.HasProp("_amdock_is_minimized")
     assert result.GetBoolProp("_amdock_is_minimized") is False
+
+
+def test_generate_ligand_3d_keeps_the_lowest_energy_attempt():
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
+    from amdockvs.chemistry.tools.ligands import generate_ligand_3d
+
+    reference = Chem.AddHs(Chem.MolFromSmiles("CCCCCCO"))
+    params = AllChem.srETKDGv3()
+    params.randomSeed = 7
+    AllChem.EmbedMultipleConfs(reference, numConfs=5, params=params)
+    lowest = min(energy for _not_converged, energy in AllChem.MMFFOptimizeMoleculeConfs(reference))
+
+    result = generate_ligand_3d(
+        Chem.MolFromSmiles("CCCCCCO"), method="sretkdgv3", attempts=5, random_seed=7, fragment_mode="keep"
+    )
+
+    energy = AllChem.MMFFGetMoleculeForceField(result, AllChem.MMFFGetMoleculeProperties(result)).CalcEnergy()
+    assert result.GetNumConformers() == 1
+    assert result.GetBoolProp("_amdock_is_minimized") is True
+    assert abs(energy - lowest) < 1e-3
 
 
 def test_loader_api_dispatches_jobs_via_jobdefinition_helpers(monkeypatch, tmp_path):
