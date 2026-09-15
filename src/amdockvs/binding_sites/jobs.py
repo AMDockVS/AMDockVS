@@ -16,8 +16,10 @@ from ms_flow.tasking import job, task
 from amdockvs.core.constants import (
     AMDOCKVS_PROCESS_EXECUTORS,
     RESOURCE_POCKET_PREDICTIONS,
+    TABLE_MOLECULE_MODELS,
     TABLE_MOLECULES,
 )
+from amdockvs.core.vocab import ModelSource
 from amdockvs.core.worker_io import worker_file, worker_output_dir
 from amdockvs.models import BindingSite
 from amdockvs.core.paths import preferred_molecule_path, set_default_project_root
@@ -111,7 +113,7 @@ def scope_spec(params: P2RankPredictionParams) -> QuerySpec:
     `params.receptor_ids` is an explicit user list and is bounded by construction, so `id__in`
     is correct here — it is not a materialisation the size of the library.
     """
-    filters: dict[str, Any] = {"is_receptor": True, "excluded": False}
+    filters: dict[str, Any] = {"is_receptor": True, "excluded": False, "has_3d": True}
     if params.receptor_ids:
         filters["id__in"] = [int(value) for value in params.receptor_ids]
     return QuerySpec(
@@ -122,8 +124,23 @@ def scope_spec(params: P2RankPredictionParams) -> QuerySpec:
     )
 
 
-def _profile_for(params: P2RankPredictionParams, receptor_id: int) -> str:
-    return str(params.profiles.get(int(receptor_id), params.profile) or "default")
+def _profile_for(params: P2RankPredictionParams, receptor_id: int, *, predicted: bool = False) -> str:
+    profile = str(params.profiles.get(int(receptor_id), params.profile) or "default")
+    # A predicted model has no explicit choice to honour: P2Rank's alphafold profile fits it better.
+    if predicted and profile == "default" and int(receptor_id) not in params.profiles:
+        return "alphafold"
+    return profile
+
+
+def _is_predicted(project_db, receptor: dict) -> bool:
+    if receptor.get("current_model_index") is None:
+        return False
+    spec = QuerySpec(
+        table=TABLE_MOLECULE_MODELS,
+        fields=("source",),
+        filters={"molecule_id": int(receptor["id"]), "model_index": int(receptor["current_model_index"])},
+    )
+    return any(row.get("source") == ModelSource.ESMFOLD for row in db_pages(project_db, spec, page_size=1))
 
 
 def _prediction_output_dir(
@@ -201,7 +218,7 @@ def p2rank_prediction_job(params: dict, config: dict | None = None) -> Iterator[
             "receptor_id": receptor_id,
             "receptor_name": str(receptor.get("name") or f"receptor_{receptor_id}"),
             "receptor_path": worker_file(receptor_path, cache=True),
-            "profile": _profile_for(parsed, receptor_id),
+            "profile": _profile_for(parsed, receptor_id, predicted=_is_predicted(project_db, receptor)),
             "threads": int(parsed.threads),
             "run_id": parsed.run_id,
             "version": parsed.version,
