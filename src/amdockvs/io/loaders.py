@@ -57,6 +57,7 @@ def stream_import_payload_batches(
     prefilter: ImportPrefilterPolicy | Mapping[str, Any] | None = None,
     extra_data_patch: Mapping[str, Any] | None = None,
     binding_site_specs: list[Mapping[str, Any]] | None = None,
+    source_label: str = "",
     chunk_bytes: int = IMPORT_CHUNK_BYTES,
     ramp: bool = True,
 ) -> Iterator[dict[str, Any]]:
@@ -87,6 +88,7 @@ def stream_import_payload_batches(
             prefilter=normalized_prefilter,
             extra_data_patch=normalized_extra_data_patch,
             binding_site_specs=normalized_binding_site_specs,
+            source_label=str(source_label or ""),
             span_offset=int(spanned[0]["offset"]) if spanned else -1,
             span_end=int(spanned[-1]["end"]) if spanned else -1,
             span_first_index=int(spanned[0]["source_index"]) if spanned else 0,

@@ -14,6 +14,7 @@ from amdockvs.core.paths import (
 )
 from amdockvs.project.summaries import DockingHitSummary
 from amdockvs.ui.tools.pymol_ribbon import (
+    PLDDT_BANDS,
     apply_ligand_atom_coloring,
     apply_receptor_atom_coloring,
     apply_receptor_ligand_atom_coloring,
@@ -390,6 +391,18 @@ class MolecularViewerController:
             object_prefix="molecule",
             orient=True,
         )
+
+    def show_plddt(self, molecule) -> None:
+        if molecule is None:
+            return
+        self.show_molecule(molecule, "current")
+        cmd = getattr(self.w.pymol_dock, "cmd", None)
+        if cmd is None:
+            return
+        name = f"molecule_{getattr(molecule, 'id', 'selected')}"
+        for color_name, rgb, condition, _legend in PLDDT_BANDS:
+            cmd.set_color(color_name, [value / 255 for value in rgb])
+            cmd.color(color_name, f"{name} and {condition}")
 
     def _show_molecule(
         self,

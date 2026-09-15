@@ -46,6 +46,7 @@ from amdockvs.models import (
     LigandActivity,
     MoleculeModel,
     MoleculeRecord,
+    MoleculeRepresentation,
     MoleculeSourceProperty,
 )
 
@@ -68,8 +69,21 @@ IMPORT_GRAPH_OUTPUT = graph_sink(
         {"name": "binding_sites", "model": BindingSite, "validate_model": False},
         # A PDBQT import arrives already prepared: the file *is* the engine artifact.
         {"name": "engine_states", "model": EngineState, "validate_model": False},
+        # Explicit columns: model-derived ones drop the pk, and this table's id is a caller-made text key.
+        {
+            "name": "molecule_representations",
+            "model": MoleculeRepresentation,
+            "columns": ("id", "molecule_id", "repr_type", "value"),
+            "validate_model": False,
+        },
     ),
     relations=(
+        {
+            "source_node": "molecule_representations",
+            "source_ref_field": "molecule_ref",
+            "target_node": "molecules",
+            "fk_field": "molecule_id",
+        },
         {
             "source_node": "molecule_models",
             "source_ref_field": "molecule_ref",
@@ -151,6 +165,7 @@ class LoadFileParams(BaseModel):
     binding_site_specs: list[dict[str, Any]] = Field(default_factory=list)
     extra_data_patch_by_file: dict[str, dict[str, Any]] = Field(default_factory=dict)
     binding_site_specs_by_file: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    source_labels: dict[str, str] = Field(default_factory=dict)
 
 
 class LoadMultithreadedSDFParams(BaseModel):
@@ -213,6 +228,7 @@ class FileInput(InputSource):
             str(Path(path).expanduser().resolve()): [dict(item) for item in list(value or [])]
             for path, value in dict(parsed.binding_site_specs_by_file or {}).items()
         }
+        labels = {str(Path(path).expanduser().resolve()): str(label) for path, label in parsed.source_labels.items()}
         for file_path in file_paths:
             resolved_file = Path(file_path).expanduser().resolve()
             for chunk in stream_import_payload_batches(
@@ -226,6 +242,7 @@ class FileInput(InputSource):
                 prefilter=parsed.prefilter,
                 extra_data_patch=patch_by_file.get(str(resolved_file), parsed.extra_data_patch),
                 binding_site_specs=binding_by_file.get(str(resolved_file), parsed.binding_site_specs),
+                source_label=labels.get(str(resolved_file), ""),
                 chunk_bytes=self.chunk_bytes,
                 ramp=self.ramp,
             ):

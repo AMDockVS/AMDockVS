@@ -37,6 +37,13 @@ HETEROATOM_COLORS = {
 }
 
 # Binding-site highlight surface: neutral receptor surface, pocket residues in one bright color.
+# AlphaFold pLDDT bands (name, rgb, B-factor selection, legend); predicted models keep pLDDT 0-100 in B.
+PLDDT_BANDS = (
+    ("plddt_very_high", (0, 83, 214), "b > 90", "> 90 very high"),
+    ("plddt_confident", (101, 203, 243), "b > 70 and b < 90.001", "70–90 confident"),
+    ("plddt_low", (255, 219, 19), "b > 50 and b < 70.001", "50–70 low"),
+    ("plddt_very_low", (255, 125, 69), "b < 50.001", "< 50 very low"),
+)
 BINDING_SURFACE_COLOR = "gray90"
 BINDING_HIGHLIGHT_COLOR = "hotpink"
 

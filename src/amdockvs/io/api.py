@@ -122,6 +122,7 @@ class LoaderAPI:
         primary_context: str = "general",
         molecule_kind: str = "small_molecule",
         prefilter: Mapping[str, Any] | None = None,
+        source_labels: Mapping[str, str] | None = None,
     ) -> list[str]:
         normalized_files = normalize_files(files, label="ligand files")
         if not normalized_files:
@@ -139,6 +140,7 @@ class LoaderAPI:
             "primary_role": "ligand",
             "primary_context": str(primary_context or "general"),
             "molecule_kind": str(molecule_kind or "small_molecule"),
+            "source_labels": {str(Path(k).expanduser().resolve()): str(v) for k, v in dict(source_labels or {}).items()},
         }
         if effective_prefilter is not None:
             params["prefilter"] = effective_prefilter
@@ -230,6 +232,7 @@ class LoaderAPI:
         build_specs: bool = True,
         extra_data_patch_by_file: Mapping[str, Mapping[str, Any]] | None = None,
         binding_site_specs_by_file: Mapping[str, list[Mapping[str, Any]]] | None = None,
+        source_labels: Mapping[str, str] | None = None,
     ) -> list[str]:
         normalized_files = normalize_files(files, label="receptor files")
         if not normalized_files:
@@ -279,6 +282,7 @@ class LoaderAPI:
             "molecule_kind": str(molecule_kind or "protein"),
             "extra_data_patch_by_file": extra_data_patch_map,
             "binding_site_specs_by_file": binding_site_specs_map,
+            "source_labels": {str(Path(k).expanduser().resolve()): str(v) for k, v in dict(source_labels or {}).items()},
         }
         if effective_prefilter is not None:
             params["prefilter"] = effective_prefilter

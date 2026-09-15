@@ -36,7 +36,15 @@ from amdockvs.io.receptor_preview import (
 )
 from amdockvs.models import MoleculeRecord
 from amdockvs.ui.catalog.common import BoundTableWidget
-from amdockvs.ui.common.drop_area import TablePlaceholder, drop_hint, icon_button
+from amdockvs.io.parsers.readers import parse_fasta
+from amdockvs.ui.common.drop_area import (
+    USER_INPUT_SOURCE,
+    TablePlaceholder,
+    drop_hint,
+    icon_button,
+    toolbar_separator,
+    write_user_input,
+)
 from amdockvs.ui.resources.icons import icon
 from amdockvs.core.vocab import FileFormat, MoleculeUsageClass
 from ms_components.ms_table import (
@@ -184,6 +192,7 @@ class ReceptorImportPanel(QWidget):
         self.setAcceptDrops(self._show_file_controls)
         self._ready = False
         self._file_paths = [str(Path(path).expanduser().resolve()) for path in (file_paths or [])]
+        self._source_labels: dict[str, str] = {}  # temp carrier path → real origin ("user input")
         self._enable_preview = len(self._file_paths) <= RECEPTOR_PREVIEW_MAX_FILES
         self._previews_by_path: dict[str, dict] = {}
         self._scan_cache_by_path: dict[str, dict] = {}
@@ -262,13 +271,18 @@ class ReceptorImportPanel(QWidget):
         table_row.addWidget(self.table, 1)
         if self._show_file_controls:
             self._placeholder = TablePlaceholder(self.table, drop_hint("receptor"))
+            self._placeholder.clicked.connect(self._on_add_files)
             toolbar = QVBoxLayout()
             self.add_files_button = icon_button(self, "file-plus.svg", "Add files")
+            self.add_text_button = icon_button(self, "text-input.svg", "Add sequence (FASTA or a bare sequence)")
             self.remove_files_button = icon_button(self, "shredder.svg", "Remove selected files")
             self.add_files_button.clicked.connect(self._on_add_files)
+            self.add_text_button.clicked.connect(self._on_add_text)
             self.remove_files_button.clicked.connect(self._on_remove_selected_files)
-            for button in (self.add_files_button, self.remove_files_button):
-                toolbar.addWidget(button)
+            toolbar.addWidget(self.add_files_button)
+            toolbar.addWidget(self.add_text_button)
+            toolbar.addWidget(toolbar_separator(self))
+            toolbar.addWidget(self.remove_files_button)
             toolbar.addStretch(1)
             table_row.addLayout(toolbar)
         root.addLayout(table_row, 1)
@@ -359,6 +373,7 @@ class ReceptorImportPanel(QWidget):
             return
         can_edit = self._scan_complete or not self._file_paths
         self.add_files_button.setEnabled(can_edit)
+        self.add_text_button.setEnabled(can_edit)
         self.remove_files_button.setEnabled(can_edit and self.table.rowCount() > 0)
 
     def _on_add_files(self) -> None:
@@ -369,6 +384,19 @@ class ReceptorImportPanel(QWidget):
             QT_FILE_FILTER,
         )
         self._add_paths(paths)
+
+    def _on_add_text(self) -> None:
+        """Typed FASTA (or a bare sequence): one protein without 3D per record."""
+        text, ok = QInputDialog.getMultiLineText(
+            self, "Add sequence", "FASTA or a bare amino-acid sequence (':' separates chains):"
+        )
+        records = parse_fasta(text, stem="sequence") if ok else []
+        if not records:
+            return
+        fasta = "".join(f">{name}\n{sequence}\n" for name, sequence in records)
+        path = write_user_input(fasta, ".fasta")
+        self._source_labels[path] = USER_INPUT_SOURCE
+        self._add_paths([path])
 
     def _add_paths(self, paths) -> None:
         resolved = [str(Path(p).expanduser().resolve()) for p in (paths or []) if p]
@@ -443,6 +471,7 @@ class ReceptorImportPanel(QWidget):
             "per_file": dict(self._row_state_by_path) if self._enable_preview else {},
             "scans": dict(self._scan_cache_by_path) if self._enable_preview else {},
             "build_specs": bool(self._enable_preview),
+            "source_labels": {p: label for p, label in self._source_labels.items() if p in self._file_paths},
         }
 
     def _base_options(self) -> ReceptorImportOptions:

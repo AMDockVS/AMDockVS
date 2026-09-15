@@ -9,12 +9,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any, Callable
+from uuid import uuid4
 
 from amdockvs.chemistry.state import molecule_state_metadata
 from amdockvs.io.parsers import count_import_records, read_record_span
 from amdockvs.io.payloads import ImportBatchPayload, MultithreadedSDFImportPayload
 from amdockvs.models.molecules import ModelSource, MoleculeType, MoleculeUsageClass
-from amdockvs.core.vocab import BindingSiteSource, FileFormat
+from amdockvs.core.vocab import BindingSiteSource, FileFormat, ReprType
 from amdockvs.io.import_stats import FILTERED_PREFILTER, IMPORTED, UNREADABLE, bump, write_import_stats
 from amdockvs.io.rows import active_small_molecule_criteria, cull_mol, htp_mol_filter, metadata_map_from_row
 from amdockvs.core.paths import managed_paths_for_source
@@ -27,6 +28,7 @@ from amdockvs.io.transformers.rows import (
     _source_properties_from_mapping,
 )
 from amdockvs.io.transformers.sdf import _materialize_sdf_rows, _mol_source_properties
+from amdockvs.io.transformers.sequences import _materialize_fasta_rows
 from amdockvs.io.transformers.smiles import _materialize_smiles_rows
 from amdockvs.io.transformers.structures import _materialize_structure_rows
 
@@ -66,8 +68,13 @@ def materialize_import_batch(
         rows = list(_materialize_sdf_rows(batch=batch, entries=records, progress_cb=progress_cb, tally=tally))
     elif batch.input_format == FileFormat.SMILES:
         rows = list(_materialize_smiles_rows(batch=batch, entries=records, progress_cb=progress_cb, tally=tally))
+    elif batch.input_format == FileFormat.FASTA:
+        rows = list(_materialize_fasta_rows(batch=batch, entries=records, progress_cb=progress_cb, tally=tally))
     else:
         rows = list(_materialize_structure_rows(batch=batch, entries=records, progress_cb=progress_cb, tally=tally))
+    if batch.source_label:  # the file was only a carrier (pasted text, a download): name the real origin
+        for row in rows:
+            row["source"] = batch.source_label
     write_import_stats(batch.storage_dir, tally)
     return rows
 
@@ -244,6 +251,7 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
     ligand_activities: list[dict[str, Any]] = []
     binding_sites: list[dict[str, Any]] = []
     engine_states: list[dict[str, Any]] = []
+    molecule_representations: list[dict[str, Any]] = []
 
     for row in rows:
         source = str(row.get("source") or "")
@@ -310,6 +318,15 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
             "$ref": molecule_ref,
         }
         molecules.append(molecule_payload)
+        if str(row.get("sequence_aa") or ""):
+            molecule_representations.append(
+                {
+                    "id": uuid4().hex,
+                    "molecule_ref": molecule_ref,
+                    "repr_type": ReprType.SEQUENCE_AA,
+                    "value": str(row["sequence_aa"]),
+                }
+            )
         for source_prop in list(row.get("source_properties") or []):
             key = str(source_prop.get("key") or "").strip()
             value_text = str(source_prop.get("value_text") or "").strip()
@@ -411,6 +428,7 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
         "ligand_activities": ligand_activities,
         "binding_sites": binding_sites,
         "engine_states": engine_states,
+        "molecule_representations": molecule_representations,
     }
 
 

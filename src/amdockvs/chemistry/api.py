@@ -14,7 +14,7 @@ from amdockvs.chemistry.jobs import (
     receptor_chemistry_job,
     shard_chemistry_job,
 )
-from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR
+from amdockvs.chemistry.tools.esmfold import ESM_TOKEN_ENV, FAST_MODEL, api_token
 from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR, RESOURCE_SHARDS
 from amdockvs.molecules.api import ensure_molecule_set_ref
 from amdockvs.molecules.storage import create_generation, has_shards

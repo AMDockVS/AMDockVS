@@ -16,6 +16,7 @@ from amdockvs.models import (
     BindingSite,
     ComplexRecord,
     LigandActivity,
+    MoleculeModel,
     MoleculeRecord,
     SetRecord,
 )
@@ -93,6 +94,7 @@ class MoleculeAPI:
         receptor_complexes: tuple[ComplexRecord, ...]
         ligand_complexes: tuple[ComplexRecord, ...]
         activities: tuple[LigandActivity, ...]
+        current_model: MoleculeModel | None = None  # the model current_path points at (metrics, files)
 
     def get(self, molecule_id: int) -> MoleculeRecord | None:
         """Return one molecule without exposing the project session to callers."""
@@ -128,12 +130,18 @@ class MoleculeAPI:
                 .where(LigandActivity.molecule_id == resolved_id)
                 .order_by(LigandActivity.id.desc())
             ).all())
+            current_model = None if molecule.current_model_index is None else session.exec(
+                select(MoleculeModel)
+                .where(MoleculeModel.molecule_id == resolved_id)
+                .where(MoleculeModel.model_index == int(molecule.current_model_index))
+            ).first()
         return self.Details(
             molecule=molecule,
             binding_sites=binding_sites,
             receptor_complexes=receptor_complexes,
             ligand_complexes=ligand_complexes,
             activities=activities,
+            current_model=current_model,
         )
 
     def list_sets(self) -> list[SetRecord]:

@@ -703,8 +703,12 @@ def _unsupported_preview(path: Path, options: ReceptorImportOptions) -> dict[str
         "precheck": {
             "missing_residues": {"count": 0, "present": False},
             "missing_atoms": {"count": 0, "present": False},
-            "status": "Review",
-            "messages": [f"Structural preview is not implemented for {path.suffix or 'this format'}"],
+            "status": "Sequence" if path.suffix.lower() == ".fasta" else "Review",
+            "messages": [
+                "Sequence only: no 3D until predicted (Build › Proteins › 3D generation)"
+                if path.suffix.lower() == ".fasta"
+                else f"Structural preview is not implemented for {path.suffix or 'this format'}"
+            ],
             "valid_for_binding_site": False,
         },
         "workflow": {

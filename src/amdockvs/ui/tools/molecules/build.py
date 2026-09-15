@@ -20,13 +20,14 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR
+from amdockvs.core.user_env import is_remembered, remember_env_var, shell_profile
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.catalog.molecules import MOLECULES_VIEW_ID
 from amdockvs.core.vocab import MoleculeType
 from ms_components.ms_table import FilterOperator, FilterSpec
 
 BUILD_ID = "moltools.build"
+ESM_TOKEN_ENV = "ESM_API_KEY"  # same name as chemistry.tools.esmfold; the UI only sets it
 
 
 def _spinbox(*, minimum: int, maximum: int, value: int) -> QSpinBox:
@@ -232,95 +233,74 @@ class MoleculeBuildWidget(QWidget):
         small_layout.addWidget(self.ligand_min_box)
         small_layout.addStretch(1)
 
-        protein_batch_row = QHBoxLayout()
-        protein_batch_row.addWidget(QLabel("Batch size", self.proteins_tab))
-        protein_batch_row.addWidget(self.batch_size_receptors)
-        protein_batch_row.addStretch(1)
-        protein_layout.addLayout(protein_batch_row)
+        # Predict -> fix -> protonate -> minimize, as one Run: the ticked ops are chained with depends_on.
+        proteins = self.proteins_tab
+        # Off by default: an external API call. Proteins without 3D get their first model from it.
+        self.receptor_predict_section = proteins.add_section("3D generation", checkable=True, checked=False)
+        self.receptor_predictor = QComboBox(proteins)
+        self.receptor_predictor.addItem("ESMFold2 fast", "esmfold2-fast-2026-05")
+        self.receptor_predictor.addItem("ESMFold2", "esmfold2-2026-05")
+        self.receptor_predict_force = _checkbox("Force: predict again proteins that already have 3D")
+        self.receptor_token_button = QPushButton("API token…", proteins)
+        self.receptor_token_button.clicked.connect(self._ask_esm_token)
+        self.receptor_predict_section.add_row("Model", self.receptor_predictor)
+        self.receptor_predict_section.add_row(self.receptor_predict_force)
+        self.receptor_predict_section.add_row(self.receptor_token_button)
 
-        self.receptor_protonation_box = QGroupBox("Protonation", self.proteins_tab)
-        receptor_protonation_layout = QFormLayout(self.receptor_protonation_box)
-        self.receptor_protonation_method = QComboBox(self.receptor_protonation_box)
-        self.receptor_protonation_method.addItem("Reduce", "reduce")
-        self.receptor_protonation_method.addItem("PDB2PQR", "pdb2pqr")
-        self.receptor_protonation_ph = _double_spinbox(
-            minimum=0.0, maximum=14.0, value=7.0, step=0.1, decimals=1
-        )
-        self.receptor_protonation_forcefield = QComboBox(self.receptor_protonation_box)
-        for label in ("AMBER", "CHARMM", "PARSE"):
-            self.receptor_protonation_forcefield.addItem(label, label)
-        self.run_protonate_receptors_button = QPushButton("Protonate", self.receptor_protonation_box)
-        self.run_protonate_receptors_button.clicked.connect(self._run_protonate_receptors)
-        receptor_protonation_layout.addRow("Method", self.receptor_protonation_method)
-        receptor_protonation_layout.addRow("pH", self.receptor_protonation_ph)
-        receptor_protonation_layout.addRow("Forcefield", self.receptor_protonation_forcefield)
-        receptor_protonation_layout.addRow(self._action_row(
-            self.receptor_protonation_box,
-            self._workflow_button(self.receptor_protonation_box, self._save_protonate_receptors),
-            self.run_protonate_receptors_button,
-        ))
-        protein_layout.addWidget(self.receptor_protonation_box)
-
-        self.receptor_fix_box = QGroupBox("Fix Structure", self.proteins_tab)
-        receptor_fix_layout = QFormLayout(self.receptor_fix_box)
+        self.receptor_fix_section = proteins.add_section("Fix structure", checkable=True)
         self.fix_missing_residues = _checkbox("Add missing residues", checked=True)
         self.fix_missing_atoms = _checkbox("Add missing atoms", checked=True)
         self.fix_replace_nonstandard = _checkbox("Replace nonstandard residues", checked=True)
         self.fix_remove_heterogens = _checkbox("Remove heterogens", checked=False)
         self.fix_keep_water = _checkbox("Keep water when removing heterogens", checked=True)
-        self.receptor_fix_structure = self._structure_combo(self.receptor_fix_box)
-        self.run_fix_receptors_button = QPushButton("Fix", self.receptor_fix_box)
-        self.run_fix_receptors_button.clicked.connect(self._run_fix_receptors)
-        receptor_fix_layout.addRow("Structure", self.receptor_fix_structure)
-        receptor_fix_layout.addRow(self.fix_missing_residues)
-        receptor_fix_layout.addRow(self.fix_missing_atoms)
-        receptor_fix_layout.addRow(self.fix_replace_nonstandard)
-        receptor_fix_layout.addRow(self.fix_remove_heterogens)
-        receptor_fix_layout.addRow(self.fix_keep_water)
-        receptor_fix_layout.addRow(self._action_row(
-            self.receptor_fix_box,
-            self._workflow_button(self.receptor_fix_box, self._save_fix_receptors),
-            self.run_fix_receptors_button,
-        ))
-        protein_layout.addWidget(self.receptor_fix_box)
+        self.receptor_fix_structure = self._structure_combo(proteins)
+        self.receptor_fix_section.add_row("Structure", self.receptor_fix_structure)
+        for checkbox in (
+            self.fix_missing_residues,
+            self.fix_missing_atoms,
+            self.fix_replace_nonstandard,
+            self.fix_remove_heterogens,
+            self.fix_keep_water,
+        ):
+            self.receptor_fix_section.add_row(checkbox)
 
-        # ponytail: shell only — ESMFold still fails on genuinely new sequences, so the whole
-        # group stays disabled until a predictor is worth wiring to a job.
-        self.receptor_predict_box = QGroupBox("3D Generation", self.proteins_tab)
-        receptor_predict_layout = QFormLayout(self.receptor_predict_box)
-        self.receptor_predictor = QComboBox(self.receptor_predict_box)
-        self.receptor_predictor.addItem("ESMFold", "esmfold")
-        self.run_predict_receptors_button = QPushButton("Predict", self.receptor_predict_box)
-        receptor_predict_layout.addRow("Predictor", self.receptor_predictor)
-        receptor_predict_layout.addRow(self._action_row(
-            self.receptor_predict_box,
-            self.run_predict_receptors_button,
-        ))
-        self.receptor_predict_box.setEnabled(False)
-        self.receptor_predict_box.setToolTip(
-            "Structure prediction from sequence is not wired yet."
+        self.receptor_protonation_section = proteins.add_section("Protonation", checkable=True)
+        self.receptor_protonation_method = QComboBox(proteins)
+        self.receptor_protonation_method.addItem("Reduce", "reduce")
+        self.receptor_protonation_method.addItem("PDB2PQR", "pdb2pqr")
+        self.receptor_protonation_ph = _double_spinbox(
+            minimum=0.0, maximum=14.0, value=7.0, step=0.1, decimals=1
         )
-        protein_layout.addWidget(self.receptor_predict_box)
+        self.receptor_protonation_forcefield = QComboBox(proteins)
+        for label in ("AMBER", "CHARMM", "PARSE"):
+            self.receptor_protonation_forcefield.addItem(label, label)
+        self.receptor_protonation_section.add_row("Method", self.receptor_protonation_method)
+        self.receptor_protonation_section.add_row("pH", self.receptor_protonation_ph)
+        self.receptor_protonation_section.add_row("Forcefield", self.receptor_protonation_forcefield)
 
-        self.receptor_min_box = QGroupBox("Minimization", self.proteins_tab)
-        receptor_min_layout = QFormLayout(self.receptor_min_box)
-        self.receptor_forcefields = QComboBox(self.receptor_min_box)
+        # Off by default: it moves atoms, and it is the slowest op by far.
+        self.receptor_min_section = proteins.add_section("Minimization", checkable=True, checked=False)
+        self.receptor_forcefields = QComboBox(proteins)
         self.receptor_forcefields.addItem("amber14-all.xml", ("amber14-all.xml",))
         self.receptor_forcefields.addItem("amber14-all + amber14/tip3p", ("amber14-all.xml", "amber14/tip3p.xml"))
         self.receptor_max_iterations = _spinbox(minimum=1, maximum=100000, value=500)
         self.receptor_tolerance = _double_spinbox(minimum=0.001, maximum=10000.0, value=10.0, step=0.5)
-        self.run_receptor_minimize_button = QPushButton("Minimize", self.receptor_min_box)
-        self.run_receptor_minimize_button.clicked.connect(self._run_minimize_receptors)
-        receptor_min_layout.addRow("Forcefields", self.receptor_forcefields)
-        receptor_min_layout.addRow("Max Iterations", self.receptor_max_iterations)
-        receptor_min_layout.addRow("Tolerance (kJ/mol/nm)", self.receptor_tolerance)
-        receptor_min_layout.addRow(self._action_row(
-            self.receptor_min_box,
-            self._workflow_button(self.receptor_min_box, self._save_minimize_receptors),
-            self.run_receptor_minimize_button,
-        ))
-        protein_layout.addWidget(self.receptor_min_box)
-        protein_layout.addStretch(1)
+        self.receptor_min_section.add_row("Forcefields", self.receptor_forcefields)
+        self.receptor_min_section.add_row("Max iterations", self.receptor_max_iterations)
+        self.receptor_min_section.add_row("Tolerance (kJ/mol/nm)", self.receptor_tolerance)
+
+        self.receptor_destination = RunDestinationCombo(proteins, self.runtime)
+        proteins.advanced.add_row("Batch size", self.batch_size_receptors)
+        proteins.advanced.add_row("Run on", self.receptor_destination)
+        proteins.advanced.form.setRowVisible(self.receptor_destination, self.receptor_destination.count() > 1)
+
+        protein_bar = proteins.action_bar
+        protein_bar.add_action(self._workflow_button(proteins, self._save_proteins))
+        self.run_proteins_button = protein_bar.add_action(QPushButton("Run", proteins))
+        self.run_proteins_button.clicked.connect(self._run_proteins)
+        self.protein_jobs = JobFollower(self, protein_bar, noun="Protein build")
+        for section in self._protein_sections():
+            section.toggled.connect(self._sync_protein_button)
 
         self.receptor_protonation_method.currentIndexChanged.connect(
             self._sync_receptor_protonation_options
@@ -330,6 +310,7 @@ class MoleculeBuildWidget(QWidget):
         )
         self.tabs.currentChanged.connect(self._on_scope_changed)
         self._sync_receptor_protonation_options()
+        self._sync_protein_button()
         self._sync_pkasso_options()
         self._sync_small_molecule_protonation_options()
         self._ready = True
@@ -424,6 +405,7 @@ class MoleculeBuildWidget(QWidget):
 
     def _on_scope_changed(self, *_args) -> None:
         self._sync_molecules_scope()
+        self._refresh_protein_summary()
 
     def _sync_receptor_protonation_options(self, *_args) -> None:
         uses_pdb2pqr = self.receptor_protonation_method.currentData() == "pdb2pqr"
@@ -492,6 +474,7 @@ class MoleculeBuildWidget(QWidget):
         super().showEvent(event)
         if not self._ready:
             return
+        self._refresh_protein_summary()
         opener = getattr(self.window(), "open_or_focus_view", None)
         if callable(opener):
             opener(MOLECULES_VIEW_ID)
@@ -604,8 +587,53 @@ class MoleculeBuildWidget(QWidget):
             ph=float(self.receptor_protonation_ph.value()),
             forcefield=str(self.receptor_protonation_forcefield.currentData() or "AMBER"),
             batch_size=int(self.batch_size_receptors.value()),
-            executor_name=DEFAULT_LOCAL_CPU_EXECUTOR,
+            executor_name=self.receptor_destination.executor_name(),
         )
+
+    def _cfg_predict_receptors(self) -> dict:
+        return dict(
+            receptors=self._scope(MoleculeType.PROTEIN),
+            model=str(self.receptor_predictor.currentData() or "esmfold2-fast-2026-05"),
+            force=self.receptor_predict_force.isChecked(),
+        )
+
+    def _ask_esm_token(self) -> bool:
+        """Sets ESM_API_KEY in this process. AMDock never stores the token; "Remember" writes the
+        export line to the user's own shell profile (user environment on Windows), on request."""
+        remembered = is_remembered(ESM_TOKEN_ENV)
+        target = "your user environment" if os.name == "nt" else str(shell_profile())
+        dialog = QDialog(self)
+        dialog.setWindowTitle("ESMFold API token")
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel(
+            "Paste your Biohub API token (https://biohub.ai).\n"
+            "AMDock keeps it in memory for this session and never saves it.",
+            dialog,
+        ))
+        field = QLineEdit(os.environ.get(ESM_TOKEN_ENV, ""), dialog)
+        field.setEchoMode(QLineEdit.Password)
+        layout.addWidget(field)
+        remember = QCheckBox(f"Remember: add export {ESM_TOKEN_ENV}=… to {target}", dialog)
+        remember.setChecked(remembered)
+        layout.addWidget(remember)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        if dialog.exec() == QDialog.Accepted:
+            token = field.text().strip()
+            if token:
+                os.environ[ESM_TOKEN_ENV] = token
+            else:
+                os.environ.pop(ESM_TOKEN_ENV, None)
+            try:
+                if remember.isChecked() and token:
+                    remember_env_var(ESM_TOKEN_ENV, token)
+                elif remembered:  # unticked or cleared: take the export line out again
+                    remember_env_var(ESM_TOKEN_ENV, "")
+            except OSError as exc:
+                QMessageBox.warning(self, "ESMFold API token", f"Could not update {target}:\n{exc}")
+        return bool(os.environ.get(ESM_TOKEN_ENV, "").strip())
 
     def _cfg_fix_receptors(self) -> dict:
         return dict(
@@ -617,7 +645,7 @@ class MoleculeBuildWidget(QWidget):
             keep_water=self.fix_keep_water.isChecked(),
             structure_source=str(self.receptor_fix_structure.currentData() or "current"),
             batch_size=int(self.batch_size_receptors.value()),
-            executor_name=DEFAULT_LOCAL_CPU_EXECUTOR,
+            executor_name=self.receptor_destination.executor_name(),
         )
 
     def _cfg_minimize_receptors(self) -> dict:
@@ -627,7 +655,7 @@ class MoleculeBuildWidget(QWidget):
             max_iterations=int(self.receptor_max_iterations.value()),
             tolerance_kj_mol=float(self.receptor_tolerance.value()),
             batch_size=int(self.batch_size_receptors.value()),
-            executor_name=DEFAULT_LOCAL_CPU_EXECUTOR,
+            executor_name=self.receptor_destination.executor_name(),
         )
 
     def _save_chem_to_workflow(self, kind: str, label: str, cfg: dict) -> None:
@@ -704,35 +732,67 @@ class MoleculeBuildWidget(QWidget):
             self._cfg_protonate_receptors(),
         )
 
-    def _run_fix_receptors(self) -> None:
-        if not self._require_optional_module(
-            title="Fix Structure",
-            modules=("pdbfixer", "openmm"),
-            detail="Fixing a protein structure currently requires PDBFixer and OpenMM in the active environment.",
-        ):
+    # --- proteins: the ticked ops, chained ------------------------------------------------
+    def _protein_ops(self) -> list[tuple[str, str, str, dict]]:
+        """(chemistry API method, bar stage, workflow step name, config) in pipeline order."""
+        ops = []
+        if self.receptor_predict_section.isChecked():
+            ops.append(("predict_receptors", "Predicting", "Predict structures", self._cfg_predict_receptors()))
+        if self.receptor_fix_section.isChecked():
+            ops.append(("fix_receptors", "Fixing", "Fix structure", self._cfg_fix_receptors()))
+        if self.receptor_protonation_section.isChecked():
+            ops.append(("protonate_receptors", "Protonating", "Protonate proteins", self._cfg_protonate_receptors()))
+        if self.receptor_min_section.isChecked():
+            ops.append(("minimize_receptors", "Minimizing", "Minimize proteins", self._cfg_minimize_receptors()))
+        return ops
+
+    def _protein_tools_ready(self, ops) -> bool:
+        """Every ticked op's tool, checked before anything is submitted."""
+        for kind, _stage, _name, cfg in ops:
+            if kind == "predict_receptors" and not os.environ.get(ESM_TOKEN_ENV, "").strip() and not self._ask_esm_token():
+                return False
+            if kind == "fix_receptors" and not self._require_optional_module(
+                title="Fix structure",
+                modules=("pdbfixer", "openmm"),
+                detail="Fixing a protein structure currently requires PDBFixer and OpenMM in the active environment.",
+            ):
+                return False
+            if kind == "protonate_receptors" and not self._require_executable(
+                title="Protonation",
+                executable=cfg["method"],
+                detail=f"Protein protonation with {cfg['method']} requires its command-line tool.",
+            ):
+                return False
+            if kind == "minimize_receptors" and not self._require_optional_module(
+                title="Minimization",
+                modules=("openmm",),
+                detail="Protein minimization currently requires OpenMM in the active environment.",
+            ):
+                return False
+        return True
+
+    def _run_proteins(self) -> None:
+        ops = self._protein_ops()
+        if not ops or not self._protein_tools_ready(ops):
             return
-        cfg = self._cfg_fix_receptors()
-        self._submit("Fix Structure", lambda: self.runtime.chemistry.fix_receptors(**cfg))
+        stages, depends_on, error = [], None, None
+        try:
+            for kind, stage, _name, cfg in ops:
+                # Chemistry jobs do not wait for each other on their own: chain them explicitly.
+                job_id = str(getattr(self.runtime.chemistry, kind)(**cfg, depends_on=depends_on))
+                stages.append((stage, job_id))
+                depends_on = [job_id]
+        except Exception as exc:  # noqa: BLE001 - shown below; what was submitted is still followed
+            error = exc
+        if stages:
+            self.protein_jobs.follow(stages)
+        if error is not None:
+            QMessageBox.critical(self, "Build Proteins", str(error))
 
-    def _save_fix_receptors(self) -> None:
-        self._save_chem_to_workflow(
-            "fix_receptors", "Fix structure", self._cfg_fix_receptors()
-        )
-
-    def _run_minimize_receptors(self) -> None:
-        if not self._require_optional_module(
-            title="Minimize Proteins",
-            modules=("openmm",),
-            detail="Protein minimization currently requires OpenMM in the active environment.",
-        ):
-            return
-        cfg = self._cfg_minimize_receptors()
-        self._submit("Minimize Proteins", lambda: self.runtime.chemistry.minimize_receptors(**cfg))
-
-    def _save_minimize_receptors(self) -> None:
-        self._save_chem_to_workflow(
-            "minimize_receptors", "Minimize proteins", self._cfg_minimize_receptors()
-        )
+    def _save_proteins(self) -> None:
+        # One step per op: the workflow already runs same-category steps one after another.
+        for kind, _stage, name, cfg in self._protein_ops():
+            self._save_chem_to_workflow(kind, name, cfg)
 
     def refresh(self) -> None:
         self._on_scope_changed()

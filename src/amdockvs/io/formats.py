@@ -32,6 +32,9 @@ SUFFIX_ALIASES = {
     ".mmcif": ".cif",
     ".cif.gz": ".cif",
     ".smiles": ".smi",
+    ".fa": ".fasta",
+    ".faa": ".fasta",
+    ".fas": ".fasta",
 }
 READABLE_SUFFIXES = frozenset({".sdf", ".mol", ".mol2", ".pdb", ".pdbqt", ".cif", ".smi"})
 #: What a molecule of each kind is stored as once imported. Anything else is a conversion input.
@@ -39,7 +42,7 @@ CANONICAL_SUFFIXES = frozenset({".sdf", ".cif"})
 #: Qt file-dialog filter. Table-ish text formats are import-only (SMILES columns), not readers.
 QT_FILE_FILTER = (
     "Molecule files (*.sdf *.sd *.mol *.mdl *.mol2 *.pdb *.ent *.pdb1 *.pdbqt *.cif *.mmcif "
-    "*.smi *.smiles *.txt *.csv *.tsv);;All files (*)"
+    "*.smi *.smiles *.txt *.csv *.tsv *.fasta *.fa *.faa *.fas);;All files (*)"
 )
 
 # AutoDock atom types are not element symbols: NA is an acceptor nitrogen, not sodium, and A is an

@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 from amdockvs.models import BindingSite, ComplexRecord, MoleculeRecord
 from amdockvs.core.paths import get_default_project_root
+from amdockvs.ui.tools.pymol_ribbon import PLDDT_BANDS
 class CatalogDetailsView(QWidget):
     """Molecule/complex inspector. Lives as a central tab that follows the catalog
     selection while open (was a bottom dock)."""
@@ -25,6 +26,7 @@ class CatalogDetailsView(QWidget):
     show_binding_site_requested = Signal(object, object)
     show_complex_requested = Signal(object)
     show_file_requested = Signal(str, str)
+    show_plddt_requested = Signal(object)
 
     def __init__(self, *, runtime, parent: QWidget | None = None):
         super().__init__(parent)
@@ -33,6 +35,7 @@ class CatalogDetailsView(QWidget):
         self._current_molecule: MoleculeRecord | None = None
         self._current_complex: ComplexRecord | None = None
         self._current_binding_sites: list[BindingSite] = []
+        self._current_model = None
         root = self  # ponytail: build straight onto the widget, no wrapper child
         layout = QVBoxLayout(root)
 
@@ -43,11 +46,25 @@ class CatalogDetailsView(QWidget):
         self.show_secondary_button.clicked.connect(self._emit_secondary_action)
         self.show_binding_site_button = QPushButton("Show Binding Site", root)
         self.show_binding_site_button.clicked.connect(self._emit_binding_site_action)
+        # On demand only: predicted models carry pLDDT in the B-factor column.
+        self.show_plddt_button = QPushButton("Color by pLDDT", root)
+        self.show_plddt_button.clicked.connect(lambda: self.show_plddt_requested.emit(self._current_molecule))
         actions.addWidget(self.show_primary_button)
         actions.addWidget(self.show_secondary_button)
         actions.addWidget(self.show_binding_site_button)
+        actions.addWidget(self.show_plddt_button)
         actions.addStretch(1)
         layout.addLayout(actions)
+        # PyMOL's own ramp legend needs its internal GUI, which the embedded dock hides: show it here.
+        self.plddt_legend = QLabel(
+            "pLDDT&nbsp;&nbsp;" + "&nbsp;&nbsp;".join(
+                f'<span style="color:#{r:02x}{g:02x}{b:02x}">■</span>&nbsp;{legend}'
+                for _name, (r, g, b), _condition, legend in PLDDT_BANDS
+            ),
+            root,
+        )
+        self.plddt_legend.setTextFormat(Qt.RichText)
+        layout.addWidget(self.plddt_legend)
 
         splitter = QSplitter(Qt.Vertical, root)
         self.summary_tree = QTreeWidget(splitter)
@@ -105,6 +122,13 @@ class CatalogDetailsView(QWidget):
                 "Source": molecule.source,
             },
         )
+        self._current_model = details.current_model
+        if details.current_model is not None:
+            model = details.current_model
+            self._add_section(
+                "Model",
+                {"Index": model.model_index, "Source": model.source, **dict(model.metrics or {}), **dict(model.files or {})},
+            )
         if binding_sites:
             section = QTreeWidgetItem(["Binding Sites", str(len(binding_sites))])
             self.summary_tree.addTopLevelItem(section)
@@ -291,6 +315,9 @@ class CatalogDetailsView(QWidget):
         self.show_primary_button.setEnabled(primary_enabled)
         self.show_secondary_button.setEnabled(secondary_enabled)
         self.show_binding_site_button.setEnabled(binding_enabled)
+        predicted = self._current_kind == "molecule" and str(getattr(self._current_model, "source", "") or "") == "esmfold"
+        self.show_plddt_button.setEnabled(predicted)
+        self.plddt_legend.setVisible(predicted)
 
     def _emit_primary_action(self) -> None:
         if self._current_kind == "molecule" and self._current_molecule is not None:

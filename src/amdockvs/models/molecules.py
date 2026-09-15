@@ -171,7 +171,7 @@ class MoleculeRecord(TimestampedRecord, table=True):
             molecule_type: str,
             n_atoms: int,
             input_format: str,
-            stored_path: Path,
+            stored_path: Path | None,
             current_path: Path | None = None,
             current_model_index: int | None = None,
             extra_data: dict | None = None,
@@ -189,8 +189,9 @@ class MoleculeRecord(TimestampedRecord, table=True):
             "source": str(source_file.resolve()),
             "source_index": max(0, source_index),
             "input_format": str(input_format or FileFormat.UNKNOWN),
-            "stored_path": str(stored_path.relative_to(project_root)),
-            "current_path": str((current_path or stored_path).relative_to(project_root)),
+            # A sequence-only protein has no file yet: both paths stay "" until a model is predicted.
+            "stored_path": str(stored_path.relative_to(project_root)) if stored_path else "",
+            "current_path": str((current_path or stored_path).relative_to(project_root)) if stored_path else "",
             "current_model_index": None if current_model_index is None else int(current_model_index),
             "active_binding_site_id": None,
             "n_atoms": max(0, n_atoms),
@@ -333,6 +334,9 @@ class MoleculeModel(SQLModel, table=True):
     file_path: str = Field(default="")  # relative to project root
     energy: float | None = Field(default=None)  # kcal/mol if minimized
     source: str = Field(default=ModelSource.IMPORTED)  # see ModelSource
+    # Per-model quality data (e.g. ESMFold plddt_mean/ptm) and sidecar files (e.g. {"pae": path}).
+    metrics: dict = Field(default_factory=dict, sa_type=JSON)
+    files: dict = Field(default_factory=dict, sa_type=JSON)
     created_at: datetime = Field(default_factory=datetime.now)
 
     @classmethod
@@ -344,6 +348,8 @@ class MoleculeModel(SQLModel, table=True):
             file_path: str,
             source: str = ModelSource.IMPORTED,
             energy: float | None = None,
+            metrics: dict | None = None,
+            files: dict | None = None,
     ) -> dict[str, Any]:
         return {
             "molecule_id": molecule_id,
@@ -351,5 +357,7 @@ class MoleculeModel(SQLModel, table=True):
             "file_path": file_path,
             "energy": energy,
             "source": source,
+            "metrics": dict(metrics or {}),
+            "files": dict(files or {}),
             "created_at": datetime.now(),
         }

@@ -49,7 +49,40 @@ def count_import_records(file_path: str | Path, *, approx: bool = False) -> int:
                 if stripped and not stripped.startswith("#"):
                     data_lines += 1
         return max(0, data_lines - (1 if has_header else 0))
+    if suffix == ".fasta":
+        return len(parse_fasta(source_path.read_text(encoding="utf-8", errors="ignore"), stem=source_path.stem))
     return 1
+
+
+def parse_fasta(text: str, *, stem: str = "sequence") -> list[tuple[str, str]]:
+    """(name, sequence) per FASTA record. Headerless text is one sequence named `stem`.
+
+    Whitespace and digits are dropped, `*` terminators too; `:` survives as the chain separator
+    ESMFold uses for complexes (`AAA:BBB`). Empty records are skipped.
+    """
+    records: list[tuple[str, list[str]]] = []
+    for line in str(text or "").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith(";"):
+            continue
+        if stripped.startswith(">"):
+            records.append((stripped[1:].split()[0] if stripped[1:].strip() else "", []))
+            continue
+        if not records:
+            records.append((stem, []))
+        records[-1][1].append("".join(ch for ch in stripped.upper() if ch.isalpha() or ch == ":"))
+    named: list[tuple[str, str]] = []
+    for index, (name, chunks) in enumerate(records):
+        sequence = "".join(chunks).strip(":")
+        if sequence:
+            named.append((name or f"{stem}_{index}", sequence))
+    return named
+
+
+def _iter_fasta_records(source_path: Path) -> Iterator[dict[str, Any]]:
+    text = source_path.read_text(encoding="utf-8", errors="ignore")
+    for index, (name, sequence) in enumerate(parse_fasta(text, stem=source_path.stem)):
+        yield {"source_index": index, "name": name, "raw": sequence}
 
 
 def _sampled_record_count(source_path: Path, suffix: str) -> int | None:
@@ -111,6 +144,9 @@ def iter_raw_records(
             "header_names": header_names,
         }
         return FileFormat.SMILES, config, _iter_raw_from_spans(source_path, FileFormat.SMILES, skip_header=has_header)
+    if suffix == ".fasta":
+        # ponytail: whole-file read, fine for sequence sets; stream by '>' if genome-sized FASTAs show up.
+        return FileFormat.FASTA, {}, _iter_fasta_records(source_path)
     return suffix.lstrip(".") or "dat", {}, _iter_single_structure_entries(source_path)
 
 
@@ -258,6 +294,8 @@ def iter_import_entries(
         return FileFormat.SDF, _iter_sdf_entries(source_path)
     if normalized_kind in {"ligand", "molecule"} and suffix in {".smi", ".smiles", ".txt", ".csv", ".tsv"}:
         return FileFormat.SMILES, _iter_smiles_entries(source_path)
+    if suffix == ".fasta":
+        return FileFormat.FASTA, _iter_fasta_records(source_path)
     return suffix.lstrip(".") or "dat", _iter_single_structure_entries(source_path)
 
 
@@ -347,5 +385,6 @@ __all__ = [
     "iter_raw_records",
     "iter_record_spans",
     "iter_record_span",
+    "parse_fasta",
     "read_record_span",
 ]
