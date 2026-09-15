@@ -16,7 +16,7 @@ from amdockvs.runtime import AMDockVSRuntime
 from amdockvs.project.summaries import DockingHitSummary
 from amdockvs.ui.catalog import COMPLEXES_VIEW_ID, LIGANDS_VIEW_ID, RECEPTOR_VIEW_ID
 from amdockvs.ui.shell.main_content import MainContentWidget
-from amdockvs.ui.monitor import MONITOR_JOBS_VIEW_ID, MonitorSummaryDockWidget
+from amdockvs.ui.monitor import JobsDialog
 from amdockvs.ui.shell.projects import ApplicationWidget
 from amdockvs.ui.registry import register_all
 from amdockvs.ui.resources.icons import icon as load_icon
@@ -57,6 +57,7 @@ class AMDockVSMainWindow(QMainWindow):
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         self.runtime = runtime
         self.monitor_bridge = runtime.create_monitor_bridge(poll_ms=500, max_recent_jobs=50)
+        self.jobs_dialog: JobsDialog | None = None  # built on first open_jobs_monitor()
         self._closing = False
         self._settings = QSettings()
 
@@ -100,12 +101,14 @@ class AMDockVSMainWindow(QMainWindow):
             self.pymol_dock.set_side_panel(self.grid_dock, title="Grid Box", visible=False)
 
         # 2D interaction diagram: UNDER PyMOL, not sharing its slot — the 3D pose and its 2D
-        # contact map are read together, so both are visible at once.
+        # contact map are read together, so both are visible at once. BOTTOM_RIGHT with
+        # bottom-in-lateral lands it at the foot of the right column, and its button at the
+        # foot of the right bar, level with where the panel opens.
         self.diagram_dock = InteractionDiagramDock("2D Interactions", self.dock_manager, runtime=runtime, parent=self)
         self.dock_manager.add_dock(
             self.diagram_dock,
             dock_id="diagram",
-            region=Region.RIGHT_BOTTOM,
+            region=Region.BOTTOM_RIGHT,
             order=10,
             behavior=Behavior.EXCLUSIVE,
             icon=load_icon("complexes.svg"),
@@ -153,18 +156,7 @@ class AMDockVSMainWindow(QMainWindow):
         )
         self.tools_dock.visibilityChanged.connect(self.tools.on_tools_dock_visibility)
 
-        self.monitor_dock = MonitorSummaryDockWidget("Jobs", self.dock_manager, bridge=self.monitor_bridge, parent=self)
-        self.monitor_dock.open_requested.connect(self.open_jobs_monitor)
-        self.dock_manager.add_dock(
-            self.monitor_dock,
-            dock_id="monitor",
-            region=Region.BOTTOM_RIGHT,
-            order=10,
-            behavior=Behavior.EXCLUSIVE,
-            icon=load_icon("cpu.svg"),
-            starts_visible=False,  # lives in the status bar; opened on demand as a tab
-        )
-        # Bottom docks (Details, Jobs) stack at the bottom of the side columns instead of a
+        # Bottom docks (2D Interactions) stack at the bottom of the side columns instead of a
         # full-width bottom strip, so the central content view keeps the window's full height.
         self.dock_manager.set_bottom_in_lateral(True)
         self.dock_manager.build()
@@ -275,8 +267,6 @@ class AMDockVSMainWindow(QMainWindow):
             if self.pymol_dock is not None and self.pymol_dock.isVisible():
                 self.resizeDocks([self.pymol_dock], [self._third_width()], Qt.Horizontal)
                 self._pymol_sized = True
-            if self.monitor_dock is not None:
-                self.resizeDocks([self.monitor_dock], [150], Qt.Vertical)
         except Exception:
             pass
 
@@ -454,26 +444,25 @@ class AMDockVSMainWindow(QMainWindow):
         self.jobs.update_jobs_statusbar()
 
     def _on_view_open_state_changed(self, view_id: str, is_open: bool) -> None:
-        if str(view_id) == MONITOR_JOBS_VIEW_ID:
-            self.jobs.update_jobs_statusbar()
         self.views.sync_workflow_action(str(view_id), bool(is_open))
         self.views.sync_catalog_action(str(view_id), bool(is_open))
 
     # -- jobs, notifications and monitor -------------------------------------------
 
-    def open_jobs_monitor(self) -> QWidget:
-        self.monitor_dock.hide()
+    def open_jobs_monitor(self) -> JobsDialog:
+        """One non-modal Jobs window: raised if already open, built once, hidden on close."""
+        if self.jobs_dialog is None:
+            self.jobs_dialog = JobsDialog(bridge=self.monitor_bridge, parent=self)
+            self.jobs_dialog.finished.connect(lambda _result: self.jobs.update_jobs_statusbar())
         self._status_bar.jobs_indicator.set_attention(False)  # seen it — clear the red cue
-        widget = self.open_or_focus_view(MONITOR_JOBS_VIEW_ID)
+        self.jobs_dialog.show()
+        self.jobs_dialog.raise_()
+        self.jobs_dialog.activateWindow()
         self.jobs.update_jobs_statusbar()
-        return widget
+        return self.jobs_dialog
 
     def open_complex_results(self) -> QWidget:
         return self.open_or_focus_view(COMPLEXES_VIEW_ID)
-
-    def restore_monitor_dock(self) -> None:
-        self.monitor_dock.show()
-        self.jobs.update_jobs_statusbar()
 
     # -- PyMOL viewer ---------------------------------------------------------------
 
