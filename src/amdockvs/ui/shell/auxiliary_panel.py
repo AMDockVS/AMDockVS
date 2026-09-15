@@ -149,6 +149,7 @@ class AuxiliaryPanelController:
         view.show_binding_site_requested.connect(viewer.show_binding_site)
         view.show_complex_requested.connect(viewer.show_complex)
         view.show_file_requested.connect(viewer.show_file)
+        view.show_plddt_requested.connect(viewer.show_plddt)
         self._push_selection_to_details(view)  # open non-blank on the current selection
         return view
 
