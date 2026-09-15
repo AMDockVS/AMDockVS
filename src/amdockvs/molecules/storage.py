@@ -23,7 +23,9 @@ data. `io/api.py` is where it is enforced, at import.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Iterator, Mapping, Protocol
 
 from ms_flow.query import QuerySpec, db_count, db_pages
@@ -65,7 +67,99 @@ class DbStore:
         return [dict(row) for row in rows]
 
 
-SHARD_FIELDS = ("id", "source", "shard_index", "path", "input_format", "n_records", "state")
+SHARD_FIELDS = (
+    "id", "generation_id", "source", "shard_index", "path", "input_format", "n_records", "state"
+)
+
+
+def active_generation_id(project_db) -> int | None:
+    """Which rewrite of the library is the current one. `None` before the first import."""
+    from sqlmodel import select
+
+    from amdockvs.models import ShardGeneration
+
+    with project_db.get_session() as session:
+        row = session.exec(
+            select(ShardGeneration)
+            .where(ShardGeneration.is_active == True)  # noqa: E712 - SQL, not Python truthiness
+            .order_by(ShardGeneration.id.desc())
+        ).first()
+        return int(row.id) if row is not None else None
+
+
+def create_generation(project_db, *, step: str, shard_dir: str | Path, job_id: str = "") -> int:
+    """Open a new generation, parented to whatever is active. It is not active yet.
+
+    Nothing reads it until `activate_generation` flips the pointer, which is what makes a
+    failed rewrite a no-op instead of a half-switched inventory.
+    """
+    from amdockvs.models import ShardGeneration
+
+    parent_id = active_generation_id(project_db)
+    with project_db.get_session() as session:
+        row = ShardGeneration(
+            parent_id=parent_id,
+            step=str(step or ""),
+            shard_dir=str(shard_dir or ""),
+            job_id=str(job_id or ""),
+            is_active=False,
+        )
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return int(row.id)
+
+
+def activate_generation(project_db, generation_id: int) -> None:
+    """Make one generation the library, and forget its grandparent.
+
+    The switch itself is one UPDATE over a handful of generation rows — the inventory's
+    thousands of shard rows are never touched. The sweep afterwards is the window of two:
+    the active generation and its parent survive, everything older goes, files included.
+    """
+    from sqlmodel import select
+
+    from amdockvs.models import ScreeningShard, ShardGeneration
+
+    with project_db.get_session() as session:
+        generations = {int(row.id): row for row in session.exec(select(ShardGeneration)).all()}
+        target = generations.get(int(generation_id))
+        if target is None:
+            raise ValueError(f"No shard generation {generation_id} to activate.")
+        for row in generations.values():
+            row.is_active = row.id == target.id
+            session.add(row)
+        keep = {int(target.id)}
+        if target.parent_id is not None:
+            keep.add(int(target.parent_id))
+        doomed = [gen_id for gen_id in generations if gen_id not in keep]
+        paths = [
+            str(shard.path or "")
+            for shard in session.exec(
+                select(ScreeningShard).where(ScreeningShard.generation_id.in_(doomed))
+            ).all()
+        ] if doomed else []
+        for gen_id in keep:
+            # The surviving parent points at a generation that is about to stop existing. Cut
+            # the link first or the delete trips the foreign key — its lineage ends here now.
+            generation = generations[gen_id]
+            if generation.parent_id is not None and int(generation.parent_id) in doomed:
+                generation.parent_id = None
+                session.add(generation)
+        session.flush()
+        for gen_id in doomed:
+            for shard in session.exec(
+                select(ScreeningShard).where(ScreeningShard.generation_id == gen_id)
+            ).all():
+                session.delete(shard)
+            session.delete(generations[gen_id])
+        session.commit()
+    # Files last: a row that survives a missing file is a bug you can see, a file that
+    # survives its row is an orphan nothing will ever look at again.
+    for text in paths:
+        path = Path(text)
+        if path.is_file():
+            path.unlink(missing_ok=True)
 
 
 # Legacy values retained for callers opening projects created before preparation and campaign
@@ -107,13 +201,29 @@ class ShardStore:
         self.gate = gate
         self.payload = payload
 
+    def _scoped(self, spec: QuerySpec | None) -> QuerySpec:
+        """Pin any shard scope to the active generation.
+
+        Injected here rather than in `shard_scope_spec` because this is the only place that
+        has the database — and because a caller that forgets it would silently feed a step
+        two generations of the same library at once. A spec that names a generation is left
+        alone: that is how a redo reads its parent.
+        """
+        spec = spec or shard_scope_spec()
+        if "generation_id" in spec.filters:
+            return spec
+        generation_id = active_generation_id(self.project_db)
+        if generation_id is None:
+            return spec
+        return replace(spec, filters={**spec.filters, "generation_id": generation_id})
+
     def iter_rows(self, spec: QuerySpec | None = None, *, batch_size: int = 1) -> Iterator[dict[str, Any]]:
         """Shards, one row each. `batch_size` is a paging detail — a shard is the work unit."""
-        yield from db_pages(self.project_db, spec or shard_scope_spec(), page_size=max(1, int(batch_size)))
+        yield from db_pages(self.project_db, self._scoped(spec), page_size=max(1, int(batch_size)))
 
     def count(self, spec: QuerySpec | None = None) -> int:
         """How many shards are in scope — this is what a run declares as its work."""
-        return db_count(self.project_db, spec or shard_scope_spec())
+        return db_count(self.project_db, self._scoped(spec))
 
     def record_count(self, spec: QuerySpec | None = None) -> int:
         """How many molecules those shards hold, without opening a single file.
@@ -166,12 +276,16 @@ def set_shard_state(project_db, *, source: str, shard_index: int, state: str) ->
 
     from amdockvs.models import ScreeningShard
 
+    generation_id = active_generation_id(project_db)
     with project_db.get_session() as session:
-        row = session.exec(
-            select(ScreeningShard).where(
-                ScreeningShard.source == str(source), ScreeningShard.shard_index == int(shard_index)
-            )
-        ).first()
+        query = select(ScreeningShard).where(
+            ScreeningShard.source == str(source), ScreeningShard.shard_index == int(shard_index)
+        )
+        # `(source, shard_index)` only addresses a shard within a generation — without this
+        # the parent's row is an equally good match and `.first()` picks whichever.
+        if generation_id is not None:
+            query = query.where(ScreeningShard.generation_id == generation_id)
+        row = session.exec(query).first()
         if row is None:
             return
         row.state = str(state)
@@ -218,6 +332,7 @@ def iter_prepared_shards(project_db, *, engine: str) -> Iterator[dict[str, Any]]
     from amdockvs.models import ScreeningShard, ShardEngineState
 
     normalized_engine = str(engine or "").strip().lower()
+    generation_id = active_generation_id(project_db)
     with project_db.get_session() as session:
         states = {
             int(row.shard_id): row
@@ -225,7 +340,12 @@ def iter_prepared_shards(project_db, *, engine: str) -> Iterator[dict[str, Any]]
                 select(ShardEngineState).where(ShardEngineState.engine == normalized_engine)
             ).all()
         }
-        shards = list(session.exec(select(ScreeningShard).order_by(ScreeningShard.id)).all())
+        # Scoped like every other shard read: the parent generation is still in the table and
+        # its prepared artifacts are still on disk, but they are not the library any more.
+        query = select(ScreeningShard).order_by(ScreeningShard.id)
+        if generation_id is not None:
+            query = query.where(ScreeningShard.generation_id == generation_id)
+        shards = list(session.exec(query).all())
     for shard in shards:
         state = states.get(int(shard.id or 0))
         if state is not None:
@@ -331,6 +451,9 @@ def store_from_config(config: Mapping[str, Any] | None) -> LigandStore:
 __all__ = [
     "DOCKABLE_STATES",
     "DbStore",
+    "activate_generation",
+    "active_generation_id",
+    "create_generation",
     "LigandStore",
     "ShardStore",
     "GENERAL_LIGAND_FILTERS",

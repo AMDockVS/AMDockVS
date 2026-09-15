@@ -27,6 +27,7 @@ from amdockvs.models.screening import (
     ScreeningShardRun,
     ScreeningTarget,
     ShardEngineState,
+    ShardGeneration,
 )
 from amdockvs.models.qsar import QSARModel, QSARPrediction, LigandActivity
 from amdockvs.models.sets import MoleculeSet, MoleculeSetMember, SetRecord, SetItemRecord
@@ -60,6 +61,7 @@ __all__ = [
     "ClusteringRun",
     "ScreeningShard",
     "ShardEngineState",
+    "ShardGeneration",
     "ScreeningShardRun",
     "ScreeningTarget",
     "ScreeningDispatch",

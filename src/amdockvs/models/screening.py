@@ -23,17 +23,51 @@ from amdockvs.core.constants import (
     TABLE_SCREENING_SHARDS,
     TABLE_SCREENING_TARGETS,
     TABLE_SHARD_ENGINE_STATES,
+    TABLE_SHARD_GENERATIONS,
 )
 from amdockvs.core.vocab import DispatchState, ShardState, TargetState
 
 
-class ScreeningShard(SQLModel, table=True):
-    __tablename__ = TABLE_SCREENING_SHARDS
-    # A shard is addressed by (source, shard_index); the constraint is what keeps one import
-    # from writing that pair twice.
-    __table_args__ = (UniqueConstraint("source", "shard_index"),)
+class ShardGeneration(SQLModel, table=True):
+    """One rewrite of the whole sharded library, and what it came from.
+
+    Every step that writes shards must renumber: a shard's id span is capped by the
+    container's uint16 slot map, so survivors of a filter cannot keep the ids they had.
+    Renumbering without lineage would lose provenance, so a rewrite produces a *generation*
+    instead of overwriting the inventory in place.
+
+    Only one generation is active. The switch is a single UPDATE of this flag at the end of a
+    job — never a row-by-row replacement, which is what left the inventory half-switched when
+    a job died mid-flight.
+
+    **Window of two**: activating a generation forgets its grandparent, rows and files. In
+    `htpvs` the shards *are* the memory — there is no database row behind a library molecule
+    to fall back on — but keeping every generation would mean keeping the whole library once
+    per step. Two is what a redo needs: the current state and the one it came from.
+    """
+
+    __tablename__ = TABLE_SHARD_GENERATIONS
 
     id: int | None = Field(default=None, primary_key=True)
+    parent_id: int | None = Field(default=None, foreign_key=f"{TABLE_SHARD_GENERATIONS}.id", index=True)
+    # What produced it: "import", or the pipeline label of the step that rewrote the shards.
+    step: str = Field(default="")
+    shard_dir: str = Field(default="")
+    job_id: str = Field(default="")
+    is_active: bool = Field(default=False, index=True)
+    created_at: datetime = Field(default_factory=datetime.now)
+
+
+class ScreeningShard(SQLModel, table=True):
+    __tablename__ = TABLE_SCREENING_SHARDS
+    # A shard is addressed by (generation, source, shard_index). Without the generation the
+    # pair collides the moment a step rewrites the library.
+    __table_args__ = (UniqueConstraint("generation_id", "source", "shard_index"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    generation_id: int | None = Field(
+        default=None, foreign_key=f"{TABLE_SHARD_GENERATIONS}.id", index=True
+    )
     # ponytail: the pair is unique *within* an import, not across imports. The parent-side
     # queue (io/shards.ShardQueueWriter) numbers shards as it cuts them, so a prefilter change
     # renumbers everything — re-importing the same file appends instead of replacing. A failed
@@ -174,4 +208,5 @@ __all__ = [
     "ScreeningShardRun",
     "ScreeningTarget",
     "ShardEngineState",
+    "ShardGeneration",
 ]

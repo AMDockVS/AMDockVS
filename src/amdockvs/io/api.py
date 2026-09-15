@@ -205,9 +205,34 @@ class LoaderAPI:
                     "project_db": self.runtime.molsuite.project_db,
                     "shard_dir": self.runtime.get_project_resource_path(RESOURCE_SHARDS),
                     "shard_size": records,
+                    "generation_id": self._import_generation_id(),
                 },
             )
         ]
+
+    def _import_generation_id(self) -> int:
+        """The generation an import writes into: the active one, or the first one.
+
+        An import adds shards; it does not rewrite the ones already there. So a second import
+        joins the library instead of replacing it, and only the very first one has a
+        generation to open.
+        """
+        from amdockvs.molecules.storage import (
+            activate_generation,
+            active_generation_id,
+            create_generation,
+        )
+
+        project_db = self.runtime.molsuite.project_db
+        generation_id = active_generation_id(project_db)
+        if generation_id is None:
+            generation_id = create_generation(
+                project_db,
+                step="import",
+                shard_dir=self.runtime.get_project_resource_path(RESOURCE_SHARDS),
+            )
+            activate_generation(project_db, generation_id)
+        return generation_id
 
     def load_receptors(
         self,

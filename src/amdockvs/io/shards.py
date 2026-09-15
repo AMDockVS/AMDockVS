@@ -19,6 +19,7 @@ decides who sits next to whom.
 from __future__ import annotations
 
 import io
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -135,10 +136,21 @@ class ShardQueueWriter:
     Resuming would need the queue to checkpoint (span -> shard) receipts.
     """
 
-    def __init__(self, *, project_db: Any, shard_dir: str | Path, shard_size: int) -> None:
+    def __init__(
+        self,
+        *,
+        project_db: Any,
+        shard_dir: str | Path,
+        shard_size: int,
+        generation_id: int | None = None,
+    ) -> None:
         self._project_db = project_db
         self._shard_dir = Path(shard_dir).expanduser().resolve()
         self._shard_dir.mkdir(parents=True, exist_ok=True)
+        # Opened by the caller (io/api.py), like the chemistry step's. An import *adds* to the
+        # library, so it joins the active generation rather than forking one: only a rewrite
+        # has a previous state worth being able to fall back to.
+        self._generation_id = generation_id
         self._shard_size = max(1, int(shard_size))
         # One bucket per (source, format): mixing two files in one shard would leave the
         # `source` of its inventory row a lie.
@@ -206,6 +218,7 @@ class ShardQueueWriter:
         with self._project_db.get_session() as session:
             session.add(
                 ScreeningShard(
+                    generation_id=self._generation_id,
                     source=source,
                     shard_index=shard_index,
                     path=str(path),
@@ -219,15 +232,100 @@ class ShardQueueWriter:
             session.commit()
 
 
-def shard_queue_writer(*, project_db: Any, shard_dir: str | Path, shard_size: int) -> ShardQueueWriter:
+def shard_queue_writer(
+    *, project_db: Any, shard_dir: str | Path, shard_size: int, generation_id: int | None = None
+) -> ShardQueueWriter:
     """Factory for `@job(result_handler_factory=...)`; the runtime passes the kwargs."""
-    return ShardQueueWriter(project_db=project_db, shard_dir=shard_dir, shard_size=shard_size)
+    return ShardQueueWriter(
+        project_db=project_db,
+        shard_dir=shard_dir,
+        shard_size=shard_size,
+        generation_id=generation_id,
+    )
+
+
+class ShardGenerationWriter:
+    """The result sink of any step that rewrites the library: new shards, new generation.
+
+    Replaces an upsert on `(source, shard_index)`. That upsert repointed the inventory one
+    chunk at a time, so a job that died at shard 600 of 1000 left a library that was 60% the
+    new step and 40% the old one, with no way to tell which was which.
+
+    Here the rows land in a generation nothing reads yet, and `flush()` — which MolSuite
+    calls once, when the job actually completes — is the only thing that makes them the
+    library. A failed job leaves an inert generation behind, not a corrupted one.
+    """
+
+    def __init__(self, *, project_db: Any, generation_id: int) -> None:
+        self._project_db = project_db
+        self._generation_id = int(generation_id)
+
+    def handle(self, chunk_id: str, result: Any) -> None:
+        from amdockvs.models import ScreeningShard
+
+        rows = [dict(row) for row in (result or [])]
+        if not rows:
+            return
+        now = datetime.now()
+        with self._project_db.get_session() as session:
+            for row in rows:
+                session.add(
+                    ScreeningShard(
+                        generation_id=self._generation_id,
+                        source=str(row.get("source") or ""),
+                        shard_index=int(row.get("shard_index") or 0),
+                        path=str(row.get("path") or ""),
+                        input_format=str(row.get("input_format") or ""),
+                        n_records=int(row.get("n_records") or 0),
+                        state=str(row.get("state") or ShardState.READY),
+                        error=str(row.get("error") or ""),
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+            session.commit()
+
+    def on_error(self, chunk_id: str, error: str) -> None:
+        """A failed shard contributes no row, so it is simply absent from the generation.
+
+        ponytail: the generation is still activated with a hole in it. Whether a partial
+        rewrite should be rejected outright is a policy question — today a failed shard is
+        reported per chunk and the user re-runs the step, which refills it.
+        """
+
+    def flush(self) -> None:
+        """The switch. One UPDATE, and the grandparent is forgotten.
+
+        Refuses an empty generation. A step where every molecule failed reports a clean chunk
+        per shard — `n_records=0` is a valid shard — so without this check the job completes
+        and the switch silently replaces the library with nothing. That is the one outcome a
+        rewrite must never be allowed to reach.
+        """
+        from amdockvs.molecules.storage import ShardStore, activate_generation, shard_scope_spec
+
+        spec = shard_scope_spec(state=None)
+        store = ShardStore(self._project_db)
+        written = store.record_count(replace(spec, filters={**spec.filters, "generation_id": self._generation_id}))
+        if written <= 0:
+            raise RuntimeError(
+                f"Shard generation {self._generation_id} ended with 0 molecules: refusing to "
+                "replace the library with an empty one. Every molecule failed the step; the "
+                "previous generation is still the library."
+            )
+        activate_generation(self._project_db, self._generation_id)
+
+
+def shard_generation_writer(*, project_db: Any, generation_id: int) -> ShardGenerationWriter:
+    """Factory for `@job(result_handler_factory=...)`; the runtime passes the kwargs."""
+    return ShardGenerationWriter(project_db=project_db, generation_id=generation_id)
 
 
 __all__ = [
     "FORMAT_FOR_KIND",
     "SHARD_SUFFIX",
+    "ShardGenerationWriter",
     "ShardQueueWriter",
+    "shard_generation_writer",
     "filter_ligand_span",
     "mol_from_record",
     "payload_kind_for",
