@@ -71,21 +71,6 @@ def _dimorphite(entries: Sequence[tuple[int, Any]], *, ph: float) -> dict[int, A
     return results
 
 
-def _polar_hydrogens(entries: Sequence[tuple[int, Any]]) -> dict[int, Any]:
-    from rdkit import Chem
-
-    results: dict[int, Any] = {}
-    for entity_id, source in entries:
-        molecule = Chem.RemoveHs(Chem.Mol(source))
-        polar_atoms = [
-            atom.GetIdx()
-            for atom in molecule.GetAtoms()
-            if atom.GetAtomicNum() in {7, 8, 15, 16}
-        ]
-        results[entity_id] = Chem.AddHs(molecule, onlyOnAtoms=polar_atoms, addCoords=True)
-    return results
-
-
 def _openbabel(
     entries: Sequence[tuple[int, Any]],
     *,
@@ -162,8 +147,9 @@ def protonate_molecule_batch(
     ph = float(params.get("ph", 7.4))
     if normalized == "dimorphite":
         results = _dimorphite(entries, ph=ph)
-    elif normalized == "polar_hydrogens":
-        return _polar_hydrogens(entries)
+    elif normalized == "explicit_hs":
+        # No pH model: the input charge states stay as they are; the AddHs below fills every H.
+        results = dict(entries)
     elif normalized == "openbabel":
         command = Path(str(params.get("tool_command") or "")).expanduser().resolve()
         if not command.is_file():

@@ -4,16 +4,13 @@ from __future__ import annotations
 def generate_3d_molecule(
     mol,
     *,
-    add_hs: bool = True,
     random_seed: int = 0xF00D,
     optimize: bool = True,
 ):
     from rdkit import Chem
     from rdkit.Chem import AllChem
 
-    work_mol = Chem.Mol(mol)
-    if add_hs:
-        work_mol = Chem.AddHs(work_mol)
+    work_mol = Chem.AddHs(Chem.Mol(mol))
 
     params = AllChem.ETKDGv3()
     params.randomSeed = int(random_seed)
@@ -29,7 +26,6 @@ def generate_conformer_ensemble(
     mol,
     *,
     num_conformers: int = 20,
-    add_hs: bool = True,
     random_seed: int = 0xF00D,
     prune_rms_thresh: float = 0.5,
     optimize: bool = True,
@@ -37,9 +33,7 @@ def generate_conformer_ensemble(
     from rdkit import Chem
     from rdkit.Chem import AllChem
 
-    work_mol = Chem.Mol(mol)
-    if add_hs:
-        work_mol = Chem.AddHs(work_mol)
+    work_mol = Chem.AddHs(Chem.Mol(mol))
 
     params = AllChem.ETKDGv3()
     params.randomSeed = int(random_seed)

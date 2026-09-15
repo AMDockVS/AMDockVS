@@ -200,6 +200,9 @@ def _entity_scope_filters(
     )
     scope_filters.setdefault("excluded", False)
     scope_filters.setdefault("is_ligand" if normalized_kind == "ligand" else "is_receptor", True)
+    if normalized_kind != "ligand":
+        # Docking needs coordinates: a sequence-only protein (no file yet) is out of scope.
+        scope_filters.setdefault("has_3d", True)
     return normalized_kind, scope_filters, prepared_flag, grid_flag
 
 

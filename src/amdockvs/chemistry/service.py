@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 from amdockvs.chemistry.pipeline import LIGAND_STEPS, normalize_steps, run_pipeline
+from amdockvs.chemistry.state import mol_has_explicit_hs
 from amdockvs.chemistry.tools import (
     fix_receptor_pdb_file,
     minimize_receptor_openmm_file,
@@ -147,26 +148,22 @@ def _ligand_state(steps: Sequence[tuple[str, Mapping[str, Any]]], result_mol) ->
     Same values the single-operation branches used to set by hand; folding them makes a
     multi-step run report what it actually produced instead of what its last step alone did.
     """
-    has_hs = False
     is_minimized = False
     for name, step_params in steps:
-        if name == "standardize":
-            has_hs, is_minimized = False, False
-        elif name == "protonate":
-            has_hs, is_minimized = True, False
+        if name in {"standardize", "protonate"}:
+            is_minimized = False
         elif name == "generate_3d":
-            has_hs = bool(step_params.get("add_hs", True))
             is_minimized = bool(
                 result_mol.HasProp("_amdock_is_minimized")
                 and result_mol.GetBoolProp("_amdock_is_minimized")
             )
         elif name == "conformers":
-            has_hs = bool(step_params.get("add_hs", True))
             is_minimized = bool(step_params.get("optimize", True))
         elif name == "minimize":
-            has_hs, is_minimized = True, True
+            is_minimized = True
     return {
-        "has_hs": has_hs,
+        # Read off the molecule: whichever step added the Hs (protonate, 3D, minimize), they are there.
+        "has_hs": mol_has_explicit_hs(result_mol),
         "has_3d": result_mol.GetNumConformers() > 0,
         "is_minimized": is_minimized,
     }
@@ -211,6 +208,8 @@ def transform_ligand_rows(
     ]
     operation_label = "+".join(name for name, _ in resolved_steps)
     last_name, last_params = resolved_steps[-1]
+    # A minimize may follow the ensemble; the ensemble is still what gets written.
+    writes_ensemble = any(name == "conformers" for name, _ in resolved_steps)
 
     # Load the whole batch first: protonation runs once over the set, so the pipeline needs
     # every molecule in hand before the first step. A slot that fails to load carries its
@@ -255,7 +254,7 @@ def transform_ligand_rows(
             current_model_index = row.get("current_model_index")
             next_index = int(next_index_map.get(ligand_id, 0))
 
-            if last_name == "conformers":
+            if writes_ensemble:
                 model_rows, current_relative_path, current_model_index = _write_ligand_conformer_files(
                     result,
                     output_dir=output_dir,
@@ -309,7 +308,7 @@ def transform_ligand_rows(
             updates.append(
                 {
                     "entity_id": ligand_id,
-                    "extra_data": merge_chemistry_metadata(metadata, operation=operation_label, path=output_path, source_path=source_path, params=normalized_params, state=state, promote_current=last_name != "conformers"),
+                    "extra_data": merge_chemistry_metadata(metadata, operation=operation_label, path=output_path, source_path=source_path, params=normalized_params, state=state, promote_current=not writes_ensemble),
                     "operation_kind": f"chemistry_{operation_label}",
                     "current_path": str(current_relative_path or row.get("current_path") or ""),
                     "current_model_index": None if current_model_index is None else int(current_model_index),
@@ -445,7 +444,7 @@ def transform_receptor_rows(
                         molecule_id=receptor_id,
                         model_index=current_model_index,
                         file_path=current_relative_path,
-                        source=ModelSource.IMPORTED,
+                        source={"fix": ModelSource.FIXED, "protonate": ModelSource.PROTONATED}.get(operation_name, ModelSource.MINIMIZED),
                         energy=None,
                     )
                 ],

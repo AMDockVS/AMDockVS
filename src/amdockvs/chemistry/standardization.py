@@ -31,7 +31,7 @@ def prepare_import_structure(mol, *, add_hs: bool, gen_3d: bool, canonical_tauto
         from amdockvs.chemistry.conformers import generate_3d_molecule
 
         # generate_3d_molecule adds Hs itself, so this also satisfies add_hs.
-        return generate_3d_molecule(work, add_hs=True), True
+        return generate_3d_molecule(work), True
     if add_hs and not mol_has_explicit_hs(work):
         work = add_explicit_hydrogens(work)
         changed = True
