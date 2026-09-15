@@ -509,6 +509,30 @@ class AMDockVSRuntime(AppRuntime):
         self._require_active_project()
         return self.molsuite.get_executor_status()
 
+    def run_destinations(self) -> list[tuple[str, str]]:
+        """Where a job may be sent, as (executor_name, label), local first.
+
+        Only two kinds are destinations a user picks: the logical `compute` slot — whichever
+        of loky/ray is live behind it, that choice belongs to the monitor — and every
+        configured HPC worker, under the name its user gave it. `thread` is left out: it is
+        where short IO-bound jobs go, not a place anyone chooses.
+
+        An HPC run takes no local CPU token, so picking one does not slow down whatever is
+        already running here.
+        """
+        self._require_active_project()
+        try:
+            matrix = self.molsuite.get_executor_capability_matrix()
+        except Exception:  # noqa: BLE001 - a destination list must never break a panel
+            return [(DEFAULT_LOCAL_CPU_EXECUTOR, "Local")]
+        destinations = [(DEFAULT_LOCAL_CPU_EXECUTOR, "Local")] if DEFAULT_LOCAL_CPU_EXECUTOR in matrix else []
+        destinations += [
+            (name, f"{name} (HPC)")
+            for name, caps in sorted(matrix.items())
+            if str(caps.get("backend") or "").lower() == "hpc"
+        ]
+        return destinations or [(DEFAULT_LOCAL_CPU_EXECUTOR, "Local")]
+
     def _project_summary_from_project(self, project) -> ProjectSummary:
         return ProjectSummary(
             id=str(project.id),

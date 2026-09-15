@@ -87,7 +87,6 @@ PREVIEW_VIEW_IDS = frozenset({QSAR_MODELS_VIEW_ID, BINDING_SITES_VIEW_ID, COMPLE
 
 # "module:function", each called with the window once the central widget exists.
 REGISTRARS: tuple[str, ...] = (
-    "amdockvs.ui.monitor:register_monitor_views",
     "amdockvs.ui.catalog:register_molecules_workspace",
     "amdockvs.ui.tools.molecules.build:register_build_workspace",
     "amdockvs.ui.tools.molecules.filter:register_filter_workspace",
