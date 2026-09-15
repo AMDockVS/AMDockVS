@@ -15,8 +15,9 @@ from amdockvs.chemistry.jobs import (
     shard_chemistry_job,
 )
 from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR
+from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR, RESOURCE_SHARDS
 from amdockvs.molecules.api import ensure_molecule_set_ref
-from amdockvs.molecules.storage import has_shards
+from amdockvs.molecules.storage import create_generation, has_shards
 from amdockvs.project.sets import MoleculeSetRef
 from amdockvs.project.summaries import JobStatus
 from amdockvs.core.vocab import ShardState

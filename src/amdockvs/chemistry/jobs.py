@@ -11,7 +11,7 @@ from ms_flow.sinks import graph_sink, table_sink
 from ms_flow.tasking import job, task
 
 from amdockvs.core.configuration import DEFAULT_OUTPUT_FLUSH_EVERY
-from amdockvs.core.constants import AMDOCKVS_LOCAL_EXECUTORS
+from amdockvs.core.constants import AMDOCKVS_OFFLOADABLE_EXECUTORS
 from amdockvs.molecules.storage import ShardStore, shard_scope_spec, store_from_config
 from amdockvs.core.worker_io import project_root_from_output_dir, restore_worker_paths, worker_file, worker_output_dir, worker_path_fields
 from amdockvs.chemistry.repository import (
@@ -180,7 +180,7 @@ def _iter_receptor_chemistry_batches(
     name="amdock_ligand_chemistry_batch",
     description="Apply a reusable ligand chemistry operation and persist metadata updates.",
     executor="compute",
-    supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
+    supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
 )
 def ligand_chemistry_task(payload: dict, progress_cb=None):
     output_dir = Path(str(payload.get("output_dir") or "")).expanduser().resolve()
@@ -216,7 +216,7 @@ def ligand_chemistry_task(payload: dict, progress_cb=None):
     name="amdock_receptor_chemistry_batch",
     description="Apply a reusable receptor chemistry operation and persist metadata updates.",
     executor="compute",
-    supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
+    supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
 )
 def receptor_chemistry_task(payload: dict, progress_cb=None):
     output_dir = Path(str(payload.get("output_dir") or "")).expanduser().resolve()
@@ -240,7 +240,7 @@ def receptor_chemistry_task(payload: dict, progress_cb=None):
     name="amdock_ligand_chemistry_job",
     params_model=LigandChemistryJobParams,
     executor="compute",
-    supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
+    supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
     output_spec=CHEMISTRY_GRAPH_OUTPUT,
     output_flush_every=DEFAULT_OUTPUT_FLUSH_EVERY,
     store_results=False,
@@ -265,7 +265,7 @@ def ligand_chemistry_job(params: dict, config: dict | None = None) -> Iterator[d
     name="amdock_receptor_chemistry_job",
     params_model=ReceptorChemistryJobParams,
     executor="compute",
-    supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
+    supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
     output_spec=CHEMISTRY_GRAPH_OUTPUT,
     output_flush_every=DEFAULT_OUTPUT_FLUSH_EVERY,
     store_results=False,
@@ -289,16 +289,22 @@ class ShardChemistryJobParams(BaseModel):
 
     operation: str | list[Any]
     params: dict[str, Any] = Field(default_factory=dict)
-    # Which shards to feed. `pending` is the idempotent default: a shard that finished is
-    # already `done`, so re-running the job after a crash resumes instead of recomputing.
+    # Which shards of the active generation to feed; `pending` is every shard of a library
+    # nothing has been run over yet, which is what a fresh generation is. Resume-after-crash
+    # is not what this does any more: a failed run's generation is discarded whole, so the
+    # retry reads the parent from the start.
     state: str = ShardState.PENDING
+    # The generation this run writes into, opened by the API before submitting. It is not the
+    # active one until the job completes, which is what keeps a half-done rewrite invisible.
+    generation_id: int = 0
+    output_dir: str = ""
 
 
 @task(
     name="amdock_shard_chemistry",
     description="Run the ligand chemistry pipeline over one shard file.",
     executor="compute",
-    supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
+    supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
 )
 def shard_chemistry_task(payload: dict, progress_cb=None) -> list[dict]:
     shard_path = Path(str(payload["shard_path"])).expanduser().resolve()
@@ -309,8 +315,12 @@ def shard_chemistry_task(payload: dict, progress_cb=None) -> list[dict]:
         "source": payload["source"],
         "shard_index": int(payload["shard_index"]),
         "path": str(output_path),
+        "input_format": payload.get("input_format", ""),
         "n_records": int(stats["n_records"]),
-        "state": ShardState.READY,
+        # Pending, not ready: what a generation's shards have had run over them is the
+        # generation's `step`, not a flag on each row. Stamping `ready` here made the next
+        # chemistry step (whose feed is `state=pending`) find an empty library.
+        "state": ShardState.PENDING,
         "error": "" if not stats["n_failed"] else f"{stats['n_failed']} of {stats['n_input']} molecules failed",
         "updated_at": datetime.now(),
     }]
@@ -321,11 +331,10 @@ def shard_chemistry_task(payload: dict, progress_cb=None) -> list[dict]:
     name="amdock_shard_chemistry_job",
     params_model=ShardChemistryJobParams,
     executor="compute",
-    supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
-    output_spec=table_sink(
-        model=ScreeningShard, write_mode="upsert", conflict_keys=("source", "shard_index")
-    ),
-    output_flush_every=DEFAULT_OUTPUT_FLUSH_EVERY,
+    supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
+    # Not a table sink: the rows go to a generation that is not the library yet, and the
+    # switch happens once at the end. See io/shards.ShardGenerationWriter.
+    result_handler_factory=shard_generation_writer,
     store_results=False,
 )
 def shard_chemistry_job(params: dict, config: dict | None = None) -> Iterator[dict[str, Any]]:
@@ -340,17 +349,15 @@ def shard_chemistry_job(params: dict, config: dict | None = None) -> Iterator[di
         raise ValueError(
             "Sharded conformer ensembles are not supported by the one-record-per-molecule format."
         )
-    label = "+".join(name for name, _ in steps)
     resolved_steps = [(name, {**dict(parsed.params or {}), **step_params}) for name, step_params in steps]
     for row in ShardStore(project_db).iter_rows(shard_scope_spec(state=parsed.state)):
         shard_path = Path(str(row.get("path") or ""))
         yield {
             "shard_path": worker_file(shard_path),
-            # Beside the input, in a folder named after the pipeline: the shard the docking
-            # reads is whatever `path` points at now, and the original is still there.
-            "output_dir": worker_output_dir(shard_path.parent / label),
+            "output_dir": output_dir,
             "source": str(row.get("source") or ""),
             "shard_index": int(row.get("shard_index") or 0),
+            "input_format": str(row.get("input_format") or ""),
             "steps": resolved_steps,
         }
 

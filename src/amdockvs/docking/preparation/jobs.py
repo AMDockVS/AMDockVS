@@ -13,7 +13,7 @@ from ms_flow.tasking import JobSpec
 
 from amdockvs.core.configuration import DEFAULT_OUTPUT_FLUSH_EVERY, batch_size_for
 from amdockvs.core.worker_io import project_root_from_output_dir, worker_file, worker_output_dir, worker_path_fields
-from amdockvs.core.constants import AMDOCKVS_LOCAL_EXECUTORS
+from amdockvs.core.constants import AMDOCKVS_OFFLOADABLE_EXECUTORS
 from amdockvs.docking.repository import (
     iter_entity_rows,
     molecule_scope_spec,
@@ -278,7 +278,7 @@ class _PrepareEntitiesJobSpec(JobSpec):
     description = "Prepare ligands or receptors with a registered profile and persist EngineState rows."
     params_model = PreparationJobParams
     executor = "compute"
-    supported_executors = AMDOCKVS_LOCAL_EXECUTORS
+    supported_executors = AMDOCKVS_OFFLOADABLE_EXECUTORS
     output_spec = ENGINE_STATE_UPSERT
     output_flush_every = DEFAULT_OUTPUT_FLUSH_EVERY
     store_results = False
@@ -338,7 +338,7 @@ class PrepareLigandShardsJobSpec(JobSpec):
     description = "Prepare a sharded screening library with a registered profile."
     params_model = PrepareLigandShardsJobParams
     executor = "compute"
-    supported_executors = AMDOCKVS_LOCAL_EXECUTORS
+    supported_executors = AMDOCKVS_OFFLOADABLE_EXECUTORS
     output_spec = table_sink(
         model=ShardEngineState, write_mode="upsert", conflict_keys=("shard_id", "engine")
     )

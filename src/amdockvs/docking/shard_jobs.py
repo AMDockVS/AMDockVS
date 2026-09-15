@@ -32,7 +32,7 @@ from ms_flow.core.data.shard import Shard
 
 from amdockvs.core.worker_io import worker_file, worker_output_dir
 from amdockvs.core.configuration import DEFAULT_HIT_SAFETY_CAP
-from amdockvs.core.constants import AMDOCKVS_LOCAL_EXECUTORS, DEFAULT_VINA_BACKEND, DEFAULT_VINA_COMMAND
+from amdockvs.core.constants import AMDOCKVS_OFFLOADABLE_EXECUTORS, DEFAULT_VINA_BACKEND, DEFAULT_VINA_COMMAND
 from amdockvs.docking.engines.registry import run_docking_chunk
 from amdockvs.docking.engines.programs import chunk_resources
 from amdockvs.docking.protocols import DockingProtocolMetadata
@@ -631,7 +631,7 @@ class DockShardsJobSpec(JobSpec):
     description = "Dock a sharded screening library, one whole shard per receptor at a time."
     params_model = DockShardsJobParams
     executor = "compute"
-    supported_executors = AMDOCKVS_LOCAL_EXECUTORS
+    supported_executors = AMDOCKVS_OFFLOADABLE_EXECUTORS
     # No output_spec: hits become molecules before they can become results, and only the
     # parent (holding the gate) may decide that. `ShardHitWriter` is the sink.
     result_handler_factory = shard_hit_writer

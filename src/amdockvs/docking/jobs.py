@@ -18,7 +18,7 @@ from ms_flow.tasking import JobSpec
 from amdockvs.core.configuration import DEFAULT_DOCKING_BATCH_SIZE, DEFAULT_LIGAND_BATCH_SIZE
 from amdockvs.core.worker_io import worker_file, worker_output_dir
 from amdockvs.core.constants import (
-    AMDOCKVS_LOCAL_EXECUTORS,
+    AMDOCKVS_OFFLOADABLE_EXECUTORS,
     DEFAULT_VINA_BACKEND,
     DEFAULT_VINA_COMMAND,
 )
@@ -655,7 +655,7 @@ class DockingJobSpec(JobSpec):
     description = "Run a registered docking engine for receptor-ligand pairs."
     params_model = DockingJobParams
     executor = "compute"
-    supported_executors = AMDOCKVS_LOCAL_EXECUTORS
+    supported_executors = AMDOCKVS_OFFLOADABLE_EXECUTORS
     output_spec = table_sink(model=DockingResultRecord, write_mode="bulk")
     # Batch result rows per flush: flush_every=1 with the sink's >=1 MiB payload budget triggers
     # the framework's "small costly flushes" guardrail. Result rows are tiny and docking is slow
@@ -721,7 +721,7 @@ class RedockingJobSpec(JobSpec):
     description = "Run a registered docking engine for explicit complex receptor-ligand pairs."
     params_model = RedockingJobParams
     executor = "compute"
-    supported_executors = AMDOCKVS_LOCAL_EXECUTORS
+    supported_executors = AMDOCKVS_OFFLOADABLE_EXECUTORS
     output_spec = table_sink(model=DockingResultRecord, write_mode="bulk")
     # Batch result rows per flush: flush_every=1 with the sink's >=1 MiB payload budget triggers
     # the framework's "small costly flushes" guardrail. Result rows are tiny and docking is slow
