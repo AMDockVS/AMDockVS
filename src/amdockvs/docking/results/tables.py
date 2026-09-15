@@ -123,7 +123,10 @@ _RECEPTOR_SCHEDULED = exists(
 # ponytail: plan first, results second. A campaign knows its own totals; a project docked the
 # old way has no plan rows, and there the correlated counts above are what it already paid.
 _LIGANDS = func.coalesce(_plan_field("ligands_total"), _EXPECTED_LIGANDS)
-_DOCKED = func.coalesce(_plan_field("ligands_done"), _RECEPTOR_DOCKED)
+# Campaigns count `ligands_done` (their non-hits leave no row); row-mode runs plan with 0 and
+# write a row per docked pair, so the larger of the two is right for both.
+# ponytail: pays the per-receptor result count on campaign rows too; cheap while hits are capped.
+_DOCKED = func.max(func.coalesce(_plan_field("ligands_done"), 0), _RECEPTOR_DOCKED)
 
 
 def _pose_count_expr():

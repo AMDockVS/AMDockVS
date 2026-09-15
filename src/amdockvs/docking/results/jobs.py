@@ -240,12 +240,20 @@ class DiagramJobSpec(JobSpec):
     def run_chunk(payload: dict):
         from amdockvs.docking.results.diagram import render_diagrams_for_result_rows
 
-        render_diagrams_for_result_rows(
-            list(payload.get("rows") or []),
+        rows = list(payload.get("rows") or [])
+        written = render_diagrams_for_result_rows(
+            rows,
             fmt=str(payload.get("fmt") or "png"),
             replace_existing=bool(payload.get("replace_existing")),
             output_dir=str(payload.get("output_dir") or "") or None,
         )
+        # The renderer swallows per-row failures so a diagram never breaks a docking run. That
+        # is right for the inline hook and wrong here: a standalone job that rendered nothing
+        # reported "completed" and the user had no way to learn the renderer was missing.
+        if rows and not written:
+            raise RuntimeError(
+                f"No diagram could be rendered for any of the {len(rows)} poses in this chunk."
+            )
         return []
 
     @staticmethod

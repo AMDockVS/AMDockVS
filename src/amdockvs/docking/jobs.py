@@ -28,7 +28,9 @@ from amdockvs.docking.pairs import (
     iter_docking_batches_from_rows,
 )
 from amdockvs.docking.preparation.state import grid_from_row
+from amdockvs.screening.campaign import plan_targets
 from amdockvs.docking.repository import (
+    count_entity_rows,
     docked_ligands_spec,
     project_root_from_db,
     resolve_project_path,
@@ -338,6 +340,21 @@ def iter_docking_batches(
             engine=engine,
             receptor_ids=[int(r.get("id") or 0) for r in receptors],
             protocol_hash=protocol_hash or None,
+        )
+    if run_id:
+        # The plan lists every receptor of the run before its first result lands (the feed
+        # docks receptor by receptor), so Results shows them all with the full ligand count.
+        # ponytail: only the plan — Docked still counts `docking_results` rows, and the rows
+        # stay SCHEDULED (nothing reads that state for row-mode runs yet).
+        plan_targets(
+            project_db,
+            run_id=run_id,
+            receptors=[{"receptor_id": row.get("id")} for row in receptors],
+            ligands_total=count_entity_rows(
+                project_db, entity_kind="ligand", engine=prep_engine,
+                set_id=ligand_set_id, filters=normalized_ligand_filters,
+            ),
+            engine=engine,
         )
 
     def ligands_for(receptor_id: int):

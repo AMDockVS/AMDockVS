@@ -80,6 +80,9 @@ class ModelSource:
     ESMFOLD = "esmfold"  # predicted with ESMFold
     ETKDG = "etkdg"  # explicit RDKit conformer
     NMR = "nmr"  # NMR ensemble from the PDB
+    FIXED = "fixed"  # receptor repaired with PDBFixer
+    PROTONATED = "protonated"  # hydrogens added at a pH
+    MINIMIZED = "minimized"  # energy-minimized structure
 
 
 class SetPurpose:
