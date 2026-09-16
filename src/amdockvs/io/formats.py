@@ -169,7 +169,13 @@ def _read_pdb(path: Path, *, sanitize: bool, remove_hs: bool, index: int, resnam
         return Chem.RemoveHs(mol) if remove_hs else mol
     # No CCD entry: a receptor, a multi-component file, or a ligand a tool named UNL. Bond orders
     # are not recoverable here — see the module docstring for what perception would buy.
-    return Chem.MolFromPDBFile(str(path), sanitize=sanitize, removeHs=remove_hs)
+    mol = Chem.MolFromPDBFile(str(path), sanitize=sanitize, removeHs=remove_hs)
+    if mol is None and "\nCONECT" in path.read_text(errors="replace"):
+        # Proximity bonding adds a bond on top of CONECT for any pair within the covalent radii
+        # + 0.45 A (rdkit#9581: S...P at 2.51 A in ADX -> "valence 7"). With CONECT records the
+        # topology is already there; without them the retry would return a bond-less molecule.
+        mol = Chem.MolFromPDBFile(str(path), sanitize=sanitize, removeHs=remove_hs, proximityBonding=False)
+    return mol
 
 
 def _read_cif(path: Path, *, sanitize: bool, remove_hs: bool, index: int, resname: str):
@@ -208,7 +214,11 @@ def _read_pdbqt(path: Path, *, sanitize: bool, remove_hs: bool, index: int, resn
             )
             candidates = [mol for mol in molecules if mol is not None]
             if candidates:
-                mol = candidates[min(max(0, int(index)), len(candidates) - 1)]
+                # meeko yields one mol per ligand with one conformer per pose: `index` is the pose.
+                mol = Chem.Mol(candidates[0])
+                conformer = Chem.Conformer(mol.GetConformers()[min(max(0, int(index)), mol.GetNumConformers() - 1)])
+                mol.RemoveAllConformers()
+                mol.AddConformer(conformer, assignId=True)
                 return Chem.RemoveHs(mol) if remove_hs else mol
         except Exception:  # noqa: BLE001 - fall through to the type-based path
             pass
