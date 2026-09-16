@@ -13,14 +13,6 @@ _INTERACTION_ALIASES = {
 }
 
 
-def _element_from_pdb_line(line: str) -> str:
-    element = line[76:78].strip() if len(line) >= 78 else ""
-    if not element:
-        parts = line.split()
-        element = parts[-1] if parts else ""
-    return "".join(ch for ch in element.upper() if ch.isalpha())[:2]
-
-
 def _interaction_type(name: str) -> str:
     key = str(name or "").strip().lower()
     return _INTERACTION_ALIASES.get(key, key or "interaction")
@@ -45,86 +37,6 @@ def _json_safe(value: Any) -> Any:
     except Exception:
         pass
     return str(value)
-
-
-def _rdkit_mol(path: Path, *, pose_rank: int = 1):
-    try:
-        from rdkit import Chem
-    except ImportError:
-        return None
-    from amdockvs.io.formats import read_mol
-
-    return read_mol(path, sanitize=False, index=max(0, int(pose_rank or 1) - 1))
-
-
-def _write_ligand_pdb(path: Path, *, pose_rank: int, output_path: Path) -> bool:
-    mol = _rdkit_mol(path, pose_rank=pose_rank)
-    if mol is None:
-        return False
-    try:
-        from rdkit import Chem
-
-        Chem.MolToPDBFile(mol, str(output_path))
-        return output_path.exists()
-    except Exception:
-        return False
-
-
-_AUTODOCK_ELEMENT = {"A": "C", "NA": "N", "OA": "O", "SA": "S", "HD": "H", "HS": "H", "NS": "N"}
-
-
-def as_pdb_block(
-    text: str, *, chain: str = "", resnum: int | None = None, first_serial: int = 1
-) -> str:
-    """Heavy-atom coordinate lines, in the canonical PDB form ms_contactmap reads.
-
-    Everything here exists so the detector types atoms the way we mean them and its
-    report comes back addressed by our own serials:
-
-    * receptors reach us as PDBQT, whose partial-charge + AutoDock-type tail past column
-      66 buries columns 77-78 -- and that element field is what the detector assigns
-      atom roles from, so the tail goes and a real element symbol goes back in;
-    * hydrogens are dropped and the survivors renumbered from 1, so the serials in the
-      complex are contiguous and ours;
-    * two concatenated blocks can't both keep their END, and the second must continue the
-      first's numbering (``first_serial``) instead of restarting at 1.
-
-    ``chain``/``resnum`` stamp those columns: RDKit writes the ligand with neither, and a
-    blank chain makes downstream tools fail to find the residue they were just handed.
-    """
-    lines: list[str] = []
-    serial = int(first_serial)
-    for raw in text.splitlines():
-        if raw.startswith(("ATOM", "HETATM")):
-            tail = raw[66:].split()
-            # Only the AutoDock pseudo-types get translated; anything else is already an
-            # element symbol and must keep both letters (Cl/Br/Mg -- truncating turned every
-            # chlorine into a carbon, and the ligand then failed to match its own SMILES).
-            # Letters only: RDKit appends the formal charge to the element field
-            # ("N1+" for a protonated amine), and keeping it made the composition
-            # check downstream read that atom as an element of its own.
-            token = "".join(ch for ch in (tail[-1] if tail else "") if ch.isalpha())
-            element = _AUTODOCK_ELEMENT.get(token.upper(), token[:2].capitalize())
-            if (element or _element_from_pdb_line(raw)) == "H":
-                continue
-            line = f"{raw[:66]:<66}{'':<10}{element:>2}" if element else raw[:66]
-            line = f"{line[:6]}{serial:>5}{line[11:]}"
-            serial += 1
-            if chain:
-                line = f"{line[:21]}{chain[0]}{line[22:]}"
-            if resnum is not None:
-                line = f"{line[:22]}{int(resnum):>4}{line[26:]}"
-            lines.append(line)
-        elif raw.startswith("TER"):
-            lines.append(raw.rstrip())
-    # ponytail: CONECT dropped rather than remapped -- bonds are re-perceived from geometry
-    # anyway once the hydrogens are gone. Remap them if a ligand ever comes out mis-bonded.
-    return "\n".join(lines)
-
-
-def atom_count(block: str) -> int:
-    return sum(1 for line in block.splitlines() if line.startswith(("ATOM", "HETATM")))
-
 
 
 def collect_interaction_rows(
