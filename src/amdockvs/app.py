@@ -114,6 +114,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     watchdog = install_freeze_watchdog(qt_app)  # noqa: F841 - the timer must outlive this scope
 
+    # Ctrl+C / kill in the terminal: the default handlers would raise inside whatever Python slot
+    # the watchdog timer happens to be running, leaving the process half-dead. Leave the event loop
+    # instead, so the `finally` below still shuts the runtime down.
+    import signal
+    for _sig in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(_sig, lambda *_: qt_app.quit())
+
     from ms_components.theme import apply_theme
     from ms_components.wheel import install_shift_hscroll, uninstall_shift_hscroll
 
