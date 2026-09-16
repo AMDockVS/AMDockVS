@@ -327,6 +327,8 @@ class AMDockVSMainWindow(QMainWindow):
         toolbars_menu.triggered.connect(lambda a: self.views.set_toolbar_button_style(a.data()))
 
         help_menu = menu_bar.addMenu("&Help")
+        help_menu.addAction(load_icon("web.svg"), "Web Site",
+                            lambda: QDesktopServices.openUrl(QUrl(self._WEB_URL)))
         help_menu.addAction(load_icon("doc.svg"), "Documentation",
                             lambda: QDesktopServices.openUrl(QUrl(self._DOCS_URL)))
         help_menu.addAction(load_icon("info.svg"), "About AMDockVS", self._show_about)
@@ -386,7 +388,8 @@ class AMDockVSMainWindow(QMainWindow):
             except Exception as exc:  # noqa: BLE001 - a bad executor config must not eat the save
                 self.statusBar().showMessage(f"Executors not applied: {exc}", 8000)
 
-    _DOCS_URL = "https://github.com/Valdes-Tresanco-MS/AMDock"
+    _DOCS_URL = "https://amdockvs.github.io/AMDockVS"  # AMDockVS docs; the old link pointed at AMDock 1.6.x
+    _WEB_URL = "https://amdockvs.github.io"  # AMDockVS docs; the old link pointed at AMDock 1.6.x
 
     def _show_about(self):
         from PySide6.QtWidgets import QMessageBox
