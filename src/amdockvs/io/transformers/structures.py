@@ -48,6 +48,9 @@ def _materialize_structure_rows(
             current_suffix = ".pdb"
         else:
             current_suffix = suffix
+        metadata = dict(batch.extra_data_patch or {})
+        scan_payload = dict(metadata.pop("__scan", {}) or {})
+        options = _receptor_import_options_from_patch(metadata) if (batch.primary_role or batch.kind) == "receptor" else None
         paths = managed_paths_for_source(
             storage_root=batch.storage_dir,
             role=batch.primary_role or batch.kind,
@@ -55,13 +58,11 @@ def _materialize_structure_rows(
             source_index=source_index,
             original_suffix=suffix,
             current_suffix=current_suffix,
+            variant=_receptor_import_variant(options),
         )
         stored_path = paths["original_path"]
         current_path = paths["current_path"]
         shutil.copy2(source_file, stored_path)
-        metadata = dict(batch.extra_data_patch or {})
-        scan_payload = dict(metadata.pop("__scan", {}) or {})
-        options = _receptor_import_options_from_patch(metadata) if (batch.primary_role or batch.kind) == "receptor" else None
         processing_summary: dict[str, Any] = {}
         ligand_mol = None
         # A PDBQT is an engine artifact, not a structure format: hand the scanners a PDB.
@@ -340,6 +341,28 @@ def cocrystal_ligand_descriptors(
         return {}
     values = calculate_basic_descriptors(mol)
     return {key: values[key] for key in PDB_SAFE_DESCRIPTORS if key in values}
+
+def _receptor_import_variant(options: ReceptorImportOptions | None) -> str:
+    """Storage-key variant for the options that change the processed file.
+
+    Without it the key is only `source_file::source_index`, so importing one PDB twice with
+    different chains (or a different assembly) reuses the key and the second import overwrites
+    the first one's `current_path`.
+    """
+    if options is None:
+        return ""
+    return repr((
+        options.import_mode,
+        options.selected_assembly,
+        options.use_biological_assembly,
+        tuple(options.selected_chain_ids),
+        options.remove_non_structural_waters,
+        options.remove_cofactors,
+        options.remove_altloc,
+        options.selected_cocrystal_key,
+        None if options.selected_reference_ligands is None else tuple(options.selected_reference_ligands),
+    ))
+
 
 def _receptor_import_options_from_patch(extra_data_patch: dict[str, Any]) -> ReceptorImportOptions:
     structure = dict(extra_data_patch.get("structure") or {})
