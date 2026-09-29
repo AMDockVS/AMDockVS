@@ -35,6 +35,9 @@ dependencies = [
     "ms_contactmap",
     # Chemistry / structure
     "rdkit>=2025.3.5",
+    # Caps rdkit to <2026 in its own metadata, so installing AMDockVS next to a package that
+    # already pulled rdkit 2026.x downgrades it. Harmless (2026.3.6 was tested fine here),
+    # lift when dimorphite-dl relaxes the cap.
     "dimorphite-dl>=2.0.2,<3",
     "meeko>=0.7.1",
     "vina>=1.2.7",
@@ -60,7 +63,7 @@ dependencies = [
 # bblean is GPL-3.0 while AMDock is MIT, so it is never imported: the diversity job shells out to
 # its `bb` console script (see amdockvs/diversity/clustering.py). Optional because without it the
 # BitBIRCH method falls back to the lean in-tree implementation.
-bblean = ["bblean>=0.10"]
+bblean = ["bblean>=0.10", "typer>=0.16.1,<0.17"]
 # P2Rank is a Java tool: the JDK ships as a plain wheel (jlink-trimmed), the P2Rank
 # distribution itself is fetched on demand from Settings > External tools.
 pockets = ["jdk4py~=21.0"]
