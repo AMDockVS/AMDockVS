@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List
 
-from sqlalchemy import UniqueConstraint
+from sqlalchemy import DateTime, UniqueConstraint
 from sqlmodel import Field, SQLModel, JSON
 
 from amdockvs.core.constants import (
@@ -29,7 +29,7 @@ class DescriptorBlockRecord(SQLModel, table=True):
     molecule_id: int = Field(foreign_key=f"{TABLE_MOLECULES}.id", index=True)
     block: str = Field(index=True)
     values_json: dict = Field(default_factory=dict, sa_type=JSON)
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
 
 
@@ -42,7 +42,7 @@ class DescriptorSchema(SQLModel, table=True):
     # Ordered list of the keys: ["MW", "LogP", "HBD", "HBA", ...]
     # Being ordered, the position defines the index into the binary array
     keys_order: List[str] = Field(sa_type=JSON)
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
 
 class DescriptorVectorRecord(SQLModel, table=True):
@@ -77,4 +77,4 @@ class FingerprintRecord(SQLModel, table=True):
     # The raw binary vector (BLOB)
     fp_binary: bytes = Field()
 
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)

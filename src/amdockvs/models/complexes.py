@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Index, JSON, UniqueConstraint
+from sqlalchemy import DateTime, Index, JSON, UniqueConstraint
 from sqlmodel import SQLModel, Field
 
 from amdockvs.core.constants import (
@@ -49,5 +49,5 @@ class ComplexRecord(SQLModel, table=True):
 
     purpose: str = Field(default=ComplexPurpose.REDOCKING, index=True)
     metadata_json: str = Field(default="{}")
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)

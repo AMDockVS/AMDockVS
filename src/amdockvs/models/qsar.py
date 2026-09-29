@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 from datetime import datetime
 
-from sqlalchemy import JSON, UniqueConstraint, Index
+from sqlalchemy import DateTime, JSON, UniqueConstraint, Index
 from sqlmodel import SQLModel, Field
 
 from amdockvs.core.constants import (
@@ -41,7 +41,7 @@ class LigandActivity(SQLModel, table=True):
     description: str    = Field(default="")
     source: str         = Field(default="")   # reference, assay id, etc.
 
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
     @classmethod
     def build_row(
@@ -98,7 +98,7 @@ class QSARModel(SQLModel, table=True):
     model_path: str   = Field(default="")   # serialized model file (relative)
     metrics: dict     = Field(default_factory=dict, sa_type=JSON)
 
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +128,7 @@ class QSARPrediction(SQLModel, table=True):
     value: float
     confidence: float | None = Field(default=None)
 
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
     @classmethod
     def build_rows(

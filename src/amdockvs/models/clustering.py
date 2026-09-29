@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, UniqueConstraint, Index
+from sqlalchemy import DateTime, JSON, UniqueConstraint, Index
 from sqlmodel import SQLModel, Field
 
 from amdockvs.core.constants import (
@@ -46,7 +46,7 @@ class SimilarityResult(SQLModel, table=True):
     fp_type: str = Field()  # fingerprint used
     method: str = Field(default=SimilarityMethod.TANIMOTO)
     score: float = Field()  # 0.0 – 1.0
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
     @classmethod
     def build_rows(
@@ -101,7 +101,7 @@ class ClusteringResult(SQLModel, table=True):
     is_centroid: bool = Field(default=False)
     method: str = Field(default=ClusteringMethod.BUTINA)
     fp_type: str = Field(default="")  # fingerprint used
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
     @classmethod
     def build_rows(
@@ -140,7 +140,7 @@ class ClusteringRun(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     run_id: str = Field(index=True)  # uuid
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
     method: str = Field(default="")
     threshold: float = Field(default=0.0)
     scope_label: str = Field(default="")     # e.g. "General", "Reference", "Set #3"

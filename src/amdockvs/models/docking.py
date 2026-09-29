@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Index, JSON, UniqueConstraint
+from sqlalchemy import DateTime, Index, JSON, UniqueConstraint
 from sqlmodel import SQLModel, Field
 
 from amdockvs.core.constants import (
@@ -55,7 +55,7 @@ class BindingSite(SQLModel, table=True):
 
     extra_data: dict | None = Field(default=None, sa_type=JSON)
 
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
     @property
     def is_defined(self) -> bool:
@@ -131,8 +131,8 @@ class EngineState(SQLModel, table=True):
     files: dict = Field(default_factory=dict, sa_type=JSON)
     is_ready: bool = Field(default=False, index=True)
 
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
     @classmethod
     def build_row(
@@ -208,7 +208,7 @@ class DockingResult(SQLModel, table=True):
     # DiffDock:  {"confidence": ...}
     metrics: dict = Field(default_factory=dict, sa_type=JSON)
 
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
     @classmethod
     def build_row(
@@ -266,7 +266,7 @@ class ConsensusScore(SQLModel, table=True):
     score: float     = Field()
     engines_used: list = Field(default_factory=list, sa_type=JSON)  # ["vina","autodock4"]
 
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
 # ---------------------------------------------------------------------------
 # InteractionsResult
@@ -302,7 +302,7 @@ class InteractionsResult(SQLModel, table=True):
     # pi_stacking:   {"angle": ..., "offset": ...}
     geometry: dict = Field(default_factory=dict, sa_type=JSON)
 
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
     @classmethod
     def build_rows(

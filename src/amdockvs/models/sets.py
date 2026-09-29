@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 from datetime import datetime
 
-from sqlalchemy import UniqueConstraint, JSON
+from sqlalchemy import DateTime, UniqueConstraint, JSON
 from sqlmodel import SQLModel, Field
 
 from amdockvs.core.constants import (
@@ -26,7 +26,7 @@ class MoleculeSet(SQLModel, table=True):
     name: str      = Field(index=True)
     purpose: str   = Field(default=SetPurpose.CUSTOM)  # see SetPurpose
     description: str = Field(default="")
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
 
 # ---------------------------------------------------------------------------
@@ -55,7 +55,7 @@ class MoleculeSetMember(SQLModel, table=True):
     use_as_pharmacophore: bool = Field(default=False)  # substructure sets
     use_as_substructure:  bool = Field(default=False)  # substructure sets
 
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
     @classmethod
     def build_row(

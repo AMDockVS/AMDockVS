@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping
 
-from sqlalchemy import Index, JSON, UniqueConstraint, text
+from sqlalchemy import DateTime, Index, JSON, UniqueConstraint, text
 from pydantic import field_validator
 from sqlmodel import SQLModel, Field
 
@@ -337,7 +337,7 @@ class MoleculeModel(SQLModel, table=True):
     # Per-model quality data (e.g. ESMFold plddt_mean/ptm) and sidecar files (e.g. {"pae": path}).
     metrics: dict = Field(default_factory=dict, sa_type=JSON)
     files: dict = Field(default_factory=dict, sa_type=JSON)
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
     @classmethod
     def build_row(

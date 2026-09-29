@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, Index, UniqueConstraint
+from sqlalchemy import DateTime, JSON, Index, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 from amdockvs.core.constants import (
@@ -55,7 +55,7 @@ class ShardGeneration(SQLModel, table=True):
     shard_dir: str = Field(default="")
     job_id: str = Field(default="")
     is_active: bool = Field(default=False, index=True)
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
 
 class ScreeningShard(SQLModel, table=True):
@@ -80,8 +80,8 @@ class ScreeningShard(SQLModel, table=True):
     state: str = Field(default=ShardState.PENDING, index=True)
     error: str = Field(default="")
     dispatch_id: int | None = Field(default=None, foreign_key=f"{TABLE_SCREENING_DISPATCHES}.id", index=True)
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
 
 class ShardEngineState(SQLModel, table=True):
@@ -105,8 +105,8 @@ class ShardEngineState(SQLModel, table=True):
     n_records: int = Field(default=0)
     is_ready: bool = Field(default=False, index=True)
     error: str = Field(default="")
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
     @classmethod
     def build_row(
@@ -157,8 +157,8 @@ class ScreeningShardRun(SQLModel, table=True):
     result_path: str = Field(default="")
     state: str = Field(default=TargetState.SCHEDULED, index=True)
     error: str = Field(default="")
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
 
 class ScreeningDispatch(SQLModel, table=True):
@@ -171,8 +171,8 @@ class ScreeningDispatch(SQLModel, table=True):
     # Filled from the cluster's feedback; the count is not knowable at dispatch time.
     n_shards_returned: int = Field(default=0)
     note: str = Field(default="")
-    submitted_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
+    submitted_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
 
 class ScreeningTarget(SQLModel, table=True):
@@ -198,8 +198,8 @@ class ScreeningTarget(SQLModel, table=True):
     ligands_done: int = Field(default=0)
     hits: int = Field(default=0)
     state: str = Field(default=TargetState.SCHEDULED, index=True)
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
+    updated_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
 
 __all__ = [
