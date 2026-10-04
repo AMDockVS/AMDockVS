@@ -15,12 +15,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from ms_flow.core.executor.provisioning import Step
+from ms_flow.core.executor.provisioning import Step, StepFailed
+from ms_flow.core.executor.tools import READY, locate, recipe_steps
 
+from amdockvs.docking.engines.adgpu import adgpu_recipe
+from amdockvs.docking.engines.qvina import qvina_recipe
 from amdockvs.integrations.envs import (
-    install_protonation_tool,
     managed_prefix,
+    protonation_install_steps,
     protonation_tool_status,
+    tool_spec,
 )
 from amdockvs.binding_sites.p2rank import (
     P2RANK_VERSION,
@@ -110,15 +114,47 @@ def _protonation_status(name: str) -> Callable[[object], ToolStatus]:
 
 def _protonation_steps(name: str) -> Callable[[object], list[Step]]:
     def steps(runtime) -> list[Step]:
-        return [
-            Step(
-                f"create the {name} environment",
-                call=lambda: install_protonation_tool(runtime, name).message,
-                timeout=3600,
-            )
-        ]
+        def verify() -> str:
+            current = protonation_tool_status(runtime, name)
+            if not current.installed:
+                raise StepFailed(f"{name} installation completed but its executable is missing.")
+            return current.message
+
+        return [*protonation_install_steps(runtime, name), Step(f"verify {name}", call=verify, timeout=60)]
 
     return steps
+
+
+# --- Docking binaries installed from a recipe (QuickVina 2, AutoDock-GPU) ---
+
+def _recipe_tool(name: str, recipe_for) -> ManagedTool:
+    info = tool_spec(name).info
+
+    def status(runtime) -> ToolStatus:
+        recipe = recipe_for(runtime)
+        state, executable = locate(recipe)
+        prefix = Path(recipe.prefix)
+        return ToolStatus(
+            tool_id=name,
+            installed=state == READY,
+            message=(
+                f"{info['label']} is ready ({executable})."
+                if state == READY
+                else f"{info['label']} is not installed."
+            ),
+            location=prefix if prefix.is_dir() else None,
+            size_bytes=_directory_size(prefix),
+        )
+
+    return ManagedTool(
+        tool_id=name,
+        label=info["label"],
+        purpose=info["purpose"],
+        footprint=info["footprint"],
+        status=status,
+        install_steps=lambda runtime: recipe_steps(recipe_for(runtime)),
+        location=lambda runtime: Path(recipe_for(runtime).prefix),
+    )
 
 
 MANAGED_TOOLS: tuple[ManagedTool, ...] = (
@@ -149,6 +185,8 @@ MANAGED_TOOLS: tuple[ManagedTool, ...] = (
         install_steps=_protonation_steps("pkasso"),
         location=lambda runtime: managed_prefix(runtime, "pkasso"),
     ),
+    _recipe_tool("qvina", qvina_recipe),
+    _recipe_tool("adgpu", adgpu_recipe),
 )
 
 

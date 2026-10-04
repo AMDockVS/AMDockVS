@@ -104,7 +104,7 @@ class EngineState(SQLModel, table=True):
 
     files JSON structure varies by engine:
         vina:      {"prepared": "path/to/receptor.pdbqt"}
-        autodock4: {"prepared": "path/to/receptor.pdbqt",
+        adgpu:     {"prepared": "path/to/receptor.pdbqt",
                     "maps":     "path/to/maps/"}
         diffdock:  {}   (uses sequence/smiles directly — no prep files)
         dock6:     {"mol2": "path/to/receptor.mol2",
@@ -126,7 +126,7 @@ class EngineState(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     molecule_id: int = Field(foreign_key=f"{TABLE_MOLECULES}.id", index=True)
     role_type: str = Field(index=True)  # "receptor" | "ligand"
-    engine: str = Field(index=True)  # "vina" | "autodock4" | ...
+    engine: str = Field(index=True)  # "vina" | "adgpu" | ...
 
     files: dict = Field(default_factory=dict, sa_type=JSON)
     is_ready: bool = Field(default=False, index=True)
@@ -189,7 +189,7 @@ class DockingResult(SQLModel, table=True):
     id: int | None    = Field(default=None, primary_key=True)
     receptor_molecule_id: int  = Field(foreign_key=f"{TABLE_MOLECULES}.id", index=True)
     ligand_molecule_id: int    = Field(foreign_key=f"{TABLE_MOLECULES}.id", index=True)
-    engine: str       = Field()          # "vina" | "autodock4" | "diffdock" | ...
+    engine: str       = Field()          # "vina" | "adgpu" | "diffdock" | ...
     pose_rank: int    = Field(default=1) # 1 = best pose
 
     # Scoring
@@ -204,7 +204,7 @@ class DockingResult(SQLModel, table=True):
 
     # Additional engine-specific metrics stored as JSON
     # Vina:      {"gauss1": ..., "gauss2": ..., "repulsion": ..., ...}
-    # AutoDock4: {"intermolecular": ..., "internal": ..., ...}
+    # adgpu:     {"intermolecular": ..., "internal": ..., ...}
     # DiffDock:  {"confidence": ...}
     metrics: dict = Field(default_factory=dict, sa_type=JSON)
 
@@ -264,7 +264,7 @@ class ConsensusScore(SQLModel, table=True):
 
     method: str      = Field()
     score: float     = Field()
-    engines_used: list = Field(default_factory=list, sa_type=JSON)  # ["vina","autodock4"]
+    engines_used: list = Field(default_factory=list, sa_type=JSON)  # ["vina","adgpu"]
 
     created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 

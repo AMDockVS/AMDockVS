@@ -94,6 +94,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 amdockvs = [
     "core/*.toml",
+    "integrations/tools/*.toml",
     "ui/resources/icons/*.svg",
     "ui/resources/icons/*.png",
     "ui/resources/styles/*.qss",
