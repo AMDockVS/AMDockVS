@@ -316,7 +316,7 @@ def test_result_shard_cleanup_is_not_tied_to_sdf(tmp_path):
     row = {
         "ligand_molecule_id": 3,
         "receptor_molecule_id": 7,
-        "engine": "autodock4",
+        "engine": "adgpu",
         "score": -8.5,
         "pose_path": str(pose),
         "metrics": {},

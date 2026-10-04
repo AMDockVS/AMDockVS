@@ -12,6 +12,7 @@ what ms_contactmap needs to be reusable outside AMDock.
 """
 from __future__ import annotations
 
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -29,6 +30,9 @@ _NOT_BUILT = "No diagram for this pose yet — build it from Selected Result ›
 
 class InteractionDiagramDock(MSDockWidget):
     """Shows the selected pose's saved diagram; the panel that owns the pose builds it."""
+
+    #: Settings-tree node to open: embedded here, the diagram has no settings of its own.
+    settings_requested = Signal(str)
 
     def __init__(self, title: str, dock_manager: DockManager, *, runtime, parent: QWidget | None = None):
         super().__init__(title, dock_manager, parent)
@@ -98,5 +102,14 @@ class InteractionDiagramDock(MSDockWidget):
             from ms_contactmap import InteractionDiagramWidget
 
             self.view = InteractionDiagramWidget(parent=self)
+            self.view.set_configure_action(
+                "Defaults…", lambda: self.settings_requested.emit("ms_contactmap")
+            )
+            self.apply_settings()
             self.stack.addWidget(self.view)
         return self.view
+
+    def apply_settings(self) -> None:
+        """Restyle the diagram from Settings › MS-ContactMap (again whenever settings are saved)."""
+        if self.view is not None:
+            self.view.apply_view_settings(self.runtime.contact_map_configuration.get_value("").model_dump())

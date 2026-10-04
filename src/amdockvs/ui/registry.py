@@ -28,7 +28,7 @@ from amdockvs.ui.tools.molecules.build import BUILD_ID
 from amdockvs.ui.tools.molecules.diversity import SELECTION_VIEW_ID
 from amdockvs.ui.tools.molecules.filter import FILTER_ID
 from amdockvs.ui.tools.binding_sites.detection import POCKET_DETECTION_VIEW_ID
-from amdockvs.ui.tools.qsar.panels import PREDICTIONS_VIEW_ID, QSAR_MODELS_VIEW_ID
+from amdockvs.ui.tools.qsar.panels import PREDICTIONS_VIEW_ID, QSAR_BUILD_VIEW_ID, QSAR_MODELS_VIEW_ID
 
 
 @dataclass(frozen=True)
@@ -51,6 +51,7 @@ TOOLS: tuple[ToolEntry, ...] = (
     ToolEntry("tool_build", "Build", BUILD_ID, "build.svg", 4),
     ToolEntry("tool_pockets", "Pocket Detection", POCKET_DETECTION_VIEW_ID, "binding_site.svg", 5),
     ToolEntry("tool_docking", "Docking Studio", DOCKING_VIEW_ID, "target.svg", 6),
+    ToolEntry("tool_qsar", "Build Model", QSAR_BUILD_VIEW_ID, "qsar.svg", 7),
 )
 
 TOOL_VIEW_IDS = frozenset(entry.view_id for entry in TOOLS)
@@ -76,7 +77,7 @@ STANDING_DATA_VIEWS = (
         ("Docking Results", COMPLEXES_VIEW_ID, "docking_results.svg"),
     ),
     (
-        ("QSAR Models", QSAR_MODELS_VIEW_ID, "models.svg"),
+        ("Model Analysis", QSAR_MODELS_VIEW_ID, "models.svg"),
         ("Predictions", PREDICTIONS_VIEW_ID, "predictions.svg"),
     ),
 )

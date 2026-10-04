@@ -602,7 +602,7 @@ class GridBoxSettingDockWidget(QWidget):
                     receptor_xyz,
                     receptor_vdw,
                     selection_list,
-                    max_burial=geometry.cavity_max_burial,
+                    **geometry.residues.model_dump(),
                     padding=geometry.box_padding,
                     max_edge=geometry.box_max_edge,
                 )

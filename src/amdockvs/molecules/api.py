@@ -58,7 +58,7 @@ def _molecule_spec(scope: MoleculeScope | Selection[Any]) -> QuerySpec:
         in_specs.append(molecule_set_spec(int(scope.source_set_id)))
     prepared = filters.pop("prepared", None)
     # Which preparation family the flag refers to (EngineState.engine). Defaults to "ad4",
-    # the family Vina, gnina and AutoDock4 share (one PDBQT prep for all three).
+    # the family Vina, gnina and AutoDock-GPU share (one PDBQT prep for all three).
     prep_engine = str(filters.pop("prepared_engine_key", "") or "ad4")
     if prepared is not None:
         role = ""

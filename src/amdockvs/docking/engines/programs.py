@@ -39,11 +39,34 @@ class GninaEngineConfig(BaseModel):
     seed: int = 0
 
 
-class AutoDock4EngineConfig(BaseModel):
+class QVinaEngineConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    exhaustiveness: int = Field(default=8, ge=1, le=256)
     num_modes: int = Field(default=9, ge=1, le=128)
-    spacing: float = Field(default=0.375, gt=0.0)
+    vina_cpu: int = Field(default=1, ge=1, le=128, title="CPU per task")
+    energy_range: float = Field(default=3.0, ge=0.0, title="Energy range (kcal/mol)")
+    seed: int = 0
+
+
+class AutoDockGPUEngineConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    nrun: int = Field(default=20, ge=1, le=1000, title="Genetic algorithm runs")
+    num_modes: int = Field(default=9, ge=1, le=128, title="Poses kept (cluster leads)")
+    # Read by autogrid4 when it builds the maps; empty keeps the built-in AutoDock4 parameters.
+    parameter_file: str = Field(
+        default="",
+        title="Parameter file (.dat)",
+        description="AutoDock4 parameter file with modified or added atom types. Empty uses the built-in parameters.",
+        json_schema_extra={"format": "file-path"},
+    )
+    derived_types: str = Field(
+        default="",
+        title="Derived atom types",
+        description="Atom types added by the parameter file and the known type each one derives from, e.g. XX=OA/C1,C2=C.",
+    )
+    seed: int = 0
 
 
 @dataclass(frozen=True)
@@ -152,6 +175,7 @@ class AutoDockLikeProgram(DockingProgramSpec):
         config_model: type[BaseModel] = DockingEngineConfig,
         protocol_identity_keys: tuple[str, ...] = ("scoring_function", "exhaustiveness"),
         gpu_scoring_functions: tuple[str, ...] = (),
+        resource_resolver: Callable[[Mapping[str, Any]], Mapping[str, int]] | None = None,
     ):
         super().__init__(
             key=key,
@@ -169,6 +193,7 @@ class AutoDockLikeProgram(DockingProgramSpec):
             config_model=config_model,
             protocol_identity_keys=protocol_identity_keys,
             gpu_scoring_functions=gpu_scoring_functions,
+            resource_resolver=resource_resolver,
         )
 
 
@@ -214,22 +239,39 @@ AUTODOCK_PROGRAM = AutoDockLikeProgram(
     docking_engine="vina",
 )
 
-# AutoDock4 shares the Vina PDBQT preparation but docks with the autodock4 engine
-# (composed autogrid4 maps + autodock4). See docking/autodock4.py.
-AUTODOCK4_PROGRAM = AutoDockLikeProgram(
-    key="autodock4",
-    label="AutoDock4",
+# AutoDock-GPU shares the Vina PDBQT preparation and docks with the AutoDock4 force field
+# over autogrid4 maps. Always one GPU token per chunk: a single process saturates the card.
+# ponytail: the parameter file is identified by its path; editing it in place keeps the
+# protocol identity. Hash its content into the identity if that ever mixes results.
+# See docking/engines/adgpu.py.
+ADGPU_PROGRAM = AutoDockLikeProgram(
+    key="adgpu",
+    label="AutoDock-GPU",
     workflow_key="vina",
     preparation_engine="ad4",
-    docking_engine="autodock4",
-    config_model=AutoDock4EngineConfig,
-    protocol_identity_keys=("num_modes", "spacing"),
+    docking_engine="adgpu",
+    config_model=AutoDockGPUEngineConfig,
+    protocol_identity_keys=("nrun", "parameter_file", "derived_types"),
+    resource_resolver=lambda _config: {"cpu_required": 1, "gpu_required": 1},
+)
+
+# QuickVina 2 shares the Vina PDBQT preparation and the Vina scoring function; it only
+# searches faster, so the scoring function is not part of its identity. See docking/engines/qvina.py.
+QVINA_PROGRAM = AutoDockLikeProgram(
+    key="qvina",
+    label="QuickVina 2",
+    workflow_key="vina",
+    preparation_engine="ad4",
+    docking_engine="qvina",
+    config_model=QVinaEngineConfig,
+    protocol_identity_keys=("exhaustiveness",),
 )
 
 _PROGRAMS: dict[str, DockingProgramSpec] = {
     VINA_PROGRAM.key: VINA_PROGRAM,
+    QVINA_PROGRAM.key: QVINA_PROGRAM,
     GNINA_PROGRAM.key: GNINA_PROGRAM,
-    AUTODOCK4_PROGRAM.key: AUTODOCK4_PROGRAM,
+    ADGPU_PROGRAM.key: ADGPU_PROGRAM,
 }
 
 _PROGRAM_ALIASES: dict[str, str] = {
@@ -270,7 +312,13 @@ def get_program_for_engine(engine: str) -> DockingProgramSpec:
 
 
 def chunk_resources(engine: str, config: Mapping[str, Any] | None = None) -> dict[str, int]:
-    resources = get_program_for_engine(engine).resource_requirements(config)
+    program = get_program_for_engine(engine)
+    values = dict(config or {})
+    if program.config_model.model_config.get("extra") == "forbid":
+        # Callers send the legacy `scoring_function` argument along with the config; a program
+        # without that field (QuickVina, AutoDock-GPU) must not fail validation on it.
+        values = {key: value for key, value in values.items() if key in program.config_model.model_fields}
+    resources = program.resource_requirements(values)
     gpu = int(resources.get("gpu_required") or 0)
     return {"_gpu_required": gpu} if gpu else {}
 
@@ -281,9 +329,12 @@ __all__ = [
     "DockingProgramSpec",
     "DockingEngineConfig",
     "GninaEngineConfig",
-    "AutoDock4EngineConfig",
+    "ADGPU_PROGRAM",
+    "AutoDockGPUEngineConfig",
     "GNINA_PROGRAM",
     "GninaProgram",
+    "QVINA_PROGRAM",
+    "QVinaEngineConfig",
     "VINA_PROGRAM",
     "VinaProgram",
     "get_docking_program",

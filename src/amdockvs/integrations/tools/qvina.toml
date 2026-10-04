@@ -1,0 +1,20 @@
+# Installed and looked up by ms_flow.core.executor.tools (format documented there).
+[tool]
+name = "qvina"
+label = "QuickVina 2"
+purpose = "Faster Vina-compatible docking inside a known binding site."
+footprint = "~4 MB (one static Linux x86-64 binary)"
+version = "2.1"
+prefix = "{tools_home}/docking/{name}/{version}"
+
+[locate]
+paths = ["{prefix}/qvina2.1"]
+commands = ["qvina2.1", "qvina2", "qvina02"]
+check = ["{exe}", "--version"]
+
+# The upstream repo publishes the binary on its master branch, not as a release: the
+# checksum is what pins it. A changed upstream file fails the install instead of running.
+[[install]]
+name = "download QuickVina 2.1"
+argv = ["sh", "-c", "mkdir -p \"$0\" && curl -fsSL -o \"$0/qvina2.1\" https://github.com/QVina/qvina/raw/master/bin/qvina2.1 && echo \"bc1f908869181d17b48c9a9b4c2a28cce5264ccf3053e15bce32bb5baf83b43d  $0/qvina2.1\" | sha256sum -c - && chmod +x \"$0/qvina2.1\"", "{prefix}"]
+timeout = 300

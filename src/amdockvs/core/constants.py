@@ -90,7 +90,7 @@ def vina_command(runtime=None) -> str:
     Resolved on demand rather than frozen at import, so pointing Settings at another build
     takes effect without restarting.
     """
-    configured = str(app_config(runtime).external_tools.vina_path or "").strip()
+    configured = str(app_config(runtime).docking.vina.path or "").strip()
     if configured:
         return str(Path(configured).expanduser())
     sibling = Path(sys.executable).expanduser().resolve().parent / "vina"

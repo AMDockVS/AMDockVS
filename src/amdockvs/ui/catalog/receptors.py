@@ -235,7 +235,7 @@ class ReceptorImportPanel(QWidget):
         self.binding_site_box_size.setRange(8.0, 40.0)
         self.binding_site_box_size.setDecimals(1)
         self.binding_site_box_size.setSingleStep(1.0)
-        self.binding_site_box_size.setValue(app_config(self._runtime).docking.binding_site_box_size)
+        self.binding_site_box_size.setValue(app_config(self._runtime).docking.box_size)
         options_form.addRow("Binding Site Box (A)", self.binding_site_box_size)
 
         self.status_label = QLabel(self)

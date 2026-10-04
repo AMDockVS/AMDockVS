@@ -1,0 +1,16 @@
+# Installed and looked up by ms_flow.core.executor.tools (format documented there).
+[tool]
+name = "pkasso"
+label = "pKasso"
+purpose = "ML pKa prediction for ligand protonation (MolGpKa / Uni-pKa)."
+footprint = "~2 GB (isolated conda environment with PyTorch)"
+version = "0.6.1"
+prefix = "{tools_home}/protonation/{name}/{version}"
+
+[locate]
+paths = ["{prefix}/bin/python"]
+check = ["{exe}", "-c", "import pkasso"]
+
+[env]
+conda = ["python=3.12", "pip"]
+pip = ["pkasso[unipka]=={version}"]

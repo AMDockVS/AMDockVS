@@ -983,7 +983,7 @@ class DockingAPI:
             energy_range=energy_range,
             min_rmsd=min_rmsd,
         )
-        resolved_batch_size = max(1, int(batch_size or app_config(self.runtime).batch_sizes.docking))
+        resolved_batch_size = max(1, int(batch_size or app_config(self.runtime).docking.batch_size))
         ligand_set_ref = None if ligand_set is None or is_molecule_scope(ligand_set) else ensure_molecule_set_ref(
             self.runtime, ligand_set, name="docking_ligand_input")
         receptor_set_ref = None if receptor_set is None or is_molecule_scope(receptor_set) else ensure_molecule_set_ref(

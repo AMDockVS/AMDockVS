@@ -105,3 +105,14 @@ def test_ecfp4_feature_kind_roundtrips(tmp_path):
     assert reloaded.feature_kind == "ecfp4" and reloaded.fp_radius == 2
     imp = feature_importance(reloaded.estimator, reloaded.feature_names, top_n=3)
     assert imp and imp[0][0].startswith("bit_")
+
+
+def test_linear_models_expose_signed_weights():
+    # a linear model has no feature_importances_; its (scaled) coefficients are the weights
+    rng = np.random.default_rng(0)
+    x = rng.random((40, 4))
+    y = 3.0 * x[:, 0] - 2.0 * x[:, 1]
+    model = fit_model(x, y, feature_names=("up", "down", "noise_a", "noise_b"), algorithm="ridge", task="regression")
+    weights = dict(feature_importance(model.estimator, model.feature_names))
+    assert weights["up"] > 0 > weights["down"]
+    assert abs(weights["noise_a"]) < abs(weights["down"])

@@ -130,7 +130,7 @@ class PreparationPanel:
         # Preparation area (image-3 design): a vertical target list on the left drives a
         # QStackedWidget of option pages — row 0 = General Options (force re-prepare), then
         # ONE page per preparation *family*, not per program: Vina,
-        # gnina and AutoDock4 all write a single EngineState row with engine="ad4", so
+        # gnina and AutoDock-GPU all write a single EngineState row with engine="ad4", so
         # listing them separately showed three targets for one job. Families not implied by
         # the Programs step are disabled in the list.
         prep_section = panel.add_section("Ligand preparation")

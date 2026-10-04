@@ -105,6 +105,7 @@ class AMDockVSMainWindow(QMainWindow):
         # bottom-in-lateral lands it at the foot of the right column, and its button at the
         # foot of the right bar, level with where the panel opens.
         self.diagram_dock = InteractionDiagramDock("2D Interactions", self.dock_manager, runtime=runtime, parent=self)
+        self.diagram_dock.settings_requested.connect(lambda node: self.open_settings(node=node))
         self.dock_manager.add_dock(
             self.diagram_dock,
             dock_id="diagram",
@@ -371,14 +372,15 @@ class AMDockVSMainWindow(QMainWindow):
         corner_row.addWidget(theme_btn)
         menu_bar.setCornerWidget(corner, Qt.TopRightCorner)
 
-    def open_settings(self) -> None:
-        """Open the Settings dialog (feature panels point here for tool installs)."""
+    def open_settings(self, *, node: str | None = None) -> None:
+        """Open the Settings dialog, on ``node`` when a feature panel points at its own page."""
         if self._app_widget is not None:
-            self._app_widget.open_settings()
+            self._app_widget.open_settings(node=node)
 
     def _on_app_settings_saved(self) -> None:
         # Refresh what's open; saving settings shouldn't pop tabs the user didn't ask for.
         self.views.refresh_open_views_once()
+        self.diagram_dock.apply_settings()
         # Saved worker settings only mean something once they are registered. Cheap
         # executors are re-registered here; ray stays for the monitor to activate
         # (it may need a cluster launch), so this never blocks on the network.
@@ -518,6 +520,9 @@ class AMDockVSMainWindow(QMainWindow):
 
     def show_glowing_molecule(self, molblock: str, weights, caption: str = "") -> None:
         self.charts.show_glowing_molecule(molblock, weights, caption)
+
+    def hide_glowing_molecule(self) -> None:
+        self.charts.hide_glowing_molecule()
 
     # -- project lifecycle ----------------------------------------------------------
 

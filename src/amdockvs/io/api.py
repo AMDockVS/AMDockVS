@@ -24,7 +24,7 @@ def import_max_inflight(runtime=None) -> int:
     """Chunks in flight per import job. Must stay comfortably above the CPU count (>=2x) so
     compute runs ahead while results are staged; at 16 the chunks waiting to persist filled
     the window and starved the pool. The default, 32, covers a 14-16 CPU box."""
-    return int(app_config(runtime).batch_sizes.import_max_inflight)
+    return int(app_config(runtime).imports.max_inflight)
 
 
 def default_shard_size(*, runtime=None) -> int:
@@ -272,7 +272,7 @@ class LoaderAPI:
             box = (
                 float(binding_site_box_size)
                 if binding_site_box_size is not None
-                else float(app_config(self.runtime).docking.binding_site_box_size)
+                else float(app_config(self.runtime).docking.box_size)
             )
             base_options = ReceptorImportOptions(
                 use_biological_assembly=bool(use_biological_assembly),

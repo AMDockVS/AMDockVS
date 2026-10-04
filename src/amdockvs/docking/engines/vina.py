@@ -16,6 +16,7 @@ from amdockvs.core.constants import DEFAULT_VINA_BACKEND, DEFAULT_VINA_COMMAND
 from amdockvs.docking.results.metrics import docking_metrics
 from amdockvs.docking.results.rmsd import pose_rmsd_detail
 from amdockvs.core.paths import get_default_project_root
+from amdockvs.docking.engines.autogrid import map_prefix as _ad4_map_prefix
 
 def _require_pdbqt(path: Path, *, kind: str) -> None:
     if path.suffix.lower() != ".pdbqt":
@@ -23,55 +24,6 @@ def _require_pdbqt(path: Path, *, kind: str) -> None:
             f"AutoDock Vina requires {kind} in PDBQT format, got: {path.name}. "
             "Prepare inputs first, e.g. with Meeko."
         )
-
-
-def _ad4_map_prefix(
-    *,
-    cache: dict[tuple, str],
-    maps_dir: Path,
-    receptor_path: Path,
-    ligand_path: Path,
-    box_center: list[float],
-    box_size: list[float],
-    spacing: float,
-    flex_receptor_path: Path | None = None,
-) -> str:
-    """Autogrid4 maps for ad4 scoring, returning the load_maps() prefix. Reuses autodock4._autogrid;
-    cached per (receptor, box, ligand atom types) so identical-typed ligands share maps.
-    ponytail: autogrid runs once per distinct ligand-type set; union-per-receptor if it's too slow.
-    """
-    import hashlib
-
-    from amdockvs.docking import autodock4
-
-    if flex_receptor_path is not None:
-        raise RuntimeError(
-            "ad4 scoring with flexible residues is not supported — use a rigid receptor, "
-            "or pick vina/vinardo."
-        )
-    ligand_types = tuple(sorted(set(autodock4._atom_types(ligand_path))))
-    key = (
-        str(receptor_path),
-        tuple(round(float(v), 3) for v in box_center),
-        tuple(round(float(v), 3) for v in box_size),
-        round(float(spacing), 4),
-        ligand_types,
-    )
-    cached = cache.get(key)
-    if cached is not None:
-        return cached
-    binary = autodock4.AUTOGRID4
-    if not (Path(binary).exists() or shutil.which(str(binary))):
-        raise RuntimeError(
-            f"ad4 scoring needs autogrid4 but it was not found ({binary!r}). "
-            "Set $AMDOCK_AUTOGRID4 or install AutoDock4."
-        )
-    work = Path(maps_dir) / f"{receptor_path.stem}_{hashlib.md5(repr(key).encode()).hexdigest()[:8]}"
-    work.mkdir(parents=True, exist_ok=True)
-    autodock4._autogrid(receptor_path, list(ligand_types), list(box_center), list(box_size), float(spacing), work)
-    prefix = str(work / receptor_path.stem)
-    cache[key] = prefix
-    return prefix
 
 
 def _prepared_vina(
@@ -113,6 +65,8 @@ def _prepared_vina(
     if ad4_map_prefix:
         # ad4: the rigid receptor is baked into the autogrid maps -> load them instead of
         # set_receptor + compute_vina_maps (which can't produce ad4 maps).
+        if flex_receptor_path is not None:
+            vina_obj.set_receptor(flex_pdbqt_filename=str(flex_receptor_path))
         vina_obj.load_maps(str(ad4_map_prefix))
     else:
         if flex_receptor_path is not None:
@@ -248,6 +202,7 @@ def _run_vina_binary(
     min_rmsd: float,
     energy_range: float,
     ad4_map_prefix: str | None = None,
+    quickvina: bool = False,
 ) -> tuple[list[list[float]], str]:
     resolved_command = shutil.which(str(vina_command)) if not Path(str(vina_command)).expanduser().exists() else str(
         Path(str(vina_command)).expanduser().resolve()
@@ -260,7 +215,10 @@ def _run_vina_binary(
     if ad4_map_prefix:
         # ad4: the autogrid maps carry the rigid receptor and the box, so --maps replaces
         # --receptor, the box (--center_*/--size_*) and --spacing (docking_basic.html, ad4 section).
-        grid_args = ["--maps", str(ad4_map_prefix)]
+        grid_args = [
+            "--maps", str(ad4_map_prefix),
+            *(["--flex", str(flex_receptor_path)] if flex_receptor_path is not None else []),
+        ]
     else:
         grid_args = [
             "--receptor", str(receptor_path),
@@ -271,22 +229,26 @@ def _run_vina_binary(
             "--size_x", str(float(box_size[0])),
             "--size_y", str(float(box_size[1])),
             "--size_z", str(float(box_size[2])),
-            "--spacing", str(float(spacing)),
         ]
     command = [
         str(resolved_command),
         "--ligand", str(ligand_path),
-        "--scoring", str(scoring_function),
         *grid_args,
         "--cpu", str(int(cpu)),
         "--seed", str(int(seed)),
         "--exhaustiveness", str(int(exhaustiveness)),
         "--num_modes", str(int(num_modes)),
-        "--min_rmsd", str(float(min_rmsd)),
         "--energy_range", str(float(energy_range)),
         "--out", str(output_path),
-        "--verbosity", "0",
     ]
+    if not quickvina:
+        # QuickVina 2.1 forked Vina 1.1.2 and exits with a usage error on any of these.
+        command += [
+            "--scoring", str(scoring_function),
+            "--min_rmsd", str(float(min_rmsd)),
+            "--verbosity", "0",
+            *([] if ad4_map_prefix else ["--spacing", str(float(spacing))]),
+        ]
     process: subprocess.Popen[str] | None = None
     previous_handlers: dict[int, object] = {}
 
@@ -376,12 +338,14 @@ def run_vina_docking_rows(
     report_name: str | None = None,
     pair_callback: Callable[[list[dict]], None] | None = None,
     collect_rows: bool = True,
+    engine: str = "vina",
 ) -> list[dict]:
     resolved_output_dir = Path(output_dir).expanduser().resolve()
     resolved_output_dir.mkdir(parents=True, exist_ok=True)
     normalized_backend = str(vina_backend or "python").strip().lower() or "python"
     if normalized_backend not in {"python", "binary"}:
         raise ValueError(f"Unsupported vina backend: {vina_backend}")
+    quickvina = engine == "qvina"  # same search and files as Vina, through its own binary
 
     rows: list[dict] = []
     failures: list[dict] = []
@@ -433,7 +397,7 @@ def run_vina_docking_rows(
                 "error": invalid_reason,
             }
             failures.append(failure)
-            failed_row = _failed_docking_row(failure, protocol_payload=protocol_payload)
+            failed_row = _failed_docking_row(failure, protocol_payload=protocol_payload, engine=engine)
             if collect_rows:
                 rows.append(failed_row)
             if pair_callback is not None:
@@ -515,6 +479,7 @@ def run_vina_docking_rows(
                     num_modes=int(pair.get("num_modes") or 9),
                     min_rmsd=float(min_rmsd),
                     energy_range=float(energy_range),
+                    quickvina=quickvina,
                 )
             _convert_vina_pdbqt_to_sdf(
                 pdbqt_path=output_pdbqt_path,
@@ -523,7 +488,7 @@ def run_vina_docking_rows(
             )
             score = float(energies_list[0][0]) if energies_list else 0.0
             payload_json = {
-                "engine": "vina",
+                "engine": engine,
                 "backend": normalized_backend,
                 "complex_id": complex_id,
                 "run_kind": run_kind,
@@ -562,7 +527,7 @@ def run_vina_docking_rows(
                 "grid": grid_payload,
             }
             failures.append(failure)
-            failed_row = _failed_docking_row(failure, protocol_payload=protocol_payload)
+            failed_row = _failed_docking_row(failure, protocol_payload=protocol_payload, engine=engine)
             if collect_rows:
                 rows.append(failed_row)
             if pair_callback is not None:
@@ -596,7 +561,7 @@ def run_vina_docking_rows(
                 {
                     "receptor_molecule_id": receptor_id,
                     "ligand_molecule_id": ligand_id,
-                    "engine": "vina",
+                    "engine": engine,
                     "pose_rank": index,
                     "score": pose_score,
                     "score_type": "vina_score",
@@ -627,7 +592,7 @@ def run_vina_docking_rows(
         report_file.write_text(
             json.dumps(
                 {
-                    "engine": "vina",
+                    "engine": engine,
                     "backend": normalized_backend,
                     "generated_at": datetime.now().isoformat(),
                     "pair_count": len(pairs),
@@ -644,12 +609,12 @@ def run_vina_docking_rows(
     return rows
 
 
-def _failed_docking_row(failure: dict, *, protocol_payload: dict) -> dict:
+def _failed_docking_row(failure: dict, *, protocol_payload: dict, engine: str = "vina") -> dict:
     """One failed pair in the same shape as a successful rank-1 result."""
     return {
         "receptor_molecule_id": int(failure.get("receptor_id") or 0),
         "ligand_molecule_id": int(failure.get("ligand_id") or 0),
-        "engine": "vina",
+        "engine": engine,
         "pose_rank": 1,
         "score": None,
         "score_type": "vina_score",
@@ -676,7 +641,7 @@ def _failed_docking_row(failure: dict, *, protocol_payload: dict) -> dict:
 # A docking chunk carries an "engine" key; the job dispatches to the registered
 # runner for that engine. Each runner takes the chunk payload dict and returns
 # the docking result rows. This is the seam for adding new docking programs
-# (e.g. AutoDock4) without touching the job/sink plumbing.
+# (e.g. AutoDock-GPU) without touching the job/sink plumbing.
 # ---------------------------------------------------------------------------
 
 def _vina_dock_runner(payload: dict) -> list[dict]:

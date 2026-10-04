@@ -112,7 +112,7 @@ def iter_docking_batches_from_rows(
     preparation_engine: str | None = None,
     requires_binding_site: bool = True,
 ) -> Iterator[dict[str, object]]:
-    # Prepared inputs/grids are stored under the preparation engine (e.g. AutoDock4
+    # Prepared inputs/grids are stored under the preparation engine (e.g. AutoDock-GPU
     # reuses Vina pdbqt prep); the chunk's `engine` tag selects the docking runner.
     prep_engine = str(preparation_engine or engine)
     protocol_payload = dict(protocol_metadata or {})

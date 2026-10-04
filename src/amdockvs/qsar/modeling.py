@@ -411,16 +411,24 @@ def _surviving_feature_names(estimator, feature_names: Sequence[str]) -> list[st
 
 
 def feature_importance(estimator, feature_names: Sequence[str], *, top_n: int = 15) -> list[tuple[str, float]]:
-    """Top-N (name, importance) for tree models; [] when the estimator exposes none. Names are
-    mapped through the selectors so they line up with the estimator's retained features."""
+    """Top-N (name, weight) by magnitude: tree importances, or the signed coefficients of a
+    linear model (comparable because the pipeline scales its features); [] when the estimator
+    exposes neither. Names are mapped through the selectors so they line up with the
+    estimator's retained features."""
     model = estimator.named_steps["model"] if hasattr(estimator, "named_steps") else estimator
     importances = getattr(model, "feature_importances_", None)
     if importances is None:
-        return []
+        coef = getattr(model, "coef_", None)
+        if coef is None:
+            return []
+        coef = np.atleast_2d(np.asarray(coef, dtype=float))
+        # One row is a regression or a binary classifier: keep the sign. Several rows are one
+        # per class, where a sign has no single meaning: report the mean magnitude.
+        importances = coef[0] if coef.shape[0] == 1 else np.abs(coef).mean(axis=0)
     names = _surviving_feature_names(estimator, feature_names)
     if len(names) != len(importances):  # selection changed shape unexpectedly — fall back to indices
         names = [f"f{i}" for i in range(len(importances))]
-    pairs = sorted(zip(names, (float(v) for v in importances)), key=lambda kv: kv[1], reverse=True)
+    pairs = sorted(zip(names, (float(v) for v in importances)), key=lambda kv: abs(kv[1]), reverse=True)
     return pairs[: int(top_n)]
 
 

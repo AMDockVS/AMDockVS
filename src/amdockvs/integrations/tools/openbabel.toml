@@ -1,0 +1,16 @@
+# Installed and looked up by ms_flow.core.executor.tools (format documented there).
+[tool]
+name = "openbabel"
+label = "OpenBabel"
+purpose = "pH-aware ligand protonation through the OpenBabel CLI."
+footprint = "~200 MB (isolated conda environment)"
+version = "3.1.1"
+prefix = "{tools_home}/protonation/{name}/{version}"
+
+[locate]
+paths = ["{prefix}/bin/obabel"]
+commands = ["obabel"]
+check = ["{exe}", "-V"]
+
+[env]
+conda = ["openbabel={version}"]

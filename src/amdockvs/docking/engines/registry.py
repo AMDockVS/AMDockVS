@@ -48,13 +48,15 @@ def load_builtin_docking_engines() -> None:
     global _BUILTINS_LOADED
     if _BUILTINS_LOADED:
         return
-    from amdockvs.docking.engines.autodock4 import autodock4_dock_runner
+    from amdockvs.docking.engines.adgpu import adgpu_dock_runner
     from amdockvs.docking.engines.vina import _vina_dock_runner
     from amdockvs.docking.engines.gnina import gnina_dock_runner
+    from amdockvs.docking.engines.qvina import qvina_dock_runner
 
     register_dock_runner("vina", _vina_dock_runner, replace=True)
-    register_dock_runner("autodock4", autodock4_dock_runner, replace=True)
+    register_dock_runner("adgpu", adgpu_dock_runner, replace=True)
     register_dock_runner("gnina", gnina_dock_runner, replace=True)
+    register_dock_runner("qvina", qvina_dock_runner, replace=True)
     _BUILTINS_LOADED = True
 
 

@@ -21,7 +21,7 @@ def tools_home(runtime=None) -> Path:
     """
     configured = str(os.environ.get("AMDOCK_TOOLS_HOME") or "").strip()
     if not configured:
-        configured = str(app_config(runtime).external_tools.tools_home or "").strip()
+        configured = str(app_config(runtime).tools_home or "").strip()
     if configured:
         return Path(configured).expanduser().resolve()
     xdg = str(os.environ.get("XDG_DATA_HOME") or "").strip()
