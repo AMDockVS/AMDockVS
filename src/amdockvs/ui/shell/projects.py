@@ -52,7 +52,7 @@ class ApplicationWidget(QWidget):
             self._projects_widget.destroyed.connect(self._on_projects_widget_destroyed)
         return self._projects_widget.launch_project(project_id)
 
-    def open_settings(self) -> None:
+    def open_settings(self, *, node: str | None = None) -> None:
         if self._settings_dialog is None:
             from amdockvs.ui.resources.icons import icon
             from amdockvs.ui.shell.settings_tools import ExternalToolsPage
@@ -71,6 +71,8 @@ class ApplicationWidget(QWidget):
             self._settings_dialog.destroyed.connect(self._on_settings_dialog_destroyed)
         else:
             self._settings_dialog.panel.reload_values()
+        if node:
+            self._settings_dialog.panel.select_node(node)
         self._settings_dialog.show()
         self._settings_dialog.raise_()
         self._settings_dialog.activateWindow()

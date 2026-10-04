@@ -25,6 +25,7 @@ from amdockvs.core.configuration import (
     MAX_2D_PREVIEW_HEAVY_ATOMS,
     MAX_2D_PREVIEW_HEAVY_ATOMS_PATH,
     create_amdock_configuration,
+    create_contact_map_configuration,
 )
 import amdockvs.models  # noqa: F401  # Ensure SQLModel metadata is registered before project DB setup.
 from amdockvs.core.paths import set_default_project_root
@@ -99,6 +100,7 @@ class AMDockVSRuntime(AppRuntime):
         self._configuration_sources = [
             self.molsuite.settings_manager,
             amdock_configuration,
+            create_contact_map_configuration(),
         ]
         self._loader_api: LoaderAPI | None = None
         self._molecule_api: MoleculeAPI | None = None
@@ -218,6 +220,10 @@ class AMDockVSRuntime(AppRuntime):
     @property
     def amdock_configuration(self):
         return next(item for item in self._configuration_sources if item.config_id == "amdockvs")
+
+    @property
+    def contact_map_configuration(self):
+        return next(item for item in self._configuration_sources if item.config_id == "ms_contactmap")
 
     def list_projects(self, page: int = 1, items_per_page: int = 20) -> list[ProjectSummary]:
         projects = self.project_catalog.list_projects(page=page, items_per_page=items_per_page)

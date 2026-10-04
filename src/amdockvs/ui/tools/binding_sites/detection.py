@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from amdockvs.models import BindingSite, MoleculeRecord
+from amdockvs.core.configuration import app_config
 from amdockvs.core.paths import preferred_molecule_path
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.catalog.receptors import RECEPTOR_VIEW_ID
@@ -462,11 +463,13 @@ class PocketDetectionWidget(QWidget):
         filter_row.addStretch(1)
         prediction_layout.addLayout(filter_row)
 
+        p2rank_defaults = app_config(getattr(self, "runtime", None)).binding_sites.p2rank
         profile_row = QHBoxLayout()
         profile_row.addWidget(QLabel("Profile", prediction_box))
         self.profile_combo = QComboBox(prediction_box)
         for label, value in PROFILE_OPTIONS:
             self.profile_combo.addItem(label, value)
+        self.profile_combo.setCurrentIndex(max(0, self.profile_combo.findData(p2rank_defaults.profile)))
         self.profile_combo.setToolTip(
             "P2Rank model used for the whole run. Changing it replaces the current "
             "predictions of the receptors in scope once the new calculation succeeds."
@@ -480,7 +483,7 @@ class PocketDetectionWidget(QWidget):
         scope_row.addWidget(QLabel("Threads", prediction_box))
         self.threads_spin = QSpinBox(prediction_box)
         self.threads_spin.setRange(1, 128)
-        self.threads_spin.setValue(1)
+        self.threads_spin.setValue(p2rank_defaults.threads)
         scope_row.addWidget(self.threads_spin)
         self.run_button = QPushButton("Run P2Rank", prediction_box)
         self.run_button.clicked.connect(self._run_prediction)

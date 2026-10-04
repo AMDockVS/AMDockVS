@@ -53,7 +53,7 @@ def p2rank_home(version: str = P2RANK_VERSION, runtime=None) -> Path:
     """
     configured = str(os.environ.get("AMDOCK_P2RANK_HOME") or "").strip()
     if not configured:
-        configured = str(app_config(runtime).external_tools.p2rank_home or "").strip()
+        configured = str(app_config(runtime).binding_sites.p2rank.home or "").strip()
     if configured:
         return Path(configured).expanduser().resolve()
     return tools_home(runtime) / "p2rank" / str(version)

@@ -36,7 +36,7 @@ from amdockvs.diversity.jobs import (
 
 from amdockvs.core.configuration import (
     DEFAULT_DIVERSITY_SAMPLE_LIMIT,
-    batch_size_for,
+    app_config,
     DEFAULT_INLINE_RUN_LIMIT,
     DEFAULT_MOLECULES_PER_CPU,
 )
@@ -191,7 +191,7 @@ class DiversityAPI:
             )
         num_cpus = max(1, int(num_cpus))
         params = SelectionClusterJobParams(
-            batch_size=batch_size_for("ligand", self.runtime),
+            batch_size=app_config(self.runtime).diversity.rows_per_task,
             method=method,
             threshold=threshold,
             per_cluster=per_cluster,
@@ -235,7 +235,7 @@ class DiversityAPI:
 
         self.runtime._require_active_project()
         params = SelectionClusterJobParams(
-            batch_size=batch_size_for("ligand", self.runtime),
+            batch_size=app_config(self.runtime).diversity.rows_per_task,
             molecule_set_id=None if molecule_set is None else int(getattr(molecule_set, "id", molecule_set)),
             molecule_filters=dict(molecule_filters or {}),
             fp_radius=fp_radius,
@@ -345,7 +345,7 @@ class DiversityAPI:
         (no fingerprint load, no clustering). Reads ids only via the MolSuite query API."""
         self.runtime._require_active_project()
         params = SelectionClusterJobParams(
-            batch_size=batch_size_for("ligand", self.runtime),
+            batch_size=app_config(self.runtime).diversity.rows_per_task,
             molecule_set_id=None if molecule_set is None else int(getattr(molecule_set, "id", molecule_set)),
             molecule_filters=dict(molecule_filters or {}),
             fp_radius=fp_radius,
@@ -380,7 +380,7 @@ class DiversityAPI:
 
         self.runtime._require_active_project()
         params = SelectionClusterJobParams(
-            batch_size=batch_size_for("ligand", self.runtime),
+            batch_size=app_config(self.runtime).diversity.rows_per_task,
             molecule_set_id=None if molecule_set is None else int(getattr(molecule_set, "id", molecule_set)),
             molecule_filters=dict(molecule_filters or {}),
             fp_radius=fp_radius,

@@ -1,15 +1,60 @@
+# Empty paths mean "autodetect".
+tools_home = ""
+
 [molecule_display]
 max_2d_preview_heavy_atoms = 50
 
-[docking]
-temperature_k = 298.15
+[imports]
+max_inflight = 32
 
-[batch_sizes]
-ligand = 1000
-receptor = 32
-docking = 4
-output_flush_every = 16
-import_max_inflight = 32
+[preparation]
+ligands_per_task = 1000
+receptors_per_task = 32
+
+[binding_sites]
+box_scale = 1.5
+box_padding = 4.0
+box_min_edge = 12.0
+box_max_edge = 30.0
+
+[binding_sites.residues]
+spacing = 1.0
+probe = 1.4
+vdw_scale = 1.0
+max_burial = 10.0
+psp_min = 4
+search_radius = 14.0
+center_radius = 8.0
+blob_radius = 12.0
+n_points = 120
+
+[binding_sites.p2rank]
+home = ""
+profile = "default"
+threads = 1
+
+[docking]
+box_size = 22.0
+temperature = 298.15
+batch_size = 4
+
+[docking.vina]
+path = ""
+exhaustiveness = 8
+num_modes = 9
+cpu_per_task = 1
+
+[docking.gnina]
+path = ""
+exhaustiveness = 8
+num_modes = 9
+cpu_per_task = 1
+
+[docking.qvina]
+path = ""
+
+[docking.adgpu]
+path = ""
 
 [shards]
 records_per_shard = 1000
@@ -18,22 +63,10 @@ max_bytes = 268435456
 suggest_records = 500000
 hit_cap = 100000
 
-[binding_sites]
-box_scale = 1.5
-box_padding = 4.0
-box_min_edge = 12.0
-box_max_edge = 30.0
-cavity_max_burial = 10.0
-
-# Empty paths mean "autodetect"; see ExternalToolsConfiguration.
-[external_tools]
-tools_home = ""
-vina_path = ""
-p2rank_home = ""
-
 [diversity]
 inline_run_limit = 50000
 molecules_per_cpu = 25000
+rows_per_task = 1000
 sample_limit = 2000
 
 [protonation.openbabel]

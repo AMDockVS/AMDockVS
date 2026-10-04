@@ -144,8 +144,8 @@ class ProtocolEditorWidget:
         if spec.key == VINA_PROGRAM.key:
             # Vina/AutoDock-Vina settings (shared by the Vina-family runners). CPU-per-task
             # lives here, not in the Run step: it's program-specific (Vina exposes it,
-            # AutoDock4 does not), so it belongs to each program's own config.
-            dd = self._docking_defaults()
+            # AutoDock-GPU does not), so it belongs to each program's own config.
+            dd = self._docking_defaults().vina
             self.exhaustiveness = _spinbox(minimum=1, maximum=256, value=dd.exhaustiveness)
             self.num_modes = _spinbox(minimum=1, maximum=128, value=dd.num_modes)
             self.vina_cpu = _spinbox(minimum=1, maximum=128, value=dd.cpu_per_task)
@@ -162,7 +162,7 @@ class ProtocolEditorWidget:
             form.addRow("Backend", self.backend_combo)
         elif spec.key == GNINA_PROGRAM.key:
             # gnina reuses the Vina PDBQT prep; "Scoring" here is the --cnn_scoring mode.
-            dd = self._docking_defaults()
+            dd = self._docking_defaults().gnina
             self.gnina_exhaustiveness = _spinbox(minimum=1, maximum=256, value=dd.exhaustiveness)
             self.gnina_num_modes = _spinbox(minimum=1, maximum=128, value=dd.num_modes)
             self.gnina_cpu = _spinbox(minimum=1, maximum=128, value=dd.cpu_per_task)
@@ -281,14 +281,16 @@ class ProtocolEditorWidget:
         check = (getattr(self, "_program_checks", {}) or {}).get(program)
         if check is not None:
             check.setChecked(True)
-        dd = self._docking_defaults()
+        docking = self._docking_defaults()
         if program == VINA_PROGRAM.key:
+            dd = docking.vina
             self.scoring_combo.setCurrentText(str(config.get("scoring_function") or "vina"))
             self.exhaustiveness.setValue(int(config.get("exhaustiveness") or dd.exhaustiveness))
             self.num_modes.setValue(int(config.get("num_modes") or dd.num_modes))
             self.backend_combo.setCurrentText(str(config.get("vina_backend") or "binary"))
             self.vina_cpu.setValue(int(config.get("vina_cpu") or dd.cpu_per_task))
         elif program == GNINA_PROGRAM.key:
+            dd = docking.gnina
             self.gnina_cnn_combo.setCurrentText(str(config.get("scoring_function") or "rescore"))
             self.gnina_exhaustiveness.setValue(int(config.get("exhaustiveness") or dd.exhaustiveness))
             self.gnina_num_modes.setValue(int(config.get("num_modes") or dd.num_modes))

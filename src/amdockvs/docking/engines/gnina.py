@@ -51,19 +51,28 @@ def chunk_gpu_tokens(engine: str, scoring_function: str) -> dict:
     return {}
 
 
-def _binary(env_var: str, name: str) -> str:
-    return os.environ.get(env_var) or shutil.which(name) or name
+def gnina_command() -> str:
+    """$AMDOCK_GNINA, then Settings > Docking > gnina path, then PATH.
+
+    Resolved per run, in the worker, so it reads the global config layer (not a project one).
+    """
+    configured = os.environ.get("AMDOCK_GNINA")
+    if not configured:
+        from amdockvs.core.configuration import app_config
+
+        configured = str(app_config().docking.gnina.path or "").strip()
+    return str(Path(configured).expanduser()) if configured else (shutil.which("gnina") or "gnina")
 
 
-GNINA = _binary("AMDOCK_GNINA", "gnina")
+GNINA = gnina_command()  # import-time snapshot; call gnina_command() at run time
 
 
-def _gnina_env() -> dict:
+def _gnina_env(binary: str) -> dict:
     """The prebuilt gnina binary is not truly static: it needs libcudnn.so.9 + the CUDA-12
     runtime libs shipped as nvidia-*-cu12 pip wheels. Prepend those wheel lib dirs (found
     next to the binary's env) to LD_LIBRARY_PATH so the child process can load them."""
     env = dict(os.environ)
-    binary = Path(GNINA)
+    binary = Path(binary)
     # <env>/bin/gnina -> <env>; nvidia wheels live under <env>/lib/python*/site-packages/nvidia/*/lib
     env_root = binary.resolve().parent.parent if binary.exists() else None
     lib_dirs: list[str] = []
@@ -118,10 +127,12 @@ def _run_gnina(
     seed: int,
     device: int = 0,
 ) -> None:
-    binary = shutil.which(GNINA) or (str(Path(GNINA)) if Path(GNINA).exists() else None)
+    command_name = gnina_command()
+    binary = shutil.which(command_name) or (command_name if Path(command_name).exists() else None)
     if not binary:
         raise RuntimeError(
-            f"gnina binary not found ({GNINA!r}). Set $AMDOCK_GNINA or put gnina on PATH."
+            f"gnina binary not found ({command_name!r}). Set it in Settings > Docking > gnina, "
+            "$AMDOCK_GNINA, or put gnina on PATH."
         )
     mode = str(cnn_scoring or "rescore").strip().lower() or "rescore"
     command = [
@@ -148,7 +159,7 @@ def _run_gnina(
         command,
         capture_output=True,
         text=True,
-        env=_gnina_env(),
+        env=_gnina_env(binary),
     )
     if result.returncode != 0:
         raise RuntimeError(

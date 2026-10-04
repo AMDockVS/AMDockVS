@@ -76,7 +76,7 @@ def test_physical_shard_size_is_separate_from_ligand_job_batch():
     from amdockvs.io.api import default_shard_size
 
     config = app_config().model_copy(deep=True)
-    config.batch_sizes.ligand = 5
+    config.preparation.ligands_per_task = 5
     config.shards.records_per_shard = 17
     runtime = SimpleNamespace(
         amdock_configuration=SimpleNamespace(get_value=lambda _path: config),

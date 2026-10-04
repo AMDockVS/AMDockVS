@@ -205,7 +205,7 @@ def test_amdock_file_menu_opens_and_saves_app_settings(tmp_path, monkeypatch):
 
         dialog = menu._settings_dialog
         assert dialog is not None
-        assert dialog.panel.tab_ids() == ("ms_flow", "amdockvs")
+        assert dialog.panel.tab_ids() == ("ms_flow", "amdockvs", "ms_contactmap")
         # Tool installs live in their own page, not in each feature panel.
         tree = dialog.panel.tree
         titles = [tree.topLevelItem(i).text(0) for i in range(tree.topLevelItemCount())]
