@@ -23,7 +23,7 @@
       
       
       <link rel="icon" href="../images/favicon.svg">
-      <meta name="generator" content="zensical-0.0.66">
+      <meta name="generator" content="zensical-0.0.67">
     
     
       
@@ -34,12 +34,12 @@
       
         
       
-      <link rel="stylesheet" href="../assets/stylesheets/modern/main.1502b751.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/modern/main.4ae390e2.min.css">
       
         
           
         
-        <link rel="stylesheet" href="../assets/stylesheets/modern/palette.812a03bb.min.css">
+        <link rel="stylesheet" href="../assets/stylesheets/modern/palette.96d1a7e4.min.css">
       
       
 
@@ -2700,6 +2700,7 @@
               <article class="md-content__inner md-typeset">
                 
                   
+
   
   
 
@@ -2905,8 +2906,7 @@ Names beginning with an underscore are implementation details.</p>
 
                   <details class="mkdocstrings-source">
                     <summary>Source code in <code>src/amdockvs/runtime.py</code></summary>
-                    <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 91</span>
-<span class="normal"> 92</span>
+                    <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 92</span>
 <span class="normal"> 93</span>
 <span class="normal"> 94</span>
 <span class="normal"> 95</span>
@@ -2926,7 +2926,9 @@ Names beginning with an underscore are implementation details.</p>
 <span class="normal">109</span>
 <span class="normal">110</span>
 <span class="normal">111</span>
-<span class="normal">112</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="normal">112</span>
+<span class="normal">113</span>
+<span class="normal">114</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
     <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="fm">__init__</span><span class="p">(</span>
         <span class="n">app_id</span><span class="o">=</span><span class="n">AMDOCKVS_APP_ID</span><span class="p">,</span>
         <span class="n">logger_name</span><span class="o">=</span><span class="n">AMDOCKVS_APP_ID</span><span class="p">,</span>
@@ -2937,6 +2939,7 @@ Names beginning with an underscore are implementation details.</p>
     <span class="bp">self</span><span class="o">.</span><span class="n">_configuration_sources</span> <span class="o">=</span> <span class="p">[</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">molsuite</span><span class="o">.</span><span class="n">settings_manager</span><span class="p">,</span>
         <span class="n">amdock_configuration</span><span class="p">,</span>
+        <span class="n">create_contact_map_configuration</span><span class="p">(),</span>
     <span class="p">]</span>
     <span class="bp">self</span><span class="o">.</span><span class="n">_loader_api</span><span class="p">:</span> <span class="n">LoaderAPI</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
     <span class="bp">self</span><span class="o">.</span><span class="n">_molecule_api</span><span class="p">:</span> <span class="n">MoleculeAPI</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
@@ -3106,11 +3109,11 @@ to shard, since the two libraries cannot coexist.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/runtime.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">288</span>
-<span class="normal">289</span>
-<span class="normal">290</span>
-<span class="normal">291</span>
-<span class="normal">292</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">general_ligand_count</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">294</span>
+<span class="normal">295</span>
+<span class="normal">296</span>
+<span class="normal">297</span>
+<span class="normal">298</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">general_ligand_count</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""How many screening ligands are rows here — what the importer asks before offering</span>
 <span class="sd">    to shard, since the two libraries cannot coexist."""</span>
     <span class="bp">self</span><span class="o">.</span><span class="n">_require_active_project</span><span class="p">()</span>
@@ -3141,11 +3144,11 @@ without every submit API needing a depends_on parameter. Cleared by passing None
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/runtime.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">363</span>
-<span class="normal">364</span>
-<span class="normal">365</span>
-<span class="normal">366</span>
-<span class="normal">367</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">set_forced_dependencies</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job_ids</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">369</span>
+<span class="normal">370</span>
+<span class="normal">371</span>
+<span class="normal">372</span>
+<span class="normal">373</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">set_forced_dependencies</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job_ids</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""Workflow channel: ids the NEXT submit_job call(s) must also depend on. Lets the</span>
 <span class="sd">    orchestrator inject same-category serialization that the category auto-deps don't cover,</span>
 <span class="sd">    without every submit API needing a depends_on parameter. Cleared by passing None."""</span>
@@ -3177,13 +3180,7 @@ Pass auto_depends=False to submit immediately regardless of running jobs.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/runtime.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">369</span>
-<span class="normal">370</span>
-<span class="normal">371</span>
-<span class="normal">372</span>
-<span class="normal">373</span>
-<span class="normal">374</span>
-<span class="normal">375</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">375</span>
 <span class="normal">376</span>
 <span class="normal">377</span>
 <span class="normal">378</span>
@@ -3202,7 +3199,13 @@ Pass auto_depends=False to submit immediately regardless of running jobs.</p>
 <span class="normal">391</span>
 <span class="normal">392</span>
 <span class="normal">393</span>
-<span class="normal">394</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">submit_job</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">auto_depends</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="normal">394</span>
+<span class="normal">395</span>
+<span class="normal">396</span>
+<span class="normal">397</span>
+<span class="normal">398</span>
+<span class="normal">399</span>
+<span class="normal">400</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">submit_job</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">auto_depends</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""Submit a job, auto-waiting for active prerequisite jobs by default.</span>
 
 <span class="sd">    With auto_depends=True (default) the job is held until every active job of its</span>
@@ -3252,18 +3255,18 @@ Pass auto_depends=False to submit immediately regardless of running jobs.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/runtime.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">396</span>
-<span class="normal">397</span>
-<span class="normal">398</span>
-<span class="normal">399</span>
-<span class="normal">400</span>
-<span class="normal">401</span>
-<span class="normal">402</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">402</span>
 <span class="normal">403</span>
 <span class="normal">404</span>
 <span class="normal">405</span>
 <span class="normal">406</span>
-<span class="normal">407</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">resolve_job_dependencies</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job</span><span class="p">,</span> <span class="n">explicit</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]]:</span>
+<span class="normal">407</span>
+<span class="normal">408</span>
+<span class="normal">409</span>
+<span class="normal">410</span>
+<span class="normal">411</span>
+<span class="normal">412</span>
+<span class="normal">413</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">resolve_job_dependencies</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job</span><span class="p">,</span> <span class="n">explicit</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">"""Union of explicit depends_on and the ids of active jobs this one should wait for."""</span>
     <span class="n">category</span> <span class="o">=</span> <span class="n">_job_category</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">job</span><span class="p">,</span> <span class="s2">"name"</span><span class="p">,</span> <span class="s2">""</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">""</span><span class="p">)</span>
     <span class="n">prereqs</span> <span class="o">=</span> <span class="n">_JOB_PREREQS</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">category</span> <span class="ow">or</span> <span class="s2">""</span><span class="p">,</span> <span class="p">())</span>
@@ -3299,13 +3302,13 @@ Pass auto_depends=False to submit immediately regardless of running jobs.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/runtime.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">427</span>
-<span class="normal">428</span>
-<span class="normal">429</span>
-<span class="normal">430</span>
-<span class="normal">431</span>
-<span class="normal">432</span>
-<span class="normal">433</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">watch_job</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">follow</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">poll_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JobStatus</span><span class="p">:</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">433</span>
+<span class="normal">434</span>
+<span class="normal">435</span>
+<span class="normal">436</span>
+<span class="normal">437</span>
+<span class="normal">438</span>
+<span class="normal">439</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">watch_job</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">follow</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">poll_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JobStatus</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""Display tqdm progress in a terminal or notebook and return the job status."""</span>
     <span class="bp">self</span><span class="o">.</span><span class="n">_require_active_project</span><span class="p">()</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">ms_flow.progress</span><span class="w"> </span><span class="kn">import</span> <span class="n">watch_job</span>
@@ -3336,19 +3339,19 @@ Pass auto_depends=False to submit immediately regardless of running jobs.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/runtime.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">435</span>
-<span class="normal">436</span>
-<span class="normal">437</span>
-<span class="normal">438</span>
-<span class="normal">439</span>
-<span class="normal">440</span>
-<span class="normal">441</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">441</span>
 <span class="normal">442</span>
 <span class="normal">443</span>
 <span class="normal">444</span>
 <span class="normal">445</span>
 <span class="normal">446</span>
-<span class="normal">447</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">watch_jobs</span><span class="p">(</span>
+<span class="normal">447</span>
+<span class="normal">448</span>
+<span class="normal">449</span>
+<span class="normal">450</span>
+<span class="normal">451</span>
+<span class="normal">452</span>
+<span class="normal">453</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">watch_jobs</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="n">job_ids</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
     <span class="o">*</span><span class="p">,</span>
@@ -3391,13 +3394,7 @@ already running here.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/runtime.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">512</span>
-<span class="normal">513</span>
-<span class="normal">514</span>
-<span class="normal">515</span>
-<span class="normal">516</span>
-<span class="normal">517</span>
-<span class="normal">518</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">518</span>
 <span class="normal">519</span>
 <span class="normal">520</span>
 <span class="normal">521</span>
@@ -3413,7 +3410,13 @@ already running here.</p>
 <span class="normal">531</span>
 <span class="normal">532</span>
 <span class="normal">533</span>
-<span class="normal">534</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">run_destinations</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]:</span>
+<span class="normal">534</span>
+<span class="normal">535</span>
+<span class="normal">536</span>
+<span class="normal">537</span>
+<span class="normal">538</span>
+<span class="normal">539</span>
+<span class="normal">540</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">run_destinations</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">"""Where a job may be sent, as (executor_name, label), local first.</span>
 
 <span class="sd">    Only two kinds are destinations a user picks: the logical `compute` slot — whichever</span>
@@ -7422,7 +7425,19 @@ Returns {molblock, weights[per atom], prediction}. ECFP4 models only.</p>
 <span class="normal">1423</span>
 <span class="normal">1424</span>
 <span class="normal">1425</span>
-<span class="normal">1426</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">atom_contributions</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">QSARModelRef</span> <span class="o">|</span> <span class="nb">int</span><span class="p">,</span> <span class="n">ligand_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="normal">1426</span>
+<span class="normal">1427</span>
+<span class="normal">1428</span>
+<span class="normal">1429</span>
+<span class="normal">1430</span>
+<span class="normal">1431</span>
+<span class="normal">1432</span>
+<span class="normal">1433</span>
+<span class="normal">1434</span>
+<span class="normal">1435</span>
+<span class="normal">1436</span>
+<span class="normal">1437</span>
+<span class="normal">1438</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">atom_contributions</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">QSARModelRef</span> <span class="o">|</span> <span class="nb">int</span><span class="p">,</span> <span class="n">ligand_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">"""Per-atom contribution to an ECFP4 model's prediction (StarDrop's "glowing molecule").</span>
 <span class="sd">    Returns {molblock, weights[per atom], prediction}. ECFP4 models only."""</span>
     <span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="o">.</span><span class="n">_require_active_project</span><span class="p">()</span>
@@ -7444,11 +7459,23 @@ Returns {molblock, weights[per atom], prediction}. ECFP4 models only.</p>
     <span class="k">def</span><span class="w"> </span><span class="nf">fp_fn</span><span class="p">(</span><span class="n">probe</span><span class="p">,</span> <span class="n">atom_id</span><span class="o">=-</span><span class="mi">1</span><span class="p">):</span>
         <span class="k">return</span> <span class="n">SimilarityMaps</span><span class="o">.</span><span class="n">GetMorganFingerprint</span><span class="p">(</span><span class="n">probe</span><span class="p">,</span> <span class="n">atomId</span><span class="o">=</span><span class="n">atom_id</span><span class="p">,</span> <span class="n">radius</span><span class="o">=</span><span class="n">radius</span><span class="p">,</span> <span class="n">nBits</span><span class="o">=</span><span class="n">nbits</span><span class="p">)</span>
 
-    <span class="k">def</span><span class="w"> </span><span class="nf">pred_fn</span><span class="p">(</span><span class="n">fp</span><span class="p">):</span>
+    <span class="c1"># A classifier's label does not move when one atom is removed, so every weight would be</span>
+    <span class="c1"># 0: follow the probability instead — P(active) when binary, else P(predicted class).</span>
+    <span class="n">proba</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">fitted</span><span class="o">.</span><span class="n">estimator</span><span class="p">,</span> <span class="s2">"predict_proba"</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="k">if</span> <span class="n">fitted</span><span class="o">.</span><span class="n">task</span> <span class="o">==</span> <span class="s2">"classification"</span> <span class="k">else</span> <span class="kc">None</span>
+    <span class="n">column</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">row</span><span class="p">(</span><span class="n">fp</span><span class="p">):</span>
         <span class="n">arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">nbits</span><span class="p">,),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
         <span class="n">DataStructs</span><span class="o">.</span><span class="n">ConvertToNumpyArray</span><span class="p">(</span><span class="n">fp</span><span class="p">,</span> <span class="n">arr</span><span class="p">)</span>
-        <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">fitted</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">arr</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">))[</span><span class="mi">0</span><span class="p">])</span>
+        <span class="k">return</span> <span class="n">arr</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>
 
+    <span class="k">def</span><span class="w"> </span><span class="nf">pred_fn</span><span class="p">(</span><span class="n">fp</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">proba</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">fitted</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">row</span><span class="p">(</span><span class="n">fp</span><span class="p">))[</span><span class="mi">0</span><span class="p">])</span>
+        <span class="k">return</span> <span class="nb">float</span><span class="p">(</span><span class="n">proba</span><span class="p">(</span><span class="n">row</span><span class="p">(</span><span class="n">fp</span><span class="p">))[</span><span class="mi">0</span><span class="p">][</span><span class="n">column</span><span class="p">])</span>
+
+    <span class="k">if</span> <span class="n">proba</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">fitted</span><span class="o">.</span><span class="n">classes</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">2</span><span class="p">:</span>
+        <span class="n">column</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="n">proba</span><span class="p">(</span><span class="n">row</span><span class="p">(</span><span class="n">fp_fn</span><span class="p">(</span><span class="n">mol</span><span class="p">)))[</span><span class="mi">0</span><span class="p">]))</span>
     <span class="n">weights</span> <span class="o">=</span> <span class="n">SimilarityMaps</span><span class="o">.</span><span class="n">GetAtomicWeightsForModel</span><span class="p">(</span><span class="n">mol</span><span class="p">,</span> <span class="n">fp_fn</span><span class="p">,</span> <span class="n">pred_fn</span><span class="p">)</span>
     <span class="k">return</span> <span class="p">{</span>
         <span class="s2">"molblock"</span><span class="p">:</span> <span class="n">Chem</span><span class="o">.</span><span class="n">MolToMolBlock</span><span class="p">(</span><span class="n">mol</span><span class="p">),</span>
@@ -9320,7 +9347,7 @@ sharded library, where returning every scored molecule would defeat the storage 
         <span class="n">energy_range</span><span class="o">=</span><span class="n">energy_range</span><span class="p">,</span>
         <span class="n">min_rmsd</span><span class="o">=</span><span class="n">min_rmsd</span><span class="p">,</span>
     <span class="p">)</span>
-    <span class="n">resolved_batch_size</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">batch_size</span> <span class="ow">or</span> <span class="n">app_config</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="p">)</span><span class="o">.</span><span class="n">batch_sizes</span><span class="o">.</span><span class="n">docking</span><span class="p">))</span>
+    <span class="n">resolved_batch_size</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">batch_size</span> <span class="ow">or</span> <span class="n">app_config</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="p">)</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">batch_size</span><span class="p">))</span>
     <span class="n">ligand_set_ref</span> <span class="o">=</span> <span class="kc">None</span> <span class="k">if</span> <span class="n">ligand_set</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">is_molecule_scope</span><span class="p">(</span><span class="n">ligand_set</span><span class="p">)</span> <span class="k">else</span> <span class="n">ensure_molecule_set_ref</span><span class="p">(</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="p">,</span> <span class="n">ligand_set</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">"docking_ligand_input"</span><span class="p">)</span>
     <span class="n">receptor_set_ref</span> <span class="o">=</span> <span class="kc">None</span> <span class="k">if</span> <span class="n">receptor_set</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">is_molecule_scope</span><span class="p">(</span><span class="n">receptor_set</span><span class="p">)</span> <span class="k">else</span> <span class="n">ensure_molecule_set_ref</span><span class="p">(</span>
@@ -9940,7 +9967,7 @@ None it is derived from the scope size via <code>plan_cpus</code>.</p>
         <span class="p">)</span>
     <span class="n">num_cpus</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">num_cpus</span><span class="p">))</span>
     <span class="n">params</span> <span class="o">=</span> <span class="n">SelectionClusterJobParams</span><span class="p">(</span>
-        <span class="n">batch_size</span><span class="o">=</span><span class="n">batch_size_for</span><span class="p">(</span><span class="s2">"ligand"</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="p">),</span>
+        <span class="n">batch_size</span><span class="o">=</span><span class="n">app_config</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="p">)</span><span class="o">.</span><span class="n">diversity</span><span class="o">.</span><span class="n">rows_per_task</span><span class="p">,</span>
         <span class="n">method</span><span class="o">=</span><span class="n">method</span><span class="p">,</span>
         <span class="n">threshold</span><span class="o">=</span><span class="n">threshold</span><span class="p">,</span>
         <span class="n">per_cluster</span><span class="o">=</span><span class="n">per_cluster</span><span class="p">,</span>
@@ -10075,7 +10102,7 @@ PCA); call off the GUI thread. Cheap re-clustering then uses <code>cluster_loade
 
     <span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="o">.</span><span class="n">_require_active_project</span><span class="p">()</span>
     <span class="n">params</span> <span class="o">=</span> <span class="n">SelectionClusterJobParams</span><span class="p">(</span>
-        <span class="n">batch_size</span><span class="o">=</span><span class="n">batch_size_for</span><span class="p">(</span><span class="s2">"ligand"</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="p">),</span>
+        <span class="n">batch_size</span><span class="o">=</span><span class="n">app_config</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="p">)</span><span class="o">.</span><span class="n">diversity</span><span class="o">.</span><span class="n">rows_per_task</span><span class="p">,</span>
         <span class="n">molecule_set_id</span><span class="o">=</span><span class="kc">None</span> <span class="k">if</span> <span class="n">molecule_set</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="nb">int</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">molecule_set</span><span class="p">,</span> <span class="s2">"id"</span><span class="p">,</span> <span class="n">molecule_set</span><span class="p">)),</span>
         <span class="n">molecule_filters</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">molecule_filters</span> <span class="ow">or</span> <span class="p">{}),</span>
         <span class="n">fp_radius</span><span class="o">=</span><span class="n">fp_radius</span><span class="p">,</span>
@@ -10331,7 +10358,7 @@ the registered method, so each method's own knobs pass through untouched.</p>
 <span class="sd">    (no fingerprint load, no clustering). Reads ids only via the MolSuite query API."""</span>
     <span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="o">.</span><span class="n">_require_active_project</span><span class="p">()</span>
     <span class="n">params</span> <span class="o">=</span> <span class="n">SelectionClusterJobParams</span><span class="p">(</span>
-        <span class="n">batch_size</span><span class="o">=</span><span class="n">batch_size_for</span><span class="p">(</span><span class="s2">"ligand"</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="p">),</span>
+        <span class="n">batch_size</span><span class="o">=</span><span class="n">app_config</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="p">)</span><span class="o">.</span><span class="n">diversity</span><span class="o">.</span><span class="n">rows_per_task</span><span class="p">,</span>
         <span class="n">molecule_set_id</span><span class="o">=</span><span class="kc">None</span> <span class="k">if</span> <span class="n">molecule_set</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="nb">int</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">molecule_set</span><span class="p">,</span> <span class="s2">"id"</span><span class="p">,</span> <span class="n">molecule_set</span><span class="p">)),</span>
         <span class="n">molecule_filters</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">molecule_filters</span> <span class="ow">or</span> <span class="p">{}),</span>
         <span class="n">fp_radius</span><span class="o">=</span><span class="n">fp_radius</span><span class="p">,</span>
@@ -10465,7 +10492,7 @@ Raises if the scope exceeds <code>INLINE_RUN_LIMIT</code> (that needs the parall
 
     <span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="o">.</span><span class="n">_require_active_project</span><span class="p">()</span>
     <span class="n">params</span> <span class="o">=</span> <span class="n">SelectionClusterJobParams</span><span class="p">(</span>
-        <span class="n">batch_size</span><span class="o">=</span><span class="n">batch_size_for</span><span class="p">(</span><span class="s2">"ligand"</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="p">),</span>
+        <span class="n">batch_size</span><span class="o">=</span><span class="n">app_config</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="p">)</span><span class="o">.</span><span class="n">diversity</span><span class="o">.</span><span class="n">rows_per_task</span><span class="p">,</span>
         <span class="n">molecule_set_id</span><span class="o">=</span><span class="kc">None</span> <span class="k">if</span> <span class="n">molecule_set</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="nb">int</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">molecule_set</span><span class="p">,</span> <span class="s2">"id"</span><span class="p">,</span> <span class="n">molecule_set</span><span class="p">)),</span>
         <span class="n">molecule_filters</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">molecule_filters</span> <span class="ow">or</span> <span class="p">{}),</span>
         <span class="n">fp_radius</span><span class="o">=</span><span class="n">fp_radius</span><span class="p">,</span>
@@ -11109,7 +11136,7 @@ sidecar directly, no re-clustering or PCA recompute.</p>
 </footer>
       
     </div>
-    <div class="md-dialog" data-md-component="dialog">
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
       <div class="md-dialog__inner md-typeset"></div>
     </div>
     
@@ -11121,10 +11148,10 @@ sidecar directly, no re-clustering or PCA recompute.</p>
       
         
         
-      <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["content.code.copy","navigation.footer","navigation.path","navigation.sections","navigation.top","search.highlight","search.suggest"],"redirect":null,"search":"../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"provider":"mike"}}</script>
+      <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["content.code.copy","navigation.footer","navigation.path","navigation.sections","navigation.top","search.highlight","search.suggest"],"redirect":null,"search":"../assets/javascripts/workers/search.7d14d953.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"provider":"mike"}}</script>
     
     
-      <script src="../assets/javascripts/bundle.b7d3f789.min.js"></script>
+      <script src="../assets/javascripts/bundle.67a597eb.min.js"></script>
       
     
   </body>
