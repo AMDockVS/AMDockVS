@@ -8,13 +8,16 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
+    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
     QPushButton,
     QSpinBox,
-    QTabWidget,
+    QStackedWidget,
+    QStyle,
     QTableWidget,
     QTableWidgetItem,
     QWidget, )
@@ -48,14 +51,24 @@ class ProtocolEditorWidget:
         self.protocol_mode_label.setWordWrap(True)
         self.protocol_mode_box.add_row(self.protocol_mode_label)
 
-        # One horizontal sub-tab per program, each holding that software's run settings.
+        # Programs stacked in a list on the left (it keeps reading as programs are added), the
+        # selected one's run settings on the right. Rows follow list_docking_programs() order.
         self._program_checks: dict[str, QCheckBox] = {}
         self._program_config_widgets: dict[str, dict[str, QWidget]] = {}
-        self.program_subtabs = QTabWidget(self.protocol_mode_box)
+        self.program_list = QListWidget(self.protocol_mode_box)
+        self.program_pages = QStackedWidget(self.protocol_mode_box)
         for spec in list_docking_programs():
-            self.program_subtabs.addTab(self._build_program_config(spec), spec.label)
+            self.program_list.addItem(spec.label)
+            self.program_pages.addWidget(self._build_program_config(spec))
+        self.program_list.setSpacing(2)
+        self.program_list.setFixedWidth(self.program_list.sizeHintForColumn(0) + 32)
+        self.program_list.currentRowChanged.connect(self.program_pages.setCurrentIndex)
+        self.program_list.setCurrentRow(0)
         self._refresh_program_availability()
-        self.protocol_mode_box.add_row(self.program_subtabs)
+        programs = QHBoxLayout()
+        programs.addWidget(self.program_list)
+        programs.addWidget(self.program_pages, 1)
+        self.protocol_mode_box.add_row(programs)
         self._build_protocols_box(panel.add_section("Validation Protocol Set"))
         self._ensure_default_protocol()
         self._sync_protocol_ui()
@@ -211,9 +224,20 @@ class ProtocolEditorWidget:
                 widget.setChecked(bool(default))
             else:
                 widget = QLineEdit(str(default or ""), parent)
+                if field.get("format") == "file-path":
+                    browse = widget.addAction(
+                        self.style().standardIcon(QStyle.SP_DialogOpenButton), QLineEdit.TrailingPosition
+                    )
+                    browse.triggered.connect(lambda _checked=False, target=widget: self._browse_into(target))
+            widget.setToolTip(str(field.get("description") or ""))
             widgets[name] = widget
             form.addRow(str(field.get("title") or name.replace("_", " ").title()), widget)
         self._program_config_widgets[spec.key] = widgets
+
+    def _browse_into(self, target: QLineEdit) -> None:
+        path, _filter = QFileDialog.getOpenFileName(self, "Select file", target.text())
+        if path:
+            target.setText(path)
 
     def _schema_config_from_widgets(self, program: str) -> dict:
         values: dict[str, object] = {}
@@ -235,9 +259,9 @@ class ProtocolEditorWidget:
         return app_config(self.runtime).docking
 
     def _current_program_key(self) -> str:
-        subtabs = getattr(self, "program_subtabs", None)
+        programs = getattr(self, "program_list", None)
         specs = list(list_docking_programs())
-        index = subtabs.currentIndex() if subtabs is not None else 0
+        index = programs.currentRow() if programs is not None else 0
         if 0 <= index < len(specs):
             return str(specs[index].key)
         return DEFAULT_PROGRAM
@@ -272,11 +296,11 @@ class ProtocolEditorWidget:
         program = str(protocol.get("program") or DEFAULT_PROGRAM)
         config = dict(protocol.get("config") or {})
         specs = list(list_docking_programs())
-        subtabs = getattr(self, "program_subtabs", None)
-        if subtabs is not None:
+        programs = getattr(self, "program_list", None)
+        if programs is not None:
             for index, spec in enumerate(specs):
                 if spec.key == program:
-                    subtabs.setCurrentIndex(index)
+                    programs.setCurrentRow(index)
                     break
         check = (getattr(self, "_program_checks", {}) or {}).get(program)
         if check is not None:
@@ -566,20 +590,19 @@ class ProtocolEditorWidget:
     def _refresh_program_availability(self) -> None:
         specs = list(list_docking_programs())
         available_keys = {spec.key for spec in specs if self._program_compatible(spec)}
-        subtabs = getattr(self, "program_subtabs", None)
+        programs = getattr(self, "program_list", None)
         for index, spec in enumerate(specs):
             available = spec.key in available_keys
-            if subtabs is not None:
-                if hasattr(subtabs, "setTabVisible"):
-                    subtabs.setTabVisible(index, available)
-                subtabs.setTabEnabled(index, available)
-                tooltip = "" if available else "Not available for the selected experiment configuration."
-                subtabs.setTabToolTip(index, tooltip)
+            if programs is not None:
+                programs.item(index).setHidden(not available)
             check = (getattr(self, "_program_checks", {}) or {}).get(spec.key)
             if check is not None:
                 check.setEnabled(available)
                 if not available:
                     check.setChecked(False)
+        if programs is not None and programs.currentItem() is not None and programs.currentItem().isHidden():
+            visible = [index for index, spec in enumerate(specs) if spec.key in available_keys]
+            programs.setCurrentRow(visible[0] if visible else -1)
         checked_available = [
             key for key, check in (getattr(self, "_program_checks", {}) or {}).items()
             if key in available_keys and check.isChecked()
@@ -589,10 +612,10 @@ class ProtocolEditorWidget:
             check = self._program_checks.get(preferred)
             if check is not None:
                 check.setChecked(True)
-            if subtabs is not None:
+            if programs is not None:
                 for index, spec in enumerate(specs):
                     if spec.key == preferred:
-                        subtabs.setCurrentIndex(index)
+                        programs.setCurrentRow(index)
                         break
         self._refresh_prep_targets()
         self._refresh_receptor_prep_targets()
@@ -653,7 +676,7 @@ class ProtocolEditorWidget:
 
     def _distinct_prep_programs(self, *, role: str = "ligand") -> list[str]:
         # Prepare once per distinct preparation_engine among selected programs (programs
-        # that share an engine — e.g. AutoDock4 reuses Vina prep — collapse to one).
+        # that share an engine — e.g. AutoDock-GPU reuses Vina prep — collapse to one).
         specs = {spec.key: spec for spec in list_docking_programs()}
         chosen: dict[str, str] = {}
         for key in self._selected_programs():
