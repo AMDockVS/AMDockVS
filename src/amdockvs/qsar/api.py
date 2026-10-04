@@ -1413,11 +1413,23 @@ class QSARAPI:
         def fp_fn(probe, atom_id=-1):
             return SimilarityMaps.GetMorganFingerprint(probe, atomId=atom_id, radius=radius, nBits=nbits)
 
-        def pred_fn(fp):
+        # A classifier's label does not move when one atom is removed, so every weight would be
+        # 0: follow the probability instead — P(active) when binary, else P(predicted class).
+        proba = getattr(fitted.estimator, "predict_proba", None) if fitted.task == "classification" else None
+        column = -1
+
+        def row(fp):
             arr = np.zeros((nbits,), dtype=np.float64)
             DataStructs.ConvertToNumpyArray(fp, arr)
-            return float(fitted.predict(arr.reshape(1, -1))[0])
+            return arr.reshape(1, -1)
 
+        def pred_fn(fp):
+            if proba is None:
+                return float(fitted.predict(row(fp))[0])
+            return float(proba(row(fp))[0][column])
+
+        if proba is not None and len(fitted.classes) > 2:
+            column = int(np.argmax(proba(row(fp_fn(mol)))[0]))
         weights = SimilarityMaps.GetAtomicWeightsForModel(mol, fp_fn, pred_fn)
         return {
             "molblock": Chem.MolToMolBlock(mol),

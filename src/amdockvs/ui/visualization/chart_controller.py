@@ -133,6 +133,10 @@ class ChartController:
         self._chart.show_universe(pool_points, selection_groups, evr, highlight_points)
         self._show()
 
+    def hide_glowing_molecule(self) -> None:
+        if getattr(self.w, "qsar_glow_dock", None) is not None:
+            self.w.dock_manager.toggle("qsar_glow", False)
+
     def show_glowing_molecule(self, molblock: str, weights, caption: str = "") -> None:
         if getattr(self.w, "qsar_glow_dock", None) is None:
             return

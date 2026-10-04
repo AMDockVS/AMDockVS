@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSpinBox,
     QTableWidget,
-    QTabWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
@@ -31,8 +30,18 @@ from amdockvs.qsar.modeling import supported_algorithms
 from amdockvs.ui.common.async_query import run_async
 from ms_components.ms_stepper import Orientation, QStepper
 
+QSAR_BUILD_VIEW_ID = "workspace.qsar_build"
 QSAR_MODELS_VIEW_ID = "workspace.qsar_models"
 PREDICTIONS_VIEW_ID = "workspace.qsar_predictions"
+
+
+def _scrolled(inner: QWidget) -> QScrollArea:
+    """Scroll wrapper so the tall wizard / tables never deform the area that hosts them."""
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QScrollArea.NoFrame)
+    scroll.setWidget(inner)
+    return scroll
 
 
 def _form_step(rows: list[tuple[str, QWidget]]) -> QWidget:
@@ -48,37 +57,27 @@ def _form_step(rows: list[tuple[str, QWidget]]) -> QWidget:
 
 
 # ---------------------------------------------------------------------------
-# QSAR models + activities
+# Build model (left-bar tool)
 # ---------------------------------------------------------------------------
 
-class QSARModelsWidget(QWidget):
+class QSARBuildWidget(QWidget):
+    """The build-a-model wizard. It only builds: what it trains is read in Model Analysis."""
+
     def __init__(self, *, runtime, parent=None):
         super().__init__(parent)
         self.runtime = runtime
         outer = QVBoxLayout(self)
-        # if getattr(runtime, "active_context", None) is None:
-        #     label = QLabel("Open or create a project to work with QSAR.", self)
-        #     label.setAlignment(Qt.AlignCenter)
-        #     outer.addWidget(label)
-        #     return
-
-        # Two tabs instead of an accordion: the accordion hid the models list behind the wizard.
-        # Each tab scrolls so the tall wizard / tables never deform the central area.
         self.status = QLabel("", self)
         self.status.setWordWrap(True)
-        self.tabs = QTabWidget(self)
-        self.tabs.addTab(self._scrolled(self._train_box()), "Build model")
-        self.tabs.addTab(self._scrolled(self._models_box()), "Models & analysis")
-        outer.addWidget(self.tabs, 1)
+        outer.addWidget(_scrolled(self._train_box()), 1)
         outer.addWidget(self.status)
         self.refresh()
 
-    def _scrolled(self, inner: QWidget) -> QScrollArea:
-        scroll = QScrollArea(self)
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QScrollArea.NoFrame)
-        scroll.setWidget(inner)
-        return scroll
+    def refresh(self) -> None:
+        run_async(self.runtime.qsar.endpoint_kinds, self._fill_endpoints, on_error=lambda _e: None,
+                  busy=self.stepper)
+
+    refresh_view = refresh
 
     def _preview_split(self) -> None:
         endpoint = self.train_endpoint.currentText().strip()
@@ -262,9 +261,10 @@ class QSARModelsWidget(QWidget):
         self.stepper.setEnabled(True)
         trained = [r for status, r in results if status == "ok"]
         errors = [r for status, r in results if status == "err"]
-        self.refresh()
-        self._populate_comparison(trained)
-        msg = f"Trained {len(trained)} model(s); compared below."
+        open_view = getattr(self.window(), "open_or_focus_view", None)
+        if trained and open_view is not None:
+            open_view(QSAR_MODELS_VIEW_ID).show_trained(trained)
+        msg = f"Trained {len(trained)} model(s); compared in Model Analysis."
         if errors:
             msg += " Failed: " + "; ".join(errors)
         self.status.setText(msg)
@@ -273,6 +273,70 @@ class QSARModelsWidget(QWidget):
         self.stepper.setEnabled(True)
         self.status.setText("")
         QMessageBox.warning(self, "QSAR train", str(exc))
+
+    def _show_correlation(self) -> None:
+        show = getattr(self.window(), "show_correlation_heatmap", None)
+        if show is None:
+            return
+        source = self.feature_source.currentText()  # the block chosen in the wizard's Descriptors step
+        thr = float(self.corr_threshold.value())
+
+        def _done(res):
+            show(f"{source} correlation", res["labels"], res["matrix"])
+            dropped = res["dropped"]
+            preview = ", ".join(dropped[:12]) + (" …" if len(dropped) > 12 else "")
+            self.status.setText(
+                f"{source}: {len(res['labels'])} features over {res['n_ligands']} ligands. The pipeline "
+                f"keeps {len(res['labels']) - len(dropped)} and prunes {len(dropped)} redundant at |r|>{thr:.2f}"
+                + (f": {preview}" if dropped else "."))
+
+        run_async(
+            lambda: self.runtime.qsar.correlation_matrix(feature_source=source, corr_threshold=thr),
+            _done,
+            on_error=lambda exc: QMessageBox.warning(self, "QSAR correlation", str(exc)),
+            busy=self,
+        )
+
+    def _fill_endpoints(self, kinds: dict[str, str]) -> None:
+        self._endpoint_kinds = dict(kinds)
+        current = self.train_endpoint.currentText()
+        self.train_endpoint.blockSignals(True)
+        self.train_endpoint.clear()
+        self.train_endpoint.addItems(sorted(kinds))
+        if current:
+            self.train_endpoint.setCurrentText(current)
+        self.train_endpoint.blockSignals(False)
+        self._default_task_for_endpoint(self.train_endpoint.currentText())
+
+    def _default_task_for_endpoint(self, endpoint: str) -> None:
+        """Default the task to match how the endpoint was ingested (categorical → classification)."""
+        kind = self._endpoint_kinds.get(str(endpoint).strip())
+        if kind:
+            self.task_combo.setCurrentText("classification" if kind == "categorical" else "regression")
+        self._sync_algorithms()  # refresh threshold enable/tooltip even when the task didn't change
+
+
+# ---------------------------------------------------------------------------
+# Model analysis (catalog view)
+# ---------------------------------------------------------------------------
+
+class QSARModelsWidget(QWidget):
+    """The trained models and everything read off them: compare, predict, evaluate, charts."""
+
+    def __init__(self, *, runtime, parent=None):
+        super().__init__(parent)
+        self.runtime = runtime
+        outer = QVBoxLayout(self)
+        self.status = QLabel("", self)
+        self.status.setWordWrap(True)
+        outer.addWidget(_scrolled(self._models_box()), 1)
+        outer.addWidget(self.status)
+        self.refresh()
+
+    def show_trained(self, rows: list[dict]) -> None:
+        """Called by the Build Model tool: reload the list and compare what it just trained."""
+        self.refresh()
+        self._populate_comparison(rows)
 
     # --- models ---------------------------------------------------------------
     def _models_box(self) -> QGroupBox:
@@ -342,7 +406,8 @@ class QSARModelsWidget(QWidget):
         analyze_row = QHBoxLayout()
         analyze_row.addWidget(QLabel("Analyze:", box))
         analyze_row.addWidget(_btn("importance", "Feature importance",
-                                   "Bar chart of the ticked tree model's features (tick exactly one).",
+                                   "Bar chart of the ticked model's feature weights: tree importances or "
+                                   "linear coefficients (tick exactly one).",
                                    self._show_importance))
         analyze_row.addWidget(
             _btn("roc", "ROC curve", "ROC + AUC; several ticked models overlay (classification).", self._show_roc))
@@ -457,8 +522,9 @@ class QSARModelsWidget(QWidget):
         metrics = dict(checked[0].metrics or {})
         pairs = metrics.get("feature_importance") or []
         if not pairs:
-            QMessageBox.information(self, "QSAR", "This model exposes no feature importances "
-                                                  "(only tree models do; linear/kNN/SVC don't).")
+            QMessageBox.information(self, "QSAR", "This model exposes no feature weights (tree and linear "
+                                                  "models do; kNN/SVM don't). Models trained before "
+                                                  "linear weights were stored need a retrain.")
             return
         show = getattr(self.window(), "show_feature_importance", None)
         if show is not None:
@@ -521,29 +587,6 @@ class QSARModelsWidget(QWidget):
                          self.status.setText(f"Applicability domain #{model_id}: {res[1]}/{res[2]} ligands in-domain "
                                              f"(mean Tanimoto ≥ 0.3 to 5 nearest training molecules).")),
             on_error=lambda exc: QMessageBox.warning(self, "QSAR applicability domain", str(exc)),
-            busy=self,
-        )
-
-    def _show_correlation(self) -> None:
-        show = getattr(self.window(), "show_correlation_heatmap", None)
-        if show is None:
-            return
-        source = self.feature_source.currentText()  # the block chosen in the wizard's Descriptors step
-        thr = float(self.corr_threshold.value())
-
-        def _done(res):
-            show(f"{source} correlation", res["labels"], res["matrix"])
-            dropped = res["dropped"]
-            preview = ", ".join(dropped[:12]) + (" …" if len(dropped) > 12 else "")
-            self.status.setText(
-                f"{source}: {len(res['labels'])} features over {res['n_ligands']} ligands. The pipeline "
-                f"keeps {len(res['labels']) - len(dropped)} and prunes {len(dropped)} redundant at |r|>{thr:.2f}"
-                + (f": {preview}" if dropped else "."))
-
-        run_async(
-            lambda: self.runtime.qsar.correlation_matrix(feature_source=source, corr_threshold=thr),
-            _done,
-            on_error=lambda exc: QMessageBox.warning(self, "QSAR correlation", str(exc)),
             busy=self,
         )
 
@@ -610,28 +653,8 @@ class QSARModelsWidget(QWidget):
 
     def refresh(self) -> None:
         run_async(self.runtime.qsar.list_models, self._fill_models, on_error=lambda _e: None, busy=self.models_table)
-        run_async(self.runtime.qsar.endpoint_kinds, self._fill_endpoints, on_error=lambda _e: None,
-                  busy=self.models_table)
 
     refresh_view = refresh
-
-    def _fill_endpoints(self, kinds: dict[str, str]) -> None:
-        self._endpoint_kinds = dict(kinds)
-        current = self.train_endpoint.currentText()
-        self.train_endpoint.blockSignals(True)
-        self.train_endpoint.clear()
-        self.train_endpoint.addItems(sorted(kinds))
-        if current:
-            self.train_endpoint.setCurrentText(current)
-        self.train_endpoint.blockSignals(False)
-        self._default_task_for_endpoint(self.train_endpoint.currentText())
-
-    def _default_task_for_endpoint(self, endpoint: str) -> None:
-        """Default the task to match how the endpoint was ingested (categorical → classification)."""
-        kind = self._endpoint_kinds.get(str(endpoint).strip())
-        if kind:
-            self.task_combo.setCurrentText("classification" if kind == "categorical" else "regression")
-        self._sync_algorithms()  # refresh threshold enable/tooltip even when the task didn't change
 
     def _fill_models(self, models) -> None:
         self._models = list(models)
@@ -739,6 +762,7 @@ class PredictionsWidget(QWidget):
         self.status = QLabel("", self)
         self.status.setWordWrap(True)
         outer.addWidget(self.status)
+        self._fp_models: set[int] = set()  # only a fingerprint model maps a prediction back to atoms
         self.refresh()
 
     def _current_model_id(self) -> int | None:
@@ -751,6 +775,7 @@ class PredictionsWidget(QWidget):
 
     def _fill_models(self, models) -> None:
         current = self._current_model_id()
+        self._fp_models = {int(m.id) for m in models if (m.metrics or {}).get("feature_kind") == "ecfp4"}
         self.model_combo.blockSignals(True)
         self.model_combo.clear()
         for m in models:
@@ -778,7 +803,9 @@ class PredictionsWidget(QWidget):
             conf = "" if row["confidence"] is None else f"{row['confidence']:.3f}"
             for c, val in enumerate([row["molecule_id"], row["name"], f"{row['value']:.4f}", conf]):
                 self.table.setItem(r, c, QTableWidgetItem(str(val)))
-        self.status.setText(f"{len(rows)} prediction(s). Select a row to glow the molecule."
+        glow = ("Select a row to glow the molecule." if self._current_model_id() in self._fp_models
+                else "Glowing needs a fingerprint (ECFP4) model.")
+        self.status.setText(f"{len(rows)} prediction(s). {glow}"
                             if rows else "No predictions yet — click 'Run prediction'.")
 
     def _run(self) -> None:
@@ -798,6 +825,12 @@ class PredictionsWidget(QWidget):
         model_id = self._current_model_id()
         if row < 0 or model_id is None or self.table.item(row, 0) is None:
             return
+        if model_id not in self._fp_models:
+            # A map left over from another model would read as this model's: take it down.
+            hide = getattr(self.window(), "hide_glowing_molecule", None)
+            if hide is not None:
+                hide()
+            return
         ligand_id = int(self.table.item(row, 0).text())
         name = self.table.item(row, 1).text()
         show = getattr(self.window(), "show_glowing_molecule", None)
@@ -813,16 +846,20 @@ class PredictionsWidget(QWidget):
 
 def register_qsar_panels(window) -> None:
     window.register_main_view(
-        QSAR_MODELS_VIEW_ID, "QSAR Models",
+        QSAR_BUILD_VIEW_ID, "Build Model",
+        lambda: QSARBuildWidget(runtime=window.runtime, parent=window.central_widget),
+    )
+    window.register_main_view(
+        QSAR_MODELS_VIEW_ID, "Model Analysis",
         lambda: QSARModelsWidget(runtime=window.runtime, parent=window.central_widget),
     )
     window.register_main_view(
         PREDICTIONS_VIEW_ID, "Predictions",
         lambda: PredictionsWidget(runtime=window.runtime, parent=window.central_widget),
     )
-    # Nav entry is added in main_window._populate_navigation_docks (qsar_dock list).
+    # Where each one shows up (left tool bar vs. top catalog bar) is decided in ui/registry.py.
     # HTP is an import mode, not a QSAR view — it is wired into the ligand-import flow, not here.
 
 
-__all__ = ["PREDICTIONS_VIEW_ID", "QSAR_MODELS_VIEW_ID", "PredictionsWidget", "QSARModelsWidget",
-           "register_qsar_panels"]
+__all__ = ["PREDICTIONS_VIEW_ID", "QSAR_BUILD_VIEW_ID", "QSAR_MODELS_VIEW_ID", "PredictionsWidget",
+           "QSARBuildWidget", "QSARModelsWidget", "register_qsar_panels"]

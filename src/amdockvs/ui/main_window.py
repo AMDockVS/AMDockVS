@@ -521,6 +521,9 @@ class AMDockVSMainWindow(QMainWindow):
     def show_glowing_molecule(self, molblock: str, weights, caption: str = "") -> None:
         self.charts.show_glowing_molecule(molblock, weights, caption)
 
+    def hide_glowing_molecule(self) -> None:
+        self.charts.hide_glowing_molecule()
+
     # -- project lifecycle ----------------------------------------------------------
 
     def _show_project_summary(self) -> None:
