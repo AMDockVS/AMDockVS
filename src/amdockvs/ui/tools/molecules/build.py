@@ -85,6 +85,7 @@ class MoleculeBuildWidget(QWidget):
     def __init__(self, *, runtime, parent=None):
         super().__init__(parent)
         self.runtime = runtime
+        self._opened_views: set[str] = set()  # tabs opened by this tool; closed when it hides
         self._ready = False
         self._library_sharded = False
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -364,6 +365,10 @@ class MoleculeBuildWidget(QWidget):
             empty_message="Nothing of this type to build on",
             show_action=False,
         )
+        # The selection made in Ligands/Receptors (for Docking, say) is the one built on: each
+        # tab shows its own role's, as the table's id filter, and _scope() reads it from there.
+        on_small = self.tabs.currentWidget() is self.small_molecules_tab
+        widget.bind_selection("ligand" if on_small else "receptor")
 
     def _on_scope_changed(self, *_args) -> None:
         self._sync_molecules_scope()
@@ -483,9 +488,8 @@ class MoleculeBuildWidget(QWidget):
 
     def _on_ligand_target_changed(self, *_args) -> None:
         self._sync_ligand_target()
-        opener = getattr(self.window(), "open_or_focus_view", None)
-        if self.isVisible() and callable(opener):
-            opener(self._ligand_view_id())
+        if self.isVisible():
+            self._open_catalog_view()
 
     def _active_protonation_method(self) -> str:
         return str(self.ligand_protonation_method.currentData() or "dimorphite")
@@ -532,16 +536,31 @@ class MoleculeBuildWidget(QWidget):
             return
         self._sync_ligand_target()
         self._refresh_protein_summary()
-        opener = getattr(self.window(), "open_or_focus_view", None)
-        if callable(opener):
-            opener(self._ligand_view_id())
+        self._open_catalog_view()
         self._sync_molecules_scope()
+
+    def _open_catalog_view(self) -> None:
+        """Bring up the table this tool works on, remembering the tabs it had to open itself."""
+        window = self.window()
+        central = getattr(window, "central_widget", None)
+        opener = getattr(window, "open_or_focus_view", None)
+        if central is None or not callable(opener):
+            return
+        view_id = self._ligand_view_id()
+        if central.open_view(view_id) is None:
+            self._opened_views.add(view_id)
+        opener(view_id)
 
     def hideEvent(self, event):
         super().hideEvent(event)
         widget = self._catalog_molecules_widget() if self._ready else None
         if widget is not None:
             widget.pop_scope(self._SCOPE_KEY)
+            widget.bind_selection(None)
+        # A tab this tool opened leaves with it; one the user already had open stays.
+        central = getattr(self.window(), "central_widget", None)
+        while self._opened_views and central is not None:
+            central.close_view(self._opened_views.pop())
 
     @staticmethod
     def _workflow_button(parent, handler) -> QPushButton:

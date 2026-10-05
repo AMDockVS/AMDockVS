@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 from amdockvs.runtime import AMDockVSRuntime
 from amdockvs.project.summaries import DockingHitSummary
 from amdockvs.ui.catalog import COMPLEXES_VIEW_ID, LIGANDS_VIEW_ID, RECEPTOR_VIEW_ID
+from amdockvs.ui.catalog.common import SelectionStore
 from amdockvs.ui.shell.main_content import MainContentWidget
 from amdockvs.ui.monitor import JobsDialog
 from amdockvs.ui.shell.projects import ApplicationWidget
@@ -63,6 +64,7 @@ class AMDockVSMainWindow(QMainWindow):
 
         self.views = ViewCoordinator(self)
         self.tools = ToolCoordinator(self)
+        self.selection = SelectionStore(self)  # what "Select" picked, shared by tables and tools
         self.aux = AuxiliaryPanelController(self)
         self.jobs = JobFeedbackController(self)
         self.viewer = MolecularViewerController(self)
