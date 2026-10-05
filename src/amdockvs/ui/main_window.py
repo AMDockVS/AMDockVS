@@ -142,10 +142,10 @@ class AMDockVSMainWindow(QMainWindow):
         )
 
         # Left panel that hosts a tool's config UI beside the central catalog tables:
-        # picking a tool from the MolTools/Docking menus mounts it here (one at a time)
-        # instead of opening a central tab. See ToolCoordinator.
+        # picking a tool shows it here (one at a time) instead of opening a central tab.
+        # See ToolCoordinator.
         self.tools_dock = MSDockWidget("Tools", self.dock_manager, self)
-        self.tools_dock.setWidget(QWidget())  # placeholder; DockManager.build needs a widget
+        self.tools_dock.setWidget(self.tools.stack)  # one page per tool, built on first open
         self.dock_manager.add_dock(
             self.tools_dock,
             dock_id="tools",

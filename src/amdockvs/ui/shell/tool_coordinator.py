@@ -1,9 +1,9 @@
-"""The left tool panel: mounting one tool at a time and keeping its button in sync."""
+"""The left tool panel: showing one tool at a time and keeping its button in sync."""
 
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QStackedWidget, QWidget
 
 from amdockvs.ui.registry import TOOLS
 from amdockvs.ui.resources.icons import icon as load_icon
@@ -14,55 +14,56 @@ class ToolCoordinator:
     def __init__(self, window):
         self.w = window
         self.active_tool: str | None = None
-        self.tool_widget: QWidget | None = None
+        # Tools are built on first open and then kept: switching tools flips a page, so each
+        # one is found on the step and with the settings it was left with. The stack is the
+        # dock's only widget; a hidden page still gets hideEvent/showEvent, which is what the
+        # tools use to release and re-take the catalog tables they borrow.
+        self.stack = QStackedWidget()
+        self.widgets: dict[str, QWidget] = {}
         self.action_buttons: dict[str, object] = {}
 
+    @property
+    def tool_widget(self) -> QWidget | None:
+        return self.widgets.get(self.active_tool)
+
     def open_tool(self, view_id: str) -> QWidget:
-        """Mount a tool's config UI in the left tool panel (one tool at a time)."""
+        """Show a tool's config UI in the left tool panel (one tool at a time)."""
         window = self.w
         if getattr(window, "tools_dock", None) is None:
             return window.central_widget.open_or_focus_view(view_id)  # fallback: no dock host
-        if self.active_tool == view_id and self.tool_widget is not None:
-            window.dock_manager.toggle("tools", True)
-            window.tools_dock.raise_()
-            return self.tool_widget
-
-        title, widget = window.central_widget.build_view_widget(view_id)
-        old, previous_tool = window.tools_dock.widget(), self.active_tool
-        window.tools_dock.setWidget(widget)  # reparents `old` out of the dock
-        window.tools_dock.setWindowTitle(title)
-        self.tool_widget, self.active_tool = widget, view_id
-        if old is not None and old is not widget:
-            old.deleteLater()
-        if previous_tool is not None and previous_tool != view_id:
-            self.sync_tool_action(previous_tool, False)
-        self.sync_tool_action(view_id, True)
-        window.aux.set_occupant(view_id)
+        widget = self.widgets.get(view_id)
+        if widget is None:
+            title, widget = window.central_widget.build_view_widget(view_id)
+            widget.setWindowTitle(title)
+            self.widgets[view_id] = widget
+            self.stack.addWidget(widget)
+        previous_tool, was_open = self.active_tool, window.tools_dock.isVisible()
+        if previous_tool != view_id:
+            self.active_tool = view_id
+            self.stack.setCurrentWidget(widget)  # hides the previous page, then shows this one
+            window.tools_dock.setWindowTitle(widget.windowTitle())
+            if previous_tool is not None:
+                self.sync_tool_action(previous_tool, False)
+            self.sync_tool_action(view_id, True)
+            window.aux.set_occupant(view_id)
         window.dock_manager.toggle("tools", True)
         window.tools_dock.raise_()
-        try:  # open at ~1/3 of the window, matching the right (PyMOL) dock
-            window.resizeDocks([window.tools_dock], [window._third_width()], Qt.Horizontal)
-        except Exception:
-            pass
+        if not was_open:
+            try:  # open at ~1/3 of the window, matching the right (PyMOL) dock
+                window.resizeDocks([window.tools_dock], [window._third_width()], Qt.Horizontal)
+            except Exception:
+                pass
         return widget
 
     def on_tools_dock_visibility(self, visible: bool) -> None:
-        # Hiding the tool panel (its close button) closes the active tool: swap in an
-        # empty placeholder, drop the widget, unpress its toolbar button and retire the
-        # auxiliary panel it contributed.
+        # Hiding the tool panel (its close button) closes the active tool: unpress its toolbar
+        # button and retire the auxiliary panel it contributed. The widget stays in the stack,
+        # hidden with the dock, so reopening the tool resumes it.
         if visible or self.active_tool is None:
             return
         closed, self.active_tool = self.active_tool, None
-        # Retire the tool's chrome BEFORE swapping the widget out: setWidget() fires the
-        # tool's hideEvent, and a tool that throws in there must not strand the window
-        # showing that tool's data views and auxiliary.
         self.sync_tool_action(closed, False)
         self.w.aux.set_occupant(None)
-        old = self.w.tools_dock.widget()
-        self.w.tools_dock.setWidget(QWidget())  # keep the dock valid without a tool
-        self.tool_widget = None
-        if old is not None:
-            old.deleteLater()
 
     def build_tool_actions(self) -> None:
         self.action_buttons = {}  # view_id -> QToolButton

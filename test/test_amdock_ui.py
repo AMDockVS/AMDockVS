@@ -347,7 +347,7 @@ def test_amdock_ui_domain_views_show_docking_summaries(tmp_path, monkeypatch):
 
         results_view = window.open_complex_results()
         activity_view = window.central_widget.open_or_focus_view("workspace.ligand_activity")
-        docking_view = window.central_widget.open_or_focus_view("workspace.docking")
+        docking_view = window.tools.open_tool("workspace.docking")  # where a user opens it: the tool panel
         app.processEvents()
 
         # The domain views open with the right widget types; the underlying docking data

@@ -184,6 +184,9 @@ class DockingStudioWidget(
         self._sync_receptor_table_filter()
         if self.stepper.current_index != self._PREP_STEP["receptor"]:
             self._reset_receptor_focus()
+        self._show_step_view()
+
+    def _show_step_view(self) -> None:
         # Steps 2/3 work *on* a catalog tab (they have no table of their own), so bring it up.
         # Preview & Run is the step *before* the results, so it opens them: the run lands there.
         from amdockvs.ui.catalog.domain_views import COMPLEXES_VIEW_ID  # circular at import time
@@ -206,14 +209,18 @@ class DockingStudioWidget(
     def on_job_finished(self, *_args) -> None:
         """A preparation job landing changes the counts under the Run step. Re-check instead of
         leaving a stale "0 / 20 prepared" until the user clicks something. `_check_requirements`
-        self-gates on the step, so this is free while the user is anywhere else."""
-        self._check_requirements()
+        self-gates on the step, so this is free while the user is anywhere else; off screen
+        showEvent does the catching up."""
+        if self.isVisible():
+            self._check_requirements()
 
     def on_jobs_snapshot(self, snapshot) -> None:
         """Monitor heartbeat: poll the counts only while something is actually running."""
         self._jobs_active = int(getattr(snapshot, "jobs_active", 0) or 0)
         self._sync_prep_poll()
-        if not self._ready or snapshot is None:
+        # The studio outlives its turn in the tool panel, so this keeps ticking while another
+        # tool is up; the next beat after showEvent re-attaches whatever is running by then.
+        if not self._ready or snapshot is None or not self.isVisible():
             return
         step = self.attach_active_jobs(list(getattr(snapshot, "jobs", ()) or ()))
         if step is not None and not self._reopened:
@@ -221,7 +228,7 @@ class DockingStudioWidget(
         self._reopened = True
 
     def _sync_prep_poll(self) -> None:
-        want = self._jobs_active > 0 and self.stepper.current_index == 3
+        want = self._jobs_active > 0 and self.stepper.current_index == 3 and self.isVisible()
         if want == self._prep_poll_timer.isActive():
             return  # the snapshot ticks every 500 ms; restarting would reset the countdown forever
         self._prep_poll_timer.start() if want else self._prep_poll_timer.stop()
@@ -263,11 +270,15 @@ class DockingStudioWidget(
             return
         self._sync_ligand_table_filter()
         self._sync_receptor_table_filter()
+        # Back on the table of the step it was left at. Whatever finished while another tool was
+        # up catches up there too (requirement counts and the live poll).
+        self._show_step_view()
 
     def hideEvent(self, event):
         super().hideEvent(event)
         if not self._ready:
             return
+        self._prep_poll_timer.stop()
         self._release_ligand_table()
         self._release_receptor_table()
 
