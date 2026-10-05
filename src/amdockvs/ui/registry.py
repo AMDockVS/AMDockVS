@@ -25,6 +25,7 @@ from amdockvs.ui.catalog import (
 from amdockvs.ui.catalog.domain_views import LIGAND_ACTIVITY_VIEW_ID
 from amdockvs.ui.tools.docking.studio import DOCKING_VIEW_ID
 from amdockvs.ui.tools.molecules.build import BUILD_ID
+from amdockvs.ui.tools.molecules.clusters import CLUSTERS_VIEW_ID
 from amdockvs.ui.tools.molecules.diversity import SELECTION_VIEW_ID
 from amdockvs.ui.tools.molecules.filter import FILTER_ID
 from amdockvs.ui.tools.binding_sites.detection import POCKET_DETECTION_VIEW_ID
@@ -77,6 +78,9 @@ STANDING_DATA_VIEWS = (
         ("Docking Results", COMPLEXES_VIEW_ID, "docking_results.svg"),
     ),
     (
+        ("Clusters", CLUSTERS_VIEW_ID, "diversity.svg"),  # what Diversity runs produced
+    ),
+    (
         ("Model Analysis", QSAR_MODELS_VIEW_ID, "models.svg"),
         ("Predictions", PREDICTIONS_VIEW_ID, "predictions.svg"),
     ),
@@ -92,6 +96,7 @@ REGISTRARS: tuple[str, ...] = (
     "amdockvs.ui.tools.molecules.build:register_build_workspace",
     "amdockvs.ui.tools.molecules.filter:register_filter_workspace",
     "amdockvs.ui.tools.molecules.diversity:register_selection_workspace",
+    "amdockvs.ui.tools.molecules.clusters:register_clusters_workspace",
     "amdockvs.ui.tools.binding_sites.detection:register_pocket_detection_workspace",
     "amdockvs.ui.tools.docking.studio:register_docking_workspace",
     "amdockvs.ui.tools.qsar.panels:register_qsar_panels",

@@ -1,17 +1,18 @@
-"""Diversity selection view — reduce chemical redundancy by clustering + centroid picking.
+"""Diversity — cluster a ligand scope into groups of similar molecules, one representative each.
 
-Two actions, clearly split:
+The scope is what the Ligands table shows: the Selection combo is pushed onto that table while
+this tool is up, and whatever is narrowed there (a "Select", a column filter) narrows the run too.
 
-* **Exclude non-representatives** IS the run, and it ALWAYS goes to an mf clustering job (never
-  inline). It sizes the scope, then a hybrid dialog suggests ``plan_cpus(n)`` CPUs (1 → single-tree
-  BitBIRCH, >1 → bblean multiround) which the user can override; the job requests exactly that many
-  CPUs (``cpu_required``) so mf schedules it. When ``job_finished`` fires the non-representatives are
-  inactivated automatically (same ``excluded`` flag Filter uses; reversible). No size cap.
+* **Cluster** IS the run, and it ALWAYS goes to an mf clustering job (never inline). It sizes the
+  scope, then a hybrid dialog suggests ``plan_cpus(n)`` CPUs (1 → single-tree BitBIRCH, >1 → bblean
+  multiround) which the user can override; the job requests exactly that many CPUs
+  (``cpu_required``) so mf schedules it. When ``job_finished`` fires the run is registered and
+  opens in the **Clusters** view. It changes nothing in the library: selecting, excluding and
+  saving as a set are explicit actions of that view. No size cap.
 * **Preview sample** is the only inline path: it clusters a *fresh* random sample (RUN_SAMPLE_LIMIT)
   just to eyeball the clustering and tune method/threshold. Previews ACCUMULATE (first fixes a PCA
-  basis, later ones project onto it) into one grey 'chemical universe' scatter; they change nothing.
-
-The scatter lives in the shared **Distribution** dock; this tab keeps the tightness + results tables.
+  basis, later ones project onto it) into one grey 'chemical universe' scatter in the shared
+  **Distribution** dock.
 """
 from __future__ import annotations
 
@@ -22,14 +23,12 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
-    QHeaderView,
     QInputDialog,
     QLabel,
     QMessageBox,
@@ -37,24 +36,30 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSpinBox,
     QStackedWidget,
-    QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 from amdockvs.models.molecules import MoleculeUsageClass
 from amdockvs.diversity.api import DiversityAPI
+from amdockvs.ui.catalog.ligands import LIGANDS_VIEW_ID
 from amdockvs.ui.common.async_query import run_async
+from amdockvs.ui.tools.molecules.clusters import CLUSTERS_VIEW_ID
+from ms_components.ms_table import FilterOperator, FilterSpec
 
 SELECTION_VIEW_ID = "moltools.diversity"
 
 # Preview clusters a small random sample so it stays fast (clustering is O(n·k·nbits) and the PCA
-# SVD is superlinear — 20k mols took minutes). Exclusion at full scale goes through the parallel mf
-# job, not this preview; above this the scope is sampled and inline exclusion stays disabled.
+# SVD is superlinear — 20k mols took minutes). The run at full scale goes through the mf job, not
+# this preview; above this the scope is sampled.
 RUN_SAMPLE_LIMIT = 1000
 
+# ponytail: a narrowed Ligands table reaches the run as an `id IN [...]` list, and SQLite binds at
+# most 32766 values in its stock build. Past this, save the rows as a set and pick it in Selection;
+# the scale-free version is scope_ids() as a subquery (see BoundTableWidget.scope_ids).
+MAX_NARROWED_IDS = 30000
+
 # Cap the accumulated pile: each preview keeps points + render state alive, so an unbounded stack
-# balloons RAM (the whole point of #6/#4). Past this, Clear (or apply-to-DB) is required.
+# balloons RAM (the whole point of #6/#4). Past this, Clear is required.
 MAX_PREVIEWS = 10
 
 # Distinct marker colours, cycled one per preview so successive selections stack up readably.
@@ -69,89 +74,48 @@ def _jsonable_to_tuple(value: Any) -> Any:
     return tuple(_jsonable_to_tuple(v) for v in value) if isinstance(value, list) else value
 
 
-_EXCLUDE_TIP = (
-    "Run the selection: cluster the WHOLE current scope as an mf job (always — never inline; no size "
-    "cap) and inactivate the non-representatives, keeping one diverse molecule per cluster active "
-    "(excluded=True). You confirm the CPU count first (suggested from the scope size; 1 = serial, "
-    ">1 = parallel). The exclusion applies automatically when the job finishes. Preview is only a "
-    "tuning look. Reversible from Filter's 'Excluded' scope."
+_CLUSTER_TIP = (
+    "Cluster the WHOLE scope as an mf job (always — never inline; no size cap). You confirm the CPU "
+    "count first (suggested from the scope size; 1 = serial, >1 = parallel). The result opens in "
+    "the Clusters view when the job finishes; nothing is excluded until you ask for it there."
 )
 
 
 class DiversitySelectionWidget(QWidget):
+    # This tool's scope key on the Ligands table it borrows (BoundTableWidget.push_scope).
+    _SCOPE_KEY = "diversity"
+
     def __init__(self, *, runtime, parent=None):
         super().__init__(parent)
         self.runtime = runtime
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self._running = False
-        self._last_result: dict[str, Any] | None = None  # latest preview batch (for exclusion)
-        # A parallel (mf) clustering run in flight: {job_id, run_id, reason, scope_label, method,
-        # threshold} — its non-reps are excluded when job_finished fires for job_id.
+        self._last_result: dict[str, Any] | None = None  # latest preview batch
+        # A clustering run in flight: {job_id, run_id, scope_label, method, threshold, fp_*} —
+        # registered as a result when job_finished fires for job_id.
         self._pending_cluster_job: dict[str, Any] | None = None
         self._job_signal_connected = False
+        self._scope_signal_connected = False
         self._reset_accumulation()
 
         outer = QVBoxLayout(self)
-        # if getattr(runtime, "active_context", None) is None:
-        #     label = QLabel("Open or create a project to run diversity selection.", self)
-        #     label.setAlignment(Qt.AlignCenter)
-        #     outer.addWidget(label)
-        #     return
-
         outer.addWidget(self._build_controls())
+        self.scope_label = QLabel("", self)
+        self.scope_label.setWordWrap(True)
+        outer.addWidget(self.scope_label)
         self.stats_label = QLabel(
-            "Pick a scope, then 'Exclude non-representatives' clusters the whole selection and keeps one "
-            "diverse molecule per cluster. 'Preview sample' is an optional quick look to tune the "
+            "'Cluster' clusters the whole scope and opens the result in Clusters; nothing is excluded "
+            "until you ask for it there. 'Preview sample' is an optional quick look to tune the "
             "method/threshold first.",
             self,
         )
         self.stats_label.setWordWrap(True)
         outer.addWidget(self.stats_label)
+        outer.addStretch(1)
 
-        # view-mode state (a saved result on screen stashes the live pile)
-        self._viewing: str | None = None
-        self._live_snapshot: tuple | None = None
-        self._results_display: list[dict[str, Any]] = []
-
-        # left: saved results (durable, click to view) · right: clusters of the current preview/result
-        self.results_table = QTableWidget(0, 3, self)
-        self.results_table.setHorizontalHeaderLabels(["Saved", "Method", "n→clusters"])
-        self.results_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.results_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.results_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.results_table.setSelectionMode(QTableWidget.SingleSelection)
-        self.results_table.itemSelectionChanged.connect(self._on_result_selected)
-
-        filter_row = QHBoxLayout()
-        filter_row.addWidget(QLabel("Clusters from"))
-        self.preview_filter = QComboBox(self)
-        self.preview_filter.addItem("All previews", None)
-        self.preview_filter.currentIndexChanged.connect(self._refill_table)
-        filter_row.addWidget(self.preview_filter)
-        filter_row.addStretch(1)
-
-        self.cluster_table = QTableWidget(0, 3, self)
-        self.cluster_table.setHorizontalHeaderLabels(["Cluster", "Size", "Tightness"])
-        self.cluster_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.cluster_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.cluster_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.cluster_table.setSelectionMode(QTableWidget.SingleSelection)
-        self.cluster_table.itemSelectionChanged.connect(self._on_cluster_selected)
-
-        tables = QHBoxLayout()
-        left = QVBoxLayout()
-        left.addWidget(QLabel("Results"))
-        left.addWidget(self.results_table)
-        right = QVBoxLayout()
-        right.addLayout(filter_row)
-        right.addWidget(self.cluster_table)
-        tables.addLayout(left, 2)
-        tables.addLayout(right, 3)
-        outer.addLayout(tables, 1)
-
+        self.set_combo.currentIndexChanged.connect(self._sync_ligands_scope)
         self.refresh()
-        self._refresh_results()
-        self._load_cache()  # restore a pile left from a previous visit (the plot redraws on tab-enter)
+        self._load_cache()  # restore a pile left from a previous visit (the plot redraws on show)
 
     def _reset_accumulation(self) -> None:
         """Clear the fixed PCA basis + everything drawn/seen so the next preview starts a new pile."""
@@ -163,12 +127,10 @@ class DiversitySelectionWidget(QWidget):
         self._evr: list[float] = [0.0, 0.0]
         self._last_result = None
         self._total_in_scope = 0
-        # Full per-point graph data for the whole pile (x, y, molecule_id, cluster_id, is_centroid) —
-        # the parquet sidecar payload; also what Exclude/Save operate on across accumulated previews.
+        # Full per-point graph data for the whole pile (x, y, molecule_id, cluster_id, is_centroid).
         self._all_points: list[tuple[float, float, int, int, bool]] = []
-        self._highlight_points: list | None = None  # a picked cluster's centroid(s), emphasised on the plot
 
-    # --- disk cache (previews survive tab close until Clear / applied) ---------
+    # --- disk cache (previews survive a session until Clear) -------------------
     def _cache_path(self) -> Path | None:
         try:
             project_root = self.runtime.get_project_paths()["project_root"]
@@ -202,7 +164,7 @@ class DiversitySelectionWidget(QWidget):
             pass
 
     def _load_cache(self) -> None:
-        """Restore a saved pile on tab (re)open, and set the scope/FP controls back to what produced
+        """Restore a saved pile, and set the scope/FP controls back to what produced
         it so the next Preview extends it instead of resetting."""
         path = self._cache_path()
         if path is None or not path.exists():
@@ -221,7 +183,7 @@ class DiversitySelectionWidget(QWidget):
         self._total_in_scope = int(payload.get("total_in_scope") or 0)
         self._last_result = None  # method/threshold fall back to the current controls on a restored pile
         if self._basis_key:
-            scope_data, radius, nbits = self._basis_key
+            scope_data, radius, nbits = self._basis_key[:3]
             # QComboBox.findData compares via QVariant and misses nested-tuple data — search by ==.
             idx = next((i for i in range(self.set_combo.count()) if self.set_combo.itemData(i) == scope_data), -1)
             for widget, setter, value in (
@@ -233,12 +195,10 @@ class DiversitySelectionWidget(QWidget):
                     widget.blockSignals(True)
                     setter(value)
                     widget.blockSignals(False)
-        self._sync_preview_filter()
-        self._refill_table()
         if self._selections:
             self.stats_label.setText(
                 f"Restored {len(self._selections)} cached preview sample(s) · {len(self._seen_ids)} "
-                f"molecules. Press 'Exclude non-representatives' to run over the whole selection."
+                f"molecules. Press 'Cluster' to run over the whole scope."
             )
 
     def _delete_cache(self) -> None:
@@ -248,13 +208,16 @@ class DiversitySelectionWidget(QWidget):
 
     # --- controls -------------------------------------------------------------
     def _build_controls(self) -> QWidget:
-        box = QGroupBox("Diversity selection", self)
+        box = QGroupBox("Diversity", self)
         row = QHBoxLayout(box)
 
         # left: shared setup (what to cluster, feature, actions) --------------------------------
         setup = QFormLayout()
         self.set_combo = QComboBox(box)  # Selection scope (usage classes + sets)
-        self.set_combo.setToolTip("What to cluster — clustering is often aimed at a subset, not the whole library.")
+        self.set_combo.setToolTip(
+            "What to cluster. The Ligands table shows it while this tool is open: narrow it further "
+            "there ('Select' on rows, column filters) and the run follows."
+        )
         self.method_combo = QComboBox(box)
         for name in DiversityAPI.supported_methods():
             self.method_combo.addItem(name, name)
@@ -288,7 +251,7 @@ class DiversitySelectionWidget(QWidget):
         self.run_button.setToolTip(
             f"Optional: cluster a fast random sample (up to {RUN_SAMPLE_LIMIT}) just to eyeball the "
             f"clustering and tune threshold/method — changes nothing. Press it again for another "
-            f"sample. To actually run the selection, use 'Exclude non-representatives'."
+            f"sample. To cluster the whole scope, use 'Cluster'."
         )
         self.run_button.clicked.connect(self._run)
         self.clear_button = QPushButton("Clear", box)
@@ -296,17 +259,21 @@ class DiversitySelectionWidget(QWidget):
         self.clear_button.clicked.connect(self._clear)
         self.size_dist_button = QPushButton("Size distribution", box)
         self.size_dist_button.setToolTip(
-            "Histogram of compounds-per-cluster for the current previews / viewed result — how many "
-            "clusters are singletons vs. large. Replaces the scatter in the Distribution dock; Preview redraws it."
+            "Histogram of compounds-per-cluster for the current previews — how many clusters are "
+            "singletons vs. large. Replaces the scatter in the Distribution dock; Preview redraws it."
         )
         self.size_dist_button.clicked.connect(self._show_size_distribution)
-        self.exclude_button = QPushButton("Exclude non-representatives", box)
-        self.exclude_button.setToolTip(_EXCLUDE_TIP)
-        self.exclude_button.clicked.connect(self._exclude_nonreps)
+        self.cluster_button = QPushButton("Cluster", box)
+        self.cluster_button.setToolTip(_CLUSTER_TIP)
+        self.cluster_button.clicked.connect(self._cluster)
+        self.results_button = QPushButton("Show clusters", box)
+        self.results_button.setToolTip("Open the Clusters view: the runs made so far, their clusters and ligands.")
+        self.results_button.clicked.connect(lambda: self._show_clusters())
+        buttons.addWidget(self.cluster_button)
+        buttons.addWidget(self.results_button)
         buttons.addWidget(self.run_button)
         buttons.addWidget(self.clear_button)
         buttons.addWidget(self.size_dist_button)
-        buttons.addWidget(self.exclude_button)
         buttons.addStretch(1)
         setup.addRow(buttons)
 
@@ -387,13 +354,81 @@ class DiversitySelectionWidget(QWidget):
         self.set_combo.setCurrentIndex(index if index >= 0 else 0)
         self.set_combo.blockSignals(False)
 
-    def _scope_params(self) -> dict[str, Any]:
+    def _ligands_table(self):
+        central = getattr(self.window(), "central_widget", None)
+        try:
+            return central.open_view(LIGANDS_VIEW_ID) if central is not None else None
+        except Exception:  # noqa: BLE001 - a missing/failed view must not break the tool
+            return None
+
+    def _sync_ligands_scope(self, *_args) -> None:
+        """Show the Selection choice on the Ligands table, so the scope is something you can see."""
+        if not self.isVisible():
+            return  # off screen it borrows nothing; showEvent pushes the scope on return
+        table = self._ligands_table()
+        if table is None:
+            return
+        kind, value = self.set_combo.currentData() or ("all", None)
+        filters, clause = [], None
+        if kind == "usage":
+            many = isinstance(value, tuple)
+            filters = [FilterSpec(
+                "usage_class", FilterOperator.IN if many else FilterOperator.EQ,
+                list(value) if many else value, label="diversity_usage",
+            )]
+        elif kind == "set":
+            molecules = self.runtime.molecules
+            clause = molecules.scope_clause(molecules.select(source=molecules.resolve_set(value)))
+        if not self._scope_signal_connected:
+            table.records_changed.connect(self._on_scope_count)
+            self._scope_signal_connected = True
+        table.push_scope(self._SCOPE_KEY, filters=filters, clause=clause,
+                         empty_message="No ligands in this scope")
+        if table.record_count is not None:
+            self._on_scope_count(table.record_count)  # a push that changed nothing reloads nothing
+
+    def _on_scope_count(self, count: int) -> None:
+        if self.isVisible():
+            self.scope_label.setText(
+                f"Scope: the {int(count)} ligand(s) the Ligands table shows. Narrow it there "
+                f"('Select' on rows, column filters) or with Selection above."
+            )
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        opener = getattr(self.window(), "open_or_focus_view", None)
+        if callable(opener):
+            opener(LIGANDS_VIEW_ID)  # the scope, on screen (a tab change also clears the chart)
+        self._sync_ligands_scope()
+        if self._selections:
+            self._push_plot()
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        table = self._ligands_table()
+        if table is not None:
+            table.pop_scope(self._SCOPE_KEY)
+
+    def _scope_params(self) -> dict[str, Any] | None:
+        """The run's scope; None (after telling the user) when the table narrowing is too large."""
         kind, value = self.set_combo.currentData() or ("all", None)
         molecule_filters: dict[str, Any] = {}
         if kind == "usage":
             molecule_filters["usage_class__in" if isinstance(value, tuple) else "usage_class"] = (
                 list(value) if isinstance(value, tuple) else value
             )
+        table = self._ligands_table()
+        ids = table.scope_ids() if table is not None else None  # None: nothing narrowed there
+        if ids is not None:
+            if len(ids) > MAX_NARROWED_IDS:
+                QMessageBox.information(
+                    self, "Diversity",
+                    f"The Ligands table is narrowed to {len(ids)} rows — too many to pass as a list "
+                    f"(limit {MAX_NARROWED_IDS}). Save them as a set ('Create Ligand Set…') and pick "
+                    f"it in Selection, or clear the table filters.",
+                )
+                return None
+            molecule_filters["id__in"] = ids or [0]
         return {
             "molecule_set": self.runtime.molecules.resolve_set(value) if kind == "set" else None,
             "molecule_filters": molecule_filters,
@@ -402,8 +437,11 @@ class DiversitySelectionWidget(QWidget):
             "sample_limit": RUN_SAMPLE_LIMIT,
         }
 
-    def _scope_key(self) -> tuple:
-        return (self.set_combo.currentData(), int(self.radius_spin.value()), int(self.nbits_spin.value()))
+    def _scope_key(self, scope_kw: dict[str, Any]) -> tuple:
+        ids = scope_kw["molecule_filters"].get("id__in")
+        # A narrowed table is another universe: its samples must not pile onto a previous one's.
+        narrowed = (len(ids), sum(ids)) if ids is not None else None
+        return (self.set_combo.currentData(), int(self.radius_spin.value()), int(self.nbits_spin.value()), narrowed)
 
     def _cluster_params(self) -> dict[str, Any]:
         method = str(self.method_combo.currentData() or "bitbirch")
@@ -414,14 +452,10 @@ class DiversitySelectionWidget(QWidget):
 
     # --- preview (manual, off the GUI thread, with a blocking overlay) --------
     def _clear(self) -> None:
-        self._exit_view()
         self._reset_accumulation()
-        self.cluster_table.setRowCount(0)
-        self._sync_preview_filter()
-        self.exclude_button.setEnabled(True)
         self.stats_label.setText(
-            "Cleared. 'Exclude non-representatives' runs the clustering over the whole selection; "
-            "'Preview sample' is an optional look first."
+            "Cleared. 'Cluster' runs the clustering over the whole scope; 'Preview sample' is an "
+            "optional look first."
         )
         self._push_plot()
         self._delete_cache()
@@ -430,22 +464,22 @@ class DiversitySelectionWidget(QWidget):
     def _run(self) -> None:
         if self._running:
             return
-        self._exit_view()  # leave a viewed result → back to the live pile
-        key = self._scope_key()
+        scope_kw = self._scope_params()
+        if scope_kw is None:
+            return
+        key = self._scope_key(scope_kw)
         if key != self._basis_key:  # new scope/FP → the fixed PCA basis no longer applies
             self._reset_accumulation()
             self._basis_key = key
         if len(self._selections) >= MAX_PREVIEWS:
             QMessageBox.information(
-                self, "Diversity selection",
-                f"Preview limit ({MAX_PREVIEWS}) reached — press Clear to start a fresh pile, or "
-                f"exclude/apply to finish.",
+                self, "Diversity",
+                f"Preview limit ({MAX_PREVIEWS}) reached — press Clear to start a fresh pile.",
             )
             return
         self._running = True
         self.run_button.setEnabled(False)
-        self.exclude_button.setEnabled(False)
-        scope_kw = self._scope_params()
+        self.cluster_button.setEnabled(False)
         cluster_kw = self._cluster_params()
         seed = random.randrange(1 << 30)  # a fresh subset every press
         run_async(
@@ -465,7 +499,7 @@ class DiversitySelectionWidget(QWidget):
     def _on_previewed(self, payload: dict[str, Any]) -> None:
         self._running = False
         self.run_button.setEnabled(True)
-        self.exclude_button.setEnabled(True)
+        self.cluster_button.setEnabled(self._pending_cluster_job is None)
         result = payload["analysis"]
         ids = result.get("molecule_ids") or []
         if not ids:
@@ -505,14 +539,14 @@ class DiversitySelectionWidget(QWidget):
             if is_centroid:
                 rep_pts.append(projection[i])
                 rep_ids.append(int(m))
-                rep_cluster_ids.append(raw_label)  # raw label matches the cluster table's id
+                rep_cluster_ids.append(raw_label)
             else:
                 self._pool_points.append(projection[i])
         color = _PALETTE[len(self._selections) % len(_PALETTE)]
         self._selections.append({
             "points": rep_pts,
             "ids": rep_ids,  # parallel to points → hover maps a marker back to its centroid molecule
-            "cluster_ids": rep_cluster_ids,  # parallel to points → click-a-cluster highlight
+            "cluster_ids": rep_cluster_ids,  # parallel to points
             "color": color,
             "label": f"preview {len(self._selections) + 1} ({len(rep_pts)})",
             "clusters": stats.get("clusters") or [],
@@ -524,95 +558,28 @@ class DiversitySelectionWidget(QWidget):
             f"{stats.get('n_clusters', 0)} clusters ({len(reps)} representatives) · "
             f"mean tightness {stats.get('mean_tightness', 0)}.\n"
             f"Sampled {len(self._seen_ids)} of {self._total_in_scope} in scope across "
-            f"{len(self._selections)} preview(s) — this is just a look. Press "
-            f"'Exclude non-representatives' to run the clustering over the whole selection."
+            f"{len(self._selections)} preview(s) — this is just a look. Press 'Cluster' to run "
+            f"the clustering over the whole scope."
         )
-        self._sync_preview_filter()
-        self._refill_table()
         self._push_plot()
         self._save_cache()
-
-    def _sync_preview_filter(self) -> None:
-        """Keep the 'Clusters from' combo in sync with the accumulated previews (blocking its signal
-        so repopulating doesn't refill the table twice)."""
-        current = self.preview_filter.currentData()
-        self.preview_filter.blockSignals(True)
-        self.preview_filter.clear()
-        self.preview_filter.addItem("All previews", None)
-        for i in range(1, len(self._selections) + 1):
-            self.preview_filter.addItem(f"preview {i}", i)
-        index = self.preview_filter.findData(current)
-        self.preview_filter.setCurrentIndex(index if index >= 0 else 0)
-        self.preview_filter.blockSignals(False)
-
-    def _refill_table(self) -> None:
-        """Fill the cluster table from the selected preview (or all). Cluster names are `r{n}_{id}` when
-        viewing a saved result, `p{n}_{id}` for live previews — so the two never get confused. The
-        (group_index, cluster_id) is stashed on each row for the click-to-highlight."""
-        prefix = "r" if self._viewing is not None else "p"
-        chosen = self.preview_filter.currentData()  # None = all previews
-        rows: list[tuple[str, Any, Any, int, int, int]] = []
-        for preview_no, group in enumerate(self._selections, start=1):
-            if chosen is not None and chosen != preview_no:
-                continue
-            for cluster in group.get("clusters") or []:
-                cluster_id = int(cluster.get("cluster_id") or 0)
-                rows.append((
-                    f"{prefix}{preview_no}_{cluster_id}",
-                    cluster.get("size"), cluster.get("tightness"), int(cluster.get("size") or 0),
-                    preview_no - 1, cluster_id,
-                ))
-        rows.sort(key=lambda r: r[3], reverse=True)
-        self.cluster_table.blockSignals(True)
-        self.cluster_table.setRowCount(len(rows))
-        for row, (name, size, tightness, _, group_index, cluster_id) in enumerate(rows):
-            name_item = QTableWidgetItem(str(name))
-            name_item.setData(Qt.UserRole, (group_index, cluster_id))  # for _on_cluster_selected
-            self.cluster_table.setItem(row, 0, name_item)
-            self.cluster_table.setItem(row, 1, QTableWidgetItem(str(size)))
-            self.cluster_table.setItem(row, 2, QTableWidgetItem(str(tightness)))
-        self.cluster_table.blockSignals(False)
-
-    def _on_cluster_selected(self) -> None:
-        """Click a cluster row → emphasise that cluster's centroid(s) on the plot and dim the rest.
-        Deselecting (clicking empty space) or re-viewing the result clears it."""
-        items = self.cluster_table.selectedItems()
-        data = self.cluster_table.item(items[0].row(), 0).data(Qt.UserRole) if items else None
-        if not data:
-            self._highlight_points = None
-            self._push_plot()
-            return
-        group_index, cluster_id = data
-        group = self._selections[group_index] if 0 <= group_index < len(self._selections) else None
-        pts: list = []
-        if group is not None:
-            cluster_ids = group.get("cluster_ids") or []
-            group_points = group.get("points") or []
-            pts = [group_points[i] for i, cid in enumerate(cluster_ids)
-                   if cid == cluster_id and i < len(group_points)]
-        self._highlight_points = pts or None
-        self._push_plot()
 
     # --- plot lives in the shared Distribution dock ---------------------------
     def _push_plot(self) -> None:
         show = getattr(self.window(), "show_diversity_universe", None)
         if show is not None:
-            show(self._pool_points, self._selections, self._evr, self._highlight_points)
-
-    def restore_plot(self) -> None:
-        """Re-push the accumulated universe (or a placeholder) when the tab is (re-)entered."""
-        self._push_plot()
+            show(self._pool_points, self._selections, self._evr, None)
 
     def _show_size_distribution(self) -> None:
-        """Draw the compounds-per-cluster histogram over the current previews / viewed result."""
+        """Draw the compounds-per-cluster histogram over the current previews."""
         from amdockvs.diversity.clustering import size_histogram
 
         sizes = [int(c.get("size") or 0)
                  for group in self._selections for c in (group.get("clusters") or [])]
         if not sizes:
             QMessageBox.information(
-                self, "Diversity selection",
-                "No clusters yet — Preview a sample or open a saved result first.",
+                self, "Diversity",
+                "No clusters yet — Preview a sample first. A finished run has its own in Clusters.",
             )
             return
         labels, counts = size_histogram(sizes)
@@ -620,98 +587,22 @@ class DiversitySelectionWidget(QWidget):
         if show is not None:
             show(f"cluster size ({len(sizes)} clusters)", labels, counts)
 
-    # --- saved results (durable, DB summary + parquet sidecar) ----------------
-    def _refresh_results(self) -> None:
-        try:
-            self._results_display = self.runtime.diversity.list_clustering_results()
-        except Exception:  # noqa: BLE001 — an empty/absent table just means no runs yet
-            self._results_display = []
-        self.results_table.blockSignals(True)
-        self.results_table.setRowCount(len(self._results_display))
-        for row, res in enumerate(self._results_display):
-            when = res.get("created_at")
-            when_text = when.strftime("%m-%d %H:%M") if hasattr(when, "strftime") else str(when or "")[:16]
-            self.results_table.setItem(row, 0, QTableWidgetItem(when_text))
-            self.results_table.setItem(row, 1, QTableWidgetItem(str(res.get("method", ""))))
-            self.results_table.setItem(row, 2, QTableWidgetItem(f"{res.get('n_molecules', 0)}→{res.get('n_clusters', 0)}"))
-        self.results_table.clearSelection()
-        self.results_table.blockSignals(False)
-
-    def _on_result_selected(self) -> None:
-        model = self.results_table.selectionModel()
-        rows = model.selectedRows() if model else []
-        if not rows:
-            return
-        idx = rows[0].row()
-        if not (0 <= idx < len(self._results_display)):
-            return
-        run_id = self._results_display[idx]["run_id"]
-        run_async(
-            lambda: self.runtime.diversity.load_clustering_result(run_id),
-            self._view_result, on_error=self._on_error, busy=self,
-        )
-
-    def _view_result(self, data: dict[str, Any]) -> None:
-        """Show a saved run read-only: its graph + clusters, drawn straight from the sidecar."""
-        if self._viewing is None:  # stash the live pile so Preview can return to it
-            self._live_snapshot = (
-                self._selections, self._pool_points, self._basis, self._basis_key,
-                self._seen_ids, self._evr, self._last_result, self._all_points, self._total_in_scope,
-            )
-        self._viewing = data.get("run_id")
-        points = data.get("points") or []
-        reps = [p for p in points if p.get("is_centroid")]
-        self._pool_points = [[p["x"], p["y"]] for p in points if not p.get("is_centroid")]
-        self._selections = [{
-            "points": [[p["x"], p["y"]] for p in reps],
-            "ids": [int(p["molecule_id"]) for p in reps],
-            "cluster_ids": [int(p["cluster_id"]) for p in reps],  # parallel → click-a-cluster highlight
-            "color": _PALETTE[0],
-            "label": f"result ({len(reps)})",
-            "clusters": data.get("cluster_stats") or [],
-        }]
-        self._evr = data.get("evr") or [0.0, 0.0]
-        self._last_result = None
-        self._highlight_points = None  # re-viewing resets any picked-cluster emphasis
-        self.exclude_button.setEnabled(False)  # a saved run is read-only
-        self.stats_label.setText(
-            f"Viewing saved result · {data.get('method')} t={data.get('threshold')} · "
-            f"{data.get('n_molecules', 0)}→{data.get('n_clusters', 0)} clusters, {data.get('n_reps', 0)} reps. "
-            f"Press Preview to return to the live pile."
-        )
-        self._sync_preview_filter()
-        self._refill_table()
-        self._push_plot()
-
-    def _exit_view(self) -> None:
-        if self._viewing is not None and self._live_snapshot is not None:
-            (self._selections, self._pool_points, self._basis, self._basis_key,
-             self._seen_ids, self._evr, self._last_result, self._all_points,
-             self._total_in_scope) = self._live_snapshot
-        self._viewing = None
-        self._live_snapshot = None
-        self._highlight_points = None  # leaving the result clears any picked-cluster emphasis
-        self.exclude_button.setEnabled(True)  # back on the live scope → the run is available again
-        self.results_table.blockSignals(True)
-        self.results_table.clearSelection()
-        self.results_table.blockSignals(False)
-
-    # --- the run: ALWAYS an mf job (serial=1 CPU or parallel multiround); exclude on completion ----
-    def _exclude_nonreps(self) -> None:
-        """Run the selection over the ENTIRE scope. This always goes to an mf clustering job (never
-        inline — Preview is the only inline path). First size the scope off the GUI thread, then let
-        the user confirm/override the CPU count and submit the job; the non-representatives are
-        inactivated automatically when it finishes."""
+    # --- the run: ALWAYS an mf job (serial=1 CPU or parallel multiround) -------------------------
+    def _cluster(self) -> None:
+        """Cluster the ENTIRE scope. This always goes to an mf clustering job (never inline —
+        Preview is the only inline path). First size the scope off the GUI thread, then let the
+        user confirm/override the CPU count and submit the job."""
         if self._running or self._pending_cluster_job is not None:
             return
-        self._exit_view()  # leave a viewed result → operate on the live scope
+        scope_kw = self._scope_params()
+        if scope_kw is None:
+            return
         self._running = True
         self.run_button.setEnabled(False)
-        self.exclude_button.setEnabled(False)
-        scope_kw = self._scope_params()
+        self.cluster_button.setEnabled(False)
         scope_kw.pop("sample_limit", None)  # the run clusters everything
         cluster_kw = self._cluster_params()
-        self.stats_label.setText("Sizing the selection…")
+        self.stats_label.setText("Sizing the scope…")
         run_async(
             lambda: self.runtime.diversity.scope_count(
                 molecule_set=scope_kw["molecule_set"], molecule_filters=scope_kw["molecule_filters"],
@@ -732,8 +623,8 @@ class DiversitySelectionWidget(QWidget):
         self._running = False
         self.run_button.setEnabled(True)
         if n <= 0:
-            self.exclude_button.setEnabled(True)
-            self.stats_label.setText("No molecules in this scope.")
+            self.cluster_button.setEnabled(True)
+            self.stats_label.setText("No fingerprintable ligands in this scope.")
             return
         cap = os.cpu_count() or 1
         suggested = plan_cpus(n, cap=cap)
@@ -745,7 +636,7 @@ class DiversitySelectionWidget(QWidget):
             suggested, 1, cap, 1,
         )
         if not ok:
-            self.exclude_button.setEnabled(True)
+            self.cluster_button.setEnabled(True)
             self.stats_label.setText("Run cancelled.")
             return
         cpus = int(cpus)
@@ -760,21 +651,20 @@ class DiversitySelectionWidget(QWidget):
                 cluster_run_id=run_id, num_cpus=cpus,
             )
         except Exception as exc:  # noqa: BLE001 — submission failure must not wedge the button
-            self.exclude_button.setEnabled(True)
-            QMessageBox.critical(self, "Diversity selection", f"Could not submit the clustering job: {exc}")
+            self.cluster_button.setEnabled(True)
+            QMessageBox.critical(self, "Diversity", f"Could not submit the clustering job: {exc}")
             return
+        narrowed = "id__in" in scope_kw["molecule_filters"]
         self._pending_cluster_job = {
             "job_id": str(job_id), "run_id": run_id, "method": method, "threshold": threshold,
-            "scope_label": self.set_combo.currentText(),
+            "scope_label": self.set_combo.currentText() + (" (narrowed in the table)" if narrowed else ""),
             "fp_radius": int(scope_kw["fp_radius"]), "fp_nbits": int(scope_kw["fp_nbits"]),
-            "reason": f"diversity: non-representative ({method}, t={threshold})",
         }
         self._connect_job_signal()
-        self.exclude_button.setEnabled(False)  # one clustering run at a time
         mode = "parallel multiround" if cpus > 1 else "serial"
         self.stats_label.setText(
-            f"Clustering {n} molecules as an mf job on {cpus} CPU(s) ({mode}) — see Jobs. The "
-            f"non-representatives are inactivated automatically when it finishes; you can keep working."
+            f"Clustering {n} ligands as an mf job on {cpus} CPU(s) ({mode}) — see Jobs. The result "
+            f"opens in Clusters when it finishes; you can keep working."
         )
 
     def _connect_job_signal(self) -> None:
@@ -786,80 +676,65 @@ class DiversitySelectionWidget(QWidget):
             self._job_signal_connected = True
 
     def _on_cluster_job_finished(self, job_id: str, status: str) -> None:
+        # Not gated on isVisible(): this fires once per run, and a run that finished while another
+        # tool had the panel still has to be registered.
         pending = self._pending_cluster_job
         if not pending or str(job_id) != pending["job_id"]:
             return
-        if str(status or "").strip().lower() != "completed":  # failed / canceled → don't exclude
-            self._pending_cluster_job = None
-            self.exclude_button.setEnabled(True)
-            self.stats_label.setText(f"Parallel clustering job {status} — nothing excluded. See Jobs.")
-            return
         self._pending_cluster_job = None
+        if str(status or "").strip().lower() != "completed":
+            self.cluster_button.setEnabled(True)
+            self.stats_label.setText(f"Clustering job {status} — no result. See Jobs.")
+            return
         run_async(
-            lambda p=pending: self._apply_parallel_run(p),
-            self._on_parallel_applied,
+            lambda p=pending: self._register_run(p),
+            self._on_registered,
             on_error=self._on_error,
             busy=self.stats_label,
             compact=True,
         )
 
-    def _apply_parallel_run(self, pending: dict[str, Any]) -> dict[str, Any]:
-        """Off-thread: read the finished run's assignments, inactivate the non-centroids, and register
-        the saved result. The job already wrote the graph sidecar (PCA + clusters), so registering
-        just reads it — nothing is recomputed."""
-        run_id = pending["run_id"]
-        rows = self.runtime.diversity.get_run(run_id)
-        non_reps = [int(r["molecule_id"]) for r in rows if not r["is_centroid"]]
-        n_clusters = len({int(r["cluster_id"]) for r in rows})
-        n_reps = sum(1 for r in rows if r["is_centroid"])
-        count = (
-            self.runtime.molecules.set_excluded_state(non_reps, excluded=True, reason=pending["reason"])
-            if non_reps else 0
-        )
+    def _register_run(self, pending: dict[str, Any]) -> str:
+        """Off-thread: register the finished run as a result. The job already wrote the graph
+        sidecar (PCA + clusters), so this just reads it — nothing is recomputed."""
         self.runtime.diversity.register_run_from_sidecar(
-            run_id, method=pending["method"], threshold=pending["threshold"],
+            pending["run_id"], method=pending["method"], threshold=pending["threshold"],
             scope_label=pending["scope_label"],
             fp_radius=int(pending["fp_radius"]), fp_nbits=int(pending["fp_nbits"]),
         )
-        return {"count": int(count), "n_clusters": n_clusters, "n_reps": n_reps,
-                "threshold": pending["threshold"]}
+        return pending["run_id"]
 
-    def _on_parallel_applied(self, summary: dict[str, Any]) -> None:
-        self.exclude_button.setEnabled(True)
-        self._refresh_results()
-        n_clusters, count = summary["n_clusters"], summary["count"]
-        threshold = summary.get("threshold")
-        if count == 0:
-            # Every cluster is a single molecule → nothing redundant at this threshold. This is the
-            # expected outcome for an already-diverse library, not an error.
-            msg = (
-                f"Clustered into {n_clusters} clusters, but every one is a single molecule — nothing is "
-                f"redundant at threshold {threshold}. This scope is already diverse (a diversity set has "
-                f"little to reduce). Lower the threshold to force more merging, or accept it as-is."
-            )
-            self.stats_label.setText(msg)
-            QMessageBox.information(self, "Diversity selection", msg)
-            return
+    def _on_registered(self, run_id: str) -> None:
+        self.cluster_button.setEnabled(True)
         self.stats_label.setText(
-            f"Run done: {n_clusters} clusters, {summary['n_reps']} representatives · inactivated {count} "
-            f"non-representatives. Saved as a result — click it to see its clusters and universe."
+            "Clustering done. Its clusters are in the Clusters view: use the representatives as the "
+            "selection, exclude the rest, or save them as a set from there."
         )
-        QMessageBox.information(
-            self, "Diversity selection",
-            f"Clustering finished — inactivated {count} non-representative molecules.",
+        self._show_clusters(run_id, focus=self.isVisible())
+
+    def _show_clusters(self, run_id: str | None = None, *, focus: bool = True) -> None:
+        """Open the Clusters view (on a run, when given). Without focus an open view is only told
+        about the run — a job that ended behind another tool must not steal the screen."""
+        window = self.window()
+        central = getattr(window, "central_widget", None)
+        opener = getattr(window, "open_or_focus_view", None)
+        view = opener(CLUSTERS_VIEW_ID) if focus and callable(opener) else (
+            central.open_view(CLUSTERS_VIEW_ID) if central is not None else None
         )
+        if run_id and view is not None:
+            view.show_run(run_id)
 
     def _on_error(self, exc: Exception) -> None:
         self._running = False
         self.run_button.setEnabled(True)
-        self.exclude_button.setEnabled(self._viewing is None)
-        QMessageBox.critical(self, "Diversity selection", str(exc))
+        self.cluster_button.setEnabled(self._pending_cluster_job is None)
+        QMessageBox.critical(self, "Diversity", str(exc))
 
 
 def register_selection_workspace(window) -> None:
     window.register_main_view(
         SELECTION_VIEW_ID,
-        "Diversity Selection",
+        "Diversity",
         lambda: DiversitySelectionWidget(runtime=window.runtime, parent=window.central_widget),
     )
 

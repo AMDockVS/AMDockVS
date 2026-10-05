@@ -506,6 +506,32 @@ class DiversityAPI:
     def centroid_ids(self, cluster_run_id: str) -> list[int]:
         return [r["molecule_id"] for r in self.get_run(cluster_run_id) if r["is_centroid"]]
 
+    def members_clause(self, cluster_run_id: str, cluster_id: int | None = None):
+        """Opaque SmartTable adapter: the molecules of one cluster, or the run's representatives
+        when no cluster is given. A subquery, so it costs the same for 10 members or 10^6."""
+        picked = select(ClusteringResult.molecule_id).where(
+            ClusteringResult.cluster_run_id == str(cluster_run_id)
+        )
+        if cluster_id is None:
+            picked = picked.where(ClusteringResult.is_centroid == True)  # noqa: E712 - SQL, not Python
+        else:
+            picked = picked.where(ClusteringResult.cluster_id == int(cluster_id))
+        return MoleculeRecord.id.in_(picked)
+
+    def exclude_non_representatives(self, cluster_run_id: str) -> int:
+        """Mark every non-representative of a run as excluded (the flag Filter uses; reversible).
+        Returns how many were marked."""
+        self.runtime._require_active_project()
+        non_reps = [r["molecule_id"] for r in self.get_run(cluster_run_id) if not r["is_centroid"]]
+        if not non_reps:
+            return 0
+        with self.runtime.molsuite.project_db.get_session() as session:
+            run = session.exec(select(ClusteringRun).where(ClusteringRun.run_id == str(cluster_run_id))).first()
+        detail = f"{run.method}, t={run.threshold}" if run is not None else str(cluster_run_id)[:8]
+        return int(self.runtime.molecules.set_excluded_state(
+            non_reps, excluded=True, reason=f"diversity: non-representative ({detail})"
+        ))
+
     # --- writing a set (via MolSuite/scopes, not raw DB) ----------------------
     def save_selection_as_set(self, molecule_ids: Iterable[int], *, name: str) -> MoleculeSetRef:
         """Persist the chosen representatives as a molecule set (an enrichment set) so the rest of
