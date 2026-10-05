@@ -180,6 +180,10 @@ class AMDockVSMainWindow(QMainWindow):
         self._status_bar = StatusBar(self)
         self.setStatusBar(self._status_bar)
         self._status_bar.jobs_indicator.clicked.connect(self.open_jobs_monitor)
+        for role, indicator in self._status_bar.selection_indicators.items():
+            indicator.clicked.connect(lambda role=role: self.selection.set(role, None))
+        self.selection.changed.connect(lambda role: self._status_bar.selection_indicators[role].set_count(
+            len(self.selection.get(role) or ())))
         self._status_bar.workflow_indicator.clicked.connect(lambda: self.open_or_focus_view(WORKFLOW_VIEW_ID))
         self._status_bar.project_indicator.clicked.connect(self._show_project_summary)
         self._status_bar.resource_indicator.clicked.connect(self.open_jobs_monitor)

@@ -68,6 +68,7 @@ class DockingStudioWidget(
         self._protocols: list[dict] = []
         # False while the widget is the no-project placeholder: none of the steps (tables,
         # flex box) exist, so show/hide must not reach for them.
+        self._selection_bound = False  # window.selection is connected on first show
         self._ready = False
         # Monotonic token so a worker's stale result is dropped when a newer refresh started.
         self._refresh_token = 0
@@ -268,11 +269,21 @@ class DockingStudioWidget(
         super().showEvent(event)
         if not self._ready:
             return
+        store = getattr(self.window(), "selection", None)
+        if store is not None and not self._selection_bound:
+            store.changed.connect(self._on_shared_selection_changed)
+            self._selection_bound = True
         self._sync_ligand_table_filter()
         self._sync_receptor_table_filter()
         # Back on the table of the step it was left at. Whatever finished while another tool was
         # up catches up there too (requirement counts and the live poll).
         self._show_step_view()
+
+    def _on_shared_selection_changed(self, role: str) -> None:
+        # Picking or dropping a selection changes what the step's table lists (see
+        # _unprepared_clause). Off screen, showEvent does it.
+        if self.isVisible():
+            self._sync_ligand_table_filter() if role == "ligand" else self._sync_receptor_table_filter()
 
     def hideEvent(self, event):
         super().hideEvent(event)

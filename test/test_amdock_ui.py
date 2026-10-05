@@ -37,6 +37,7 @@ from amdockvs.ui.tools.binding_sites.detection import (
 from amdockvs.ui.catalog.molecules import MoleculeWidget
 from amdockvs.ui.catalog.ligands import LigandWidget, _create_ligand_set
 from amdockvs.ui.registry import STANDING_DATA_VIEWS, TOOL_VIEW_IDS
+from amdockvs.ui.tools.molecules.build import BUILD_ID
 
 
 def _patch_fake_home(monkeypatch, fake_home: Path):
@@ -563,6 +564,44 @@ def test_tool_buttons_are_flat_and_keep_result_views_available(tmp_path, monkeyp
         assert not window.tools.action_buttons[DOCKING_VIEW_ID].isChecked()
         assert window.aux.occupant == window.aux.AUX_DETAILS  # slot handed back
         assert standing <= set(window.views.catalog_actions)  # results survived the tool closing
+
+        # Tools are kept, not rebuilt: switching away and back finds a tool where it was left.
+        studio = window.tools.widgets[DOCKING_VIEW_ID]
+        studio.stepper.set_current_index(2)
+        # ...and the ligands selected for it are the ones Build opens on.
+        id_filter = lambda view_id: next(  # noqa: E731
+            (f.value for f in window.central_widget.open_view(view_id).table._builder.active_filters
+             if f.field == "id"), None)
+        window.selection.set("ligand", [1])
+        build = window.tools.open_tool(BUILD_ID)
+        app.processEvents()
+        assert build.isVisible() and not studio.isVisible()
+        assert id_filter(MOLECULES_VIEW_ID) == [1] == id_filter(LIGANDS_VIEW_ID)
+        for view_id in (MOLECULES_VIEW_ID, LIGANDS_VIEW_ID):  # ...and the ID column says so
+            table = window.central_widget.open_view(view_id).table
+            columns = [column.field for column in table._config.visible_columns()]
+            id_column = columns.index("id") + (1 if table._config.show_row_numbers else 0)
+            assert id_column in table._header._active_filters
+        assert window.tools.open_tool(DOCKING_VIEW_ID) is studio
+        app.processEvents()
+        assert studio.isVisible() and studio.stepper.current_index == 2
+        # Build opened Molecules, so it leaves with Build; the studio is back on its step's table.
+        assert window.central_widget.open_view(MOLECULES_VIEW_ID) is None
+        assert window.central_widget.current_view_id() == RECEPTOR_VIEW_ID
+        assert id_filter(LIGANDS_VIEW_ID) == [1]
+
+        # The selection is global and only the user drops it: the status bar shows it wherever
+        # they are, and its chip clears it everywhere. On its own step a picked row is listed
+        # prepared or not, so preparing a selection never leaves an empty table behind.
+        chip = window._status_bar.selection_indicators["ligand"]
+        assert chip.isVisible() and chip.text() == "Ligands: 1 selected ✕"
+        assert not window._status_bar.selection_indicators["receptor"].isVisible()
+        studio.stepper.set_current_index(1)
+        assert studio._unprepared_clause("ligand") is None
+        chip.clicked.emit()
+        assert window.selection.get("ligand") is None and not chip.isVisible()
+        assert id_filter(LIGANDS_VIEW_ID) is None
+        assert studio._unprepared_clause("ligand") is not None  # back to "what is left to prepare"
     finally:
         if window is not None:
             window.close()
