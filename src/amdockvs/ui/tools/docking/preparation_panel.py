@@ -483,7 +483,14 @@ class PreparationPanel:
         One NOT EXISTS per family, OR-ed: a row is worth showing while ANY selected family
         still lacks it. With K=1 (today) that's a single anti-join on the unique
         (molecule_id, role_type, engine) index — ~1 index probe per candidate row.
+
+        Rows the user picked ("Select") are listed whatever their state: hiding the prepared
+        ones would empty the table once the selection is prepared, with nothing left to pick
+        or to clear. The selection is theirs to drop (status bar), and then this applies again.
         """
+        store = getattr(self.window(), "selection", None)
+        if store is not None and store.get(role):
+            return None
         force = getattr(self, f"force_prepare_{role}s", None)
         if force is None or force.isChecked() or self.stepper.current_index != self._PREP_STEP[role]:
             return None

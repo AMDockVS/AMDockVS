@@ -5,7 +5,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel
 
@@ -217,9 +217,40 @@ def project_table(runtime, config: TableConfig, parent: QWidget | None = None) -
     return SmartTableView(db=runtime.molsuite.project_db, config=config, parent=parent)
 
 
+class SelectionStore(QObject):
+    """The ids picked with "Select", per role ("ligand" / "receptor"), shared by a window.
+
+    Ligands and Receptors are filters over the same molecules, so one selection is one list of
+    molecule ids whichever table shows it: every table bound to a role mirrors it as its
+    `id IN [...]` filter (see BoundTableWidget.bind_selection), and that is how a tool finds
+    the selection made for another one.
+    """
+
+    changed = Signal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._ids: dict[str, list[int]] = {}
+
+    def get(self, role: str) -> list[int] | None:
+        return self._ids.get(role)
+
+    def set(self, role: str, ids) -> None:
+        ids = sorted({int(value) for value in ids or ()}) or None
+        if ids == self._ids.get(role):
+            return
+        if ids is None:
+            del self._ids[role]
+        else:
+            self._ids[role] = ids
+        self.changed.emit(role)
+
+
 class BoundTableWidget(QWidget):
     # Subclasses set this to enable row deletion ("molecule" / "complex" / "result").
     delete_kind: str | None = None
+    # The SelectionStore role this table's `id IN [...]` filter mirrors. See bind_selection.
+    selection_role: str | None = None
     # Subclasses set this to True to offer "Select" - turning the highlighted rows into an
     # `id IN [...]` column filter. See _install_select.
     selectable: bool = False
@@ -240,6 +271,8 @@ class BoundTableWidget(QWidget):
         self._scopes: dict[str, set[str]] = {}
         self._job_bar: ActionBar | None = None
         self._jobs: JobFollower | None = None
+        self._selection_store: SelectionStore | None = None
+        self._selection_adopted = False
 
         layout = QVBoxLayout(self)
         # No wrapper margins: Qt's default ~11px would inset the whole table relative to the
@@ -256,7 +289,10 @@ class BoundTableWidget(QWidget):
         #     return
 
         self._table = SmartTableView(db=runtime.molsuite.project_db, config=config, parent=self)
+        self.record_count: int | None = None  # rows of the last load; None before the first
+        self._table.data_refreshed.connect(lambda total: setattr(self, "record_count", int(total)))
         self._table.data_refreshed.connect(self.records_changed)
+        self._table.data_refreshed.connect(self._publish_selection)
         self._table.selection_changed.connect(lambda objs: self.selection_count_changed.emit(len(objs)))
         # Restore this table's saved view prefs (visible columns + sort), then persist
         # any interactive changes back to AMDock's own config, keyed by the widget class.
@@ -307,6 +343,59 @@ class BoundTableWidget(QWidget):
         ids = sorted({int(getattr(obj, "id", 0) or 0) for obj in objects or ()} - {0})
         if ids and self._table is not None:
             self._table.set_filter(FilterSpec("id", FilterOperator.IN, ids))
+
+    # --- The selection, shared between tables ----------------------------------------
+    # ms_table has no "filters changed" signal; every filter change reloads, so data_refreshed
+    # is where the table's id filter is read back into the store.
+    def _store(self) -> SelectionStore | None:
+        if self._selection_store is None:
+            store = getattr(self.window(), "selection", None)
+            if isinstance(store, SelectionStore):
+                self._selection_store = store
+                store.changed.connect(self._on_selection_changed)
+        return self._selection_store
+
+    def _selected_ids(self) -> list[int] | None:
+        spec = next((f for f in self._table._builder.active_filters if f.field == "id"), None)
+        if spec is None or spec.op != FilterOperator.IN:
+            return None
+        return sorted(int(value) for value in spec.value or ()) or None
+
+    def _publish_selection(self, *_args) -> None:
+        store = self._store()
+        if store is None or not self.selection_role:
+            return
+        if not self._selection_adopted:
+            self._adopt_selection()  # first load: the store is older than this table
+        else:
+            store.set(self.selection_role, self._selected_ids())
+
+    def _adopt_selection(self) -> None:
+        store = self._store()
+        if store is None or not self.selection_role or self._table is None:
+            return
+        self._selection_adopted = True
+        ids = store.get(self.selection_role)
+        if ids != self._selected_ids():
+            self.set_base_filter("id", FilterSpec("id", FilterOperator.IN, ids) if ids else None)
+
+    def _on_selection_changed(self, role: str) -> None:
+        if role == self.selection_role:
+            self._adopt_selection()
+
+    def bind_selection(self, role: str | None) -> None:
+        """Mirror a role's selection as this table's id filter (None lets go of it).
+
+        For a table whose role depends on who borrows it: Molecules is every role at once, so
+        the tool that narrows it to one kind also says whose selection that is.
+        """
+        if role == self.selection_role or self._table is None:
+            return
+        self.selection_role = role
+        if role:
+            self._adopt_selection()
+        elif self._selected_ids() is not None:
+            self.set_base_filter("id", None)  # the selection stays in the store, not here
 
     def scope_ids(self) -> list[int] | None:
         """The ids of the rows this table shows, or None when it narrows nothing.
@@ -433,6 +522,7 @@ class BoundTableWidget(QWidget):
             table._builder.remove_filter(field)
         else:
             table._builder.add_filter(spec)
+        table._sync_header()  # the column shows it is filtered, as when the user filters it
         table.refresh()
 
     def set_base_clause(self, key: str, clause=None) -> None:

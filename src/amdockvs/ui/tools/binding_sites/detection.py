@@ -424,6 +424,8 @@ class PocketDetectionWidget(QWidget):
         self._job_signal_connected = False
         self._bound_receptor_table = None
         self._tool_ready = False
+        # A job that finished while another tool had the panel: showEvent reloads the receptors.
+        self._stale = False
         # Without a project this widget is a label: show/hideEvent must not touch the rest.
         self._ready = False
 
@@ -622,6 +624,9 @@ class PocketDetectionWidget(QWidget):
             # The tool has no table of its own: the receptors it works on are the catalog's.
             opener(RECEPTOR_VIEW_ID)
         self._sync_receptor_scope()
+        if self._stale:
+            self._stale = False
+            self.refresh()
 
     def hideEvent(self, event):
         super().hideEvent(event)
@@ -761,7 +766,10 @@ class PocketDetectionWidget(QWidget):
             else f"P2Rank job {normalized_status}."
         )
         if normalized_status == "completed":
-            self.refresh()
+            if self.isVisible():
+                self.refresh()
+            else:
+                self._stale = True
         self._reload_sites()
 
     def _show_error(self, title: str, exc: Exception) -> None:

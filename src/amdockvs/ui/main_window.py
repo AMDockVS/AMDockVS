@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 from amdockvs.runtime import AMDockVSRuntime
 from amdockvs.project.summaries import DockingHitSummary
 from amdockvs.ui.catalog import COMPLEXES_VIEW_ID, LIGANDS_VIEW_ID, RECEPTOR_VIEW_ID
+from amdockvs.ui.catalog.common import SelectionStore
 from amdockvs.ui.shell.main_content import MainContentWidget
 from amdockvs.ui.monitor import JobsDialog
 from amdockvs.ui.shell.projects import ApplicationWidget
@@ -63,6 +64,7 @@ class AMDockVSMainWindow(QMainWindow):
 
         self.views = ViewCoordinator(self)
         self.tools = ToolCoordinator(self)
+        self.selection = SelectionStore(self)  # what "Select" picked, shared by tables and tools
         self.aux = AuxiliaryPanelController(self)
         self.jobs = JobFeedbackController(self)
         self.viewer = MolecularViewerController(self)
@@ -142,10 +144,10 @@ class AMDockVSMainWindow(QMainWindow):
         )
 
         # Left panel that hosts a tool's config UI beside the central catalog tables:
-        # picking a tool from the MolTools/Docking menus mounts it here (one at a time)
-        # instead of opening a central tab. See ToolCoordinator.
+        # picking a tool shows it here (one at a time) instead of opening a central tab.
+        # See ToolCoordinator.
         self.tools_dock = MSDockWidget("Tools", self.dock_manager, self)
-        self.tools_dock.setWidget(QWidget())  # placeholder; DockManager.build needs a widget
+        self.tools_dock.setWidget(self.tools.stack)  # one page per tool, built on first open
         self.dock_manager.add_dock(
             self.tools_dock,
             dock_id="tools",
@@ -178,6 +180,10 @@ class AMDockVSMainWindow(QMainWindow):
         self._status_bar = StatusBar(self)
         self.setStatusBar(self._status_bar)
         self._status_bar.jobs_indicator.clicked.connect(self.open_jobs_monitor)
+        for role, indicator in self._status_bar.selection_indicators.items():
+            indicator.clicked.connect(lambda role=role: self.selection.set(role, None))
+        self.selection.changed.connect(lambda role: self._status_bar.selection_indicators[role].set_count(
+            len(self.selection.get(role) or ())))
         self._status_bar.workflow_indicator.clicked.connect(lambda: self.open_or_focus_view(WORKFLOW_VIEW_ID))
         self._status_bar.project_indicator.clicked.connect(self._show_project_summary)
         self._status_bar.resource_indicator.clicked.connect(self.open_jobs_monitor)

@@ -1044,8 +1044,8 @@ class RunPanel:
         )
         # The run is launched: the studio has nothing left to configure, so it gets out of the
         # way and leaves the screen to the results it is feeding. Closing the tools dock is what
-        # retires the tool (see _on_tools_dock_visibility); it deletes THIS widget, so it goes
-        # last — deleteLater is deferred, but nothing may run after it here.
+        # retires the tool (see ToolCoordinator.on_tools_dock_visibility); the studio stays
+        # built, so reopening it lands back on this step with the run still attached.
         from amdockvs.ui.catalog.domain_views import COMPLEXES_VIEW_ID  # circular at import time
 
         window = self.window()

@@ -167,9 +167,33 @@ class BackendIndicator(_ClickableChip):
         self.setVisible(True)
 
 
+class SelectionIndicator(_ClickableChip):
+    """The global selection of one role — the rows picked with "Select". Shown while there is
+    one, wherever the user is, because every table and tool of that role works on it; clicking
+    drops it."""
+
+    def __init__(self, noun: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent, tooltip=(
+            f"Global selection: the {noun.lower()} picked with right-click > Select.\n"
+            f"Every {noun} table and tool works on these until it is cleared.\n"
+            "Click to clear it."
+        ))
+        self._noun = noun
+
+    def set_count(self, count: int) -> None:
+        self.setText(f"{self._noun}: {count} selected ✕")
+        self.setVisible(count > 0)
+
+
 class StatusBar(QStatusBar):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.selection_indicators = {
+            "ligand": SelectionIndicator("Ligands", self),
+            "receptor": SelectionIndicator("Receptors", self),
+        }
+        for indicator in self.selection_indicators.values():
+            self.addPermanentWidget(indicator)
         # Right (global, permanent): project · backend · resources · workflow · jobs.
         self.project_indicator = ProjectIndicator(self)
         self.addPermanentWidget(self.project_indicator)

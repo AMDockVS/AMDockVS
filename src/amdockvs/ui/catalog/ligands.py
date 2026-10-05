@@ -90,6 +90,7 @@ def _ligand_table_config(*, runtime) -> TableConfig:
 
 
 class LigandWidget(BoundTableWidget):
+    selection_role = "ligand"
     delete_kind = "molecule"
     selectable = True
 

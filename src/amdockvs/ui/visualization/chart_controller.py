@@ -7,7 +7,7 @@ from PySide6.QtCore import QTimer
 
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.catalog.domain_views import LIGAND_ACTIVITY_VIEW_ID
-from amdockvs.ui.tools.molecules.diversity import SELECTION_VIEW_ID
+from amdockvs.ui.tools.molecules.clusters import CLUSTERS_VIEW_ID
 from amdockvs.ui.tools.qsar.chart import render_structure_png
 from amdockvs.ui.tools.qsar.panels import PREDICTIONS_VIEW_ID, QSAR_MODELS_VIEW_ID
 
@@ -41,10 +41,10 @@ class ChartController:
             if widget is not None and hasattr(widget, "refresh"):
                 widget.refresh()  # _fill -> show_activity_histogram toggles the chart on
             return
-        if view_id == SELECTION_VIEW_ID:
+        if view_id == CLUSTERS_VIEW_ID:
             widget = self.w.central_widget.open_view(view_id)
             if widget is not None and hasattr(widget, "restore_plot"):
-                widget.restore_plot()  # re-pushes the last universe (or a placeholder) + toggles chart on
+                widget.restore_plot()  # re-pushes the run's universe + toggles chart on
             return
         if view_id in (QSAR_MODELS_VIEW_ID, PREDICTIONS_VIEW_ID):
             return  # chart/glow show on demand (plot + glowing-molecule + row-select); leave state
@@ -54,7 +54,7 @@ class ChartController:
         if self.w.pymol_dock is not None:
             self.w.dock_manager.toggle("pymol", True)
         # Big-data hygiene: the universe scatter can be heavy, so free it whenever we leave the
-        # Diversity view. Its (small) point data stays in the widget → restore_plot redraws on return.
+        # Clusters view. Its (small) point data stays in the widget → restore_plot redraws on return.
         self._chart.show_universe([], [], [0.0, 0.0])
         self._chart.hide_hover_structure()
 
