@@ -52,7 +52,7 @@ def test_runtime_ui_queries_cover_details_sets_filters_and_preparation(tmp_path,
     runtime = AMDockVSRuntime()
     try:
         runtime.create_project(name="ui_api", folder=tmp_path / "ui_api", description="phase 3")
-        with runtime.molsuite.project_db.get_session() as session:
+        with runtime.workspace.project_db.get_session() as session:
             receptor = MoleculeRecord(
                 name="REC",
                 molecule_type=MoleculeType.PROTEIN,

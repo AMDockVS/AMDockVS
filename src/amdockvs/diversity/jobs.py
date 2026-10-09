@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 
 from ms_flow.query import QuerySpec, db_rows
 from ms_flow.sinks import table_sink
-from ms_flow.tasking import job, task
+from amdockvs.core.jobs import job, task
 
 from amdockvs.core.configuration import DEFAULT_LIGAND_BATCH_SIZE
 from amdockvs.molecules.storage import as_store, store_from_config

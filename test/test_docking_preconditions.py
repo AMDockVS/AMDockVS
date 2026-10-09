@@ -16,7 +16,7 @@ def api(monkeypatch):
     monkeypatch.setattr(docking_api, "entity_ids", lambda *a, **k: [1, 2, 3])
     runtime = SimpleNamespace(
         _require_active_project=lambda: None,
-        molsuite=SimpleNamespace(project_db=object()),
+        workspace=SimpleNamespace(project_db=object()),
     )
     return DockingAPI(runtime=runtime)
 

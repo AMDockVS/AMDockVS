@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from ms_flow.query import QuerySpec
 from ms_flow.sinks import graph_sink
-from ms_flow.tasking import job, task
+from amdockvs.core.jobs import job, task
 
 from amdockvs.chemistry.descriptors import calculate_descriptor_rows
 from amdockvs.core.worker_io import worker_file

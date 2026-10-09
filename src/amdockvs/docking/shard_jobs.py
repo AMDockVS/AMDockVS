@@ -27,7 +27,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlmodel import select
 
-from ms_flow.tasking import JobSpec
+from amdockvs.core.jobs import JobSpec
 from ms_flow.core.data.shard import Shard
 
 from amdockvs.core.worker_io import worker_file, worker_output_dir

@@ -53,7 +53,7 @@ def test_a_run_is_read_in_clusters_and_changes_nothing_until_asked(tmp_path, mon
         smiles = tmp_path / "ligands.smi"
         smiles.write_text("CCO a\nCCN b\nCCCC c\nc1ccccc1 d\n", encoding="utf-8")
         runtime.wait_for_jobs(runtime.loader.load_ligands([smiles], batch_size=4, executor_name="thread"), timeout_s=120)
-        with runtime.molsuite.project_db.get_session() as session:
+        with runtime.workspace.project_db.get_session() as session:
             ids = sorted(session.exec(select(MoleculeRecord.id)).all())
         assert len(ids) == 4
 
@@ -64,7 +64,7 @@ def test_a_run_is_read_in_clusters_and_changes_nothing_until_asked(tmp_path, mon
             cluster_stats=[{"cluster_id": 0, "size": 2, "tightness": 0.0}, {"cluster_id": 1, "size": 2, "tightness": 0.0}],
             evr=[0.5, 0.2], method="bitbirch", threshold=0.35, scope_label="All ligands",
         )
-        with runtime.molsuite.project_db.get_session() as session:
+        with runtime.workspace.project_db.get_session() as session:
             session.add_all(ClusteringResult(**row) for row in ClusteringResult.build_rows(
                 run_id, [{"molecule_id": m, "cluster_id": c, "is_centroid": r} for m, c, r in layout]))
             session.commit()
@@ -108,7 +108,7 @@ def test_a_run_is_read_in_clusters_and_changes_nothing_until_asked(tmp_path, mon
         # ...and "Exclude non-representatives" is what excludes.
         view.exclude_button.click()
         _wait(app, lambda: "Excluded 2" in view.status.text())
-        with runtime.molsuite.project_db.get_session() as session:
+        with runtime.workspace.project_db.get_session() as session:
             excluded = sorted(session.exec(select(MoleculeRecord.id).where(MoleculeRecord.excluded == True)).all())  # noqa: E712
         assert excluded == [ids[1], ids[3]]
     finally:

@@ -99,14 +99,14 @@ class MoleculeAPI:
     def get(self, molecule_id: int) -> MoleculeRecord | None:
         """Return one molecule without exposing the project session to callers."""
         self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             return session.get(MoleculeRecord, int(molecule_id))
 
     def details(self, molecule_id: int) -> Details | None:
         """Load the complete Details-panel projection for a molecule."""
         self.runtime._require_active_project()
         resolved_id = int(molecule_id)
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             molecule = session.get(MoleculeRecord, resolved_id)
             if molecule is None:
                 return None
@@ -147,7 +147,7 @@ class MoleculeAPI:
     def list_sets(self) -> list[SetRecord]:
         """List saved molecule sets newest first."""
         self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             return list(session.exec(select(SetRecord).order_by(SetRecord.id.desc())).all())
 
     def resolve_set(self, source: MoleculeSetRef | SetRecord | int) -> MoleculeSetRef:
@@ -156,7 +156,7 @@ class MoleculeAPI:
         if isinstance(source, MoleculeSetRef):
             return source
         set_id = int(source.id if isinstance(source, SetRecord) else source)
-        record = get_molecule_set(self.runtime.molsuite.project_db, set_id)
+        record = get_molecule_set(self.runtime.workspace.project_db, set_id)
         if record is None:
             raise ValueError(f"Molecule set {set_id} does not exist.")
         return MoleculeSetRef(id=set_id, kind="snapshot")
@@ -164,7 +164,7 @@ class MoleculeAPI:
     def sync_set_membership(self) -> None:
         """Reconcile the denormalized ``in_set`` molecule flag."""
         self.runtime._require_active_project()
-        sync_all_molecule_in_set_flags(self.runtime.molsuite.project_db)
+        sync_all_molecule_in_set_flags(self.runtime.workspace.project_db)
 
     def scope_clause(self, scope: MoleculeScope | Selection[Any]):
         """Opaque SmartTable adapter for a public molecule scope.
@@ -175,7 +175,7 @@ class MoleculeAPI:
         self.runtime._require_active_project()
         from amdockvs.molecules import filtering as filter_sql
 
-        conditions = filter_sql.scope_conditions(self.runtime.molsuite.project_db, as_molecule_scope(scope))
+        conditions = filter_sql.scope_conditions(self.runtime.workspace.project_db, as_molecule_scope(scope))
         return and_(*conditions) if conditions else None
 
     def evaluate_filter(
@@ -189,11 +189,11 @@ class MoleculeAPI:
         self.runtime._require_active_project()
         from amdockvs.molecules import filtering as filter_sql
 
-        conditions = filter_sql.scope_conditions(self.runtime.molsuite.project_db, as_molecule_scope(scope))
+        conditions = filter_sql.scope_conditions(self.runtime.workspace.project_db, as_molecule_scope(scope))
         prefix = str(exclusion_reason_prefix or "").strip()
         if prefix:
             conditions.append(MoleculeRecord.exclusion_reason.like(f"{prefix}%"))
-        return filter_sql.counts(self.runtime.molsuite.project_db, conditions, criteria)
+        return filter_sql.counts(self.runtime.workspace.project_db, conditions, criteria)
 
     def apply_filter(
         self,
@@ -212,12 +212,12 @@ class MoleculeAPI:
         normalized_action = str(action or "").strip().lower()
         if normalized_action not in {"enrich", "recover", "tag"}:
             raise ValueError(f"Unsupported molecule-filter action: {action!r}")
-        conditions = filter_sql.scope_conditions(self.runtime.molsuite.project_db, as_molecule_scope(scope))
+        conditions = filter_sql.scope_conditions(self.runtime.workspace.project_db, as_molecule_scope(scope))
         prefix = str(exclusion_reason_prefix or "").strip()
         if prefix:
             conditions.append(MoleculeRecord.exclusion_reason.like(f"{prefix}%"))
         if normalized_action == "tag":
-            ids = filter_sql.matched_ids(self.runtime.molsuite.project_db, conditions, criteria)
+            ids = filter_sql.matched_ids(self.runtime.workspace.project_db, conditions, criteria)
             ref = self.create_set(
                 ids,
                 name=set_name,
@@ -226,7 +226,7 @@ class MoleculeAPI:
             )
             return len(ids), int(ref.id)
         return filter_sql.apply_state(
-            self.runtime.molsuite.project_db,
+            self.runtime.workspace.project_db,
             conditions,
             criteria,
             activate_matches=normalized_action == "recover",
@@ -238,7 +238,7 @@ class MoleculeAPI:
         self.runtime._require_active_project()
         from amdockvs.project.deletion import delete_molecules
 
-        return delete_molecules(self.runtime.molsuite.project_db, normalize_ids(molecule_ids))
+        return delete_molecules(self.runtime.workspace.project_db, normalize_ids(molecule_ids))
 
     def _selection(self, scope: MoleculeScope) -> Selection[MoleculeRecord]:
         return Selection(
@@ -274,7 +274,7 @@ class MoleculeAPI:
     def _stream_scope(self, scope: MoleculeScope) -> Iterator[MoleculeRecord]:
         self.runtime._require_active_project()
         spec = _molecule_spec(scope)
-        for row in db_pages(self.runtime.molsuite.project_db, spec):
+        for row in db_pages(self.runtime.workspace.project_db, spec):
             yield MoleculeRecord.model_validate(row)
 
     def stream(self, scope: MoleculeScope | Selection[MoleculeRecord] | None = None) -> Iterator[MoleculeRecord]:
@@ -289,15 +289,15 @@ class MoleculeAPI:
         assert resolved is not None
         spec = _molecule_spec(resolved)
         spec = replace(spec, fields=("id",))
-        for row in db_pages(self.runtime.molsuite.project_db, spec):
+        for row in db_pages(self.runtime.workspace.project_db, spec):
             yield int(row.get("id") or 0)
 
     def _count_scope(self, scope: MoleculeScope) -> int:
-        return db_count(self.runtime.molsuite.project_db, _molecule_spec(scope))
+        return db_count(self.runtime.workspace.project_db, _molecule_spec(scope))
 
     def count(self, source: MoleculeSetRef | MoleculeScope | Selection[MoleculeRecord] | int | None = None) -> int:
         self.runtime._require_active_project()
-        project_db = self.runtime.molsuite.project_db
+        project_db = self.runtime.workspace.project_db
         if source is None or is_molecule_scope(source):
             resolved = as_molecule_scope(source) if source is not None else as_molecule_scope(self.all())
             assert resolved is not None
@@ -314,7 +314,7 @@ class MoleculeAPI:
         from amdockvs.molecules.storage import has_shards, ligand_row_count
 
         self.runtime._require_active_project()
-        project_db = self.runtime.molsuite.project_db
+        project_db = self.runtime.workspace.project_db
         return bool(has_shards(project_db)), int(ligand_row_count(project_db))
 
     def shard_counts(self, *, engine: str = "ad4") -> dict[str, int]:
@@ -325,9 +325,9 @@ class MoleculeAPI:
         from amdockvs.molecules.storage import ShardStore, iter_prepared_shards, shard_scope_spec
 
         self.runtime._require_active_project()
-        store = ShardStore(self.runtime.molsuite.project_db)
+        store = ShardStore(self.runtime.workspace.project_db)
         whole = shard_scope_spec(state=None)
-        prepared = list(iter_prepared_shards(self.runtime.molsuite.project_db, engine=engine))
+        prepared = list(iter_prepared_shards(self.runtime.workspace.project_db, engine=engine))
         return {
             "shards": store.count(whole),
             "records": store.record_count(whole),
@@ -337,7 +337,7 @@ class MoleculeAPI:
 
     def list_fragments(self, molecule_id: int) -> list[dict[str, Any]]:
         self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             molecule = session.get(MoleculeRecord, int(molecule_id))
         if molecule is None:
             raise ValueError(f"Molecule {molecule_id} does not exist.")
@@ -345,7 +345,7 @@ class MoleculeAPI:
 
     def get_fragment_path(self, molecule_id: int, fragment_index: int) -> Path | None:
         self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             molecule = session.get(MoleculeRecord, int(molecule_id))
         if molecule is None:
             raise ValueError(f"Molecule {molecule_id} does not exist.")
@@ -360,7 +360,7 @@ class MoleculeAPI:
 
     def select_fragment(self, molecule_id: int, fragment_index: int) -> Any:
         self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             molecule = session.get(MoleculeRecord, int(molecule_id))
             if molecule is None:
                 raise ValueError(f"Molecule {molecule_id} does not exist.")
@@ -503,7 +503,7 @@ class MoleculeAPI:
         self.runtime._require_active_project()
         molecule_ids = list(self.stream_ids(source)) if is_molecule_scope(source) else normalize_ids(source)
         return create_molecule_snapshot_set(
-            self.runtime.molsuite.project_db,
+            self.runtime.workspace.project_db,
             name=normalize_set_name(name, fallback="molecule_set"),
             molecule_ids=molecule_ids,
             kind=kind,
@@ -527,7 +527,7 @@ class MoleculeAPI:
             "excluded": bool(excluded),
             "exclusion_reason": str(reason or "") if bool(excluded) else "",
         }
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             for start in range(0, len(resolved_ids), max(1, int(chunk_size))):
                 chunk = resolved_ids[start : start + max(1, int(chunk_size))]
                 result = session.exec(

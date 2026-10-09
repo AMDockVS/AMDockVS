@@ -29,7 +29,7 @@ from amdockvs.core.vocab import ShardState
 def project(tmp_path):
     runtime = AMDockVSRuntime()
     runtime.create_project(name="generations", folder=tmp_path)
-    yield runtime.molsuite.project_db, tmp_path
+    yield runtime.workspace.project_db, tmp_path
     runtime.close_project()
 
 

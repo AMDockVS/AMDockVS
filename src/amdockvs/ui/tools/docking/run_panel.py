@@ -662,7 +662,7 @@ class RunPanel:
         attached = None
         for step, follower, keys in followers:
             active = [job for job in jobs if not job.is_terminal
-                      and any(key in str(job.task_type).lower() for key in keys)]
+                      and any(key in str(job.name).lower() for key in keys)]
             if follower.job_ids or not active:
                 continue
             follower.follow([(follower.noun, job.job_id) for job in active])

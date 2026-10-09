@@ -51,7 +51,7 @@ def hit_rows(count, *, score=-9.0, receptor_id=1):
 def test_cap_binds_before_a_permissive_threshold(project):
     """The plan's check: predicate passes everything, cap=10 → exactly 10 rows."""
     gate = HitGate(cap=10)
-    project_db = project.molsuite.project_db
+    project_db = project.workspace.project_db
     ingest_hits(project_db, hit_rows(40), gate=gate)
     ingest_hits(project_db, hit_rows(40), gate=gate)  # incremental: the count carries over
     with project_db.get_session() as session:
@@ -62,12 +62,12 @@ def test_cap_binds_before_a_permissive_threshold(project):
 
 def test_threshold_binds_before_the_cap(project):
     gate = HitGate(cap=100, threshold=-8.5)
-    kept = ingest_hits(project.molsuite.project_db, hit_rows(3, score=-9.0) + hit_rows(5, score=-7.0), gate=gate)
+    kept = ingest_hits(project.workspace.project_db, hit_rows(3, score=-9.0) + hit_rows(5, score=-7.0), gate=gate)
     assert len(kept) == 3
 
 
 def test_light_payload_keeps_smiles_and_pose_but_no_descriptors(project):
-    project_db = project.molsuite.project_db
+    project_db = project.workspace.project_db
     ingest_hits(project_db, hit_rows(1), gate=HitGate(cap=5))
     with project_db.get_session() as session:
         molecule = session.exec(select(MoleculeRecord)).one()
@@ -81,7 +81,7 @@ def test_light_payload_keeps_smiles_and_pose_but_no_descriptors(project):
 
 
 def test_full_payload_brings_descriptors_and_conformers(project):
-    project_db = project.molsuite.project_db
+    project_db = project.workspace.project_db
     ingest_hits(project_db, hit_rows(1), gate=HitGate(cap=5), payload="full")
     with project_db.get_session() as session:
         molecule = session.exec(select(MoleculeRecord)).one()
@@ -93,17 +93,17 @@ def test_a_cap_is_not_optional(project):
     with pytest.raises(ValueError):
         HitGate(cap=0)
     with pytest.raises(ValueError, match="HitGate"):
-        ShardStore(project.molsuite.project_db).materialize(hit_rows(1))
+        ShardStore(project.workspace.project_db).materialize(hit_rows(1))
 
 
 def test_shard_store_materializes_through_its_gate(project):
-    store = ShardStore(project.molsuite.project_db, gate=HitGate(cap=2))
+    store = ShardStore(project.workspace.project_db, gate=HitGate(cap=2))
     assert len(store.materialize(hit_rows(5))) == 2
     assert store.materialize(hit_rows(5)) == []
 
 
 def test_off_target_results_reuse_the_reference_hit_molecule(project):
-    project_db = project.molsuite.project_db
+    project_db = project.workspace.project_db
     with project_db.get_session() as session:
         receptors = [
             MoleculeRecord(name=name, molecule_type="protein", is_receptor=True)

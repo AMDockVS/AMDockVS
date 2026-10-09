@@ -393,9 +393,9 @@ def test_amdock_ui_domain_views_show_docking_summaries(tmp_path, monkeypatch):
         # Reopened while a docking runs: the first snapshot re-attaches it to Preview (with Cancel).
         from types import SimpleNamespace
 
-        running = SimpleNamespace(job_id="job-d", task_type="amdock_docking_job", status="running",
+        running = SimpleNamespace(job_id="job-d", name="amdock_docking_job", status="running",
                                   is_terminal=False, chunks_done=214, chunks_total=1802,
-                                  feed_exhausted=True, chunks_running=4, chunks_failed=0)
+                                  chunks_running=4, chunks_failed=0)
         docking_view._reopened = False
         docking_view.on_jobs_snapshot(SimpleNamespace(jobs_active=1, jobs=[running]))
         assert docking_view.stepper.current_index == 3 and docking_view.run_bar.is_running

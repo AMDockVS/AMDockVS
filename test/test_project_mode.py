@@ -37,7 +37,7 @@ def _add_shard(runtime, tmp_path):
 
     from amdockvs.models.screening import ScreeningShard
 
-    with runtime.molsuite.project_db.get_session() as session:
+    with runtime.workspace.project_db.get_session() as session:
         session.add(
             ScreeningShard(
                 source=str(tmp_path / "lib.smi"),
@@ -54,7 +54,7 @@ def _add_shard(runtime, tmp_path):
 
 
 def test_mode_follows_the_data(runtime, tmp_path):
-    project_db = runtime.molsuite.project_db
+    project_db = runtime.workspace.project_db
     assert library_kind(project_db) == ProjectMode.VS == runtime.mode
     _add_shard(runtime, tmp_path)
     assert library_kind(project_db) == ProjectMode.HTPVS == runtime.mode
@@ -71,7 +71,7 @@ def test_mode_is_not_stored_anywhere(runtime, tmp_path):
 
 def test_shards_refuse_to_join_a_row_library(runtime, tmp_path):
     """One screening library per project: that is what lets a scope name a single store."""
-    project_db = runtime.molsuite.project_db
+    project_db = runtime.workspace.project_db
     check_library_target(project_db, target=LIBRARY_ROWS)  # empty project: either is fine
     check_library_target(project_db, target=LIBRARY_SHARDS)
     _add_shard(runtime, tmp_path)

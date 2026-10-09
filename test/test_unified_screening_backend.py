@@ -18,7 +18,7 @@ def _project_with_shard(tmp_path):
     runtime.create_project(name="unified-backend", folder=tmp_path)
     source = tmp_path / "raw.mshard"
     source.write_bytes(b"raw")
-    with runtime.molsuite.project_db.get_session() as session:
+    with runtime.workspace.project_db.get_session() as session:
         shard = ScreeningShard(
             source="library.smi",
             shard_index=0,
@@ -40,7 +40,7 @@ def test_engine_artifact_does_not_replace_the_chemical_shard(tmp_path):
     prepared.write_bytes(b"pdbqt")
     try:
         assert app_config(runtime).shards.keep_history is False
-        with runtime.molsuite.project_db.get_session() as session:
+        with runtime.workspace.project_db.get_session() as session:
             session.add(
                 ShardEngineState(
                     shard_id=int(shard.id),
@@ -52,7 +52,7 @@ def test_engine_artifact_does_not_replace_the_chemical_shard(tmp_path):
             )
             session.commit()
 
-        rows = list(iter_prepared_shards(runtime.molsuite.project_db, engine="ad4"))
+        rows = list(iter_prepared_shards(runtime.workspace.project_db, engine="ad4"))
         assert len(rows) == 1
         assert rows[0]["id"] == int(shard.id)
         assert rows[0]["path"] == str(source)
@@ -64,7 +64,7 @@ def test_engine_artifact_does_not_replace_the_chemical_shard(tmp_path):
             "prepared": 1,
             "prepared_records": 97,
         }
-        with runtime.molsuite.project_db.get_session() as session:
+        with runtime.workspace.project_db.get_session() as session:
             inventory = session.get(ScreeningShard, int(shard.id))
             assert inventory.path == str(source)
             assert inventory.input_format == "smiles"
@@ -87,7 +87,7 @@ def test_physical_shard_size_is_separate_from_ligand_job_batch():
 
 def test_shard_completion_is_scoped_to_run_engine_and_protocol(tmp_path):
     runtime, shard, _source = _project_with_shard(tmp_path)
-    db = runtime.molsuite.project_db
+    db = runtime.workspace.project_db
     try:
         advance_shard_run(
             db,
@@ -147,7 +147,7 @@ def test_live_target_progress_adds_only_matching_inflight_chunk_work():
 
 def test_ligand_pipeline_selects_the_shard_adapter_without_a_row_scope(monkeypatch):
     runtime = SimpleNamespace(
-        molsuite=SimpleNamespace(project_db=object()),
+        workspace=SimpleNamespace(project_db=object()),
         _require_active_project=lambda: None,
     )
     api = ChemistryAPI(runtime)
@@ -171,7 +171,7 @@ def test_shard_pipeline_rejects_an_ensemble_it_cannot_store():
 
 def test_docking_public_methods_select_shards_without_a_ligand_scope(monkeypatch):
     runtime = SimpleNamespace(
-        molsuite=SimpleNamespace(project_db=object()),
+        workspace=SimpleNamespace(project_db=object()),
         _require_active_project=lambda: None,
     )
     api = DockingAPI(runtime)

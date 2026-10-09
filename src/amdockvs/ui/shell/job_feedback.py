@@ -224,20 +224,17 @@ class JobFeedbackController:
 
     def _job_failure_message(self, job_id: str) -> str:
         try:
-            detail = self.w.monitor_bridge.get_job_detail(job_id, event_limit=20, output_limit=0, log_limit=0)
+            detail = self.w.monitor_bridge.get_job_detail(job_id, failure_limit=1)
         except Exception:
             detail = None
-        if detail is not None:
-            failure_events = [
-                event for event in detail.events
-                if str(event.level or "").upper() in {"ERROR", "CRITICAL"}
-                   or "fail" in str(event.event_type or "").lower()
-            ]
-            if failure_events:
-                return self._summarize_failure_message(str(failure_events[-1].message or ""))
-        job = self.w.runtime.get_job_status(job_id)
-        if job is not None and str(job.last_scheduler_reason or "").strip():
-            return self._summarize_failure_message(str(job.last_scheduler_reason or ""))
+        failures = list(getattr(detail, "failures", ()) or ())
+        # What the job says of itself first (a dependency that failed, a sink that could not
+        # write), then its chunks: the last line of a traceback is the error.
+        error = str(getattr(getattr(detail, "job", None), "error", "") or "").strip()
+        if not error and failures:
+            error = str(failures[-1].error or "").strip().splitlines()[-1]
+        if error:
+            return self._summarize_failure_message(error)
         return "The job finished with an error. Open the Jobs monitor for details."
 
     def _flush_failure_summary(self) -> None:
@@ -272,7 +269,7 @@ class JobFeedbackController:
         self._report_import_summary()
         normalized_job_id = str(job_id or "").strip()
         if (
-                str(status or "").strip().lower() != "failed"
+                str(status or "").strip().lower() not in ("failed", "completed_with_errors")
                 or not normalized_job_id
                 or normalized_job_id in self._shown_failure_jobs
                 or normalized_job_id in self._persisted_seen_failure_jobs

@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from ms_flow.query import db_pages
 from ms_flow.sinks import graph_sink, table_sink
-from ms_flow.tasking import job, task
+from amdockvs.core.jobs import job, task
 
 from amdockvs.core.configuration import DEFAULT_OUTPUT_FLUSH_EVERY
 from amdockvs.core.constants import AMDOCKVS_OFFLOADABLE_EXECUTORS

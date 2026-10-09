@@ -214,7 +214,7 @@ def project_table(runtime, config: TableConfig, parent: QWidget | None = None) -
     (see test_ui_api_boundary); widgets that build their own tables outside a
     BoundTableWidget go through here instead of reaching into the runtime.
     """
-    return SmartTableView(db=runtime.molsuite.project_db, config=config, parent=parent)
+    return SmartTableView(db=runtime.workspace.project_db, config=config, parent=parent)
 
 
 class SelectionStore(QObject):
@@ -288,7 +288,7 @@ class BoundTableWidget(QWidget):
         #     layout.addWidget(label)
         #     return
 
-        self._table = SmartTableView(db=runtime.molsuite.project_db, config=config, parent=self)
+        self._table = SmartTableView(db=runtime.workspace.project_db, config=config, parent=self)
         self.record_count: int | None = None  # rows of the last load; None before the first
         self._table.data_refreshed.connect(lambda total: setattr(self, "record_count", int(total)))
         self._table.data_refreshed.connect(self.records_changed)

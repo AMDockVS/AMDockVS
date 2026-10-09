@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from ms_flow.sinks import graph_sink, table_sink
 from ms_flow.specs import InputSource
-from ms_flow.tasking import job, task
+from amdockvs.core.jobs import job, task
 
 from amdockvs.core.configuration import (
     DEFAULT_LIGAND_BATCH_SIZE,

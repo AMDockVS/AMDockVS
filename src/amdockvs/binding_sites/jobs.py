@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from ms_flow.query import QuerySpec, db_pages
 from ms_flow.sinks import table_sink
-from ms_flow.tasking import job, task
+from amdockvs.core.jobs import job, task
 
 from amdockvs.core.constants import (
     AMDOCKVS_PROCESS_EXECUTORS,

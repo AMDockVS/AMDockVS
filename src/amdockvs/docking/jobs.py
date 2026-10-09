@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from ms_flow.sinks import table_sink
 from ms_flow.specs import InputSource
-from ms_flow.tasking import JobSpec
+from amdockvs.core.jobs import JobSpec
 
 from amdockvs.core.configuration import DEFAULT_DOCKING_BATCH_SIZE, DEFAULT_LIGAND_BATCH_SIZE
 from amdockvs.core.worker_io import worker_file, worker_output_dir

@@ -101,7 +101,7 @@ class BindingSiteAPI:
         self.runtime._require_active_project()
         if scope.limit is not None and scope.limit <= 0:
             return
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             statement = select(BindingSite)
             if scope.molecule_id is not None:
                 statement = statement.where(BindingSite.molecule_id == int(scope.molecule_id))
@@ -142,7 +142,7 @@ class BindingSiteAPI:
 
     def list_receptors(self) -> list[dict[str, Any]]:
         self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             prediction_profiles: dict[int, str] = {}
             prediction_rows = session.exec(
                 select(BindingSite)
@@ -219,7 +219,7 @@ class BindingSiteAPI:
             receptor_id: [] for receptor_id in normalized_ids
         }
         if normalized_ids:
-            with self.runtime.molsuite.project_db.get_session() as session:
+            with self.runtime.workspace.project_db.get_session() as session:
                 rows = session.exec(
                     select(BindingSite)
                     .where(BindingSite.source == "p2rank")
@@ -273,11 +273,11 @@ class BindingSiteAPI:
         self.runtime._require_active_project()
         from amdockvs.project.deletion import delete_binding_sites
 
-        return delete_binding_sites(self.runtime.molsuite.project_db, binding_site_ids)
+        return delete_binding_sites(self.runtime.workspace.project_db, binding_site_ids)
 
     def get_receptor(self, receptor_id: int) -> MoleculeRecord:
         self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             row = session.get(MoleculeRecord, int(receptor_id))
             if row is None or not bool(row.is_receptor):
                 raise ValueError(f"Receptor {receptor_id} does not exist.")
@@ -359,7 +359,7 @@ class BindingSiteAPI:
     ) -> BindingSite:
         """Saves a site. Without `binding_site_id` it creates a new one; with it, rewrites that one."""
         self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             molecule = session.get(MoleculeRecord, int(molecule_id))
             if molecule is None:
                 raise ValueError(f"Molecule {molecule_id} does not exist.")
@@ -401,7 +401,7 @@ class BindingSiteAPI:
 
         `scale`/`padding` default to the configured geometry (settings > binding_sites)."""
         self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             ligand = session.get(MoleculeRecord, int(ligand_id))
             if ligand is None:
                 raise ValueError(f"Molecule {ligand_id} does not exist.")
@@ -422,7 +422,7 @@ class BindingSiteAPI:
 
     def set_active_site(self, *, molecule_id: int, binding_site_id: int | None) -> None:
         self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             molecule = session.get(MoleculeRecord, int(molecule_id))
             if molecule is None:
                 raise ValueError(f"Molecule {molecule_id} does not exist.")

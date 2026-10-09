@@ -107,6 +107,7 @@ class JobStatus(BaseModel):
     chunks_staging: int = 0
     chunks_ready_not_dispatched: int = 0
     feed_exhausted: bool = True
+    error: str = ""
     output_sink: Any = None
     job_queue_wait_s: Optional[float] = None
     chunks_started: int = 0

@@ -74,7 +74,7 @@ def _open_startup_project(runtime: AMDockVSRuntime, *, project_id: str | None, p
     if not project_path:
         return
     path = Path(project_path).expanduser().resolve()
-    project = runtime.molsuite.find_project(folder=path)
+    project = runtime.workspace.find_project(folder=path)
     if project is None:
         raise ValueError(f"No AMDockVS project is registered at: {path}")
     runtime.open_project(project.id)

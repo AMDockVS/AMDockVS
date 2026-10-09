@@ -392,7 +392,7 @@ class AMDockVSMainWindow(QMainWindow):
         # (it may need a cluster launch), so this never blocks on the network.
         if self._has_active_project():
             try:
-                self.runtime.molsuite.reload_configured_executors()
+                self.runtime.workspace.reload_executors()
             except Exception as exc:  # noqa: BLE001 - a bad executor config must not eat the save
                 self.statusBar().showMessage(f"Executors not applied: {exc}", 8000)
 

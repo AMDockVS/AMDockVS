@@ -293,15 +293,14 @@ class ResultsPivotWidget(QWidget):
                 getattr(job, "job_id", "")
                 for job in list(getattr(snapshot, "jobs", ()) or ())
                 if self._job_kind(job) == _HITS
-                and "dock_shard" in str(getattr(job, "task_type", "") or "").lower()
-                and not bool(getattr(job, "is_terminal", False))
-                and str(getattr(job, "status", "") or "").lower() not in {"completed", "failed", "canceled"}
+                and "dock_shard" in str(job.name or "").lower()
+                and not job.is_terminal
             )
         self._update_activity()
 
     @staticmethod
     def _job_kind(job) -> str:
-        task_type = str(getattr(job, "task_type", "") or "").lower()
+        task_type = str(job.name or "").lower()
         if "redocking" in task_type:
             return _REDOCKING
         # `amdock_dock_shard_slice` is a docking job too — and it is the one that shows nothing
@@ -315,9 +314,7 @@ class ResultsPivotWidget(QWidget):
         jobs = list(getattr(self._monitor_snapshot, "jobs", ()) or ())
         return [
             job for job in jobs
-            if self._job_kind(job) == wanted
-            and str(getattr(job, "status", "") or "").lower()
-            not in {"completed", "failed", "canceled"}
+            if self._job_kind(job) == wanted and not job.is_terminal
         ]
 
     def _update_activity(self) -> None:
@@ -337,12 +334,8 @@ class ResultsPivotWidget(QWidget):
         }
         done = sum(max(0, int(getattr(job, "chunks_done", 0) or 0)) for job in jobs)
         total = sum(max(0, int(getattr(job, "chunks_total", 0) or 0)) for job in jobs)
-        failed = sum(
-            max(0, int(getattr(job, "chunks_failed", 0) or 0))
-            + max(0, int(getattr(job, "chunks_stage_failed", 0) or 0))
-            for job in jobs
-        )
-        sharded = any("dock_shard" in str(getattr(job, "task_type", "") or "").lower() for job in jobs)
+        failed = sum(max(0, int(getattr(job, "chunks_failed", 0) or 0)) for job in jobs)
+        sharded = any("dock_shard" in str(job.name or "").lower() for job in jobs)
         unit = "shard tasks" if sharded else "dockings"
         progress = f"{done:,} / {total:,} {unit}" if total else f"{done:,} {unit} completed"
         if failed:

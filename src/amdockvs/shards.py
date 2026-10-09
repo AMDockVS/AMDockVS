@@ -16,7 +16,7 @@ class ShardAPI:
 
     def get(self, shard_id: int) -> ScreeningShard | None:
         self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             return session.get(ScreeningShard, int(shard_id))
 
     def open(self, shard_id: int) -> Shard:
@@ -26,7 +26,7 @@ class ShardAPI:
             raise ValueError(f"Screening shard {shard_id} does not exist.")
         path = Path(str(row.path or "")).expanduser()
         if not path.is_absolute():
-            path = Path(self.runtime.molsuite.active_context.path) / path
+            path = Path(self.runtime.workspace.active_context.path) / path
         if not path.is_file():
             raise FileNotFoundError(path)
         return Shard.open(path)

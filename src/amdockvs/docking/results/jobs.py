@@ -14,7 +14,7 @@ from typing import Any, Iterator, Mapping
 from pydantic import BaseModel, Field
 
 from ms_flow.sinks import table_sink
-from ms_flow.tasking import JobSpec
+from amdockvs.core.jobs import JobSpec
 from sqlmodel import delete
 
 from amdockvs.core.worker_io import project_root_from_output_dir, worker_file, worker_output_dir

@@ -1,8 +1,9 @@
 """Declaring the files and directories a compute worker may touch.
 
 Jobs run out-of-process (and possibly off-host), so a path in a chunk payload is
-not a path: it is a transfer declaration that MolSuite materialises worker-side.
-These wrappers are the only place that knows it.
+marked: a string that is the path where the disk is this one, and that an executor
+whose tasks run on another disk carries there. These wrappers are the only place
+that knows it.
 """
 from __future__ import annotations
 
@@ -10,7 +11,7 @@ import json
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from ms_flow.api import FileInputSpec, ProjectOutputDirSpec
+from ms_flow.engine import Dir, File
 
 
 def worker_file(path: Any, *, cache: bool = False):
@@ -18,7 +19,7 @@ def worker_file(path: Any, *, cache: bool = False):
     text = str(path or "").strip()
     if not text or not Path(text).expanduser().is_file():
         return text
-    return FileInputSpec(text, delivery="path", cache=cache)
+    return File(text)  # ponytail: `cache` is the executor's business now
 
 
 def worker_path_fields(
@@ -60,8 +61,8 @@ def restore_worker_paths(value: Any, rows: Iterable[Mapping[str, Any]]) -> Any:
     return restore(value)
 
 
-def worker_output_dir(path: str | Path) -> ProjectOutputDirSpec:
-    return ProjectOutputDirSpec(str(Path(path).expanduser().resolve()))
+def worker_output_dir(path: str | Path) -> Dir:
+    return Dir(Path(path).expanduser().resolve())
 
 
 def project_root_from_output_dir(path: str | Path) -> Path:

@@ -241,7 +241,7 @@ class DiversityAPI:
             fp_radius=fp_radius,
             fp_nbits=fp_nbits,
         )
-        project_db = self.runtime.molsuite.project_db
+        project_db = self.runtime.workspace.project_db
         skip = {int(i) for i in (exclude_ids or ())}
         rows, total, eligible = _reservoir_sample(
             scope_molecule_rows(project_db, params),
@@ -351,7 +351,7 @@ class DiversityAPI:
             fp_radius=fp_radius,
             fp_nbits=fp_nbits,
         )
-        return scope_molecule_count(self.runtime.molsuite.project_db, params)
+        return scope_molecule_count(self.runtime.workspace.project_db, params)
 
     def run_selection(
         self,
@@ -386,7 +386,7 @@ class DiversityAPI:
             fp_radius=fp_radius,
             fp_nbits=fp_nbits,
         )
-        project_db = self.runtime.molsuite.project_db
+        project_db = self.runtime.workspace.project_db
         # Stop one row past the limit instead of loading the scope first: a scope too big for the
         # inline path must not be materialized just to be rejected.
         rows = list(islice(scope_molecule_rows(project_db, params), INLINE_RUN_LIMIT + 1))
@@ -464,7 +464,7 @@ class DiversityAPI:
             n_molecules=n_molecules, n_clusters=n_clusters, n_reps=n_reps,
             snapshot_path=snapshot_path, evr=[0.0, 0.0], cluster_stats=cluster_stats,
         )
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             session.add(row)
             session.commit()
         return cluster_run_id
@@ -473,7 +473,7 @@ class DiversityAPI:
     def list_runs(self) -> list[dict[str, Any]]:
         """Persisted clustering runs, newest first: run id, method, cluster/centroid counts."""
         self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             rows = session.exec(select(ClusteringResult)).all()
         runs: dict[str, dict[str, Any]] = {}
         for row in rows:
@@ -494,7 +494,7 @@ class DiversityAPI:
 
     def get_run(self, cluster_run_id: str) -> list[dict[str, Any]]:
         self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             rows = session.exec(
                 select(ClusteringResult).where(ClusteringResult.cluster_run_id == str(cluster_run_id))
             ).all()
@@ -525,7 +525,7 @@ class DiversityAPI:
         non_reps = [r["molecule_id"] for r in self.get_run(cluster_run_id) if not r["is_centroid"]]
         if not non_reps:
             return 0
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             run = session.exec(select(ClusteringRun).where(ClusteringRun.run_id == str(cluster_run_id))).first()
         detail = f"{run.method}, t={run.threshold}" if run is not None else str(cluster_run_id)[:8]
         return int(self.runtime.molecules.set_excluded_state(
@@ -541,7 +541,7 @@ class DiversityAPI:
         if not ids:
             raise ValueError("No molecules to save as a set.")
         ref = create_snapshot_set(
-            self.runtime.molsuite.project_db,
+            self.runtime.workspace.project_db,
             entity_kind="molecule",
             name=str(name).strip() or "diverse_selection",
             entity_ids=ids,
@@ -557,7 +557,7 @@ class DiversityAPI:
         from amdockvs.core.paths import preferred_molecule_path
 
         self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             rec = session.get(MoleculeRecord, int(molecule_id))
             path = preferred_molecule_path(rec) if rec is not None else None
         if path is None or not path.exists():
@@ -569,7 +569,7 @@ class DiversityAPI:
 
     # --- saved results: durable summary row + parquet graph sidecar -----------
     def _project_root(self) -> Path:
-        db_path = getattr(self.runtime.molsuite.project_db, "db_path", None)
+        db_path = getattr(self.runtime.workspace.project_db, "db_path", None)
         if not db_path:
             raise ValueError("No project DB path — cannot resolve the run sidecar location.")
         return Path(db_path).expanduser().resolve().parent
@@ -613,7 +613,7 @@ class DiversityAPI:
             n_reps=int(n_reps if n_reps is not None else (frame["is_centroid"].sum() if len(frame) else 0)),
             snapshot_path=str(snapshot), evr=list(evr or [0.0, 0.0]), cluster_stats=list(cluster_stats or []),
         )
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             session.add(row)
             session.commit()
         return run_id
@@ -621,7 +621,7 @@ class DiversityAPI:
     def list_clustering_results(self) -> list[dict[str, Any]]:
         """Saved runs, newest first — for the results table."""
         self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             rows = session.exec(select(ClusteringRun).order_by(ClusteringRun.id.desc())).all()
         return [
             {"run_id": r.run_id, "created_at": r.created_at, "method": r.method, "threshold": r.threshold,
@@ -636,7 +636,7 @@ class DiversityAPI:
         import pandas as pd
 
         self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             row = session.exec(select(ClusteringRun).where(ClusteringRun.run_id == str(run_id))).first()
         if row is None:
             raise ValueError(f"Unknown clustering run: {run_id}")
@@ -653,7 +653,7 @@ class DiversityAPI:
 
     def delete_clustering_result(self, run_id: str) -> None:
         self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             row = session.exec(select(ClusteringRun).where(ClusteringRun.run_id == str(run_id))).first()
             if row is None:
                 return

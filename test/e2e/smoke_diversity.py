@@ -46,7 +46,7 @@ def main() -> int:
             cluster_run_id=run_id, executor_name="compute",
         )
         runtime.wait_for_job(job_id)
-        with runtime.molsuite.project_db.get_session() as session:
+        with runtime.workspace.project_db.get_session() as session:
             rows = session.exec(
                 select(ClusteringResult).where(ClusteringResult.cluster_run_id == run_id)
             ).all()
@@ -79,7 +79,7 @@ def main() -> int:
 
         # [3] persist the reduced library as a set (via scopes, not raw DB)
         ref = runtime.diversity.save_centroids_as_set(run_id, name="smoke_centroids")
-        members = list_molecule_set_ids(runtime.molsuite.project_db, int(ref.id))
+        members = list_molecule_set_ids(runtime.workspace.project_db, int(ref.id))
         print(f"[3] centroid set #{ref.id}: {len(members)} members", flush=True)
         assert len(members) == n_centroids
 

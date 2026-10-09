@@ -116,7 +116,7 @@ def test_parse_p2rank_outputs_builds_binding_site_rows(tmp_path):
 
 def _pocket_api(project_store: ProjectStore) -> BindingSiteAPI:
     runtime = SimpleNamespace(
-        molsuite=SimpleNamespace(project_db=project_store),
+        workspace=SimpleNamespace(project_db=project_store),
         _require_active_project=lambda: None,
     )
     return BindingSiteAPI(runtime)

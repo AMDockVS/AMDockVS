@@ -109,7 +109,7 @@ def test_readiness_honors_programs_without_preparation_or_binding_site(monkeypat
     )
     runtime = SimpleNamespace(
         _require_active_project=lambda: None,
-        molsuite=SimpleNamespace(project_db=object()),
+        workspace=SimpleNamespace(project_db=object()),
     )
 
     result = DockingAPI(runtime).check_required()

@@ -36,7 +36,7 @@ class _Runtime:
         factory = sessionmaker(bind=engine, class_=Session)
         self.active_context = object()
         self.amdock_configuration = None
-        self.molsuite = type("MS", (), {"project_db": type("DB", (), {"get_session": lambda _s: factory()})()})()
+        self.workspace = type("MS", (), {"project_db": type("DB", (), {"get_session": lambda _s: factory()})()})()
 
 
 def _widget(parent=None):

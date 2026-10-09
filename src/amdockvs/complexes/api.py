@@ -36,7 +36,7 @@ class ComplexAPI:
         metadata: dict[str, Any] | None = None,
     ) -> ComplexRef:
         self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             record = ComplexRecord(
                 name=str(name or "").strip() or f"complex_{int(receptor_molecule_id)}_{int(ligand_molecule_id)}",
                 receptor_molecule_id=int(receptor_molecule_id),
@@ -56,14 +56,14 @@ class ComplexAPI:
     def get(self, complex_ref: ComplexRef | int) -> ComplexRecord | None:
         self.runtime._require_active_project()
         complex_id = int(complex_ref.id if isinstance(complex_ref, ComplexRef) else complex_ref)
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             return session.get(ComplexRecord, complex_id)
 
     def details(self, complex_ref: ComplexRef | int) -> Details | None:
         """Load the complete Details-panel projection for a receptor-ligand pair."""
         self.runtime._require_active_project()
         complex_id = int(complex_ref.id if isinstance(complex_ref, ComplexRef) else complex_ref)
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             pair = session.get(ComplexRecord, complex_id)
             if pair is None:
                 return None
@@ -80,7 +80,7 @@ class ComplexAPI:
         self.runtime._require_active_project()
         from amdockvs.project.deletion import delete_complexes
 
-        return delete_complexes(self.runtime.molsuite.project_db, complex_ids)
+        return delete_complexes(self.runtime.workspace.project_db, complex_ids)
 
     def stream(
         self,
@@ -89,7 +89,7 @@ class ComplexAPI:
         purpose: str | None = None,
     ) -> Iterator[ComplexRecord]:
         self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             statement = select(ComplexRecord)
             if purpose is not None:
                 allowed = {
@@ -103,7 +103,7 @@ class ComplexAPI:
             rows = list(session.exec(statement))
         allowed_ids = None
         if complex_set is not None:
-            allowed_ids = set(list_complex_set_ids(self.runtime.molsuite.project_db, complex_set))
+            allowed_ids = set(list_complex_set_ids(self.runtime.workspace.project_db, complex_set))
         for row in rows:
             row_id = int(row.id or 0)
             if allowed_ids is not None and row_id not in allowed_ids:
@@ -138,13 +138,13 @@ class ComplexAPI:
         if isinstance(source, ComplexRef):
             complex_ids = [int(source.id)]
         elif isinstance(source, ComplexSetRef):
-            complex_ids = list_complex_set_ids(self.runtime.molsuite.project_db, source)
+            complex_ids = list_complex_set_ids(self.runtime.workspace.project_db, source)
         elif isinstance(source, int):
             complex_ids = [int(source)]
         else:
             complex_ids = [int(value) for value in source]
         return create_complex_snapshot_set(
-            self.runtime.molsuite.project_db,
+            self.runtime.workspace.project_db,
             name=str(name or "").strip() or "complex_set",
             complex_ids=complex_ids,
             kind=kind,

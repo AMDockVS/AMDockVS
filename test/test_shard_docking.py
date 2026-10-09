@@ -358,7 +358,7 @@ def test_select_hits_projects_scores_then_loads_only_selected_poses(tmp_path, mo
     runtime = AMDockVSRuntime()
     runtime.create_project(name="columnar-ranking", folder=tmp_path)
     try:
-        project_db = runtime.molsuite.project_db
+        project_db = runtime.workspace.project_db
         with project_db.get_session() as session:
             receptor = MoleculeRecord(name="R", molecule_type="protein", is_receptor=True)
             source_shard = ScreeningShard(source="lib.smi", shard_index=0, path="lib.mshard", n_records=3)
@@ -427,7 +427,7 @@ def test_top_n_writes_nothing_until_the_campaign_closes(tmp_path):
     runtime = AMDockVSRuntime()
     runtime.create_project(name="campaign", folder=tmp_path)
     try:
-        project_db = runtime.molsuite.project_db
+        project_db = runtime.workspace.project_db
         with project_db.get_session() as session:
             receptor = MoleculeRecord(name="R", molecule_type="protein", is_receptor=True)
             source_shard = ScreeningShard(
@@ -504,7 +504,7 @@ def test_general_top_n_is_ranked_per_receptor_and_deduplicates_ligands(tmp_path)
     runtime = AMDockVSRuntime()
     runtime.create_project(name="per-receptor-ranking", folder=tmp_path)
     try:
-        project_db = runtime.molsuite.project_db
+        project_db = runtime.workspace.project_db
         with project_db.get_session() as session:
             receptors = [
                 MoleculeRecord(name=name, molecule_type="protein", is_receptor=True)
@@ -570,7 +570,7 @@ def test_interrupted_top_n_is_recovered_from_completed_result_shards(tmp_path):
     runtime = AMDockVSRuntime()
     runtime.create_project(name="recover-ranked", folder=tmp_path)
     try:
-        project_db = runtime.molsuite.project_db
+        project_db = runtime.workspace.project_db
         with project_db.get_session() as session:
             receptor = MoleculeRecord(name="R", molecule_type="protein", is_receptor=True)
             session.add(receptor)
@@ -666,7 +666,7 @@ def test_canceled_job_marks_campaign_targets_canceled(tmp_path):
     runtime = AMDockVSRuntime()
     runtime.create_project(name="canceled-campaign", folder=tmp_path)
     try:
-        project_db = runtime.molsuite.project_db
+        project_db = runtime.workspace.project_db
         plan_targets(
             project_db,
             run_id="run-canceled",
@@ -696,7 +696,7 @@ def test_dependency_cancellation_does_not_overwrite_reference_failure(tmp_path):
     runtime = AMDockVSRuntime()
     runtime.create_project(name="failed-reference", folder=tmp_path)
     try:
-        project_db = runtime.molsuite.project_db
+        project_db = runtime.workspace.project_db
         plan_targets(
             project_db, run_id="cascade", receptors=[{"receptor_id": 1}],
             ligands_total=10, engine="vina",
@@ -717,7 +717,7 @@ def test_a_scheduled_receptor_is_visible_before_it_has_a_single_result(tmp_path)
     runtime = AMDockVSRuntime()
     runtime.create_project(name="campaign-plan", folder=tmp_path)
     try:
-        project_db = runtime.molsuite.project_db
+        project_db = runtime.workspace.project_db
         plan_targets(
             project_db,
             run_id="run-1",
