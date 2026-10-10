@@ -57,6 +57,7 @@ def qvina_dock_runner(payload: dict) -> list[dict]:
         protocol_metadata=dict(payload.get("protocol_metadata") or {}),
         report_name=str(payload.get("report_name") or "").strip() or None,
         pair_callback=payload.get("_pair_callback"),
+        pair_progress=payload.get("_pair_progress"),
         collect_rows=bool(payload.get("_collect_rows", True)),
         engine="qvina",
     )

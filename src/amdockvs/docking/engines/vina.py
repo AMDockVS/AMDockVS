@@ -5,6 +5,7 @@ import os
 import shutil
 import signal
 import subprocess
+import tempfile
 import threading
 import uuid
 from contextlib import suppress
@@ -80,6 +81,22 @@ def _prepared_vina(
         )
     cache[cache_key] = vina_obj
     return vina_obj
+
+
+_PROGRESS_STARS = 51  # the line Vina and QuickVina fill while they search: one star per 2 %
+
+
+def _follow_progress_line(stream, progress: Callable[[float], None] | None = None) -> str:
+    """Read `stream` to its end and return it; tell `progress` how full the progress line is."""
+    if progress is None:
+        return stream.read()
+    text, line = [], ""
+    for char in iter(lambda: stream.read(1), ""):
+        text.append(char)
+        line = "" if char == "\n" else line + char
+        if char == "*" and not line.strip("*"):  # a line of stars only: the banner has none
+            progress(min(1.0, len(line) / _PROGRESS_STARS))
+    return "".join(text)
 
 
 def _parse_vina_pose_energies(*, output_path: Path, stdout_text: str = "") -> list[list[float]]:
@@ -203,6 +220,7 @@ def _run_vina_binary(
     energy_range: float,
     ad4_map_prefix: str | None = None,
     quickvina: bool = False,
+    progress: Callable[[float], None] | None = None,
 ) -> tuple[list[list[float]], str]:
     resolved_command = shutil.which(str(vina_command)) if not Path(str(vina_command)).expanduser().exists() else str(
         Path(str(vina_command)).expanduser().resolve()
@@ -246,7 +264,7 @@ def _run_vina_binary(
         command += [
             "--scoring", str(scoring_function),
             "--min_rmsd", str(float(min_rmsd)),
-            "--verbosity", "0",
+            "--verbosity", "1" if progress else "0",  # 1 prints the progress line
             *([] if ad4_map_prefix else ["--spacing", str(float(spacing))]),
         ]
     process: subprocess.Popen[str] | None = None
@@ -291,14 +309,20 @@ def _run_vina_binary(
         signal.signal(signal.SIGTERM, _forward_shutdown)
         signal.signal(signal.SIGINT, _forward_shutdown)
     try:
-        process = subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            start_new_session=(os.name == "posix"),
-        )
-        stdout_text, stderr_text = process.communicate()
+        # stderr goes to a file: nobody reads it while stdout is followed, and a full pipe
+        # would stop the program.
+        with tempfile.TemporaryFile("w+") as errors:
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=errors,
+                text=True,
+                start_new_session=(os.name == "posix"),
+            )
+            stdout_text = _follow_progress_line(process.stdout, progress)
+            process.wait()
+            errors.seek(0)
+            stderr_text = errors.read()
     finally:
         if install_signal_handlers:
             for signum, previous in previous_handlers.items():
@@ -337,6 +361,7 @@ def run_vina_docking_rows(
     protocol_metadata: dict | None = None,
     report_name: str | None = None,
     pair_callback: Callable[[list[dict]], None] | None = None,
+    pair_progress: Callable[[float], None] | None = None,
     collect_rows: bool = True,
     engine: str = "vina",
 ) -> list[dict]:
@@ -473,6 +498,7 @@ def run_vina_docking_rows(
                     spacing=pair_spacing,
                     scoring_function=scoring_function,
                     ad4_map_prefix=ad4_map_prefix,
+                    progress=pair_progress,
                     cpu=vina_cpu,
                     seed=seed,
                     exhaustiveness=int(pair.get("exhaustiveness") or 8),
@@ -662,6 +688,7 @@ def _vina_dock_runner(payload: dict) -> list[dict]:
         protocol_metadata=dict(payload.get("protocol_metadata") or {}),
         report_name=str(payload.get("report_name") or "").strip() or None,
         pair_callback=payload.get("_pair_callback"),
+        pair_progress=payload.get("_pair_progress"),
         collect_rows=bool(payload.get("_collect_rows", True)),
     )
 

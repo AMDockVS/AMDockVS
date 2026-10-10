@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 from types import SimpleNamespace
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -12,6 +13,7 @@ import amdockvs.docking.engines.registry as docking_registry
 import amdockvs.docking.submission as docking_submission
 from amdockvs.docking.api import DockingAPI
 from amdockvs.docking.engines.registry import register_docking_engine, run_docking_chunk
+from amdockvs.docking.engines.vina import _follow_progress_line
 from amdockvs.docking.preparation.profiles import (
     PreparationProfile,
     get_preparation_profile,
@@ -72,6 +74,7 @@ def test_a_chunk_tells_the_share_of_its_pairs_that_are_docked(monkeypatch):
 
     def runner(payload: dict) -> list[dict]:
         for pair in payload["pairs"]:
+            payload["_pair_progress"](0.5)  # halfway through this pair
             payload["_pair_callback"]([pair])
         return list(payload["pairs"])
 
@@ -80,8 +83,22 @@ def test_a_chunk_tells_the_share_of_its_pairs_that_are_docked(monkeypatch):
     chunk = {"engine": "test_pairs", "pairs": [{"n": n} for n in range(4)], "_pair_callback": seen.append}
 
     assert run_docking_chunk(chunk, told.append) == chunk["pairs"]
-    assert told == [25.0, 50.0, 75.0, 100.0]
+    assert told == [12.5, 25.0, 37.5, 50.0, 62.5, 75.0, 87.5, 100.0]
     assert seen == [[pair] for pair in chunk["pairs"]]  # whoever was listening still hears
+
+
+def test_the_progress_line_of_vina_tells_how_far_a_pair_is():
+    output = (
+        "#### AutoDock Vina ####\n* a note with a star\nPerforming docking (random seed: 1) ... \n"
+        "0%   10   20   30   40   50   60   70   80   90   100%\n"
+        "|----|----|----|----|----|----|----|----|----|----|\n" + "*" * 51 + "\n\nmode |   affinity\n"
+    )
+    told = []
+
+    assert _follow_progress_line(io.StringIO(output), told.append) == output
+    assert len(told) == 52 and told[0] == told[1] == 1 / 51  # the note's star, then the line starts over
+    assert told[1:] == sorted(told[1:]) and told[-1] == 1.0
+    assert _follow_progress_line(io.StringIO(output)) == output  # nobody listening: read in one go
 
 
 def test_preparation_profile_keeps_all_preparation_entrypoints_together(monkeypatch):
