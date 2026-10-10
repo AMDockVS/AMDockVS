@@ -19,6 +19,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from amdockvs.core.home import amdock_home
+
 _CCD_ORDER = {"sing": 1, "doub": 2, "trip": 3, "quad": 4}
 _CIF_SUFFIXES = {".cif", ".mmcif"}
 _CCD_URL = "https://files.rcsb.org/ligands/download/{resname}.cif"
@@ -62,9 +64,7 @@ def _ccd_cache_dir() -> Path:
     configured = str(os.environ.get("AMDOCK_CCD_CACHE") or "").strip()
     if configured:
         return Path(configured).expanduser()
-    xdg = str(os.environ.get("XDG_CACHE_HOME") or "").strip()
-    base = Path(xdg).expanduser() if xdg else Path.home() / ".cache"
-    return base / "AMDockVS" / "ccd"
+    return amdock_home() / "cache" / "ccd"
 
 
 def resname_of(structure_path: Path) -> str:

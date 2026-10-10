@@ -25,6 +25,8 @@ from ms_contactmap.style import (
 )
 from ms_flow.api import PydanticConfiguration
 
+from amdockvs.core.home import amdock_home
+
 
 MAX_2D_PREVIEW_HEAVY_ATOMS = "max_2d_preview_heavy_atoms"
 MAX_2D_PREVIEW_HEAVY_ATOMS_PATH = f"molecule_display.{MAX_2D_PREVIEW_HEAVY_ATOMS}"
@@ -432,7 +434,7 @@ class AMDockConfiguration(BaseModel):
     tools_home: str = Field(
         "",
         title="Managed tools directory",
-        description="Root for AMDock-installed tools (p2rank, protonation envs); empty uses the XDG data directory.",
+        description="Root for AMDock-installed tools (p2rank, protonation envs); empty uses tools/ in the AMDockVS home (~/.amdockvs).",
     )
     molecule_display: MoleculeDisplayConfiguration
     # Component sections: the component owns the defaults (in its own code); AMDock
@@ -487,7 +489,7 @@ def create_amdock_configuration() -> PydanticConfiguration:
         display_name="AMDockVS",
         model_type=AMDockConfiguration,
         default_path=AMDOCKVS_DEFAULT_CONFIG_PATH,
-        global_path=Path.home() / ".config" / "AMDockVS" / "config.toml",
+        global_path=amdock_home() / "config.toml",
         project_relative_path=Path(".molsuite") / "config" / "amdockvs.toml",
         description="Molecule display and AMDock-specific workflow settings.",
         legacy_keys=_LEGACY_KEYS,

@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from amdockvs.core.home import amdock_home
 from amdockvs.runtime import AMDockVSRuntime
 from amdockvs.project.summaries import DockingHitSummary
 from amdockvs.ui.catalog import COMPLEXES_VIEW_ID, LIGANDS_VIEW_ID, RECEPTOR_VIEW_ID
@@ -60,7 +61,8 @@ class AMDockVSMainWindow(QMainWindow):
         self.monitor_bridge = runtime.create_monitor_bridge(poll_ms=500, max_recent_jobs=50)
         self.jobs_dialog: JobsDialog | None = None  # built on first open_jobs_monitor()
         self._closing = False
-        self._settings = QSettings()
+        # A file of ours, not Qt's per-organization place: it goes when the home goes.
+        self._settings = QSettings(str(amdock_home() / "ui_state.ini"), QSettings.Format.IniFormat)
 
         self.views = ViewCoordinator(self)
         self.tools = ToolCoordinator(self)

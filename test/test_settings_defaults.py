@@ -81,7 +81,7 @@ def test_legacy_keys_migrate_to_their_new_home(tmp_path, monkeypatch, caplog):
     from amdockvs.core.configuration import create_amdock_configuration
 
     monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
-    path = tmp_path / ".config" / "AMDockVS" / "config.toml"
+    path = tmp_path / ".amdockvs" / "config.toml"
     path.parent.mkdir(parents=True)
     path.write_text(toml.dumps({
         "docking": {"exhaustiveness": 32, "temperature_k": 310.0},
