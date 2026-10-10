@@ -67,6 +67,18 @@ def gnina_command() -> str:
 GNINA = gnina_command()  # import-time snapshot; call gnina_command() at run time
 
 
+def gnina_binary() -> str:
+    """The usable executable, or why there is none."""
+    command_name = gnina_command()
+    binary = shutil.which(command_name) or (command_name if Path(command_name).exists() else None)
+    if not binary:
+        raise RuntimeError(
+            f"gnina binary not found ({command_name!r}). Set it in Settings > Docking > gnina, "
+            "$AMDOCK_GNINA, or put gnina on PATH."
+        )
+    return binary
+
+
 def _gnina_env(binary: str) -> dict:
     """The prebuilt gnina binary is not truly static: it needs libcudnn.so.9 + the CUDA-12
     runtime libs shipped as nvidia-*-cu12 pip wheels. Prepend those wheel lib dirs (found
@@ -127,13 +139,7 @@ def _run_gnina(
     seed: int,
     device: int = 0,
 ) -> None:
-    command_name = gnina_command()
-    binary = shutil.which(command_name) or (command_name if Path(command_name).exists() else None)
-    if not binary:
-        raise RuntimeError(
-            f"gnina binary not found ({command_name!r}). Set it in Settings > Docking > gnina, "
-            "$AMDOCK_GNINA, or put gnina on PATH."
-        )
+    binary = gnina_binary()
     mode = str(cnn_scoring or "rescore").strip().lower() or "rescore"
     command = [
         binary,
