@@ -464,3 +464,14 @@ def test_clear_filters_emits_one_scope_reload_and_keeps_protocol():
     assert widget.metric_filters.conditions() == []
     assert widget.protocol_combo.currentData() == "p"
     assert calls == [{"auto_select": True}]
+
+
+def test_launching_a_redocking_goes_to_its_pivot_before_the_first_row():
+    widget = _widget(hits=True, offtarget=False, redocking=False)
+    widget.show_run("redocking")
+    assert widget.pivot_combo.currentData() == widget._current_key == "redocking"
+    assert _rows(widget)["redocking"] == (True, "Redocking (pose vs reference)")
+    widget._apply_availability({"hits": True, "offtarget": False, "redocking": False})  # the poll: no row yet
+    assert widget.pivot_combo.currentData() == "redocking" and not widget.reason_label.text()
+    widget.show_run("docking")  # and a docking launched after it brings the hits back
+    assert widget.pivot_combo.currentData() == widget._current_key == "hits"

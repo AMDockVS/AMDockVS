@@ -1051,7 +1051,9 @@ class RunPanel:
         window = self.window()
         opener = getattr(window, "open_or_focus_view", None)
         if callable(opener):
-            opener(COMPLEXES_VIEW_ID)
+            show_run = getattr(opener(COMPLEXES_VIEW_ID), "show_run", None)
+            if callable(show_run):  # a redocking is read in its own pivot: go there, not to the hits
+                show_run(params.get("run_kind") or "docking")
         manager = getattr(window, "dock_manager", None)
         if manager is not None:
             manager.toggle("tools", False)
