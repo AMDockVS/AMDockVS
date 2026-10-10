@@ -670,15 +670,31 @@ def _failed_docking_row(failure: dict, *, protocol_payload: dict, engine: str = 
 # (e.g. AutoDock-GPU) without touching the job/sink plumbing.
 # ---------------------------------------------------------------------------
 
+def _vina_here(backend: str, command: str) -> tuple[str, str]:
+    """The backend and executable for the machine that runs the chunk.
+
+    The payload carries what the submitting machine found; on another host that path
+    may not exist, so the worker looks again (as qvina does).
+    """
+    if backend != "binary" or Path(command).expanduser().exists() or shutil.which(command):
+        return backend, command
+    from amdockvs.core.constants import vina_backend, vina_command
+
+    return vina_backend(), vina_command()
+
+
 def _vina_dock_runner(payload: dict) -> list[dict]:
+    backend, command = _vina_here(
+        str(payload.get("vina_backend") or "python"), str(payload.get("vina_command") or "vina")
+    )
     return run_vina_docking_rows(
         pairs=list(payload.get("pairs") or []),
         output_dir=str(payload.get("output_dir") or ""),
         box_center=[float(value) for value in (payload.get("box_center") or [])],
         box_size=[float(value) for value in (payload.get("box_size") or [])],
         scoring_function=str(payload.get("scoring_function") or "vina"),
-        vina_backend=str(payload.get("vina_backend") or "python"),
-        vina_command=str(payload.get("vina_command") or "vina"),
+        vina_backend=backend,
+        vina_command=command,
         vina_cpu=int(payload.get("vina_cpu") or 1),
         seed=int(payload.get("seed") or 0),
         spacing=float(payload.get("spacing") or 0.375),
