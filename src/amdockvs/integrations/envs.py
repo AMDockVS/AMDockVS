@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 
-from ms_env import READY, Recipe, Step, ToolSpec, ensure, find_environment_manager, locate, recipe_steps
+from ms_env import READY, STAMP, Recipe, Step, ToolSpec, ensure, find_environment_manager, locate, recipe_steps, verify
 
 from amdockvs.core.configuration import app_config
 from amdockvs.core.paths import tools_home
@@ -64,14 +64,22 @@ def protonation_tool_status(runtime, name: str) -> ProtonationToolStatus:
     recipe = protonation_recipe(runtime, normalized)
     state, executable = locate(recipe)
     spec = tool_spec(normalized)
-    label, installed = spec.info.get("label", normalized), state == READY
+    label, prefix = spec.info.get("label", normalized), Path(recipe.prefix)
+    # An environment of the user (something there that ms_env did not install) is taken as it
+    # is, when it holds what the recipe asks for.
+    theirs = prefix.is_dir() and any(prefix.iterdir()) and not (prefix / STAMP).exists()
+    lacks = verify(recipe) if theirs else []
+    installed = state == READY and not lacks
+    message = f"{label} {spec.version} is {'ready' if installed else 'not installed'}."
+    if lacks:
+        message = f"{prefix} does not meet what {label} {spec.version} needs: {'; '.join(lacks)}."
     return ProtonationToolStatus(
         name=normalized,
         version=spec.version,
         installed=installed,
-        prefix=Path(recipe.prefix),
+        prefix=prefix,
         command=Path(executable) if installed else None,
-        message=f"{label} {spec.version} is {'ready' if installed else 'not installed'}.",
+        message=message,
     )
 
 

@@ -46,6 +46,21 @@ def test_uninstall_removes_the_directory_and_is_idempotent(monkeypatch, tmp_path
     assert "not installed" in uninstall_tool(SimpleNamespace(), "p2rank")
 
 
+def test_uninstall_leaves_an_environment_of_the_user(monkeypatch, tmp_path):
+    monkeypatch.setenv("AMDOCK_TOOLS_HOME", str(tmp_path))
+    from ms_env import STAMP
+    from amdockvs.docking.engines.qvina import qvina_recipe
+    from amdockvs.integrations.registry import uninstall_tool
+
+    binary = Path(qvina_recipe(SimpleNamespace()).prefix, "qvina2.1")
+    binary.parent.mkdir(parents=True)
+    binary.write_text("put there by the user")
+    assert "left as it is" in uninstall_tool(SimpleNamespace(), "qvina") and binary.exists()
+
+    (binary.parent / STAMP).write_text("{}")  # what an install by ms_env leaves
+    assert "Removed" in uninstall_tool(SimpleNamespace(), "qvina") and not binary.parent.exists()
+
+
 def test_unknown_tool_is_rejected():
     from amdockvs.integrations.registry import get_tool
 
