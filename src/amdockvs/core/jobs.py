@@ -4,7 +4,8 @@ A job is a chunker `(params, config)` that yields payloads, and a `run_chunk(pay
 `run_chunk(payload, progress_cb)` that runs one in a worker. `config` brings the project:
 `project_db`, `project_store`, `project_context` and `project_resources`. The rows a chunk
 returns go to `output_spec`, or to the handler `result_handler_factory` builds (`handle`,
-`on_error`, `flush`, `on_job_terminal`, `close`).
+`on_error`, `flush`, `on_job_terminal`, `close`). `task_label` is what a payload goes by in the
+monitor: a template its keys fill, or a function `(payload)` that returns the text.
 
 ponytail: the declarations stay as they were written for the engine before this one, and
 `engine_job` is the only place that knows both. A job written straight as
@@ -55,6 +56,7 @@ class JobDefinition:
     finalize: Optional[Callable[..., Any]] = None
     result_handler_factory: Optional[Callable[..., Any]] = None
     chunk_counter: Optional[Callable[..., Any]] = None
+    task_label: Any = None
     executor: str = "compute"
     supported_executors: tuple[str, ...] = ()
     cpu_required: int = 1
@@ -90,7 +92,7 @@ class JobDefinition:
         """
         run = functools.partial(_run_chunk, run=self.run_chunk)
         run.__task__ = {"cpu": max(1, int(cpu or self.cpu_required or 1)), "gpu": 0, "mem_mb": 0, "retries": 0,
-                        "batch": None, "batched": False}
+                        "batch": None, "batched": False, "label": self.task_label}
         handler = (self.result_handler_factory(**dict(handler_kwargs or {}))
                    if self.result_handler_factory is not None else None)
         state = {"failed": 0, "closed": False}
@@ -145,6 +147,7 @@ class JobSpec:
     supported_executors: tuple[str, ...] = ()
     cpu_required: int | None = 1
     output_spec: Any = None
+    task_label: Any = None
 
     @staticmethod
     def build_chunks(params: dict, config: dict | None = None) -> Iterable[dict]:
@@ -170,6 +173,7 @@ class JobSpec:
             finalize=cls._own("finalize"),
             result_handler_factory=cls._own("result_handler_factory"),
             chunk_counter=cls._own("count_chunks"),
+            task_label=cls.task_label,
             executor=str(cls.executor or "compute"),
             supported_executors=tuple(cls.supported_executors or ()),
             cpu_required=cls.cpu_required or 1,
@@ -188,7 +192,7 @@ def task(*, name: Optional[str] = None, executor: str = "compute", supported_exe
 
 def job(*, task, name: Optional[str] = None, params_model: Any = None, executor: str = "",
         supported_executors: Iterable[str] = (), cpu_required: Optional[int] = None, finalize=None,
-        output_spec: Any = None, result_handler_factory=None, **_described):
+        output_spec: Any = None, result_handler_factory=None, task_label: Any = None, **_described):
     """Declare the job a chunker feeds: its payloads go to `task`."""
     def declare(chunker) -> JobDefinition:
         return JobDefinition(
@@ -199,6 +203,7 @@ def job(*, task, name: Optional[str] = None, params_model: Any = None, executor:
             output_spec=output_spec,
             finalize=finalize,
             result_handler_factory=result_handler_factory,
+            task_label=task_label,
             executor=executor or getattr(task, "executor", "compute"),
             supported_executors=tuple(supported_executors) or getattr(task, "supported_executors", ()),
             cpu_required=cpu_required or getattr(task, "cpu_required", 1),

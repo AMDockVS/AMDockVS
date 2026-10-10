@@ -666,8 +666,16 @@ class DockingPairsInput(InputSource):
         )
 
 
+def pairs_label(payload: dict) -> str:
+    """What a chunk of pairs goes by in the monitor: `vina-R1-L7`, and how many more travel with it."""
+    pairs = payload.get("pairs") or [{}]
+    name = f"{payload.get('engine')}-R{pairs[0].get('receptor_id')}-L{pairs[0].get('ligand_id')}"
+    return name if len(pairs) == 1 else f"{name} +{len(pairs) - 1}"
+
+
 class DockingJobSpec(JobSpec):
     name = "amdock_docking_job"
+    task_label = pairs_label
     task_name = "amdock_run_vina_docking_batch"
     description = "Run a registered docking engine for receptor-ligand pairs."
     params_model = DockingJobParams
@@ -734,6 +742,7 @@ docking_job = DockingJobSpec.to_job_definition()
 
 class RedockingJobSpec(JobSpec):
     name = "amdock_redocking_job"
+    task_label = pairs_label
     task_name = "amdock_run_vina_redocking_batch"
     description = "Run a registered docking engine for explicit complex receptor-ligand pairs."
     params_model = RedockingJobParams
