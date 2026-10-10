@@ -89,6 +89,8 @@ class AMDockVSRuntime(AppRuntime):
             logger_name=AMDOCKVS_APP_ID,
             project_resources=AMDOCKVS_PROJECT_RESOURCES,
         )
+        # A host that `resources.process` names with no environment is given the one of this app.
+        self.workspace.host_env = self._host_env
         amdock_configuration = create_amdock_configuration()
         self._migrate_legacy_app_settings(amdock_configuration)
         self._configuration_sources = [
@@ -106,6 +108,11 @@ class AMDockVSRuntime(AppRuntime):
         self._tools_api: ToolAPI | None = None
         self._shards_api: ShardAPI | None = None
         self._ligand_store = None
+
+    def _host_env(self, address: str, busy=None) -> str:
+        from amdockvs.integrations.hosts import prepare_host
+
+        return prepare_host(address, self.logger.info, self, busy)
 
     def _migrate_legacy_app_settings(self, configuration) -> None:
         """Move first-generation flat settings into AMDock's TOML provider once."""

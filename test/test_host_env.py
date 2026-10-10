@@ -22,3 +22,25 @@ def test_a_host_gets_the_env_and_the_tools_under_its_amdockvs_home(monkeypatch):
     assert recipes[0] == "the env"
     assert (asked["prefix"], asked["tools_home"]) == (f"{home}/.amdockvs/env", f"{home}/.amdockvs/tools")
     assert all(recipe.prefix.startswith(f"{home}/.amdockvs/tools/") for recipe in recipes[1:])
+
+
+def test_the_engine_asks_the_app_for_the_env_of_a_host_and_a_busy_one_is_not_changed(monkeypatch):
+    from concurrent.futures import Future
+
+    class Recipe:
+        prefix = "/there/env"
+
+    def ensure(recipe, host, busy):
+        ended = Future()
+        ended.set_exception(RuntimeError(busy())) if busy and busy() else ended.set_result(None)
+        return type("Install", (), {"future": ended, "lines": ["a line"]})
+
+    said = []
+    monkeypatch.setattr(hosts, "host_recipes", lambda host, runtime: [Recipe])
+    monkeypatch.setattr(hosts, "ensure", ensure)
+    assert hosts.prepare_host("pc2", said.append) == "/there/env" and said == ["a line"]
+    try:
+        hosts.prepare_host("pc2", said.append, busy=lambda: "2 jobs run there")
+        raise AssertionError("changed under its jobs")
+    except RuntimeError as error:
+        assert "2 jobs run there" in str(error)

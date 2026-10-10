@@ -33,16 +33,18 @@ def host_recipes(host: Host, runtime=None) -> list[Recipe]:
     return recipes
 
 
-def prepare_host(address: str, on_line: Callable[[str], None] = print, runtime=None) -> str:
+def prepare_host(address: str, on_line: Callable[[str], None] = print, runtime=None,
+                 busy: Callable[[], str] | None = None) -> str:
     """Give the machine `ssh` reaches at `address` what it needs to run the jobs of this app,
     making or updating only what is not as it is here. Returns the path of the environment there.
 
-    Blocks, for minutes the first time. Raises what the first recipe that failed raised.
+    Blocks, for minutes the first time. Raises what the first recipe that failed raised: one of
+    them is that something there would be changed while `busy` says jobs run from it.
     """
     host = Host(address)
     recipes = host_recipes(host, runtime)
     for recipe in recipes:
-        install, said = ensure(recipe, host), 0
+        install, said = ensure(recipe, host, busy), 0
         while True:
             ended = install.future.done()  # asked first: what it printed before ending is not lost
             lines = install.lines[said:]
