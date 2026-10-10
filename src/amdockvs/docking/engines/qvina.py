@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from ms_flow.core.executor.tools import READY, Recipe, locate
+from ms_env import READY, Recipe, locate
 
 from amdockvs.core.configuration import app_config
 from amdockvs.core.paths import tools_home

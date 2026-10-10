@@ -1,4 +1,4 @@
-# Installed and looked up by ms_flow.core.executor.tools (format documented there).
+# Installed and looked up by ms_env (format documented there).
 [tool]
 name = "adgpu"
 label = "AutoDock-GPU"

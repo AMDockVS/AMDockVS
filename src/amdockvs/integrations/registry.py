@@ -15,8 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from ms_flow.core.executor.provisioning import Step, StepFailed
-from ms_flow.core.executor.tools import READY, locate, recipe_steps
+from ms_env import READY, Step, StepFailed, locate, recipe_steps
 
 from amdockvs.docking.engines.adgpu import adgpu_recipe
 from amdockvs.docking.engines.qvina import qvina_recipe

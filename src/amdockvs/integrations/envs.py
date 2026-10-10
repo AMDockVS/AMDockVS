@@ -5,8 +5,7 @@ from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 
-from ms_flow.core.executor.provisioning import Step, find_environment_manager
-from ms_flow.core.executor.tools import READY, Recipe, ToolSpec, get_install, install_tool, locate, recipe_steps
+from ms_env import READY, Recipe, Step, ToolSpec, ensure, find_environment_manager, locate, recipe_steps
 
 from amdockvs.core.configuration import app_config
 from amdockvs.core.paths import tools_home
@@ -82,7 +81,7 @@ def protonation_install_steps(runtime, name: str) -> list[Step]:
 
 def install_protonation_tool(runtime, name: str) -> ProtonationToolStatus:
     """Install (or join the install already running) and wait for it. Blocks: not on the GUI thread."""
-    install = get_install(install_tool(protonation_recipe(runtime, name)))
+    install = ensure(protonation_recipe(runtime, name))
     try:
         install.future.result()
     except Exception as exc:

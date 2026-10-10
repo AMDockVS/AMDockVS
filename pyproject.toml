@@ -30,6 +30,7 @@ classifiers = [
 
 dependencies = [
     # MolSuite stack
+    "ms_env",
     "ms_flow",
     "ms_components",
     "ms_contactmap",
