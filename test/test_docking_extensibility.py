@@ -67,6 +67,23 @@ def test_one_registration_exposes_program_config_resources_and_runner(monkeypatc
         program.validate_config({"unknown": True})
 
 
+def test_a_chunk_tells_the_share_of_its_pairs_that_are_docked(monkeypatch):
+    monkeypatch.setattr(docking_registry, "DOCK_RUNNERS", dict(docking_registry.DOCK_RUNNERS))
+
+    def runner(payload: dict) -> list[dict]:
+        for pair in payload["pairs"]:
+            payload["_pair_callback"]([pair])
+        return list(payload["pairs"])
+
+    docking_registry.register_dock_runner("test_pairs", runner, replace=True)
+    seen, told = [], []
+    chunk = {"engine": "test_pairs", "pairs": [{"n": n} for n in range(4)], "_pair_callback": seen.append}
+
+    assert run_docking_chunk(chunk, told.append) == chunk["pairs"]
+    assert told == [25.0, 50.0, 75.0, 100.0]
+    assert seen == [[pair] for pair in chunk["pairs"]]  # whoever was listening still hears
+
+
 def test_preparation_profile_keeps_all_preparation_entrypoints_together(monkeypatch):
     monkeypatch.setattr(docking_preparations, "_PROFILES", dict(docking_preparations._PROFILES))
     profile = PreparationProfile(

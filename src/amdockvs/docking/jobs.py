@@ -683,8 +683,8 @@ class DockingJobSpec(JobSpec):
     produces = ()
 
     @staticmethod
-    def run_chunk(payload: dict):
-        rows = run_docking_chunk(payload)
+    def run_chunk(payload: dict, progress_cb=None):
+        rows = run_docking_chunk(payload, progress_cb)
         threshold = payload.get("hit_threshold")
         if threshold is None:
             return rows
@@ -749,8 +749,8 @@ class RedockingJobSpec(JobSpec):
     produces = ()
 
     @staticmethod
-    def run_chunk(payload: dict):
-        return run_docking_chunk(payload)
+    def run_chunk(payload: dict, progress_cb=None):
+        return run_docking_chunk(payload, progress_cb)
 
     @staticmethod
     def build_chunks(params: dict, config: dict | None = None) -> Iterator[dict]:

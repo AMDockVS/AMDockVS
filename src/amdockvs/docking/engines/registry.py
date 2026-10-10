@@ -1,6 +1,7 @@
 """Docking runner registry and Molsuite chunk dispatcher."""
 from __future__ import annotations
 
+import itertools
 from typing import Any, Callable
 
 from amdockvs.core.worker_io import project_root_from_output_dir
@@ -60,9 +61,25 @@ def load_builtin_docking_engines() -> None:
     _BUILTINS_LOADED = True
 
 
-def run_docking_chunk(payload: dict) -> list[dict]:
+def run_docking_chunk(payload: dict, progress_cb=None) -> list[dict]:
+    """Dock the pairs of one chunk. `progress_cb` takes the percentage of them that are done.
+
+    ponytail: a pair counts when it ends, so a chunk of one pair goes from 0 to 100. Only the
+    engines that honour `_pair_callback` (vina, qvina) tell it; reading Vina's own progress
+    line would tell how far a single pair is, when that matters.
+    """
     load_builtin_docking_engines()
     payload = dict(payload)
+    pairs = len(payload.get("pairs") or ())
+    if progress_cb is not None and pairs:
+        told, done = payload.get("_pair_callback"), itertools.count(1)
+
+        def pair_done(rows: list[dict]) -> None:
+            if told is not None:
+                told(rows)
+            progress_cb(100.0 * next(done) / pairs)
+
+        payload["_pair_callback"] = pair_done
     reserved = {
         "engine",
         "engine_config",
