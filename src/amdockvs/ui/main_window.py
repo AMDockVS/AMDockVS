@@ -389,10 +389,9 @@ class AMDockVSMainWindow(QMainWindow):
         # Refresh what's open; saving settings shouldn't pop tabs the user didn't ask for.
         self.views.refresh_open_views_once()
         self.diagram_dock.apply_settings()
-        # Saved worker settings only mean something once they are registered. Cheap
-        # executors are re-registered here; ray stays for the monitor to activate
-        # (it may need a cluster launch), so this never blocks on the network.
-        if self._has_active_project():
+        # The pool of this machine is made again with the sizes just saved. Another machine
+        # is not asked from here: Settings puts that choice in place itself, off this thread.
+        if self._has_active_project() and self.runtime.workspace.settings_manager.settings.resources.process.kind == "process":
             try:
                 self.runtime.workspace.reload_executors()
             except Exception as exc:  # noqa: BLE001 - a bad executor config must not eat the save

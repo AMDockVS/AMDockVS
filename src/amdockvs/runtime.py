@@ -109,10 +109,15 @@ class AMDockVSRuntime(AppRuntime):
         self._shards_api: ShardAPI | None = None
         self._ligand_store = None
 
-    def _host_env(self, address: str, busy=None) -> str:
+    def _host_env(self, address: str, busy=None, on_line=None) -> str:
         from amdockvs.integrations.hosts import prepare_host
 
-        return prepare_host(address, self.logger.info, self, busy)
+        def say(line: str) -> None:
+            self.logger.info(line)
+            if on_line is not None:
+                on_line(line)
+
+        return prepare_host(address, say, self, busy)
 
     def _migrate_legacy_app_settings(self, configuration) -> None:
         """Move first-generation flat settings into AMDock's TOML provider once."""
