@@ -6,6 +6,9 @@ A job is a chunker `(params, config)` that yields payloads, and a `run_chunk(pay
 returns go to `output_spec`, or to the handler `result_handler_factory` builds (`handle`,
 `on_error`, `flush`, `on_job_terminal`, `close`). `task_label` is what a payload goes by in the
 monitor: a template its keys fill, or a function `(payload)` that returns the text.
+`relative_paths` is for a job whose chunks write files the project keeps by a path relative to
+its folder: a chunk names them by their whole path, which is what an executor on another disk
+brings back, and they are cut to relative ones before `output_spec` writes them.
 
 ponytail: the declarations stay as they were written for the engine before this one, and
 `engine_job` is the only place that knows both. A job written straight as
@@ -15,11 +18,14 @@ from __future__ import annotations
 
 import functools
 import inspect
+import os
 from dataclasses import dataclass, fields, replace
+from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator, Optional
 
 from ms_flow.engine import job as _engine_job
-from ms_flow.engine import report
+from ms_flow.engine import report, writer
+from ms_flow.engine.files import swap
 
 # What a job ended as, for whoever was written against the statuses of the engine before:
 # there a job with a chunk that failed had failed, and a job was never left for another run.
@@ -46,6 +52,22 @@ def _run_chunk(payload: dict, run: Callable[..., Any]) -> Any:
     return run(payload, _percent) if _takes(run) >= 2 else run(payload)
 
 
+class _Relative:
+    """The writer of a sink, for results that name files of the project by their whole path."""
+
+    def __init__(self, sink, root: Path):
+        self._sink, self._root = sink, str(root) + os.sep
+
+    def write(self, results: list) -> None:
+        def cut(text: str) -> str:
+            return text[len(self._root):] if text.startswith(self._root) else text
+
+        self._sink.write([swap(result, cut, str) for result in results])
+
+    def __getattr__(self, name: str):  # `tables`, and `finish` when the sink has one
+        return getattr(self._sink, name)
+
+
 @dataclass(frozen=True)
 class JobDefinition:
     name: str
@@ -60,6 +82,7 @@ class JobDefinition:
     executor: str = "compute"
     supported_executors: tuple[str, ...] = ()
     cpu_required: int = 1
+    relative_paths: bool = False
 
     def with_options(self, **changes) -> "JobDefinition":
         known = {field.name for field in fields(self)}
@@ -133,6 +156,11 @@ class JobDefinition:
             yield from self.build_chunks(params, config=config)
 
         output = (lambda params, project: Writer) if handler is not None else self.output_spec
+        if self.relative_paths and handler is None:
+            root = Path(config["project_context"].path).expanduser().resolve()
+
+            def output(params, project):
+                return _Relative(writer(self.output_spec, project), root)
         source.__name__ = self.name
         return _engine_job(task=run, name=self.name, output=output, finalize=ended)(source), on_error
 
@@ -192,7 +220,8 @@ def task(*, name: Optional[str] = None, executor: str = "compute", supported_exe
 
 def job(*, task, name: Optional[str] = None, params_model: Any = None, executor: str = "",
         supported_executors: Iterable[str] = (), cpu_required: Optional[int] = None, finalize=None,
-        output_spec: Any = None, result_handler_factory=None, task_label: Any = None, **_described):
+        output_spec: Any = None, result_handler_factory=None, task_label: Any = None,
+        relative_paths: bool = False, **_described):
     """Declare the job a chunker feeds: its payloads go to `task`."""
     def declare(chunker) -> JobDefinition:
         return JobDefinition(
@@ -207,6 +236,7 @@ def job(*, task, name: Optional[str] = None, params_model: Any = None, executor:
             executor=executor or getattr(task, "executor", "compute"),
             supported_executors=tuple(supported_executors) or getattr(task, "supported_executors", ()),
             cpu_required=cpu_required or getattr(task, "cpu_required", 1),
+            relative_paths=relative_paths,
         )
     return declare
 

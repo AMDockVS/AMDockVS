@@ -12,7 +12,7 @@ from ms_flow.sinks import graph_sink, table_sink
 from amdockvs.core.jobs import job, task
 
 from amdockvs.core.configuration import DEFAULT_OUTPUT_FLUSH_EVERY
-from amdockvs.core.constants import AMDOCKVS_LOCAL_EXECUTORS, AMDOCKVS_OFFLOADABLE_EXECUTORS
+from amdockvs.core.constants import AMDOCKVS_OFFLOADABLE_EXECUTORS
 from amdockvs.molecules.storage import ShardStore, shard_scope_spec, store_from_config
 from amdockvs.core.worker_io import project_root_from_output_dir, restore_worker_paths, worker_file, worker_output_dir, worker_path_fields
 from amdockvs.chemistry.repository import (
@@ -181,16 +181,25 @@ def _iter_receptor_chemistry_batches(
     )
 
 
-# ponytail: ligand and receptor chemistry stay on this machine. Their workers name what they
-# write relative to the project, and a far executor brings back only the files a result names
-# by their whole path: the files stay there and the paths kept are of a folder that is not
-# here. Offloadable again once the result can name them (a place in the graph payload for
-# it, or the executor bringing back the whole `Dir`).
+def _whole(updates: list[dict[str, Any]], output_dir: Path) -> list[dict[str, Any]]:
+    """The files the service wrote, by their whole path: it names them relative to the folder
+    two above `output_dir`. A result names its files whole, which is what brings them back from
+    a disk that is not this one; the job cuts them to the project's (`relative_paths`)."""
+    root = output_dir.parent.parent
+    for update in updates:
+        if update.get("current_path"):
+            update["current_path"] = str(root / update["current_path"])
+        for row in update.get("model_rows") or ():
+            if row.get("file_path"):
+                row["file_path"] = str(root / row["file_path"])
+    return updates
+
+
 @task(
     name="amdock_ligand_chemistry_batch",
     description="Apply a reusable ligand chemistry operation and persist metadata updates.",
     executor="compute",
-    supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
+    supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
 )
 def ligand_chemistry_task(payload: dict, progress_cb=None):
     output_dir = Path(str(payload.get("output_dir") or "")).expanduser().resolve()
@@ -219,14 +228,14 @@ def ligand_chemistry_task(payload: dict, progress_cb=None):
             f"updated={len(updates)} failed={failure_count} "
             f"samples={result.get('failure_samples') or []}"
         )
-    return _chemistry_graph_payload(restore_worker_paths(updates, rows))
+    return _chemistry_graph_payload(restore_worker_paths(_whole(updates, output_dir), rows))
 
 
 @task(
     name="amdock_receptor_chemistry_batch",
     description="Apply a reusable receptor chemistry operation and persist metadata updates.",
     executor="compute",
-    supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
+    supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
 )
 def receptor_chemistry_task(payload: dict, progress_cb=None):
     output_dir = Path(str(payload.get("output_dir") or "")).expanduser().resolve()
@@ -242,7 +251,7 @@ def receptor_chemistry_task(payload: dict, progress_cb=None):
     )
     if list(payload.get("rows") or []) and not updates:
         raise RuntimeError("Receptor chemistry batch produced no updates.")
-    return _chemistry_graph_payload(restore_worker_paths(list(updates or []), rows))
+    return _chemistry_graph_payload(restore_worker_paths(_whole(list(updates or []), output_dir), rows))
 
 
 @job(
@@ -250,8 +259,9 @@ def receptor_chemistry_task(payload: dict, progress_cb=None):
     name="amdock_ligand_chemistry_job",
     params_model=LigandChemistryJobParams,
     executor="compute",
-    supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
+    supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
     output_spec=CHEMISTRY_GRAPH_OUTPUT,
+    relative_paths=True,
     output_flush_every=DEFAULT_OUTPUT_FLUSH_EVERY,
     store_results=False,
 )
@@ -275,8 +285,9 @@ def ligand_chemistry_job(params: dict, config: dict | None = None) -> Iterator[d
     name="amdock_receptor_chemistry_job",
     params_model=ReceptorChemistryJobParams,
     executor="compute",
-    supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
+    supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
     output_spec=CHEMISTRY_GRAPH_OUTPUT,
+    relative_paths=True,
     output_flush_every=DEFAULT_OUTPUT_FLUSH_EVERY,
     store_results=False,
 )

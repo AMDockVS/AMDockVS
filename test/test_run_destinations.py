@@ -79,9 +79,24 @@ def test_the_jobs_that_can_leave_this_machine_say_so():
     assert "hpc" in AMDOCKVS_OFFLOADABLE_EXECUTORS
     assert "hpc" in shard_jobs.DockShardsJobSpec.supported_executors
     assert "hpc" in preparation.PrepareLigandShardsJobSpec.supported_executors
-    # What chemistry writes is named relative to the project: a far disk does not give it back.
-    assert "hpc" not in chemistry.ligand_chemistry_job.supported_executors
-    assert "hpc" not in chemistry.receptor_chemistry_job.supported_executors
+    assert "hpc" in chemistry.ligand_chemistry_job.supported_executors
+    assert "hpc" in chemistry.receptor_chemistry_job.supported_executors
+
+
+def test_the_files_a_chunk_names_whole_are_kept_relative_to_the_project(tmp_path):
+    """A chunk on another disk names what it wrote by its whole path, or the file stays there."""
+    from amdockvs.core.jobs import _Relative
+
+    class Sink:
+        tables, kept = ("molecules",), []
+
+        def write(self, results):
+            self.kept.extend(results)
+
+    writer = _Relative(Sink(), tmp_path)
+    writer.write([{"molecules": [{"id": 1, "current_path": str(tmp_path / "data/a.sdf"), "source": "/elsewhere/b.sdf"}]}])
+    assert Sink.kept == [{"molecules": [{"id": 1, "current_path": "data/a.sdf", "source": "/elsewhere/b.sdf"}]}]
+    assert writer.tables == ("molecules",) and not hasattr(writer, "finish")
 
 
 def test_the_executors_are_started_from_the_bar_and_kept_in_settings(tmp_path, monkeypatch):
