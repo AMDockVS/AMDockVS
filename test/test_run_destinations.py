@@ -1,11 +1,10 @@
-"""Where a job runs: one destination, and the jobs that could leave this machine say so.
-
-The pool of this machine for now: the executors kept in the settings of ms_flow are
-not offered for each job yet.
-"""
+"""Where a job runs: one of the executors that are active, and only the jobs that can leave
+this machine are sent to one that has other machines."""
 import os
 from pathlib import Path
 import sys
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -14,10 +13,60 @@ from amdockvs.core.constants import AMDOCKVS_OFFLOADABLE_EXECUTORS
 from amdockvs.runtime import AMDockVSRuntime
 
 
-def test_the_destination_list_offers_local_only(monkeypatch):
+def test_a_job_goes_to_an_active_executor_it_can_run_on(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from ms_flow import engine as engines
+    from ms_flow import ray_hosts
+
+    class Ray:
+        capacity, uses_tokens = 1, False
+
+        def __init__(self, *said, **init):
+            pass
+
+        def bind(self, on_done):
+            pass
+
+        def shutdown(self):
+            pass
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(ray_hosts, "RayOverHosts", Ray)
+    monkeypatch.setattr(engines, "RayExecutor", Ray)
     runtime = AMDockVSRuntime()
-    monkeypatch.setattr(type(runtime), "_require_active_project", lambda self: None)
-    assert runtime.run_destinations() == [("compute", "Local")]
+    try:
+        runtime.create_project(name="p", folder=tmp_path / "p", description="")
+        ms = runtime.workspace
+        ms.save_host("laptop", address="192.168.1.2", env="/env")
+        ms.save_executor("far", kind="ray", hosts=["laptop"])
+        ms.save_executor("alone", kind="ray", hosts=["local"])
+        here = SimpleNamespace(name="import", executor="compute", supported_executors=("thread", "compute"))
+        leaves = SimpleNamespace(name="dock", executor="compute", supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS)
+
+        assert runtime.run_destinations() == [("local", "local")]  # nothing is started at start-up
+        assert runtime._run_on(here, None) == runtime._run_on(leaves, "compute") == "local"
+        assert runtime._run_on(SimpleNamespace(executor="thread"), None) == runtime._run_on(leaves, "thread") == "thread"
+        with pytest.raises(ValueError, match="`dock` is not sent to `far`: it is not active"):
+            runtime._run_on(leaves, "far")
+
+        ms.activate("far")
+        ms.settings_manager.set_default_executor("far")
+        assert runtime.run_destinations() == [("far", "far"), ("local", "local")]  # the default one first
+        assert runtime.run_destinations(here) == [("local", "local")]
+        assert (runtime._run_on(leaves, None), runtime._run_on(here, None)) == ("far", "local")
+        with pytest.raises(ValueError, match="`import` is not sent to `far`: its worker runs on this machine only"):
+            runtime._run_on(here, "far")
+
+        ms.deactivate("far")
+        ms.activate("alone")  # a Ray of this machine: its pool is aside, and every job goes to it
+        assert runtime.run_destinations(here) == [("alone", "alone")] and runtime._run_on(here, "compute") == "alone"
+        ms.deactivate("alone")
+        ms.deactivate("local")
+        with pytest.raises(RuntimeError, match="no active executor runs `import` now"):
+            runtime._run_on(here, None)
+    finally:
+        runtime.shutdown()
 
 
 def test_the_jobs_that_can_leave_this_machine_say_so():

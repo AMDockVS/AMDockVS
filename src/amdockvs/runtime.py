@@ -14,7 +14,6 @@ from amdockvs.core.constants import (
     AMDOCKVS_DEFAULT_PROJECT_DIRS,
     AMDOCKVS_PROJECT_RESOURCES,
     AMDOCKVS_SCOPE_ID,
-    DEFAULT_LOCAL_CPU_EXECUTOR,
     RESOURCE_DOCKING_RESULTS,
     RESOURCE_EXPORTS,
     RESOURCE_JOBS,
@@ -418,14 +417,12 @@ class AMDockVSRuntime(AppRuntime):
         job_params = job.validate_params(params)
         total = total_chunks if total_chunks is not None else job.count_chunks(job_params, config=job_config)
         job_id = uuid4().hex
-        # ponytail: `compute` is the pool of this machine: the executor a job goes to is
-        # chosen by name once the tools offer the ones that are active.
         engine_ids = self._engine_ids()
         engine_ids[job_id] = workspace.submit(
             engine_job,
             job_params,
             key=job_id,
-            executor="thread" if (executor_name or job.executor) == "thread" else "local",
+            executor=self._run_on(job, executor_name),
             # A job that ended in an earlier session has nothing left to wait for.
             after=[engine_ids[dep] for dep in depends_on if dep in engine_ids],
             total=total,
@@ -534,14 +531,34 @@ class AMDockVSRuntime(AppRuntime):
         if engine_id is not None:  # only a job of this session can still be running
             self.workspace.engine.cancel(engine_id)
 
-    def run_destinations(self) -> list[tuple[str, str]]:
-        """Where a job may be sent, as (executor_name, label).
-
-        One for now, the pool of this machine: the executors kept in the settings of
-        ms_flow are not offered here yet.
+    def run_destinations(self, job=None) -> list[tuple[str, str]]:
+        """Where a job may be sent now, as (executor_name, label): the executors that are
+        active, the default one first. With `job`, only the ones that job can run on.
         """
         self._require_active_project()
-        return [(DEFAULT_LOCAL_CPU_EXECUTOR, "Local")]
+        rows = [row for row in self.workspace.executors() if row["state"] == "on"]
+        # ponytail: `hpc` in the old list of a job is what says its worker needs nothing of
+        # this machine but its payload and the files marked in it; one flag when the lists go.
+        if job is not None and "hpc" not in job.supported_executors:
+            rows = [row for row in rows if row["hosts"] == ["local"]]
+        return [(row["name"], row["name"]) for row in sorted(rows, key=lambda row: not row["default"])]
+
+    def _run_on(self, job, asked: Optional[str]) -> str:
+        """The executor `job` goes to: the one asked for by name, else the first of
+        `run_destinations`. `compute`, the old name of the pool, names nobody."""
+        asked = asked or job.executor
+        if asked == "thread":
+            return "thread"
+        offered = [name for name, _label in self.run_destinations(job)]
+        if asked in offered:
+            return asked
+        if asked in self.workspace.settings_manager.settings.executors:
+            active = asked in [name for name, _label in self.run_destinations()]
+            raise ValueError(f"`{job.name}` is not sent to `{asked}`: " + (
+                "its worker runs on this machine only" if active else "it is not active, start it in Executors"))
+        if not offered:
+            raise RuntimeError(f"no active executor runs `{job.name}` now: start one in Executors")
+        return offered[0]
 
     def _project_summary_from_project(self, project) -> ProjectSummary:
         return ProjectSummary(
