@@ -3,6 +3,7 @@ this machine are sent to one that has other machines."""
 import os
 from pathlib import Path
 import sys
+import time
 
 import pytest
 
@@ -10,7 +11,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from amdockvs.core.constants import AMDOCKVS_OFFLOADABLE_EXECUTORS
+from amdockvs.core.jobs import job, task
 from amdockvs.runtime import AMDockVSRuntime
+
+
+@task()
+def _nap(payload: dict) -> list:
+    time.sleep(0.02)
+    return []
+
+
+@job(task=_nap, name="napping")
+def napping(params: dict, config: dict):
+    assert config["project_db"] is not None
+    yield from ({"n": n} for n in range(int(params["naps"])))
 
 
 def test_a_job_goes_to_an_active_executor_it_can_run_on(tmp_path, monkeypatch):
@@ -126,4 +140,44 @@ def test_the_executors_are_started_from_the_bar_and_kept_in_settings(tmp_path, m
     finally:
         if window is not None:
             window.close()
+        runtime.shutdown()
+
+
+def test_a_job_on_record_is_continued_and_one_that_runs_is_moved(tmp_path, monkeypatch):
+    from ms_flow.engine.flow import named
+
+    import amdockvs.docking.jobs as docking
+
+    for declared in (napping, docking.docking_job, docking.DockingJobSpec.definition):
+        engine = declared.engine
+        assert named(f"{engine.__module__}:{engine.__qualname__}") is engine and engine.definition is declared
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    runtime = AMDockVSRuntime()
+    try:
+        runtime.create_project(name="p", folder=tmp_path / "p", description="")
+        status = runtime.workspace.engine.status
+        runtime.workspace.save_host("laptop", address="192.168.1.2", env="/env")
+        runtime.workspace.save_executor("far", kind="ray", hosts=["laptop"])
+        job_id = runtime.submit_job(napping, params={"naps": 60}, executor_name="thread", cpu_required=2)
+        first = runtime._engine_ids()[job_id]
+        while status(first).chunks_done < 5:
+            time.sleep(0.01)
+        assert runtime.job_destinations(job_id) == [("local", "local")] and runtime.job_destinations("nobody") == []
+        assert runtime.create_monitor_bridge().job_destinations(job_id) == ["local"]  # what the monitor offers
+        with pytest.raises(ValueError, match="`napping` is not sent to `far`"):
+            runtime.resume_job(job_id, "far")
+        assert status(first).status == "running"  # refused before anything was canceled
+
+        assert runtime.resume_job(job_id, "thread") == job_id  # moved while it runs: canceled and continued
+        assert status(first).status == "canceled" and runtime._engine_ids()[job_id] != first
+        ended = runtime.wait_for_job(job_id)
+        assert (ended.status, status(runtime._engine_ids()[job_id]).chunks_done) == ("completed", 60)
+        assert runtime.workspace.origin(job_id)["options"]["cpu"] == 2
+
+        runtime.cancel_job(again := runtime.submit_job(napping, params={"naps": 60}, executor_name="thread"))
+        assert runtime.wait_for_job(again).status == "canceled"
+        runtime.resume_job(again)  # where it was
+        assert runtime.wait_for_job(again).status == "completed"
+    finally:
         runtime.shutdown()

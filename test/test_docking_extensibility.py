@@ -208,5 +208,5 @@ def test_a_docking_chunk_goes_by_its_engine_and_its_first_pair():
     assert pairs_label({"engine": "vina", "pairs": [{"receptor_id": 1, "ligand_id": 2}]}) == "vina-R1-L2"
     assert pairs_label({"engine": "qvina", "pairs": [{"receptor_id": 1, "ligand_id": n} for n in (2, 3, 4)]}) \
         == "qvina-R1-L2 +2"
-    engine_job, _ = redocking_job.engine_job(config={})  # and the engine is told: it is what the monitor shows
-    assert engine_job.__job__["task"].__task__["label"] is pairs_label
+    # and the engine is told: it is what the monitor shows
+    assert redocking_job.engine.__job__["task"].__task__["label"] is pairs_label

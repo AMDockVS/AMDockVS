@@ -10,6 +10,10 @@ monitor: a template its keys fill, or a function `(payload)` that returns the te
 its folder: a chunk names them by their whole path, which is what an executor on another disk
 brings back, and they are cut to relative ones before `output_spec` writes them.
 
+A declaration is one job of the engine under a name of its own (`engine`), so one on record
+is submitted again by that name: `runtime.resume_job`. What it is given of the project is not
+in it: the runtime says it in `configs`.
+
 ponytail: the declarations stay as they were written for the engine before this one, and
 `engine_job` is the only place that knows both. A job written straight as
 `ms_flow.engine.job` goes to `runtime.workspace.submit` and needs none of this.
@@ -19,6 +23,7 @@ from __future__ import annotations
 import functools
 import inspect
 import os
+import weakref
 from dataclasses import dataclass, fields, replace
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator, Optional
@@ -30,6 +35,9 @@ from ms_flow.engine.files import swap
 # What a job ended as, for whoever was written against the statuses of the engine before:
 # there a job with a chunk that failed had failed, and a job was never left for another run.
 STATUS = {"waiting": "pending", "completed_with_errors": "failed", "interrupted": "canceled"}
+
+# The `config` of a chunker, by the store the engine hands the job of its project.
+configs = weakref.WeakKeyDictionary()
 
 
 def _takes(fn: Callable[..., Any]) -> int:
@@ -83,6 +91,7 @@ class JobDefinition:
     supported_executors: tuple[str, ...] = ()
     cpu_required: int = 1
     relative_paths: bool = False
+    where: str = ""  # `module:qualname` of this declaration
 
     def with_options(self, **changes) -> "JobDefinition":
         known = {field.name for field in fields(self)}
@@ -105,19 +114,34 @@ class JobDefinition:
     def submit_with_options(self, runtime, *, params: Any, job_options: Optional[dict] = None, **kwargs) -> str:
         return runtime.submit_job(self.with_options(**job_options) if job_options else self, params=params, **kwargs)
 
-    def engine_job(self, *, config: dict, cpu: Optional[int] = None,
-                   handler_kwargs: Optional[dict] = None):
+    def engine_job(self, *, handler_kwargs: Optional[dict] = None):
         """This job as `Workspace.submit` takes it, and the `on_error` to submit it with.
 
-        The chunker starts when the engine reads it, which is once the jobs it waits for ended.
-        ponytail: built for each submit, so the engine cannot name it and `Workspace.resume`
-        does not know it. A module-level `ms_flow.engine.job` when a job has to be resumed.
+        ponytail: a job with a handler is built for each submit, with what that submit gives the
+        handler, so the engine cannot name it and `Workspace.resume` does not know it. A sink in
+        the place of the handler when one of those has to be resumed.
         """
+        if self.result_handler_factory is None:
+            return self.engine, None
+        return self._made(self.result_handler_factory(**dict(handler_kwargs or {})))
+
+    @functools.cached_property
+    def engine(self):
+        """The job of a declaration without a handler: one, and named after the declaration.
+        ponytail: a copy (`with_options`) answers to the name of the one it was copied from, so
+        the engine does not take its name for it and it is not resumed."""
+        made, _on_error = self._made(None)
+        if self.where:
+            module, _, name = self.where.partition(":")
+            made.__module__, made.__qualname__ = module, f"{name}.engine"
+        made.definition = self
+        return made
+
+    def _made(self, handler):
+        """The chunker starts when the engine reads it, which is once the jobs it waits for ended."""
         run = functools.partial(_run_chunk, run=self.run_chunk)
-        run.__task__ = {"cpu": max(1, int(cpu or self.cpu_required or 1)), "gpu": 0, "mem_mb": 0, "retries": 0,
+        run.__task__ = {"cpu": max(1, int(self.cpu_required or 1)), "gpu": 0, "mem_mb": 0, "retries": 0,
                         "batch": None, "batched": False, "label": self.task_label}
-        handler = (self.result_handler_factory(**dict(handler_kwargs or {}))
-                   if self.result_handler_factory is not None else None)
         state = {"failed": 0, "closed": False}
 
         def close(status: str) -> None:
@@ -144,25 +168,27 @@ class JobDefinition:
             if handler is not None and hasattr(handler, "on_error"):
                 handler.on_error(str(key), str(error))
 
-        def ended(params: dict, project, snapshot) -> None:
+        def ended(params, project, snapshot) -> None:
             status = STATUS.get(snapshot.status, snapshot.status)
             try:
                 close(status)  # a job that was stopped never got to `finish`
             finally:
                 if self.finalize is not None:
-                    self.finalize(params, {"job_params": params, "terminal_status": status, **config})
+                    params = self.validate_params(params)
+                    self.finalize(params, {"job_params": params, "terminal_status": status, **configs[project]})
 
-        def source(params: dict, project) -> Iterable[dict]:
-            yield from self.build_chunks(params, config=config)
+        def source(params, project) -> Iterable[dict]:
+            yield from self.build_chunks(params, config=configs[project])
 
         output = (lambda params, project: Writer) if handler is not None else self.output_spec
         if self.relative_paths and handler is None:
-            root = Path(config["project_context"].path).expanduser().resolve()
-
             def output(params, project):
+                root = Path(configs[project]["project_context"].path).expanduser().resolve()
                 return _Relative(writer(self.output_spec, project), root)
         source.__name__ = self.name
-        return _engine_job(task=run, name=self.name, output=output, finalize=ended)(source), on_error
+        # With its model the engine keeps the params as JSON, which is what it submits again.
+        return _engine_job(task=run, name=self.name, params_model=self.params_model, output=output,
+                           finalize=ended)(source), on_error
 
 
 class JobSpec:
@@ -192,7 +218,8 @@ class JobSpec:
 
     @classmethod
     def to_job_definition(cls) -> JobDefinition:
-        return JobDefinition(
+        cls.definition = JobDefinition(
+            where=f"{cls.__module__}:{cls.__qualname__}.definition",
             name=str(cls.name or cls.__name__),
             run_chunk=cls.run_chunk,
             chunker=cls.build_chunks,
@@ -206,6 +233,7 @@ class JobSpec:
             supported_executors=tuple(cls.supported_executors or ()),
             cpu_required=cls.cpu_required or 1,
         )
+        return cls.definition
 
 
 def task(*, name: Optional[str] = None, executor: str = "compute", supported_executors: Iterable[str] = (),
@@ -237,8 +265,9 @@ def job(*, task, name: Optional[str] = None, params_model: Any = None, executor:
             supported_executors=tuple(supported_executors) or getattr(task, "supported_executors", ()),
             cpu_required=cpu_required or getattr(task, "cpu_required", 1),
             relative_paths=relative_paths,
+            where=f"{chunker.__module__}:{chunker.__qualname__}",
         )
     return declare
 
 
-__all__ = ["JobDefinition", "JobSpec", "STATUS", "job", "task"]
+__all__ = ["JobDefinition", "JobSpec", "STATUS", "configs", "job", "task"]

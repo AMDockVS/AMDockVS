@@ -29,6 +29,7 @@ from amdockvs.core.configuration import (
 )
 import amdockvs.models  # noqa: F401  # Ensure SQLModel metadata is registered before project DB setup.
 from amdockvs.core.jobs import STATUS as JOB_STATUS
+from amdockvs.core.jobs import configs as job_configs
 from amdockvs.core.paths import set_default_project_root
 from amdockvs.project.summaries import JobStatus, ProjectSummary
 from amdockvs.molecules.storage import DbStore, general_ligand_count, library_kind
@@ -359,6 +360,8 @@ class AMDockVSRuntime(AppRuntime):
             workspace=self.workspace,
             poll_ms=monitor_cfg.poll_ms if poll_ms is None else poll_ms,
             max_recent_jobs=monitor_cfg.max_recent_jobs if max_recent_jobs is None else max_recent_jobs,
+            resume=self.resume_job,
+            destinations=lambda job_id: [name for name, _label in self.job_destinations(job_id)],
         )
 
     @property
@@ -382,7 +385,6 @@ class AMDockVSRuntime(AppRuntime):
         job,
         *,
         params: Any = None,
-        config: Optional[dict] = None,
         executor_name: Optional[str] = None,
         cpu_required: Optional[int] = None,
         max_job_cpu: Optional[int] = None,
@@ -406,14 +408,8 @@ class AMDockVSRuntime(AppRuntime):
         if auto_depends:
             depends_on = self.resolve_job_dependencies(job, depends_on) or []
         workspace = self.workspace
-        job_config = {
-            "project_db": workspace.project_db,
-            "project_store": workspace.advanced.project_store,
-            "project_context": workspace.active_context,
-            "project_resources": workspace.get_project_resource_map(),
-            **(config or {}),
-        }
-        engine_job, on_error = job.engine_job(config=job_config, cpu=cpu_required, handler_kwargs=result_handler_kwargs)
+        job_config = self._job_config()
+        engine_job, on_error = job.engine_job(handler_kwargs=result_handler_kwargs)
         job_params = job.validate_params(params)
         total = total_chunks if total_chunks is not None else job.count_chunks(job_params, config=job_config)
         job_id = uuid4().hex
@@ -426,6 +422,7 @@ class AMDockVSRuntime(AppRuntime):
             # A job that ended in an earlier session has nothing left to wait for.
             after=[engine_ids[dep] for dep in depends_on if dep in engine_ids],
             total=total,
+            cpu=cpu_required,
             window=max_inflight_tasks,
             max_cpu=max_job_cpu,
             priority=priority,
@@ -439,6 +436,51 @@ class AMDockVSRuntime(AppRuntime):
                 hook(str(getattr(job, "name", "") or "Job"), job_id)
             except Exception:  # noqa: BLE001 - feedback must never break a submit
                 pass
+        return job_id
+
+    def _job_config(self) -> dict:
+        """What a chunker is given of the active project, said where its job finds it."""
+        workspace = self.workspace
+        config = job_configs[workspace.project_db] = {
+            "project_db": workspace.project_db,
+            "project_store": workspace.advanced.project_store,
+            "project_context": workspace.active_context,
+            "project_resources": workspace.get_project_resource_map(),
+        }
+        return config
+
+    def _recorded_job(self, job_id: str):
+        """The declaration of a job on record, and the executor it was sent to. Raises for one
+        that cannot be submitted again (a job with a handler, or with params that are not JSON)."""
+        from ms_flow.engine.flow import named
+
+        origin = self.workspace.origin(str(job_id))
+        return named(origin["job"]).definition, origin["options"].get("executor")
+
+    def job_destinations(self, job_id: str) -> list[tuple[str, str]]:
+        """`run_destinations` for a job on record: where it may be continued now. Nowhere for one
+        that cannot be submitted again."""
+        try:
+            return self.run_destinations(self._recorded_job(job_id)[0])
+        except Exception:  # noqa: BLE001 - not on record, or its declaration is gone
+            return []
+
+    def resume_job(self, job_id: str, executor_name: Optional[str] = None) -> str:
+        """Continue a job that was canceled or interrupted, on `executor_name` or where it was.
+
+        A job that is still running is canceled first and waited for, which is how it is moved
+        to another executor: not from a thread that cannot wait. It waits for the jobs its kind
+        waits for, as when it was submitted.
+        """
+        self._require_active_project()
+        job_id = str(job_id)
+        job, was_on = self._recorded_job(job_id)
+        executor = self._run_on(job, executor_name or was_on)
+        self._job_config()
+        engine_ids = self._engine_ids()
+        waits = [engine_ids[dep] for dep in self.resolve_job_dependencies(job) or ()
+                 if dep in engine_ids and dep != job_id]
+        engine_ids[job_id] = self.workspace.move(job_id, executor, after=waits)
         return job_id
 
     def _engine_ids(self) -> dict[str, int]:

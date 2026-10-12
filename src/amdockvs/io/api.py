@@ -67,7 +67,6 @@ class LoaderAPI:
             params=params,
             executor_name=executor_name,
             depends_on=depends_on,
-            config=None,
             **kwargs,
         )
 
