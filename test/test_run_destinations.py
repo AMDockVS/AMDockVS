@@ -175,6 +175,14 @@ def test_a_job_on_record_is_continued_and_one_that_runs_is_moved(tmp_path, monke
         assert (ended.status, status(runtime._engine_ids()[job_id]).chunks_done) == ("completed", 60)
         assert runtime.workspace.origin(job_id)["options"]["cpu"] == 2
 
+        # A docking job has thousands of tasks and each one says how far it is: watched all the same.
+        assert docking.DockingJobSpec.definition.task_progress and not napping.task_progress
+        said, submit = [], runtime.workspace.submit
+        monkeypatch.setattr(runtime.workspace, "submit", lambda *job, **options: said.append(options) or submit(*job, **options))
+        for declared in (napping.with_options(task_progress=True), napping):
+            runtime.wait_for_job(runtime.submit_job(declared, params={"naps": 1}, executor_name="thread"))
+        assert [options.get("progress") for options in said] == [True, None]
+
         runtime.cancel_job(again := runtime.submit_job(napping, params={"naps": 60}, executor_name="thread"))
         assert runtime.wait_for_job(again).status == "canceled"
         runtime.resume_job(again)  # where it was

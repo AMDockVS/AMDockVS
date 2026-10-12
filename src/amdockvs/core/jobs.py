@@ -91,6 +91,7 @@ class JobDefinition:
     supported_executors: tuple[str, ...] = ()
     cpu_required: int = 1
     relative_paths: bool = False
+    task_progress: bool = False  # its tasks say how far they are: watched whatever the size of the job
     where: str = ""  # `module:qualname` of this declaration
 
     def with_options(self, **changes) -> "JobDefinition":
@@ -202,6 +203,7 @@ class JobSpec:
     cpu_required: int | None = 1
     output_spec: Any = None
     task_label: Any = None
+    task_progress: bool = False
 
     @staticmethod
     def build_chunks(params: dict, config: dict | None = None) -> Iterable[dict]:
@@ -232,6 +234,7 @@ class JobSpec:
             executor=str(cls.executor or "compute"),
             supported_executors=tuple(cls.supported_executors or ()),
             cpu_required=cls.cpu_required or 1,
+            task_progress=cls.task_progress,
         )
         return cls.definition
 

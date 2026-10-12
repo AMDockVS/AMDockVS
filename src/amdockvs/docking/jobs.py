@@ -676,6 +676,7 @@ def pairs_label(payload: dict) -> str:
 class DockingJobSpec(JobSpec):
     name = "amdock_docking_job"
     task_label = pairs_label
+    task_progress = True  # the engine's own progress line, pair by pair
     task_name = "amdock_run_vina_docking_batch"
     description = "Run a registered docking engine for receptor-ligand pairs."
     params_model = DockingJobParams
@@ -743,6 +744,7 @@ docking_job = DockingJobSpec.to_job_definition()
 class RedockingJobSpec(JobSpec):
     name = "amdock_redocking_job"
     task_label = pairs_label
+    task_progress = True  # the engine's own progress line, pair by pair
     task_name = "amdock_run_vina_redocking_batch"
     description = "Run a registered docking engine for explicit complex receptor-ligand pairs."
     params_model = RedockingJobParams
