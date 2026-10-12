@@ -609,6 +609,8 @@ class RunPanel:
             failures.append(f"{int(rec['failed'])} receptor preparation failed")
         if failures:
             notes.append("; ".join(failures))
+        if int(rec.get("no_site") or 0):  # prepared or not, they are not docked: said, not dropped
+            notes.append(f"{int(rec['no_site'])} receptor(s) have no binding site and are left out")
         if notes:
             self.check_status_label.setText("; ".join(notes) + ".")
         else:

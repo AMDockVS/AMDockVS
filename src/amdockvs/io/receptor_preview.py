@@ -562,8 +562,14 @@ def _scan_with_gemmi(path: Path) -> dict[str, Any]:
         for chain_id, payload in sorted(chains_map.items())
     ]
     assemblies = [str(assembly.name or index + 1) for index, assembly in enumerate(structure.assemblies)]
+    # A PDB names the chains of an assembly; an mmCIF names their parts (label_asym_id), one for
+    # the polymer and one for each ligand and for the waters: both are the chains they sit in.
+    chain_of_part = {str(residue.subchain): str(chain.name or "-") for chain in model for residue in chain}
     assembly_chains = {
-        str(assembly.name or index + 1): sorted({str(chain) for generator in assembly.generators for chain in generator.chains})
+        str(assembly.name or index + 1): sorted(
+            {str(chain) for generator in assembly.generators for chain in generator.chains}
+            | {chain_of_part[part] for generator in assembly.generators for part in generator.subchains if part in chain_of_part}
+        )
         for index, assembly in enumerate(structure.assemblies)
     }
     if not assemblies:
