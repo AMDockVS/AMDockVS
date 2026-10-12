@@ -34,6 +34,7 @@ from amdockvs.ui.tools.workflow_panel import WORKFLOW_VIEW_ID
 from amdockvs.ui.viewers.molecular_viewer import MolecularViewerController
 from amdockvs.ui.visualization.chart_controller import ChartController
 from ms_components.ms_dockwidget.widget import Behavior, DockManager, MSDockWidget, Region
+from ms_components.ms_executors import ExecutorsPanel
 from ms_components.ms_pymol.widget import PymolDockWidget
 
 
@@ -60,6 +61,7 @@ class AMDockVSMainWindow(QMainWindow):
         self.runtime = runtime
         self.monitor_bridge = runtime.create_monitor_bridge(poll_ms=500, max_recent_jobs=50)
         self.jobs_dialog: JobsDialog | None = None  # built on first open_jobs_monitor()
+        self.executors_panel: ExecutorsPanel | None = None  # built on first open_executors_panel()
         self._closing = False
         # A file of ours, not Qt's per-organization place: it goes when the home goes.
         self._settings = QSettings(str(amdock_home() / "ui_state.ini"), QSettings.Format.IniFormat)
@@ -465,6 +467,16 @@ class AMDockVSMainWindow(QMainWindow):
         self.jobs_dialog.activateWindow()
         self.jobs.update_jobs_statusbar()
         return self.jobs_dialog
+
+    def open_executors_panel(self) -> ExecutorsPanel:
+        """The quick window that starts and stops the executors: built once, hidden on close."""
+        if self.executors_panel is None:
+            self.executors_panel = ExecutorsPanel(self.runtime.workspace, parent=self)
+            self.executors_panel.settings_requested.connect(lambda: self.open_settings(node="page:Executors"))
+        self.executors_panel.show()
+        self.executors_panel.raise_()
+        self.executors_panel.activateWindow()
+        return self.executors_panel
 
     def open_complex_results(self) -> QWidget:
         return self.open_or_focus_view(COMPLEXES_VIEW_ID)

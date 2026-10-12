@@ -30,3 +30,29 @@ def test_the_jobs_that_can_leave_this_machine_say_so():
     assert "hpc" in AMDOCKVS_OFFLOADABLE_EXECUTORS
     assert "hpc" in shard_jobs.DockShardsJobSpec.supported_executors
     assert "hpc" in preparation.PrepareLigandShardsJobSpec.supported_executors
+
+
+def test_the_executors_are_started_from_the_bar_and_kept_in_settings(tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QApplication
+
+    from amdockvs.ui import AMDockVSMainWindow
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("AMDOCK_DISABLE_PYMOL", "1")
+    app = QApplication.instance() or QApplication(["amdockvs-ui"])
+    window, runtime = None, AMDockVSRuntime()
+    try:
+        runtime.create_project(name="ui_project", folder=tmp_path / "project", description="ui test")
+        window = AMDockVSMainWindow(runtime=runtime)
+        window.views.executors_action.trigger()
+        panel = window.executors_panel
+        assert panel.isVisible() and panel.states["local"].text() == "On" and window.open_executors_panel() is panel
+        panel.settings_button.click()
+        app.processEvents()
+        settings = window._app_widget._settings_dialog.panel
+        assert settings.stack.currentWidget().names.item(0).text() == "local"  # the page of the executors
+        assert {"page:Hosts", "page:Executors"} <= set(settings._pages)
+    finally:
+        if window is not None:
+            window.close()
+        runtime.shutdown()

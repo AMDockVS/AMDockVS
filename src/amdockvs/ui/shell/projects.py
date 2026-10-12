@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QApplication, QDialog, QVBoxLayout, QWidget
 
 from ms_flow.api import ProjectCatalogBackend
 from ms_components.ms_projects import ProjectsMenuWidget
+from ms_components.ms_executors import KeptPage
 from ms_components.ms_settings import AppSettingsDialog
 
 if TYPE_CHECKING:
@@ -67,6 +68,10 @@ class ApplicationWidget(QWidget):
                 ExternalToolsPage(self.runtime, parent=self._settings_dialog),
                 "External tools",
             )
+            # The machines that run jobs and who runs them there; started from the bar, not here.
+            for table in ("hosts", "executors"):
+                self._settings_dialog.panel.add_page(
+                    KeptPage(self.runtime.workspace, table, parent=self._settings_dialog), table.capitalize())
             self._settings_dialog.settings_saved.connect(self.settings_saved.emit)
             self._settings_dialog.destroyed.connect(self._on_settings_dialog_destroyed)
         else:

@@ -116,6 +116,9 @@ class ViewCoordinator:
         self.jobs_action = bar.addAction(load_icon("cpu.svg"), "Jobs")
         self.jobs_action.setToolTip("Open the Jobs monitor.")
         self.jobs_action.triggered.connect(self.w.open_jobs_monitor)
+        self.executors_action = bar.addAction(load_icon("cloud.svg"), "Executors")
+        self.executors_action.setToolTip("Who runs the jobs: start and stop the executors.")
+        self.executors_action.triggered.connect(self.w.open_executors_panel)
         # After the actions exist, not before: the badge and the bar say the same thing.
         self.sync_mode_badge()
         # Every toolbar button now exists (docks + actions + these), so one pass styles them all.
