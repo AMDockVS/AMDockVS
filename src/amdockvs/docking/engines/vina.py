@@ -13,6 +13,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
+from ms_flow.engine import launched
+
 from amdockvs.core.constants import DEFAULT_VINA_BACKEND, DEFAULT_VINA_COMMAND
 from amdockvs.docking.results.metrics import docking_metrics
 from amdockvs.docking.results.rmsd import pose_rmsd_detail
@@ -319,6 +321,7 @@ def _run_vina_binary(
                 text=True,
                 start_new_session=(os.name == "posix"),
             )
+            launched(process)  # on a thread of the engine's process this is all a cancel can stop
             stdout_text = _follow_progress_line(process.stdout, progress)
             process.wait()
             errors.seek(0)

@@ -92,6 +92,9 @@ class JobDefinition:
     cpu_required: int = 1
     relative_paths: bool = False
     task_progress: bool = False  # its tasks say how far they are: watched whatever the size of the job
+    # (params) -> its tasks only wait for a program they start and tell of (`ms_flow.engine.launched`):
+    # on this machine they run on threads of this process, and no worker of the pool is kept for them.
+    on_thread: Optional[Callable[[dict], bool]] = None
     where: str = ""  # `module:qualname` of this declaration
 
     def with_options(self, **changes) -> "JobDefinition":
@@ -235,6 +238,7 @@ class JobSpec:
             supported_executors=tuple(cls.supported_executors or ()),
             cpu_required=cls.cpu_required or 1,
             task_progress=cls.task_progress,
+            on_thread=cls._own("on_thread"),
         )
         return cls.definition
 

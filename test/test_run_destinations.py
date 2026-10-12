@@ -179,9 +179,12 @@ def test_a_job_on_record_is_continued_and_one_that_runs_is_moved(tmp_path, monke
         assert docking.DockingJobSpec.definition.task_progress and not napping.task_progress
         said, submit = [], runtime.workspace.submit
         monkeypatch.setattr(runtime.workspace, "submit", lambda *job, **options: said.append(options) or submit(*job, **options))
-        for declared in (napping.with_options(task_progress=True), napping):
+        waits = docking.DockingJobSpec.definition.on_thread  # and one that only waits for a program has no worker
+        assert waits({"engine": "qvina"}) and waits({"engine": "vina", "vina_backend": "binary"})
+        assert not waits({"engine": "vina", "vina_backend": "python"}) and not waits({"engine": "gnina"})
+        for declared in (napping.with_options(task_progress=True, on_thread=lambda params: params["naps"] == 1), napping):
             runtime.wait_for_job(runtime.submit_job(declared, params={"naps": 1}, executor_name="thread"))
-        assert [options.get("progress") for options in said] == [True, None]
+        assert [(options.get("progress"), options.get("thread")) for options in said] == [(True, True), (None, None)]
 
         runtime.cancel_job(again := runtime.submit_job(napping, params={"naps": 60}, executor_name="thread"))
         assert runtime.wait_for_job(again).status == "canceled"

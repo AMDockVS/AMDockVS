@@ -673,10 +673,22 @@ def pairs_label(payload: dict) -> str:
     return name if len(pairs) == 1 else f"{name} +{len(pairs) - 1}"
 
 
+def _waits_for_program(params: dict) -> bool:
+    """Whether the tasks of these params only start a program and wait for it, telling the engine
+    of it: the Vina and QuickVina binaries.
+
+    ponytail: gnina and AutoDock-GPU are programs too, but they are run to their end
+    (`subprocess.run`) and a cancel would have to wait for them: `Popen` + `launched` there first.
+    """
+    engine = str(params.get("engine") or "vina")
+    return engine == "qvina" or (engine == "vina" and str(params.get("vina_backend")) == "binary")
+
+
 class DockingJobSpec(JobSpec):
     name = "amdock_docking_job"
     task_label = pairs_label
     task_progress = True  # the engine's own progress line, pair by pair
+    on_thread = staticmethod(_waits_for_program)
     task_name = "amdock_run_vina_docking_batch"
     description = "Run a registered docking engine for receptor-ligand pairs."
     params_model = DockingJobParams
@@ -745,6 +757,7 @@ class RedockingJobSpec(JobSpec):
     name = "amdock_redocking_job"
     task_label = pairs_label
     task_progress = True  # the engine's own progress line, pair by pair
+    on_thread = staticmethod(_waits_for_program)
     task_name = "amdock_run_vina_redocking_batch"
     description = "Run a registered docking engine for explicit complex receptor-ligand pairs."
     params_model = RedockingJobParams

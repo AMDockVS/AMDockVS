@@ -429,6 +429,7 @@ class AMDockVSRuntime(AppRuntime):
             on_error=on_error,
             # The engine watches the tasks of a small job only, unless it is told to.
             **({"progress": True} if job.task_progress else {}),
+            **({"thread": True} if job.on_thread is not None and job.on_thread(job_params) else {}),
         )
         # Single funnel for "a job just started" UI feedback (the main window plugs a toast in
         # here). May fire from a worker thread, so the hook must be thread-safe (a Qt signal).
