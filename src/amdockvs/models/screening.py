@@ -17,6 +17,7 @@ from datetime import datetime
 from sqlalchemy import DateTime, JSON, Index, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
+from amdockvs.core.rows import shard_engine_state_row
 from amdockvs.core.constants import (
     TABLE_SCREENING_DISPATCHES,
     TABLE_SCREENING_SHARD_RUNS,
@@ -108,28 +109,7 @@ class ShardEngineState(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
     updated_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
-    @classmethod
-    def build_row(
-        cls,
-        *,
-        shard_id: int,
-        engine: str,
-        files: dict | None = None,
-        n_records: int = 0,
-        is_ready: bool = False,
-        error: str = "",
-    ) -> dict:
-        now = datetime.now()
-        return {
-            "shard_id": int(shard_id),
-            "engine": str(engine),
-            "files": dict(files or {}),
-            "n_records": int(n_records),
-            "is_ready": bool(is_ready),
-            "error": str(error or ""),
-            "created_at": now,
-            "updated_at": now,
-        }
+    build_row = staticmethod(shard_engine_state_row)
 
 
 class ScreeningShardRun(SQLModel, table=True):

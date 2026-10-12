@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from ms_flow.sinks import table_sink
 from ms_flow.specs import InputSource
 from amdockvs.core.jobs import JobSpec
+from amdockvs.docking.tasks import dock_pairs
 
 from amdockvs.core.configuration import DEFAULT_DOCKING_BATCH_SIZE, DEFAULT_LIGAND_BATCH_SIZE
 from amdockvs.core.worker_io import worker_file, worker_output_dir
@@ -703,20 +704,7 @@ class DockingJobSpec(JobSpec):
     required = ()
     produces = ()
 
-    @staticmethod
-    def run_chunk(payload: dict, progress_cb=None):
-        rows = run_docking_chunk(payload, progress_cb)
-        threshold = payload.get("hit_threshold")
-        if threshold is None:
-            return rows
-        # The predicate half of the gate: stateless, so it runs where the poses are produced
-        # and the non-hits never travel back. ponytail: their pose files stay on disk and the
-        # pair has no row, so a re-run with skip_existing will dock it again — the campaign is
-        # capped anyway; add a "screened" marker table if resuming a capped run matters.
-        return [
-            row for row in rows
-            if row.get("score") is not None and float(row["score"]) <= float(threshold)
-        ]
+    run_chunk = staticmethod(dock_pairs)
 
     @staticmethod
     def build_chunks(params: dict, config: dict | None = None) -> Iterator[dict]:
@@ -772,9 +760,7 @@ class RedockingJobSpec(JobSpec):
     required = ()
     produces = ()
 
-    @staticmethod
-    def run_chunk(payload: dict, progress_cb=None):
-        return run_docking_chunk(payload, progress_cb)
+    run_chunk = staticmethod(run_docking_chunk)
 
     @staticmethod
     def build_chunks(params: dict, config: dict | None = None) -> Iterator[dict]:
