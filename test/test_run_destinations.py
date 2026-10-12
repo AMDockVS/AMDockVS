@@ -71,7 +71,7 @@ def test_a_job_goes_to_an_active_executor_it_can_run_on(tmp_path, monkeypatch):
 
 def test_the_jobs_that_can_leave_this_machine_say_so():
     """A worker that opens project.db cannot run on a cluster, so this list is deliberate."""
-    import amdockvs.chemistry.jobs  # noqa: F401
+    import amdockvs.chemistry.jobs as chemistry
     import amdockvs.docking.jobs  # noqa: F401
     import amdockvs.docking.preparation.jobs as preparation
     import amdockvs.docking.shard_jobs as shard_jobs
@@ -79,6 +79,9 @@ def test_the_jobs_that_can_leave_this_machine_say_so():
     assert "hpc" in AMDOCKVS_OFFLOADABLE_EXECUTORS
     assert "hpc" in shard_jobs.DockShardsJobSpec.supported_executors
     assert "hpc" in preparation.PrepareLigandShardsJobSpec.supported_executors
+    # What chemistry writes is named relative to the project: a far disk does not give it back.
+    assert "hpc" not in chemistry.ligand_chemistry_job.supported_executors
+    assert "hpc" not in chemistry.receptor_chemistry_job.supported_executors
 
 
 def test_the_executors_are_started_from_the_bar_and_kept_in_settings(tmp_path, monkeypatch):

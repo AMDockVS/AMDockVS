@@ -12,7 +12,7 @@ from ms_flow.sinks import graph_sink, table_sink
 from amdockvs.core.jobs import job, task
 
 from amdockvs.core.configuration import DEFAULT_OUTPUT_FLUSH_EVERY
-from amdockvs.core.constants import AMDOCKVS_OFFLOADABLE_EXECUTORS
+from amdockvs.core.constants import AMDOCKVS_LOCAL_EXECUTORS, AMDOCKVS_OFFLOADABLE_EXECUTORS
 from amdockvs.molecules.storage import ShardStore, shard_scope_spec, store_from_config
 from amdockvs.core.worker_io import project_root_from_output_dir, restore_worker_paths, worker_file, worker_output_dir, worker_path_fields
 from amdockvs.chemistry.repository import (
@@ -181,11 +181,16 @@ def _iter_receptor_chemistry_batches(
     )
 
 
+# ponytail: ligand and receptor chemistry stay on this machine. Their workers name what they
+# write relative to the project, and a far executor brings back only the files a result names
+# by their whole path: the files stay there and the paths kept are of a folder that is not
+# here. Offloadable again once the result can name them (a place in the graph payload for
+# it, or the executor bringing back the whole `Dir`).
 @task(
     name="amdock_ligand_chemistry_batch",
     description="Apply a reusable ligand chemistry operation and persist metadata updates.",
     executor="compute",
-    supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
+    supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
 )
 def ligand_chemistry_task(payload: dict, progress_cb=None):
     output_dir = Path(str(payload.get("output_dir") or "")).expanduser().resolve()
@@ -221,7 +226,7 @@ def ligand_chemistry_task(payload: dict, progress_cb=None):
     name="amdock_receptor_chemistry_batch",
     description="Apply a reusable receptor chemistry operation and persist metadata updates.",
     executor="compute",
-    supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
+    supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
 )
 def receptor_chemistry_task(payload: dict, progress_cb=None):
     output_dir = Path(str(payload.get("output_dir") or "")).expanduser().resolve()
@@ -245,7 +250,7 @@ def receptor_chemistry_task(payload: dict, progress_cb=None):
     name="amdock_ligand_chemistry_job",
     params_model=LigandChemistryJobParams,
     executor="compute",
-    supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
+    supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
     output_spec=CHEMISTRY_GRAPH_OUTPUT,
     output_flush_every=DEFAULT_OUTPUT_FLUSH_EVERY,
     store_results=False,
@@ -270,7 +275,7 @@ def ligand_chemistry_job(params: dict, config: dict | None = None) -> Iterator[d
     name="amdock_receptor_chemistry_job",
     params_model=ReceptorChemistryJobParams,
     executor="compute",
-    supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
+    supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
     output_spec=CHEMISTRY_GRAPH_OUTPUT,
     output_flush_every=DEFAULT_OUTPUT_FLUSH_EVERY,
     store_results=False,

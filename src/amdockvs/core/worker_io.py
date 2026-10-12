@@ -13,13 +13,19 @@ from typing import Any, Iterable, Mapping
 
 from ms_flow.engine import Dir, File
 
+from amdockvs.core.paths import get_default_project_root
+
 
 def worker_file(path: Any, *, cache: bool = False):
     """Declare an existing file path that a compute worker must be able to open."""
     text = str(path or "").strip()
-    if not text or not Path(text).expanduser().is_file():
+    if not text:
         return text
-    return File(text)  # ponytail: `cache` is the executor's business now
+    found, root = Path(text).expanduser(), get_default_project_root()
+    if not found.is_absolute() and root is not None:
+        found = root / found  # the project keeps its paths relative to its folder
+    # ponytail: `cache` is the executor's business now
+    return File(str(found)) if found.is_file() else text
 
 
 def worker_path_fields(
