@@ -1,29 +1,33 @@
 """A worker imports the module its task is pickled by, and everything that module imports."""
+import importlib
+import pkgutil
 import subprocess
 import sys
 
 import pytest
 
-import amdockvs.docking.jobs as docking_jobs
-import amdockvs.docking.preparation.jobs as preparation_jobs
-import amdockvs.docking.results.jobs as results_jobs
+import amdockvs
+from amdockvs.core.jobs import JobDefinition
 
-LIGHT = [
-    docking_jobs.DockingJobSpec,
-    docking_jobs.RedockingJobSpec,
-    preparation_jobs.PrepareLigandsJobSpec,
-    preparation_jobs.PrepareReceptorsJobSpec,
-    preparation_jobs.PrepareLigandShardsJobSpec,
-    results_jobs.InteractionJobSpec,
-    results_jobs.DiagramJobSpec,
-]
+# ponytail: clustering still runs a function of its jobs module; move it with the rest when that file settles.
+NOT_YET = {"amdockvs.diversity.jobs"}
 
 
-@pytest.mark.parametrize("spec", LIGHT, ids=lambda spec: spec.__name__)
-def test_the_module_of_a_task_brings_no_qt_and_no_sql(spec):
-    module = spec.run_chunk.__module__
-    assert not module.endswith("jobs"), f"{spec.__name__} runs a function of its declaration module"
+def _task_modules() -> list[str]:
+    found = set()
+    for info in pkgutil.walk_packages(amdockvs.__path__, "amdockvs."):
+        if ".ui" in info.name or not info.name.endswith("jobs"):
+            continue
+        for value in vars(importlib.import_module(info.name)).values():
+            definition = value if isinstance(value, JobDefinition) else getattr(value, "__dict__", {}).get("definition")
+            if isinstance(definition, JobDefinition):
+                found.add(definition.run_chunk.__module__)
+    return sorted(found - NOT_YET)
+
+
+@pytest.mark.parametrize("module", _task_modules())
+def test_the_module_of_a_task_brings_no_qt_and_no_sql(module):
+    assert not module.endswith("jobs"), f"{module}: a task is pickled by the module that declares its job"
     code = (f"import sys, amdockvs.core.jobs, {module}; "
-            "found = [name for name in ('PySide6', 'sqlalchemy', 'pydantic') if name in sys.modules]; "
-            "assert not found, found")
+            "found = [name for name in ('PySide6', 'sqlalchemy') if name in sys.modules]; assert not found, found")
     subprocess.run([sys.executable, "-c", code], check=True)

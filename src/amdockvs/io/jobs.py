@@ -9,7 +9,8 @@ from pydantic import BaseModel, Field
 
 from ms_flow.sinks import graph_sink, table_sink
 from ms_flow.specs import InputSource
-from amdockvs.core.jobs import job, task
+from amdockvs.core.jobs import job
+from amdockvs.io.tasks import filter_ligand_span_task, materialize_import_rows, materialize_multithreaded_sdf_rows
 
 from amdockvs.core.configuration import (
     DEFAULT_LIGAND_BATCH_SIZE,
@@ -31,13 +32,7 @@ from amdockvs.io.loaders import (
 )
 from amdockvs.io.parsers import count_import_records
 from amdockvs.io.payloads import ImportPrefilterPolicy, MultithreadedSDFImportPayload
-from amdockvs.io.shards import filter_ligand_span, shard_queue_writer
-from amdockvs.io.transformers import (
-    build_import_graph_payload,
-    materialize_import_batch,
-    materialize_multithreaded_sdf_file,
-    offload_source_properties,
-)
+from amdockvs.io.shards import shard_queue_writer
 from amdockvs.core.worker_io import worker_output_dir
 from amdockvs.models import (
     BindingSite,
@@ -274,35 +269,6 @@ SHARD_MAX_BYTES = int(os.environ.get("AMDOCK_SHARD_MAX_BYTES") or DEFAULT_SHARD_
 # SDF records. The UI counts with count_import_records(approx=True), so no parse, no full scan.
 SHARD_SUGGEST_RECORDS = int(os.environ.get("AMDOCK_SHARD_SUGGEST_RECORDS") or DEFAULT_SHARD_SUGGEST_RECORDS)
 
-# Offload SDF tags to parquet sidecars instead of persisting ~34 rows/mol into the
-# project DB. Env-toggle so it can be A/B'd; default on (props are load-on-demand).
-OFFLOAD_IMPORT_PROPERTIES = os.environ.get("AMDOCK_OFFLOAD_PROPS", "1") == "1"
-
-
-@task(
-    name="amdock_materialize_import_batch",
-    description="Parse a raw import batch and materialize a graph payload for project storage.",
-    executor="compute",
-    supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
-)
-def materialize_import_rows(payload: dict, progress_cb=None):
-    rows = materialize_import_batch(payload, progress_cb=progress_cb)
-    if OFFLOAD_IMPORT_PROPERTIES:
-        offload_source_properties(rows, payload.get("storage_dir"))
-    return build_import_graph_payload(rows)
-
-
-@task(
-    name="amdock_materialize_multithreaded_sdf_file",
-    description="Parse a full SDF file with RDKit MultithreadedSDMolSupplier and materialize a graph payload.",
-    executor="compute",
-    supported_executors=AMDOCKVS_PROCESS_EXECUTORS,
-    cpu_required=4,
-)
-def materialize_multithreaded_sdf_rows(payload: dict, progress_cb=None):
-    rows = materialize_multithreaded_sdf_file(payload, progress_cb=progress_cb)
-    return build_import_graph_payload(rows)
-
 
 @job(
     task=materialize_import_rows,
@@ -401,16 +367,6 @@ class ShardLigandsParams(LoadFileParams):
     """The import params, with the batch size read as *records per shard*."""
 
     batch_size: int = Field(ge=1, le=MAX_SHARD_RECORDS)
-
-
-@task(
-    name="amdock_filter_ligand_span",
-    description="Filter one span of a source library; the survivors go back to the shard queue.",
-    executor="compute",
-    supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
-)
-def filter_ligand_span_task(payload: dict, progress_cb=None) -> list[dict]:
-    return filter_ligand_span(payload)
 
 
 @job(

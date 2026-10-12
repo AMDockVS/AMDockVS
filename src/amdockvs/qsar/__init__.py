@@ -8,7 +8,7 @@ _LAZY_EXPORTS = {
     "FittedModel": ("amdockvs.qsar.modeling", "FittedModel"),
     "QSARAPI": ("amdockvs.qsar.api", "QSARAPI"),
     "SUPPORTED_QSAR_ALGORITHMS": ("amdockvs.qsar.modeling", "SUPPORTED_QSAR_ALGORITHMS"),
-    "calculate_descriptor_batch": ("amdockvs.qsar.jobs", "calculate_descriptor_batch"),
+    "calculate_descriptor_batch": ("amdockvs.qsar.tasks", "calculate_descriptor_batch"),
     "calculate_molecule_descriptors_job": ("amdockvs.qsar.jobs", "calculate_molecule_descriptors_job"),
     "classification_metrics": ("amdockvs.qsar.modeling", "classification_metrics"),
     "fit_model": ("amdockvs.qsar.modeling", "fit_model"),

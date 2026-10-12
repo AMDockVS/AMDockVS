@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Mapping
 
 from sqlalchemy import DateTime, Index, JSON, UniqueConstraint, text
@@ -16,6 +15,7 @@ from amdockvs.core.constants import (
     TABLE_MOLECULE_SOURCE_PROPERTIES,
     TABLE_MOLECULES,
 )
+from amdockvs.core.rows import molecule_model_row, molecule_row, sanitize_molecule_extra_data
 from .base import TimestampedRecord
 
 # Domain vocabulary centralised in amdockvs.core.vocab. Re-exported here so existing
@@ -29,26 +29,8 @@ from amdockvs.core.vocab import (
 )
 
 
-_RESERVED_EXTRA_DATA_KEYS = {"state", "project_root", "filtering", "chemistry"}
 
 
-def sanitize_molecule_extra_data(value: Any) -> dict[str, Any]:
-    if isinstance(value, dict):
-        raw_mapping = dict(value)
-    else:
-        text_value = str(value or "").strip()
-        if not text_value:
-            return {}
-        try:
-            parsed = json.loads(text_value)
-        except json.JSONDecodeError:
-            return {}
-        raw_mapping = parsed if isinstance(parsed, dict) else {}
-    return {
-        str(key): item
-        for key, item in raw_mapping.items()
-        if str(key) not in _RESERVED_EXTRA_DATA_KEYS
-    }
 
 
 def _coerce_string_list(value: Any) -> list[str]:
@@ -160,71 +142,7 @@ class MoleculeRecord(TimestampedRecord, table=True):
     def _coerce_string_lists(cls, value: Any) -> list[str]:
         return _coerce_string_list(value)
 
-    @classmethod
-    def build_row(
-            cls,
-            *,
-            project_root: Path,
-            source_file: Path,
-            source_index: int,
-            name: str,
-            molecule_type: str,
-            n_atoms: int,
-            input_format: str,
-            stored_path: Path | None,
-            current_path: Path | None = None,
-            current_model_index: int | None = None,
-            extra_data: dict | None = None,
-            created_at: datetime | None = None,
-            primary_context: str = "",
-            usage_class: str = MoleculeUsageClass.GENERAL,
-    ) -> dict[str, Any]:
-        now = created_at or datetime.now()
-        raw_meta = dict(extra_data or {}) if isinstance(extra_data, dict) else {}
-        state = raw_meta.get("state", {}) if isinstance(raw_meta.get("state"), dict) else {}
-        meta = sanitize_molecule_extra_data(extra_data)
-        return {
-            "name": str(name or f"{source_file.stem}_{source_index}"),
-            "molecule_type": str(molecule_type or MoleculeType.UNKNOWN),
-            "source": str(source_file.resolve()),
-            "source_index": max(0, source_index),
-            "input_format": str(input_format or FileFormat.UNKNOWN),
-            # A sequence-only protein has no file yet: both paths stay "" until a model is predicted.
-            "stored_path": str(stored_path.relative_to(project_root)) if stored_path else "",
-            "current_path": str((current_path or stored_path).relative_to(project_root)) if stored_path else "",
-            "current_model_index": None if current_model_index is None else int(current_model_index),
-            "active_binding_site_id": None,
-            "n_atoms": max(0, n_atoms),
-            "mw": meta.get("mw"),
-            "exact_mw": None,
-            "logp": None,
-            "hbd": None,
-            "hba": None,
-            "tpsa": None,
-            "rotatable_bonds": None,
-            "fragment_count": None,
-            "ring_count": None,
-            "aromatic_ring_count": None,
-            "hetero_atom_count": None,
-            "heavy_atom_count": None,
-            "formal_charge": None,
-            "fraction_csp3": None,
-            "pains_matches": [],
-            "ro5_violations": [],
-            "conformer_count": max(0, int(state.get("conformer_count", 0) or 0)),
-            "has_3d": bool(state.get("has_3d", False)),
-            "has_hs": bool(state.get("has_hs", False)),
-            "is_minimized": False,
-            "has_activity": False,
-            "excluded": False,
-            "exclusion_reason": "",
-            "in_set": False,
-            "usage_class": str(usage_class or MoleculeUsageClass.GENERAL),
-            "primary_context": primary_context,
-            "extra_data": meta,
-            "created_at": now,
-            "updated_at": now,
-        }
+    build_row = staticmethod(molecule_row)
 
 
 # ---------------------------------------------------------------------------
@@ -339,25 +257,4 @@ class MoleculeModel(SQLModel, table=True):
     files: dict = Field(default_factory=dict, sa_type=JSON)
     created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
-    @classmethod
-    def build_row(
-            cls,
-            *,
-            molecule_id: int,
-            model_index: int,
-            file_path: str,
-            source: str = ModelSource.IMPORTED,
-            energy: float | None = None,
-            metrics: dict | None = None,
-            files: dict | None = None,
-    ) -> dict[str, Any]:
-        return {
-            "molecule_id": molecule_id,
-            "model_index": model_index,
-            "file_path": file_path,
-            "energy": energy,
-            "source": source,
-            "metrics": dict(metrics or {}),
-            "files": dict(files or {}),
-            "created_at": datetime.now(),
-        }
+    build_row = staticmethod(molecule_model_row)

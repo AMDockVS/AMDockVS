@@ -20,7 +20,7 @@ from pathlib import Path, PurePosixPath
 
 from amdockvs.core.configuration import app_config
 from amdockvs.core.paths import tools_home
-from amdockvs.models import BindingSite
+from amdockvs.core.rows import binding_site_row
 from typing import Any, Iterable
 
 
@@ -367,7 +367,7 @@ def parse_p2rank_outputs(
             )
             size = _box_size(points.get(rank, ()))
             rows.append(
-                BindingSite.build_row(
+                binding_site_row(
                     molecule_id=int(receptor_id),
                     name=f"P2Rank pocket {rank}",
                     source="p2rank",

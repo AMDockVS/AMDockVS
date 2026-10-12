@@ -14,8 +14,14 @@ from uuid import uuid4
 from amdockvs.chemistry.state import molecule_state_metadata
 from amdockvs.io.parsers import count_import_records, read_record_span
 from amdockvs.io.payloads import ImportBatchPayload, MultithreadedSDFImportPayload
-from amdockvs.models.molecules import ModelSource, MoleculeType, MoleculeUsageClass
-from amdockvs.core.vocab import BindingSiteSource, FileFormat, ReprType
+from amdockvs.core.vocab import (
+    BindingSiteSource,
+    FileFormat,
+    ModelSource,
+    MoleculeType,
+    MoleculeUsageClass,
+    ReprType,
+)
 from amdockvs.io.import_stats import FILTERED_PREFILTER, IMPORTED, UNREADABLE, bump, write_import_stats
 from amdockvs.io.rows import active_small_molecule_criteria, cull_mol, htp_mol_filter, metadata_map_from_row
 from amdockvs.core.paths import managed_paths_for_source

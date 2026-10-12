@@ -15,9 +15,9 @@ _LAZY_EXPORTS = {
     "load_ligands_file_job": ("amdockvs.io.jobs", "load_ligands_file_job"),
     "load_ligands_multithreaded_sdf_job": ("amdockvs.io.jobs", "load_ligands_multithreaded_sdf_job"),
     "load_receptors_file_job": ("amdockvs.io.jobs", "load_receptors_file_job"),
-    "materialize_import_rows": ("amdockvs.io.jobs", "materialize_import_rows"),
+    "materialize_import_rows": ("amdockvs.io.tasks", "materialize_import_rows"),
     "materialize_import_batch": ("amdockvs.io.transformers", "materialize_import_batch"),
-    "materialize_multithreaded_sdf_rows": ("amdockvs.io.jobs", "materialize_multithreaded_sdf_rows"),
+    "materialize_multithreaded_sdf_rows": ("amdockvs.io.tasks", "materialize_multithreaded_sdf_rows"),
     "materialize_multithreaded_sdf_file": ("amdockvs.io.transformers", "materialize_multithreaded_sdf_file"),
     "stream_import_payload_batches": ("amdockvs.io.loaders", "stream_import_payload_batches"),
 }

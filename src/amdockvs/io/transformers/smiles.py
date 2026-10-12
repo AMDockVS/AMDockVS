@@ -5,7 +5,7 @@ from typing import Any, Callable, Iterable
 
 from amdockvs.chemistry.state import molecule_state_metadata
 from amdockvs.io.payloads import ImportBatchPayload
-from amdockvs.models.molecules import MoleculeType
+from amdockvs.core.vocab import MoleculeType
 from amdockvs.io.import_stats import FILTERED_PREFILTER, IMPORTED, UNREADABLE, bump
 from amdockvs.io.rows import active_small_molecule_criteria, cull_mol, htp_mol_filter
 from amdockvs.core.paths import managed_paths_for_source

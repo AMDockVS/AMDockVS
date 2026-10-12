@@ -9,9 +9,9 @@ from pydantic import BaseModel, Field
 
 from ms_flow.query import QuerySpec
 from ms_flow.sinks import graph_sink
-from amdockvs.core.jobs import job, task
+from amdockvs.core.jobs import job
+from amdockvs.qsar.tasks import _DESCRIPTOR_COLUMNS, calculate_descriptor_batch
 
-from amdockvs.chemistry.descriptors import calculate_descriptor_rows
 from amdockvs.core.worker_io import worker_file
 from amdockvs.core.configuration import DEFAULT_LIGAND_BATCH_SIZE
 from amdockvs.core.constants import (
@@ -38,16 +38,6 @@ class DescriptorJobParams(BaseModel):
     fp_nbits: int = Field(default=2048, ge=64)
 
 
-# Descriptor values are the source of truth on MoleculeRecord columns (the separate
-# DescriptorVectorRecord BLOB is unused/incompatible here). Persistence goes through a
-# MolSuite sink (engine-side, upsert), NOT a direct worker DB write — a second SQLite
-# connection from a process/thread worker deadlocks against the engine's connection.
-_DESCRIPTOR_COLUMNS = (
-    "mw", "exact_mw", "logp", "hbd", "hba", "tpsa", "rotatable_bonds",
-    "fragment_count", "ring_count", "aromatic_ring_count", "hetero_atom_count",
-    "heavy_atom_count", "formal_charge", "fraction_csp3",
-)
-
 DESCRIPTOR_GRAPH_OUTPUT = graph_sink(
     nodes=(
         {
@@ -68,41 +58,6 @@ DESCRIPTOR_GRAPH_OUTPUT = graph_sink(
         },
     ),
 )
-
-
-@task(
-    name="amdock_calculate_descriptor_batch",
-    description="Calculate RDKit descriptors for one ligand batch.",
-    executor="compute",
-    supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
-)
-def calculate_descriptor_batch(payload: dict):
-    # The worker only reads molecule files (set_default_project_root resolves stored paths)
-    # and COMPUTES; it returns rows for the engine-side sink to persist. It does not open a
-    # DB connection.
-    rows = calculate_descriptor_rows(list(payload.get("items") or []), fingerprint=payload.get("fp"))
-    return _descriptor_graph_payload(rows)
-
-
-def _descriptor_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
-    """Shape descriptor rows for DESCRIPTOR_GRAPH_OUTPUT: descriptor values upserted onto
-    MoleculeRecord columns, optional Morgan fingerprints upserted into FingerprintRecord."""
-    molecules: list[dict[str, Any]] = []
-    fingerprints: list[dict[str, Any]] = []
-    for row in rows:
-        if str(row.get("status") or "") != "completed":
-            continue
-        molecule_id = int(row.get("molecule_id") or 0)
-        molecules.append({"id": molecule_id, **{col: row.get(col) for col in _DESCRIPTOR_COLUMNS}})
-        if row.get("fp_binary"):
-            fingerprints.append({
-                "molecule_id": molecule_id,
-                "fp_type": row["fp_type"],
-                "nbits": int(row["fp_nbits"]),
-                "radius": int(row["fp_radius"]),
-                "fp_binary": row["fp_binary"],
-            })
-    return {"molecules": molecules, "fingerprints": fingerprints}
 
 
 def scope_spec(params: DescriptorJobParams) -> QuerySpec:

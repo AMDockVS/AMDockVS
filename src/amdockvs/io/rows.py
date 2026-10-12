@@ -20,8 +20,8 @@ from amdockvs.chemistry.filtering import evaluate_small_molecule_filter_values
 from amdockvs.chemistry.state import molecule_state_metadata
 from amdockvs.io.import_stats import FILTERED_PROPERTY, NO_VALID_FRAGMENT
 from amdockvs.io.payloads import ImportPrefilterPolicy
-from amdockvs.models import MoleculeRecord
-from amdockvs.models.molecules import MoleculeType, sanitize_molecule_extra_data
+from amdockvs.core.rows import sanitize_molecule_extra_data
+from amdockvs.core.vocab import MoleculeType
 from amdockvs.molecules.fragments import (
     analyze_ligand_fragments,
     largest_ligand_fragment,
@@ -61,10 +61,6 @@ class LigandDecision:
     fragment_mols: dict[int, Any]
     selected_fragment: dict[str, Any]
     prepped_state: dict[str, Any] | None
-
-
-def molecule_columns() -> tuple[str, ...]:
-    return tuple(column.name for column in MoleculeRecord.__table__.columns if not column.primary_key)
 
 
 def metadata_map_from_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -226,7 +222,6 @@ __all__ = [
     "htp_mol_filter",
     "ligand_row_fields",
     "metadata_map_from_row",
-    "molecule_columns",
     "prep_ligand_mol",
     "small_molecule_filter_values",
 ]

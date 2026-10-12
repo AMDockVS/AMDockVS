@@ -12,8 +12,7 @@ from amdockvs.io.receptor_preview import (
     scan_receptor_structure,
     write_processed_receptor,
 )
-from amdockvs.models.molecules import MoleculeType, MoleculeUsageClass
-from amdockvs.core.vocab import BindingSiteSource
+from amdockvs.core.vocab import BindingSiteSource, MoleculeType, MoleculeUsageClass
 from amdockvs.io.import_stats import IMPORTED, bump
 from amdockvs.io.formats import as_pdb, canonical_suffix
 from amdockvs.core.paths import artifact_storage_path, managed_paths_for_source
