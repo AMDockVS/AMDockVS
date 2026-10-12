@@ -389,12 +389,6 @@ class AMDockVSMainWindow(QMainWindow):
         # Refresh what's open; saving settings shouldn't pop tabs the user didn't ask for.
         self.views.refresh_open_views_once()
         self.diagram_dock.apply_settings()
-        # The pool of this machine is made again with the sizes just saved.
-        if self._has_active_project():
-            try:
-                self.runtime.workspace.reload_executors()
-            except Exception as exc:  # noqa: BLE001 - a bad executor config must not eat the save
-                self.statusBar().showMessage(f"Executors not applied: {exc}", 8000)
 
     _DOCS_URL = "https://amdockvs.github.io/AMDockVS"  # AMDockVS docs; the old link pointed at AMDock 1.6.x
     _WEB_URL = "https://amdockvs.github.io"  # AMDockVS docs; the old link pointed at AMDock 1.6.x
