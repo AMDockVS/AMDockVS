@@ -8,13 +8,16 @@ through MolSuite, so there is no direct project.db access from inside a task.
 """
 from __future__ import annotations
 
+import shutil
 import uuid
 from itertools import batched
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Iterator
 
 from pydantic import BaseModel, Field
 
+from ms_flow.engine import writer
 from ms_flow.query import QuerySpec, db_rows
 from ms_flow.sinks import table_sink
 from amdockvs.core.jobs import job, task
@@ -23,7 +26,7 @@ from amdockvs.core.configuration import DEFAULT_LIGAND_BATCH_SIZE
 from amdockvs.molecules.storage import as_store, store_from_config
 from amdockvs.core.worker_io import worker_file, worker_output_dir
 from amdockvs.core.constants import (
-    AMDOCKVS_LOCAL_EXECUTORS,
+    AMDOCKVS_OFFLOADABLE_EXECUTORS,
     TABLE_FINGERPRINTS,
     TABLE_MOLECULES,
 )
@@ -181,9 +184,9 @@ def _write_packed_fingerprints(
     name="amdock_cluster_molecules_batch",
     description="Cluster molecule fingerprints and emit clustering_results rows.",
     executor="compute",
-    supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
+    supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
 )
-def cluster_molecules_task(payload: dict) -> list[dict]:
+def cluster_molecules_task(payload: dict) -> dict | list:
     import numpy as np
 
     # The payload carries paths, not fingerprints: the matrix lives bit-packed in a memory-mapped
@@ -236,7 +239,10 @@ def cluster_molecules_task(payload: dict) -> list[dict]:
     # Fingerprints are derivable: they are deleted at the end so no run leaves 256 B/mol behind.
     for key in ("fp_path", "ids_path"):
         Path(str(payload.get(key) or "")).unlink(missing_ok=True)
-    return rows
+    # The sidecar is named beside the rows: a result names a file for it to come back from a disk
+    # that is not this one.
+    sidecar = Path(str(payload.get("output_dir") or "")) / f"{payload.get('cluster_run_id') or ''}.parquet"
+    return {"rows": rows, "sidecar": str(sidecar)}
 
 
 def _write_graph_sidecar(
@@ -280,13 +286,28 @@ def _write_graph_sidecar(
         pass
 
 
+def _assignments(params, project):
+    """The sink of the job, for chunks that return their rows beside the sidecar they wrote."""
+    sink = writer(table_sink(model=ClusteringResult, write_mode="bulk"), project)
+    return SimpleNamespace(tables=sink.tables, write=lambda results: sink.write([result["rows"] for result in results]))
+
+
+def _drop_fingerprints(params: dict, config: dict) -> None:
+    """The packed fingerprints of the run: the worker deletes the ones it read, which on another
+    disk are copies."""
+    run_id, db_path = str(dict(params).get("cluster_run_id") or ""), getattr(config.get("project_db"), "db_path", None)
+    if run_id and db_path:
+        shutil.rmtree(Path(db_path).expanduser().resolve().parent / "clustering_runs" / run_id, ignore_errors=True)
+
+
 @job(
     task=cluster_molecules_task,
     name="amdock_cluster_molecules_job",
     params_model=SelectionClusterJobParams,
     executor="compute",
-    supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
-    output_spec=table_sink(model=ClusteringResult, write_mode="bulk"),
+    supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
+    output_spec=_assignments,
+    finalize=_drop_fingerprints,
     store_results=False,
 )
 def cluster_molecules_job(params: dict, config: dict | None = None) -> Iterator[dict]:

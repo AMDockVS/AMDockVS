@@ -72,15 +72,19 @@ def test_a_job_goes_to_an_active_executor_it_can_run_on(tmp_path, monkeypatch):
 def test_the_jobs_that_can_leave_this_machine_say_so():
     """A worker that opens project.db cannot run on a cluster, so this list is deliberate."""
     import amdockvs.chemistry.jobs as chemistry
+    import amdockvs.diversity.jobs as diversity
     import amdockvs.docking.jobs  # noqa: F401
     import amdockvs.docking.preparation.jobs as preparation
     import amdockvs.docking.shard_jobs as shard_jobs
+    import amdockvs.qsar.jobs as qsar
 
     assert "hpc" in AMDOCKVS_OFFLOADABLE_EXECUTORS
     assert "hpc" in shard_jobs.DockShardsJobSpec.supported_executors
     assert "hpc" in preparation.PrepareLigandShardsJobSpec.supported_executors
     assert "hpc" in chemistry.ligand_chemistry_job.supported_executors
     assert "hpc" in chemistry.receptor_chemistry_job.supported_executors
+    assert "hpc" in diversity.cluster_molecules_job.supported_executors
+    assert "hpc" in qsar.calculate_molecule_descriptors_job.supported_executors
 
 
 def test_the_files_a_chunk_names_whole_are_kept_relative_to_the_project(tmp_path):

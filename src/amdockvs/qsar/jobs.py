@@ -15,7 +15,7 @@ from amdockvs.chemistry.descriptors import calculate_descriptor_rows
 from amdockvs.core.worker_io import worker_file
 from amdockvs.core.configuration import DEFAULT_LIGAND_BATCH_SIZE
 from amdockvs.core.constants import (
-    AMDOCKVS_LOCAL_EXECUTORS,
+    AMDOCKVS_OFFLOADABLE_EXECUTORS,
     TABLE_DESCRIPTORS,
     TABLE_FINGERPRINTS,
     TABLE_MOLECULES,
@@ -74,7 +74,7 @@ DESCRIPTOR_GRAPH_OUTPUT = graph_sink(
     name="amdock_calculate_descriptor_batch",
     description="Calculate RDKit descriptors for one ligand batch.",
     executor="compute",
-    supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
+    supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
 )
 def calculate_descriptor_batch(payload: dict):
     # The worker only reads molecule files (set_default_project_root resolves stored paths)
@@ -183,7 +183,7 @@ def _iter_descriptor_batches(source, params: DescriptorJobParams) -> Iterator[di
     name="amdock_calculate_molecule_descriptors_job",
     params_model=DescriptorJobParams,
     executor="compute",
-    supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
+    supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
     output_spec=DESCRIPTOR_GRAPH_OUTPUT,
 )
 def calculate_molecule_descriptors_job(params: dict, config: dict | None = None) -> Iterator[dict]:
