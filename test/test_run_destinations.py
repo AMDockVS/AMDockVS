@@ -1,7 +1,7 @@
 """Where a job runs: one destination, and the jobs that could leave this machine say so.
 
-Who runs the jobs of this machine (the local pool, Ray or a cluster's queue) is the
-`resources.process` setting of ms_flow, so there is nothing to pick for each job.
+The pool of this machine for now: the executors kept in the settings of ms_flow are
+not offered for each job yet.
 """
 import os
 from pathlib import Path

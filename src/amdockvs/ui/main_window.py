@@ -389,9 +389,8 @@ class AMDockVSMainWindow(QMainWindow):
         # Refresh what's open; saving settings shouldn't pop tabs the user didn't ask for.
         self.views.refresh_open_views_once()
         self.diagram_dock.apply_settings()
-        # The pool of this machine is made again with the sizes just saved. Another machine
-        # is not asked from here: Settings puts that choice in place itself, off this thread.
-        if self._has_active_project() and self.runtime.workspace.settings_manager.settings.resources.process.kind == "process":
+        # The pool of this machine is made again with the sizes just saved.
+        if self._has_active_project():
             try:
                 self.runtime.workspace.reload_executors()
             except Exception as exc:  # noqa: BLE001 - a bad executor config must not eat the save

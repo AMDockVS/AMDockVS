@@ -89,7 +89,7 @@ class AMDockVSRuntime(AppRuntime):
             logger_name=AMDOCKVS_APP_ID,
             project_resources=AMDOCKVS_PROJECT_RESOURCES,
         )
-        # A host that `resources.process` names with no environment is given the one of this app.
+        # A host kept with no environment named is given the one of this app.
         self.workspace.host_env = self._host_env
         amdock_configuration = create_amdock_configuration()
         self._migrate_legacy_app_settings(amdock_configuration)
@@ -418,14 +418,14 @@ class AMDockVSRuntime(AppRuntime):
         job_params = job.validate_params(params)
         total = total_chunks if total_chunks is not None else job.count_chunks(job_params, config=job_config)
         job_id = uuid4().hex
-        # ponytail: `compute` is whoever plays `process` in the settings (pool, Ray or a queue):
-        # a destination by name comes back when the engine has more than one of them.
+        # ponytail: `compute` is the pool of this machine: the executor a job goes to is
+        # chosen by name once the tools offer the ones that are active.
         engine_ids = self._engine_ids()
         engine_ids[job_id] = workspace.submit(
             engine_job,
             job_params,
             key=job_id,
-            executor="thread" if (executor_name or job.executor) == "thread" else "process",
+            executor="thread" if (executor_name or job.executor) == "thread" else "local",
             # A job that ended in an earlier session has nothing left to wait for.
             after=[engine_ids[dep] for dep in depends_on if dep in engine_ids],
             total=total,
@@ -537,8 +537,8 @@ class AMDockVSRuntime(AppRuntime):
     def run_destinations(self) -> list[tuple[str, str]]:
         """Where a job may be sent, as (executor_name, label).
 
-        One for now: who runs the jobs of this machine (the local pool, Ray or a cluster's
-        queue) is the `resources.process` setting, not something chosen for each job.
+        One for now, the pool of this machine: the executors kept in the settings of
+        ms_flow are not offered here yet.
         """
         self._require_active_project()
         return [(DEFAULT_LOCAL_CPU_EXECUTOR, "Local")]
