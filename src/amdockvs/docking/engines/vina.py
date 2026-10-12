@@ -15,7 +15,6 @@ from typing import Callable
 
 from ms_flow.engine import launched
 
-from amdockvs.core.constants import DEFAULT_VINA_BACKEND, DEFAULT_VINA_COMMAND
 from amdockvs.docking.results.metrics import docking_metrics
 from amdockvs.docking.results.rmsd import pose_rmsd_detail
 from amdockvs.core.paths import get_default_project_root
@@ -358,8 +357,8 @@ def run_vina_docking_rows(
     spacing: float = 0.375,
     energy_range: float = 3.0,
     min_rmsd: float = 1.0,
-    vina_backend: str = DEFAULT_VINA_BACKEND,
-    vina_command: str = DEFAULT_VINA_COMMAND,
+    vina_backend: str = "python",
+    vina_command: str = "vina",
     run_id: str = "",
     protocol_metadata: dict | None = None,
     report_name: str | None = None,

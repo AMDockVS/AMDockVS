@@ -1,13 +1,12 @@
+"""Names and literals, and nothing else at import: every worker loads this module.
+
+What needs the settings or the project API is built when first asked for (see `__getattr__`).
+"""
 from __future__ import annotations
 
-import os
 import shutil
 import sys
 from pathlib import Path
-
-from ms_flow.api import ProjectResourceSpec
-
-from amdockvs.core.configuration import app_config
 
 AMDOCKVS_APP_ID = "amdockvs"
 AMDOCKVS_SCOPE_ID = "docking"
@@ -59,21 +58,6 @@ TABLE_RESULTS = TABLE_DOCKING_RESULTS
 TABLE_ACTIVITIES = TABLE_LIGAND_ACTIVITIES
 
 
-AMDOCKVS_PROJECT_RESOURCES = (
-    ProjectResourceSpec(key=RESOURCE_MOLECULES, relative_path="data/molecules", description="General molecule artifacts"),
-    ProjectResourceSpec(key=RESOURCE_DOCKING_RESULTS, relative_path="results/docking", description="Docking outputs"),
-    ProjectResourceSpec(key=RESOURCE_QSAR_MODELS, relative_path="results/qsar_models", description="QSAR model artifacts"),
-    ProjectResourceSpec(
-        key=RESOURCE_POCKET_PREDICTIONS,
-        relative_path="results/pockets",
-        description="Pocket-prediction artifacts",
-    ),
-    ProjectResourceSpec(key=RESOURCE_EXPORTS, relative_path="exports", description="User exports"),
-    ProjectResourceSpec(key=RESOURCE_JOBS, relative_path="jobs", description="App-level job artifacts"),
-    ProjectResourceSpec(key=RESOURCE_SHARDS, relative_path="data/shards", description="htpvs ligand shards"),
-)
-AMDOCKVS_DEFAULT_PROJECT_DIRS = tuple(spec.relative_path for spec in AMDOCKVS_PROJECT_RESOURCES)
-
 STATUS_FLAG_PAINS = 1 << 0
 STATUS_FLAG_RO5_VIOLATION = 1 << 1
 
@@ -90,6 +74,8 @@ def vina_command(runtime=None) -> str:
     Resolved on demand rather than frozen at import, so pointing Settings at another build
     takes effect without restarting.
     """
+    from amdockvs.core.configuration import app_config
+
     configured = str(app_config(runtime).docking.vina.path or "").strip()
     if configured:
         return str(Path(configured).expanduser())
@@ -104,10 +90,18 @@ def vina_backend(runtime=None) -> str:
     return "binary" if Path(vina_command(runtime)).expanduser().exists() else "python"
 
 
-# Module-level defaults for signatures evaluated at import time; call the functions above
-# wherever a runtime is available.
-DEFAULT_VINA_COMMAND = vina_command()
-DEFAULT_VINA_BACKEND = vina_backend()
+def __getattr__(name: str):
+    """`DEFAULT_VINA_COMMAND` and `DEFAULT_VINA_BACKEND`: defaults for signatures, read from the
+    settings by whoever asks for them, which a module that only runs a task does not."""
+    if name == "DEFAULT_VINA_COMMAND":
+        value = vina_command()
+    elif name == "DEFAULT_VINA_BACKEND":
+        value = vina_backend()
+    else:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    globals()[name] = value
+    return value
+
 
 AMDOCKVS_LOCAL_EXECUTORS = ("thread", "compute")
 AMDOCKVS_PROCESS_EXECUTORS = ("compute",)

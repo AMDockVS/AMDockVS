@@ -11,8 +11,6 @@ from ms_flow.runtime import AppRuntime
 from amdockvs.core.constants import (
     AMDOCKVS_APP_ID,
     AMDOCKVS_APP_NAME,
-    AMDOCKVS_DEFAULT_PROJECT_DIRS,
-    AMDOCKVS_PROJECT_RESOURCES,
     AMDOCKVS_SCOPE_ID,
     RESOURCE_DOCKING_RESULTS,
     RESOURCE_EXPORTS,
@@ -21,6 +19,7 @@ from amdockvs.core.constants import (
     RESOURCE_QSAR_MODELS,
     TABLE_SCREENING_SHARD_RUNS,
 )
+from amdockvs.manifest import AMDOCKVS_DEFAULT_PROJECT_DIRS, AMDOCKVS_PROJECT_RESOURCES
 from amdockvs.core.configuration import (
     MAX_2D_PREVIEW_HEAVY_ATOMS,
     MAX_2D_PREVIEW_HEAVY_ATOMS_PATH,

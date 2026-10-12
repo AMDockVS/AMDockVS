@@ -7,7 +7,6 @@ import re
 from pathlib import Path
 from typing import Any, Mapping
 
-from amdockvs.core.configuration import app_config
 from amdockvs.core.home import amdock_home
 
 
@@ -22,6 +21,8 @@ def tools_home(runtime=None) -> Path:
     """
     configured = str(os.environ.get("AMDOCK_TOOLS_HOME") or "").strip()
     if not configured:
+        from amdockvs.core.configuration import app_config
+
         configured = str(app_config(runtime).tools_home or "").strip()
     if configured:
         return Path(configured).expanduser().resolve()

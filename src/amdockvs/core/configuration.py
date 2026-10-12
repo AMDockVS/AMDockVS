@@ -8,7 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from ms_components.ms_monitor.config import MonitorConfig
-from ms_components.theme import THEMES
+from ms_components.palettes import THEMES
 from ms_contactmap.settings import SETTINGS_PATH as CONTACT_MAP_SETTINGS_PATH
 from ms_contactmap.style import (
     COLOR_MODES,
@@ -23,7 +23,7 @@ from ms_contactmap.style import (
     SURFACE_MODES,
     DiagramStyle,
 )
-from ms_flow.api import PydanticConfiguration
+from ms_flow.core.configuration import PydanticConfiguration
 
 from amdockvs.core.home import amdock_home
 
