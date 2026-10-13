@@ -5,7 +5,8 @@ from ms_flow.core.database.project import ProjectStore
 from sqlmodel import select
 
 from amdockvs.docking.results.repository import supersede_results
-from amdockvs.models.docking import DockingResult
+from amdockvs.models.docking import DockingResult, InteractionsResult
+from amdockvs.project.deletion import delete_docking_results
 from amdockvs.models.molecules import MoleculeRecord
 
 
@@ -32,6 +33,11 @@ def test_only_the_pairs_docked_again_lose_their_older_rows(tmp_path):
             result(again, "new"),
         ])
         session.commit()
+        # every result has a contact computed from its pose
+        results = {row.id: row.pose_path for row in session.exec(select(DockingResult)).all()}
+        session.add_all([InteractionsResult(docking_result_id=result_id, interaction_type="hydrophobic",
+                                            residue="ALA1:A") for result_id in results])
+        session.commit()
 
     assert supersede_results(store, run_id="") == 0
     assert supersede_results(store, run_id="new") == 2
@@ -40,3 +46,13 @@ def test_only_the_pairs_docked_again_lose_their_older_rows(tmp_path):
     assert left == sorted([(again, "new.pdbqt"), (untouched, "old.pdbqt"), (again, "redocking.pdbqt"),
                            (again, "qvina.pdbqt"), (again, "protocol.pdbqt")])
     assert supersede_results(store, run_id="new") == 0  # and once is enough
+
+    def contacts():
+        with store.get_session() as session:
+            return sorted(results[row.docking_result_id] for row in session.exec(select(InteractionsResult)).all())
+
+    # the contacts of a dropped result went with it, and the same goes for one deleted by hand
+    assert contacts() == sorted(path for _ligand, path in left)
+    by_hand = next(result_id for result_id, path in results.items() if path == "qvina.pdbqt")
+    assert delete_docking_results(store, [by_hand]) == 1
+    assert contacts() == sorted(path for _ligand, path in left if path != "qvina.pdbqt")

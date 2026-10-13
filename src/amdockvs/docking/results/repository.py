@@ -13,7 +13,7 @@ from sqlite3 import OperationalError
 from typing import Any, Iterable
 
 from ms_flow.query import db_rows
-from sqlalchemy import delete, func, tuple_
+from sqlalchemy import func, tuple_
 from sqlalchemy.orm import aliased
 from sqlmodel import select
 
@@ -26,6 +26,7 @@ from amdockvs.core.constants import (
 )
 from amdockvs.models import DockingResultRecord
 from amdockvs.docking.repository import project_db_path
+from amdockvs.project.deletion import delete_results_where
 from amdockvs.project.summaries import DockingHitSummary, DockingResultsStatsSummary, ReceptorDockingSummary
 
 
@@ -125,9 +126,8 @@ def list_docking_result_rows(
 def supersede_results(project_db, *, run_id: str) -> int:
     """Forced re-run: drop the older rows of the pairs this run has results for, so a re-dock
     replaces instead of duplicating. A pair the run did not get to keeps what it had: nothing is
-    deleted before its replacement is stored.
-
-    ponytail: the interaction rows of a dropped result stay, as when a result is deleted by hand."""
+    deleted before its replacement is stored. What was computed from a dropped row (its
+    interactions) goes with it: the new row has them only if they are computed again."""
     run = str(run_id).strip()
     if not run:
         return 0
@@ -143,14 +143,8 @@ def supersede_results(project_db, *, run_id: str) -> int:
         return func.coalesce(row.metrics["run_id"].as_string(), "") == run
 
     new = aliased(record)
-    with suppress(OperationalError):  # the table may not exist yet
-        with project_db.get_session() as session:
-            deleted = session.exec(
-                delete(record).where(~of_run(record), tuple_(*same(record)).in_(select(*same(new)).where(of_run(new))))
-            ).rowcount
-            session.commit()
-            return int(deleted or 0)
-    return 0
+    return delete_results_where(
+        project_db, ~of_run(record) & tuple_(*same(record)).in_(select(*same(new)).where(of_run(new))))
 
 
 # --- Docking results ---------------------------------------------------------------
