@@ -45,7 +45,7 @@ from amdockvs.docking.repository import (
 )
 from amdockvs.docking.results.repository import (
     count_docking_results,
-    delete_results_for_receptors,
+    supersede_results,
     existing_result_pairs,
 )
 from amdockvs.docking.engines.registry import run_docking_chunk
@@ -327,21 +327,15 @@ def iter_docking_batches(
     if not receptors:
         return
 
-    # Lightweight "already computed" guard: skip pairs that already have results (default),
-    # or wipe prior results for these receptors so a forced re-dock replaces instead of duplicating.
+    # Lightweight "already computed" guard: skip pairs that already have results (default). A
+    # forced re-dock docks them again, and what it stores replaces the older rows when the job
+    # ends (`_supersede`): never here, where the new result does not exist yet.
     protocol_payload = (
         protocol_metadata.as_metrics_payload()
         if isinstance(protocol_metadata, DockingProtocolMetadata)
         else DockingProtocolMetadata.from_mapping(protocol_metadata).as_metrics_payload()
     )
     protocol_hash = str(protocol_payload.get("hash") or "").strip()
-    if not skip_existing:
-        delete_results_for_receptors(
-            project_db,
-            engine=engine,
-            receptor_ids=[int(r.get("id") or 0) for r in receptors],
-            protocol_hash=protocol_hash or None,
-        )
     if run_id:
         # The plan lists every receptor of the run before its first result lands (the feed
         # docks receptor by receptor), so Results shows them all with the full ligand count.
@@ -682,6 +676,14 @@ def _waits_for_program(params: dict) -> bool:
     return engine in {"qvina", "gnina", "adgpu"} or (engine == "vina" and str(params.get("vina_backend")) == "binary")
 
 
+def _supersede(params: dict, config: dict) -> None:
+    """When a forced re-dock ends, however it ends: what it stored replaces the older rows of the
+    same pairs. A pair it did not get to (canceled, failed) keeps the result it had."""
+    project_db = config.get("project_db")
+    if project_db is not None and not params.get("skip_existing", True):
+        supersede_results(project_db, run_id=str(params.get("run_id") or ""))
+
+
 class DockingJobSpec(JobSpec):
     name = "amdock_docking_job"
     task_label = pairs_label
@@ -701,6 +703,7 @@ class DockingJobSpec(JobSpec):
     produces = ()
 
     run_chunk = staticmethod(dock_pairs)
+    finalize = staticmethod(_supersede)
 
     @staticmethod
     def build_chunks(params: dict, config: dict | None = None) -> Iterator[dict]:
@@ -756,6 +759,7 @@ class RedockingJobSpec(JobSpec):
     produces = ()
 
     run_chunk = staticmethod(run_docking_chunk)
+    finalize = staticmethod(_supersede)
 
     @staticmethod
     def build_chunks(params: dict, config: dict | None = None) -> Iterator[dict]:
