@@ -10,7 +10,7 @@ _LAZY_EXPORTS = {
     "SelectionResult": ("amdockvs.diversity.clustering", "SelectionResult"),
     "cluster_and_select": ("amdockvs.diversity.clustering", "cluster_and_select"),
     "cluster_molecules_job": ("amdockvs.diversity.jobs", "cluster_molecules_job"),
-    "cluster_molecules_task": ("amdockvs.diversity.jobs", "cluster_molecules_task"),
+    "cluster_molecules_task": ("amdockvs.diversity.tasks", "cluster_molecules_task"),
     "register_method": ("amdockvs.diversity.clustering", "register_method"),
 }
 

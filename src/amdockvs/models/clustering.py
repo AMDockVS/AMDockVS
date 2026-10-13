@@ -12,6 +12,7 @@ from amdockvs.core.constants import (
     TABLE_SIMILARITY_RESULTS,
 )
 # Centralised vocabulary - re-exported so existing imports keep working.
+from amdockvs.core.rows import clustering_rows
 from amdockvs.core.vocab import ClusteringMethod, SimilarityMethod
 
 
@@ -103,27 +104,7 @@ class ClusteringResult(SQLModel, table=True):
     fp_type: str = Field(default="")  # fingerprint used
     created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
-    @classmethod
-    def build_rows(
-            cls,
-            cluster_run_id: str,
-            assignments: list[dict],  # [{"molecule_id": int, "cluster_id": int, "is_centroid": bool}]
-            method: str = ClusteringMethod.BUTINA,
-            fp_type: str = "",
-    ) -> list[dict[str, Any]]:
-        now = datetime.now()
-        return [
-            {
-                "molecule_id": a["molecule_id"],
-                "cluster_run_id": cluster_run_id,
-                "cluster_id": a["cluster_id"],
-                "is_centroid": a.get("is_centroid", False),
-                "method": method,
-                "fp_type": fp_type,
-                "created_at": now,
-            }
-            for a in assignments
-        ]
+    build_rows = staticmethod(clustering_rows)
 
 
 class ClusteringRun(SQLModel, table=True):

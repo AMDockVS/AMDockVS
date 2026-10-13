@@ -9,10 +9,6 @@ import pytest
 import amdockvs
 from amdockvs.core.jobs import JobDefinition
 
-# ponytail: clustering still runs a function of its jobs module; move it with the rest when that file settles.
-NOT_YET = {"amdockvs.diversity.jobs"}
-
-
 def _task_modules() -> list[str]:
     found = set()
     for info in pkgutil.walk_packages(amdockvs.__path__, "amdockvs."):
@@ -22,7 +18,7 @@ def _task_modules() -> list[str]:
             definition = value if isinstance(value, JobDefinition) else getattr(value, "__dict__", {}).get("definition")
             if isinstance(definition, JobDefinition):
                 found.add(definition.run_chunk.__module__)
-    return sorted(found - NOT_YET)
+    return sorted(found)
 
 
 @pytest.mark.parametrize("module", _task_modules())
