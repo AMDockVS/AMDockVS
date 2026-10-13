@@ -609,6 +609,48 @@ def test_tool_buttons_are_flat_and_keep_result_views_available(tmp_path, monkeyp
 
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
+def test_preparing_ligands_without_3d_offers_to_generate_it(tmp_path, monkeypatch):
+    """SMILES ligands have no coordinates. Preparation used to stop there with an API hint; it
+    now asks, and one answer generates the 3D and prepares behind it."""
+    pytest.importorskip("meeko")
+    _patch_fake_home(monkeypatch, tmp_path / "home")
+    monkeypatch.setenv("AMDOCK_DISABLE_PYMOL", "1")
+    app = QApplication.instance() or QApplication(["amdockvs-ui"])
+    window = None
+    runtime = AMDockVSRuntime()
+    try:
+        runtime.create_project(name="no3d", folder=tmp_path / "no3d", description="prepare without 3D")
+        smiles = tmp_path / "ligands.smi"
+        smiles.write_text("CCO a\nCCN b\n", encoding="utf-8")
+        runtime.wait_for_jobs(runtime.loader.load_ligands([smiles], batch_size=4, executor_name="thread"), timeout_s=120)
+        window = AMDockVSMainWindow(runtime=runtime)
+        window.show()
+        studio = window.tools.open_tool(DOCKING_VIEW_ID)
+        studio.stepper.set_current_index(1)
+        app.processEvents()
+
+        asked = []
+        monkeypatch.setattr(studio, "_ask_missing_3d", lambda count: asked.append(count) or "")
+        studio._prepare_ligands()  # cancelled: nothing is submitted, the step stays
+        assert asked == [2] and not studio.ligand_prep_jobs.job_ids and studio.stepper.current_index == 1
+
+        monkeypatch.setattr(studio, "_ask_missing_3d", lambda count: "generate")
+        studio._prepare_ligands()
+        job_ids = list(studio.ligand_prep_jobs.job_ids)
+        assert len(job_ids) == 2  # the 3D job, then the preparation waiting for it
+        runtime.wait_for_jobs(job_ids, timeout_s=180)
+        assert [str(runtime.get_job_status(job_id).status).lower().rsplit(".", 1)[-1] for job_id in job_ids] == [
+            "completed", "completed"]
+        scope = studio._prep_ligand_scope()
+        state = studio.readiness_service.preparation(scope, role_type="ligand", engine="ad4")
+        assert (state.ready, state.failed) == (2, 0)
+    finally:
+        if window is not None:
+            window.close()
+        runtime.shutdown()
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 def test_prep_status_role_swaps_the_filter_in_place(tmp_path, monkeypatch):
     """Ligand/receptor prep status is one view over the `engines` table, not two: the
     studio step swaps the base filter instead of registering a second view."""

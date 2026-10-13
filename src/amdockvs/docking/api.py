@@ -26,6 +26,16 @@ from amdockvs.docking.repository import (
     list_receptor_ids_in_set,
 )
 
+
+class MissingLigand3DError(RuntimeError):
+    """Ligand preparation was asked for ligands with no 3D coordinates. `count` is how many,
+    so a caller can offer to generate them instead of only reporting it."""
+
+    def __init__(self, message: str, *, count: int) -> None:
+        super().__init__(message)
+        self.count = int(count)
+
+
 # How many offending ids a requirement check reports. They exist to be read by a human in a
 # dialog, and the caller gets the exact count separately.
 MISSING_SAMPLE_SIZE = 10
@@ -371,9 +381,10 @@ class DockingAPI:
                 shown = ", ".join(str(value) for value in sample)
                 if missing_count > len(sample):
                     shown = f"{shown}, … (+{missing_count - len(sample)})"
-                raise RuntimeError(
+                raise MissingLigand3DError(
                     f"Missing has_3d for {missing_count} ligand(s): {shown}. "
-                    "Run runtime.chemistry.generate_3d_ligands(...) first."
+                    "Run runtime.chemistry.generate_3d_ligands(...) first.",
+                    count=missing_count,
                 )
         ligand_set_ref = None if ligand_set is None or is_molecule_scope(ligand_set) else ensure_molecule_set_ref(
             self.runtime, ligand_set, name="prepare_ligands_input")
