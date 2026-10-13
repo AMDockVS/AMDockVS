@@ -176,10 +176,12 @@ def test_a_program_that_is_not_installed_stays_listed_and_cannot_be_run(monkeypa
     runtime.create_project(name="p", folder=tmp_path / "p", description="")
     studio = DockingStudioWidget(runtime=runtime)
     rows = lambda: [studio.program_list.item(i).text() for i in range(studio.program_list.count())]
-    studio._program_checks["qvina"].setChecked(True)
+    ticked = lambda: [key for key, check in studio._program_checks.items() if check.isChecked()]
+    assert (ticked(), studio._current_program_key()) == (["qvina"], "qvina")  # what a run starts with
 
     studio._apply_missing_programs({"qvina": "QuickVina 2 is not installed."})
 
+    assert (ticked(), studio._current_program_key()) == (["vina"], "vina")  # and Vina when it cannot run
     assert "QuickVina 2 — not installed" in rows()
     assert not studio._program_checks["qvina"].isEnabled()
     assert "qvina" not in [protocol["program"] for protocol in studio._selected_protocols()]

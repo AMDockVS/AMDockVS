@@ -24,14 +24,17 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget, )
 
-from amdockvs.docking.engines.programs import GNINA_PROGRAM, VINA_PROGRAM, list_docking_programs, missing_programs
+from amdockvs.docking.engines.programs import (
+    GNINA_PROGRAM, QVINA_PROGRAM, VINA_PROGRAM, list_docking_programs, missing_programs)
 from amdockvs.integrations.registry import MANAGED_TOOLS
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.docking.protocols import PROTOCOL_SCHEMA, protocol_hash, protocol_identity
 from amdockvs.core.vocab import MoleculeType
 from ms_components.tool_panel import ToolPanel
 
-DEFAULT_PROGRAM = VINA_PROGRAM.key
+# What a docking run starts ticked with: the first of these that can run here. QuickVina 2 scores
+# with Vina's function and gets there sooner; Vina needs no install, so there is always one.
+DEFAULT_PROGRAMS = (QVINA_PROGRAM.key, VINA_PROGRAM.key)
 MAX_REDOCKING_PROTOCOLS = 12
 
 
@@ -77,7 +80,8 @@ class ProtocolEditorWidget:
         programs.addWidget(self.program_pages, 1)
         self.protocol_mode_box.add_row(programs)
         self._build_protocols_box(panel.add_section("Validation Protocol Set"))
-        self._ensure_default_protocol()
+        self._ensure_default_protocol()  # redocking starts from a Vina variant: the one that runs anywhere
+        self._select_program(next((key for key, check in self._program_checks.items() if check.isChecked()), ""))
         self._sync_protocol_ui()
         self.program_list.currentRowChanged.connect(lambda _row: self._sync_variant_buttons())
         self._check_programs()
@@ -151,7 +155,7 @@ class ProtocolEditorWidget:
         form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         use = QCheckBox(f"Run {spec.label}", page)
         use.setToolTip("Docking mode: include this software as an independent job.")
-        if spec.key == DEFAULT_PROGRAM:
+        if spec.key == DEFAULT_PROGRAMS[0]:
             use.setChecked(True)
         use.toggled.connect(self.refresh)
         self._program_checks[spec.key] = use
@@ -285,7 +289,14 @@ class ProtocolEditorWidget:
         index = programs.currentRow() if programs is not None else 0
         if 0 <= index < len(specs):
             return str(specs[index].key)
-        return DEFAULT_PROGRAM
+        return VINA_PROGRAM.key
+
+    def _select_program(self, program: str) -> None:
+        """Show the settings of `program`, when it is in the list."""
+        programs = getattr(self, "program_list", None)
+        keys = [spec.key for spec in list_docking_programs()]
+        if programs is not None and program in keys:
+            programs.setCurrentRow(keys.index(program))
 
     @staticmethod
     def _program_label(program: str) -> str:
@@ -314,18 +325,9 @@ class ProtocolEditorWidget:
         return self._schema_config_from_widgets(program)
 
     def _apply_protocol_config_to_widgets(self, protocol: dict) -> None:
-        program = str(protocol.get("program") or DEFAULT_PROGRAM)
+        program = str(protocol.get("program") or VINA_PROGRAM.key)
         config = dict(protocol.get("config") or {})
-        specs = list(list_docking_programs())
-        programs = getattr(self, "program_list", None)
-        if programs is not None:
-            for index, spec in enumerate(specs):
-                if spec.key == program:
-                    programs.setCurrentRow(index)
-                    break
-        check = (getattr(self, "_program_checks", {}) or {}).get(program)
-        if check is not None:
-            check.setChecked(True)
+        self._select_program(program)  # its settings; what a docking run has ticked is not touched
         docking = self._docking_defaults()
         if program == VINA_PROGRAM.key:
             dd = docking.vina
@@ -668,15 +670,11 @@ class ProtocolEditorWidget:
             if key in runnable_keys and check.isChecked()
         ]
         if not checked_available and runnable_keys:
-            preferred = DEFAULT_PROGRAM if DEFAULT_PROGRAM in runnable_keys else sorted(runnable_keys)[0]
+            preferred = next((key for key in DEFAULT_PROGRAMS if key in runnable_keys), sorted(runnable_keys)[0])
             check = self._program_checks.get(preferred)
             if check is not None:
                 check.setChecked(True)
-            if programs is not None:
-                for index, spec in enumerate(specs):
-                    if spec.key == preferred:
-                        programs.setCurrentRow(index)
-                        break
+            self._select_program(preferred)
         self._refresh_prep_targets()
         self._refresh_receptor_prep_targets()
         self._refresh_protocol_table()
