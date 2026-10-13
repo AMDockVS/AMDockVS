@@ -3,11 +3,13 @@
 Deleting a molecule also drops the rows that reference it (docking results, complexes,
 descriptors, fingerprints, binding sites, engine states) so the project never keeps
 orphaned children. A docking result never goes alone either: `delete_results_where` takes what
-was computed from it. Each delete runs in its own session and suppresses "no such table"
+was computed from it, files included. Each delete runs in its own session and suppresses "no such table"
 (some tables — e.g. docking_results — are created lazily on first use)."""
 from __future__ import annotations
 
+import os
 from contextlib import suppress
+from pathlib import Path
 from sqlite3 import OperationalError
 from typing import Iterable
 
@@ -56,11 +58,16 @@ def _safe_update(project_db, model, condition, values: dict) -> int:
 
 def delete_results_where(project_db, condition) -> int:
     """Delete the docking results that meet `condition` and, before them, what was computed from
-    them: their interactions. The one way a result row leaves the project. Returns how many
-    results.
-
-    ponytail: rows only. The files of a result (pose, diagram image) stay on disk."""
-    doomed = select(DockingResultRecord.id).where(condition)
+    them: their interactions and their files. The one way a result row leaves the project. Returns
+    how many results."""
+    record = DockingResultRecord
+    doomed = select(record.id).where(condition)
+    poses: set[str] = set()
+    held: set[str] = set()  # the poses a molecule has as its structure: a promoted hit's only 3D
+    with suppress(OperationalError), project_db.get_session() as session:
+        poses = set(session.exec(select(record.pose_path).where(condition).distinct()).all())
+        structures = select(MoleculeRecord.stored_path).union(select(MoleculeRecord.current_path))
+        held = set(session.exec(select(record.pose_path).where(condition, record.pose_path.in_(structures))).all())
     deleted = 0
     for model, which in ((InteractionsResult, InteractionsResult.docking_result_id.in_(doomed)),
                          (DockingResultRecord, condition)):
@@ -68,7 +75,35 @@ def delete_results_where(project_db, condition) -> int:
             with project_db.get_session() as session:
                 deleted = session.exec(delete(model).where(which)).rowcount
                 session.commit()
+    database = getattr(project_db, "db_path", None)  # none in memory: no project folder, no files
+    if poses and database is not None:
+        with suppress(OperationalError), project_db.get_session() as session:
+            held |= set(session.exec(select(record.pose_path).distinct()).all())  # what other results still show
+        _remove_result_files(Path(database).parent, poses, held)
     return int(deleted or 0)
+
+
+def _remove_result_files(project_root: Path, poses: set[str], held: set[str]) -> None:
+    """Remove the diagrams drawn from `poses` and, for those not in `held`, the pose and the engine's
+    own output next to it. Nothing outside the project is touched.
+
+    ponytail: a pose that keeps some of its rows loses every diagram, also those of the rows that
+    stay; they are drawn again on demand."""
+    root = project_root.resolve()
+    folders: dict[Path, dict[str, bool]] = {}  # folder -> pose file name -> the pose goes too
+    for pose in filter(None, poses):
+        path = (root / pose).resolve()  # a relative path is the project's; an absolute one stays as it is
+        if path.is_relative_to(root):
+            folders.setdefault(path.parent, {})[path.name] = pose not in held
+    for folder, names in folders.items():
+        with suppress(OSError):
+            for entry in list(os.scandir(folder)):  # one listing per folder, however many poses
+                name = entry.name
+                diagram = ".diagram." in name and name.rsplit(".rank", 1)[0] in names  # see diagram_path_for
+                twin = name.endswith(".pdbqt") and names.get(f"{name[:-6]}.sdf")  # Vina's output beside the SDF
+                if diagram or twin or names.get(name):
+                    with suppress(OSError):
+                        os.unlink(entry.path)
 
 
 def delete_binding_sites(project_db, binding_site_ids: Iterable[int]) -> int:
