@@ -8,10 +8,11 @@ that knows it.
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from ms_flow.engine import Dir, File
+from ms_flow.engine import Dir, File, launched
 
 from amdockvs.core.paths import get_default_project_root
 
@@ -91,3 +92,12 @@ __all__ = [
     "worker_output_dir",
     "worker_path_fields",
 ]
+
+
+def run_program(command: list[str], **options) -> subprocess.CompletedProcess:
+    """`subprocess.run` keeping what the program wrote, and telling the engine of it: when the
+    task is on a thread of the engine's process, the program is all a cancel can stop."""
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, **options)
+    launched(process)
+    output, errors = process.communicate()
+    return subprocess.CompletedProcess(command, process.returncode, output, errors)

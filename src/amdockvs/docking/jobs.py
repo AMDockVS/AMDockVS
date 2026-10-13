@@ -676,13 +676,10 @@ def pairs_label(payload: dict) -> str:
 
 def _waits_for_program(params: dict) -> bool:
     """Whether the tasks of these params only start a program and wait for it, telling the engine
-    of it: the Vina and QuickVina binaries.
-
-    ponytail: gnina and AutoDock-GPU are programs too, but they are run to their end
-    (`subprocess.run`) and a cancel would have to wait for them: `Popen` + `launched` there first.
-    """
+    of it: the engines that are programs. The Python bindings of Vina dock in the process itself,
+    and so may an engine registered from outside."""
     engine = str(params.get("engine") or "vina")
-    return engine == "qvina" or (engine == "vina" and str(params.get("vina_backend")) == "binary")
+    return engine in {"qvina", "gnina", "adgpu"} or (engine == "vina" and str(params.get("vina_backend")) == "binary")
 
 
 class DockingJobSpec(JobSpec):
