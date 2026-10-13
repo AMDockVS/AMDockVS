@@ -27,6 +27,7 @@ from amdockvs.molecules.storage import as_store, store_from_config
 from amdockvs.core.worker_io import worker_file, worker_output_dir
 from amdockvs.core.constants import (
     AMDOCKVS_OFFLOADABLE_EXECUTORS,
+    TABLE_ACTIVITIES,
     TABLE_FINGERPRINTS,
     TABLE_MOLECULES,
 )
@@ -36,10 +37,11 @@ from amdockvs.docking.repository import molecule_set_spec
 from amdockvs.core.paths import preferred_molecule_path, set_default_project_root
 from amdockvs.diversity.clustering import (
     PackedFingerprints,
-    cluster_and_select,
+    cluster_labels,
     cluster_multiround_labels,
     fp_matrix_from_bitstrings,
-    select_representatives,
+    member_rankings,
+    pick_representatives,
 )
 
 
@@ -51,6 +53,8 @@ class SelectionClusterJobParams(BaseModel):
     method: str = Field(default="bitbirch")
     threshold: float = Field(default=0.65, ge=0.0, le=1.0)
     per_cluster: int = Field(default=1, ge=1)
+    # An activity endpoint: the scope becomes the ligands that have a value for it.
+    with_activity: str = Field(default="")
     molecule_set_id: int | None = Field(default=None, ge=1)
     molecule_filters: dict[str, Any] = Field(default_factory=dict)
     fp_radius: int = Field(default=2, ge=1)
@@ -70,8 +74,15 @@ def _scope_spec(params: SelectionClusterJobParams) -> QuerySpec:
     """
     filters = {"is_ligand": True, "excluded": False, "stored_path__ne": "", **dict(params.molecule_filters or {})}
     filters.pop("_limit", None)
+    in_specs: list[QuerySpec] = []
     if params.molecule_set_id is not None:
-        filters["id__in_subquery"] = molecule_set_spec(int(params.molecule_set_id))
+        in_specs.append(molecule_set_spec(int(params.molecule_set_id)))
+    if params.with_activity:
+        in_specs.append(QuerySpec(
+            table=TABLE_ACTIVITIES, fields=("molecule_id",), filters={"activity_type": str(params.with_activity)}
+        ))
+    if in_specs:
+        filters["id__in_subquery"] = in_specs
     return QuerySpec(
         table=TABLE_MOLECULES,
         fields=("id", "stored_path", "current_path", "current_model_index", "input_format"),
@@ -89,6 +100,16 @@ def scope_molecule_rows(source, params: SelectionClusterJobParams) -> Iterator[d
 def scope_molecule_count(source, params: SelectionClusterJobParams) -> int:
     """How many molecules the scope holds — a COUNT, not a walk over the whole library."""
     return as_store(source).count(_scope_spec(params))
+
+
+def activity_values(project_db, endpoint: str) -> dict[int, float]:
+    """The latest value of an activity endpoint per ligand. Measured ligands only, so it is
+    small next to the library."""
+    rows = db_rows(
+        project_db, TABLE_ACTIVITIES, fields=("id", "molecule_id", "value"),
+        filters={"activity_type": str(endpoint)}, order=("id",),
+    )
+    return {int(row["molecule_id"]): float(row["value"]) for row in rows}  # later rows win
 
 
 def stored_fingerprints_for_ids(project_db, molecule_ids: list[int], *, radius: int, nbits: int) -> dict[int, bytes]:
@@ -201,19 +222,16 @@ def cluster_molecules_task(payload: dict) -> dict | list:
     per_cluster = int(payload.get("per_cluster") or 1)
     threshold = float(payload.get("threshold") or 0.65)
     num_processes = int(payload.get("num_processes") or 1)
+    method = str(payload.get("method") or "bitbirch")
     if num_processes > 1:
         # Large scope: parallel BitBIRCH (bblean multiround) across the CPUs mf reserved for us.
         labels = cluster_multiround_labels(x_matrix, threshold=threshold, num_processes=num_processes)
-        rep_indices = select_representatives(x_matrix, labels, per_cluster=per_cluster)
     else:
-        result = cluster_and_select(
-            x_matrix,
-            method=str(payload.get("method") or "bitbirch"),
-            per_cluster=per_cluster,
-            with_projection=False,  # projection is a UI concern; keep the job payload lean
-            threshold=threshold,
-        )
-        labels, rep_indices = result.labels, result.representative_indices
+        labels = cluster_labels(x_matrix, method=method, threshold=threshold)
+    # Ranked once, here, while the fingerprints are at hand: picking representatives is a later,
+    # separate step (DiversityAPI.pick_representatives) that only reads these two columns.
+    similarity, centrality = member_rankings(x_matrix, labels)
+    rep_indices = pick_representatives(labels, similarity, per_cluster=per_cluster)
     centroids = set(rep_indices)
     # Compute the 2-D PCA graph NOW (we already hold the fingerprints + labels) and persist it to the
     # run's parquet sidecar, so viewing the saved result never recomputes anything — the plot + cluster
@@ -222,6 +240,7 @@ def cluster_molecules_task(payload: dict) -> dict | list:
         output_dir=str(payload.get("output_dir") or ""),
         run_id=str(payload.get("cluster_run_id") or ""),
         x_matrix=x_matrix, molecule_ids=molecule_ids, labels=labels, centroids=centroids,
+        similarity=similarity, centrality=centrality,
     )
     # ponytail: assignments are returned as a list — that is the task contract, and the sink
     # writes them in bulk. It is the last point proportional to n on this path (~300 B/mol);
@@ -233,7 +252,7 @@ def cluster_molecules_task(payload: dict) -> dict | list:
     rows = ClusteringResult.build_rows(
         cluster_run_id=str(payload.get("cluster_run_id") or ""),
         assignments=assignments,
-        method=str(payload.get("method") or "bitbirch"),
+        method=method,
         fp_type=str(payload.get("fp_type") or ""),
     )
     # Fingerprints are derivable: they are deleted at the end so no run leaves 256 B/mol behind.
@@ -247,8 +266,10 @@ def cluster_molecules_task(payload: dict) -> dict | list:
 
 def _write_graph_sidecar(
     *, output_dir: str, run_id: str, x_matrix, molecule_ids: list[int], labels, centroids: set,
+    similarity=None, centrality=None,
 ) -> None:
-    """Write the run's chemical-universe graph (x, y, molecule_id, cluster_id, is_centroid) to
+    """Write the run's chemical-universe graph (x, y, molecule_id, cluster_id, is_centroid) and each
+    member's rankings (similarity, centrality: what representatives are picked from later) to
     ``<project_root>/clustering_runs/<run_id>.parquet``. The PCA basis is fitted on a sub-sample and
     every point projected onto it (cheap). Computed here, once, so the GUI never recomputes it."""
     if not output_dir or not run_id:
@@ -278,6 +299,8 @@ def _write_graph_sidecar(
             "molecule_id": np.asarray(molecule_ids, dtype=np.int64),
             "cluster_id": np.asarray(labels, dtype=np.int64),
             "is_centroid": is_centroid,
+            "similarity": np.zeros(n, dtype=np.float32) if similarity is None else similarity,
+            "centrality": np.full(n, np.nan, dtype=np.float32) if centrality is None else centrality,
         })
         out_dir = Path(output_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -349,6 +372,7 @@ def cluster_molecules_job(params: dict, config: dict | None = None) -> Iterator[
 
 __all__ = [
     "SelectionClusterJobParams",
+    "activity_values",
     "cluster_molecules_job",
     "cluster_molecules_task",
 ]

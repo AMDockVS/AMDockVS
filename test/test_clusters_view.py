@@ -8,6 +8,7 @@ import sys
 import time
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 pytest.importorskip("PySide6")
@@ -69,6 +70,7 @@ def test_a_run_is_read_in_clusters_and_changes_nothing_until_asked(tmp_path, mon
                 run_id, [{"molecule_id": m, "cluster_id": c, "is_centroid": r} for m, c, r in layout]))
             session.commit()
 
+        runtime.qsar.set_activity(ligand_id=ids[0], endpoint="pIC50", value=6.0)
         window = AMDockVSMainWindow(runtime=runtime)
         window.show()
         app.processEvents()
@@ -83,9 +85,25 @@ def test_a_run_is_read_in_clusters_and_changes_nothing_until_asked(tmp_path, mon
         assert _filters(ligands)["usage_class"] == "reference"
         assert tool._scope_params()["molecule_filters"] == {"usage_class": "reference"}
         tool.set_combo.setCurrentIndex(0)
-        window.selection.set("ligand", ids[:3])  # a "Select" in Ligands narrows the run
+        # Rows picked in the tool's table are what it works on: the choice follows them...
+        window.selection.set("ligand", ids[:3])
+        assert tool.set_combo.currentText() == "Current selection"
         assert tool._scope_params()["molecule_filters"] == {"id__in": ids[:3]}
+        # ...and any other choice is a set of its own, whatever is selected.
+        tool.set_combo.setCurrentIndex(tool.set_combo.findText("Reference"))
+        assert tool._scope_params()["molecule_filters"] == {"usage_class": "reference"}
+        assert "id" not in _filters(ligands) and window.selection.get("ligand") == ids[:3]
         window.selection.set("ligand", None)
+        tool.set_combo.setCurrentIndex(tool.set_combo.findText("Current selection"))
+        monkeypatch.setattr("amdockvs.ui.tools.molecules.diversity.QMessageBox.information", lambda *a, **k: None)
+        assert tool._scope_params() is None and "nothing selected" in tool.scope_label.text()
+        tool.set_combo.setCurrentIndex(0)
+        # The scope can be narrowed to the ligands measured for an activity.
+        assert tool._scope_params()["with_activity"] == ""
+        tool.measured_combo.setCurrentIndex(tool.measured_combo.findData("pIC50"))
+        assert tool._scope_params()["with_activity"] == "pIC50" and "pIC50" in tool.scope_label.text()
+        assert runtime.diversity.scope_count(with_activity="pIC50") == 1
+        tool.measured_combo.setCurrentIndex(0)
 
         # Clusters: the run, its two clusters under a "Representatives" row, members below.
         tool._show_clusters(run_id)
@@ -94,10 +112,33 @@ def test_a_run_is_read_in_clusters_and_changes_nothing_until_asked(tmp_path, mon
         assert window.aux.occupant is not None and view.members.parent() is not None  # hosted in the aux zone
         _wait(app, lambda: view.members.table._table.model().rowCount() == 2)
 
+        # What represents each cluster is chosen here, on the stored run: nothing is clustered again.
+        errors: list[str] = []
+        monkeypatch.setattr("amdockvs.ui.tools.molecules.clusters.QMessageBox.critical", lambda *a, **k: errors.append(a[2]))
+        view.mode_combo.setCurrentIndex(view.mode_combo.findData("extremes"))
+        assert not view.amount_spin.isEnabled() and view.rank_combo.findData("pIC50") >= 0
+        view.apply_button.click()  # this run was saved without member rankings: it says so
+        _wait(app, lambda: bool(errors) and "cluster again" in errors[0])
+        sidecar = runtime.diversity._project_root() / "clustering_runs" / f"{run_id}.parquet"
+        pd.read_parquet(sidecar).assign(similarity=[1.0, 0.5, 1.0, 0.5], centrality=float("nan")).to_parquet(sidecar)
+        view.apply_button.click()  # lowest and highest of two members: both
+        _wait(app, lambda: view.table.item(0, 1).text() == "4")
+        view.mode_combo.setCurrentIndex(view.mode_combo.findData("proportional"))
+        assert view.amount_spin.suffix() == " %" and view.amount_spin.value() == 10
+        view.mode_combo.setCurrentIndex(view.mode_combo.findData("centroid"))
+        view.apply_button.click()  # ...and back to the one nearest the centroid
+        _wait(app, lambda: view.table.item(0, 1).text() == "2")
+        assert runtime.diversity.centroid_ids(run_id) == [ids[0], ids[2]]
+
         # Nothing happened to the library by running; "Use as selection" is what selects.
         assert window.selection.get("ligand") is None
         view.select_button.click()
         _wait(app, lambda: window.selection.get("ligand") == [ids[0], ids[2]])
+        # The tool is on "All ligands", so the table it borrows ignores the selection — a
+        # selection made here does not move its choice — until the tool gives the table back.
+        assert tool.set_combo.currentIndex() == 0 and "id" not in _filters(ligands)
+        window.tools.on_tool_action(SELECTION_VIEW_ID, False)
+        app.processEvents()
         assert _filters(ligands)["id"] == [ids[0], ids[2]]
 
         view.table.selectRow(2)  # a cluster: its members, representative or not

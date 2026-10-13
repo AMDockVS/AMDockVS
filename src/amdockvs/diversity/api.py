@@ -18,16 +18,23 @@ from pathlib import Path
 from typing import Any, Iterable
 
 import numpy as np
+from sqlalchemy import update as sql_update
 from sqlmodel import select
 
 from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR
 from amdockvs.models import ClusteringResult, ClusteringRun, MoleculeRecord
 from amdockvs.models.sets import SetPurpose
 from amdockvs.project.sets import MoleculeSetRef, create_snapshot_set
-from amdockvs.diversity.clustering import CLUSTERING_METHODS, cluster_and_select
+from amdockvs.diversity.clustering import (
+    CLUSTERING_METHODS,
+    REPRESENTATIVE_MODES,
+    cluster_and_select,
+    pick_representatives,
+)
 from amdockvs.diversity.jobs import (
     SelectionClusterJobParams,
     _fingerprint_from_file,
+    activity_values,
     scope_molecule_count,
     scope_molecule_rows,
     cluster_molecules_job,
@@ -169,6 +176,7 @@ class DiversityAPI:
         molecule_filters: dict[str, Any] | None = None,
         fp_radius: int = 2,
         fp_nbits: int = 2048,
+        with_activity: str = "",
         cluster_run_id: str = "",
         num_cpus: int | None = None,
         executor_name: str = DEFAULT_LOCAL_CPU_EXECUTOR,
@@ -177,6 +185,10 @@ class DiversityAPI:
         """Submit the clustering job over the DB; results land in ``clustering_results``. Returns
         the job id. The run is tagged with ``cluster_run_id`` (auto if blank) — read it back with
         ``list_runs`` / ``get_run`` or persist its centroids with ``save_centroids_as_set``.
+        ``with_activity`` (an activity endpoint) narrows the scope to the ligands measured for it.
+
+        Each cluster starts with its ``per_cluster`` centroid-nearest members as representatives;
+        ``pick_representatives`` chooses again, by any mode, without clustering again.
 
         ``num_cpus`` sets the parallelism: >1 runs bblean multiround with that many processes and the
         job **requests exactly that many CPUs** (``cpu_required``) so mf schedules it correctly. When
@@ -186,7 +198,7 @@ class DiversityAPI:
             num_cpus = plan_cpus(
                 self.scope_count(
                     molecule_set=molecule_set, molecule_filters=molecule_filters,
-                    fp_radius=fp_radius, fp_nbits=fp_nbits,
+                    fp_radius=fp_radius, fp_nbits=fp_nbits, with_activity=with_activity,
                 )
             )
         num_cpus = max(1, int(num_cpus))
@@ -199,6 +211,7 @@ class DiversityAPI:
             molecule_filters=dict(molecule_filters or {}),
             fp_radius=fp_radius,
             fp_nbits=fp_nbits,
+            with_activity=with_activity,
             cluster_run_id=cluster_run_id or uuid.uuid4().hex,
             num_processes=num_cpus,
         )
@@ -340,6 +353,7 @@ class DiversityAPI:
         molecule_filters: dict[str, Any] | None = None,
         fp_radius: int = 2,
         fp_nbits: int = 2048,
+        with_activity: str = "",
     ) -> int:
         """How many molecules a scope holds — the cheap count used to route serial vs. parallel
         (no fingerprint load, no clustering). Reads ids only via the MolSuite query API."""
@@ -350,6 +364,7 @@ class DiversityAPI:
             molecule_filters=dict(molecule_filters or {}),
             fp_radius=fp_radius,
             fp_nbits=fp_nbits,
+            with_activity=with_activity,
         )
         return scope_molecule_count(self.runtime.workspace.project_db, params)
 
@@ -502,6 +517,62 @@ class DiversityAPI:
             {"molecule_id": int(r.molecule_id), "cluster_id": int(r.cluster_id), "is_centroid": bool(r.is_centroid)}
             for r in rows
         ]
+
+    @staticmethod
+    def representative_modes() -> tuple[str, ...]:
+        return REPRESENTATIVE_MODES
+
+    def pick_representatives(
+        self,
+        cluster_run_id: str,
+        *,
+        mode: str = "centroid",
+        per_cluster: int = 1,
+        fraction: float = 0.1,
+        rank_by: str = "",
+    ) -> dict[str, int]:
+        """Choose again what represents each cluster of a finished run. Nothing is clustered
+        again: the run already ranks every member, and this only reads that ranking (modes:
+        see ``clustering.pick_representatives``). ``rank_by`` (an activity endpoint) replaces
+        similarity as what 'extremes' / 'quartiles' / 'proportional' spread over. Rewrites the
+        run's representative flags; returns {"n_molecules", "n_clusters", "n_reps"}.
+
+        ponytail: in-process over the run's columns (~20 B/molecule) and one UPDATE per 900
+        picks. Make it a job when a run outgrows the tens of millions."""
+        import pandas as pd
+
+        self.runtime._require_active_project()
+        run_id = str(cluster_run_id)
+        sidecar = self._project_root() / "clustering_runs" / f"{run_id}.parquet"
+        frame = pd.read_parquet(sidecar) if sidecar.exists() else None
+        if frame is None or "similarity" not in frame:
+            raise ValueError("This run keeps no member rankings (it predates them): cluster again once.")
+        values = None
+        if rank_by:
+            activity = activity_values(self.runtime.workspace.project_db, rank_by)
+            values = frame["molecule_id"].map(activity).to_numpy(dtype=float)
+        labels = frame["cluster_id"].to_numpy()
+        picks = pick_representatives(
+            labels, frame["similarity"].to_numpy(), mode=mode, per_cluster=per_cluster, fraction=fraction,
+            centrality=frame["centrality"].to_numpy(), values=values,
+        )
+        flags = np.zeros(len(frame), dtype=bool)
+        flags[picks] = True
+        picked_ids = [int(i) for i in frame["molecule_id"].to_numpy()[picks]]
+        of_run = ClusteringResult.cluster_run_id == run_id
+        with self.runtime.workspace.project_db.get_session() as session:
+            session.exec(sql_update(ClusteringResult).where(of_run).values(is_centroid=False))
+            for start in range(0, len(picked_ids), 900):
+                session.exec(
+                    sql_update(ClusteringResult)
+                    .where(of_run, ClusteringResult.molecule_id.in_(picked_ids[start:start + 900]))
+                    .values(is_centroid=True)
+                )
+            session.exec(sql_update(ClusteringRun).where(ClusteringRun.run_id == run_id).values(n_reps=len(picks)))
+            session.commit()
+        frame["is_centroid"] = flags
+        frame.to_parquet(sidecar, index=False)
+        return {"n_molecules": len(frame), "n_clusters": int(len(np.unique(labels))), "n_reps": len(picks)}
 
     def centroid_ids(self, cluster_run_id: str) -> list[int]:
         return [r["molecule_id"] for r in self.get_run(cluster_run_id) if r["is_centroid"]]

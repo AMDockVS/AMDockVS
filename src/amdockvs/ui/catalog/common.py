@@ -341,8 +341,16 @@ class BoundTableWidget(QWidget):
 
     def _select_rows(self, objects) -> None:
         ids = sorted({int(getattr(obj, "id", 0) or 0) for obj in objects or ()} - {0})
-        if ids and self._table is not None:
-            self._table.set_filter(FilterSpec("id", FilterOperator.IN, ids))
+        if not ids or self._table is None:
+            return
+        role = type(self).selection_role
+        store = self._store() if role and not self.selection_role else None
+        if store is not None:
+            # Lent to a tool that set the selection aside (bind_selection(None)): the rows still
+            # become the role's selection; whether it narrows this table is the tool's call.
+            store.set(role, ids)
+            return
+        self._table.set_filter(FilterSpec("id", FilterOperator.IN, ids))
 
     # --- The selection, shared between tables ----------------------------------------
     # ms_table has no "filters changed" signal; every filter change reloads, so data_refreshed

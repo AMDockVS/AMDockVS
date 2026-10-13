@@ -57,6 +57,7 @@ RUN_SAMPLE_LIMIT = 1000
 # most 32766 values in its stock build. Past this, save the rows as a set and pick it in Selection;
 # the scale-free version is scope_ids() as a subquery (see BoundTableWidget.scope_ids).
 MAX_NARROWED_IDS = 30000
+_CURRENT_SELECTION = ("selection", None)  # Selection choice: the rows picked with Select
 
 # Cap the accumulated pile: each preview keeps points + render state alive, so an unbounded stack
 # balloons RAM (the whole point of #6/#4). Past this, Clear is required.
@@ -96,6 +97,7 @@ class DiversitySelectionWidget(QWidget):
         self._pending_cluster_job: dict[str, Any] | None = None
         self._job_signal_connected = False
         self._scope_signal_connected = False
+        self._selection_signal_connected = False
         self._reset_accumulation()
 
         outer = QVBoxLayout(self)
@@ -215,17 +217,20 @@ class DiversitySelectionWidget(QWidget):
         setup = QFormLayout()
         self.set_combo = QComboBox(box)  # Selection scope (usage classes + sets)
         self.set_combo.setToolTip(
-            "What to cluster. The Ligands table shows it while this tool is open: narrow it further "
-            "there ('Select' on rows, column filters) and the run follows."
+            "What to cluster. 'Current selection' is the rows picked with Select; every other "
+            "choice ignores the selection. The Ligands table shows the scope while this tool is "
+            "open, and column filters there narrow it further."
         )
         self.method_combo = QComboBox(box)
         for name in DiversityAPI.supported_methods():
             self.method_combo.addItem(name, name)
 
-        self.per_cluster_spin = QSpinBox(box)
-        self.per_cluster_spin.setRange(1, 20)
-        self.per_cluster_spin.setValue(1)
-        self.per_cluster_spin.setToolTip("Representatives kept per cluster (the members closest to the centroid).")
+        self.measured_combo = QComboBox(box)
+        self.measured_combo.setToolTip(
+            "Cluster only the ligands that have a value for an activity: the way to a training "
+            "set that is diverse and, picked by activity in Clusters, spans it from low to high."
+        )
+        self.measured_combo.currentIndexChanged.connect(self._sync_measured)
 
         self.radius_spin = QSpinBox(box)
         self.radius_spin.setRange(1, 4)
@@ -243,7 +248,7 @@ class DiversitySelectionWidget(QWidget):
 
         setup.addRow("Selection", self.set_combo)
         setup.addRow("Method", self.method_combo)
-        setup.addRow("Per cluster", self.per_cluster_spin)
+        setup.addRow("Only with", self.measured_combo)
         setup.addRow("Morgan FP", fp_row)
 
         buttons = QHBoxLayout()
@@ -336,11 +341,12 @@ class DiversitySelectionWidget(QWidget):
     # --- scope helpers --------------------------------------------------------
     def refresh(self) -> None:
         """Repopulate the Selection scope: usage classes (like Filter) + saved sets. currentData is a
-        (kind, value) tuple → ('all', None) | ('usage', class|classes) | ('set', id)."""
+        (kind, value) tuple → ('all', None) | ('selection', None) | ('usage', class|classes) | ('set', id)."""
         selected = self.set_combo.currentData()
         self.set_combo.blockSignals(True)
         self.set_combo.clear()
         self.set_combo.addItem("All ligands", ("all", None))
+        self.set_combo.addItem("Current selection", _CURRENT_SELECTION)
         self.set_combo.addItem("General", ("usage", MoleculeUsageClass.GENERAL))
         self.set_combo.addItem("Reference", ("usage", MoleculeUsageClass.REFERENCE))
         self.set_combo.addItem(
@@ -353,6 +359,23 @@ class DiversitySelectionWidget(QWidget):
         index = self.set_combo.findData(selected)
         self.set_combo.setCurrentIndex(index if index >= 0 else 0)
         self.set_combo.blockSignals(False)
+        measured = self.measured_combo.currentData()
+        self.measured_combo.blockSignals(True)
+        self.measured_combo.clear()
+        self.measured_combo.addItem("Any ligand", "")
+        for endpoint in self.runtime.qsar.list_endpoints():
+            self.measured_combo.addItem(f"A {endpoint} value", endpoint)
+        self.measured_combo.setCurrentIndex(max(0, self.measured_combo.findData(measured)))
+        self.measured_combo.blockSignals(False)
+        self._sync_measured()
+
+    def _with_activity(self) -> str:
+        return str(self.measured_combo.currentData() or "")
+
+    def _sync_measured(self, *_args) -> None:
+        table = self._ligands_table()
+        if table is not None and table.record_count is not None:
+            self._on_scope_count(table.record_count)
 
     def _ligands_table(self):
         central = getattr(self.window(), "central_widget", None)
@@ -369,6 +392,9 @@ class DiversitySelectionWidget(QWidget):
         if table is None:
             return
         kind, value = self.set_combo.currentData() or ("all", None)
+        # The global selection applies only when it is what was asked for: any other choice is
+        # a set of its own, so the table lets go of the id filter (the selection itself stays).
+        table.bind_selection("ligand" if kind == "selection" else None)
         filters, clause = [], None
         if kind == "usage":
             many = isinstance(value, tuple)
@@ -388,17 +414,47 @@ class DiversitySelectionWidget(QWidget):
             self._on_scope_count(table.record_count)  # a push that changed nothing reloads nothing
 
     def _on_scope_count(self, count: int) -> None:
-        if self.isVisible():
+        if not self.isVisible():
+            return
+        if self.set_combo.currentData() == _CURRENT_SELECTION and not self._selected_ligands():
             self.scope_label.setText(
-                f"Scope: the {int(count)} ligand(s) the Ligands table shows. Narrow it there "
-                f"('Select' on rows, column filters) or with Selection above."
+                "Scope: nothing selected. Pick rows in the Ligands table (right-click > Select), "
+                "or choose another Selection above."
             )
+            return
+        endpoint = self._with_activity()
+        self.scope_label.setText(
+            f"Scope: the {int(count)} ligand(s) the Ligands table shows. Column filters there "
+            f"narrow it further."
+            + (f" Only those with a {endpoint} value are clustered." if endpoint else "")
+        )
+
+    def _selected_ligands(self) -> list[int]:
+        store = getattr(self.window(), "selection", None)
+        return list(store.get("ligand") or ()) if store is not None else []
+
+    def _on_selection_changed(self, role: str) -> None:
+        if role != "ligand" or not self.isVisible():
+            return
+        central = getattr(self.window(), "central_widget", None)
+        # Rows picked in the table this tool is showing are meant for it; a selection made
+        # anywhere else (a Clusters run, another tool) leaves the choice alone.
+        if (self._selected_ligands() and central is not None
+                and central.current_view_id() == LIGANDS_VIEW_ID):
+            self.set_combo.setCurrentIndex(self.set_combo.findData(_CURRENT_SELECTION))
+        table = self._ligands_table()
+        if table is not None and table.record_count is not None:
+            self._on_scope_count(table.record_count)
 
     def showEvent(self, event):
         super().showEvent(event)
         opener = getattr(self.window(), "open_or_focus_view", None)
         if callable(opener):
             opener(LIGANDS_VIEW_ID)  # the scope, on screen (a tab change also clears the chart)
+        store = getattr(self.window(), "selection", None)
+        if store is not None and not self._selection_signal_connected:
+            store.changed.connect(self._on_selection_changed)
+            self._selection_signal_connected = True
         self._sync_ligands_scope()
         if self._selections:
             self._push_plot()
@@ -408,10 +464,18 @@ class DiversitySelectionWidget(QWidget):
         table = self._ligands_table()
         if table is not None:
             table.pop_scope(self._SCOPE_KEY)
+            table.bind_selection("ligand")  # back to mirroring the selection, as everywhere else
 
     def _scope_params(self) -> dict[str, Any] | None:
         """The run's scope; None (after telling the user) when the table narrowing is too large."""
         kind, value = self.set_combo.currentData() or ("all", None)
+        if kind == "selection" and not self._selected_ligands():
+            QMessageBox.information(
+                self, "Diversity",
+                "Nothing is selected. Pick rows in the Ligands table (right-click > Select), or "
+                "choose another Selection.",
+            )
+            return None
         molecule_filters: dict[str, Any] = {}
         if kind == "usage":
             molecule_filters["usage_class__in" if isinstance(value, tuple) else "usage_class"] = (
@@ -435,17 +499,19 @@ class DiversitySelectionWidget(QWidget):
             "fp_radius": int(self.radius_spin.value()),
             "fp_nbits": int(self.nbits_spin.value()),
             "sample_limit": RUN_SAMPLE_LIMIT,
+            "with_activity": self._with_activity(),
         }
 
     def _scope_key(self, scope_kw: dict[str, Any]) -> tuple:
         ids = scope_kw["molecule_filters"].get("id__in")
         # A narrowed table is another universe: its samples must not pile onto a previous one's.
         narrowed = (len(ids), sum(ids)) if ids is not None else None
-        return (self.set_combo.currentData(), int(self.radius_spin.value()), int(self.nbits_spin.value()), narrowed)
+        return (self.set_combo.currentData(), int(self.radius_spin.value()), int(self.nbits_spin.value()), narrowed,
+                scope_kw["with_activity"])
 
     def _cluster_params(self) -> dict[str, Any]:
         method = str(self.method_combo.currentData() or "bitbirch")
-        params: dict[str, Any] = {"method": method, "per_cluster": int(self.per_cluster_spin.value())}
+        params: dict[str, Any] = {"method": method}
         for key, getter in self._method_getters.get(method, {}).items():
             params[key] = getter()
         return params
@@ -606,7 +672,7 @@ class DiversitySelectionWidget(QWidget):
         run_async(
             lambda: self.runtime.diversity.scope_count(
                 molecule_set=scope_kw["molecule_set"], molecule_filters=scope_kw["molecule_filters"],
-                fp_radius=scope_kw["fp_radius"], fp_nbits=scope_kw["fp_nbits"],
+                fp_radius=scope_kw["fp_radius"], fp_nbits=scope_kw["fp_nbits"], with_activity=scope_kw["with_activity"],
             ),
             lambda n: self._confirm_and_submit(int(n), scope_kw, cluster_kw),
             on_error=self._on_error,
@@ -645,7 +711,7 @@ class DiversitySelectionWidget(QWidget):
         threshold = float(cluster_kw.get("threshold") or 0.35)
         try:
             job_id = self.runtime.diversity.cluster_job(
-                method=method, threshold=threshold, per_cluster=int(cluster_kw.get("per_cluster") or 1),
+                method=method, threshold=threshold, with_activity=scope_kw["with_activity"],
                 molecule_set=scope_kw["molecule_set"], molecule_filters=scope_kw["molecule_filters"],
                 fp_radius=scope_kw["fp_radius"], fp_nbits=scope_kw["fp_nbits"],
                 cluster_run_id=run_id, num_cpus=cpus,
@@ -654,10 +720,11 @@ class DiversitySelectionWidget(QWidget):
             self.cluster_button.setEnabled(True)
             QMessageBox.critical(self, "Diversity", f"Could not submit the clustering job: {exc}")
             return
-        narrowed = "id__in" in scope_kw["molecule_filters"]
+        narrowed = "id__in" in scope_kw["molecule_filters"] and self.set_combo.currentData() != _CURRENT_SELECTION
         self._pending_cluster_job = {
             "job_id": str(job_id), "run_id": run_id, "method": method, "threshold": threshold,
-            "scope_label": self.set_combo.currentText() + (" (narrowed in the table)" if narrowed else ""),
+            "scope_label": self.set_combo.currentText() + (" (narrowed in the table)" if narrowed else "")
+            + (f" · with {scope_kw['with_activity']}" if scope_kw["with_activity"] else ""),
             "fp_radius": int(scope_kw["fp_radius"]), "fp_nbits": int(scope_kw["fp_nbits"]),
         }
         self._connect_job_signal()

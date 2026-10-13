@@ -3,6 +3,7 @@
 A run is data once it exists, so it is read here and not inside the tool that made it (the same
 split as Docking Studio / Docking Results). Nothing on this view changes the library by itself:
 selecting, excluding and saving as a set are the three explicit things you can do with a run.
+What represents each cluster is chosen here too, as often as wanted: the run is not clustered again.
 """
 from __future__ import annotations
 
@@ -17,6 +18,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
+    QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -103,11 +105,13 @@ class ClustersWidget(QWidget):
         self.sizes_button.clicked.connect(self._show_sizes)
         self.delete_button = QPushButton("Delete run", self)
         self.delete_button.clicked.connect(self._delete)
-        self._buttons = (self.select_button, self.exclude_button, self.save_button,
-                         self.sizes_button, self.delete_button)
-        for button in self._buttons:
+        buttons = (self.select_button, self.exclude_button, self.save_button,
+                   self.sizes_button, self.delete_button)
+        for button in buttons:
             bar.addWidget(button)
         layout.addLayout(bar)
+        layout.addLayout(self._representatives_bar())
+        self._buttons = (*buttons, self.apply_button)
 
         self.table = QTableWidget(0, 2, self)
         self.table.setHorizontalHeaderLabels(["Cluster", "Ligands"])
@@ -127,6 +131,65 @@ class ClustersWidget(QWidget):
         self.members = _ClusterLigands(runtime=runtime, config=_members_config(runtime), parent=None)
         self.refresh()
 
+    def _representatives_bar(self) -> QHBoxLayout:
+        bar = QHBoxLayout()
+        bar.addWidget(QLabel("Representatives", self))
+        self.mode_combo = QComboBox(self)
+        for label, mode in (("Centroid", "centroid"), ("Medoid", "medoid"),
+                            ("Extremes (min · mean · max)", "extremes"),
+                            ("Quartiles (one per quartile)", "quartiles"),
+                            ("Proportional (% of each cluster)", "proportional")):
+            self.mode_combo.addItem(label, mode)
+        self.mode_combo.setToolTip(
+            "What represents each cluster. The clustering stays as it is: this only chooses again.\n"
+            "Centroid: the members closest to the cluster's centroid.\n"
+            "Medoid: the members most similar, on average, to the rest of the cluster.\n"
+            "Extremes: the lowest, the mean-nearest and the highest member of 'Rank by'.\n"
+            "Quartiles: one member per quartile of 'Rank by', from the lowest to the highest.\n"
+            "Proportional: a share of every cluster (at least one), spread the same way, so a "
+            "cluster holding 10 % of the ligands supplies 10 % of the representatives."
+        )
+        self.amount_spin = QSpinBox(self)
+        self.rank_combo = QComboBox(self)
+        self.rank_combo.setToolTip(
+            "What Extremes, Quartiles and Proportional spread over: from the centre of the cluster "
+            "to its edge, or from low to high activity (ligands without a value are not picked)."
+        )
+        self.apply_button = QPushButton("Apply", self)
+        self.apply_button.setToolTip("Choose this run's representatives again with these settings.")
+        self.apply_button.clicked.connect(self._pick_representatives)
+        self.mode_combo.currentIndexChanged.connect(self._sync_mode)
+        for widget in (self.mode_combo, self.amount_spin, QLabel("Rank by", self), self.rank_combo, self.apply_button):
+            bar.addWidget(widget)
+        bar.addStretch(1)
+        self._sync_mode()
+        return bar
+
+    def _sync_mode(self, *_args) -> None:
+        mode = self.mode_combo.currentData()
+        share = mode == "proportional"
+        self.amount_spin.setEnabled(mode not in ("extremes", "quartiles"))
+        self.amount_spin.setRange(1, 100 if share else 20)
+        self.amount_spin.setSuffix(" %" if share else " per cluster")
+        self.amount_spin.setValue(10 if share else 1)
+        self.rank_combo.setEnabled(mode in ("extremes", "quartiles", "proportional"))
+
+    def _pick_representatives(self) -> None:
+        run_id, mode, amount = self._run_id, str(self.mode_combo.currentData()), int(self.amount_spin.value())
+        rank_by = str(self.rank_combo.currentData() or "") if self.rank_combo.isEnabled() else ""
+        if not run_id:
+            return
+
+        def done(result: dict[str, int]) -> None:
+            self._run_id = None  # same run, new flags: read it again
+            self.show_run(run_id)
+
+        run_async(
+            lambda: self.runtime.diversity.pick_representatives(
+                run_id, mode=mode, per_cluster=amount, fraction=amount / 100.0, rank_by=rank_by),
+            done, on_error=self._on_error, busy=self,
+        )
+
     def aux_panel(self) -> QWidget:
         """The ligands of the picked row, shown in the window's auxiliary zone under this table."""
         return self.members
@@ -137,13 +200,19 @@ class ClustersWidget(QWidget):
         self.refresh()
 
     def refresh(self) -> None:
-        run_async(self.runtime.diversity.list_clustering_results, self._fill_runs,
-                  on_error=self._on_error, busy=self)
+        run_async(lambda: (self.runtime.diversity.list_clustering_results(), self.runtime.qsar.list_endpoints()),
+                  lambda loaded: self._fill_runs(*loaded), on_error=self._on_error, busy=self)
 
     refresh_view = refresh
 
-    def _fill_runs(self, runs: list[dict[str, Any]]) -> None:
+    def _fill_runs(self, runs: list[dict[str, Any]], endpoints=()) -> None:
         self._runs = list(runs)
+        ranked = self.rank_combo.currentData()
+        self.rank_combo.clear()
+        self.rank_combo.addItem("Similarity to centroid", "")
+        for endpoint in endpoints:
+            self.rank_combo.addItem(f"Activity: {endpoint}", endpoint)
+        self.rank_combo.setCurrentIndex(max(0, self.rank_combo.findData(ranked)))
         wanted, self._wanted_run = self._wanted_run or self._run_id, None
         self.run_combo.blockSignals(True)
         self.run_combo.clear()
