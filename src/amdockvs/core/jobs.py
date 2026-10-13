@@ -91,7 +91,6 @@ class JobDefinition:
     supported_executors: tuple[str, ...] = ()
     cpu_required: int = 1
     relative_paths: bool = False
-    task_progress: bool = False  # its tasks say how far they are: watched whatever the size of the job
     # (params) -> its tasks only wait for a program they start and tell of (`ms_flow.engine.launched`):
     # on this machine they run on threads of this process, and no worker of the pool is kept for them.
     on_thread: Optional[Callable[[dict], bool]] = None
@@ -206,7 +205,6 @@ class JobSpec:
     cpu_required: int | None = 1
     output_spec: Any = None
     task_label: Any = None
-    task_progress: bool = False
 
     @staticmethod
     def build_chunks(params: dict, config: dict | None = None) -> Iterable[dict]:
@@ -237,7 +235,6 @@ class JobSpec:
             executor=str(cls.executor or "compute"),
             supported_executors=tuple(cls.supported_executors or ()),
             cpu_required=cls.cpu_required or 1,
-            task_progress=cls.task_progress,
             on_thread=cls._own("on_thread"),
         )
         return cls.definition

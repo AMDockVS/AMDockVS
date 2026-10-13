@@ -578,7 +578,6 @@ class DockShardsJobSpec(JobSpec):
     params_model = DockShardsJobParams
     executor = "compute"
     supported_executors = AMDOCKVS_OFFLOADABLE_EXECUTORS
-    task_progress = True  # ligand by ligand of the shard
     # No output_spec: hits become molecules before they can become results, and only the
     # parent (holding the gate) may decide that. `ShardHitWriter` is the sink.
     result_handler_factory = shard_hit_writer

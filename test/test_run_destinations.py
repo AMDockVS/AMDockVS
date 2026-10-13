@@ -175,17 +175,15 @@ def test_a_job_on_record_is_continued_and_one_that_runs_is_moved(tmp_path, monke
         assert (ended.status, status(runtime._engine_ids()[job_id]).chunks_done) == ("completed", 60)
         assert runtime.workspace.origin(job_id)["options"]["cpu"] == 2
 
-        # A docking job has thousands of tasks and each one says how far it is: watched all the same.
-        assert docking.DockingJobSpec.definition.task_progress and not napping.task_progress
         said, submit = [], runtime.workspace.submit
         monkeypatch.setattr(runtime.workspace, "submit", lambda *job, **options: said.append(options) or submit(*job, **options))
-        waits = docking.DockingJobSpec.definition.on_thread  # and one that only waits for a program has no worker
+        waits = docking.DockingJobSpec.definition.on_thread  # a task that only waits for a program has no worker
         assert all(waits(params) for params in ({"engine": "qvina"}, {"engine": "gnina"}, {"engine": "adgpu"},
                                                  {"engine": "vina", "vina_backend": "binary"}))
         assert not waits({"engine": "vina", "vina_backend": "python"})
-        for declared in (napping.with_options(task_progress=True, on_thread=lambda params: params["naps"] == 1), napping):
+        for declared in (napping.with_options(on_thread=lambda params: params["naps"] == 1), napping):
             runtime.wait_for_job(runtime.submit_job(declared, params={"naps": 1}, executor_name="thread"))
-        assert [(options.get("progress"), options.get("thread")) for options in said] == [(True, True), (None, None)]
+        assert [options.get("thread") for options in said] == [True, None]
 
         runtime.cancel_job(again := runtime.submit_job(napping, params={"naps": 60}, executor_name="thread"))
         assert runtime.wait_for_job(again).status == "canceled"
