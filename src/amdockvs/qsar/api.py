@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any, Sequence
 
 import numpy as np
+from sqlalchemy import func, update as sql_update
+from sqlalchemy.orm import aliased
 from sqlmodel import select
 
 from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR, RESOURCE_QSAR_MODELS
@@ -1304,7 +1306,8 @@ class QSARAPI:
 
     def prediction_rows(self, *, model: QSARModelRef | int) -> list[dict[str, Any]]:
         """Predictions joined with the ligand name, for the Predictions table:
-        [{molecule_id, name, value, confidence}] ordered by ligand id."""
+        [{molecule_id, name, value, confidence}] ordered by ligand id. Excluded ligands are left
+        out, as in every other ligand listing."""
         self.runtime._require_active_project()
         model_id = int(model.id if hasattr(model, "id") else model)
         with self.runtime.workspace.project_db.get_session() as session:
@@ -1316,14 +1319,68 @@ class QSARAPI:
             names = {
                 int(m.id): str(m.name or "")
                 for m in session.exec(
-                    select(MoleculeRecord).where(MoleculeRecord.id.in_([int(r.molecule_id) for r in rows] or [0]))
+                    select(MoleculeRecord)
+                    .where(MoleculeRecord.id.in_([int(r.molecule_id) for r in rows] or [0]))
+                    .where(MoleculeRecord.excluded == False)  # noqa: E712
                 )
             }
         return [
-            {"molecule_id": int(r.molecule_id), "name": names.get(int(r.molecule_id), ""),
+            {"molecule_id": int(r.molecule_id), "name": names[int(r.molecule_id)],
              "value": float(r.value), "confidence": None if r.confidence is None else float(r.confidence)}
-            for r in rows
+            for r in rows if int(r.molecule_id) in names
         ]
+
+    def cut_predictions(
+        self,
+        *,
+        model: QSARModelRef | int,
+        top_n: int | None = None,
+        cutoff: float | None = None,
+        higher_is_better: bool = True,
+        exclude_rest: bool = False,
+        ids_limit: int = 0,
+    ) -> dict[str, Any]:
+        """Use a model's predictions as a filter: keep the ligands at or beyond ``cutoff`` (>= when
+        higher is better, <= otherwise) and, of those, at most the ``top_n`` best (ties break by
+        id). With ``exclude_rest`` every other ligand the model scored is marked excluded
+        (reversible); ligands it could not score, and ligands already excluded, are left alone.
+
+        The cut is a subquery over the predictions, so nothing here grows with the library: the
+        exclusion is one UPDATE and only ``ids_limit`` ids ever come back. Returns {"kept": n,
+        "rest": n, "excluded": how many were marked, "ids": the first ``ids_limit`` kept, best first}."""
+        if top_n is None and cutoff is None:
+            raise ValueError("cut_predictions needs top_n and/or cutoff.")
+        self.runtime._require_active_project()
+        model_id = int(model.id if hasattr(model, "id") else model)
+        scored_ligand = aliased(MoleculeRecord)  # aliased: the UPDATE below targets the table itself
+        scored = (
+            select(QSARPredictionRecord.molecule_id)
+            .join(scored_ligand, scored_ligand.id == QSARPredictionRecord.molecule_id)
+            .where(QSARPredictionRecord.model_id == model_id, scored_ligand.excluded == False)  # noqa: E712
+        )
+        value = QSARPredictionRecord.value
+        kept = scored.order_by(value.desc() if higher_is_better else value.asc(), QSARPredictionRecord.molecule_id)
+        if cutoff is not None:
+            kept = kept.where(value >= float(cutoff) if higher_is_better else value <= float(cutoff))
+        if top_n is not None:
+            kept = kept.limit(max(0, int(top_n)))
+        how = (f"top {int(top_n)}" if top_n is not None else "") + (
+            f"{' ' if top_n is not None else ''}{'>=' if higher_is_better else '<='} {float(cutoff):g}"
+            if cutoff is not None else "")
+        with self.runtime.workspace.project_db.get_session() as session:
+            n_scored = int(session.exec(select(func.count()).select_from(scored.subquery())).one())
+            n_kept = int(session.exec(select(func.count()).select_from(kept.subquery())).one())
+            ids = [int(i) for i in session.exec(kept.limit(min(int(ids_limit), n_kept)))] if ids_limit else []
+            excluded = 0
+            if exclude_rest and n_kept < n_scored:
+                result = session.exec(
+                    sql_update(MoleculeRecord)
+                    .where(MoleculeRecord.id.in_(scored), MoleculeRecord.id.not_in(kept))
+                    .values(excluded=True, exclusion_reason=f"qsar: outside the cut of model #{model_id} ({how})")
+                )
+                excluded = int(getattr(result, "rowcount", 0) or 0)
+                session.commit()
+        return {"kept": n_kept, "rest": n_scored - n_kept, "excluded": excluded, "ids": ids}
 
     def evaluate(
         self,
