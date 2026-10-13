@@ -26,7 +26,7 @@ from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
 
-from amdockvs.docking.results.metrics import docking_metrics
+from amdockvs.docking.results.metrics import docking_metrics, pose_file_stem
 from amdockvs.docking.results.rmsd import pose_rmsd_detail
 from amdockvs.core.paths import get_default_project_root
 from amdockvs.core.worker_io import run_program
@@ -203,7 +203,7 @@ def run_gnina_docking_rows(payload: dict) -> list[dict]:
         center = [float(v) for v in (pair.get("box_center") or default_center)]
         size = [float(v) for v in (pair.get("box_size") or default_size)]
         invalid_reason = str(pair.get("invalid_reason") or "").strip()
-        output_stem = f"{run_kind}_{complex_id}" if complex_id is not None else f"{ligand_id}__{receptor_id}"
+        output_stem = pose_file_stem(pair, protocol_payload)
         output_sdf = output_dir / f"{output_stem}.gnina.sdf"
         try:
             if invalid_reason:

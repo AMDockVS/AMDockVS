@@ -25,7 +25,7 @@ from amdockvs.core.paths import get_default_project_root, tools_home
 from amdockvs.core.worker_io import run_program
 from amdockvs.docking.engines.autogrid import map_prefix
 from amdockvs.docking.engines.vina import count_heavy_atoms
-from amdockvs.docking.results.metrics import docking_metrics
+from amdockvs.docking.results.metrics import docking_metrics, pose_file_stem
 from amdockvs.docking.results.rmsd import pose_rmsd_detail
 from amdockvs.integrations.envs import tool_spec
 
@@ -163,7 +163,7 @@ def adgpu_dock_runner(payload: dict) -> list[dict]:
             ),
             "protocol": protocol_payload,
         }
-        output_stem = f"{run_kind}_{complex_id}" if complex_id is not None else f"{ligand_id}__{receptor_id}"
+        output_stem = pose_file_stem(pair, protocol_payload)
         output_sdf = output_dir / f"{output_stem}.adgpu.sdf"
         try:
             invalid_reason = str(pair.get("invalid_reason") or "").strip()

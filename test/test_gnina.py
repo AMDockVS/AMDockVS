@@ -21,6 +21,15 @@ def test_normalize_and_gpu_tokens():
     assert chunk_gpu_tokens("vina", "vina") == {}
 
 
+def test_two_protocols_of_a_pair_do_not_share_their_pose_file():
+    from amdockvs.docking.results.metrics import pose_file_stem
+
+    pair = {"ligand_id": 1, "receptor_id": 2}
+    assert pose_file_stem(pair, None) == "1__2"
+    assert pose_file_stem({**pair, "complex_id": 7, "run_kind": "redocking"}, {"hash": ""}) == "redocking_7"
+    assert pose_file_stem(pair, {"hash": "a" * 40}) != pose_file_stem(pair, {"hash": "b" * 40})
+
+
 @pytest.mark.skipif(not shutil.which(GNINA) and not Path(GNINA).exists(), reason="gnina binary not installed")
 def test_gnina_docks_1iep(tmp_path):
     rows = run_gnina_docking_rows(

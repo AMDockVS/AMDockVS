@@ -15,7 +15,7 @@ from typing import Callable
 
 from ms_flow.engine import launched
 
-from amdockvs.docking.results.metrics import docking_metrics
+from amdockvs.docking.results.metrics import docking_metrics, pose_file_stem
 from amdockvs.docking.results.rmsd import pose_rmsd_detail
 from amdockvs.core.paths import get_default_project_root
 from amdockvs.docking.engines.autogrid import map_prefix as _ad4_map_prefix
@@ -382,8 +382,6 @@ def run_vina_docking_rows(
     ad4_map_cache: dict[tuple, str] = {}
     ad4_maps_dir = resolved_output_dir / "_ad4_maps"
     protocol_payload = dict(protocol_metadata or {})
-    protocol_hash = str(protocol_payload.get("hash") or "").strip()
-    protocol_suffix = f"__proto_{protocol_hash[:12]}" if protocol_hash else ""
     for pair in pairs:
         complex_id = int(pair.get("complex_id") or 0) or None
         run_kind = str(pair.get("run_kind") or "screening")
@@ -403,8 +401,7 @@ def run_vina_docking_rows(
         pair_box_center = [float(value) for value in (pair.get("box_center") or box_center or [])]
         pair_box_size = [float(value) for value in (pair.get("box_size") or box_size or [])]
         pair_spacing = float(pair.get("spacing") or spacing)
-        output_stem = f"{run_kind}_{int(complex_id)}" if complex_id is not None else f"{ligand_id}__{receptor_id}"
-        output_stem = f"{output_stem}{protocol_suffix}"
+        output_stem = pose_file_stem(pair, protocol_payload)
         output_pdbqt_path = resolved_output_dir / f"{output_stem}.dock.pdbqt"
         output_sdf_path = resolved_output_dir / f"{output_stem}.dock.sdf"
         grid_payload = {
