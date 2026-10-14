@@ -499,7 +499,9 @@
 <h1 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h1>
 <h2 id="import-prepare-and-dock">Import, prepare, and dock<a class="headerlink" href="#import-prepare-and-dock" title="Permanent link">&para;</a></h2>
 <p>This example mirrors the supported asynchronous workflow. Replace the input
-paths and box coordinates with values for your system.</p>
+paths and box coordinates with values for your system. It docks with
+QuickVina 2: install it once with <code>runtime.tools.install("qvina")</code>, or leave
+out <code>program</code> and <code>engine_config</code> to dock with AutoDock Vina.</p>
 <div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">amdockvs</span><span class="w"> </span><span class="kn">import</span> <span class="n">AMDockVSRuntime</span>
@@ -512,8 +514,8 @@ paths and box coordinates with values for your system.</p>
     <span class="p">)</span>
 
     <span class="n">import_jobs</span> <span class="o">=</span> <span class="p">[</span>
-        <span class="o">*</span><span class="n">runtime</span><span class="o">.</span><span class="n">loader</span><span class="o">.</span><span class="n">load_ligands</span><span class="p">([</span><span class="s2">"inputs/ligands.sdf"</span><span class="p">],</span> <span class="n">executor_name</span><span class="o">=</span><span class="s2">"thread"</span><span class="p">),</span>
-        <span class="o">*</span><span class="n">runtime</span><span class="o">.</span><span class="n">loader</span><span class="o">.</span><span class="n">load_receptors</span><span class="p">([</span><span class="s2">"inputs/receptor.pdb"</span><span class="p">],</span> <span class="n">executor_name</span><span class="o">=</span><span class="s2">"thread"</span><span class="p">),</span>
+        <span class="o">*</span><span class="n">runtime</span><span class="o">.</span><span class="n">loader</span><span class="o">.</span><span class="n">load_ligands</span><span class="p">([</span><span class="s2">"inputs/ligands.sdf"</span><span class="p">]),</span>
+        <span class="o">*</span><span class="n">runtime</span><span class="o">.</span><span class="n">loader</span><span class="o">.</span><span class="n">load_receptors</span><span class="p">([</span><span class="s2">"inputs/receptor.pdb"</span><span class="p">]),</span>
     <span class="p">]</span>
     <span class="n">runtime</span><span class="o">.</span><span class="n">watch_jobs</span><span class="p">(</span><span class="n">import_jobs</span><span class="p">)</span>
 
@@ -533,9 +535,10 @@ paths and box coordinates with values for your system.</p>
         <span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mf">20.0</span><span class="p">,</span> <span class="mf">20.0</span><span class="p">,</span> <span class="mf">20.0</span><span class="p">),</span>
     <span class="p">)</span>
     <span class="n">job_id</span> <span class="o">=</span> <span class="n">runtime</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
+        <span class="n">program</span><span class="o">=</span><span class="s2">"qvina"</span><span class="p">,</span>
         <span class="n">ligands</span><span class="o">=</span><span class="n">ligands</span><span class="p">,</span>
         <span class="n">receptors</span><span class="o">=</span><span class="n">receptors</span><span class="p">,</span>
-        <span class="n">vina_cpu</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+        <span class="n">engine_config</span><span class="o">=</span><span class="p">{</span><span class="s2">"exhaustiveness"</span><span class="p">:</span> <span class="mi">8</span><span class="p">,</span> <span class="s2">"vina_cpu"</span><span class="p">:</span> <span class="mi">1</span><span class="p">},</span>
     <span class="p">)</span>
     <span class="n">runtime</span><span class="o">.</span><span class="n">watch_job</span><span class="p">(</span><span class="n">job_id</span><span class="p">)</span>
 
@@ -547,14 +550,11 @@ paths and box coordinates with values for your system.</p>
 <p>Several chemistry methods accept <code>wait=True</code> when a blocking call is clearer:</p>
 <div class="highlight"><pre><span></span><code><span class="n">status</span> <span class="o">=</span> <span class="n">runtime</span><span class="o">.</span><span class="n">chemistry</span><span class="o">.</span><span class="n">standardize_ligands</span><span class="p">(</span>
     <span class="n">ligands</span><span class="o">=</span><span class="n">runtime</span><span class="o">.</span><span class="n">molecules</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">role</span><span class="o">=</span><span class="s2">"ligand"</span><span class="p">),</span>
-    <span class="n">executor_name</span><span class="o">=</span><span class="s2">"process"</span><span class="p">,</span>
     <span class="n">wait</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="nb">print</span><span class="p">(</span><span class="n">status</span><span class="o">.</span><span class="n">status</span><span class="p">)</span>
 </code></pre></div>
-<p>The repository also contains executable starting points in
-<code>examples/runtime_quickstart.py</code> and <code>examples/pipeline_demo.py</code>, plus focused
-notebooks under <code>notebooks/</code>.</p>
+<p>The <a href="../runtime_api/">API guide</a> has an example for every part of the runtime.</p>
 
 
 
