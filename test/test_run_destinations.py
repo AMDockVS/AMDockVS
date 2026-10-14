@@ -17,7 +17,7 @@ from amdockvs.runtime import AMDockVSRuntime
 
 @task()
 def _nap(payload: dict) -> list:
-    time.sleep(0.02)
+    time.sleep(0.1)  # long enough for a job of them to be running still while a test looks at it
     return []
 
 
