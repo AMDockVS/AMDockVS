@@ -182,7 +182,8 @@ def test_build_run_buttons_use_chemistry_api(build_widget, monkeypatch):
 
     ligand_call, fix_call, protein_call = build_widget.runtime.chemistry.calls
     assert ligand_call[0] == "run_ligand_pipeline"
-    assert [name for name, _ in ligand_call[1]["steps"]] == ["protonate", "generate_3d", "minimize"]
+    # Minimization is not ticked by default.
+    assert [name for name, _ in ligand_call[1]["steps"]] == ["protonate", "generate_3d"]
     assert ligand_call[1]["ligands"].molecule_type == MoleculeType.SMALL_MOLECULE
     # Fix and protonation are ticked by default; minimization is not. The chain is explicit.
     assert fix_call[0] == "fix_receptors" and fix_call[1]["depends_on"] is None
@@ -218,7 +219,7 @@ def test_protein_run_follows_the_whole_chain(build_widget, monkeypatch):
 def test_build_runs_only_ticked_steps_and_targets_shards_in_a_sharded_project(build_widget):
     build_widget._protonation_tool_ready["dimorphite"] = True
     build_widget.ligand_3d_section.setChecked(False)
-    assert [name for name, _ in build_widget._build_steps()] == ["protonate", "minimize"]
+    assert [name for name, _ in build_widget._build_steps()] == ["protonate"]
     build_widget.ligand_protonation_section.setChecked(False)
     build_widget.ligand_min_section.setChecked(False)
     assert not build_widget.run_build_ligands_button.isEnabled()
