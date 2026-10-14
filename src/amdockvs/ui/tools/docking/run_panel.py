@@ -609,6 +609,8 @@ class RunPanel:
             failures.append(f"{int(rec['failed'])} receptor preparation failed")
         if failures:
             notes.append("; ".join(failures))
+        if int(rec.get("no_site") or 0):  # prepared or not, they are not docked: said, not dropped
+            notes.append(f"{int(rec['no_site'])} receptor(s) have no binding site and are left out")
         if notes:
             self.check_status_label.setText("; ".join(notes) + ".")
         else:
@@ -662,7 +664,7 @@ class RunPanel:
         attached = None
         for step, follower, keys in followers:
             active = [job for job in jobs if not job.is_terminal
-                      and any(key in str(job.task_type).lower() for key in keys)]
+                      and any(key in str(job.name).lower() for key in keys)]
             if follower.job_ids or not active:
                 continue
             follower.follow([(follower.noun, job.job_id) for job in active])
@@ -1044,14 +1046,16 @@ class RunPanel:
         )
         # The run is launched: the studio has nothing left to configure, so it gets out of the
         # way and leaves the screen to the results it is feeding. Closing the tools dock is what
-        # retires the tool (see _on_tools_dock_visibility); it deletes THIS widget, so it goes
-        # last — deleteLater is deferred, but nothing may run after it here.
+        # retires the tool (see ToolCoordinator.on_tools_dock_visibility); the studio stays
+        # built, so reopening it lands back on this step with the run still attached.
         from amdockvs.ui.catalog.domain_views import COMPLEXES_VIEW_ID  # circular at import time
 
         window = self.window()
         opener = getattr(window, "open_or_focus_view", None)
         if callable(opener):
-            opener(COMPLEXES_VIEW_ID)
+            show_run = getattr(opener(COMPLEXES_VIEW_ID), "show_run", None)
+            if callable(show_run):  # a redocking is read in its own pivot: go there, not to the hits
+                show_run(params.get("run_kind") or "docking")
         manager = getattr(window, "dock_manager", None)
         if manager is not None:
             manager.toggle("tools", False)

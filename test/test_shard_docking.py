@@ -15,7 +15,7 @@ from types import SimpleNamespace
 
 from ms_flow.core.data.shard import PayloadKind, Serializer, Shard, ShardWriter
 
-from amdockvs.docking import shard_jobs
+from amdockvs.docking import shard_jobs, shard_tasks
 from amdockvs.docking.shard_jobs import ShardHitWriter
 from amdockvs.docking.preparation.shards import (
     extract_ligands,
@@ -271,8 +271,8 @@ def test_docking_streams_each_ligand_into_a_result_shard_and_removes_loose_poses
             }])
         return []
 
-    monkeypatch.setattr(shard_jobs, "run_docking_chunk", fake_dock)
-    envelope = shard_jobs.DockShardsJobSpec._dock_one_shard(
+    monkeypatch.setattr(shard_tasks, "run_docking_chunk", fake_dock)
+    envelope = shard_tasks.dock_one_shard(
         {
             "output_dir": str(output),
             "receptor_id": 7,
@@ -322,8 +322,8 @@ def test_result_shard_cleanup_is_not_tied_to_sdf(tmp_path):
         "metrics": {},
     }
 
-    payload = shard_jobs.result_row(row, smiles="CCO")
-    shard_jobs._discard_poses([row])
+    payload = shard_tasks.result_row(row, smiles="CCO")
+    shard_tasks._discard_poses([row])
 
     assert payload["pose_text"] == "MODEL 1\nENDMDL\n"
     assert payload["pose_suffix"] == ".pdbqt"
@@ -335,7 +335,7 @@ def test_parquet_fragment_is_atomic(tmp_path):
 
     path = tmp_path / "failed.results.parquet"
     with pytest.raises(RuntimeError):
-        with shard_jobs.ResultFragmentWriter(path, metadata={}) as fragment:
+        with shard_tasks.ResultFragmentWriter(path, metadata={}) as fragment:
             fragment.add({
                 "ligand_id": 1, "receptor_id": 2, "score": -9.0,
                 "score_type": "vina_score", "status": "done", "engine": "vina",
@@ -358,7 +358,7 @@ def test_select_hits_projects_scores_then_loads_only_selected_poses(tmp_path, mo
     runtime = AMDockVSRuntime()
     runtime.create_project(name="columnar-ranking", folder=tmp_path)
     try:
-        project_db = runtime.molsuite.project_db
+        project_db = runtime.workspace.project_db
         with project_db.get_session() as session:
             receptor = MoleculeRecord(name="R", molecule_type="protein", is_receptor=True)
             source_shard = ScreeningShard(source="lib.smi", shard_index=0, path="lib.mshard", n_records=3)
@@ -367,7 +367,7 @@ def test_select_hits_projects_scores_then_loads_only_selected_poses(tmp_path, mo
             session.commit()
             receptor_id, shard_id = int(receptor.id), int(source_shard.id)
         path = tmp_path / "scores.results.parquet"
-        with shard_jobs.ResultFragmentWriter(
+        with shard_tasks.ResultFragmentWriter(
             path, metadata={"protocol": {"hash": "proto"}},
         ) as fragment:
             for ligand_id, score in enumerate((-7.0, -10.0, -9.0)):
@@ -427,7 +427,7 @@ def test_top_n_writes_nothing_until_the_campaign_closes(tmp_path):
     runtime = AMDockVSRuntime()
     runtime.create_project(name="campaign", folder=tmp_path)
     try:
-        project_db = runtime.molsuite.project_db
+        project_db = runtime.workspace.project_db
         with project_db.get_session() as session:
             receptor = MoleculeRecord(name="R", molecule_type="protein", is_receptor=True)
             source_shard = ScreeningShard(
@@ -448,7 +448,7 @@ def test_top_n_writes_nothing_until_the_campaign_closes(tmp_path):
             protocol_hash="proto-top",
         )
         result_shard = tmp_path / "ranked.results.parquet"
-        with shard_jobs.ResultFragmentWriter(
+        with shard_tasks.ResultFragmentWriter(
             result_shard,
             metadata={
                 "protocol": {"hash": "proto-top", "label": "Vina"},
@@ -504,7 +504,7 @@ def test_general_top_n_is_ranked_per_receptor_and_deduplicates_ligands(tmp_path)
     runtime = AMDockVSRuntime()
     runtime.create_project(name="per-receptor-ranking", folder=tmp_path)
     try:
-        project_db = runtime.molsuite.project_db
+        project_db = runtime.workspace.project_db
         with project_db.get_session() as session:
             receptors = [
                 MoleculeRecord(name=name, molecule_type="protein", is_receptor=True)
@@ -520,7 +520,7 @@ def test_general_top_n_is_ranked_per_receptor_and_deduplicates_ligands(tmp_path)
 
         for receptor_id, scores in zip(receptor_ids, ((-11.0, -8.0), (-10.0, -7.0))):
             result_path = tmp_path / f"r{receptor_id}.results.parquet"
-            with shard_jobs.ResultFragmentWriter(
+            with shard_tasks.ResultFragmentWriter(
                 result_path, metadata={"protocol": {"hash": "proto"}},
             ) as fragment:
                 for ligand_id, score in enumerate(scores):
@@ -570,7 +570,7 @@ def test_interrupted_top_n_is_recovered_from_completed_result_shards(tmp_path):
     runtime = AMDockVSRuntime()
     runtime.create_project(name="recover-ranked", folder=tmp_path)
     try:
-        project_db = runtime.molsuite.project_db
+        project_db = runtime.workspace.project_db
         with project_db.get_session() as session:
             receptor = MoleculeRecord(name="R", molecule_type="protein", is_receptor=True)
             session.add(receptor)
@@ -666,7 +666,7 @@ def test_canceled_job_marks_campaign_targets_canceled(tmp_path):
     runtime = AMDockVSRuntime()
     runtime.create_project(name="canceled-campaign", folder=tmp_path)
     try:
-        project_db = runtime.molsuite.project_db
+        project_db = runtime.workspace.project_db
         plan_targets(
             project_db,
             run_id="run-canceled",
@@ -696,7 +696,7 @@ def test_dependency_cancellation_does_not_overwrite_reference_failure(tmp_path):
     runtime = AMDockVSRuntime()
     runtime.create_project(name="failed-reference", folder=tmp_path)
     try:
-        project_db = runtime.molsuite.project_db
+        project_db = runtime.workspace.project_db
         plan_targets(
             project_db, run_id="cascade", receptors=[{"receptor_id": 1}],
             ligands_total=10, engine="vina",
@@ -717,7 +717,7 @@ def test_a_scheduled_receptor_is_visible_before_it_has_a_single_result(tmp_path)
     runtime = AMDockVSRuntime()
     runtime.create_project(name="campaign-plan", folder=tmp_path)
     try:
-        project_db = runtime.molsuite.project_db
+        project_db = runtime.workspace.project_db
         plan_targets(
             project_db,
             run_id="run-1",

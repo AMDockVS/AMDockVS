@@ -7,7 +7,8 @@ three entries in the top toolbar.
 A pivot is gated on being **populated**, never on whether a run happened: a project keeps
 receiving molecules and runs, so the gate has to reopen by itself. And a pivot that cannot
 be used is shown disabled *with the reason*, never hidden — hiding it makes the feature not
-exist for whoever has not produced its data yet.
+exist for whoever has not produced its data yet. The one who launches a run opens the pivot
+it feeds (`show_run`): the view goes there at once, with the progress line for content.
 """
 from __future__ import annotations
 
@@ -67,6 +68,7 @@ class ResultsPivotWidget(QWidget):
         self._load_hit_in_pymol = load_hit_in_pymol
         self._pages: dict[str, QWidget] = {}
         self._available: dict[str, bool] = {}
+        self._launched: set[str] = set()  # pivots a run was launched for from this window
         self._current_key = _HITS
         self._monitor_snapshot = None
         self._last_data_refresh: dict[str, float] = {}
@@ -241,8 +243,19 @@ class ResultsPivotWidget(QWidget):
             self.pivot_combo.setCurrentIndex(index)
             self.pivot_combo.blockSignals(False)
 
+    def show_run(self, run_kind: str) -> None:
+        """A run was launched: go to the pivot it feeds, before its first row lands.
+
+        ponytail: the pivot stays open for as long as the window does, also when the run
+        fails and leaves it empty. Close it again on the job's end if that ever confuses.
+        """
+        key = _REDOCKING if str(run_kind) == _REDOCKING else _HITS
+        self._launched.add(key)
+        self._apply_availability(self._available)
+        self.pivot_combo.setCurrentIndex(self.pivot_combo.findData(key))
+
     def _reason(self, key: str) -> str:
-        if self._available.get(key, True):
+        if self._available.get(key, True) or key in self._launched:
             return ""
         return next(reason for k, _label, reason in _PIVOTS if k == key)
 
@@ -269,7 +282,7 @@ class ResultsPivotWidget(QWidget):
         self._available = dict(available or {})
         model = self.pivot_combo.model()
         for row, (key, label, reason) in enumerate(_PIVOTS):
-            usable = self._available.get(key, True)
+            usable = not self._reason(key)
             item = model.item(row)
             item.setEnabled(usable)
             item.setToolTip("" if usable else reason)
@@ -293,15 +306,14 @@ class ResultsPivotWidget(QWidget):
                 getattr(job, "job_id", "")
                 for job in list(getattr(snapshot, "jobs", ()) or ())
                 if self._job_kind(job) == _HITS
-                and "dock_shard" in str(getattr(job, "task_type", "") or "").lower()
-                and not bool(getattr(job, "is_terminal", False))
-                and str(getattr(job, "status", "") or "").lower() not in {"completed", "failed", "canceled"}
+                and "dock_shard" in str(job.name or "").lower()
+                and not job.is_terminal
             )
         self._update_activity()
 
     @staticmethod
     def _job_kind(job) -> str:
-        task_type = str(getattr(job, "task_type", "") or "").lower()
+        task_type = str(job.name or "").lower()
         if "redocking" in task_type:
             return _REDOCKING
         # `amdock_dock_shard_slice` is a docking job too — and it is the one that shows nothing
@@ -315,9 +327,7 @@ class ResultsPivotWidget(QWidget):
         jobs = list(getattr(self._monitor_snapshot, "jobs", ()) or ())
         return [
             job for job in jobs
-            if self._job_kind(job) == wanted
-            and str(getattr(job, "status", "") or "").lower()
-            not in {"completed", "failed", "canceled"}
+            if self._job_kind(job) == wanted and not job.is_terminal
         ]
 
     def _update_activity(self) -> None:
@@ -337,12 +347,8 @@ class ResultsPivotWidget(QWidget):
         }
         done = sum(max(0, int(getattr(job, "chunks_done", 0) or 0)) for job in jobs)
         total = sum(max(0, int(getattr(job, "chunks_total", 0) or 0)) for job in jobs)
-        failed = sum(
-            max(0, int(getattr(job, "chunks_failed", 0) or 0))
-            + max(0, int(getattr(job, "chunks_stage_failed", 0) or 0))
-            for job in jobs
-        )
-        sharded = any("dock_shard" in str(getattr(job, "task_type", "") or "").lower() for job in jobs)
+        failed = sum(max(0, int(getattr(job, "chunks_failed", 0) or 0)) for job in jobs)
+        sharded = any("dock_shard" in str(job.name or "").lower() for job in jobs)
         unit = "shard tasks" if sharded else "dockings"
         progress = f"{done:,} / {total:,} {unit}" if total else f"{done:,} {unit} completed"
         if failed:

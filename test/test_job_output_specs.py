@@ -10,7 +10,7 @@ import importlib
 import pkgutil
 
 import amdockvs
-from ms_flow.tasking import JobDefinition
+from amdockvs.core.jobs import JobDefinition
 
 # Why each one has no sink. If one gains one, this test fails and its line must be deleted.
 WITHOUT_SINK = {

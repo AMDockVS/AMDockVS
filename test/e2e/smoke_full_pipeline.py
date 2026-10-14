@@ -293,7 +293,7 @@ def htpvs_project(rt, tmp):
         jobs = rt.loader.shard_ligands([lib], shard_size=6, executor_name=EXECUTOR)
         final = rt.wait_for_jobs(jobs, timeout_s=600, poll_s=0.3)
         assert all(row.status == "completed" for row in final.values()), final
-        store = ShardStore(rt.molsuite.project_db)
+        store = ShardStore(rt.workspace.project_db)
         whole = shard_scope_spec(state=None)
         assert store.record_count(whole) == len(SMILES), store.record_count(whole)
         return f"{store.count(whole)} shards / {store.record_count(whole)} records, mode={rt.mode}"
@@ -303,7 +303,7 @@ def htpvs_project(rt, tmp):
         from amdockvs.molecules.storage import (
             ShardStore, active_generation_id, shard_scope_spec,
         )
-        db = rt.molsuite.project_db
+        db = rt.workspace.project_db
         whole = shard_scope_spec(state=None)
         before = active_generation_id(db)
         row = rt.chemistry.run_shard_pipeline(["standardize"], executor_name=EXECUTOR, wait=True)

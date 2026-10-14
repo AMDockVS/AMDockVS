@@ -13,7 +13,8 @@ from sqlite3 import OperationalError
 from typing import Any, Iterable
 
 from ms_flow.query import db_rows
-from sqlalchemy import func
+from sqlalchemy import func, tuple_
+from sqlalchemy.orm import aliased
 from sqlmodel import select
 
 from amdockvs.core.constants import (
@@ -25,6 +26,7 @@ from amdockvs.core.constants import (
 )
 from amdockvs.models import DockingResultRecord
 from amdockvs.docking.repository import project_db_path
+from amdockvs.project.deletion import delete_results_where
 from amdockvs.project.summaries import DockingHitSummary, DockingResultsStatsSummary, ReceptorDockingSummary
 
 
@@ -121,39 +123,28 @@ def list_docking_result_rows(
         return [row.model_dump(mode="python") for row in rows]
 
 
-def delete_results_for_receptors(
-    project_db,
-    *,
-    engine: str,
-    receptor_ids: Iterable[int],
-    protocol_hash: str | None = None,
-) -> int:
-    """Force-rerun helper: drop every prior result row for these receptors+engine so a
-    re-dock replaces instead of duplicating. ponytail: clears ALL ligands of those receptors,
-    matching 're-dock these receptors fresh'; switch to per-pair deletes if subset re-runs matter."""
-    eng = str(engine).strip().lower()
-    proto = str(protocol_hash or "").strip()
-    ids = {int(rid) for rid in receptor_ids if int(rid) > 0}
-    if not ids:
+def supersede_results(project_db, *, run_id: str) -> int:
+    """Forced re-run: drop the older rows of the pairs this run has results for, so a re-dock
+    replaces instead of duplicating. A pair the run did not get to keeps what it had: nothing is
+    deleted before its replacement is stored. What was computed from a dropped row (its
+    interactions) goes with it: the new row has them only if they are computed again."""
+    run = str(run_id).strip()
+    if not run:
         return 0
-    deleted = 0
-    with suppress(OperationalError):
-        with project_db.get_session() as session:
-            statement = (
-                select(DockingResultRecord)
-                .where(DockingResultRecord.engine == eng)
-                .where(DockingResultRecord.receptor_molecule_id.in_(ids))
-            )
-            if proto:
-                statement = statement.where(
-                    DockingResultRecord.metrics["protocol"]["hash"].as_string() == proto
-                )
-            rows = session.exec(statement).all()
-            for row in rows:
-                session.delete(row)
-                deleted += 1
-            session.commit()
-    return deleted
+    record = DockingResultRecord
+
+    def same(row) -> tuple:  # what makes two rows results of the same docking
+        metrics = row.metrics
+        return (row.receptor_molecule_id, row.ligand_molecule_id, row.engine,
+                func.coalesce(metrics["run_kind"].as_string(), "screening"),
+                func.coalesce(metrics["protocol"]["hash"].as_string(), ""))
+
+    def of_run(row):
+        return func.coalesce(row.metrics["run_id"].as_string(), "") == run
+
+    new = aliased(record)
+    return delete_results_where(
+        project_db, ~of_run(record) & tuple_(*same(record)).in_(select(*same(new)).where(of_run(new))))
 
 
 # --- Docking results ---------------------------------------------------------------
@@ -778,7 +769,7 @@ def list_receptor_result_summaries(project_db) -> list[ReceptorDockingSummary]:
 
 __all__ = [
     "count_docked_pairs",
-    "delete_results_for_receptors",
+    "supersede_results",
     "docked_ligands_spec",
     "existing_result_pairs",
     "get_docking_results_stats",

@@ -9,7 +9,6 @@ from sqlalchemy import DateTime
 from sqlmodel import SQLModel
 
 import amdockvs.models  # noqa: F401  (registers tables)
-import ms_flow.core.database.executor_models  # noqa: F401
 import ms_flow.core.database.master_models  # noqa: F401
 import ms_flow.core.database.project_models  # noqa: F401
 

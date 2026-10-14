@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, Qt
+from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -20,14 +21,20 @@ from PySide6.QtWidgets import (
     QStyle,
     QTableWidget,
     QTableWidgetItem,
+    QVBoxLayout,
     QWidget, )
 
-from amdockvs.docking.engines.programs import GNINA_PROGRAM, VINA_PROGRAM, list_docking_programs
+from amdockvs.docking.engines.programs import (
+    GNINA_PROGRAM, QVINA_PROGRAM, VINA_PROGRAM, list_docking_programs, missing_programs)
+from amdockvs.integrations.registry import MANAGED_TOOLS
+from amdockvs.ui.common.async_query import run_async
 from amdockvs.docking.protocols import PROTOCOL_SCHEMA, protocol_hash, protocol_identity
 from amdockvs.core.vocab import MoleculeType
 from ms_components.tool_panel import ToolPanel
 
-DEFAULT_PROGRAM = VINA_PROGRAM.key
+# What a docking run starts ticked with: the first of these that can run here. QuickVina 2 scores
+# with Vina's function and gets there sooner; Vina needs no install, so there is always one.
+DEFAULT_PROGRAMS = (QVINA_PROGRAM.key, VINA_PROGRAM.key)
 MAX_REDOCKING_PROTOCOLS = 12
 
 
@@ -55,6 +62,9 @@ class ProtocolEditorWidget:
         # selected one's run settings on the right. Rows follow list_docking_programs() order.
         self._program_checks: dict[str, QCheckBox] = {}
         self._program_config_widgets: dict[str, dict[str, QWidget]] = {}
+        # A program that is not on this machine stays in the list, marked, with the way to it.
+        self._missing_programs: dict[str, str] = {}
+        self._program_notices: dict[str, tuple[QFormLayout, QWidget, QLabel]] = {}
         self.program_list = QListWidget(self.protocol_mode_box)
         self.program_pages = QStackedWidget(self.protocol_mode_box)
         for spec in list_docking_programs():
@@ -70,8 +80,11 @@ class ProtocolEditorWidget:
         programs.addWidget(self.program_pages, 1)
         self.protocol_mode_box.add_row(programs)
         self._build_protocols_box(panel.add_section("Validation Protocol Set"))
-        self._ensure_default_protocol()
+        self._ensure_default_protocol()  # redocking starts from a Vina variant: the one that runs anywhere
+        self._select_program(next((key for key, check in self._program_checks.items() if check.isChecked()), ""))
         self._sync_protocol_ui()
+        self.program_list.currentRowChanged.connect(lambda _row: self._sync_variant_buttons())
+        self._check_programs()
         return panel
 
     def _build_protocols_box(self, box) -> None:
@@ -142,7 +155,7 @@ class ProtocolEditorWidget:
         form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         use = QCheckBox(f"Run {spec.label}", page)
         use.setToolTip("Docking mode: include this software as an independent job.")
-        if spec.key == DEFAULT_PROGRAM:
+        if spec.key == DEFAULT_PROGRAMS[0]:
             use.setChecked(True)
         use.toggled.connect(self.refresh)
         self._program_checks[spec.key] = use
@@ -152,6 +165,18 @@ class ProtocolEditorWidget:
             page,
         )
         title.setWordWrap(True)
+        notice = QWidget(page)
+        notice_rows = QVBoxLayout(notice)  # the button under the text: beside it, a narrow dock clips it
+        notice_rows.setContentsMargins(0, 0, 0, 0)
+        notice_label = QLabel(notice)
+        notice_label.setWordWrap(True)
+        notice_rows.addWidget(notice_label)
+        settings_button = QPushButton("Open Settings", notice)
+        settings_button.clicked.connect(lambda _checked=False, key=spec.key: self._open_program_settings(key))
+        notice_rows.addWidget(settings_button, 0, Qt.AlignmentFlag.AlignLeft)
+        form.addRow(notice)
+        form.setRowVisible(notice, False)
+        self._program_notices[spec.key] = (form, notice, notice_label)
         form.addRow(use)
         form.addRow(title)
         if spec.key == VINA_PROGRAM.key:
@@ -264,7 +289,14 @@ class ProtocolEditorWidget:
         index = programs.currentRow() if programs is not None else 0
         if 0 <= index < len(specs):
             return str(specs[index].key)
-        return DEFAULT_PROGRAM
+        return VINA_PROGRAM.key
+
+    def _select_program(self, program: str) -> None:
+        """Show the settings of `program`, when it is in the list."""
+        programs = getattr(self, "program_list", None)
+        keys = [spec.key for spec in list_docking_programs()]
+        if programs is not None and program in keys:
+            programs.setCurrentRow(keys.index(program))
 
     @staticmethod
     def _program_label(program: str) -> str:
@@ -293,18 +325,9 @@ class ProtocolEditorWidget:
         return self._schema_config_from_widgets(program)
 
     def _apply_protocol_config_to_widgets(self, protocol: dict) -> None:
-        program = str(protocol.get("program") or DEFAULT_PROGRAM)
+        program = str(protocol.get("program") or VINA_PROGRAM.key)
         config = dict(protocol.get("config") or {})
-        specs = list(list_docking_programs())
-        programs = getattr(self, "program_list", None)
-        if programs is not None:
-            for index, spec in enumerate(specs):
-                if spec.key == program:
-                    programs.setCurrentRow(index)
-                    break
-        check = (getattr(self, "_program_checks", {}) or {}).get(program)
-        if check is not None:
-            check.setChecked(True)
+        self._select_program(program)  # its settings; what a docking run has ticked is not touched
         docking = self._docking_defaults()
         if program == VINA_PROGRAM.key:
             dd = docking.vina
@@ -587,9 +610,48 @@ class ProtocolEditorWidget:
     def _available_program_specs(self) -> list[object]:
         return [spec for spec in list_docking_programs() if self._program_compatible(spec)]
 
+    def _check_programs(self) -> None:
+        """Ask, off the GUI thread, which programs are not on this machine."""
+        run_async(lambda: missing_programs(self.runtime), self._apply_missing_programs, on_error=lambda _exc: None)
+
+    def _apply_missing_programs(self, missing: dict[str, str]) -> None:
+        self._missing_programs = dict(missing)
+        greyed = self.palette().brush(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text)
+        for index, spec in enumerate(list_docking_programs()):
+            reason = self._missing_programs.get(spec.key, "")
+            item = self.program_list.item(index)
+            item.setText(f"{spec.label} — not installed" if reason else spec.label)
+            item.setData(Qt.ItemDataRole.ForegroundRole, greyed if reason else None)
+            form, notice, label = self._program_notices[spec.key]
+            label.setText(reason)
+            form.setRowVisible(notice, bool(reason))
+        self.program_list.setFixedWidth(self.program_list.sizeHintForColumn(0) + 32)
+        self._sync_variant_buttons()
+        self._refresh_program_availability()
+
+    def _sync_variant_buttons(self) -> None:
+        # Redocking: a variant of a program that cannot run is not one to add to the set.
+        missing = self._current_program_key() in self._missing_programs
+        self.add_protocol_btn.setEnabled(not missing)
+        self.replace_protocol_btn.setEnabled(not missing)
+
+    def _open_program_settings(self, program: str) -> None:
+        opener = getattr(self.window(), "open_settings", None)
+        if callable(opener):
+            managed = any(tool.tool_id == program for tool in MANAGED_TOOLS)
+            opener(node="page:External tools" if managed else "amdockvs/docking")
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        # Back from Settings, where the program may just have been installed.
+        if (event.type() == QEvent.Type.ActivationChange and self.isActiveWindow()
+                and getattr(self, "_missing_programs", None)):
+            self._check_programs()
+
     def _refresh_program_availability(self) -> None:
         specs = list(list_docking_programs())
         available_keys = {spec.key for spec in specs if self._program_compatible(spec)}
+        runnable_keys = available_keys - set(getattr(self, "_missing_programs", ()))
         programs = getattr(self, "program_list", None)
         for index, spec in enumerate(specs):
             available = spec.key in available_keys
@@ -597,26 +659,22 @@ class ProtocolEditorWidget:
                 programs.item(index).setHidden(not available)
             check = (getattr(self, "_program_checks", {}) or {}).get(spec.key)
             if check is not None:
-                check.setEnabled(available)
-                if not available:
+                check.setEnabled(spec.key in runnable_keys)
+                if spec.key not in runnable_keys:
                     check.setChecked(False)
         if programs is not None and programs.currentItem() is not None and programs.currentItem().isHidden():
             visible = [index for index, spec in enumerate(specs) if spec.key in available_keys]
             programs.setCurrentRow(visible[0] if visible else -1)
         checked_available = [
             key for key, check in (getattr(self, "_program_checks", {}) or {}).items()
-            if key in available_keys and check.isChecked()
+            if key in runnable_keys and check.isChecked()
         ]
-        if not checked_available and available_keys:
-            preferred = DEFAULT_PROGRAM if DEFAULT_PROGRAM in available_keys else sorted(available_keys)[0]
+        if not checked_available and runnable_keys:
+            preferred = next((key for key in DEFAULT_PROGRAMS if key in runnable_keys), sorted(runnable_keys)[0])
             check = self._program_checks.get(preferred)
             if check is not None:
                 check.setChecked(True)
-            if programs is not None:
-                for index, spec in enumerate(specs):
-                    if spec.key == preferred:
-                        programs.setCurrentRow(index)
-                        break
+            self._select_program(preferred)
         self._refresh_prep_targets()
         self._refresh_receptor_prep_targets()
         self._refresh_protocol_table()

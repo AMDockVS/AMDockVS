@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QSpinBox,
     QStackedWidget,
     QWidget,
@@ -18,6 +19,7 @@ from ms_components.tool_panel import ToolPanel
 from amdockvs.ui.catalog.common import BoundTableWidget
 from amdockvs.ui.catalog.ligands import LIGANDS_VIEW_ID
 from amdockvs.ui.catalog.receptors import RECEPTOR_VIEW_ID
+from amdockvs.docking.api import MissingLigand3DError
 from amdockvs.docking.engines.programs import list_docking_programs
 from amdockvs.models import EngineState
 from ms_components.ms_table import (
@@ -483,7 +485,14 @@ class PreparationPanel:
         One NOT EXISTS per family, OR-ed: a row is worth showing while ANY selected family
         still lacks it. With K=1 (today) that's a single anti-join on the unique
         (molecule_id, role_type, engine) index — ~1 index probe per candidate row.
+
+        Rows the user picked ("Select") are listed whatever their state: hiding the prepared
+        ones would empty the table once the selection is prepared, with nothing left to pick
+        or to clear. The selection is theirs to drop (status bar), and then this applies again.
         """
+        store = getattr(self.window(), "selection", None)
+        if store is not None and store.get(role):
+            return None
         force = getattr(self, f"force_prepare_{role}s", None)
         if force is None or force.isChecked() or self.stepper.current_index != self._PREP_STEP[role]:
             return None
@@ -584,28 +593,73 @@ class PreparationPanel:
         target = self._selected_prep_target()
         programs = self._distinct_prep_programs() if target is None else [target]
         job_ids: dict[str, str] = {}
-        try:
+        before: list[tuple[str, str]] = []  # jobs the preparation waits for
+
+        def submit(**deferred) -> None:
             for program in programs:
-                job_ids[program] = self.runtime.docking.prepare_ligands(
-                    program=program,
-                    ligand_set=ligand_scope,
-                    batch_size=max(1, int(self.prepare_ligand_batch_size.value())),
-                    force=self.force_prepare_ligands.isChecked(),
+                if program not in job_ids:
+                    job_ids[program] = self.runtime.docking.prepare_ligands(
+                        program=program,
+                        ligand_set=ligand_scope,
+                        batch_size=max(1, int(self.prepare_ligand_batch_size.value())),
+                        force=self.force_prepare_ligands.isChecked(),
+                        executor_name=self.ligand_prep_destination.executor_name(),
+                        **deferred,
+                    )
+
+        try:
+            try:
+                submit()
+            except MissingLigand3DError as exc:
+                # The fix is one job away, so offer it here instead of sending the user off.
+                choice = self._ask_missing_3d(exc.count)
+                if choice == "build":
+                    from amdockvs.ui.tools.molecules.build import BUILD_ID  # circular at import time
+
+                    self._follow_prep(self.ligand_prep_jobs, job_ids)
+                    self.window().tools.open_tool(BUILD_ID)
+                    return
+                if choice != "generate":
+                    self._follow_prep(self.ligand_prep_jobs, job_ids)
+                    return
+                job_3d = self.runtime.chemistry.generate_3d_ligands(
+                    ligands=self.runtime.molecules.filter(ligand_scope, filters={"has_3d": False}),
                     executor_name=self.ligand_prep_destination.executor_name(),
                 )
+                before = [("3D generation", str(job_3d))]
+                # Submitted now, runs after: the preparation resolves its ligands once the 3D job
+                # is done, so the submit-time 3D check would refuse what is about to exist.
+                submit(depends_on=[str(job_3d)], check_required=False)
         except Exception as exc:
-            self._follow_prep(self.ligand_prep_jobs, job_ids)
+            self._follow_prep(self.ligand_prep_jobs, job_ids, before=before)
             self._error("Prepare Ligands", exc)
             return
-        self._follow_prep(self.ligand_prep_jobs, job_ids)
+        self._follow_prep(self.ligand_prep_jobs, job_ids, before=before)
         self.stepper.set_current_index(2)
 
-    def _follow_prep(self, follower, job_ids: dict[str, str], unit: str = "batches") -> None:
+    def _ask_missing_3d(self, count: int) -> str:
+        """What to do about ligands with no 3D coordinates: "generate", "build" or "" (cancel)."""
+        box = QMessageBox(
+            QMessageBox.Warning, "Prepare Ligands",
+            f"{int(count)} ligand(s) have no 3D coordinates, and this preparation needs them.",
+            parent=self,
+        )
+        box.setInformativeText(
+            "Generate them now with the default settings and prepare as soon as they are ready, "
+            "or open Build to choose protonation, the 3D method and minimization yourself."
+        )
+        generate = box.addButton("Generate 3D and prepare", QMessageBox.AcceptRole)
+        build = box.addButton("Open Build…", QMessageBox.ActionRole)
+        box.addButton(QMessageBox.Cancel)
+        box.exec()
+        return {generate: "generate", build: "build"}.get(box.clickedButton(), "")
+
+    def _follow_prep(self, follower, job_ids: dict[str, str], unit: str = "batches", before=()) -> None:
         # ponytail: one entry per program; they run side by side, so "step i of n" only
         # means "job i". Fine while every selected program shares one prep family (K=1).
-        if job_ids:
+        if job_ids or before:
             # The noun says ligand/receptor; the program is noise (families share one prep).
-            follower.follow([(follower.noun, job_id) for job_id in job_ids.values()], unit=unit)
+            follower.follow([*before, *((follower.noun, job_id) for job_id in job_ids.values())], unit=unit)
 
     def _set_sharded_prep_mode(self, sharded: bool) -> None:
         """A physical shard is already the HTP task, so no second batch control applies."""

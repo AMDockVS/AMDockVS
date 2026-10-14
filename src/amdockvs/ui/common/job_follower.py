@@ -7,6 +7,8 @@ from PySide6.QtWidgets import QMessageBox, QWidget
 
 from ms_components.tool_panel import ActionBar, format_count
 
+from amdockvs.core.jobs import STATUS as JOB_STATUS
+
 
 class JobFollower(QObject):
     """One Run = ``[(stage, job_id), ...]`` in execution order (a chain waits on ``depends_on``).
@@ -53,7 +55,8 @@ class JobFollower(QObject):
         job_id = str(job_id)
         if job_id not in self.job_ids or job_id in self._outcomes:
             return
-        self._outcomes[job_id] = str(status or "").strip().lower()
+        status = str(status or "").strip().lower()
+        self._outcomes[job_id] = JOB_STATUS.get(status, status)
         if len(self._outcomes) < len(self._stages):
             self._render()
             return
@@ -85,8 +88,7 @@ class JobFollower(QObject):
         if state is None or state.status != "running":
             self.bar.start("Queued", self._step_text(index) or "Waiting for earlier jobs or a free worker")
             return
-        # A streamed feed only knows a floor for the total until it is exhausted.
-        total = int(state.chunks_total) if state.feed_exhausted and state.chunks_total else None
+        total = int(state.chunks_total) or None
         busy = int(state.chunks_running)
         detail = " · ".join(filter(None, (self._step_text(index), f"{format_count(busy)} running" if busy else "")))
         self.bar.set_progress(

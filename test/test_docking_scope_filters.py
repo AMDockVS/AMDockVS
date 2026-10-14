@@ -25,4 +25,5 @@ def test_virtual_keys_are_stripped():
 def test_receptor_defaults():
     _, sql_filters, prepared, grid = _entity_scope_filters("receptor", None, engine="ad4")
     assert prepared is None and grid is None
-    assert sql_filters == {"excluded": False, "is_receptor": True}
+    # docking needs coordinates: a sequence-only protein is out of scope
+    assert sql_filters == {"excluded": False, "is_receptor": True, "has_3d": True}

@@ -9,8 +9,9 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
-import subprocess
 from pathlib import Path
+
+from amdockvs.core.worker_io import run_program
 
 # $OVERRIDE, else PATH (e.g. `conda install -c conda-forge autogrid`), else the bare name so
 # the missing-binary error names the tool instead of a machine-specific path.
@@ -76,7 +77,7 @@ def autogrid(
         encoding="utf-8",
     )
     command = [AUTOGRID4, "-p", gpf.name, "-l", f"{stem}.glg"]
-    proc = subprocess.run(command, cwd=str(work), capture_output=True, text=True)
+    proc = run_program(command, cwd=str(work))
     if proc.returncode != 0:
         raise RuntimeError(f"autogrid4 failed ({proc.returncode}): {(proc.stderr or proc.stdout).strip()[:500]}")
     return work / f"{stem}.maps.fld"

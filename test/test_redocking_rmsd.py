@@ -72,3 +72,22 @@ def test_redocking_rmsd_keeps_identical_pose_near_zero(tmp_path):
     value, method = detail
     assert value < 1.0e-6
     assert method in {"substruct", "ordered"}
+
+
+def test_redocking_rmsd_matches_files_that_type_and_order_the_ligand_differently():
+    pytest.importorskip("rdkit")
+
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
+    from amdockvs.docking.results.rmsd import _mapped_rmsd_no_align
+
+    mol = Chem.AddHs(Chem.MolFromSmiles("Oc1ccc(F)cc1C(=O)N"))
+    assert AllChem.EmbedMolecule(mol, randomSeed=3) == 0
+    reference = Chem.RemoveHs(mol)  # aromatic, as a reference typed from the CCD
+    pose = Chem.RenumberAtoms(reference, list(reversed(range(reference.GetNumAtoms()))))
+    Chem.Kekulize(pose, clearAromaticFlags=True)  # as a pose read from an SDF, in the order Meeko wrote
+
+    rmsd, method = _mapped_rmsd_no_align(reference, pose)
+
+    assert method == "substruct" and rmsd < 1e-6  # the same pose: not the atoms of one against another's

@@ -11,7 +11,7 @@ labels). BitBIRCH-Lean is the first; Taylor-Butina / others slot in the same dic
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Iterator
 
 import numpy as np
 
@@ -93,7 +93,8 @@ def fp_matrix_from_mols(mols: Iterable[Any], *, radius: int = 2, n_bits: int = 2
 
 def _tanimoto_to_matrix(fp: np.ndarray, matrix: np.ndarray, matrix_sums: np.ndarray) -> np.ndarray:
     """Tanimoto of one 0/1 vector against every row of ``matrix`` (whose row sums are precomputed)."""
-    inter = matrix @ fp
+    # Counted, not `matrix @ fp`: a uint8 product wraps past 255 shared bits (large molecules).
+    inter = np.count_nonzero(matrix & fp, axis=1)
     denom = matrix_sums + int(fp.sum()) - inter
     with np.errstate(divide="ignore", invalid="ignore"):
         return np.where(denom > 0, inter / denom, 0.0)
@@ -302,25 +303,111 @@ def bitbirch_lean_parallel(
     return labels
 
 
-# --- representative (centroid) selection --------------------------------------
-def select_representatives(
-    x_matrix: np.ndarray,
-    labels: np.ndarray,
-    *,
-    per_cluster: int = 1,
-) -> list[int]:
-    """Pick up to ``per_cluster`` representatives per cluster: the members most Tanimoto-similar to
-    their cluster's majority centroid (medoid-by-centroid). Returns global row indices, sorted."""
-    reps: list[int] = []
-    per_cluster = max(1, int(per_cluster))
-    for label in np.unique(labels):
-        member_idx = np.where(labels == label)[0]
+# --- representative selection --------------------------------------------------
+# How a cluster is reduced to the molecules kept from it:
+#   centroid  — the ``per_cluster`` members most similar to the majority-vote centroid
+#   medoid    — the ``per_cluster`` members most similar, on average, to the other members
+#   extremes  — the lowest, the mean-nearest and the highest member of the ranking (up to 3)
+#   quartiles — four members equidistant in the ranking, from the lowest to the highest
+#   proportional — a share of the cluster (at least one member), spread the same way
+# The ranking of the last three is similarity to the centroid (centre → edge of the cluster),
+# or a caller-supplied value per molecule (an activity): then the picks span that value.
+REPRESENTATIVE_MODES = ("centroid", "medoid", "extremes", "quartiles", "proportional")
+MEDOID_EXACT_LIMIT = 2000  # ponytail: exact medoid is O(m²); above it the centroid-nearest stands in
+
+
+def _mean_similarity(members: np.ndarray, sums: np.ndarray) -> np.ndarray:
+    """Each member's mean Tanimoto to the other members of its cluster."""
+    dense = members.astype(np.float32)
+    inter = dense @ dense.T
+    denom = sums[:, None] + sums[None, :] - inter
+    with np.errstate(divide="ignore", invalid="ignore"):
+        sims = np.where(denom > 0, inter / denom, 0.0)
+    return (sims.sum(axis=1) - 1.0) / max(1, len(members) - 1)
+
+
+def _groups(labels: np.ndarray) -> Iterator[np.ndarray]:
+    """Row indices of each cluster, in label order. One sort for the whole run: the
+    ``np.where(labels == label)`` loop it replaces was O(rows x clusters)."""
+    order = np.argsort(labels, kind="stable")
+    yield from np.split(order, np.flatnonzero(np.diff(np.asarray(labels)[order])) + 1) if len(order) else ()
+
+
+def member_rankings(x_matrix: np.ndarray, labels: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """What a clustering leaves behind so representatives can be picked later without the
+    fingerprints: per row, ``similarity`` (Tanimoto to its cluster's centroid) and ``centrality``
+    (mean Tanimoto to the other members; NaN where the medoid is not computed exactly)."""
+    similarity = np.zeros(len(labels), dtype=np.float32)
+    centrality = np.full(len(labels), np.nan, dtype=np.float32)
+    for member_idx in _groups(labels):
         members = x_matrix[member_idx]
+        sums = members.sum(axis=1)
         centroid = (2 * members.sum(axis=0) >= len(member_idx)).astype(np.uint8)
-        sims = _tanimoto_to_matrix(centroid, members, members.sum(axis=1))
-        order = np.argsort(-sims)[:per_cluster]
+        similarity[member_idx] = _tanimoto_to_matrix(centroid, members, sums)
+        if 2 < len(member_idx) <= MEDOID_EXACT_LIMIT:
+            centrality[member_idx] = _mean_similarity(members, sums)
+    return similarity, centrality
+
+
+def _spread(ranking: np.ndarray, count: int | None) -> list[int]:
+    """Positions (into ``ranking``) of the members that span it. ``count`` None: the extremes
+    (lowest, the one nearest the mean, highest). Otherwise ``count`` members equidistant in rank
+    from the lowest to the highest, which is one per quantile (4 = one per quartile); 1 = the median."""
+    order = np.argsort(ranking, kind="stable")
+    if count is None:
+        picks = [int(order[0]), int(np.argmin(np.abs(ranking - ranking.mean()))), int(order[-1])]
+    elif count >= len(order):
+        picks = [int(i) for i in order]
+    elif count <= 1:
+        picks = [int(order[len(order) // 2])]
+    else:
+        last, gaps = len(order) - 1, count - 1
+        picks = [int(order[(2 * i * last + gaps) // (2 * gaps)]) for i in range(count)]
+    return list(dict.fromkeys(picks))
+
+
+def pick_representatives(
+    labels: np.ndarray,
+    similarity: np.ndarray,
+    *,
+    mode: str = "centroid",
+    per_cluster: int = 1,
+    fraction: float = 0.1,
+    centrality: np.ndarray | None = None,
+    values: np.ndarray | None = None,
+) -> list[int]:
+    """Pick each cluster's representatives from stored rankings (see ``member_rankings``); no
+    fingerprints, so it can be redone on a finished clustering at any time.
+
+    centroid / medoid: the ``per_cluster`` members nearest the centroid / most central.
+    extremes: the lowest, mean-nearest and highest of the ranking. quartiles: one per quartile.
+    proportional: ``fraction`` of each cluster (at least one), so a cluster holding 10 % of the
+    molecules supplies 10 % of the result. The last three rank by ``similarity``, or by ``values``
+    (one float per row, NaN = unknown: those rows are never picked); a cluster with no known
+    value falls back to its centroid member. Returns row indices, sorted."""
+    if mode not in REPRESENTATIVE_MODES:
+        raise ValueError(f"Unknown representative mode '{mode}'. Available: {list(REPRESENTATIVE_MODES)}")
+    per_cluster = max(1, int(per_cluster))
+    reps: list[int] = []
+    for member_idx in _groups(labels):
+        sims = similarity[member_idx]
+        if mode in ("extremes", "quartiles", "proportional"):
+            ranking = sims if values is None else np.asarray(values, dtype=float)[member_idx]
+            known = np.flatnonzero(~np.isnan(ranking))
+            count = {"extremes": None, "quartiles": 4}.get(mode, max(1, round(float(fraction) * len(known))))
+            order = known[_spread(ranking[known], count)] if len(known) else np.argsort(-sims, kind="stable")[:1]
+        elif mode == "medoid" and centrality is not None and not np.isnan(centrality[member_idx]).any():
+            order = np.argsort(-centrality[member_idx], kind="stable")[:per_cluster]
+        else:
+            order = np.argsort(-sims, kind="stable")[:per_cluster]
         reps.extend(int(member_idx[j]) for j in order)
     return sorted(reps)
+
+
+def select_representatives(x_matrix: np.ndarray, labels: np.ndarray, **picking: Any) -> list[int]:
+    """Rank the members from their fingerprints and pick in one go (see ``pick_representatives``)."""
+    similarity, centrality = member_rankings(x_matrix, labels)
+    return pick_representatives(labels, similarity, centrality=centrality, **picking)
 
 
 def size_histogram(sizes: Iterable[int]) -> tuple[list[str], list[int]]:
@@ -483,6 +570,14 @@ def cluster_multiround_labels(
     )
 
 
+def cluster_labels(x_matrix: np.ndarray, *, method: str = "bitbirch", **method_params: Any) -> np.ndarray:
+    """One cluster label per row, by a registered method."""
+    method_fn = CLUSTERING_METHODS.get(method) or _CLUSTERING_ALIASES.get(method)
+    if method_fn is None:
+        raise ValueError(f"Unknown clustering method '{method}'. Available: {sorted(CLUSTERING_METHODS)}")
+    return method_fn(x_matrix, **method_params)
+
+
 def cluster_and_select(
     x_matrix: np.ndarray,
     *,
@@ -496,10 +591,7 @@ def cluster_and_select(
     ``method_params`` (e.g. threshold) are passed straight to the registered method, so callers
     and the UI stay decoupled from any single method's knobs.
     """
-    method_fn = CLUSTERING_METHODS.get(method) or _CLUSTERING_ALIASES.get(method)
-    if method_fn is None:
-        raise ValueError(f"Unknown clustering method '{method}'. Available: {sorted(CLUSTERING_METHODS)}")
-    labels = method_fn(x_matrix, **method_params)
+    labels = cluster_labels(x_matrix, method=method, **method_params)
     reps = select_representatives(x_matrix, labels, per_cluster=per_cluster)
     projection, projection_variance = project_2d(x_matrix) if with_projection else (np.zeros((0, 2)), [0.0, 0.0])
     return SelectionResult(
@@ -518,11 +610,15 @@ _CLUSTERING_ALIASES["bitbirch_lean"] = bitbirch_lean
 __all__ = [
     "CLUSTERING_METHODS",
     "PackedFingerprints",
+    "REPRESENTATIVE_MODES",
+    "member_rankings",
+    "pick_representatives",
     "SelectionResult",
     "bitbirch",
     "bitbirch_lean",
     "bitbirch_lean_parallel",
     "cluster_and_select",
+    "cluster_labels",
     "cluster_multiround_labels",
     "cluster_stats",
     "fit_project_2d",

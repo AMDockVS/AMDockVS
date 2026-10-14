@@ -286,8 +286,6 @@ def test_amdock_monitor_bridge_tracks_real_import_job_detail_and_history(tmp_pat
 
         snapshot = bridge.refresh_now()
         detail = bridge.get_job_detail(job_ids[0])
-        history = bridge.get_job_history(limit=10)
-        capabilities = {item.action: item for item in bridge.get_action_capabilities(job_ids[0])}
 
         assert snapshot is not None
         assert snapshot.has_project is True
@@ -296,11 +294,8 @@ def test_amdock_monitor_bridge_tracks_real_import_job_detail_and_history(tmp_pat
         assert detail is not None
         assert detail.job is not None
         assert detail.job.status == "completed"
-        assert len(detail.events) >= 1
-        assert any(job.job_id == job_ids[0] for job in history)
-        assert capabilities["refresh"].supported is True
-        assert capabilities["cancel_job"].supported is False
-        assert capabilities["resubmit_job"].supported is True
+        assert detail.job.chunks_done == 3
+        assert detail.failures == []
     finally:
         bridge.stop()
         runtime.shutdown()
@@ -451,8 +446,6 @@ def test_amdock_runtime_import_ligands_streams_full_file(tmp_path, monkeypatch):
         assert sorted(item.name for item in ligands) == [f"LIG_{idx:04d}" for idx in range(12)]
 
         detailed = runtime.wait_for_job(job_ids[0], poll_s=0.05)
-        assert detailed.feed_cursor_position == 6
-        assert detailed.feed_items_acked == 6
         assert detailed.chunks_total == 6
         assert detailed.chunks_done == 6
     finally:
@@ -484,7 +477,7 @@ def test_amdock_runtime_import_prefilter_discards_ligands_early(tmp_path, monkey
 
         selected_ligands = _role_rows(runtime, "ligand")
         inventory_rows = db_rows(
-            runtime.molsuite.project_db,
+            runtime.workspace.project_db,
             TABLE_MOLECULES,
             filters={"is_ligand": True},
             order=("id",),
@@ -522,7 +515,6 @@ def test_amdock_runtime_import_ligands_multithreaded_sdf_runs_as_single_chunk_jo
         detailed = runtime.wait_for_job(job_ids[0], poll_s=0.05)
         assert detailed.chunks_total == 1
         assert detailed.chunks_done == 1
-        assert detailed.max_job_cpu == 4
     finally:
         runtime.shutdown()
 

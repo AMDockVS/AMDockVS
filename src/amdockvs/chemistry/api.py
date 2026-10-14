@@ -186,7 +186,7 @@ class ChemistryAPI:
         ]
         if ligands is None:
             self.runtime._require_active_project()
-            if has_shards(self.runtime.molsuite.project_db):
+            if has_shards(self.runtime.workspace.project_db):
                 return self.run_shard_pipeline(
                     normalized,
                     state=shard_state,
@@ -237,7 +237,7 @@ class ChemistryAPI:
                 "stores one molecular structure. Generate conformers after materialization."
             )
         self.runtime._require_active_project()
-        project_db = self.runtime.molsuite.project_db
+        project_db = self.runtime.workspace.project_db
         # Opened here, before anything runs: the feed needs its output directory and the
         # result handler needs its id, and neither can invent one of its own without the two
         # disagreeing about where the generation lives.
@@ -554,7 +554,7 @@ class ChemistryAPI:
             receptor_set_id=None if receptor_set_ref is None else int(receptor_set_ref.id),
             receptor_filters=receptor_filters if force else {**receptor_filters, "has_3d": False},
         )
-        project_db = self.runtime.molsuite.project_db
+        project_db = self.runtime.workspace.project_db
         total_items = db_count(project_db, prediction_scope_spec(params))
         # An empty scope with proteins in it means they all have 3D already. An empty scope with
         # no proteins at all may be an import still running: submit and let the job wait for it.

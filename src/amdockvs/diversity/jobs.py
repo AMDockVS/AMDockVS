@@ -8,22 +8,27 @@ through MolSuite, so there is no direct project.db access from inside a task.
 """
 from __future__ import annotations
 
+import shutil
 import uuid
 from itertools import batched
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Iterator
 
 from pydantic import BaseModel, Field
 
+from ms_flow.engine import writer
 from ms_flow.query import QuerySpec, db_rows
 from ms_flow.sinks import table_sink
-from ms_flow.tasking import job, task
+from amdockvs.core.jobs import job
+from amdockvs.diversity.tasks import cluster_molecules_task
 
 from amdockvs.core.configuration import DEFAULT_LIGAND_BATCH_SIZE
 from amdockvs.molecules.storage import as_store, store_from_config
 from amdockvs.core.worker_io import worker_file, worker_output_dir
 from amdockvs.core.constants import (
-    AMDOCKVS_LOCAL_EXECUTORS,
+    AMDOCKVS_OFFLOADABLE_EXECUTORS,
+    TABLE_ACTIVITIES,
     TABLE_FINGERPRINTS,
     TABLE_MOLECULES,
 )
@@ -31,13 +36,7 @@ from amdockvs.models import ClusteringResult
 from amdockvs.models.descriptors import FingerprintType
 from amdockvs.docking.repository import molecule_set_spec
 from amdockvs.core.paths import preferred_molecule_path, set_default_project_root
-from amdockvs.diversity.clustering import (
-    PackedFingerprints,
-    cluster_and_select,
-    cluster_multiround_labels,
-    fp_matrix_from_bitstrings,
-    select_representatives,
-)
+from amdockvs.diversity.clustering import fp_matrix_from_bitstrings
 
 
 def _fp_type_for_radius(radius: int) -> str:
@@ -48,6 +47,8 @@ class SelectionClusterJobParams(BaseModel):
     method: str = Field(default="bitbirch")
     threshold: float = Field(default=0.65, ge=0.0, le=1.0)
     per_cluster: int = Field(default=1, ge=1)
+    # An activity endpoint: the scope becomes the ligands that have a value for it.
+    with_activity: str = Field(default="")
     molecule_set_id: int | None = Field(default=None, ge=1)
     molecule_filters: dict[str, Any] = Field(default_factory=dict)
     fp_radius: int = Field(default=2, ge=1)
@@ -67,8 +68,15 @@ def _scope_spec(params: SelectionClusterJobParams) -> QuerySpec:
     """
     filters = {"is_ligand": True, "excluded": False, "stored_path__ne": "", **dict(params.molecule_filters or {})}
     filters.pop("_limit", None)
+    in_specs: list[QuerySpec] = []
     if params.molecule_set_id is not None:
-        filters["id__in_subquery"] = molecule_set_spec(int(params.molecule_set_id))
+        in_specs.append(molecule_set_spec(int(params.molecule_set_id)))
+    if params.with_activity:
+        in_specs.append(QuerySpec(
+            table=TABLE_ACTIVITIES, fields=("molecule_id",), filters={"activity_type": str(params.with_activity)}
+        ))
+    if in_specs:
+        filters["id__in_subquery"] = in_specs
     return QuerySpec(
         table=TABLE_MOLECULES,
         fields=("id", "stored_path", "current_path", "current_model_index", "input_format"),
@@ -86,6 +94,16 @@ def scope_molecule_rows(source, params: SelectionClusterJobParams) -> Iterator[d
 def scope_molecule_count(source, params: SelectionClusterJobParams) -> int:
     """How many molecules the scope holds — a COUNT, not a walk over the whole library."""
     return as_store(source).count(_scope_spec(params))
+
+
+def activity_values(project_db, endpoint: str) -> dict[int, float]:
+    """The latest value of an activity endpoint per ligand. Measured ligands only, so it is
+    small next to the library."""
+    rows = db_rows(
+        project_db, TABLE_ACTIVITIES, fields=("id", "molecule_id", "value"),
+        filters={"activity_type": str(endpoint)}, order=("id",),
+    )
+    return {int(row["molecule_id"]): float(row["value"]) for row in rows}  # later rows win
 
 
 def stored_fingerprints_for_ids(project_db, molecule_ids: list[int], *, radius: int, nbits: int) -> dict[int, bytes]:
@@ -177,107 +195,18 @@ def _write_packed_fingerprints(
     return fp_path, ids_path, written
 
 
-@task(
-    name="amdock_cluster_molecules_batch",
-    description="Cluster molecule fingerprints and emit clustering_results rows.",
-    executor="compute",
-    supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
-)
-def cluster_molecules_task(payload: dict) -> list[dict]:
-    import numpy as np
-
-    # The payload carries paths, not fingerprints: the matrix lives bit-packed in a memory-mapped
-    # .npy (256 B/mol) and is unpacked in blocks. Sending the '0'/'1' strings inside the payload was
-    # 2 kB/mol serialised — 69 GB at 33 M molecules, before any clustering even started.
-    count = int(payload.get("count") or 0)
-    if not count:
-        return []
-    molecule_ids = np.load(payload["ids_path"], mmap_mode="r")[:count]
-    packed = np.load(payload["fp_path"], mmap_mode="r")[:count]
-    x_matrix = PackedFingerprints(packed, int(payload.get("nbits") or 0))
-    per_cluster = int(payload.get("per_cluster") or 1)
-    threshold = float(payload.get("threshold") or 0.65)
-    num_processes = int(payload.get("num_processes") or 1)
-    if num_processes > 1:
-        # Large scope: parallel BitBIRCH (bblean multiround) across the CPUs mf reserved for us.
-        labels = cluster_multiround_labels(x_matrix, threshold=threshold, num_processes=num_processes)
-        rep_indices = select_representatives(x_matrix, labels, per_cluster=per_cluster)
-    else:
-        result = cluster_and_select(
-            x_matrix,
-            method=str(payload.get("method") or "bitbirch"),
-            per_cluster=per_cluster,
-            with_projection=False,  # projection is a UI concern; keep the job payload lean
-            threshold=threshold,
-        )
-        labels, rep_indices = result.labels, result.representative_indices
-    centroids = set(rep_indices)
-    # Compute the 2-D PCA graph NOW (we already hold the fingerprints + labels) and persist it to the
-    # run's parquet sidecar, so viewing the saved result never recomputes anything — the plot + cluster
-    # sizes are read straight back. Best-effort: a sidecar failure must not lose the clustering rows.
-    _write_graph_sidecar(
-        output_dir=str(payload.get("output_dir") or ""),
-        run_id=str(payload.get("cluster_run_id") or ""),
-        x_matrix=x_matrix, molecule_ids=molecule_ids, labels=labels, centroids=centroids,
-    )
-    # ponytail: assignments are returned as a list — that is the task contract, and the sink
-    # writes them in bulk. It is the last point proportional to n on this path (~300 B/mol);
-    # if it gets in the way, the next step is a batched sink, not another structure here.
-    assignments = [
-        {"molecule_id": int(molecule_ids[i]), "cluster_id": int(labels[i]), "is_centroid": i in centroids}
-        for i in range(count)
-    ]
-    rows = ClusteringResult.build_rows(
-        cluster_run_id=str(payload.get("cluster_run_id") or ""),
-        assignments=assignments,
-        method=str(payload.get("method") or "bitbirch"),
-        fp_type=str(payload.get("fp_type") or ""),
-    )
-    # Fingerprints are derivable: they are deleted at the end so no run leaves 256 B/mol behind.
-    for key in ("fp_path", "ids_path"):
-        Path(str(payload.get(key) or "")).unlink(missing_ok=True)
-    return rows
+def _assignments(params, project):
+    """The sink of the job, for chunks that return their rows beside the sidecar they wrote."""
+    sink = writer(table_sink(model=ClusteringResult, write_mode="bulk"), project)
+    return SimpleNamespace(tables=sink.tables, write=lambda results: sink.write([result["rows"] for result in results]))
 
 
-def _write_graph_sidecar(
-    *, output_dir: str, run_id: str, x_matrix, molecule_ids: list[int], labels, centroids: set,
-) -> None:
-    """Write the run's chemical-universe graph (x, y, molecule_id, cluster_id, is_centroid) to
-    ``<project_root>/clustering_runs/<run_id>.parquet``. The PCA basis is fitted on a sub-sample and
-    every point projected onto it (cheap). Computed here, once, so the GUI never recomputes it."""
-    if not output_dir or not run_id:
-        return
-    try:
-        import random
-
-        import numpy as np
-        import pandas as pd
-
-        from amdockvs.diversity.clustering import fit_project_2d, project_2d_onto
-
-        n = len(molecule_ids)
-        # sample straight off range(): materialising n boxed ints just to draw 2000 of them was
-        # pure waste on a million-molecule library.
-        fit_idx = list(range(n)) if n <= 2000 else random.Random(0).sample(range(n), 2000)
-        _coords, _evr, basis = fit_project_2d(x_matrix[fit_idx])
-        proj = project_2d_onto(x_matrix, basis)
-        # numpy columns, not list comprehensions: boxing 5 x n Python floats/ints/bools cost more
-        # RAM than the fingerprint matrix they came from, and pandas takes the arrays as they are.
-        is_centroid = np.zeros(n, dtype=bool)
-        if centroids:
-            is_centroid[np.fromiter(centroids, dtype=np.int64, count=len(centroids))] = True
-        frame = pd.DataFrame({
-            "x": np.asarray(proj[:, 0], dtype=np.float64),
-            "y": np.asarray(proj[:, 1], dtype=np.float64),
-            "molecule_id": np.asarray(molecule_ids, dtype=np.int64),
-            "cluster_id": np.asarray(labels, dtype=np.int64),
-            "is_centroid": is_centroid,
-        })
-        out_dir = Path(output_dir)
-        out_dir.mkdir(parents=True, exist_ok=True)
-        frame.to_parquet(out_dir / f"{run_id}.parquet", index=False)
-    except Exception:  # noqa: BLE001 — the graph is a nicety; never fail the clustering over it
-        pass
+def _drop_fingerprints(params: dict, config: dict) -> None:
+    """The packed fingerprints of the run: the worker deletes the ones it read, which on another
+    disk are copies."""
+    run_id, db_path = str(dict(params).get("cluster_run_id") or ""), getattr(config.get("project_db"), "db_path", None)
+    if run_id and db_path:
+        shutil.rmtree(Path(db_path).expanduser().resolve().parent / "clustering_runs" / run_id, ignore_errors=True)
 
 
 @job(
@@ -285,8 +214,9 @@ def _write_graph_sidecar(
     name="amdock_cluster_molecules_job",
     params_model=SelectionClusterJobParams,
     executor="compute",
-    supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
-    output_spec=table_sink(model=ClusteringResult, write_mode="bulk"),
+    supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
+    output_spec=_assignments,
+    finalize=_drop_fingerprints,
     store_results=False,
 )
 def cluster_molecules_job(params: dict, config: dict | None = None) -> Iterator[dict]:
@@ -328,6 +258,7 @@ def cluster_molecules_job(params: dict, config: dict | None = None) -> Iterator[
 
 __all__ = [
     "SelectionClusterJobParams",
+    "activity_values",
     "cluster_molecules_job",
     "cluster_molecules_task",
 ]

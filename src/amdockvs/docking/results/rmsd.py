@@ -21,10 +21,32 @@ def _heavy(mol):
     return mol
 
 
+def _skeleton(mol):
+    """The graph of `mol` alone: its elements and which ones are bonded, atom indices kept.
+
+    Bond orders, aromaticity and charges are how a file was written, not what the ligand is:
+    the reference of a complex comes typed from the CCD (aromatic), the pose from a kekulized
+    SDF, and one never matches the other as written.
+    """
+    mol = Chem.RWMol(mol)
+    for atom in mol.GetAtoms():
+        atom.SetIsAromatic(False)
+        atom.SetFormalCharge(0)
+        atom.SetIsotope(0)
+        atom.SetNumRadicalElectrons(0)
+    for bond in mol.GetBonds():
+        bond.SetIsAromatic(False)
+        bond.SetBondType(Chem.BondType.SINGLE)
+    return mol
+
+
 def _ordered_rmsd(reference, pose) -> float | None:
     if reference is None or pose is None:
         return None
     if reference.GetNumAtoms() != pose.GetNumAtoms():
+        return None
+    # Atom by atom only says something when both files list the atoms in the same order.
+    if [atom.GetAtomicNum() for atom in reference.GetAtoms()] != [atom.GetAtomicNum() for atom in pose.GetAtoms()]:
         return None
     if reference.GetNumConformers() < 1 or pose.GetNumConformers() < 1:
         return None
@@ -42,9 +64,10 @@ def _ordered_rmsd(reference, pose) -> float | None:
 def _mapped_rmsd_no_align(reference, pose) -> tuple[float, str] | None:
     """Return (rmsd, method) with method in {"substruct", "ordered"}.
 
-    "substruct" is the symmetry-aware match; "ordered" is the MGLTools-style 1:1-by-index
-    fallback, only valid when reference and pose share atom ordering — callers surface the
-    method so the fragile "ordered" cases can be identified and audited.
+    "substruct" is the symmetry-aware match of the two graphs (see `_skeleton`); "ordered" is
+    the MGLTools-style 1:1-by-index fallback for graphs that differ (a bond one file has and
+    the other lacks), only tried when both list the same elements in the same order — callers
+    surface the method so the fragile "ordered" cases can be identified and audited.
     """
     if reference is None or pose is None:
         return None
@@ -57,7 +80,7 @@ def _mapped_rmsd_no_align(reference, pose) -> tuple[float, str] | None:
     count = int(reference.GetNumAtoms())
     mappings = ()
     with suppress(Exception):
-        mappings = pose.GetSubstructMatches(reference, uniquify=False, maxMatches=1000)
+        mappings = _skeleton(pose).GetSubstructMatches(_skeleton(reference), uniquify=False, maxMatches=1000)
     best: float | None = None
     for mapping in mappings:
         if len(mapping) != count:

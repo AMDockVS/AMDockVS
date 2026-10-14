@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 from types import SimpleNamespace
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -12,6 +13,7 @@ import amdockvs.docking.engines.registry as docking_registry
 import amdockvs.docking.submission as docking_submission
 from amdockvs.docking.api import DockingAPI
 from amdockvs.docking.engines.registry import register_docking_engine, run_docking_chunk
+from amdockvs.docking.engines.vina import _follow_progress_line
 from amdockvs.docking.preparation.profiles import (
     PreparationProfile,
     get_preparation_profile,
@@ -67,6 +69,38 @@ def test_one_registration_exposes_program_config_resources_and_runner(monkeypatc
         program.validate_config({"unknown": True})
 
 
+def test_a_chunk_tells_the_share_of_its_pairs_that_are_docked(monkeypatch):
+    monkeypatch.setattr(docking_registry, "DOCK_RUNNERS", dict(docking_registry.DOCK_RUNNERS))
+
+    def runner(payload: dict) -> list[dict]:
+        for pair in payload["pairs"]:
+            payload["_pair_progress"](0.5)  # halfway through this pair
+            payload["_pair_callback"]([pair])
+        return list(payload["pairs"])
+
+    docking_registry.register_dock_runner("test_pairs", runner, replace=True)
+    seen, told = [], []
+    chunk = {"engine": "test_pairs", "pairs": [{"n": n} for n in range(4)], "_pair_callback": seen.append}
+
+    assert run_docking_chunk(chunk, told.append) == chunk["pairs"]
+    assert told == [12.5, 25.0, 37.5, 50.0, 62.5, 75.0, 87.5, 100.0]
+    assert seen == [[pair] for pair in chunk["pairs"]]  # whoever was listening still hears
+
+
+def test_the_progress_line_of_vina_tells_how_far_a_pair_is():
+    output = (
+        "#### AutoDock Vina ####\n* a note with a star\nPerforming docking (random seed: 1) ... \n"
+        "0%   10   20   30   40   50   60   70   80   90   100%\n"
+        "|----|----|----|----|----|----|----|----|----|----|\n" + "*" * 51 + "\n\nmode |   affinity\n"
+    )
+    told = []
+
+    assert _follow_progress_line(io.StringIO(output), told.append) == output
+    assert len(told) == 52 and told[0] == told[1] == 1 / 51  # the note's star, then the line starts over
+    assert told[1:] == sorted(told[1:]) and told[-1] == 1.0
+    assert _follow_progress_line(io.StringIO(output)) == output  # nobody listening: read in one go
+
+
 def test_preparation_profile_keeps_all_preparation_entrypoints_together(monkeypatch):
     monkeypatch.setattr(docking_preparations, "_PROFILES", dict(docking_preparations._PROFILES))
     profile = PreparationProfile(
@@ -109,7 +143,7 @@ def test_readiness_honors_programs_without_preparation_or_binding_site(monkeypat
     )
     runtime = SimpleNamespace(
         _require_active_project=lambda: None,
-        molsuite=SimpleNamespace(project_db=object()),
+        workspace=SimpleNamespace(project_db=object()),
     )
 
     result = DockingAPI(runtime).check_required()
@@ -166,3 +200,13 @@ def test_submission_does_not_force_prepared_scope_when_program_does_not_need_it(
 
     assert calls[0]["ligand_set"] is ligand_scope
     assert calls[0]["engine_config"] == {"cycles": 4}
+
+
+def test_a_docking_chunk_goes_by_its_engine_and_its_first_pair():
+    from amdockvs.docking.jobs import pairs_label, redocking_job
+
+    assert pairs_label({"engine": "vina", "pairs": [{"receptor_id": 1, "ligand_id": 2}]}) == "vina-R1-L2"
+    assert pairs_label({"engine": "qvina", "pairs": [{"receptor_id": 1, "ligand_id": n} for n in (2, 3, 4)]}) \
+        == "qvina-R1-L2 +2"
+    # and the engine is told: it is what the monitor shows
+    assert redocking_job.engine.__job__["task"].__task__["label"] is pairs_label

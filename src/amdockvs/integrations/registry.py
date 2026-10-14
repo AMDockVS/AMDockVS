@@ -15,14 +15,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from ms_flow.core.executor.provisioning import Step, StepFailed
-from ms_flow.core.executor.tools import READY, locate, recipe_steps
+from ms_env import READY, Recipe, Step, StepFailed, locate, recipe_steps, remove
 
 from amdockvs.docking.engines.adgpu import adgpu_recipe
 from amdockvs.docking.engines.qvina import qvina_recipe
 from amdockvs.integrations.envs import (
     managed_prefix,
     protonation_install_steps,
+    protonation_recipe,
     protonation_tool_status,
     tool_spec,
 )
@@ -54,6 +54,7 @@ class ManagedTool:
     status: Callable[[object], ToolStatus]
     install_steps: Callable[[object], list[Step]]
     location: Callable[[object], Path]
+    recipe: Callable[[object], Recipe] | None = None  # installed by ms_env, which also removes it
 
 
 def _directory_size(path: Path) -> int:
@@ -154,6 +155,7 @@ def _recipe_tool(name: str, recipe_for) -> ManagedTool:
         status=status,
         install_steps=lambda runtime: recipe_steps(recipe_for(runtime)),
         location=lambda runtime: Path(recipe_for(runtime).prefix),
+        recipe=recipe_for,
     )
 
 
@@ -175,6 +177,7 @@ MANAGED_TOOLS: tuple[ManagedTool, ...] = (
         status=_protonation_status("openbabel"),
         install_steps=_protonation_steps("openbabel"),
         location=lambda runtime: managed_prefix(runtime, "openbabel"),
+        recipe=lambda runtime: protonation_recipe(runtime, "openbabel"),
     ),
     ManagedTool(
         tool_id="pkasso",
@@ -184,6 +187,7 @@ MANAGED_TOOLS: tuple[ManagedTool, ...] = (
         status=_protonation_status("pkasso"),
         install_steps=_protonation_steps("pkasso"),
         location=lambda runtime: managed_prefix(runtime, "pkasso"),
+        recipe=lambda runtime: protonation_recipe(runtime, "pkasso"),
     ),
     _recipe_tool("qvina", qvina_recipe),
     _recipe_tool("adgpu", adgpu_recipe),
@@ -208,12 +212,18 @@ def install_steps(runtime, tool_id: str) -> list[Step]:
 
 
 def uninstall_tool(runtime, tool_id: str) -> str:
-    """Remove a tool's directory. The shared Java wheel is left alone (pip owns it)."""
+    """Remove a tool's directory. The shared Java wheel is left alone (pip owns it).
+
+    An environment the user registered as theirs is not AMDock's to delete: it stays.
+    """
     tool = get_tool(tool_id)
     location = tool.location(runtime)
     if not location.is_dir():
         return f"{tool.label} is not installed."
-    shutil.rmtree(location)
+    if tool.recipe is None:
+        shutil.rmtree(location)
+    elif not remove(tool.recipe(runtime)):
+        return f"{tool.label} at {location} was not installed by AMDock: left as it is."
     return f"Removed {tool.label} from {location}."
 
 

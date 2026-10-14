@@ -850,6 +850,7 @@ def _receptor_table_config(runtime) -> TableConfig:
 
 
 class ReceptorWidget(BoundTableWidget):
+    selection_role = "receptor"
     delete_kind = "molecule"
     selectable = True
 

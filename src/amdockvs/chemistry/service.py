@@ -15,7 +15,8 @@ from amdockvs.chemistry.tools import (
     protonate_receptor_reduce_file,
 )
 from amdockvs.io.formats import as_pdb
-from amdockvs.models.molecules import ModelSource, MoleculeModel
+from amdockvs.core.rows import molecule_model_row
+from amdockvs.core.vocab import ModelSource
 from amdockvs.core.paths import (
     artifact_path_for_existing,
     current_molecule_path,
@@ -131,7 +132,7 @@ def _write_ligand_conformer_files(
             active_relative_path = relative_path
             active_model_index = model_index
         model_rows.append(
-            MoleculeModel.build_row(
+            molecule_model_row(
                 molecule_id=0,
                 model_index=model_index,
                 file_path=relative_path,
@@ -292,7 +293,7 @@ def transform_ligand_rows(
                 current_relative_path = _relative_to_project_root(output_path, project_root=project_root)
                 if last_name in {"generate_3d", "minimize"}:
                     model_rows.append(
-                        MoleculeModel.build_row(
+                        molecule_model_row(
                             molecule_id=ligand_id,
                             model_index=int(current_model_index),
                             file_path=current_relative_path,
@@ -440,7 +441,7 @@ def transform_receptor_rows(
                 "current_model_index": current_model_index,
                 "state": state,
                 "model_rows": [
-                    MoleculeModel.build_row(
+                    molecule_model_row(
                         molecule_id=receptor_id,
                         model_index=current_model_index,
                         file_path=current_relative_path,

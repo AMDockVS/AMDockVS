@@ -45,7 +45,7 @@ class _Runtime:
 
     def __init__(self, **available):
         self.available = available
-        self.molsuite = SimpleNamespace(project_db=_PIVOT_DB)
+        self.workspace = SimpleNamespace(project_db=_PIVOT_DB)
         self.docking = SimpleNamespace(
             pivot_availability=lambda: self.available,
             result_protocols=lambda **_kwargs: [],
@@ -95,12 +95,12 @@ def test_a_pivot_opens_by_itself_once_its_data_lands():
 def _job(task_type, *, done, total, status="running", progress=0.0):
     return SimpleNamespace(
         job_id=f"job-{task_type}",
-        task_type=task_type,
+        name=task_type,
         chunks_done=done,
         chunks_total=total,
         chunks_failed=0,
-        chunks_stage_failed=0,
         status=status,
+        is_terminal=status in ("completed", "completed_with_errors", "failed", "canceled", "interrupted"),
         progress=progress,
     )
 
@@ -213,7 +213,7 @@ def test_hits_results_always_select_a_concrete_receptor():
         session.commit()
     docking = SimpleNamespace(result_protocols=lambda **_kwargs: [], hit=lambda **_kwargs: None)
     widget = DockingResultsWidget(
-        runtime=SimpleNamespace(molsuite=SimpleNamespace(project_db=db), docking=docking)
+        runtime=SimpleNamespace(workspace=SimpleNamespace(project_db=db), docking=docking)
     )
     reloads = []
     widget._reload_protocols = lambda **kwargs: reloads.append(kwargs)
@@ -254,7 +254,7 @@ def test_live_hits_refreshes_receptor_aggregates_and_only_the_ligand_count():
         ])
         session.commit()
     widget = DockingResultsWidget(runtime=SimpleNamespace(
-        molsuite=SimpleNamespace(project_db=db),
+        workspace=SimpleNamespace(project_db=db),
         docking=SimpleNamespace(
             result_protocols=lambda **_kwargs: [],
             hit=lambda **_kwargs: None,
@@ -295,7 +295,7 @@ def test_live_campaign_progress_patches_cells_without_resetting_or_losing_select
         ])
         session.commit()
     widget = DockingResultsWidget(runtime=SimpleNamespace(
-        molsuite=SimpleNamespace(project_db=db),
+        workspace=SimpleNamespace(project_db=db),
         docking=SimpleNamespace(
             result_protocols=lambda **_kwargs: [],
             hit=lambda **_kwargs: None,
@@ -332,7 +332,7 @@ def test_dependent_offtarget_stage_adds_its_receptors_without_manual_refresh():
         ])
         session.commit()
     widget = DockingResultsWidget(runtime=SimpleNamespace(
-        molsuite=SimpleNamespace(project_db=db),
+        workspace=SimpleNamespace(project_db=db),
         docking=SimpleNamespace(
             result_protocols=lambda **_kwargs: [],
             hit=lambda **_kwargs: None,
@@ -376,7 +376,7 @@ def test_a_scheduled_receptor_is_listed_before_it_has_any_result():
         ])
         session.commit()
     widget = DockingResultsWidget(runtime=SimpleNamespace(
-        molsuite=SimpleNamespace(project_db=db),
+        workspace=SimpleNamespace(project_db=db),
         docking=SimpleNamespace(result_protocols=lambda **_kwargs: [], hit=lambda **_kwargs: None),
     ))
     widget.receptor_table.refresh()
@@ -398,7 +398,7 @@ def test_a_row_mode_plan_counts_docked_from_its_results():
         ])
         session.commit()
     widget = DockingResultsWidget(runtime=SimpleNamespace(
-        molsuite=SimpleNamespace(project_db=db),
+        workspace=SimpleNamespace(project_db=db),
         docking=SimpleNamespace(result_protocols=lambda **_kwargs: [], hit=lambda **_kwargs: None),
     ))
     widget.receptor_table.refresh()
@@ -421,7 +421,7 @@ def test_live_ligand_reload_keeps_the_selected_ligand_context():
         ])
         session.commit()
     widget = DockingResultsWidget(runtime=SimpleNamespace(
-        molsuite=SimpleNamespace(project_db=db),
+        workspace=SimpleNamespace(project_db=db),
         docking=SimpleNamespace(result_protocols=lambda **_kwargs: [], hit=lambda **_kwargs: None),
     ))
     widget._populate_protocol_combo([("p", "Vina")])
@@ -464,3 +464,14 @@ def test_clear_filters_emits_one_scope_reload_and_keeps_protocol():
     assert widget.metric_filters.conditions() == []
     assert widget.protocol_combo.currentData() == "p"
     assert calls == [{"auto_select": True}]
+
+
+def test_launching_a_redocking_goes_to_its_pivot_before_the_first_row():
+    widget = _widget(hits=True, offtarget=False, redocking=False)
+    widget.show_run("redocking")
+    assert widget.pivot_combo.currentData() == widget._current_key == "redocking"
+    assert _rows(widget)["redocking"] == (True, "Redocking (pose vs reference)")
+    widget._apply_availability({"hits": True, "offtarget": False, "redocking": False})  # the poll: no row yet
+    assert widget.pivot_combo.currentData() == "redocking" and not widget.reason_label.text()
+    widget.show_run("docking")  # and a docking launched after it brings the hits back
+    assert widget.pivot_combo.currentData() == widget._current_key == "hits"

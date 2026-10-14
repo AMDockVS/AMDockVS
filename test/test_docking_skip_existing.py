@@ -30,7 +30,7 @@ def _project(tmp_path):
     with store.get_session() as session:
         receptors = []
         for i in range(N_RECEPTORS):
-            rec = MoleculeRecord(name=f"rec_{i}", is_receptor=True, stored_path=f"rec_{i}.pdb")
+            rec = MoleculeRecord(name=f"rec_{i}", is_receptor=True, has_3d=True, stored_path=f"rec_{i}.pdb")
             session.add(rec)
             receptors.append(rec)
         ligands = []

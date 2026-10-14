@@ -72,6 +72,16 @@ def ligand_descriptors(path: str | Path | None, *, heavy_atoms_fallback: int = 0
     return descriptors
 
 
+def pose_file_stem(pair: Mapping[str, Any], protocol: Mapping[str, Any] | None) -> str:
+    """The name an engine gives the files of one docking, before its own ending: the pair (its complex
+    in a redocking) and the protocol, so two protocols of a pair do not write over each other's poses."""
+    complex_id = int(pair.get("complex_id") or 0)
+    stem = (f"{pair.get('run_kind') or 'screening'}_{complex_id}" if complex_id
+            else f"{int(pair.get('ligand_id') or 0)}__{int(pair.get('receptor_id') or 0)}")
+    digest = str((protocol or {}).get("hash") or "").strip()
+    return f"{stem}__proto_{digest[:12]}" if digest else stem
+
+
 def docking_metrics(
     *,
     score: float,

@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from ms_flow.core.executor.tools import READY, Recipe, locate
+from ms_env import READY, Recipe, locate
 
 from amdockvs.core.configuration import app_config
 from amdockvs.core.paths import tools_home
@@ -57,6 +57,7 @@ def qvina_dock_runner(payload: dict) -> list[dict]:
         protocol_metadata=dict(payload.get("protocol_metadata") or {}),
         report_name=str(payload.get("report_name") or "").strip() or None,
         pair_callback=payload.get("_pair_callback"),
+        pair_progress=payload.get("_pair_progress"),
         collect_rows=bool(payload.get("_collect_rows", True)),
         engine="qvina",
     )

@@ -37,6 +37,7 @@ from amdockvs.ui.tools.binding_sites.detection import (
 from amdockvs.ui.catalog.molecules import MoleculeWidget
 from amdockvs.ui.catalog.ligands import LigandWidget, _create_ligand_set
 from amdockvs.ui.registry import STANDING_DATA_VIEWS, TOOL_VIEW_IDS
+from amdockvs.ui.tools.molecules.build import BUILD_ID
 
 
 def _patch_fake_home(monkeypatch, fake_home: Path):
@@ -347,7 +348,7 @@ def test_amdock_ui_domain_views_show_docking_summaries(tmp_path, monkeypatch):
 
         results_view = window.open_complex_results()
         activity_view = window.central_widget.open_or_focus_view("workspace.ligand_activity")
-        docking_view = window.central_widget.open_or_focus_view("workspace.docking")
+        docking_view = window.tools.open_tool("workspace.docking")  # where a user opens it: the tool panel
         app.processEvents()
 
         # The domain views open with the right widget types; the underlying docking data
@@ -392,9 +393,9 @@ def test_amdock_ui_domain_views_show_docking_summaries(tmp_path, monkeypatch):
         # Reopened while a docking runs: the first snapshot re-attaches it to Preview (with Cancel).
         from types import SimpleNamespace
 
-        running = SimpleNamespace(job_id="job-d", task_type="amdock_docking_job", status="running",
+        running = SimpleNamespace(job_id="job-d", name="amdock_docking_job", status="running",
                                   is_terminal=False, chunks_done=214, chunks_total=1802,
-                                  feed_exhausted=True, chunks_running=4, chunks_failed=0)
+                                  chunks_running=4, chunks_failed=0)
         docking_view._reopened = False
         docking_view.on_jobs_snapshot(SimpleNamespace(jobs_active=1, jobs=[running]))
         assert docking_view.stepper.current_index == 3 and docking_view.run_bar.is_running
@@ -563,6 +564,86 @@ def test_tool_buttons_are_flat_and_keep_result_views_available(tmp_path, monkeyp
         assert not window.tools.action_buttons[DOCKING_VIEW_ID].isChecked()
         assert window.aux.occupant == window.aux.AUX_DETAILS  # slot handed back
         assert standing <= set(window.views.catalog_actions)  # results survived the tool closing
+
+        # Tools are kept, not rebuilt: switching away and back finds a tool where it was left.
+        studio = window.tools.widgets[DOCKING_VIEW_ID]
+        studio.stepper.set_current_index(2)
+        # ...and the ligands selected for it are the ones Build opens on.
+        id_filter = lambda view_id: next(  # noqa: E731
+            (f.value for f in window.central_widget.open_view(view_id).table._builder.active_filters
+             if f.field == "id"), None)
+        window.selection.set("ligand", [1])
+        build = window.tools.open_tool(BUILD_ID)
+        app.processEvents()
+        assert build.isVisible() and not studio.isVisible()
+        assert id_filter(MOLECULES_VIEW_ID) == [1] == id_filter(LIGANDS_VIEW_ID)
+        for view_id in (MOLECULES_VIEW_ID, LIGANDS_VIEW_ID):  # ...and the ID column says so
+            table = window.central_widget.open_view(view_id).table
+            columns = [column.field for column in table._config.visible_columns()]
+            id_column = columns.index("id") + (1 if table._config.show_row_numbers else 0)
+            assert id_column in table._header._active_filters
+        assert window.tools.open_tool(DOCKING_VIEW_ID) is studio
+        app.processEvents()
+        assert studio.isVisible() and studio.stepper.current_index == 2
+        # Build opened Molecules, so it leaves with Build; the studio is back on its step's table.
+        assert window.central_widget.open_view(MOLECULES_VIEW_ID) is None
+        assert window.central_widget.current_view_id() == RECEPTOR_VIEW_ID
+        assert id_filter(LIGANDS_VIEW_ID) == [1]
+
+        # The selection is global and only the user drops it: the status bar shows it wherever
+        # they are, and its chip clears it everywhere. On its own step a picked row is listed
+        # prepared or not, so preparing a selection never leaves an empty table behind.
+        chip = window._status_bar.selection_indicators["ligand"]
+        assert chip.isVisible() and chip.text() == "Ligands: 1 selected ✕"
+        assert not window._status_bar.selection_indicators["receptor"].isVisible()
+        studio.stepper.set_current_index(1)
+        assert studio._unprepared_clause("ligand") is None
+        chip.clicked.emit()
+        assert window.selection.get("ligand") is None and not chip.isVisible()
+        assert id_filter(LIGANDS_VIEW_ID) is None
+        assert studio._unprepared_clause("ligand") is not None  # back to "what is left to prepare"
+    finally:
+        if window is not None:
+            window.close()
+        runtime.shutdown()
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+def test_preparing_ligands_without_3d_offers_to_generate_it(tmp_path, monkeypatch):
+    """SMILES ligands have no coordinates. Preparation used to stop there with an API hint; it
+    now asks, and one answer generates the 3D and prepares behind it."""
+    pytest.importorskip("meeko")
+    _patch_fake_home(monkeypatch, tmp_path / "home")
+    monkeypatch.setenv("AMDOCK_DISABLE_PYMOL", "1")
+    app = QApplication.instance() or QApplication(["amdockvs-ui"])
+    window = None
+    runtime = AMDockVSRuntime()
+    try:
+        runtime.create_project(name="no3d", folder=tmp_path / "no3d", description="prepare without 3D")
+        smiles = tmp_path / "ligands.smi"
+        smiles.write_text("CCO a\nCCN b\n", encoding="utf-8")
+        runtime.wait_for_jobs(runtime.loader.load_ligands([smiles], batch_size=4, executor_name="thread"), timeout_s=120)
+        window = AMDockVSMainWindow(runtime=runtime)
+        window.show()
+        studio = window.tools.open_tool(DOCKING_VIEW_ID)
+        studio.stepper.set_current_index(1)
+        app.processEvents()
+
+        asked = []
+        monkeypatch.setattr(studio, "_ask_missing_3d", lambda count: asked.append(count) or "")
+        studio._prepare_ligands()  # cancelled: nothing is submitted, the step stays
+        assert asked == [2] and not studio.ligand_prep_jobs.job_ids and studio.stepper.current_index == 1
+
+        monkeypatch.setattr(studio, "_ask_missing_3d", lambda count: "generate")
+        studio._prepare_ligands()
+        job_ids = list(studio.ligand_prep_jobs.job_ids)
+        assert len(job_ids) == 2  # the 3D job, then the preparation waiting for it
+        runtime.wait_for_jobs(job_ids, timeout_s=180)
+        assert [str(runtime.get_job_status(job_id).status).lower().rsplit(".", 1)[-1] for job_id in job_ids] == [
+            "completed", "completed"]
+        scope = studio._prep_ligand_scope()
+        state = studio.readiness_service.preparation(scope, role_type="ligand", engine="ad4")
+        assert (state.ready, state.failed) == (2, 0)
     finally:
         if window is not None:
             window.close()

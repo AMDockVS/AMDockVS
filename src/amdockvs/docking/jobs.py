@@ -13,7 +13,8 @@ from pydantic import BaseModel, Field
 
 from ms_flow.sinks import table_sink
 from ms_flow.specs import InputSource
-from ms_flow.tasking import JobSpec
+from amdockvs.core.jobs import JobSpec
+from amdockvs.docking.tasks import dock_pairs
 
 from amdockvs.core.configuration import DEFAULT_DOCKING_BATCH_SIZE, DEFAULT_LIGAND_BATCH_SIZE
 from amdockvs.core.worker_io import worker_file, worker_output_dir
@@ -44,7 +45,7 @@ from amdockvs.docking.repository import (
 )
 from amdockvs.docking.results.repository import (
     count_docking_results,
-    delete_results_for_receptors,
+    supersede_results,
     existing_result_pairs,
 )
 from amdockvs.docking.engines.registry import run_docking_chunk
@@ -326,21 +327,15 @@ def iter_docking_batches(
     if not receptors:
         return
 
-    # Lightweight "already computed" guard: skip pairs that already have results (default),
-    # or wipe prior results for these receptors so a forced re-dock replaces instead of duplicating.
+    # Lightweight "already computed" guard: skip pairs that already have results (default). A
+    # forced re-dock docks them again, and what it stores replaces the older rows when the job
+    # ends (`_supersede`): never here, where the new result does not exist yet.
     protocol_payload = (
         protocol_metadata.as_metrics_payload()
         if isinstance(protocol_metadata, DockingProtocolMetadata)
         else DockingProtocolMetadata.from_mapping(protocol_metadata).as_metrics_payload()
     )
     protocol_hash = str(protocol_payload.get("hash") or "").strip()
-    if not skip_existing:
-        delete_results_for_receptors(
-            project_db,
-            engine=engine,
-            receptor_ids=[int(r.get("id") or 0) for r in receptors],
-            protocol_hash=protocol_hash or None,
-        )
     if run_id:
         # The plan lists every receptor of the run before its first result lands (the feed
         # docks receptor by receptor), so Results shows them all with the full ligand count.
@@ -666,8 +661,33 @@ class DockingPairsInput(InputSource):
         )
 
 
+def pairs_label(payload: dict) -> str:
+    """What a chunk of pairs goes by in the monitor: `vina-R1-L7`, and how many more travel with it."""
+    pairs = payload.get("pairs") or [{}]
+    name = f"{payload.get('engine')}-R{pairs[0].get('receptor_id')}-L{pairs[0].get('ligand_id')}"
+    return name if len(pairs) == 1 else f"{name} +{len(pairs) - 1}"
+
+
+def _waits_for_program(params: dict) -> bool:
+    """Whether the tasks of these params only start a program and wait for it, telling the engine
+    of it: the engines that are programs. The Python bindings of Vina dock in the process itself,
+    and so may an engine registered from outside."""
+    engine = str(params.get("engine") or "vina")
+    return engine in {"qvina", "gnina", "adgpu"} or (engine == "vina" and str(params.get("vina_backend")) == "binary")
+
+
+def _supersede(params: dict, config: dict) -> None:
+    """When a forced re-dock ends, however it ends: what it stored replaces the older rows of the
+    same pairs. A pair it did not get to (canceled, failed) keeps the result it had."""
+    project_db = config.get("project_db")
+    if project_db is not None and not params.get("skip_existing", True):
+        supersede_results(project_db, run_id=str(params.get("run_id") or ""))
+
+
 class DockingJobSpec(JobSpec):
     name = "amdock_docking_job"
+    task_label = pairs_label
+    on_thread = staticmethod(_waits_for_program)
     task_name = "amdock_run_vina_docking_batch"
     description = "Run a registered docking engine for receptor-ligand pairs."
     params_model = DockingJobParams
@@ -682,20 +702,8 @@ class DockingJobSpec(JobSpec):
     required = ()
     produces = ()
 
-    @staticmethod
-    def run_chunk(payload: dict):
-        rows = run_docking_chunk(payload)
-        threshold = payload.get("hit_threshold")
-        if threshold is None:
-            return rows
-        # The predicate half of the gate: stateless, so it runs where the poses are produced
-        # and the non-hits never travel back. ponytail: their pose files stay on disk and the
-        # pair has no row, so a re-run with skip_existing will dock it again — the campaign is
-        # capped anyway; add a "screened" marker table if resuming a capped run matters.
-        return [
-            row for row in rows
-            if row.get("score") is not None and float(row["score"]) <= float(threshold)
-        ]
+    run_chunk = staticmethod(dock_pairs)
+    finalize = staticmethod(_supersede)
 
     @staticmethod
     def build_chunks(params: dict, config: dict | None = None) -> Iterator[dict]:
@@ -734,6 +742,8 @@ docking_job = DockingJobSpec.to_job_definition()
 
 class RedockingJobSpec(JobSpec):
     name = "amdock_redocking_job"
+    task_label = pairs_label
+    on_thread = staticmethod(_waits_for_program)
     task_name = "amdock_run_vina_redocking_batch"
     description = "Run a registered docking engine for explicit complex receptor-ligand pairs."
     params_model = RedockingJobParams
@@ -748,9 +758,8 @@ class RedockingJobSpec(JobSpec):
     required = ()
     produces = ()
 
-    @staticmethod
-    def run_chunk(payload: dict):
-        return run_docking_chunk(payload)
+    run_chunk = staticmethod(run_docking_chunk)
+    finalize = staticmethod(_supersede)
 
     @staticmethod
     def build_chunks(params: dict, config: dict | None = None) -> Iterator[dict]:

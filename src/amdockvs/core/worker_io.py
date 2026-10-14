@@ -1,24 +1,32 @@
 """Declaring the files and directories a compute worker may touch.
 
 Jobs run out-of-process (and possibly off-host), so a path in a chunk payload is
-not a path: it is a transfer declaration that MolSuite materialises worker-side.
-These wrappers are the only place that knows it.
+marked: a string that is the path where the disk is this one, and that an executor
+whose tasks run on another disk carries there. These wrappers are the only place
+that knows it.
 """
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from ms_flow.api import FileInputSpec, ProjectOutputDirSpec
+from ms_flow.engine import Dir, File, launched
+
+from amdockvs.core.paths import get_default_project_root
 
 
 def worker_file(path: Any, *, cache: bool = False):
     """Declare an existing file path that a compute worker must be able to open."""
     text = str(path or "").strip()
-    if not text or not Path(text).expanduser().is_file():
+    if not text:
         return text
-    return FileInputSpec(text, delivery="path", cache=cache)
+    found, root = Path(text).expanduser(), get_default_project_root()
+    if not found.is_absolute() and root is not None:
+        found = root / found  # the project keeps its paths relative to its folder
+    # ponytail: `cache` is the executor's business now
+    return File(str(found)) if found.is_file() else text
 
 
 def worker_path_fields(
@@ -60,8 +68,8 @@ def restore_worker_paths(value: Any, rows: Iterable[Mapping[str, Any]]) -> Any:
     return restore(value)
 
 
-def worker_output_dir(path: str | Path) -> ProjectOutputDirSpec:
-    return ProjectOutputDirSpec(str(Path(path).expanduser().resolve()))
+def worker_output_dir(path: str | Path) -> Dir:
+    return Dir(Path(path).expanduser().resolve())
 
 
 def project_root_from_output_dir(path: str | Path) -> Path:
@@ -84,3 +92,12 @@ __all__ = [
     "worker_output_dir",
     "worker_path_fields",
 ]
+
+
+def run_program(command: list[str], **options) -> subprocess.CompletedProcess:
+    """`subprocess.run` keeping what the program wrote, and telling the engine of it: when the
+    task is on a thread of the engine's process, the program is all a cancel can stop."""
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, **options)
+    launched(process)
+    output, errors = process.communicate()
+    return subprocess.CompletedProcess(command, process.returncode, output, errors)

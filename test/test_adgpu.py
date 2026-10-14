@@ -42,7 +42,7 @@ def test_maps_cover_flexible_types_and_follow_the_parameter_file(monkeypatch, tm
     commands: list[list[str]] = []
     monkeypatch.setattr(autogrid, "AUTOGRID4", sys.executable)
     monkeypatch.setattr(
-        autogrid.subprocess, "run", lambda command, **_kw: commands.append(command) or subprocess.CompletedProcess(command, 0, "", "")
+        autogrid, "run_program", lambda command, **_kw: commands.append(command) or subprocess.CompletedProcess(command, 0, "", "")
     )
     cache: dict = {}
 
@@ -75,7 +75,7 @@ def test_a_failed_job_is_an_error_although_the_exit_code_is_zero(monkeypatch, tm
         seen.append(command)
         return subprocess.CompletedProcess(command, 0, "Error: Ligand includes atom with unknown type: XX.\n", "")
 
-    monkeypatch.setattr(adgpu.subprocess, "run", fake_run)
+    monkeypatch.setattr(adgpu, "run_program", fake_run)
     with pytest.raises(RuntimeError, match="unknown type: XX"):
         adgpu._run_adgpu(
             executable="adgpu",

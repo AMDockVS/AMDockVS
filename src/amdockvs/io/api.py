@@ -67,7 +67,6 @@ class LoaderAPI:
             params=params,
             executor_name=executor_name,
             depends_on=depends_on,
-            config=None,
             **kwargs,
         )
 
@@ -130,7 +129,7 @@ class LoaderAPI:
         # One screening library per project (see molecules/store.py). Curated ligands are not
         # a library, so they are free to coexist with a sharded one.
         if str(primary_context or "general") == "general" and str(molecule_kind) == MoleculeType.SMALL_MOLECULE:
-            check_library_target(self.runtime.molsuite.project_db, target=LIBRARY_ROWS)
+            check_library_target(self.runtime.workspace.project_db, target=LIBRARY_ROWS)
         effective_prefilter = None if not prefilter else dict(prefilter)
         # One job streams all files (like receptors): N files no longer means N jobs.
         params = {
@@ -175,7 +174,7 @@ class LoaderAPI:
         normalized_files = normalize_files(files, label="ligand files")
         if not normalized_files:
             return []
-        check_library_target(self.runtime.molsuite.project_db, target=LIBRARY_SHARDS)
+        check_library_target(self.runtime.workspace.project_db, target=LIBRARY_SHARDS)
         records = (
             default_shard_size(runtime=self.runtime)
             if shard_size is None
@@ -202,7 +201,7 @@ class LoaderAPI:
                 # project's shard directory and its database, neither of which a job spec
                 # knows at declaration time.
                 result_handler_kwargs={
-                    "project_db": self.runtime.molsuite.project_db,
+                    "project_db": self.runtime.workspace.project_db,
                     "shard_dir": self.runtime.get_project_resource_path(RESOURCE_SHARDS),
                     "shard_size": records,
                     "generation_id": self._import_generation_id(),
@@ -223,7 +222,7 @@ class LoaderAPI:
             create_generation,
         )
 
-        project_db = self.runtime.molsuite.project_db
+        project_db = self.runtime.workspace.project_db
         generation_id = active_generation_id(project_db)
         if generation_id is None:
             generation_id = create_generation(

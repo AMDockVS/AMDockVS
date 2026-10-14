@@ -155,3 +155,40 @@ def test_submission_service_dispatches_only_through_runtime_docking():
         "prepared_engine_key": "ad4",
     }
     assert runtime.docking.run_calls[0]["receptor_set"] == request.receptor_scope
+
+
+def test_a_program_that_is_not_installed_stays_listed_and_cannot_be_run(monkeypatch, tmp_path):
+    import pytest
+
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    monkeypatch.setenv("AMDOCK_DISABLE_PYMOL", "1")
+    from PySide6.QtWidgets import QApplication
+
+    from amdockvs.runtime import AMDockVSRuntime
+    from amdockvs.ui.tools.docking import protocol_editor
+    from amdockvs.ui.tools.docking.studio import DockingStudioWidget
+
+    app = QApplication.instance() or QApplication([])  # noqa: F841  (kept alive for the widgets)
+    monkeypatch.setattr(protocol_editor, "run_async", lambda *_args, **_kwargs: None)  # no lookup on this machine
+    runtime = AMDockVSRuntime()
+    runtime.create_project(name="p", folder=tmp_path / "p", description="")
+    studio = DockingStudioWidget(runtime=runtime)
+    rows = lambda: [studio.program_list.item(i).text() for i in range(studio.program_list.count())]
+    ticked = lambda: [key for key, check in studio._program_checks.items() if check.isChecked()]
+    assert (ticked(), studio._current_program_key()) == (["qvina"], "qvina")  # what a run starts with
+
+    studio._apply_missing_programs({"qvina": "QuickVina 2 is not installed."})
+
+    assert (ticked(), studio._current_program_key()) == (["vina"], "vina")  # and Vina when it cannot run
+    assert "QuickVina 2 — not installed" in rows()
+    assert not studio._program_checks["qvina"].isEnabled()
+    assert "qvina" not in [protocol["program"] for protocol in studio._selected_protocols()]
+    assert not studio._program_notices["qvina"][1].isHidden()
+
+    studio._apply_missing_programs({})  # installed from Settings: the option is back
+
+    assert "QuickVina 2" in rows()
+    assert studio._program_checks["qvina"].isEnabled()
+    assert studio._program_notices["qvina"][1].isHidden()

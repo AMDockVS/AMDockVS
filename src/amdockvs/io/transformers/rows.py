@@ -13,8 +13,8 @@ from typing import Any, Callable, Iterable
 
 from amdockvs.chemistry.state import molecule_state_metadata
 from amdockvs.io.payloads import ImportBatchPayload, ImportPrefilterPolicy
-from amdockvs.models import MoleculeRecord
-from amdockvs.models.molecules import MoleculeUsageClass
+from amdockvs.core.rows import molecule_row
+from amdockvs.core.vocab import MoleculeUsageClass
 from amdockvs.io.import_stats import IMPORTED, bump
 from amdockvs.io.rows import evaluate_ligand_mol, ligand_row_fields
 from amdockvs.molecules.fragments import extra_fragment_molecules, write_fragment_files
@@ -49,7 +49,7 @@ def _build_row(
     metadata_map = dict(metadata or {})
     effective_project_root = project_root or _infer_project_root(stored_path)
     state = metadata_map.get("state") if isinstance(metadata_map.get("state"), dict) else {}
-    molecule_row = MoleculeRecord.build_row(
+    built = molecule_row(
         project_root=effective_project_root,
         source_file=source_file,
         source_index=int(source_index),
@@ -66,8 +66,8 @@ def _build_row(
         usage_class=resolved_usage,
     )
     return {
-        **molecule_row,
-        "molecule_kind": str(molecule_row.get("molecule_type") or molecule_kind or "unknown"),
+        **built,
+        "molecule_kind": str(built.get("molecule_type") or molecule_kind or "unknown"),
         "primary_role": str(primary_role or ""),
         "smiles": str(metadata_map.get("smiles") or ""),
         "sequence_1d": str(metadata_map.get("sequence_1d") or ""),
@@ -77,10 +77,10 @@ def _build_row(
         "complex_spec": None,
         "activity_spec": None,
         "binding_site_specs": [],
-        "has_3d": bool(state.get("has_3d", bool(molecule_row.get("has_3d")))),
-        "has_hs": bool(state.get("has_hs", bool(molecule_row.get("has_hs")))),
-        "is_minimized": bool(state.get("is_minimized", bool(molecule_row.get("is_minimized")))),
-        "conformer_count": max(0, int(state.get("conformer_count", int(molecule_row.get("conformer_count") or 0)) or 0)),
+        "has_3d": bool(state.get("has_3d", bool(built.get("has_3d")))),
+        "has_hs": bool(state.get("has_hs", bool(built.get("has_hs")))),
+        "is_minimized": bool(state.get("is_minimized", bool(built.get("is_minimized")))),
+        "conformer_count": max(0, int(state.get("conformer_count", int(built.get("conformer_count") or 0)) or 0)),
     }
 
 def _finalize_ligand_row_from_mol(

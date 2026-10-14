@@ -81,3 +81,27 @@ def test_dialog_on_submit_and_single_row_load_per_job_run(tmp_path, monkeypatch)
         if window is not None:
             window.close()
         runtime.shutdown()
+
+
+def test_a_failed_job_shows_its_error_and_keeps_the_traceback_for_the_details():
+    from amdockvs.ui.shell.job_feedback import JobFeedbackController
+
+    error = (  # as the process pool gives it: the traceback of the worker, then the one of the parent
+        'loky.process_executor._RemoteTraceback: \n"""\nTraceback (most recent call last):\n'
+        '  File "process_executor.py", line 490, in _process_worker\n    r = call_item()\n'
+        'RuntimeError: QuickVina 2 is not installed.\n"""\n\n'
+        "The above exception was the direct cause of the following exception:\n\n"
+        'Traceback (most recent call last):\n  File "executors.py", line 359, in _call\n'
+        "RuntimeError: QuickVina 2 is not installed. Install it from Settings > External tools."
+    )
+
+    def failure(job_error):
+        detail = SimpleNamespace(job=SimpleNamespace(error=job_error), failures=[])
+        bridge = SimpleNamespace(get_job_detail=lambda job_id, failure_limit=1: detail)
+        controller = SimpleNamespace(w=SimpleNamespace(monitor_bridge=bridge),
+                                     _summarize_failure_message=JobFeedbackController._summarize_failure_message)
+        return JobFeedbackController._job_failure(controller, "job")
+
+    assert failure(error) == (
+        "RuntimeError: QuickVina 2 is not installed. Install it from Settings > External tools.", error)
+    assert failure("job 3 failed") == ("job 3 failed", "")  # nothing more to say: no details to open

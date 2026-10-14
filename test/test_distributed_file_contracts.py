@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from ms_flow.api import FileInputSpec, ProjectOutputDirSpec
+from ms_flow.engine import Dir, File
 
 from amdockvs.docking.preparation import jobs as preparation_jobs
 from amdockvs.docking.preparation.jobs import PreparationJobParams, _iter_preparation_batches
@@ -26,6 +26,5 @@ def test_preparation_chunk_declares_worker_input_and_project_output(monkeypatch,
         )
     )
 
-    assert isinstance(chunk["rows"][0]["stored_path"], FileInputSpec)
-    assert chunk["rows"][0]["stored_path"].delivery == "path"
-    assert isinstance(chunk["output_dir"], ProjectOutputDirSpec)
+    assert isinstance(chunk["rows"][0]["stored_path"], File)
+    assert isinstance(chunk["output_dir"], Dir)

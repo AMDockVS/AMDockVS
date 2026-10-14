@@ -218,27 +218,31 @@ class JobFeedbackController:
                 "Docking requirements are not satisfied.\n"
                 f"{docking_missing_match.group(1)}"
             )
+        if "Traceback (most recent call last)" in text:
+            # ponytail: the last line is the exception and the first line of what it says; an
+            # error that says more in several lines has the rest under "Show Details".
+            return text.splitlines()[-1]
         if len(text) > 800:
             return text[:800].rstrip() + "..."
         return text
 
-    def _job_failure_message(self, job_id: str) -> str:
+    def _job_failure(self, job_id: str) -> tuple[str, str]:
+        """What a failed job says in a line a user can act on, and all of it (the traceback)
+        when that is more than the line."""
         try:
-            detail = self.w.monitor_bridge.get_job_detail(job_id, event_limit=20, output_limit=0, log_limit=0)
+            detail = self.w.monitor_bridge.get_job_detail(job_id, failure_limit=1)
         except Exception:
             detail = None
-        if detail is not None:
-            failure_events = [
-                event for event in detail.events
-                if str(event.level or "").upper() in {"ERROR", "CRITICAL"}
-                   or "fail" in str(event.event_type or "").lower()
-            ]
-            if failure_events:
-                return self._summarize_failure_message(str(failure_events[-1].message or ""))
-        job = self.w.runtime.get_job_status(job_id)
-        if job is not None and str(job.last_scheduler_reason or "").strip():
-            return self._summarize_failure_message(str(job.last_scheduler_reason or ""))
-        return "The job finished with an error. Open the Jobs monitor for details."
+        failures = list(getattr(detail, "failures", ()) or ())
+        # What the job says of itself first (a dependency that failed, a sink that could not
+        # write, the first of its chunks that failed), then its chunks.
+        error = str(getattr(getattr(detail, "job", None), "error", "") or "").strip()
+        if not error and failures:
+            error = str(failures[-1].error or "").strip()
+        if not error:
+            return "The job finished with an error. Open the Jobs monitor for details.", ""
+        summary = self._summarize_failure_message(error)
+        return summary, "" if summary == error else error
 
     def _flush_failure_summary(self) -> None:
         pending = [job_id for job_id in self._pending_failure_jobs if job_id not in self._shown_failure_jobs]
@@ -246,8 +250,12 @@ class JobFeedbackController:
         if not pending:
             return
         lines: list[str] = []
+        details: list[str] = []
         for index, job_id in enumerate(pending[:5], start=1):
-            lines.append(f"{index}. {self._job_failure_message(job_id)}")
+            summary, full = self._job_failure(job_id)
+            lines.append(f"{index}. {summary}")
+            if full:
+                details.append(f"{index}. {full}")
         hidden_count = max(0, len(pending) - 5)
         if hidden_count:
             lines.append(f"... and {hidden_count} more failed job(s). Open Jobs for details.")
@@ -262,7 +270,10 @@ class JobFeedbackController:
             )
         # Modal on purpose: "your 8h run failed" cannot wait in a list the user may never open.
         self.post_notification("Jobs failed", message.replace("\n\n", " · "), ERROR)
-        QMessageBox.warning(self.w, "Jobs Failed", message)
+        box = QMessageBox(QMessageBox.Icon.Warning, "Jobs Failed", message, QMessageBox.StandardButton.Ok, self.w)
+        if details:  # whole, behind "Show Details": a traceback cut short tells nobody anything
+            box.setDetailedText("\n\n".join(details))
+        box.exec()
 
     def on_job_finished(self, job_id: str, status: str) -> None:
         self.w.views.refresh_open_views_once()
@@ -272,7 +283,7 @@ class JobFeedbackController:
         self._report_import_summary()
         normalized_job_id = str(job_id or "").strip()
         if (
-                str(status or "").strip().lower() != "failed"
+                str(status or "").strip().lower() not in ("failed", "completed_with_errors")
                 or not normalized_job_id
                 or normalized_job_id in self._shown_failure_jobs
                 or normalized_job_id in self._persisted_seen_failure_jobs

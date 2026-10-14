@@ -12,9 +12,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from amdockvs.core.home import amdock_home
 from amdockvs.runtime import AMDockVSRuntime
 from amdockvs.project.summaries import DockingHitSummary
 from amdockvs.ui.catalog import COMPLEXES_VIEW_ID, LIGANDS_VIEW_ID, RECEPTOR_VIEW_ID
+from amdockvs.ui.catalog.common import SelectionStore
 from amdockvs.ui.shell.main_content import MainContentWidget
 from amdockvs.ui.monitor import JobsDialog
 from amdockvs.ui.shell.projects import ApplicationWidget
@@ -32,6 +34,7 @@ from amdockvs.ui.tools.workflow_panel import WORKFLOW_VIEW_ID
 from amdockvs.ui.viewers.molecular_viewer import MolecularViewerController
 from amdockvs.ui.visualization.chart_controller import ChartController
 from ms_components.ms_dockwidget.widget import Behavior, DockManager, MSDockWidget, Region
+from ms_components.ms_executors import ExecutorsPanel
 from ms_components.ms_pymol.widget import PymolDockWidget
 
 
@@ -58,11 +61,14 @@ class AMDockVSMainWindow(QMainWindow):
         self.runtime = runtime
         self.monitor_bridge = runtime.create_monitor_bridge(poll_ms=500, max_recent_jobs=50)
         self.jobs_dialog: JobsDialog | None = None  # built on first open_jobs_monitor()
+        self.executors_panel: ExecutorsPanel | None = None  # built on first open_executors_panel()
         self._closing = False
-        self._settings = QSettings()
+        # A file of ours, not Qt's per-organization place: it goes when the home goes.
+        self._settings = QSettings(str(amdock_home() / "ui_state.ini"), QSettings.Format.IniFormat)
 
         self.views = ViewCoordinator(self)
         self.tools = ToolCoordinator(self)
+        self.selection = SelectionStore(self)  # what "Select" picked, shared by tables and tools
         self.aux = AuxiliaryPanelController(self)
         self.jobs = JobFeedbackController(self)
         self.viewer = MolecularViewerController(self)
@@ -142,10 +148,10 @@ class AMDockVSMainWindow(QMainWindow):
         )
 
         # Left panel that hosts a tool's config UI beside the central catalog tables:
-        # picking a tool from the MolTools/Docking menus mounts it here (one at a time)
-        # instead of opening a central tab. See ToolCoordinator.
+        # picking a tool shows it here (one at a time) instead of opening a central tab.
+        # See ToolCoordinator.
         self.tools_dock = MSDockWidget("Tools", self.dock_manager, self)
-        self.tools_dock.setWidget(QWidget())  # placeholder; DockManager.build needs a widget
+        self.tools_dock.setWidget(self.tools.stack)  # one page per tool, built on first open
         self.dock_manager.add_dock(
             self.tools_dock,
             dock_id="tools",
@@ -178,6 +184,10 @@ class AMDockVSMainWindow(QMainWindow):
         self._status_bar = StatusBar(self)
         self.setStatusBar(self._status_bar)
         self._status_bar.jobs_indicator.clicked.connect(self.open_jobs_monitor)
+        for role, indicator in self._status_bar.selection_indicators.items():
+            indicator.clicked.connect(lambda role=role: self.selection.set(role, None))
+        self.selection.changed.connect(lambda role: self._status_bar.selection_indicators[role].set_count(
+            len(self.selection.get(role) or ())))
         self._status_bar.workflow_indicator.clicked.connect(lambda: self.open_or_focus_view(WORKFLOW_VIEW_ID))
         self._status_bar.project_indicator.clicked.connect(self._show_project_summary)
         self._status_bar.resource_indicator.clicked.connect(self.open_jobs_monitor)
@@ -381,14 +391,6 @@ class AMDockVSMainWindow(QMainWindow):
         # Refresh what's open; saving settings shouldn't pop tabs the user didn't ask for.
         self.views.refresh_open_views_once()
         self.diagram_dock.apply_settings()
-        # Saved worker settings only mean something once they are registered. Cheap
-        # executors are re-registered here; ray stays for the monitor to activate
-        # (it may need a cluster launch), so this never blocks on the network.
-        if self._has_active_project():
-            try:
-                self.runtime.molsuite.reload_configured_executors()
-            except Exception as exc:  # noqa: BLE001 - a bad executor config must not eat the save
-                self.statusBar().showMessage(f"Executors not applied: {exc}", 8000)
 
     _DOCS_URL = "https://amdockvs.github.io/AMDockVS"  # AMDockVS docs; the old link pointed at AMDock 1.6.x
     _WEB_URL = "https://amdockvs.github.io"  # AMDockVS docs; the old link pointed at AMDock 1.6.x
@@ -465,6 +467,16 @@ class AMDockVSMainWindow(QMainWindow):
         self.jobs_dialog.activateWindow()
         self.jobs.update_jobs_statusbar()
         return self.jobs_dialog
+
+    def open_executors_panel(self) -> ExecutorsPanel:
+        """The quick window that starts and stops the executors: built once, hidden on close."""
+        if self.executors_panel is None:
+            self.executors_panel = ExecutorsPanel(self.runtime.workspace, parent=self)
+            self.executors_panel.settings_requested.connect(lambda: self.open_settings(node="page:Executors"))
+        self.executors_panel.show()
+        self.executors_panel.raise_()
+        self.executors_panel.activateWindow()
+        return self.executors_panel
 
     def open_complex_results(self) -> QWidget:
         return self.open_or_focus_view(COMPLEXES_VIEW_ID)

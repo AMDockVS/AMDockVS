@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from ms_flow.core.executor.provisioning import run_steps
+from ms_env import run_steps
 
 from amdockvs.integrations.registry import (
     ToolStatus,

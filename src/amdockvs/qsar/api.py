@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any, Sequence
 
 import numpy as np
+from sqlalchemy import func, update as sql_update
+from sqlalchemy.orm import aliased
 from sqlmodel import select
 
 from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR, RESOURCE_QSAR_MODELS
@@ -240,7 +242,7 @@ class QSARAPI:
         endpoint_text = str(endpoint or "").strip()
         if not endpoint_text:
             raise ValueError("set_activity requires endpoint.")
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             molecule = session.get(MoleculeRecord, int(ligand_id))
             if molecule is None:
                 raise ValueError(f"Molecule {ligand_id} does not exist.")
@@ -270,7 +272,7 @@ class QSARAPI:
     def delete_activity(self, *, ligand_id: int, endpoint: str | None = None) -> int:
         """Delete a ligand's activities (all, or only for one endpoint). Returns count removed."""
         self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             statement = select(ActivityRecord).where(ActivityRecord.molecule_id == int(ligand_id))
             if endpoint is not None:
                 statement = statement.where(ActivityRecord.activity_type == str(endpoint))
@@ -294,7 +296,7 @@ class QSARAPI:
         ligand_id: int | None = None,
     ) -> list[ActivityRecord]:
         self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             statement = select(ActivityRecord)
             if endpoint is not None:
                 statement = statement.where(ActivityRecord.activity_type == str(endpoint))
@@ -306,7 +308,7 @@ class QSARAPI:
         """Activities joined with the ligand name, for the editor table:
         [{molecule_id, name, value, unit}] ordered by ligand id."""
         self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             statement = select(ActivityRecord)
             if endpoint is not None:
                 statement = statement.where(ActivityRecord.activity_type == str(endpoint))
@@ -326,7 +328,7 @@ class QSARAPI:
     def list_endpoints(self) -> list[str]:
         """Distinct activity endpoints present in the project."""
         self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             return sorted({
                 str(r) for r in session.exec(select(ActivityRecord.activity_type)).all() if str(r or "").strip()
             })
@@ -412,7 +414,7 @@ class QSARAPI:
         if smiles_col is None:
             raise ValueError("import_missing needs a SMILES column in the CSV.")
         mode, key_col = self._detect_match(fieldnames, match_by, key_column)
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             if mode == "name":
                 existing = {
                     str(r.name) for r in session.exec(
@@ -452,7 +454,7 @@ class QSARAPI:
         tmp.write_text("SMILES,Name\n" + "\n".join(f"{s},{n}" for s, n in missing) + "\n")
 
         def _ligand_count() -> int:
-            with self.runtime.molsuite.project_db.get_session() as session:
+            with self.runtime.workspace.project_db.get_session() as session:
                 return len(session.exec(
                     select(MoleculeRecord.id).where(MoleculeRecord.is_ligand.is_(True))
                 ).all())
@@ -510,7 +512,7 @@ class QSARAPI:
         if delimiter is None:
             delimiter = "\t" if file_path.suffix.lower() == ".tsv" else ","
         loaded = skipped_missing = skipped_invalid = 0
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             with file_path.open("r", encoding="utf-8", newline="") as handle:
                 reader = csv.DictReader(handle, delimiter=delimiter)
                 if reader.fieldnames is None:
@@ -661,7 +663,7 @@ class QSARAPI:
     def endpoint_kinds(self) -> dict[str, str]:
         """{endpoint: 'categorical'|'continuous'} so the model UI can default the task."""
         self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             rows = session.exec(
                 select(ActivityRecord.activity_type, ActivityRecord.kind).distinct()
             ).all()
@@ -797,7 +799,7 @@ class QSARAPI:
         self.runtime._require_active_project()
         train_ids = [int(mid) for mid, sub in self.model_subsets(model=model).items() if sub == "train"]
         ligands = self._ligands(molecule_set)
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             if not train_ids:  # model recorded no split → use every labeled training ligand as reference
                 record = session.get(QSARModelRecord, int(model.id if hasattr(model, "id") else model))
                 train_ids = [int(m) for m in ((record.metrics or {}).get("usable_ligands") or [])] if record else []
@@ -850,7 +852,7 @@ class QSARAPI:
             feature_kind = "descriptors"
             features = normalize_feature_names(None)
         ligands = self._ligands(molecule_set)
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             _ids, x_rows, names, _missing = self._design_matrix(
                 session, ligands, feature_kind=feature_kind, features=features, fp_radius=2, fp_nbits=2048
             )
@@ -873,7 +875,7 @@ class QSARAPI:
 
     def list_descriptors(self) -> list[dict[str, Any]]:
         self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             rows = session.exec(
                 select(MoleculeRecord)
                 .where(MoleculeRecord.is_ligand.is_(True))
@@ -914,7 +916,7 @@ class QSARAPI:
         if not endpoint_text:
             raise ValueError("split_preview requires endpoint.")
         ligands = self._ligands(molecule_set)
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             activity_by_ligand = self._latest_activity_by_ligand(session, endpoint_text)
             labeled = [r for r in ligands if int(r.id or 0) in activity_by_ligand]
             used_ids = [int(r.id or 0) for r in labeled]
@@ -1003,7 +1005,7 @@ class QSARAPI:
         else:
             features = ()
         ligands = self._ligands(molecule_set)
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             activity_by_ligand = self._latest_activity_by_ligand(session, endpoint_text)
             labeled = [r for r in ligands if int(r.id or 0) in activity_by_ligand]
             missing_act = len(ligands) - len(labeled)
@@ -1100,7 +1102,7 @@ class QSARAPI:
         if importance:
             metrics["feature_importance"] = [[n, v] for n, v in importance]
 
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             model_record = QSARModelRecord(
                 name=str(name or "").strip() or f"{algorithm}_{endpoint_text}",
                 algorithm=algorithm,
@@ -1132,7 +1134,7 @@ class QSARAPI:
         self.runtime._require_active_project()
         source_path = Path(path).expanduser().resolve()
         fitted = load_model(source_path)  # validates format
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             model_record = QSARModelRecord(
                 name=str(name or source_path.stem),
                 algorithm=fitted.algorithm,
@@ -1186,7 +1188,7 @@ class QSARAPI:
         Classification-only; needs a probabilistic model and both classes present."""
         self.runtime._require_active_project()
         ligands = self._ligands(molecule_set)
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             record, fitted = self._load_fitted(session, model)
             if fitted.task != "classification":
                 raise ValueError("ROC curve is only for classification models.")
@@ -1236,7 +1238,7 @@ class QSARAPI:
 
     def list_models(self) -> list[QSARModelRecord]:
         self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             return list(session.exec(select(QSARModelRecord).order_by(QSARModelRecord.id)))
 
     def predict(
@@ -1248,7 +1250,7 @@ class QSARAPI:
     ) -> dict[str, Any]:
         self.runtime._require_active_project()
         ligands = self._ligands(molecule_set)
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             record, fitted = self._load_fitted(session, model)
             features = self._features_for(fitted)
             ids, x_rows, _names, _missing = self._design_matrix(
@@ -1292,7 +1294,7 @@ class QSARAPI:
         ligand_ids: Sequence[int] | None = None,
     ) -> list[QSARPredictionRecord]:
         self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             statement = select(QSARPredictionRecord)
             if model is not None:
                 statement = statement.where(
@@ -1304,10 +1306,11 @@ class QSARAPI:
 
     def prediction_rows(self, *, model: QSARModelRef | int) -> list[dict[str, Any]]:
         """Predictions joined with the ligand name, for the Predictions table:
-        [{molecule_id, name, value, confidence}] ordered by ligand id."""
+        [{molecule_id, name, value, confidence}] ordered by ligand id. Excluded ligands are left
+        out, as in every other ligand listing."""
         self.runtime._require_active_project()
         model_id = int(model.id if hasattr(model, "id") else model)
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             rows = list(session.exec(
                 select(QSARPredictionRecord)
                 .where(QSARPredictionRecord.model_id == model_id)
@@ -1316,14 +1319,68 @@ class QSARAPI:
             names = {
                 int(m.id): str(m.name or "")
                 for m in session.exec(
-                    select(MoleculeRecord).where(MoleculeRecord.id.in_([int(r.molecule_id) for r in rows] or [0]))
+                    select(MoleculeRecord)
+                    .where(MoleculeRecord.id.in_([int(r.molecule_id) for r in rows] or [0]))
+                    .where(MoleculeRecord.excluded == False)  # noqa: E712
                 )
             }
         return [
-            {"molecule_id": int(r.molecule_id), "name": names.get(int(r.molecule_id), ""),
+            {"molecule_id": int(r.molecule_id), "name": names[int(r.molecule_id)],
              "value": float(r.value), "confidence": None if r.confidence is None else float(r.confidence)}
-            for r in rows
+            for r in rows if int(r.molecule_id) in names
         ]
+
+    def cut_predictions(
+        self,
+        *,
+        model: QSARModelRef | int,
+        top_n: int | None = None,
+        cutoff: float | None = None,
+        higher_is_better: bool = True,
+        exclude_rest: bool = False,
+        ids_limit: int = 0,
+    ) -> dict[str, Any]:
+        """Use a model's predictions as a filter: keep the ligands at or beyond ``cutoff`` (>= when
+        higher is better, <= otherwise) and, of those, at most the ``top_n`` best (ties break by
+        id). With ``exclude_rest`` every other ligand the model scored is marked excluded
+        (reversible); ligands it could not score, and ligands already excluded, are left alone.
+
+        The cut is a subquery over the predictions, so nothing here grows with the library: the
+        exclusion is one UPDATE and only ``ids_limit`` ids ever come back. Returns {"kept": n,
+        "rest": n, "excluded": how many were marked, "ids": the first ``ids_limit`` kept, best first}."""
+        if top_n is None and cutoff is None:
+            raise ValueError("cut_predictions needs top_n and/or cutoff.")
+        self.runtime._require_active_project()
+        model_id = int(model.id if hasattr(model, "id") else model)
+        scored_ligand = aliased(MoleculeRecord)  # aliased: the UPDATE below targets the table itself
+        scored = (
+            select(QSARPredictionRecord.molecule_id)
+            .join(scored_ligand, scored_ligand.id == QSARPredictionRecord.molecule_id)
+            .where(QSARPredictionRecord.model_id == model_id, scored_ligand.excluded == False)  # noqa: E712
+        )
+        value = QSARPredictionRecord.value
+        kept = scored.order_by(value.desc() if higher_is_better else value.asc(), QSARPredictionRecord.molecule_id)
+        if cutoff is not None:
+            kept = kept.where(value >= float(cutoff) if higher_is_better else value <= float(cutoff))
+        if top_n is not None:
+            kept = kept.limit(max(0, int(top_n)))
+        how = (f"top {int(top_n)}" if top_n is not None else "") + (
+            f"{' ' if top_n is not None else ''}{'>=' if higher_is_better else '<='} {float(cutoff):g}"
+            if cutoff is not None else "")
+        with self.runtime.workspace.project_db.get_session() as session:
+            n_scored = int(session.exec(select(func.count()).select_from(scored.subquery())).one())
+            n_kept = int(session.exec(select(func.count()).select_from(kept.subquery())).one())
+            ids = [int(i) for i in session.exec(kept.limit(min(int(ids_limit), n_kept)))] if ids_limit else []
+            excluded = 0
+            if exclude_rest and n_kept < n_scored:
+                result = session.exec(
+                    sql_update(MoleculeRecord)
+                    .where(MoleculeRecord.id.in_(scored), MoleculeRecord.id.not_in(kept))
+                    .values(excluded=True, exclusion_reason=f"qsar: outside the cut of model #{model_id} ({how})")
+                )
+                excluded = int(getattr(result, "rowcount", 0) or 0)
+                session.commit()
+        return {"kept": n_kept, "rest": n_scored - n_kept, "excluded": excluded, "ids": ids}
 
     def evaluate(
         self,
@@ -1335,7 +1392,7 @@ class QSARAPI:
         """Score a labeled molecule set against a model and return task-appropriate metrics."""
         self.runtime._require_active_project()
         ligands = self._ligands(molecule_set)
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             record, fitted = self._load_fitted(session, model)
             endpoint_text = str(endpoint or record.target or "").strip()
             if not endpoint_text:
@@ -1365,7 +1422,7 @@ class QSARAPI:
         """{ligand_id: 'train'|'test'} for a trained model's split (empty if not recorded).
         The lean pipeline has no separate validation set — only train/test."""
         self.runtime._require_active_project()
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             record = session.get(QSARModelRecord, int(model.id if hasattr(model, "id") else model))
             if record is None:
                 return {}
@@ -1398,7 +1455,7 @@ class QSARAPI:
         from rdkit import Chem, DataStructs
         from rdkit.Chem.Draw import SimilarityMaps
 
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             record, fitted = self._load_fitted(session, model)
             if fitted.feature_kind != "ecfp4":
                 raise ValueError("Glowing molecule needs an ECFP4 (fingerprint) model.")

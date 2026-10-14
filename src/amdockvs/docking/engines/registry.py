@@ -1,6 +1,7 @@
 """Docking runner registry and Molsuite chunk dispatcher."""
 from __future__ import annotations
 
+import itertools
 from typing import Any, Callable
 
 from amdockvs.core.worker_io import project_root_from_output_dir
@@ -60,9 +61,31 @@ def load_builtin_docking_engines() -> None:
     _BUILTINS_LOADED = True
 
 
-def run_docking_chunk(payload: dict) -> list[dict]:
+def run_docking_chunk(payload: dict, progress_cb=None) -> list[dict]:
+    """Dock the pairs of one chunk. `progress_cb` takes the percentage of them that are done.
+
+    The pair being docked counts by its share: an engine told `_pair_progress` says how far it
+    is, from 0 to 1.
+
+    ponytail: only the Vina and QuickVina binaries say how far a pair is (their progress line);
+    Vina's Python bindings count a pair when it ends, and gnina and AutoDock-GPU tell nothing.
+    """
     load_builtin_docking_engines()
     payload = dict(payload)
+    pairs = len(payload.get("pairs") or ())
+    if progress_cb is not None and pairs:
+        told, done = payload.get("_pair_callback"), itertools.count(1)
+        docked = 0
+
+        def pair_done(rows: list[dict]) -> None:
+            nonlocal docked
+            if told is not None:
+                told(rows)
+            docked = next(done)
+            progress_cb(100.0 * docked / pairs)
+
+        payload["_pair_callback"] = pair_done
+        payload["_pair_progress"] = lambda fraction: progress_cb(100.0 * (docked + fraction) / pairs)
     reserved = {
         "engine",
         "engine_config",
@@ -72,6 +95,7 @@ def run_docking_chunk(payload: dict) -> list[dict]:
         "run_id",
         "_collect_rows",
         "_pair_callback",
+        "_pair_progress",
     }
     for key, value in dict(payload.get("engine_config") or {}).items():
         if str(key) not in reserved:

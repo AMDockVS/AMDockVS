@@ -38,7 +38,7 @@ class _Runtime:
             session.commit()
         self.active_context = object()
         self.amdock_configuration = None
-        self.molsuite = type("MS", (), {"project_db": type("DB", (), {"get_session": lambda _s: factory()})()})()
+        self.workspace = type("MS", (), {"project_db": type("DB", (), {"get_session": lambda _s: factory()})()})()
 
 
 class _SelectableWidget(BoundTableWidget):

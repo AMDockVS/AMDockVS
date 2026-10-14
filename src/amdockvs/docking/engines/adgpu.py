@@ -14,18 +14,18 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
 
-from ms_flow.core.executor.tools import READY, Recipe, locate
+from ms_env import READY, Recipe, locate
 
 from amdockvs.core.configuration import app_config
 from amdockvs.core.paths import get_default_project_root, tools_home
+from amdockvs.core.worker_io import run_program
 from amdockvs.docking.engines.autogrid import map_prefix
 from amdockvs.docking.engines.vina import count_heavy_atoms
-from amdockvs.docking.results.metrics import docking_metrics
+from amdockvs.docking.results.metrics import docking_metrics, pose_file_stem
 from amdockvs.docking.results.rmsd import pose_rmsd_detail
 from amdockvs.integrations.envs import tool_spec
 
@@ -81,7 +81,7 @@ def _run_adgpu(
         command += ["--seed", str(int(seed))]  # 0 keeps the program's own time-based seed
     if derived_types.strip():
         command += ["--derivtype", derived_types.strip()]
-    result = subprocess.run(command, cwd=str(output_dir), capture_output=True, text=True)
+    result = run_program(command, cwd=str(output_dir))
     dlg = output_dir / f"{name}.dlg"
     # The exit code is 0 even when the job failed: the text is the only signal.
     if "All jobs ran without errors" not in result.stdout or not dlg.exists():
@@ -163,7 +163,7 @@ def adgpu_dock_runner(payload: dict) -> list[dict]:
             ),
             "protocol": protocol_payload,
         }
-        output_stem = f"{run_kind}_{complex_id}" if complex_id is not None else f"{ligand_id}__{receptor_id}"
+        output_stem = pose_file_stem(pair, protocol_payload)
         output_sdf = output_dir / f"{output_stem}.adgpu.sdf"
         try:
             invalid_reason = str(pair.get("invalid_reason") or "").strip()

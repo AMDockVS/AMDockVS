@@ -41,7 +41,7 @@ def test_htpvs_import_shards_and_the_pipeline_runs_over_them(tmp_path, monkeypat
     runtime = AMDockVSRuntime()
     try:
         runtime.create_project(name="htp", folder=tmp_path / "project")
-        store = ShardStore(runtime.molsuite.project_db)
+        store = ShardStore(runtime.workspace.project_db)
         assert runtime.mode == ProjectMode.VS  # nothing imported yet
         runtime.amdock_configuration.set_global_value("shards.records_per_shard", 9)
         runtime.amdock_configuration.set_value("shards.records_per_shard", 8)

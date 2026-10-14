@@ -4,6 +4,7 @@ from typing import Any
 from sqlalchemy import DateTime, Index, JSON, UniqueConstraint
 from sqlmodel import SQLModel, Field
 
+from amdockvs.core.rows import binding_site_row, engine_state_row, interaction_rows
 from amdockvs.core.constants import (
     TABLE_BINDING_SITES,
     TABLE_CONSENSUS_SCORES,
@@ -66,32 +67,7 @@ class BindingSite(SQLModel, table=True):
             )
         )
 
-    @classmethod
-    def build_row(
-            cls,
-            *,
-            molecule_id: int,
-            name: str = "",
-            source: str = BindingSiteSource.MANUAL,
-            source_ref: str = "",
-            center: tuple[float, float, float] | None = None,
-            size: tuple[float, float, float] | None = None,
-            extra_data: dict | None = None,
-    ) -> dict[str, Any]:
-        # A row heading to a sink is written as-is: SQLModel does not run here, so the
-        # default_factory of created_at (NOT NULL) never fires. build_row sets it.
-        cx, cy, cz = center or (None, None, None)
-        sx, sy, sz = size or (None, None, None)
-        return {
-            "molecule_id": molecule_id,
-            "name": name,
-            "source": source,
-            "source_ref": source_ref,
-            "center_x": cx, "center_y": cy, "center_z": cz,
-            "size_x": sx, "size_y": sy, "size_z": sz,
-            "extra_data": extra_data,
-            "created_at": datetime.now(),
-        }
+    build_row = staticmethod(binding_site_row)
 
 
 class EngineState(SQLModel, table=True):
@@ -134,26 +110,7 @@ class EngineState(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
     updated_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
-    @classmethod
-    def build_row(
-            cls,
-            *,
-            molecule_id: int,
-            role_type: str,
-            engine: str,
-            files: dict | None = None,
-            is_ready: bool = False,
-    ) -> dict[str, Any]:
-        now = datetime.now()
-        return {
-            "molecule_id": molecule_id,
-            "role_type": role_type,
-            "engine": engine,
-            "files": files or {},
-            "is_ready": is_ready,
-            "created_at": now,
-            "updated_at": now,
-        }
+    build_row = staticmethod(engine_state_row)
 
 
 # ---------------------------------------------------------------------------
@@ -304,22 +261,4 @@ class InteractionsResult(SQLModel, table=True):
 
     created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
-    @classmethod
-    def build_rows(
-        cls,
-        docking_result_id: int,
-        interactions: list[dict],
-    ) -> list[dict[str, Any]]:
-        now = datetime.now()
-        return [
-            {
-                "docking_result_id": docking_result_id,
-                "interaction_type":  i["interaction_type"],
-                "residue":           i["residue"],
-                "residue_index":     i.get("residue_index", 0),
-                "distance":          i.get("distance"),
-                "geometry":          i.get("geometry", {}),
-                "created_at":        now,
-            }
-            for i in interactions
-        ]
+    build_rows = staticmethod(interaction_rows)

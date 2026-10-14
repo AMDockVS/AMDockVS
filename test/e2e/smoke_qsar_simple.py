@@ -40,14 +40,14 @@ def main() -> int:
         jobs = runtime.loader.load_ligands([lig_file], executor_name="thread", prefilter=prefilter)
         runtime.wait_for_jobs(list(jobs))
 
-        with runtime.molsuite.project_db.get_session() as session:
+        with runtime.workspace.project_db.get_session() as session:
             acts = session.exec(select(ActivityRecord)).all()
         print(f"[1] activities at import: {len(acts)} (pIC50 = {sorted(round(a.value,2) for a in acts)})", flush=True)
         assert len(acts) == len(smiles), f"expected {len(smiles)} activities, got {len(acts)}"
 
         fp_job = runtime.qsar.compute_fingerprints(only_missing=True, executor_name="compute")
         runtime.wait_for_job(fp_job)
-        with runtime.molsuite.project_db.get_session() as session:
+        with runtime.workspace.project_db.get_session() as session:
             fps = session.exec(select(FingerprintRecord)).all()
         print(f"[2] fingerprint rows: {len(fps)} (nbits={fps[0].nbits if fps else '-'})", flush=True)
         assert len(fps) == len(smiles), f"expected {len(smiles)} fingerprints, got {len(fps)}"
@@ -62,7 +62,7 @@ def main() -> int:
         assert m.get("feature_kind") == "ecfp4"
 
         result = runtime.qsar.predict(model=int(model.id))
-        with runtime.molsuite.project_db.get_session() as session:
+        with runtime.workspace.project_db.get_session() as session:
             preds = session.exec(select(QSARPredictionRecord)).all()
         print(f"[4] predicted: {result['predicted']}, prediction rows: {len(preds)}", flush=True)
         assert result["predicted"] == len(smiles)

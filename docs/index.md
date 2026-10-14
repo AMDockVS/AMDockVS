@@ -22,6 +22,21 @@ Start the desktop application with:
 amdockvs
 ```
 
+## The global selection
+
+Right-click rows in a Ligands or Receptors table and choose **Select** to work on
+just those rows. The selection is global: there is one for ligands and one for
+receptors, and every table and tool of that role (Build, Docking Studio,
+including Preview & Run) works on it, whichever one it was made in. A tool that
+offers its own choice of what to work on, such as Diversity, uses the selection
+only under **Current selection**; any other choice there ignores it.
+
+While a selection is active the status bar shows it, for example
+`Ligands: 2 selected ✕`, and the ID column of the table is marked as filtered.
+Nothing clears it for you: it survives preparing and docking, so a run can be
+repeated on the same rows. Click the status-bar entry to drop it and go back to
+the whole library.
+
 ## Python API
 
 The supported entry point is deliberately small:

@@ -93,7 +93,7 @@ def test_runtime_migrates_legacy_flat_preview_setting(tmp_path, monkeypatch):
     runtime = AMDockVSRuntime()
     try:
         assert runtime.amdock_configuration.get_value(MAX_2D_PREVIEW_HEAVY_ATOMS_PATH) == 63
-        migrated = toml.load(tmp_path / ".config" / "AMDockVS" / "config.toml")
+        migrated = toml.load(tmp_path / ".amdockvs" / "config.toml")
         assert migrated["molecule_display"]["max_2d_preview_heavy_atoms"] == 63
         cleaned = toml.load(legacy_path)
         assert "amdockvs" not in cleaned.get("applications", {})
@@ -125,7 +125,7 @@ def test_amdock_configuration_nests_component_and_theme_sections(tmp_path, monke
     reloaded = create_amdock_configuration()
     assert reloaded.get_value("theme.name") == "dracula"
     assert reloaded.get_value("monitor.poll_ms") == 250
-    saved = toml.load(tmp_path / ".config" / "AMDockVS" / "config.toml")
+    saved = toml.load(tmp_path / ".amdockvs" / "config.toml")
     assert saved["theme"]["name"] == "dracula"
     assert saved["monitor"]["poll_ms"] == 250
 
@@ -149,7 +149,7 @@ def test_table_view_prefs_persist_per_table(tmp_path, monkeypatch):
     assert state.columns == ["name", "mw"]
     assert state.sort[0].field == "mw" and state.sort[0].descending is True
     # Other tables stay on their code-defined defaults (no stray keys written).
-    saved = toml.load(tmp_path / ".config" / "AMDockVS" / "config.toml")
+    saved = toml.load(tmp_path / ".amdockvs" / "config.toml")
     assert list(saved["tables"]) == ["LigandTableWidget"]
 
 
@@ -165,7 +165,7 @@ def test_theme_helpers_persist_choice_in_amdock_config(tmp_path, monkeypatch):
     set_theme("nord", app=app)
 
     assert saved_theme_name() == "nord"
-    saved = toml.load(tmp_path / ".config" / "AMDockVS" / "config.toml")
+    saved = toml.load(tmp_path / ".amdockvs" / "config.toml")
     assert saved["theme"]["name"] == "nord"
 
 

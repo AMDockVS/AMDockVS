@@ -1,3 +1,4 @@
+import io
 import sys
 from pathlib import Path
 
@@ -34,14 +35,14 @@ def test_command_line_has_only_the_options_quickvina_knows(monkeypatch, tmp_path
     seen: list[str] = []
 
     class FakeProcess:
-        returncode = 0
+        returncode, stdout = 0, io.StringIO()
 
         def __init__(self, command, **_kwargs):
             seen.extend(command)
             Path(command[command.index("--out") + 1]).write_text("REMARK VINA RESULT:      -8.5      0.000      0.000\n")
 
-        def communicate(self):
-            return "", ""
+        def wait(self):
+            return 0
 
     monkeypatch.setattr(vina.subprocess, "Popen", FakeProcess)
     energies, _ = vina._run_vina_binary(

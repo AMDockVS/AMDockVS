@@ -26,6 +26,16 @@ from amdockvs.docking.repository import (
     list_receptor_ids_in_set,
 )
 
+
+class MissingLigand3DError(RuntimeError):
+    """Ligand preparation was asked for ligands with no 3D coordinates. `count` is how many,
+    so a caller can offer to generate them instead of only reporting it."""
+
+    def __init__(self, message: str, *, count: int) -> None:
+        super().__init__(message)
+        self.count = int(count)
+
+
 # How many offending ids a requirement check reports. They exist to be read by a human in a
 # dialog, and the caller gets the exact count separately.
 MISSING_SAMPLE_SIZE = 10
@@ -100,7 +110,7 @@ class DockingAPI:
 
     def _project_db(self):
         self.runtime._require_active_project()
-        return self.runtime.molsuite.project_db
+        return self.runtime.workspace.project_db
 
     def list_programs(self) -> tuple[DockingProgramSpec, ...]:
         return list_docking_programs()
@@ -110,24 +120,17 @@ class DockingAPI:
         *,
         job_ids: list[str] | tuple[str, ...] = (),
     ) -> dict[int, dict[str, int]]:
-        """Current per-receptor totals, including unfinished local MF chunks."""
+        """Current per-receptor totals of what is written."""
         self.runtime._require_active_project()
-        chunks = (
-            self.runtime.molsuite.get_job_chunks(
-                job_ids=list(job_ids),
-                statuses=("pending", "running", "staging"),
-                include_payload=True,
-            )
-            if job_ids
-            else []
-        )
-        return live_target_progress(list_targets(self.runtime.molsuite.project_db), chunks)
+        # ponytail: the engine does not list the chunks a job has in flight, so the totals count
+        # what is written; `job_ids` comes back when it does.
+        return live_target_progress(list_targets(self.runtime.workspace.project_db), [])
 
     def recoverable_ranked_runs(self) -> list[dict[str, Any]]:
         """Interrupted top-N campaigns recoverable from completed result shards."""
         context = self.runtime._require_active_project()
         return recoverable_ranked_runs(
-            self.runtime.molsuite.project_db,
+            self.runtime.workspace.project_db,
             project_root=context.path,
         )
 
@@ -142,7 +145,7 @@ class DockingAPI:
         """Select a recomputable Top-N from the durable HTP result dataset."""
         context = self.runtime._require_active_project()
         return select_shard_hits(
-            self.runtime.molsuite.project_db,
+            self.runtime.workspace.project_db,
             project_root=context.path,
             run_id=run_id,
             protocol_hash=protocol_hash,
@@ -161,7 +164,7 @@ class DockingAPI:
         """Materialize the best available N without submitting docking work."""
         context = self.runtime._require_active_project()
         return recover_ranked_hits(
-            self.runtime.molsuite.project_db,
+            self.runtime.workspace.project_db,
             project_root=context.path,
             run_id=run_id,
             protocol_hash=protocol_hash,
@@ -186,7 +189,7 @@ class DockingAPI:
         # produces three integers here, not a million-element list.
         ids = (int(value) for value in self.runtime.molecules.stream_ids(scope) if int(value) > 0)
         total = ready = failed = 0
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             for chunk in batched(ids, 900):  # stay well under SQLite's bound-parameter limit
                 total += len(chunk)
                 rows = session.exec(
@@ -226,7 +229,7 @@ class DockingAPI:
         self.runtime._require_active_project()
         from amdockvs.project.deletion import delete_docking_results
 
-        return delete_docking_results(self.runtime.molsuite.project_db, result_ids)
+        return delete_docking_results(self.runtime.workspace.project_db, result_ids)
 
     @staticmethod
     def get_program_spec(program: str | None = None) -> DockingProgramSpec:
@@ -286,7 +289,7 @@ class DockingAPI:
             self.runtime, ligand_set, name="prepare_ligands_check_input")
         ligand_scope = scope_payload(ligand_set) if is_molecule_scope(ligand_set) else {}
         ligand_filters = self._program_scope_filters(ligand_scope, role="ligand", program=program_spec)
-        project_db = self.runtime.molsuite.project_db
+        project_db = self.runtime.workspace.project_db
         set_id = None if ligand_set_ref is None else int(ligand_set_ref.id)
         prep_engine = program_spec.preparation_engine
         total = count_entity_rows(
@@ -356,7 +359,7 @@ class DockingAPI:
             raise ValueError(f"Docking program '{program_spec.key}' does not require ligand preparation.")
         if ligand_set is None:
             self.runtime._require_active_project()
-            if has_shards(self.runtime.molsuite.project_db):
+            if has_shards(self.runtime.workspace.project_db):
                 return self.prepare_ligand_shards(
                     program=program_spec.key,
                     force=force,
@@ -378,9 +381,10 @@ class DockingAPI:
                 shown = ", ".join(str(value) for value in sample)
                 if missing_count > len(sample):
                     shown = f"{shown}, … (+{missing_count - len(sample)})"
-                raise RuntimeError(
+                raise MissingLigand3DError(
                     f"Missing has_3d for {missing_count} ligand(s): {shown}. "
-                    "Run runtime.chemistry.generate_3d_ligands(...) first."
+                    "Run runtime.chemistry.generate_3d_ligands(...) first.",
+                    count=missing_count,
                 )
         ligand_set_ref = None if ligand_set is None or is_molecule_scope(ligand_set) else ensure_molecule_set_ref(
             self.runtime, ligand_set, name="prepare_ligands_input")
@@ -544,7 +548,7 @@ class DockingAPI:
             # The gate lives in the parent, like the shard queue at import: it counts across
             # chunks and it writes molecules, neither of which a worker can do.
             result_handler_kwargs={
-                "project_db": self.runtime.molsuite.project_db,
+                "project_db": self.runtime.workspace.project_db,
                 "hit_cap": int(hit_cap),
                 "hit_threshold": float(hit_threshold),
                 "hit_mode": str(hit_mode),
@@ -635,7 +639,7 @@ class DockingAPI:
     def get_grid(self, *, receptor_id: int, engine: str = "vina") -> dict[str, Any] | None:
         self.runtime._require_active_project()
         engine_name = str(engine or "vina")
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             receptor = session.get(MoleculeRecord, int(receptor_id))
             if receptor is None or not bool(getattr(receptor, "is_receptor", False)):
                 return None
@@ -668,7 +672,7 @@ class DockingAPI:
         receptor_scope = scope_payload(receptor_set) if is_molecule_scope(receptor_set) else {}
         ligand_filters = self._program_scope_filters(ligand_scope, role="ligand", program=program_spec)
         receptor_filters = self._program_scope_filters(receptor_scope, role="receptor", program=program_spec)
-        project_db = self.runtime.molsuite.project_db
+        project_db = self.runtime.workspace.project_db
         # Ligands are counted, never listed: "prepared?" is a subquery, so a million-ligand
         # library costs two COUNTs and a sample. Receptors stay on list_entity_rows — there
         # are tens of them and the grid check needs the hydrated binding-site payload.
@@ -754,7 +758,7 @@ class DockingAPI:
         size = tuple(float(v) for v in grid.get("size") or [])
         if len(center) != 3 or len(size) != 3:
             return []
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             receptor = session.get(MoleculeRecord, int(receptor_id))
         if receptor is None:
             return []
@@ -776,7 +780,7 @@ class DockingAPI:
     def get_flexible_residues(self, *, receptor_id: int) -> list[str]:
         # Flexible residues belong to the receptor (what gets passed to prep), not to any
         # binding site — the box is only a candidate filter, not the owner of the selection.
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             receptor = session.get(MoleculeRecord, receptor_id)
             if receptor is None:
                 return []
@@ -784,7 +788,7 @@ class DockingAPI:
 
     def set_flexible_residues(self, *, receptor_id: int, residue_keys: list[str]) -> list[str]:
         keys = [str(k) for k in residue_keys]
-        with self.runtime.molsuite.project_db.get_session() as session:
+        with self.runtime.workspace.project_db.get_session() as session:
             receptor = session.get(MoleculeRecord, receptor_id)
             if receptor is None:
                 raise ValueError(f"No receptor with id {receptor_id}.")
@@ -817,7 +821,7 @@ class DockingAPI:
         receptor_scope = scope_payload(receptor_set) if is_molecule_scope(receptor_set) else {}
         receptor_filters = self._program_scope_filters(receptor_scope, role="receptor", program=program_spec)
         receptor_rows = list_entity_rows(
-            self.runtime.molsuite.project_db,
+            self.runtime.workspace.project_db,
             entity_kind="receptor",
             engine=program_spec.preparation_engine,
             set_id=None if receptor_set_ref is None else int(receptor_set_ref.id),
@@ -861,7 +865,7 @@ class DockingAPI:
             receptor_ids = list(islice(self.runtime.molecules.stream_ids(receptor_source), 2))
         else:
             receptor_ids = list_receptor_ids_in_set(
-                self.runtime.molsuite.project_db,
+                self.runtime.workspace.project_db,
                 receptor_set_id=int(receptor_source.id),
             )
         if len(receptor_ids) != 1:
@@ -925,7 +929,7 @@ class DockingAPI:
                 raise ValueError("Pass either receptors or receptor_set, not both.")
             receptor_set = receptors
         self.runtime._require_active_project()
-        if ligand_set is None and has_shards(self.runtime.molsuite.project_db):
+        if ligand_set is None and has_shards(self.runtime.workspace.project_db):
             if hit_threshold is None or int(hit_cap) <= 0:
                 raise ValueError(
                     "docking.run over a sharded library requires hit_threshold and hit_cap."
@@ -1034,7 +1038,7 @@ class DockingAPI:
         # total must use that same filtered count; over-declaring makes Molsuite wait forever for
         # chunks that the feed intentionally never emits.
         pending_pairs = count_pending_docking_pairs(
-            project_db=self.runtime.molsuite.project_db,
+            project_db=self.runtime.workspace.project_db,
             engine=program_spec.docking_engine,
             preparation_engine=program_spec.preparation_engine,
             ligand_set_id=None if ligand_set_ref is None else int(ligand_set_ref.id),
@@ -1155,7 +1159,7 @@ class DockingAPI:
         purpose_text = str(purpose or "redocking").strip() or "redocking"
         if check_required:
             complex_rows = list_complex_rows(
-                self.runtime.molsuite.project_db,
+                self.runtime.workspace.project_db,
                 set_id=complex_set_id,
                 purpose=purpose_text,
             )
@@ -1173,7 +1177,7 @@ class DockingAPI:
                 if ligand_id > 0:
                     molecule_ids.append(ligand_id)
             molecule_rows = get_molecule_rows_by_ids(
-                self.runtime.molsuite.project_db,
+                self.runtime.workspace.project_db,
                 molecule_ids,
                 engine=program_spec.preparation_engine,
             )
@@ -1208,7 +1212,7 @@ class DockingAPI:
                     f"missing={missing}; required_jobs={required_jobs}"
                 )
         pending_pairs = count_pending_redocking_pairs(
-            project_db=self.runtime.molsuite.project_db,
+            project_db=self.runtime.workspace.project_db,
             engine=program_spec.docking_engine,
             preparation_engine=program_spec.preparation_engine,
             complex_set_id=complex_set_id,

@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import gzip
 import json
-import tempfile
 from contextlib import suppress
 from pathlib import Path
 from typing import Any, Iterator
@@ -27,30 +26,27 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlmodel import select
 
-from ms_flow.tasking import JobSpec
+from amdockvs.core.jobs import JobSpec
+from amdockvs.docking.shard_tasks import HIT_MODE_THRESHOLD, HIT_MODE_TOP_N, dock_shards
 from ms_flow.core.data.shard import Shard
 
 from amdockvs.core.worker_io import worker_file, worker_output_dir
 from amdockvs.core.configuration import DEFAULT_HIT_SAFETY_CAP
 from amdockvs.core.constants import AMDOCKVS_OFFLOADABLE_EXECUTORS, DEFAULT_VINA_BACKEND, DEFAULT_VINA_COMMAND
-from amdockvs.docking.engines.registry import run_docking_chunk
 from amdockvs.docking.engines.programs import chunk_resources
 from amdockvs.docking.protocols import DockingProtocolMetadata
 from amdockvs.docking.repository import list_entity_rows, resolve_docking_output_dir
 from amdockvs.docking.results.repository import count_docking_results
 from amdockvs.docking.results.dataset import (
     RESULT_DATASET_FORMAT,
-    ResultFragmentWriter,
     completed_result_receipts,
     local_pose_path,
     result_fragment_path,
     result_metadata,
-    result_row,
     select_hit_refs,
     select_hits,
 )
 from amdockvs.docking.preparation.state import docking_input_path_from_row, grid_from_row
-from amdockvs.docking.preparation.shards import extract_ligands
 from amdockvs.screening.campaign import (
     advance_shard_run,
     advance_target,
@@ -69,11 +65,6 @@ from amdockvs.core.vocab import TargetState
 # at 0, and the pose file name is built from the ligand id.
 SCREENING_SUBDIR = "screening"
 
-# How the cap is spent. `threshold`: the first `cap` ligands that beat the threshold, written as
-# they come back — the campaign can stop early. `top_n`: the best `cap` of everything scored,
-# written when the run ends — no early stop, and nothing to look at until then.
-HIT_MODE_THRESHOLD = "threshold"
-HIT_MODE_TOP_N = "top_n"
 HIT_MODES = (HIT_MODE_THRESHOLD, HIT_MODE_TOP_N)
 
 # By-threshold has no hit count of its own — "everything under the cutoff" is the criterion.
@@ -311,51 +302,6 @@ class DockShardsJobParams(BaseModel):
     selected_top_n: int | None = Field(default=None, ge=1)
     skip_existing: bool = True
     check_required: bool = True
-
-
-def _pose_files(row: dict) -> list[str]:
-    metrics = dict(row.get("metrics") or {})
-    return [
-        str(row.get("pose_path") or ""),
-        str(metrics.get("selected_pose_path") or ""),
-        str(metrics.get("selected_pose_pdbqt_path") or ""),
-    ]
-
-
-def _discard_poses(rows: list[dict]) -> None:
-    """Delete the poses of everything that missed the threshold.
-
-    The non-hits are the whole library minus a handful. Their files are written before the
-    score is known, so this is where the campaign stops filling the disk.
-    """
-    for row in rows:
-        for value in set(_pose_files(row)):
-            path = _local_pose_path(value)
-            if path is not None:
-                with suppress(OSError):
-                    path.unlink(missing_ok=True)
-
-
-def _hit_row(row: dict, *, smiles: str, source: str, shard_index: int) -> dict[str, Any]:
-    """A docking result row turned into what `ingest_hits` promotes: a molecule and its pose."""
-    ligand_id = int(row.get("ligand_molecule_id") or 0)
-    metrics = {**dict(row.get("metrics") or {}), "shard_source": source, "shard_index": shard_index,
-               "shard_record_id": ligand_id}
-    return {
-        "name": f"{Path(source).stem or 'library'}:{ligand_id}",
-        "source": source,
-        # The shard record id *is* the identity of a library molecule: the shard's
-        # `source_indices` metadata is what maps it back to a line in the original file.
-        "source_index": ligand_id,
-        "smiles": smiles,
-        "engine": str(row.get("engine") or ""),
-        "score": row.get("score"),
-        "score_type": str(row.get("score_type") or ""),
-        "pose_path": str(row.get("pose_path") or ""),
-        "pose_rank": int(row.get("pose_rank") or 1),
-        "receptor_molecule_id": int(row.get("receptor_molecule_id") or 0),
-        "metrics": metrics,
-    }
 
 
 class ShardHitWriter:
@@ -655,183 +601,8 @@ class DockShardsJobSpec(JobSpec):
         # build_chunks emits one no-op sentinel for an already-complete/empty scope.
         return max(1, pending)
 
-    @staticmethod
-    def run_chunk(payload: dict, progress_cb=None):
-        shards = list(payload.get("shards") or [])
-        total = max(1, sum(max(0, int(shard.get("n_records") or 0)) for shard in shards))
-        completed = 0
-        envelopes: list[dict] = []
-        for shard in shards:
-            shard_total = max(0, int(shard.get("n_records") or 0))
+    run_chunk = staticmethod(dock_shards)
 
-            def report(done: int, *, before: int = completed) -> None:
-                if progress_cb is not None:
-                    progress_cb(min(99.0, 100.0 * (before + int(done)) / total))
-
-            envelopes.append(DockShardsJobSpec._dock_one_shard(payload, shard, progress_cb=report))
-            completed += shard_total
-        return envelopes
-
-    @staticmethod
-    def _dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
-        """One whole shard against the chunk's receptor: extract, dock, keep the hits.
-
-        Split out of `run_chunk` because a chunk may carry several shards and each one is its
-        own engine call — the ligand ids inside a shard start at 0, so two shards in one call
-        would write over each other's poses.
-        """
-        source = str(shard.get("source") or "")
-        shard_index = int(shard.get("shard_index") or 0)
-        envelope = {
-            "shard_id": int(shard.get("shard_id") or 0),
-            "source": source,
-            "shard_index": shard_index,
-            "chunks_total": int(payload.get("chunks_total") or 1),
-            "receptor_id": int(payload.get("receptor_id") or 0),
-            # What the campaign progress counts: dockings finished, hit or not.
-            "scored": 0,
-            "hits": [],
-            "hits_found": 0,
-            "result_shard": "",
-        }
-        shard_path = str(shard.get("shard_path") or "")
-        if not shard_path:
-            return envelope
-        output_dir = Path(str(payload["output_dir"])).expanduser().resolve()
-        output_dir.mkdir(parents=True, exist_ok=True)
-        threshold = float(payload["hit_threshold"])
-        result_path = result_shard_path(output_dir, payload, shard)
-        result_path.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.TemporaryDirectory(prefix="ligands_", dir=str(output_dir)) as staging:
-            ligands = extract_ligands(
-                shard_path,
-                staging,
-                record_ids=shard.get("record_ids"),
-            )
-            smiles = {int(ligand["id"]): str(ligand["smiles"]) for ligand in ligands}
-            pairs = [
-                {
-                    "run_kind": "screening",
-                    "ligand_id": int(ligand["id"]),
-                    "receptor_id": int(payload["receptor_id"]),
-                    "ligand_path": ligand["path"],
-                    "receptor_path": str(payload["receptor_path"]),
-                    "exhaustiveness": int(payload.get("exhaustiveness") or 8),
-                    "num_modes": int(payload.get("num_modes") or 9),
-                    "box_center": list(payload.get("box_center") or []),
-                    "box_size": list(payload.get("box_size") or []),
-                    "spacing": float(payload.get("spacing") or 0.375),
-                }
-                for ligand in ligands
-            ]
-            with Shard.open(shard_path) as source_shard:
-                header = {
-                    "dataset_id": source_shard.dataset_id,
-                    "shard_id": source_shard.shard_id,
-                    "base_id": source_shard.base_id,
-                    "slot_count": source_shard.slot_count,
-                }
-            processed = 0
-            hits: list[dict] = []
-            hits_found = 0
-            try:
-                with ResultFragmentWriter(
-                    result_path,
-                    metadata={
-                        "dataset_id": header["dataset_id"],
-                        "shard_id": header["shard_id"],
-                        "base_id": header["base_id"],
-                        "slot_count": header["slot_count"],
-                        "source_shard": source,
-                        "run_id": str(payload.get("run_id") or ""),
-                        "protocol": dict(payload.get("protocol_metadata") or {}),
-                        "receptor_id": envelope["receptor_id"],
-                        "selection": {
-                            "mode": str(payload.get("hit_mode") or HIT_MODE_THRESHOLD),
-                            "cap": int(payload.get("hit_cap") or 0),
-                            "threshold": threshold,
-                            **(
-                                {"selected_from_receptor_id": int(payload["selected_from_receptor_id"])}
-                                if payload.get("selected_from_receptor_id") else {}
-                            ),
-                        },
-                    },
-                ) as writer:
-                    def consume_pair(pair_rows: list[dict]) -> None:
-                        nonlocal hits_found, processed
-                        if not pair_rows:
-                            return
-                        row = next(
-                            (item for item in pair_rows if int(item.get("pose_rank") or 1) == 1),
-                            pair_rows[0],
-                        )
-                        ligand_id = int(row.get("ligand_molecule_id") or 0)
-                        stored = result_row(row, smiles=smiles.get(ligand_id, ""))
-                        writer.add(stored)
-                        is_hit = (
-                            row.get("score") is not None
-                            and bool(stored.get("has_pose"))
-                            and (
-                                bool(payload.get("selected_from_receptor_id"))
-                                or float(row["score"]) <= threshold
-                            )
-                        )
-                        if is_hit:
-                            hits_found += 1
-                            if (
-                                str(payload.get("hit_mode") or HIT_MODE_THRESHOLD) != HIT_MODE_TOP_N
-                                or payload.get("selected_from_receptor_id")
-                            ):
-                                hit = _hit_row(
-                                    row,
-                                    smiles=smiles.get(ligand_id, ""),
-                                    source=source,
-                                    shard_index=shard_index,
-                                )
-                                hit["pose_path"] = ""
-                                hit["metrics"] = {
-                                    **dict(hit.get("metrics") or {}),
-                                    "selected_pose_path": "",
-                                    "selected_pose_pdbqt_path": "",
-                                }
-                                hit["_pose_text"] = stored["pose_text"]
-                                hit["_pose_suffix"] = stored["pose_suffix"]
-                                hit["_result_shard"] = str(result_path)
-                                hit["_result_record_id"] = ligand_id
-                                hit["_shard_id"] = int(shard.get("shard_id") or 0)
-                                hits.append(hit)
-                        # The result shard is now the durable copy. No engine-specific loose pose
-                        # survives the callback; selected hits are restored by the parent later.
-                        _discard_poses([row])
-                        processed += 1
-                        if progress_cb is not None:
-                            progress_cb(processed)
-
-                    rows = run_docking_chunk({
-                        **payload,
-                        "pairs": pairs,
-                        "report_name": f"shard_{shard_index:05d}_r{envelope['receptor_id']:05d}.json",
-                        "_pair_callback": consume_pair,
-                        "_collect_rows": False,
-                    })
-                    # Registered engines predating the streaming callback still work; they merely
-                    # flush at the end of their engine call until they adopt the callback contract.
-                    if rows:
-                        by_ligand: dict[int, list[dict]] = {}
-                        for row in rows:
-                            by_ligand.setdefault(int(row.get("ligand_molecule_id") or 0), []).append(row)
-                        for pair_rows in by_ligand.values():
-                            consume_pair(pair_rows)
-            except BaseException:
-                # A canceled/failed task has no receipt; do not leave interactive pose files
-                # for work that will be retried as a whole shard.
-                _discard_poses(hits)
-                raise
-        envelope["scored"] = processed
-        envelope["hits"] = hits
-        envelope["hits_found"] = hits_found
-        envelope["result_shard"] = str(result_path)
-        return envelope
 
     @staticmethod
     def build_chunks(params: dict, config: dict | None = None) -> Iterator[dict]:

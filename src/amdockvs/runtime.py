@@ -1,19 +1,17 @@
 from __future__ import annotations
 
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from ms_flow.runtime import AppRuntime
 
 from amdockvs.core.constants import (
     AMDOCKVS_APP_ID,
     AMDOCKVS_APP_NAME,
-    AMDOCKVS_DEFAULT_PROJECT_DIRS,
-    AMDOCKVS_PROJECT_RESOURCES,
     AMDOCKVS_SCOPE_ID,
-    DEFAULT_LOCAL_CPU_EXECUTOR,
     RESOURCE_DOCKING_RESULTS,
     RESOURCE_EXPORTS,
     RESOURCE_JOBS,
@@ -21,6 +19,7 @@ from amdockvs.core.constants import (
     RESOURCE_QSAR_MODELS,
     TABLE_SCREENING_SHARD_RUNS,
 )
+from amdockvs.manifest import AMDOCKVS_DEFAULT_PROJECT_DIRS, AMDOCKVS_PROJECT_RESOURCES
 from amdockvs.core.configuration import (
     MAX_2D_PREVIEW_HEAVY_ATOMS,
     MAX_2D_PREVIEW_HEAVY_ATOMS_PATH,
@@ -28,6 +27,8 @@ from amdockvs.core.configuration import (
     create_contact_map_configuration,
 )
 import amdockvs.models  # noqa: F401  # Ensure SQLModel metadata is registered before project DB setup.
+from amdockvs.core.jobs import STATUS as JOB_STATUS
+from amdockvs.core.jobs import configs as job_configs
 from amdockvs.core.paths import set_default_project_root
 from amdockvs.project.summaries import JobStatus, ProjectSummary
 from amdockvs.molecules.storage import DbStore, general_ligand_count, library_kind
@@ -43,15 +44,7 @@ if TYPE_CHECKING:
     from amdockvs.integrations.api import ToolAPI
     from amdockvs.shards import ShardAPI
 
-KNOWN_JOB_STATUSES = (
-    "pending",
-    "running",
-    "staging",
-    "cancel_requested",
-    "completed",
-    "failed",
-    "canceled",
-)
+KNOWN_JOB_STATUSES = ("pending", "running", "completed", "failed", "canceled")
 TERMINAL_JOB_STATUSES = {"completed", "failed", "canceled"}
 NON_TERMINAL_JOB_STATUSES = tuple(s for s in KNOWN_JOB_STATUSES if s not in TERMINAL_JOB_STATUSES)
 
@@ -95,10 +88,12 @@ class AMDockVSRuntime(AppRuntime):
             logger_name=AMDOCKVS_APP_ID,
             project_resources=AMDOCKVS_PROJECT_RESOURCES,
         )
+        # A host kept with no environment named is given the one of this app.
+        self.workspace.host_env = self._host_env
         amdock_configuration = create_amdock_configuration()
         self._migrate_legacy_app_settings(amdock_configuration)
         self._configuration_sources = [
-            self.molsuite.settings_manager,
+            self.workspace.settings_manager,
             amdock_configuration,
             create_contact_map_configuration(),
         ]
@@ -113,9 +108,19 @@ class AMDockVSRuntime(AppRuntime):
         self._shards_api: ShardAPI | None = None
         self._ligand_store = None
 
+    def _host_env(self, address: str, busy=None, on_line=None) -> str:
+        from amdockvs.integrations.hosts import prepare_host
+
+        def say(line: str) -> None:
+            self.logger.info(line)
+            if on_line is not None:
+                on_line(line)
+
+        return prepare_host(address, say, self, busy)
+
     def _migrate_legacy_app_settings(self, configuration) -> None:
         """Move first-generation flat settings into AMDock's TOML provider once."""
-        manager = self.molsuite.settings_manager
+        manager = self.workspace.settings_manager
         legacy_values = manager.settings.applications.get(AMDOCKVS_APP_ID, {})
         if MAX_2D_PREVIEW_HEAVY_ATOMS not in legacy_values:
             return
@@ -237,7 +242,7 @@ class AMDockVSRuntime(AppRuntime):
         tags: list[str] | None = None,
         extra_dirs: list[str] | None = None,
     ) -> ProjectSummary:
-        context = self.molsuite.create_project(
+        context = self.workspace.create_project(
             name=name,
             folder=folder,
             description=description,
@@ -251,7 +256,7 @@ class AMDockVSRuntime(AppRuntime):
 
     def open_project(self, project_id: UUID | str, extra_dirs: list[str] | None = None) -> ProjectSummary:
         self._validate_project_app_id(project_id)
-        context = self.molsuite.open_project(project_id, extra_dirs=extra_dirs)
+        context = self.workspace.open_project(project_id, extra_dirs=extra_dirs)
         self.on_project_activated(context)
         return self._project_summary_from_context(context)
 
@@ -263,7 +268,7 @@ class AMDockVSRuntime(AppRuntime):
         tags: list[str] | None = None,
         extra_dirs: list[str] | None = None,
     ) -> ProjectSummary:
-        context = self.molsuite.create_or_open_project(
+        context = self.workspace.create_or_open_project(
             name=name,
             folder=folder,
             description=description,
@@ -289,13 +294,13 @@ class AMDockVSRuntime(AppRuntime):
         declared one before it held anything.
         """
         self._require_active_project()
-        return library_kind(self.molsuite.project_db)
+        return library_kind(self.workspace.project_db)
 
     def general_ligand_count(self) -> int:
         """How many screening ligands are rows here — what the importer asks before offering
         to shard, since the two libraries cannot coexist."""
         self._require_active_project()
-        return general_ligand_count(self.molsuite.project_db)
+        return general_ligand_count(self.workspace.project_db)
 
     def get_active_project(self) -> ProjectSummary:
         return self._project_summary_from_context(self._require_active_project())
@@ -314,7 +319,7 @@ class AMDockVSRuntime(AppRuntime):
     def on_project_activated(self, context):
         # SQLModel creates new app tables but intentionally does not alter existing ones.
         # Keep this additive migration beside the app model that owns the column.
-        with self.molsuite.project_db.get_session() as session:
+        with self.workspace.project_db.get_session() as session:
             connection = session.connection()
             columns = {
                 str(row[1])
@@ -330,7 +335,7 @@ class AMDockVSRuntime(AppRuntime):
                 session.commit()
         # Built once per project: a feed asks the runtime where the ligands are, it does not ask
         # the mode — there is no mode to ask.
-        self._ligand_store = DbStore(self.molsuite.project_db)
+        self._ligand_store = DbStore(self.workspace.project_db)
         set_default_project_root(Path(context.path).expanduser().resolve())
         for configuration in self._configuration_sources:
             if hasattr(configuration, "set_project_root"):
@@ -351,9 +356,11 @@ class AMDockVSRuntime(AppRuntime):
         # the user can persist overrides in AMDock's file; explicit args still win.
         monitor_cfg = self.amdock_configuration.get_value("monitor")
         return MolSuiteMonitorBridge(
-            molsuite=self.molsuite,
+            workspace=self.workspace,
             poll_ms=monitor_cfg.poll_ms if poll_ms is None else poll_ms,
             max_recent_jobs=monitor_cfg.max_recent_jobs if max_recent_jobs is None else max_recent_jobs,
+            resume=self.resume_job,
+            destinations=lambda job_id: [name for name, _label in self.job_destinations(job_id)],
         )
 
     @property
@@ -372,32 +379,115 @@ class AMDockVSRuntime(AppRuntime):
         without every submit API needing a depends_on parameter. Cleared by passing None."""
         self._forced_dependencies = list(job_ids) if job_ids else None
 
-    def submit_job(self, job, *, auto_depends: bool = True, **kwargs) -> str:
+    def submit_job(
+        self,
+        job,
+        *,
+        params: Any = None,
+        executor_name: Optional[str] = None,
+        cpu_required: Optional[int] = None,
+        max_job_cpu: Optional[int] = None,
+        max_inflight_tasks: Optional[int] = None,
+        total_chunks: Optional[int] = None,
+        depends_on: Optional[list[str]] = None,
+        priority: int = 0,
+        result_handler_kwargs: Optional[dict] = None,
+        auto_depends: bool = True,
+    ) -> str:
         """Submit a job, auto-waiting for active prerequisite jobs by default.
 
         With auto_depends=True (default) the job is held until every active job of its
         prerequisite categories finishes, so a deferred pipeline can be queued at once.
         Pass auto_depends=False to submit immediately regardless of running jobs.
+        Returns the key of the job in the project's journal, which is its id everywhere here.
         """
-        forced = getattr(self, "_forced_dependencies", None)
-        if forced:
-            explicit = list(kwargs.get("depends_on") or [])
-            for job_id in forced:
-                if job_id not in explicit:
-                    explicit.append(job_id)
-            kwargs["depends_on"] = explicit
-        if auto_depends and self.molsuite.active_context is not None:
-            kwargs["depends_on"] = self.resolve_job_dependencies(job, kwargs.get("depends_on"))
-        job_id = self.molsuite.submit_job(job, **kwargs)
+        self._require_active_project()
+        depends_on = list(depends_on or [])
+        depends_on += [job_id for job_id in getattr(self, "_forced_dependencies", None) or () if job_id not in depends_on]
+        if auto_depends:
+            depends_on = self.resolve_job_dependencies(job, depends_on) or []
+        workspace = self.workspace
+        job_config = self._job_config()
+        engine_job, on_error = job.engine_job(handler_kwargs=result_handler_kwargs)
+        job_params = job.validate_params(params)
+        total = total_chunks if total_chunks is not None else job.count_chunks(job_params, config=job_config)
+        job_id = uuid4().hex
+        engine_ids = self._engine_ids()
+        engine_ids[job_id] = workspace.submit(
+            engine_job,
+            job_params,
+            key=job_id,
+            executor=self._run_on(job, executor_name),
+            # A job that ended in an earlier session has nothing left to wait for.
+            after=[engine_ids[dep] for dep in depends_on if dep in engine_ids],
+            total=total,
+            cpu=cpu_required,
+            window=max_inflight_tasks,
+            max_cpu=max_job_cpu,
+            priority=priority,
+            on_error=on_error,
+            **({"thread": True} if job.on_thread is not None and job.on_thread(job_params) else {}),
+        )
         # Single funnel for "a job just started" UI feedback (the main window plugs a toast in
         # here). May fire from a worker thread, so the hook must be thread-safe (a Qt signal).
         hook = getattr(self, "on_job_submitted", None)
         if hook is not None:
             try:
-                hook(str(getattr(job, "name", "") or "Job"), str(job_id))
+                hook(str(getattr(job, "name", "") or "Job"), job_id)
             except Exception:  # noqa: BLE001 - feedback must never break a submit
                 pass
         return job_id
+
+    def _job_config(self) -> dict:
+        """What a chunker is given of the active project, said where its job finds it."""
+        workspace = self.workspace
+        config = job_configs[workspace.project_db] = {
+            "project_db": workspace.project_db,
+            "project_store": workspace.advanced.project_store,
+            "project_context": workspace.active_context,
+            "project_resources": workspace.get_project_resource_map(),
+        }
+        return config
+
+    def _recorded_job(self, job_id: str):
+        """The declaration of a job on record, and the executor it was sent to. Raises for one
+        that cannot be submitted again (a job with a handler, or with params that are not JSON)."""
+        from ms_flow.engine.flow import named
+
+        origin = self.workspace.origin(str(job_id))
+        return named(origin["job"]).definition, origin["options"].get("executor")
+
+    def job_destinations(self, job_id: str) -> list[tuple[str, str]]:
+        """`run_destinations` for a job on record: where it may be continued now. Nowhere for one
+        that cannot be submitted again."""
+        try:
+            return self.run_destinations(self._recorded_job(job_id)[0])
+        except Exception:  # noqa: BLE001 - not on record, or its declaration is gone
+            return []
+
+    def resume_job(self, job_id: str, executor_name: Optional[str] = None) -> str:
+        """Continue a job that was canceled or interrupted, on `executor_name` or where it was.
+
+        A job that is still running is canceled first and waited for, which is how it is moved
+        to another executor: not from a thread that cannot wait. It waits for the jobs its kind
+        waits for, as when it was submitted.
+        """
+        self._require_active_project()
+        job_id = str(job_id)
+        job, was_on = self._recorded_job(job_id)
+        executor = self._run_on(job, executor_name or was_on)
+        self._job_config()
+        engine_ids = self._engine_ids()
+        waits = [engine_ids[dep] for dep in self.resolve_job_dependencies(job) or ()
+                 if dep in engine_ids and dep != job_id]
+        engine_ids[job_id] = self.workspace.move(job_id, executor, after=waits)
+        return job_id
+
+    def _engine_ids(self) -> dict[str, int]:
+        """Job id -> what the engine calls it, for the jobs this session submitted."""
+        if getattr(self, "_job_engine_ids", None) is None:
+            self._job_engine_ids = {}
+        return self._job_engine_ids
 
     def resolve_job_dependencies(self, job, explicit: Optional[list[str]] = None) -> Optional[list[str]]:
         """Union of explicit depends_on and the ids of active jobs this one should wait for."""
@@ -413,10 +503,10 @@ class AMDockVSRuntime(AppRuntime):
         return deps or None
 
     def list_jobs(self, *, statuses: Iterable[str] = KNOWN_JOB_STATUSES) -> list[JobStatus]:
-        context = self._require_active_project()
-        normalized_statuses = tuple(str(item).strip() for item in statuses if str(item).strip())
-        snapshots = self.molsuite.list_executor_jobs(statuses=normalized_statuses, project_id=context.id)
-        return [self._job_status_from_snapshot(snapshot) for snapshot in snapshots]
+        self._require_active_project()
+        wanted = {str(item).strip() for item in statuses if str(item).strip()}
+        rows = [self._job_status_from_snapshot(snapshot) for snapshot in self.workspace.jobs()]
+        return [row for row in rows if row.status in wanted]
 
     def get_job_status(self, job_id: str) -> Optional[JobStatus]:
         normalized_job_id = str(job_id)
@@ -426,31 +516,29 @@ class AMDockVSRuntime(AppRuntime):
         return None
 
     def wait_for_job(self, job_id: str, *, poll_s: float = 0.2) -> JobStatus:
+        """Block until the job has ended. `poll_s` is not used: the engine tells."""
         self._require_active_project()
-        snapshot = self.molsuite.wait_for_job(str(job_id), poll_s=poll_s)
-        return self._job_status_from_snapshot(snapshot)
+        engine_id = self._engine_ids().get(str(job_id))
+        if engine_id is None:  # of an earlier session: it ended with it
+            status = self.get_job_status(job_id)
+            if status is None:
+                raise KeyError(f"Unknown job: {job_id}")
+            return status
+        return self._job_status_from_snapshot(self.workspace.engine.wait(engine_id))
 
-    def watch_job(self, job_id: str, *, follow: bool = True, poll_s: float = 0.2) -> JobStatus:
+    def watch_job(self, job_id: str, *, poll_s: float = 0.2) -> JobStatus:
         """Display tqdm progress in a terminal or notebook and return the job status."""
-        self._require_active_project()
-        from ms_flow.progress import watch_job
+        return self.watch_jobs([job_id], poll_s=poll_s)[str(job_id)]
 
-        snapshot = watch_job(self.molsuite, str(job_id), follow=follow, poll_s=poll_s)
-        return self._job_status_from_snapshot(snapshot)
-
-    def watch_jobs(
-        self,
-        job_ids: Iterable[str],
-        *,
-        follow: bool = True,
-        poll_s: float = 0.2,
-    ) -> dict[str, JobStatus]:
-        """Display concurrent tqdm progress for several jobs."""
+    def watch_jobs(self, job_ids: Iterable[str], *, poll_s: float = 0.2) -> dict[str, JobStatus]:
+        """Display concurrent tqdm progress for several jobs of this session."""
         self._require_active_project()
         from ms_flow.progress import watch_jobs
 
-        snapshots = watch_jobs(self.molsuite, job_ids, follow=follow, poll_s=poll_s)
-        return {job_id: self._job_status_from_snapshot(snapshot) for job_id, snapshot in snapshots.items()}
+        job_ids = [str(item) for item in job_ids]
+        engine_ids = self._engine_ids()
+        snapshots = watch_jobs(self.workspace.engine, [engine_ids[job_id] for job_id in job_ids], poll_s=poll_s)
+        return {job_id: self._job_status_from_snapshot(snapshots[engine_ids[job_id]]) for job_id in job_ids}
 
     def wait_for_jobs(
         self,
@@ -481,63 +569,38 @@ class AMDockVSRuntime(AppRuntime):
 
     def cancel_job(self, job_id: str) -> None:
         self._require_active_project()
-        self.molsuite.cancel_job(str(job_id))
+        engine_id = self._engine_ids().get(str(job_id))
+        if engine_id is not None:  # only a job of this session can still be running
+            self.workspace.engine.cancel(engine_id)
 
-    def resubmit_job(
-        self,
-        job_id: str,
-        *,
-        executor_name: Optional[str] = None,
-        cpu_required: Optional[int] = None,
-        retry_limit: Optional[int] = None,
-        queue_policy: Optional[str] = None,
-        priority: Optional[int] = None,
-        project_id: Optional[str] = None,
-        store_results: Optional[bool] = None,
-        output_spec: Any = None,
-        output_flush_every: Optional[int] = None,
-    ) -> str:
-        self._require_active_project()
-        return self.molsuite.resubmit_job(
-            str(job_id),
-            executor_name=executor_name,
-            cpu_required=cpu_required,
-            retry_limit=retry_limit,
-            queue_policy=queue_policy,
-            priority=priority,
-            project_id=project_id,
-            store_results=store_results,
-            output_spec=output_spec,
-            output_flush_every=output_flush_every,
-        )
-
-    def get_executor_status(self) -> dict[str, Any]:
-        self._require_active_project()
-        return self.molsuite.get_executor_status()
-
-    def run_destinations(self) -> list[tuple[str, str]]:
-        """Where a job may be sent, as (executor_name, label), local first.
-
-        Only two kinds are destinations a user picks: the logical `compute` slot — whichever
-        of loky/ray is live behind it, that choice belongs to the monitor — and every
-        configured HPC worker, under the name its user gave it. `thread` is left out: it is
-        where short IO-bound jobs go, not a place anyone chooses.
-
-        An HPC run takes no local CPU token, so picking one does not slow down whatever is
-        already running here.
+    def run_destinations(self, job=None) -> list[tuple[str, str]]:
+        """Where a job may be sent now, as (executor_name, label): the executors that are
+        active, the default one first. With `job`, only the ones that job can run on.
         """
         self._require_active_project()
-        try:
-            matrix = self.molsuite.get_executor_capability_matrix()
-        except Exception:  # noqa: BLE001 - a destination list must never break a panel
-            return [(DEFAULT_LOCAL_CPU_EXECUTOR, "Local")]
-        destinations = [(DEFAULT_LOCAL_CPU_EXECUTOR, "Local")] if DEFAULT_LOCAL_CPU_EXECUTOR in matrix else []
-        destinations += [
-            (name, f"{name} (HPC)")
-            for name, caps in sorted(matrix.items())
-            if str(caps.get("backend") or "").lower() == "hpc"
-        ]
-        return destinations or [(DEFAULT_LOCAL_CPU_EXECUTOR, "Local")]
+        rows = [row for row in self.workspace.executors() if row["state"] == "on"]
+        # ponytail: `hpc` in the old list of a job is what says its worker needs nothing of
+        # this machine but its payload and the files marked in it; one flag when the lists go.
+        if job is not None and "hpc" not in job.supported_executors:
+            rows = [row for row in rows if row["hosts"] == ["local"]]
+        return [(row["name"], row["name"]) for row in sorted(rows, key=lambda row: not row["default"])]
+
+    def _run_on(self, job, asked: Optional[str]) -> str:
+        """The executor `job` goes to: the one asked for by name, else the first of
+        `run_destinations`. `compute`, the old name of the pool, names nobody."""
+        asked = asked or job.executor
+        if asked == "thread":
+            return "thread"
+        offered = [name for name, _label in self.run_destinations(job)]
+        if asked in offered:
+            return asked
+        if asked in self.workspace.settings_manager.settings.executors:
+            active = asked in [name for name, _label in self.run_destinations()]
+            raise ValueError(f"`{job.name}` is not sent to `{asked}`: " + (
+                "its worker runs on this machine only" if active else "it is not active, start it in Executors"))
+        if not offered:
+            raise RuntimeError(f"no active executor runs `{job.name}` now: start one in Executors")
+        return offered[0]
 
     def _project_summary_from_project(self, project) -> ProjectSummary:
         return ProjectSummary(
@@ -575,7 +638,33 @@ class AMDockVSRuntime(AppRuntime):
 
     @staticmethod
     def _job_status_from_snapshot(snapshot: Any) -> JobStatus:
-        return JobStatus.model_validate(snapshot.model_dump())
+        """A job of the engine as AMDockVS reads it: its key as id, a percentage as progress."""
+        total = snapshot.chunks_total or 0
+        ended = snapshot.chunks_done + snapshot.chunks_failed
+        status = JOB_STATUS.get(snapshot.status, snapshot.status)
+        progress = 100.0 if status == "completed" else 100.0 * (snapshot.progress or 0.0)
+        started_at = datetime.fromtimestamp(snapshot.started_at) if snapshot.started_at else None
+        return JobStatus(
+            job_id=str(snapshot.key or snapshot.id),
+            task_type=snapshot.name,
+            status=status,
+            progress=progress,
+            progress_structural=progress,
+            progress_operational=progress,
+            chunks_total=total,
+            chunks_emitted=ended + snapshot.chunks_inflight,
+            chunks_dispatched=ended + snapshot.chunks_inflight,
+            chunks_started=ended + snapshot.chunks_inflight,
+            chunks_done=snapshot.chunks_done,
+            chunks_failed=snapshot.chunks_failed,
+            chunks_running=snapshot.chunks_inflight,
+            chunks_pending=max(0, total - ended - snapshot.chunks_inflight),
+            feed_exhausted=snapshot.chunks_total is not None,
+            error=snapshot.error or "",
+            created_at=started_at,
+            started_at=started_at,
+            finished_at=datetime.fromtimestamp(snapshot.finished_at) if snapshot.finished_at else None,
+        )
 
 
 __all__ = [

@@ -154,8 +154,9 @@ class MainContentWidget(QStackedWidget):
         return self._open_tabs.get(view_id)
 
     def build_view_widget(self, view_id: str) -> tuple[str, QWidget]:
-        """Build a fresh widget from a registered factory WITHOUT adding a tab.
-        Used for tool views that mount in the left tool panel instead of a tab."""
+        """Build a widget from a registered factory WITHOUT adding a tab.
+        Used for views that live outside the tab bar (tool panel, auxiliary zone); the
+        caller owns the widget and decides how long it lives."""
         registered = self._view_factories.get(view_id)
         if registered is None:
             raise KeyError(f"View '{view_id}' is not registered.")

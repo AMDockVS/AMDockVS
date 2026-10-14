@@ -22,14 +22,14 @@ from __future__ import annotations
 import glob
 import os
 import shutil
-import subprocess
 from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
 
-from amdockvs.docking.results.metrics import docking_metrics
+from amdockvs.docking.results.metrics import docking_metrics, pose_file_stem
 from amdockvs.docking.results.rmsd import pose_rmsd_detail
 from amdockvs.core.paths import get_default_project_root
+from amdockvs.core.worker_io import run_program
 
 CNN_MODES = ("rescore", "none", "refinement", "all")
 GPU_BOUND_CNN_MODES = frozenset({"refinement", "all"})
@@ -65,6 +65,18 @@ def gnina_command() -> str:
 
 
 GNINA = gnina_command()  # import-time snapshot; call gnina_command() at run time
+
+
+def gnina_binary() -> str:
+    """The usable executable, or why there is none."""
+    command_name = gnina_command()
+    binary = shutil.which(command_name) or (command_name if Path(command_name).exists() else None)
+    if not binary:
+        raise RuntimeError(
+            f"gnina binary not found ({command_name!r}). Set it in Settings > Docking > gnina, "
+            "$AMDOCK_GNINA, or put gnina on PATH."
+        )
+    return binary
 
 
 def _gnina_env(binary: str) -> dict:
@@ -127,13 +139,7 @@ def _run_gnina(
     seed: int,
     device: int = 0,
 ) -> None:
-    command_name = gnina_command()
-    binary = shutil.which(command_name) or (command_name if Path(command_name).exists() else None)
-    if not binary:
-        raise RuntimeError(
-            f"gnina binary not found ({command_name!r}). Set it in Settings > Docking > gnina, "
-            "$AMDOCK_GNINA, or put gnina on PATH."
-        )
+    binary = gnina_binary()
     mode = str(cnn_scoring or "rescore").strip().lower() or "rescore"
     command = [
         binary,
@@ -155,12 +161,7 @@ def _run_gnina(
         command += ["--cnn_scoring", "none", "--no_gpu"]
     else:
         command += ["--cnn_scoring", mode, "--device", str(int(device))]
-    result = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        env=_gnina_env(binary),
-    )
+    result = run_program(command, env=_gnina_env(binary))
     if result.returncode != 0:
         raise RuntimeError(
             f"gnina failed (exit {result.returncode}): "
@@ -202,7 +203,7 @@ def run_gnina_docking_rows(payload: dict) -> list[dict]:
         center = [float(v) for v in (pair.get("box_center") or default_center)]
         size = [float(v) for v in (pair.get("box_size") or default_size)]
         invalid_reason = str(pair.get("invalid_reason") or "").strip()
-        output_stem = f"{run_kind}_{complex_id}" if complex_id is not None else f"{ligand_id}__{receptor_id}"
+        output_stem = pose_file_stem(pair, protocol_payload)
         output_sdf = output_dir / f"{output_stem}.gnina.sdf"
         try:
             if invalid_reason:

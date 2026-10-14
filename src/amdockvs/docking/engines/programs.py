@@ -284,6 +284,26 @@ def list_docking_programs() -> tuple[DockingProgramSpec, ...]:
     return tuple(_PROGRAMS.values())
 
 
+def missing_programs(runtime=None) -> dict[str, str]:
+    """The programs that cannot run on this machine, each with what its worker would say.
+
+    Asks every engine for its executable, and some answer by running it: keep it off the GUI
+    thread. (ponytail: this machine only, per host when a run can go elsewhere; Vina is not
+    asked, it runs from its Python package unless configured otherwise)
+    """
+    from .adgpu import adgpu_command
+    from .gnina import gnina_binary
+    from .qvina import qvina_command
+
+    missing: dict[str, str] = {}
+    for key, find in (("qvina", qvina_command), ("adgpu", adgpu_command), ("gnina", lambda _runtime: gnina_binary())):
+        try:
+            find(runtime)
+        except RuntimeError as exc:
+            missing[key] = str(exc)
+    return missing
+
+
 def register_docking_program(program: DockingProgramSpec, *, replace: bool = False) -> None:
     key = str(program.key or "").strip().lower()
     if not key:

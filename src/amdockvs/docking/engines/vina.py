@@ -5,6 +5,7 @@ import os
 import shutil
 import signal
 import subprocess
+import tempfile
 import threading
 import uuid
 from contextlib import suppress
@@ -12,8 +13,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from amdockvs.core.constants import DEFAULT_VINA_BACKEND, DEFAULT_VINA_COMMAND
-from amdockvs.docking.results.metrics import docking_metrics
+from ms_flow.engine import launched
+
+from amdockvs.docking.results.metrics import docking_metrics, pose_file_stem
 from amdockvs.docking.results.rmsd import pose_rmsd_detail
 from amdockvs.core.paths import get_default_project_root
 from amdockvs.docking.engines.autogrid import map_prefix as _ad4_map_prefix
@@ -80,6 +82,22 @@ def _prepared_vina(
         )
     cache[cache_key] = vina_obj
     return vina_obj
+
+
+_PROGRESS_STARS = 51  # the line Vina and QuickVina fill while they search: one star per 2 %
+
+
+def _follow_progress_line(stream, progress: Callable[[float], None] | None = None) -> str:
+    """Read `stream` to its end and return it; tell `progress` how full the progress line is."""
+    if progress is None:
+        return stream.read()
+    text, line = [], ""
+    for char in iter(lambda: stream.read(1), ""):
+        text.append(char)
+        line = "" if char == "\n" else line + char
+        if char == "*" and not line.strip("*"):  # a line of stars only: the banner has none
+            progress(min(1.0, len(line) / _PROGRESS_STARS))
+    return "".join(text)
 
 
 def _parse_vina_pose_energies(*, output_path: Path, stdout_text: str = "") -> list[list[float]]:
@@ -203,6 +221,7 @@ def _run_vina_binary(
     energy_range: float,
     ad4_map_prefix: str | None = None,
     quickvina: bool = False,
+    progress: Callable[[float], None] | None = None,
 ) -> tuple[list[list[float]], str]:
     resolved_command = shutil.which(str(vina_command)) if not Path(str(vina_command)).expanduser().exists() else str(
         Path(str(vina_command)).expanduser().resolve()
@@ -246,7 +265,7 @@ def _run_vina_binary(
         command += [
             "--scoring", str(scoring_function),
             "--min_rmsd", str(float(min_rmsd)),
-            "--verbosity", "0",
+            "--verbosity", "1" if progress else "0",  # 1 prints the progress line
             *([] if ad4_map_prefix else ["--spacing", str(float(spacing))]),
         ]
     process: subprocess.Popen[str] | None = None
@@ -291,14 +310,21 @@ def _run_vina_binary(
         signal.signal(signal.SIGTERM, _forward_shutdown)
         signal.signal(signal.SIGINT, _forward_shutdown)
     try:
-        process = subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            start_new_session=(os.name == "posix"),
-        )
-        stdout_text, stderr_text = process.communicate()
+        # stderr goes to a file: nobody reads it while stdout is followed, and a full pipe
+        # would stop the program.
+        with tempfile.TemporaryFile("w+") as errors:
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=errors,
+                text=True,
+                start_new_session=(os.name == "posix"),
+            )
+            launched(process)  # on a thread of the engine's process this is all a cancel can stop
+            stdout_text = _follow_progress_line(process.stdout, progress)
+            process.wait()
+            errors.seek(0)
+            stderr_text = errors.read()
     finally:
         if install_signal_handlers:
             for signum, previous in previous_handlers.items():
@@ -331,12 +357,13 @@ def run_vina_docking_rows(
     spacing: float = 0.375,
     energy_range: float = 3.0,
     min_rmsd: float = 1.0,
-    vina_backend: str = DEFAULT_VINA_BACKEND,
-    vina_command: str = DEFAULT_VINA_COMMAND,
+    vina_backend: str = "python",
+    vina_command: str = "vina",
     run_id: str = "",
     protocol_metadata: dict | None = None,
     report_name: str | None = None,
     pair_callback: Callable[[list[dict]], None] | None = None,
+    pair_progress: Callable[[float], None] | None = None,
     collect_rows: bool = True,
     engine: str = "vina",
 ) -> list[dict]:
@@ -355,8 +382,6 @@ def run_vina_docking_rows(
     ad4_map_cache: dict[tuple, str] = {}
     ad4_maps_dir = resolved_output_dir / "_ad4_maps"
     protocol_payload = dict(protocol_metadata or {})
-    protocol_hash = str(protocol_payload.get("hash") or "").strip()
-    protocol_suffix = f"__proto_{protocol_hash[:12]}" if protocol_hash else ""
     for pair in pairs:
         complex_id = int(pair.get("complex_id") or 0) or None
         run_kind = str(pair.get("run_kind") or "screening")
@@ -376,8 +401,7 @@ def run_vina_docking_rows(
         pair_box_center = [float(value) for value in (pair.get("box_center") or box_center or [])]
         pair_box_size = [float(value) for value in (pair.get("box_size") or box_size or [])]
         pair_spacing = float(pair.get("spacing") or spacing)
-        output_stem = f"{run_kind}_{int(complex_id)}" if complex_id is not None else f"{ligand_id}__{receptor_id}"
-        output_stem = f"{output_stem}{protocol_suffix}"
+        output_stem = pose_file_stem(pair, protocol_payload)
         output_pdbqt_path = resolved_output_dir / f"{output_stem}.dock.pdbqt"
         output_sdf_path = resolved_output_dir / f"{output_stem}.dock.sdf"
         grid_payload = {
@@ -473,6 +497,7 @@ def run_vina_docking_rows(
                     spacing=pair_spacing,
                     scoring_function=scoring_function,
                     ad4_map_prefix=ad4_map_prefix,
+                    progress=pair_progress,
                     cpu=vina_cpu,
                     seed=seed,
                     exhaustiveness=int(pair.get("exhaustiveness") or 8),
@@ -644,15 +669,31 @@ def _failed_docking_row(failure: dict, *, protocol_payload: dict, engine: str = 
 # (e.g. AutoDock-GPU) without touching the job/sink plumbing.
 # ---------------------------------------------------------------------------
 
+def _vina_here(backend: str, command: str) -> tuple[str, str]:
+    """The backend and executable for the machine that runs the chunk.
+
+    The payload carries what the submitting machine found; on another host that path
+    may not exist, so the worker looks again (as qvina does).
+    """
+    if backend != "binary" or Path(command).expanduser().exists() or shutil.which(command):
+        return backend, command
+    from amdockvs.core.constants import vina_backend, vina_command
+
+    return vina_backend(), vina_command()
+
+
 def _vina_dock_runner(payload: dict) -> list[dict]:
+    backend, command = _vina_here(
+        str(payload.get("vina_backend") or "python"), str(payload.get("vina_command") or "vina")
+    )
     return run_vina_docking_rows(
         pairs=list(payload.get("pairs") or []),
         output_dir=str(payload.get("output_dir") or ""),
         box_center=[float(value) for value in (payload.get("box_center") or [])],
         box_size=[float(value) for value in (payload.get("box_size") or [])],
         scoring_function=str(payload.get("scoring_function") or "vina"),
-        vina_backend=str(payload.get("vina_backend") or "python"),
-        vina_command=str(payload.get("vina_command") or "vina"),
+        vina_backend=backend,
+        vina_command=command,
         vina_cpu=int(payload.get("vina_cpu") or 1),
         seed=int(payload.get("seed") or 0),
         spacing=float(payload.get("spacing") or 0.375),
@@ -662,6 +703,7 @@ def _vina_dock_runner(payload: dict) -> list[dict]:
         protocol_metadata=dict(payload.get("protocol_metadata") or {}),
         report_name=str(payload.get("report_name") or "").strip() or None,
         pair_callback=payload.get("_pair_callback"),
+        pair_progress=payload.get("_pair_progress"),
         collect_rows=bool(payload.get("_collect_rows", True)),
     )
 

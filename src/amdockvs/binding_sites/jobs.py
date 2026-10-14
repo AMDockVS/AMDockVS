@@ -11,7 +11,8 @@ from pydantic import BaseModel, Field, field_validator
 
 from ms_flow.query import QuerySpec, db_pages
 from ms_flow.sinks import table_sink
-from ms_flow.tasking import job, task
+from amdockvs.core.jobs import job
+from amdockvs.binding_sites.tasks import p2rank_prediction_task
 
 from amdockvs.core.constants import (
     AMDOCKVS_PROCESS_EXECUTORS,
@@ -23,7 +24,7 @@ from amdockvs.core.vocab import ModelSource
 from amdockvs.core.worker_io import worker_file, worker_output_dir
 from amdockvs.models import BindingSite
 from amdockvs.core.paths import preferred_molecule_path, set_default_project_root
-from amdockvs.binding_sites.p2rank import P2RANK_VERSION, run_p2rank_prediction
+from amdockvs.binding_sites.p2rank import P2RANK_VERSION
 
 
 class P2RankPredictionParams(BaseModel):
@@ -76,18 +77,6 @@ class P2RankPredictionParams(BaseModel):
     @classmethod
     def validate_recalculate_receptor_ids(cls, value: list[int]) -> list[int]:
         return sorted({int(raw_id) for raw_id in value if int(raw_id) > 0})
-
-
-@task(
-    name="amdock_p2rank_predict_receptor",
-    description="Predict receptor pockets with P2Rank and stage their native outputs.",
-    executor="compute",
-    supported_executors=AMDOCKVS_PROCESS_EXECUTORS,
-)
-def p2rank_prediction_task(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    if bool(payload.get("reuse_only")):
-        return []
-    return run_p2rank_prediction(payload)
 
 
 def _output_root(params: P2RankPredictionParams, config: dict[str, Any]) -> Path:

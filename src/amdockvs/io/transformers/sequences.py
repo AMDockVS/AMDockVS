@@ -3,11 +3,10 @@ from __future__ import annotations
 
 from typing import Any, Callable, Iterable
 
-from amdockvs.core.vocab import FileFormat
 from amdockvs.io.import_stats import IMPORTED, UNREADABLE, bump
 from amdockvs.io.payloads import ImportBatchPayload
 from amdockvs.io.transformers.rows import _build_row, _progress_update, _project_root_from_storage_dir
-from amdockvs.models.molecules import MoleculeType
+from amdockvs.core.vocab import FileFormat, MoleculeType
 
 _STATE = {"has_3d": False, "has_hs": False, "is_minimized": False, "conformer_count": 0}
 

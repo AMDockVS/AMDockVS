@@ -35,6 +35,11 @@ QSAR_MODELS_VIEW_ID = "workspace.qsar_models"
 PREDICTIONS_VIEW_ID = "workspace.qsar_predictions"
 
 
+# ponytail: a selection is an `id IN [...]` filter, and SQLite binds at most 32766 values in its
+# stock build. A larger cut is applied with "Exclude the rest" instead.
+_MAX_SELECTION = 30000
+
+
 def _scrolled(inner: QWidget) -> QScrollArea:
     """Scroll wrapper so the tall wizard / tables never deform the area that hosts them."""
     scroll = QScrollArea()
@@ -752,6 +757,7 @@ class PredictionsWidget(QWidget):
             toolbar.addWidget(w)
         toolbar.addStretch(1)
         outer.addLayout(toolbar)
+        outer.addLayout(self._cut_row())
         self.table = QTableWidget(0, 4, self)
         self.table.setHorizontalHeaderLabels(["Ligand id", "Name", "Predicted", "Confidence"])
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -767,6 +773,94 @@ class PredictionsWidget(QWidget):
 
     def _current_model_id(self) -> int | None:
         return self.model_combo.currentData()
+
+    # --- the predictions as a filter -------------------------------------------------
+    def _cut_row(self) -> QHBoxLayout:
+        row = QHBoxLayout()
+        self.cut_mode = QComboBox(self)
+        for text, data in (("Top N highest", ("top", True)), ("Top N lowest", ("top", False)),
+                           ("Predicted ≥", ("cutoff", True)), ("Predicted ≤", ("cutoff", False))):
+            self.cut_mode.addItem(text, data)
+        self.cut_mode.setToolTip("Which ligands this model's predictions keep: a number of the best, or a cutoff value.")
+        self.cut_value = QDoubleSpinBox(self)
+        self.cut_mode.currentIndexChanged.connect(self._sync_cut)
+        self._sync_cut()
+        self.cut_value.setValue(100)
+        self.select_button = QPushButton("Use as selection", self)
+        self.select_button.setToolTip(
+            "Make the kept ligands the global ligand selection: every ligand table and tool works "
+            "on them. Excludes nothing."
+        )
+        self.select_button.clicked.connect(self._use_as_selection)
+        self.exclude_button = QPushButton("Exclude the rest", self)
+        self.exclude_button.setToolTip(
+            "Mark every other ligand this model scored as excluded. They stay in the project; "
+            "reversible from Filter's 'Excluded' scope. Ligands the model could not score are left alone."
+        )
+        self.exclude_button.clicked.connect(self._exclude_rest)
+        for w in (QLabel("Keep:"), self.cut_mode, self.cut_value, self.select_button, self.exclude_button):
+            row.addWidget(w)
+        row.addStretch(1)
+        return row
+
+    def _sync_cut(self, *_args) -> None:
+        top = self.cut_mode.currentData()[0] == "top"
+        self.cut_value.setDecimals(0 if top else 3)
+        self.cut_value.setRange(1 if top else -1e9, 1e9)
+
+    def _cut(self) -> dict:
+        kind, higher = self.cut_mode.currentData()
+        value = self.cut_value.value()
+        return {"higher_is_better": higher, **({"top_n": int(value)} if kind == "top" else {"cutoff": float(value)})}
+
+    def _run_cut(self, on_done, **how) -> None:
+        model_id, cut = self._current_model_id(), self._cut()
+        if model_id is None:
+            QMessageBox.information(self, "QSAR", "Train or select a model first.")
+            return
+        run_async(
+            lambda: self.runtime.qsar.cut_predictions(model=model_id, **cut, **how),
+            on_done, on_error=lambda exc: QMessageBox.warning(self, "QSAR predictions", str(exc)), busy=self,
+        )
+
+    def _use_as_selection(self) -> None:
+        def apply(result: dict) -> None:
+            kept, store = result["kept"], getattr(self.window(), "selection", None)
+            if store is None or not kept:
+                self.status.setText("The cut keeps no ligand.")
+            elif kept > _MAX_SELECTION:
+                # ponytail: the global selection is a list of ids (see SelectionStore); a cut this
+                # large stays a query only through 'Exclude the rest'.
+                QMessageBox.information(
+                    self, "QSAR predictions",
+                    f"{kept} ligands is too many for a table selection (limit {_MAX_SELECTION}). "
+                    f"Tighten the cut, or use 'Exclude the rest'.",
+                )
+            else:
+                store.set("ligand", result["ids"])
+                self.status.setText(f"{kept} ligand(s) selected; nothing was excluded.")
+
+        self._run_cut(apply, ids_limit=_MAX_SELECTION)
+
+    def _exclude_rest(self) -> None:
+        def confirm(result: dict) -> None:
+            kept, rest = result["kept"], result["rest"]
+            if not rest:
+                self.status.setText(f"Nothing to exclude: the cut keeps all {kept} scored ligand(s).")
+                return
+            if QMessageBox.question(
+                self, "QSAR predictions",
+                f"Keep {kept} ligand(s) and exclude the other {rest} scored by this model?\n\n"
+                f"They stay in the project, marked excluded; reversible from Filter's 'Excluded' scope.",
+            ) != QMessageBox.Yes:
+                return
+            self._run_cut(done, exclude_rest=True)
+
+        def done(result: dict) -> None:
+            self._refresh_predictions()
+            self._cut_status = f"Kept {result['kept']} ligand(s), excluded {result['excluded']}."
+
+        self._run_cut(confirm)
 
     def refresh(self) -> None:
         run_async(self.runtime.qsar.list_models, self._fill_models, on_error=lambda _e: None, busy=self.table)
@@ -805,7 +899,8 @@ class PredictionsWidget(QWidget):
                 self.table.setItem(r, c, QTableWidgetItem(str(val)))
         glow = ("Select a row to glow the molecule." if self._current_model_id() in self._fp_models
                 else "Glowing needs a fingerprint (ECFP4) model.")
-        self.status.setText(f"{len(rows)} prediction(s). {glow}"
+        cut, self._cut_status = getattr(self, "_cut_status", ""), ""  # the outcome of a cut, shown once
+        self.status.setText(f"{cut} {len(rows)} prediction(s). {glow}".strip()
                             if rows else "No predictions yet — click 'Run prediction'.")
 
     def _run(self) -> None:

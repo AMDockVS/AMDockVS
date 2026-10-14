@@ -99,6 +99,17 @@ class MoleculeWidget(BoundTableWidget):
         if self.table is not None:
             self.table.row_clicked.connect(self._load_molecule_in_pymol)
 
+    def _select_rows(self, objects) -> None:
+        super()._select_rows(objects)
+        store = self._store()
+        if store is None or self.selection_role:
+            return  # bound to one role: the id filter set above is that role's selection
+        # Unbound, the rows are of any kind: each role takes its own.
+        for role, flag in (("ligand", "is_ligand"), ("receptor", "is_receptor")):
+            ids = [int(obj.id) for obj in objects or () if getattr(obj, flag, False) and obj.id]
+            if ids:
+                store.set(role, ids)
+
     def push_scope(self, key: str, *, structure_source: str | None = None, **scope) -> None:
         if structure_source is not None:
             normalized = (

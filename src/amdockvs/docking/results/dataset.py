@@ -1,4 +1,8 @@
-"""Durable, columnar result fragments for sharded docking campaigns."""
+"""Durable, columnar result fragments for sharded docking campaigns.
+
+The worker that docks a shard writes them, so what reads the project database (the receipts,
+the selection of hits) imports SQL where it runs, not here.
+"""
 
 from __future__ import annotations
 
@@ -9,12 +13,9 @@ from typing import Any, Mapping
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-from sqlmodel import select
 
 from ms_flow.core.data.shard import Shard
 
-from amdockvs.screening.materialize import TopNGate
-from amdockvs.models import ScreeningShard, ScreeningShardRun
 from amdockvs.core.paths import get_default_project_root
 from amdockvs.core.vocab import TargetState
 
@@ -163,6 +164,10 @@ def completed_result_receipts(
     run_id: str,
     protocol_hash: str,
 ) -> list[ScreeningShardRun]:
+    from sqlmodel import select
+
+    from amdockvs.models import ScreeningShardRun
+
     with project_db.get_session() as session:
         return list(session.exec(
             select(ScreeningShardRun)
@@ -261,6 +266,11 @@ def select_hit_refs(
     top_n: int,
 ) -> list[dict[str, Any]]:
     """Rank using only lightweight columns and return shard/record identities."""
+    from sqlmodel import select
+
+    from amdockvs.models import ScreeningShard
+    from amdockvs.screening.materialize import TopNGate
+
     cap = int(top_n)
     if cap <= 0:
         raise ValueError("top_n must be greater than zero.")
@@ -310,6 +320,10 @@ def select_hits(
     top_n: int,
 ) -> list[dict[str, Any]]:
     """Rank projected score columns, then load poses only for the selected rows."""
+    from sqlmodel import select
+
+    from amdockvs.models import ScreeningShard
+
     selected = select_hit_refs(
         project_db,
         project_root=project_root,
