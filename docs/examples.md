@@ -3,7 +3,9 @@
 ## Import, prepare, and dock
 
 This example mirrors the supported asynchronous workflow. Replace the input
-paths and box coordinates with values for your system.
+paths and box coordinates with values for your system. It docks with
+QuickVina 2: install it once with `runtime.tools.install("qvina")`, or leave
+out `program` and `engine_config` to dock with AutoDock Vina.
 
 ```python
 from pathlib import Path
@@ -18,8 +20,8 @@ try:
     )
 
     import_jobs = [
-        *runtime.loader.load_ligands(["inputs/ligands.sdf"], executor_name="thread"),
-        *runtime.loader.load_receptors(["inputs/receptor.pdb"], executor_name="thread"),
+        *runtime.loader.load_ligands(["inputs/ligands.sdf"]),
+        *runtime.loader.load_receptors(["inputs/receptor.pdb"]),
     ]
     runtime.watch_jobs(import_jobs)
 
@@ -39,9 +41,10 @@ try:
         size=(20.0, 20.0, 20.0),
     )
     job_id = runtime.docking.run(
+        program="qvina",
         ligands=ligands,
         receptors=receptors,
-        vina_cpu=1,
+        engine_config={"exhaustiveness": 8, "vina_cpu": 1},
     )
     runtime.watch_job(job_id)
 
@@ -57,12 +60,9 @@ Several chemistry methods accept `wait=True` when a blocking call is clearer:
 ```python
 status = runtime.chemistry.standardize_ligands(
     ligands=runtime.molecules.select(role="ligand"),
-    executor_name="process",
     wait=True,
 )
 print(status.status)
 ```
 
-The repository also contains executable starting points in
-`examples/runtime_quickstart.py` and `examples/pipeline_demo.py`, plus focused
-notebooks under `notebooks/`.
+The [API guide](runtime_api.md) has an example for every part of the runtime.

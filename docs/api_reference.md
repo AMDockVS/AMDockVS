@@ -38,3 +38,7 @@ Names beginning with an underscore are implementation details.
 ## Diversity
 
 ::: amdockvs.diversity.api.DiversityAPI
+
+## External tools
+
+::: amdockvs.integrations.api.ToolAPI
