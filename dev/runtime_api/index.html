@@ -336,6 +336,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#where-jobs-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Where jobs run
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#query-molecules-without-loading-everything" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -358,10 +369,43 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#binding-sites-and-docking" class="md-nav__link">
+  <a href="#binding-sites" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Binding sites and docking
+        Binding sites
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#docking" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Docking
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#complexes" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Complexes
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#diversity" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Diversity
       </span>
     </span>
   </a>
@@ -491,6 +535,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#where-jobs-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Where jobs run
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#query-molecules-without-loading-everything" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -513,10 +568,43 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#binding-sites-and-docking" class="md-nav__link">
+  <a href="#binding-sites" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
-        Binding sites and docking
+        Binding sites
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#docking" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Docking
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#complexes" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Complexes
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#diversity" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Diversity
       </span>
     </span>
   </a>
@@ -571,7 +659,7 @@ project and its executors, so close it with <code>shutdown()</code> when the wor
 <div class="highlight"><pre><span></span><code><span class="n">runtime</span> <span class="o">=</span> <span class="n">AMDockVSRuntime</span><span class="p">()</span>
 <span class="n">runtime</span><span class="o">.</span><span class="n">create_or_open_project</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s2">"demo"</span><span class="p">,</span> <span class="n">folder</span><span class="o">=</span><span class="s2">"./demo-project"</span><span class="p">)</span>
 
-<span class="n">jobs</span> <span class="o">=</span> <span class="n">runtime</span><span class="o">.</span><span class="n">loader</span><span class="o">.</span><span class="n">load_ligands</span><span class="p">([</span><span class="s2">"ligands.sdf"</span><span class="p">],</span> <span class="n">executor_name</span><span class="o">=</span><span class="s2">"thread"</span><span class="p">)</span>
+<span class="n">jobs</span> <span class="o">=</span> <span class="n">runtime</span><span class="o">.</span><span class="n">loader</span><span class="o">.</span><span class="n">load_ligands</span><span class="p">([</span><span class="s2">"ligands.sdf"</span><span class="p">])</span>
 <span class="n">statuses</span> <span class="o">=</span> <span class="n">runtime</span><span class="o">.</span><span class="n">watch_jobs</span><span class="p">(</span><span class="n">jobs</span><span class="p">)</span>
 
 <span class="k">for</span> <span class="n">status</span> <span class="ow">in</span> <span class="n">statuses</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
@@ -579,8 +667,27 @@ project and its executors, so close it with <code>shutdown()</code> when the wor
 </code></pre></div>
 <p>Long operations submit MolSuite jobs. They return a job identifier, or a list
 of identifiers for partitioned imports. <code>watch_job()</code> and <code>watch_jobs()</code> show
-the same tqdm progress in a terminal or notebook; use <code>follow=False</code> for a
-non-blocking formatted snapshot.</p>
+a tqdm progress bar in a terminal or notebook; <code>wait_for_job()</code> and
+<code>wait_for_jobs()</code> wait without one. A job that reads what another one writes
+waits for it, so a pipeline can be submitted at once and waited for at the end.</p>
+<h2 id="where-jobs-run">Where jobs run<a class="headerlink" href="#where-jobs-run" title="Permanent link">&para;</a></h2>
+<p>Every job method takes <code>executor_name</code>:</p>
+<ul>
+<li>Left out, the job goes to the first active executor that can run it: the
+  pool of processes of this machine unless another one was made the default.</li>
+<li><code>"thread"</code> runs it on threads of this process, which suits small jobs.</li>
+<li>The name of an active executor sends it there.</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="nb">print</span><span class="p">(</span><span class="n">runtime</span><span class="o">.</span><span class="n">run_destinations</span><span class="p">())</span>          <span class="c1"># [(name, label), ...] active now</span>
+
+<span class="n">job_id</span> <span class="o">=</span> <span class="n">runtime</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">ligands</span><span class="o">=</span><span class="n">ligands</span><span class="p">,</span> <span class="n">receptors</span><span class="o">=</span><span class="n">receptors</span><span class="p">,</span> <span class="n">executor_name</span><span class="o">=</span><span class="s2">"lab-ray"</span><span class="p">)</span>
+<span class="n">runtime</span><span class="o">.</span><span class="n">resume_job</span><span class="p">(</span><span class="n">job_id</span><span class="p">,</span> <span class="s2">"local"</span><span class="p">)</span>        <span class="c1"># stop it there and continue it here</span>
+</code></pre></div>
+<p>Hosts and executors are kept by MolSuite and edited from the <strong>Hosts</strong> and
+<strong>Executors</strong> pages of Settings, or through <code>runtime.workspace</code> (<code>save_host</code>, <code>save_executor</code>,
+<code>activate</code>): see the <a href="https://molsuite.github.io/ms_flow/guide/#where-jobs-run">ms_flow guide</a>.
+<code>resume_job()</code> also continues a job that was interrupted or canceled, without
+running again what it had done.</p>
 <h2 id="query-molecules-without-loading-everything">Query molecules without loading everything<a class="headerlink" href="#query-molecules-without-loading-everything" title="Permanent link">&para;</a></h2>
 <p><code>select()</code> returns a lazy <code>Selection[MoleculeRecord]</code>; its <code>.scope</code> is the
 serializable <code>MoleculeScope</code> used by jobs. A selection can be iterated,
@@ -603,18 +710,15 @@ pass a <code>MoleculeSetRef</code> when reproducibility requires a saved snapsho
 <div class="highlight"><pre><span></span><code><span class="n">job_id</span> <span class="o">=</span> <span class="n">runtime</span><span class="o">.</span><span class="n">chemistry</span><span class="o">.</span><span class="n">run_ligand_pipeline</span><span class="p">(</span>
     <span class="p">[</span><span class="s2">"standardize"</span><span class="p">,</span> <span class="s2">"protonate"</span><span class="p">,</span> <span class="s2">"generate_3d"</span><span class="p">],</span>
     <span class="n">ligands</span><span class="o">=</span><span class="n">ligands</span><span class="p">,</span>
-    <span class="n">executor_name</span><span class="o">=</span><span class="s2">"process"</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="n">runtime</span><span class="o">.</span><span class="n">wait_for_job</span><span class="p">(</span><span class="n">job_id</span><span class="p">)</span>
 
-<span class="n">descriptor_job</span> <span class="o">=</span> <span class="n">runtime</span><span class="o">.</span><span class="n">qsar</span><span class="o">.</span><span class="n">compute_descriptors</span><span class="p">(</span>
-    <span class="n">molecule_set</span><span class="o">=</span><span class="n">ligands</span><span class="p">,</span>
-    <span class="n">executor_name</span><span class="o">=</span><span class="s2">"process"</span><span class="p">,</span>
-<span class="p">)</span>
+<span class="n">descriptor_job</span> <span class="o">=</span> <span class="n">runtime</span><span class="o">.</span><span class="n">qsar</span><span class="o">.</span><span class="n">compute_descriptors</span><span class="p">(</span><span class="n">molecule_set</span><span class="o">=</span><span class="n">ligands</span><span class="p">)</span>
 <span class="n">runtime</span><span class="o">.</span><span class="n">wait_for_job</span><span class="p">(</span><span class="n">descriptor_job</span><span class="p">)</span>
 </code></pre></div>
 <p>Activities can be assigned directly or loaded from tabular data. Training and
-prediction consume molecule scopes or saved set references:</p>
+prediction consume molecule scopes or saved set references, and training
+needs at least two ligands with the activity:</p>
 <div class="highlight"><pre><span></span><code><span class="n">runtime</span><span class="o">.</span><span class="n">qsar</span><span class="o">.</span><span class="n">set_activity</span><span class="p">(</span>
     <span class="n">ligand_id</span><span class="o">=</span><span class="mi">42</span><span class="p">,</span>
     <span class="n">endpoint</span><span class="o">=</span><span class="s2">"IC50"</span><span class="p">,</span>
@@ -632,9 +736,8 @@ prediction consume molecule scopes or saved set references:</p>
 </code></pre></div>
 <p>Consult the generated reference for the complete signatures because available
 model options and return values are defined by the current implementation.</p>
-<h2 id="binding-sites-and-docking">Binding sites and docking<a class="headerlink" href="#binding-sites-and-docking" title="Permanent link">&para;</a></h2>
-<p>A docking run needs prepared molecules and either a saved receptor grid or an
-explicit box:</p>
+<h2 id="binding-sites">Binding sites<a class="headerlink" href="#binding-sites" title="Permanent link">&para;</a></h2>
+<p>A binding site is a box on a receptor, drawn by hand or predicted:</p>
 <div class="highlight"><pre><span></span><code><span class="n">receptors</span> <span class="o">=</span> <span class="n">runtime</span><span class="o">.</span><span class="n">molecules</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">role</span><span class="o">=</span><span class="s2">"receptor"</span><span class="p">)</span>
 <span class="n">receptor</span> <span class="o">=</span> <span class="n">receptors</span><span class="o">.</span><span class="n">one</span><span class="p">()</span>
 
@@ -644,20 +747,93 @@ explicit box:</p>
     <span class="n">center</span><span class="o">=</span><span class="p">(</span><span class="mf">12.0</span><span class="p">,</span> <span class="mf">13.0</span><span class="p">,</span> <span class="mf">10.0</span><span class="p">),</span>
     <span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mf">20.0</span><span class="p">,</span> <span class="mf">20.0</span><span class="p">,</span> <span class="mf">20.0</span><span class="p">),</span>
 <span class="p">)</span>
-
-<span class="n">runtime</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">set_grid</span><span class="p">(</span>
-    <span class="n">receptor_id</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">receptor</span><span class="o">.</span><span class="n">id</span><span class="p">),</span>
-    <span class="n">center</span><span class="o">=</span><span class="p">(</span><span class="mf">12.0</span><span class="p">,</span> <span class="mf">13.0</span><span class="p">,</span> <span class="mf">10.0</span><span class="p">),</span>
-    <span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mf">20.0</span><span class="p">,</span> <span class="mf">20.0</span><span class="p">,</span> <span class="mf">20.0</span><span class="p">),</span>
-<span class="p">)</span>
 </code></pre></div>
-<p>P2Rank is available through the central tools facade:</p>
+<p>P2Rank predicts them once it is installed through the tools facade:</p>
 <div class="highlight"><pre><span></span><code><span class="n">status</span> <span class="o">=</span> <span class="n">runtime</span><span class="o">.</span><span class="n">tools</span><span class="o">.</span><span class="n">install</span><span class="p">(</span><span class="s2">"p2rank"</span><span class="p">)</span>
 
 <span class="n">job_id</span> <span class="o">=</span> <span class="n">runtime</span><span class="o">.</span><span class="n">binding_sites</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">receptor_ids</span><span class="o">=</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">receptor</span><span class="o">.</span><span class="n">id</span><span class="p">)])</span>
 <span class="n">runtime</span><span class="o">.</span><span class="n">watch_job</span><span class="p">(</span><span class="n">job_id</span><span class="p">)</span>
 <span class="n">sites</span> <span class="o">=</span> <span class="n">runtime</span><span class="o">.</span><span class="n">binding_sites</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">molecule_id</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">receptor</span><span class="o">.</span><span class="n">id</span><span class="p">),</span> <span class="n">source</span><span class="o">=</span><span class="s2">"p2rank"</span><span class="p">)</span>
 </code></pre></div>
+<p><code>runtime.tools.status()</code> lists every managed tool and whether it is ready.</p>
+<h2 id="docking">Docking<a class="headerlink" href="#docking" title="Permanent link">&para;</a></h2>
+<p>A docking run needs prepared molecules and a grid on each receptor:</p>
+<div class="highlight"><pre><span></span><code><span class="n">runtime</span><span class="o">.</span><span class="n">watch_jobs</span><span class="p">([</span>
+    <span class="n">runtime</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">prepare_ligands</span><span class="p">(</span><span class="n">ligands</span><span class="o">=</span><span class="n">ligands</span><span class="p">),</span>
+    <span class="n">runtime</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">prepare_receptors</span><span class="p">(</span><span class="n">receptors</span><span class="o">=</span><span class="n">receptors</span><span class="p">),</span>
+<span class="p">])</span>
+<span class="n">runtime</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">set_grid</span><span class="p">(</span>
+    <span class="n">receptor_id</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">receptor</span><span class="o">.</span><span class="n">id</span><span class="p">),</span>
+    <span class="n">center</span><span class="o">=</span><span class="p">(</span><span class="mf">12.0</span><span class="p">,</span> <span class="mf">13.0</span><span class="p">,</span> <span class="mf">10.0</span><span class="p">),</span>
+    <span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mf">20.0</span><span class="p">,</span> <span class="mf">20.0</span><span class="p">,</span> <span class="mf">20.0</span><span class="p">),</span>
+<span class="p">)</span>
+
+<span class="n">job_id</span> <span class="o">=</span> <span class="n">runtime</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">ligands</span><span class="o">=</span><span class="n">ligands</span><span class="p">,</span> <span class="n">receptors</span><span class="o">=</span><span class="n">receptors</span><span class="p">,</span> <span class="n">exhaustiveness</span><span class="o">=</span><span class="mi">8</span><span class="p">)</span>
+<span class="n">runtime</span><span class="o">.</span><span class="n">watch_job</span><span class="p">(</span><span class="n">job_id</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">runtime</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">result_stats</span><span class="p">())</span>
+</code></pre></div>
+<p><code>program</code> chooses the engine: <code>vina</code> (the default), <code>qvina</code> (QuickVina 2),
+<code>gnina</code> or <code>adgpu</code> (AutoDock-GPU). The options of any engine go in
+<code>engine_config</code>, which is validated against that engine's model; for engines
+other than <code>vina</code> the keyword arguments <code>exhaustiveness</code>, <code>num_modes</code> and
+<code>vina_cpu</code> are not read.</p>
+<div class="highlight"><pre><span></span><code><span class="n">job_id</span> <span class="o">=</span> <span class="n">runtime</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
+    <span class="n">program</span><span class="o">=</span><span class="s2">"gnina"</span><span class="p">,</span>
+    <span class="n">ligands</span><span class="o">=</span><span class="n">ligands</span><span class="p">,</span>
+    <span class="n">receptors</span><span class="o">=</span><span class="n">receptors</span><span class="p">,</span>
+    <span class="n">engine_config</span><span class="o">=</span><span class="p">{</span><span class="s2">"exhaustiveness"</span><span class="p">:</span> <span class="mi">8</span><span class="p">,</span> <span class="s2">"num_modes"</span><span class="p">:</span> <span class="mi">9</span><span class="p">,</span> <span class="s2">"scoring_function"</span><span class="p">:</span> <span class="s2">"rescore"</span><span class="p">},</span>
+<span class="p">)</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Program</th>
+<th><code>engine_config</code> keys</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>vina</code></td>
+<td><code>exhaustiveness</code>, <code>num_modes</code>, <code>scoring_function</code> (<code>vina</code>, <code>vinardo</code>, <code>ad4</code>), <code>vina_cpu</code>, ...</td>
+</tr>
+<tr>
+<td><code>qvina</code></td>
+<td><code>exhaustiveness</code>, <code>num_modes</code>, <code>vina_cpu</code>, <code>energy_range</code>, <code>seed</code></td>
+</tr>
+<tr>
+<td><code>gnina</code></td>
+<td><code>exhaustiveness</code>, <code>num_modes</code>, <code>vina_cpu</code>, <code>scoring_function</code> (<code>rescore</code>, <code>none</code>, <code>refinement</code>, <code>all</code>), <code>seed</code></td>
+</tr>
+<tr>
+<td><code>adgpu</code></td>
+<td><code>nrun</code>, <code>num_modes</code>, <code>parameter_file</code>, <code>derived_types</code>, <code>seed</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>runtime.docking.list_programs()</code> describes them. A pair already docked with
+the same protocol is skipped unless <code>skip_existing=False</code>.</p>
+<h2 id="complexes">Complexes<a class="headerlink" href="#complexes" title="Permanent link">&para;</a></h2>
+<p>A complex names a receptor-ligand pair explicitly, for redocking or
+rescoring a known pose:</p>
+<div class="highlight"><pre><span></span><code><span class="n">complex_record</span> <span class="o">=</span> <span class="n">runtime</span><span class="o">.</span><span class="n">complexes</span><span class="o">.</span><span class="n">create</span><span class="p">(</span>
+    <span class="n">receptor_molecule_id</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">receptor</span><span class="o">.</span><span class="n">id</span><span class="p">),</span>
+    <span class="n">ligand_molecule_id</span><span class="o">=</span><span class="mi">42</span><span class="p">,</span>
+    <span class="n">purpose</span><span class="o">=</span><span class="s2">"redocking"</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">runtime</span><span class="o">.</span><span class="n">complexes</span><span class="o">.</span><span class="n">count</span><span class="p">(</span><span class="n">purpose</span><span class="o">=</span><span class="s2">"redocking"</span><span class="p">))</span>
+</code></pre></div>
+<h2 id="diversity">Diversity<a class="headerlink" href="#diversity" title="Permanent link">&para;</a></h2>
+<p>Clustering runs once as a job; choosing what represents each cluster is a
+separate step that can be repeated on the stored run:</p>
+<div class="highlight"><pre><span></span><code><span class="n">job_id</span> <span class="o">=</span> <span class="n">runtime</span><span class="o">.</span><span class="n">diversity</span><span class="o">.</span><span class="n">cluster_job</span><span class="p">(</span><span class="n">method</span><span class="o">=</span><span class="s2">"bitbirch"</span><span class="p">,</span> <span class="n">threshold</span><span class="o">=</span><span class="mf">0.65</span><span class="p">)</span>
+<span class="n">runtime</span><span class="o">.</span><span class="n">watch_job</span><span class="p">(</span><span class="n">job_id</span><span class="p">)</span>
+
+<span class="n">run</span> <span class="o">=</span> <span class="n">runtime</span><span class="o">.</span><span class="n">diversity</span><span class="o">.</span><span class="n">list_runs</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span>
+<span class="n">runtime</span><span class="o">.</span><span class="n">diversity</span><span class="o">.</span><span class="n">pick_representatives</span><span class="p">(</span><span class="n">run</span><span class="p">[</span><span class="s2">"cluster_run_id"</span><span class="p">],</span> <span class="n">mode</span><span class="o">=</span><span class="s2">"medoid"</span><span class="p">)</span>
+<span class="n">representatives</span> <span class="o">=</span> <span class="n">runtime</span><span class="o">.</span><span class="n">diversity</span><span class="o">.</span><span class="n">save_centroids_as_set</span><span class="p">(</span><span class="n">run</span><span class="p">[</span><span class="s2">"cluster_run_id"</span><span class="p">],</span> <span class="n">name</span><span class="o">=</span><span class="s2">"diverse"</span><span class="p">)</span>
+</code></pre></div>
+<p><code>runtime.diversity.supported_methods()</code> and <code>representative_modes()</code> list the
+choices.</p>
 <h2 id="cleanup">Cleanup<a class="headerlink" href="#cleanup" title="Permanent link">&para;</a></h2>
 <p>Always release executors and project resources:</p>
 <div class="highlight"><pre><span></span><code><span class="n">runtime</span><span class="o">.</span><span class="n">shutdown</span><span class="p">()</span>
