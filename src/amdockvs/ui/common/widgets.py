@@ -224,9 +224,12 @@ class ChipsSelect(QWidget):
 
     def sizeHint(self) -> QSize:
         # The table sizes rows from the cell widget's sizeHint, so report the wrapped height.
+        # The combo sits below the chips (vertical layout), so the chips get the full inner width.
         margins = self.layout().contentsMargins()
-        chips_width = max(1, self.width() - margins.left() - margins.right() - self._combo.width() - self.layout().spacing())
-        height = self._combo.sizeHint().height() + self._chips_layout.heightForWidth(chips_width) + 10
+        chips_width = max(1, self.width() - margins.left() - margins.right())
+        height = self._chips_layout.heightForWidth(chips_width)
+        if not self._combo.isHidden():
+            height += self.layout().spacing() + self._combo.sizeHint().height()
         return QSize(super().sizeHint().width(), height + margins.top() + margins.bottom())
 
     def resizeEvent(self, event) -> None:
@@ -266,7 +269,8 @@ class ChipsSelect(QWidget):
             if option not in self._selected:
                 self._combo.addItem(option, option)
         self._combo.setCurrentIndex(0)
-        self._combo.setEnabled(self._combo.count() > 1)
+        # Nothing left to add -> no combo, so a fully-picked row isn't taller than its chips.
+        self._combo.setHidden(self._combo.count() == 1)
         self._combo.blockSignals(False)
 
     def _make_chip(self, item: str) -> QFrame:
