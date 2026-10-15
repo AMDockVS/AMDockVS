@@ -6,31 +6,31 @@ is placed in the window is `ui.registry`'s business.
 """
 
 # Catalog tables
-MOLECULES_VIEW_ID = "workspace.molecules"
-RECEPTOR_VIEW_ID = "workspace.receptors"
-LIGANDS_VIEW_ID = "workspace.ligands"
-SHARDS_VIEW_ID = "workspace.shards"
-BINDING_SITES_VIEW_ID = "workspace.binding_sites"
-COMPLEX_PAIRS_VIEW_ID = "workspace.complex_pairs"
-LIGAND_ACTIVITY_VIEW_ID = "workspace.ligand_activity"
+MOLECULES_VIEW_ID = "molecules"
+RECEPTOR_VIEW_ID = "receptors"
+LIGANDS_VIEW_ID = "ligands"
+SHARDS_VIEW_ID = "shards"
+BINDING_SITES_VIEW_ID = "binding_sites"
+COMPLEX_PAIRS_VIEW_ID = "complex_pairs"
+LIGAND_ACTIVITY_VIEW_ID = "ligand_activity"
 
 # Result views
-COMPLEXES_VIEW_ID = "workspace.complexes"  # Docking Results
-OFFTARGET_VIEW_ID = "workspace.offtarget"
-REDOCKING_VIEW_ID = "workspace.redocking"
-CLUSTERS_VIEW_ID = "workspace.clusters"
-QSAR_MODELS_VIEW_ID = "workspace.qsar_models"
-PREDICTIONS_VIEW_ID = "workspace.qsar_predictions"
+COMPLEXES_VIEW_ID = "docking_results"  # the "Docking Results" tab
+OFFTARGET_VIEW_ID = "offtarget"
+REDOCKING_VIEW_ID = "redocking"
+CLUSTERS_VIEW_ID = "clusters"
+QSAR_MODELS_VIEW_ID = "qsar_models"
+PREDICTIONS_VIEW_ID = "qsar_predictions"
 
 # Tools
-FILTER_ID = "moltools.filter"
-SELECTION_VIEW_ID = "moltools.diversity"
-BUILD_ID = "moltools.build"
-POCKET_DETECTION_VIEW_ID = "moltools.pocket_detection"
-DOCKING_VIEW_ID = "workspace.docking"
-QSAR_BUILD_VIEW_ID = "workspace.qsar_build"
+FILTER_ID = "filter"
+SELECTION_VIEW_ID = "diversity"
+BUILD_ID = "build"
+POCKET_DETECTION_VIEW_ID = "pocket_detection"
+DOCKING_VIEW_ID = "docking"
+QSAR_BUILD_VIEW_ID = "qsar_build"
 
 # Auxiliary panes and panels
-PREP_STATUS_VIEW_ID = "workspace.prep_status"
-POCKET_SITES_VIEW_ID = "moltools.binding_sites"
-WORKFLOW_VIEW_ID = "workspace.workflow"
+PREP_STATUS_VIEW_ID = "prep_status"
+POCKET_SITES_VIEW_ID = "pocket_sites"
+WORKFLOW_VIEW_ID = "workflow"
