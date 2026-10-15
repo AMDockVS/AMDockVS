@@ -16,5 +16,5 @@ check = ["{exe}", "--version"]
 # the checksum pins the release asset.
 [[install]]
 name = "download AutoDock-GPU 1.6"
-argv = ["sh", "-c", "mkdir -p \"$0\" && curl -fsSL -o \"$0/adgpu\" https://github.com/ccsb-scripps/AutoDock-GPU/releases/download/v1.6/adgpu-v1.6_linux_x64_ocl_128wi && echo \"8a22804c1fde62a59c030a45e8a9d9d960ff329d22e4927daf7464df393b8047  $0/adgpu\" | sha256sum -c - && chmod +x \"$0/adgpu\"", "{prefix}"]
+argv = ["sh", "-c", "mkdir -p \"$0\" && curl -fSL -o \"$0/adgpu\" https://github.com/ccsb-scripps/AutoDock-GPU/releases/download/v1.6/adgpu-v1.6_linux_x64_ocl_128wi && echo \"8a22804c1fde62a59c030a45e8a9d9d960ff329d22e4927daf7464df393b8047  $0/adgpu\" | sha256sum -c - && chmod +x \"$0/adgpu\"", "{prefix}"]
 timeout = 300
