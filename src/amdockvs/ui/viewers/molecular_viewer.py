@@ -4,6 +4,8 @@ sites, complexes and docking poses, plus the grid-box side panel that travels wi
 from __future__ import annotations
 
 import contextlib
+import logging
+import math
 from pathlib import Path
 
 from amdockvs.core.paths import (
@@ -21,6 +23,30 @@ from amdockvs.ui.tools.pymol_ribbon import (
     apply_scene_atom_coloring,
     set_pymol_scene_context,
 )
+
+_log = logging.getLogger(__name__)
+
+
+def _frame(cmd, selection: str, buffer: float = 2.0) -> None:
+    """Move the camera so `selection` fits the panel in both directions. PyMOL's zoom fits the
+    height only, so a tall, narrow dock cut the sides off and the molecule looked missing."""
+    import numpy as np
+
+    xyz = cmd.get_coords(selection)
+    width, height = cmd.get_viewport()
+    if xyz is None or width <= 0 or height <= 0:
+        return
+    view = list(cmd.get_view())
+    camera = (xyz - np.asarray(view[12:15])) @ np.reshape(view[:9], (3, 3))  # model -> camera axes
+    half_x, half_y = np.abs(camera[:, :2]).max(axis=0) + buffer
+    tan = math.tan(math.radians(float(cmd.get("field_of_view")) / 2))
+    distance = float(max(half_y, half_x * height / width) / tan + np.abs(camera[:, 2]).max())
+    shift = distance - abs(view[11])
+    view[11] = -distance  # negative: the camera looks down -z at the origin
+    view[15] += shift  # the clipping planes are measured from the camera
+    view[16] += shift
+    cmd.set_view(view)
+
 
 
 class MolecularViewerController:
@@ -420,6 +446,7 @@ class MolecularViewerController:
         else:
             path = stored_molecule_path(molecule)
         if path is None or not path.exists():
+            _log.warning("Molecule %s has no %s structure on disk (%s)", getattr(molecule, "id", None), source, path)
             return
         dock = self.w.pymol_dock
         if dock is None:
@@ -455,8 +482,12 @@ class MolecularViewerController:
             if orient:
                 try:
                     cmd.orient(object_name)
+                    width, height = cmd.get_viewport()
+                    if height > width:
+                        cmd.turn("z", 90)  # orient lays the long axis across; a tall panel wants it upright
                 except Exception:
                     pass
+            _frame(cmd, object_name)
             set_pymol_scene_context(
                 dock,
                 context_kind,
@@ -465,7 +496,7 @@ class MolecularViewerController:
                 default_preset=default_preset,
             )
         except Exception:
-            return
+            _log.exception("PyMOL could not show %s", path)
 
     def show_binding_site(self, molecule, site) -> None:
         receptor_path = current_molecule_path(molecule)
