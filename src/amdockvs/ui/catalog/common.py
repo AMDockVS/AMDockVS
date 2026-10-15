@@ -304,6 +304,8 @@ class BoundTableWidget(QWidget):
         delete_shortcut.activated.connect(self.delete_selected)
         if self.selectable:
             self._install_select(config)
+        if self.delete_kind is not None:  # last in the menu, the one that cannot be undone
+            config.context_menu_actions = {**dict(config.context_menu_actions or {}), "Delete…": self.delete_selected}
 
     # --- Jobs filling this table ------------------------------------------------------
     def follow_jobs(self, job_ids, *, noun: str, stage: str) -> None:
@@ -466,12 +468,13 @@ class BoundTableWidget(QWidget):
         """Number of selected rows (for the statusbar); 0 if there is no table."""
         return len(self._table.get_selected_objects()) if self._table is not None else 0
 
-    def delete_selected(self) -> None:
+    def delete_selected(self, objects=None) -> None:
+        """Delete `objects` (the rows a context menu acts on), or the selected rows."""
         if self.delete_kind is None or self._table is None:
             return
         from amdockvs.ui.catalog.deletion import delete_selected_objects
 
-        delete_selected_objects(self, kind=self.delete_kind)
+        delete_selected_objects(self, kind=self.delete_kind, objects=objects)
 
     # --- PyMOL follows the active tab ----------------------------------------
     def _load_object_in_pymol(self, obj) -> None:

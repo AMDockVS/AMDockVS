@@ -225,11 +225,29 @@ class DockingAPI:
             return None
         return missing[0] if len(missing) == 1 else or_(*missing)
 
-    def delete_results(self, result_ids: list[int] | tuple[int, ...]) -> int:
+    def delete_results(self, result_ids: list[int] | tuple[int, ...], *, with_siblings: bool = False) -> int:
+        """Delete results, their interactions and files. `with_siblings`: every pose of the same
+        receptor, ligand, protocol and run as each id goes too — what a Results ligand row
+        (its best pose) stands for."""
         self.runtime._require_active_project()
-        from amdockvs.project.deletion import delete_docking_results
+        from amdockvs.project.deletion import delete_docking_results, delete_results_where
 
-        return delete_docking_results(self.runtime.workspace.project_db, result_ids)
+        project_db = self.runtime.workspace.project_db
+        if not with_siblings:
+            return delete_docking_results(project_db, result_ids)
+        from sqlalchemy.orm import aliased
+
+        from amdockvs.docking.results.tables import _protocol_hash, _run_id
+        from amdockvs.models import DockingResultRecord
+
+        seed = aliased(DockingResultRecord)
+        return delete_results_where(project_db, exists().where(
+            seed.id.in_([int(i) for i in result_ids]),
+            seed.receptor_molecule_id == DockingResultRecord.receptor_molecule_id,
+            seed.ligand_molecule_id == DockingResultRecord.ligand_molecule_id,
+            _protocol_hash(seed) == _protocol_hash(),
+            _run_id(seed) == _run_id(),
+        ))
 
     @staticmethod
     def get_program_spec(program: str | None = None) -> DockingProgramSpec:
