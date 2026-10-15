@@ -45,6 +45,7 @@ PLDDT_BANDS = (
     ("plddt_very_low", (255, 125, 69), "b < 50.001", "< 50 very low"),
 )
 BINDING_SURFACE_COLOR = "gray90"
+ZINC_PSEUDO_ATOM_COLOR = "gray70"
 BINDING_HIGHLIGHT_COLOR = "hotpink"
 
 # Residue nature → color, for the "by nature" binding-site preset.
@@ -119,6 +120,20 @@ def apply_atom_coloring(cmd, selection: str, carbon_color: str) -> None:
     _safe_color(cmd, carbon_color, f"{scoped} and elem C")
     for element, color in HETEROATOM_COLORS.items():
         _safe_color(cmd, color, f"{scoped} and elem {element}")
+    show_zinc_pseudo_atoms(cmd, f"(byobject {scoped}) and name TZ")
+
+
+def show_zinc_pseudo_atoms(cmd, selection: str) -> None:
+    """AutoDock4Zn TZ pseudo-atoms (the zinc method's receptor): large translucent spheres."""
+    try:
+        if not cmd.count_atoms(selection):
+            return
+        cmd.show("spheres", selection)
+        cmd.set("sphere_scale", 1.0, selection)
+        cmd.set("sphere_transparency", 0.5, selection)
+        cmd.color(ZINC_PSEUDO_ATOM_COLOR, selection)
+    except Exception:
+        pass
 
 
 def apply_receptor_atom_coloring(cmd, selection: str) -> None:

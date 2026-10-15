@@ -5,6 +5,7 @@ from typing import Any, Callable, Literal, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from amdockvs.docking.methods import check_program
 from amdockvs.workflows.rules import apply_workflow_filters
 
 
@@ -27,6 +28,7 @@ class DockingEngineConfig(BaseModel):
     spacing: float = Field(default=0.375, gt=0.0)
     energy_range: float = Field(default=3.0, ge=0.0)
     min_rmsd: float = Field(default=1.0, ge=0.0)
+    method: str = "standard"  # docking/methods.py; picked in Experiment Setup, not in the program form
 
 
 class GninaEngineConfig(BaseModel):
@@ -67,6 +69,7 @@ class AutoDockGPUEngineConfig(BaseModel):
         description="Atom types added by the parameter file and the known type each one derives from, e.g. XX=OA/C1,C2=C.",
     )
     seed: int = 0
+    method: str = "standard"  # docking/methods.py; picked in Experiment Setup, not in the program form
 
 
 @dataclass(frozen=True)
@@ -132,7 +135,9 @@ class DockingProgramSpec:
         return f"docking.{self.key}.{action}"
 
     def validate_config(self, value: Mapping[str, Any] | None = None) -> dict[str, Any]:
-        return self.config_model.model_validate(dict(value or {})).model_dump(mode="python")
+        config = self.config_model.model_validate(dict(value or {})).model_dump(mode="python")
+        check_program(config.get("method"), self.key, config.get("scoring_function"))
+        return config
 
     def resource_requirements(self, value: Mapping[str, Any] | None = None) -> dict[str, int]:
         config = self.validate_config(value)

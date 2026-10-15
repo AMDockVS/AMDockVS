@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QStackedWidget,
     QWidget,
 )
+from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.common.job_follower import JobFollower
 from amdockvs.ui.common.widgets import RunDestinationCombo, gate_workflow_save, split_button
 from ms_components.tool_panel import ToolPanel
@@ -540,11 +541,28 @@ class PreparationPanel:
         widget = self._catalog_receptor_widget()
         if widget is None:
             return
+        self._push_receptor_scope(widget)
+        # Receptors whose box does not fit the method are hidden; reading their structures
+        # happens off the GUI thread, then the scope is pushed again if the set changed.
+        method = self._method()
+
+        def apply(ids: list[int]) -> None:
+            if method == self._method() and (method, ids) != getattr(self, "_misfit_receptors", None):
+                self._misfit_receptors = (method, ids)
+                self._push_receptor_scope(widget)
+
+        run_async(lambda: self.runtime.docking.method_misfit_receptor_ids(method=method), apply,
+                  on_error=lambda _exc: None)
+
+    def _push_receptor_scope(self, widget) -> None:
         clause = self._unprepared_clause("receptor")
+        filters = [FilterSpec("molecule_type", FilterOperator.EQ, self._receptor_type(), label="receptor_type")]
+        method, misfits = getattr(self, "_misfit_receptors", (None, []))
+        if method == self._method() and misfits:
+            filters.append(FilterSpec("id", FilterOperator.NOT_IN, misfits, label=f"method={method}"))
         widget.push_scope(
             self._SCOPE_KEY,
-            filters=[FilterSpec("molecule_type", FilterOperator.EQ, self._receptor_type(),
-                                label="receptor_type")],
+            filters=filters,
             clause=clause,
             empty_message="Every receptor in this scope is already prepared" if clause is not None else None,
             show_action=clause is None,

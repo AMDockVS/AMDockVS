@@ -25,6 +25,8 @@ from amdockvs.core.paths import get_default_project_root, tools_home
 from amdockvs.core.worker_io import run_program
 from amdockvs.docking.engines.autogrid import map_prefix
 from amdockvs.docking.engines.vina import count_heavy_atoms
+from amdockvs.docking.methods import check_program, check_receptor
+from amdockvs.docking.preparation.meeko import dockable_ligand
 from amdockvs.docking.results.metrics import docking_metrics, pose_file_stem
 from amdockvs.docking.results.rmsd import pose_rmsd_detail
 from amdockvs.integrations.envs import tool_spec
@@ -138,6 +140,7 @@ def adgpu_dock_runner(payload: dict) -> list[dict]:
     protocol_payload = dict(payload.get("protocol_metadata") or {})
     project_root = get_default_project_root()
     map_cache: dict[tuple, str] = {}
+    method = check_program(payload.get("method"), "adgpu")
 
     rows: list[dict] = []
     for pair in pairs:
@@ -174,6 +177,9 @@ def adgpu_dock_runner(payload: dict) -> list[dict]:
                     raise FileNotFoundError(f"{label} file missing: {path}")
             if len(center) != 3 or len(size) != 3:
                 raise ValueError("AutoDock-GPU requires a box (center_xyz + size_xyz).")
+            check_receptor(method, receptor_path, center, size)
+            ligand_path = dockable_ligand(ligand_path, program="adgpu", scoring_function=None,
+                                          output_dir=output_dir)
             parameter_file = _resolve_optional(payload.get("parameter_file"), project_root)
             if parameter_file is not None and not parameter_file.is_file():
                 raise FileNotFoundError(f"parameter file missing: {parameter_file}")
@@ -191,6 +197,7 @@ def adgpu_dock_runner(payload: dict) -> list[dict]:
                 spacing=spacing,
                 flex_receptor_path=flex_path,
                 parameter_file=parameter_file,
+                zinc=method.zinc_site,
             )
             dlg = _run_adgpu(
                 executable=adgpu_command(),

@@ -29,6 +29,7 @@ from amdockvs.docking.pairs import (
     iter_docking_batches_from_rows,
 )
 from amdockvs.docking.preparation.state import grid_from_row
+from amdockvs.docking.methods import excludes
 from amdockvs.screening.campaign import plan_targets
 from amdockvs.docking.repository import (
     count_entity_rows,
@@ -453,6 +454,7 @@ def iter_redocking_batches(
         else DockingProtocolMetadata.from_mapping(protocol_metadata).as_metrics_payload()
     )
     protocol_hash = str(protocol_payload.get("hash") or "").strip()
+    method = dict(engine_config or {}).get("method")
     skip_pairs = (
         existing_result_pairs(
             project_db,
@@ -527,22 +529,23 @@ def iter_redocking_batches(
             )
         else:
             try:
-                batch.append(
-                    build_docking_pair(
-                        ligand_row=ligand_row,
-                        receptor_row=receptor_row,
-                        exhaustiveness=exhaustiveness,
-                        num_modes=num_modes,
-                        engine=prep_engine,
-                        complex_id=complex_id,
-                        run_kind="redocking",
-                        box_center=effective_center,
-                        box_size=effective_size,
-                        spacing=effective_spacing,
-                        reference_ligand_path=reference_ligand_path,
-                        reference_receptor_path=reference_receptor_path,
-                    )
+                pair = build_docking_pair(
+                    ligand_row=ligand_row,
+                    receptor_row=receptor_row,
+                    exhaustiveness=exhaustiveness,
+                    num_modes=num_modes,
+                    engine=prep_engine,
+                    complex_id=complex_id,
+                    run_kind="redocking",
+                    box_center=effective_center,
+                    box_size=effective_size,
+                    spacing=effective_spacing,
+                    reference_ligand_path=reference_ligand_path,
+                    reference_receptor_path=reference_receptor_path,
                 )
+                if len(effective_center) == 3 and excludes(method, pair["receptor_path"], effective_center, effective_size):
+                    continue  # the complex's site does not fit the docking method
+                batch.append(pair)
             except Exception as exc:
                 batch.append(
                     build_failed_docking_pair(

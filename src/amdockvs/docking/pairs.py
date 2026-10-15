@@ -11,6 +11,7 @@ from typing import Callable, Iterable, Iterator, Mapping
 
 from amdockvs.core.constants import DEFAULT_VINA_BACKEND, DEFAULT_VINA_COMMAND
 from amdockvs.docking.engines.programs import chunk_resources
+from amdockvs.docking.methods import excludes
 from amdockvs.docking.preparation.state import docking_input_path_from_row, grid_from_row
 
 
@@ -115,6 +116,7 @@ def iter_docking_batches_from_rows(
     # Prepared inputs/grids are stored under the preparation engine (e.g. AutoDock-GPU
     # reuses Vina pdbqt prep); the chunk's `engine` tag selects the docking runner.
     prep_engine = str(preparation_engine or engine)
+    method = dict(engine_config or {}).get("method")
     protocol_payload = dict(protocol_metadata or {})
     normalized_batch_size = max(1, int(batch_size))
     resolved_output_dir = Path(output_dir).expanduser().resolve()
@@ -167,18 +169,21 @@ def iter_docking_batches_from_rows(
                 )
             else:
                 try:
-                    batch.append(
-                        build_docking_pair(
-                            ligand_row=ligand_row,
-                            receptor_row=receptor_row,
-                            exhaustiveness=exhaustiveness,
-                            num_modes=num_modes,
-                            engine=prep_engine,
-                            box_center=effective_center,
-                            box_size=effective_size,
-                            spacing=effective_spacing,
-                        )
+                    pair = build_docking_pair(
+                        ligand_row=ligand_row,
+                        receptor_row=receptor_row,
+                        exhaustiveness=exhaustiveness,
+                        num_modes=num_modes,
+                        engine=prep_engine,
+                        box_center=effective_center,
+                        box_size=effective_size,
+                        spacing=effective_spacing,
                     )
+                    if effective_center is not None and excludes(
+                        method, pair["receptor_path"], effective_center, effective_size
+                    ):
+                        break  # the receptor does not fit the method: none of its pairs run
+                    batch.append(pair)
                 except Exception as exc:
                     batch.append(
                         build_failed_docking_pair(

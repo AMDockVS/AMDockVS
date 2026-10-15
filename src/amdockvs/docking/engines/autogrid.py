@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
+import sys
 from pathlib import Path
 
 from amdockvs.core.worker_io import run_program
@@ -16,6 +17,19 @@ from amdockvs.core.worker_io import run_program
 # $OVERRIDE, else PATH (e.g. `conda install -c conda-forge autogrid`), else the bare name so
 # the missing-binary error names the tool instead of a machine-specific path.
 AUTOGRID4 = os.environ.get("AMDOCK_AUTOGRID4") or shutil.which("autogrid4") or "autogrid4"
+
+# AutoDock4Zn, vendored from AutoDock Vina (see zinc/NOTICE). The pair terms are the ones the
+# Vina docs give for autogrid4 >= 4.2.7; older AMDock copies carry pre-4.2.7 epsilons.
+ZINC_DIR = Path(__file__).with_name("zinc")
+ZINC_PARAMETERS = ZINC_DIR / "AD4Zn.dat"
+ZINC_PAIR_TERMS = (
+    "nbp_r_eps 0.25 23.2135 12 6 NA TZ",
+    "nbp_r_eps 2.1 3.8453 12 6 OA Zn",
+    "nbp_r_eps 2.25 7.5914 12 6 SA Zn",
+    "nbp_r_eps 1.0 0.0 12 6 HD Zn",
+    "nbp_r_eps 2.0 0.0060 12 6 NA Zn",
+    "nbp_r_eps 2.0 0.2966 12 6 N Zn",
+)
 
 
 def atom_types(pdbqt: Path) -> list[str]:
@@ -42,6 +56,7 @@ def autogrid(
     spacing: float,
     work: Path,
     parameter_file: Path | None = None,
+    pair_terms: tuple[str, ...] = (),
 ) -> Path:
     """Write GPF, run autogrid4, return the .maps.fld path."""
     stem = receptor_pdbqt.stem
@@ -71,6 +86,7 @@ def autogrid(
                 f"elecmap {stem}.e.map",
                 f"dsolvmap {stem}.d.map",
                 "dielectric -0.1465",
+                *pair_terms,  # last, as in the Vina AutoDock4Zn example GPF
                 "",
             ]
         ),
@@ -81,6 +97,20 @@ def autogrid(
     if proc.returncode != 0:
         raise RuntimeError(f"autogrid4 failed ({proc.returncode}): {(proc.stderr or proc.stdout).strip()[:500]}")
     return work / f"{stem}.maps.fld"
+
+
+def zinc_receptor(receptor_pdbqt: Path, work: Path) -> Path:
+    """The receptor with AutoDock4Zn TZ pseudo-atoms next to each open zinc site."""
+    out = work / f"{receptor_pdbqt.stem}_TZ.pdbqt"
+    proc = run_program(
+        [sys.executable, str(ZINC_DIR / "zinc_pseudo.py"), "-r", str(receptor_pdbqt), "-o", str(out)],
+        cwd=str(work),
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"zinc_pseudo failed ({proc.returncode}): {(proc.stderr or proc.stdout).strip()[:500]}")
+    if "TZ" not in atom_types(out):
+        raise RuntimeError(f"No zinc in {receptor_pdbqt.name} can take a ligand: no TZ pseudo-atom was placed.")
+    return out
 
 
 def map_prefix(
@@ -94,12 +124,16 @@ def map_prefix(
     spacing: float,
     flex_receptor_path: Path | None = None,
     parameter_file: Path | None = None,
+    zinc: bool = False,
 ) -> str:
     """Maps for one (receptor, box, atom types, parameters), returning their path prefix
     ("<prefix>.maps.fld"). Cached so identical-typed ligands share maps. Flexible side chains
     move through the same maps, so their atom types get a map too.
+    `zinc` builds AutoDock4Zn maps: TZ receptor, AD4Zn parameters and their pair terms.
     ponytail: autogrid runs once per distinct atom-type set; union-per-receptor if it's too slow.
     """
+    if zinc and parameter_file is not None:
+        raise ValueError("The zinc method brings its own AD4Zn parameter file; leave the parameter file empty.")
     moving = [ligand_path, *([flex_receptor_path] if flex_receptor_path is not None else [])]
     ligand_types = tuple(sorted({atom_type for path in moving for atom_type in atom_types(path)}))
     key = (
@@ -110,6 +144,7 @@ def map_prefix(
         ligand_types,
         # Content, not path: editing the file in place must not reuse the old maps.
         hashlib.md5(parameter_file.read_bytes()).hexdigest() if parameter_file is not None else "",
+        bool(zinc),
     )
     cached = cache.get(key)
     if cached is not None:
@@ -121,10 +156,14 @@ def map_prefix(
         )
     work = Path(maps_dir) / f"{receptor_path.stem}_{hashlib.md5(repr(key).encode()).hexdigest()[:8]}"
     work.mkdir(parents=True, exist_ok=True)
-    autogrid(receptor_path, list(ligand_types), list(box_center), list(box_size), float(spacing), work, parameter_file)
-    prefix = str(work / receptor_path.stem)
+    receptor = zinc_receptor(receptor_path, work) if zinc else receptor_path
+    autogrid(
+        receptor, list(ligand_types), list(box_center), list(box_size), float(spacing), work,
+        ZINC_PARAMETERS if zinc else parameter_file, ZINC_PAIR_TERMS if zinc else (),
+    )
+    prefix = str(work / receptor.stem)
     cache[key] = prefix
     return prefix
 
 
-__all__ = ["AUTOGRID4", "atom_types", "autogrid", "map_prefix"]
+__all__ = ["AUTOGRID4", "atom_types", "autogrid", "map_prefix", "zinc_receptor"]

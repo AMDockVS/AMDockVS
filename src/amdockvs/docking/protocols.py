@@ -58,7 +58,11 @@ def protocol_identity(config: Mapping[str, Any] | None, *, program: str = "") ->
         from amdockvs.docking.engines.programs import get_docking_program
 
         keys = get_docking_program(program).protocol_identity_keys
-    return {key: payload[key] for key in keys if key in payload}
+    identity = {key: payload[key] for key in keys if key in payload}
+    # Standard is what every protocol was before methods existed: leaving it out keeps their hashes.
+    if str(payload.get("method") or "standard") != "standard":
+        identity["method"] = str(payload["method"])
+    return identity
 
 
 def protocol_hash(*, program: str, config: Mapping[str, Any], rescoring: list[dict[str, Any]] | None = None) -> str:

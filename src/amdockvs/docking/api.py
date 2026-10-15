@@ -81,7 +81,7 @@ from amdockvs.docking.preparation.jobs import (
 )
 from amdockvs.core.normalize import PathLike
 from amdockvs.molecules.scopes import MoleculeScope, is_molecule_scope, scope_payload
-from amdockvs.binding_sites.repository import active_site as _active_site
+from amdockvs.binding_sites.repository import active_site as _active_site, site_payload
 from amdockvs.docking.residues import residues_in_box
 from amdockvs.core.paths import preferred_molecule_path
 from amdockvs.io.formats import as_pdb
@@ -677,6 +677,32 @@ class DockingAPI:
             "size": [float(site.size_x or 0.0), float(site.size_y or 0.0), float(site.size_z or 0.0)],
             "spacing": float(extra_data.get("spacing") or 0.375),
         }
+
+    def method_misfit_receptor_ids(self, *, method: str) -> list[int]:
+        """Receptors whose active box does not fit the docking `method` (methods.py).
+        Receptors without a box are not judged: the user still has to define one. The source
+        structure is read: preparation keeps its metals."""
+        from amdockvs.docking.methods import excludes
+
+        self.runtime._require_active_project()
+        with self.runtime.workspace.project_db.get_session() as session:
+            rows = session.exec(
+                select(MoleculeRecord, BindingSite)
+                .join(BindingSite, BindingSite.id == MoleculeRecord.active_binding_site_id)
+                .where(MoleculeRecord.is_receptor == True)  # noqa: E712 - SQL expression
+            ).all()
+        misfits: list[int] = []
+        for receptor, site in rows:
+            box = site_payload(site)
+            if box is None:
+                continue
+            path = preferred_molecule_path(receptor)
+            if path is None or not path.exists():
+                continue
+            with as_pdb(path) as readable:  # mmCIF too: the Zn check reads PDB columns
+                if excludes(method, readable, box["center"], box["size"]):
+                    misfits.append(int(receptor.id))
+        return misfits
 
     def check_required(
             self,

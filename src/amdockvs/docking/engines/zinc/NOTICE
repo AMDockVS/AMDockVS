@@ -1,0 +1,6 @@
+zinc_pseudo.py and AD4Zn.dat are copied unmodified from AutoDock Vina
+(https://github.com/ccsb-scripps/AutoDock-Vina, commit 3c65c0b3e6c2c1d183f6a175ecb65e3c5ba91645:
+example/autodock_scripts/zinc_pseudo.py and data/AD4Zn.dat), distributed under the
+Apache License 2.0 (LICENSE in this directory).
+
+AutoDock4Zn force field: Santos-Martins D. et al., J. Chem. Inf. Model. 2014, 54, 2371-2379.
