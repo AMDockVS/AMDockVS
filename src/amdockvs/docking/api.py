@@ -104,6 +104,27 @@ def _validated_engine_config(
     return program.validate_config(values)
 
 
+# The engine knobs every docking job carries as flat fields, with the type each one is stored as.
+_ENGINE_FIELDS = {
+    "exhaustiveness": int,
+    "num_modes": int,
+    "scoring_function": str,
+    "vina_backend": str,
+    "vina_command": str,
+    "vina_cpu": int,
+    "seed": int,
+    "spacing": float,
+    "energy_range": float,
+    "min_rmsd": float,
+}
+
+
+def _engine_fields(resolved: dict[str, Any], knobs: dict[str, Any]) -> dict[str, Any]:
+    """The flat engine fields of a job: the validated config wins, the call's own knobs fill in
+    what the program's config model does not know."""
+    return {name: cast(resolved.get(name, knobs[name])) for name, cast in _ENGINE_FIELDS.items()}
+
+
 @dataclass
 class DockingAPI:
     runtime: Any
@@ -505,9 +526,7 @@ class DockingAPI:
         program_spec = self.get_program_spec(program)
         if not program_spec.supports_shards:
             raise ValueError(f"Docking program '{program_spec.key}' does not support sharded libraries.")
-        resolved_engine_config = _validated_engine_config(
-            program_spec,
-            engine_config,
+        knobs = dict(
             exhaustiveness=exhaustiveness,
             num_modes=num_modes,
             scoring_function=scoring_function,
@@ -519,33 +538,19 @@ class DockingAPI:
             energy_range=energy_range,
             min_rmsd=min_rmsd,
         )
-        receptor_set_ref = (
-            None if receptor_set is None or is_molecule_scope(receptor_set)
-            else ensure_molecule_set_ref(self.runtime, receptor_set, name="docking_receptor_input")
-        )
+        resolved_engine_config = _validated_engine_config(program_spec, engine_config, **knobs)
+        receptor_set_ref = self._set_ref(receptor_set, name="docking_receptor_input")
         receptor_scope = scope_payload(receptor_set) if is_molecule_scope(receptor_set) else {}
         receptor_filters = self._program_scope_filters(receptor_scope, role="receptor", program=program_spec)
         params = DockShardsJobParams(
-            output_dir=(
-                str(Path(output_dir).expanduser().resolve()) if output_dir is not None
-                else str(self.runtime.get_project_resource_path("docking_results"))
-            ),
+            output_dir=self._output_dir(output_dir),
             engine=program_spec.docking_engine,
             preparation_engine=program_spec.preparation_engine,
             receptor_set_id=None if receptor_set_ref is None else int(receptor_set_ref.id),
             receptor_filters=receptor_filters,
-            exhaustiveness=int(resolved_engine_config.get("exhaustiveness", exhaustiveness)),
-            num_modes=int(resolved_engine_config.get("num_modes", num_modes)),
             box_center=box_center,
             box_size=box_size,
-            scoring_function=str(resolved_engine_config.get("scoring_function", scoring_function)),
-            vina_backend=str(resolved_engine_config.get("vina_backend", vina_backend)),
-            vina_command=str(resolved_engine_config.get("vina_command", vina_command)),
-            vina_cpu=int(resolved_engine_config.get("vina_cpu", vina_cpu)),
-            seed=int(resolved_engine_config.get("seed", seed)),
-            spacing=float(resolved_engine_config.get("spacing", spacing)),
-            energy_range=float(resolved_engine_config.get("energy_range", energy_range)),
-            min_rmsd=float(resolved_engine_config.get("min_rmsd", min_rmsd)),
+            **_engine_fields(resolved_engine_config, knobs),
             run_id=str(run_id or uuid4().hex),
             protocol_metadata=DockingProtocolMetadata.from_mapping(protocol_metadata or {}),
             engine_config=resolved_engine_config,
@@ -897,6 +902,17 @@ class DockingAPI:
             return None
         return center, size, float(grid.get("spacing") or 0.375)
 
+    def _output_dir(self, output_dir: PathLike | None) -> str:
+        if output_dir is not None:
+            return str(Path(output_dir).expanduser().resolve())
+        return str(self.runtime.get_project_resource_path("docking_results"))
+
+    def _set_ref(self, value, *, name: str) -> MoleculeSetRef | None:
+        """A stored set for anything but a scope: a scope is applied as filters, not stored."""
+        if value is None or is_molecule_scope(value):
+            return None
+        return ensure_molecule_set_ref(self.runtime, value, name=name)
+
     def run(
             self,
             *,
@@ -947,6 +963,18 @@ class DockingAPI:
                 raise ValueError("Pass either receptors or receptor_set, not both.")
             receptor_set = receptors
         self.runtime._require_active_project()
+        knobs = dict(
+            exhaustiveness=exhaustiveness,
+            num_modes=num_modes,
+            scoring_function=scoring_function,
+            vina_backend=vina_backend,
+            vina_command=vina_command,
+            vina_cpu=vina_cpu,
+            seed=seed,
+            spacing=spacing,
+            energy_range=energy_range,
+            min_rmsd=min_rmsd,
+        )
         if ligand_set is None and has_shards(self.runtime.workspace.project_db):
             if hit_threshold is None or int(hit_cap) <= 0:
                 raise ValueError(
@@ -964,18 +992,9 @@ class DockingAPI:
                 hit_cap=int(hit_cap),
                 hit_mode=hit_mode,
                 output_dir=output_dir,
-                exhaustiveness=exhaustiveness,
-                num_modes=num_modes,
                 box_center=box_center,
                 box_size=box_size,
-                scoring_function=scoring_function,
-                vina_backend=vina_backend,
-                vina_command=vina_command,
-                vina_cpu=vina_cpu,
-                seed=seed,
-                spacing=spacing,
-                energy_range=energy_range,
-                min_rmsd=min_rmsd,
+                **knobs,
                 run_id=run_id,
                 protocol_metadata=protocol_metadata,
                 engine_config=engine_config,
@@ -991,25 +1010,10 @@ class DockingAPI:
                 "scientific criterion, the cap is only what makes the run end."
             )
         program_spec = self.get_program_spec(program)
-        resolved_engine_config = _validated_engine_config(
-            program_spec,
-            engine_config,
-            exhaustiveness=exhaustiveness,
-            num_modes=num_modes,
-            scoring_function=scoring_function,
-            vina_backend=vina_backend,
-            vina_command=vina_command,
-            vina_cpu=vina_cpu,
-            seed=seed,
-            spacing=spacing,
-            energy_range=energy_range,
-            min_rmsd=min_rmsd,
-        )
+        resolved_engine_config = _validated_engine_config(program_spec, engine_config, **knobs)
         resolved_batch_size = max(1, int(batch_size or app_config(self.runtime).docking.batch_size))
-        ligand_set_ref = None if ligand_set is None or is_molecule_scope(ligand_set) else ensure_molecule_set_ref(
-            self.runtime, ligand_set, name="docking_ligand_input")
-        receptor_set_ref = None if receptor_set is None or is_molecule_scope(receptor_set) else ensure_molecule_set_ref(
-            self.runtime, receptor_set, name="docking_receptor_input")
+        ligand_set_ref = self._set_ref(ligand_set, name="docking_ligand_input")
+        receptor_set_ref = self._set_ref(receptor_set, name="docking_receptor_input")
         ligand_scope = scope_payload(ligand_set) if is_molecule_scope(ligand_set) else {}
         receptor_scope = scope_payload(receptor_set) if is_molecule_scope(receptor_set) else {}
         ligand_filters = self._program_scope_filters(ligand_scope, role="ligand", program=program_spec)
@@ -1020,7 +1024,7 @@ class DockingAPI:
                 engine=program_spec.preparation_engine,
             )
             if resolved_grid is not None:
-                box_center, box_size, spacing = resolved_grid
+                box_center, box_size, knobs["spacing"] = resolved_grid
         if (box_center is None) ^ (box_size is None):
             raise ValueError("docking.run requires both box_center and box_size when either one is provided.")
         # Always resolve counts: they gate readiness (when requested) AND give the true
@@ -1071,14 +1075,8 @@ class DockingAPI:
         total_chunks = (
             -(-pending_pairs // resolved_batch_size) if pending_pairs > 0 else 0
         )
-        resolved_output = (
-            str(Path(output_dir).expanduser().resolve())
-            if output_dir is not None
-            else str(self.runtime.get_project_resource_path("docking_results"))
-        )
-        resolved_run_id = str(run_id or uuid4().hex)
         params = DockingJobParams(
-            output_dir=resolved_output,
+            output_dir=self._output_dir(output_dir),
             batch_size=resolved_batch_size,
             row_batch_size=batch_size_for("ligand", self.runtime),
             ligand_set_id=None if ligand_set_ref is None else int(ligand_set_ref.id),
@@ -1090,19 +1088,10 @@ class DockingAPI:
             requires_ligand_preparation=program_spec.requires_ligand_preparation,
             requires_receptor_preparation=program_spec.requires_receptor_preparation,
             requires_binding_site=program_spec.requires_binding_site,
-            exhaustiveness=int(resolved_engine_config.get("exhaustiveness", exhaustiveness)),
-            num_modes=int(resolved_engine_config.get("num_modes", num_modes)),
             box_center=box_center,
             box_size=box_size,
-            scoring_function=str(resolved_engine_config.get("scoring_function", scoring_function)),
-            vina_backend=str(resolved_engine_config.get("vina_backend", vina_backend)),
-            vina_command=str(resolved_engine_config.get("vina_command", vina_command)),
-            vina_cpu=int(resolved_engine_config.get("vina_cpu", vina_cpu)),
-            seed=int(resolved_engine_config.get("seed", seed)),
-            spacing=float(resolved_engine_config.get("spacing", spacing)),
-            energy_range=float(resolved_engine_config.get("energy_range", energy_range)),
-            min_rmsd=float(resolved_engine_config.get("min_rmsd", min_rmsd)),
-            run_id=resolved_run_id,
+            **_engine_fields(resolved_engine_config, knobs),
+            run_id=str(run_id or uuid4().hex),
             protocol_metadata=dict(protocol_metadata or {}),
             engine_config=resolved_engine_config,
             skip_existing=skip_existing,
@@ -1157,9 +1146,7 @@ class DockingAPI:
     ) -> str:
         self.runtime._require_active_project()
         program_spec = self.get_program_spec(program)
-        resolved_engine_config = _validated_engine_config(
-            program_spec,
-            engine_config,
+        knobs = dict(
             exhaustiveness=exhaustiveness,
             num_modes=num_modes,
             scoring_function=scoring_function,
@@ -1171,6 +1158,7 @@ class DockingAPI:
             energy_range=energy_range,
             min_rmsd=min_rmsd,
         )
+        resolved_engine_config = _validated_engine_config(program_spec, engine_config, **knobs)
         complex_set_id = None if complex_set is None else int(
             complex_set.id if isinstance(complex_set, ComplexSetRef) else complex_set)
         explicit_complex_ids = sorted({int(value) for value in (complex_ids or []) if int(value) > 0})
@@ -1242,14 +1230,8 @@ class DockingAPI:
         total_chunks = (
             -(-pending_pairs // max(1, int(batch_size))) if pending_pairs > 0 else 0
         )
-        resolved_output = (
-            str(Path(output_dir).expanduser().resolve())
-            if output_dir is not None
-            else str(self.runtime.get_project_resource_path("docking_results"))
-        )
-        resolved_run_id = str(run_id or uuid4().hex)
         params = RedockingJobParams(
-            output_dir=resolved_output,
+            output_dir=self._output_dir(output_dir),
             batch_size=batch_size,
             complex_set_id=complex_set_id,
             complex_ids=explicit_complex_ids,
@@ -1257,19 +1239,10 @@ class DockingAPI:
             engine=program_spec.docking_engine,
             preparation_engine=program_spec.preparation_engine,
             requires_binding_site=program_spec.requires_binding_site,
-            exhaustiveness=int(resolved_engine_config.get("exhaustiveness", exhaustiveness)),
-            num_modes=int(resolved_engine_config.get("num_modes", num_modes)),
             box_center=box_center,
             box_size=box_size,
-            scoring_function=str(resolved_engine_config.get("scoring_function", scoring_function)),
-            vina_backend=str(resolved_engine_config.get("vina_backend", vina_backend)),
-            vina_command=str(resolved_engine_config.get("vina_command", vina_command)),
-            vina_cpu=int(resolved_engine_config.get("vina_cpu", vina_cpu)),
-            seed=int(resolved_engine_config.get("seed", seed)),
-            spacing=float(resolved_engine_config.get("spacing", spacing)),
-            energy_range=float(resolved_engine_config.get("energy_range", energy_range)),
-            min_rmsd=float(resolved_engine_config.get("min_rmsd", min_rmsd)),
-            run_id=resolved_run_id,
+            **_engine_fields(resolved_engine_config, knobs),
+            run_id=str(run_id or uuid4().hex),
             protocol_metadata=dict(protocol_metadata or {}),
             engine_config=resolved_engine_config,
             skip_existing=skip_existing,
