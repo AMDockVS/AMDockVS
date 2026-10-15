@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from amdockvs.models.molecules import MoleculeRecord
 from amdockvs.runtime import AMDockVSRuntime
 from amdockvs.ui.main_window import AMDockVSMainWindow
-from amdockvs.ui.tools.qsar.panels import PREDICTIONS_VIEW_ID
+from amdockvs.ui.view_ids import PREDICTIONS_VIEW_ID
 
 ENDPOINT = "pAct"
 # Four chemical series; the chain length drives the (synthetic) activity within each.

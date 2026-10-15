@@ -11,9 +11,7 @@ from ms_components.ms_table import (
     TableLoadMode,
     choices_from_class,
 )
-
-
-COMPLEX_PAIRS_VIEW_ID = "workspace.complex_pairs"
+from amdockvs.ui.view_ids import COMPLEX_PAIRS_VIEW_ID
 
 
 def _complex_table_config() -> TableConfig:
@@ -78,9 +76,7 @@ def register_complex_pairs_workspace(window) -> None:
     )
 
 
-
 __all__ = [
-    "COMPLEX_PAIRS_VIEW_ID",
     "ComplexPairsWidget",
     "open_complex_pairs_view",
     "register_complex_pairs_workspace",

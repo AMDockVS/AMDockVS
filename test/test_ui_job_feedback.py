@@ -16,8 +16,8 @@ from amdockvs.runtime import AMDockVSRuntime
 pytest.importorskip("PySide6")
 from PySide6.QtWidgets import QApplication
 
-from amdockvs.ui.catalog import LIGANDS_VIEW_ID
 from amdockvs.ui.main_window import AMDockVSMainWindow
+from amdockvs.ui.view_ids import LIGANDS_VIEW_ID
 
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")

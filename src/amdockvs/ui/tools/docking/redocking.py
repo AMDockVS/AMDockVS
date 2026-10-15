@@ -33,8 +33,7 @@ from amdockvs.docking.engines.programs import VINA_PROGRAM
 from amdockvs.ui.tools.docking.redocking_charts import RedockingChartsPanel
 from amdockvs.project.summaries import DockingHitSummary
 from amdockvs.ui.common.async_query import run_async
-
-REDOCKING_VIEW_ID = "workspace.redocking"
+from amdockvs.ui.view_ids import REDOCKING_VIEW_ID
 
 
 class RedockingWidget(QWidget):
@@ -353,4 +352,4 @@ def register_redocking_workspace(window) -> None:
     )
 
 
-__all__ = ["REDOCKING_VIEW_ID", "RedockingWidget", "register_redocking_workspace"]
+__all__ = ["RedockingWidget", "register_redocking_workspace"]

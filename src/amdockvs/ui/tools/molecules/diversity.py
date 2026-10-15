@@ -41,12 +41,10 @@ from PySide6.QtWidgets import (
 )
 from amdockvs.models.molecules import MoleculeUsageClass
 from amdockvs.diversity.api import DiversityAPI
-from amdockvs.ui.catalog.ligands import LIGANDS_VIEW_ID
 from amdockvs.ui.common.async_query import run_async
-from amdockvs.ui.tools.molecules.clusters import CLUSTERS_VIEW_ID
 from ms_components.ms_table import FilterOperator, FilterSpec
+from amdockvs.ui.view_ids import CLUSTERS_VIEW_ID, LIGANDS_VIEW_ID, SELECTION_VIEW_ID
 
-SELECTION_VIEW_ID = "moltools.diversity"
 
 # Preview clusters a small random sample so it stays fast (clustering is O(n·k·nbits) and the PCA
 # SVD is superlinear — 20k mols took minutes). The run at full scale goes through the mf job, not
@@ -806,4 +804,4 @@ def register_selection_workspace(window) -> None:
     )
 
 
-__all__ = ["SELECTION_VIEW_ID", "DiversitySelectionWidget", "register_selection_workspace"]
+__all__ = ["DiversitySelectionWidget", "register_selection_workspace"]

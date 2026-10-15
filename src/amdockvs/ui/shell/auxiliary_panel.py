@@ -11,8 +11,12 @@ from __future__ import annotations
 from PySide6.QtWidgets import QWidget
 
 from amdockvs.ui.catalog.details import CatalogDetailsView
-from amdockvs.ui.tools.docking.studio import DOCKING_VIEW_ID, PREP_STATUS_VIEW_ID
-from amdockvs.ui.tools.binding_sites.detection import POCKET_DETECTION_VIEW_ID, POCKET_SITES_VIEW_ID
+from amdockvs.ui.view_ids import (
+    DOCKING_VIEW_ID,
+    POCKET_DETECTION_VIEW_ID,
+    POCKET_SITES_VIEW_ID,
+    PREP_STATUS_VIEW_ID,
+)
 
 
 class AuxiliaryPanelController:

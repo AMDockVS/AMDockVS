@@ -15,7 +15,6 @@ from PySide6.QtWidgets import (
 from amdockvs.core.home import amdock_home
 from amdockvs.runtime import AMDockVSRuntime
 from amdockvs.project.summaries import DockingHitSummary
-from amdockvs.ui.catalog import COMPLEXES_VIEW_ID, LIGANDS_VIEW_ID, RECEPTOR_VIEW_ID
 from amdockvs.ui.catalog.common import SelectionStore
 from amdockvs.ui.shell.main_content import MainContentWidget
 from amdockvs.ui.monitor import JobsDialog
@@ -30,12 +29,17 @@ from amdockvs.ui.shell.statusbar import StatusBar
 from amdockvs.ui.tools.docking.diagram_dock import InteractionDiagramDock
 from amdockvs.ui.tools.binding_sites.box import GridBoxSettingDockWidget
 from amdockvs.ui.tools.qsar.chart import Glowing2DDockWidget, QSARChartDockWidget
-from amdockvs.ui.tools.workflow_panel import WORKFLOW_VIEW_ID
 from amdockvs.ui.viewers.molecular_viewer import MolecularViewerController
 from amdockvs.ui.visualization.chart_controller import ChartController
 from ms_components.ms_dockwidget.widget import Behavior, DockManager, MSDockWidget, Region
 from ms_components.ms_executors import ExecutorsPanel
 from ms_components.ms_pymol.widget import PymolDockWidget
+from amdockvs.ui.view_ids import (
+    COMPLEXES_VIEW_ID,
+    LIGANDS_VIEW_ID,
+    RECEPTOR_VIEW_ID,
+    WORKFLOW_VIEW_ID,
+)
 
 
 def _pymol_disabled() -> bool:

@@ -29,7 +29,6 @@ from PySide6.QtWidgets import (
 
 from amdockvs.ui.common.async_query import run_async
 
-RESULTS_PIVOT_VIEW_ID = "workspace.complexes"  # keeps the tab identity of Docking Results
 
 _HITS, _OFFTARGET, _REDOCKING = "hits", "offtarget", "redocking"
 _AVAILABILITY_POLL_SECONDS = 10.0
@@ -435,4 +434,4 @@ class ResultsPivotWidget(QWidget):
     refresh_view = refresh
 
 
-__all__ = ["RESULTS_PIVOT_VIEW_ID", "ResultsPivotWidget"]
+__all__ = ["ResultsPivotWidget"]

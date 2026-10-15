@@ -10,13 +10,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from amdockvs.ui.catalog.ligands import LIGANDS_VIEW_ID
-from amdockvs.ui.catalog.receptors import RECEPTOR_VIEW_ID
 from ms_components.ms_stepper import Orientation, QStepper
-
-DOCKING_VIEW_ID = "workspace.docking"
-PREP_STATUS_VIEW_ID = "workspace.prep_status"
-
 from amdockvs.ui.tools.binding_sites.flexible_residues import FlexibleResiduesPanel
 from amdockvs.ui.tools.docking.preparation_panel import EngineStatePrepView, PreparationPanel
 from amdockvs.ui.tools.docking.protocol_editor import ProtocolEditorWidget
@@ -24,6 +18,12 @@ from amdockvs.ui.tools.docking.run_panel import RunPanel
 from amdockvs.ui.tools.docking.scope_panel import ScopePanel
 from amdockvs.docking.readiness import DockingReadinessService
 from amdockvs.docking.submission import DockingSubmissionService
+from amdockvs.ui.view_ids import (
+    COMPLEXES_VIEW_ID,
+    DOCKING_VIEW_ID,
+    PREP_STATUS_VIEW_ID,
+    RECEPTOR_VIEW_ID,
+)
 
 class _WheelGuard(QObject):
     """Swallow wheel events on combos/spinboxes unless they have focus.
@@ -37,8 +37,6 @@ class _WheelGuard(QObject):
         if event.type() == QEvent.Type.Wheel and not obj.hasFocus():
             return True
         return super().eventFilter(obj, event)
-
-
 
 
 class DockingStudioWidget(
@@ -190,8 +188,6 @@ class DockingStudioWidget(
     def _show_step_view(self) -> None:
         # Steps 2/3 work *on* a catalog tab (they have no table of their own), so bring it up.
         # Preview & Run is the step *before* the results, so it opens them: the run lands there.
-        from amdockvs.ui.catalog.domain_views import COMPLEXES_VIEW_ID  # circular at import time
-
         index = self.stepper.current_index
         view_id = {1: self._ligand_view_id(), 2: RECEPTOR_VIEW_ID, 3: COMPLEXES_VIEW_ID}.get(index)
         if view_id is not None:
@@ -332,10 +328,7 @@ def register_docking_workspace(window) -> None:
     )
 
 
-
 __all__ = [
-    "DOCKING_VIEW_ID",
-    "PREP_STATUS_VIEW_ID",
     "DockingStudioWidget",
     "register_docking_workspace",
 ]

@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from amdockvs.docking.engines.programs import VINA_PROGRAM
-from amdockvs.ui.catalog.ligands import LIGANDS_VIEW_ID
-from amdockvs.ui.catalog.shards import SHARDS_VIEW_ID
 from amdockvs.core.vocab import ProjectMode
+from amdockvs.ui.view_ids import LIGANDS_VIEW_ID, SHARDS_VIEW_ID
 
 class ScopePanel:
     """Molecule-scope resolver for the docking tool.

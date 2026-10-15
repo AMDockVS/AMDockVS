@@ -17,8 +17,6 @@ from amdockvs.ui.common.job_follower import JobFollower
 from amdockvs.ui.common.widgets import RunDestinationCombo, gate_workflow_save, split_button
 from ms_components.tool_panel import ToolPanel
 from amdockvs.ui.catalog.common import BoundTableWidget
-from amdockvs.ui.catalog.ligands import LIGANDS_VIEW_ID
-from amdockvs.ui.catalog.receptors import RECEPTOR_VIEW_ID
 from amdockvs.docking.api import MissingLigand3DError
 from amdockvs.docking.engines.programs import list_docking_programs
 from amdockvs.models import EngineState
@@ -32,8 +30,8 @@ from ms_components.ms_table import (
     TableConfig,
     TableLoadMode,
 )
+from amdockvs.ui.view_ids import BUILD_ID, LIGANDS_VIEW_ID, PREP_STATUS_VIEW_ID, RECEPTOR_VIEW_ID
 
-PREP_STATUS_VIEW_ID = "workspace.prep_status"
 
 def _prep_error_message(files: object) -> str:
     if not isinstance(files, dict):
@@ -109,7 +107,6 @@ class EngineStatePrepView(BoundTableWidget):
         self.set_base_filter(
             "role_type", FilterSpec("role_type", FilterOperator.EQ, role, label="role")
         )
-
 
 
 def _spinbox(*, minimum: int, maximum: int, value: int) -> QSpinBox:
@@ -614,8 +611,6 @@ class PreparationPanel:
                 # The fix is one job away, so offer it here instead of sending the user off.
                 choice = self._ask_missing_3d(exc.count)
                 if choice == "build":
-                    from amdockvs.ui.tools.molecules.build import BUILD_ID  # circular at import time
-
                     self._follow_prep(self.ligand_prep_jobs, job_ids)
                     self.window().tools.open_tool(BUILD_ID)
                     return

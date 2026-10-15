@@ -24,13 +24,11 @@ from amdockvs.core.user_env import is_remembered, remember_env_var, shell_profil
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.common.job_follower import JobFollower
 from amdockvs.ui.common.widgets import RunDestinationCombo, gate_workflow_save
-from amdockvs.ui.catalog.molecules import MOLECULES_VIEW_ID
-from amdockvs.ui.catalog.shards import SHARDS_VIEW_ID
 from amdockvs.core.vocab import MoleculeType
 from ms_components.ms_table import FilterOperator, FilterSpec
 from ms_components.tool_panel import ToolPanel, format_count, hint_label
+from amdockvs.ui.view_ids import BUILD_ID, MOLECULES_VIEW_ID, SHARDS_VIEW_ID
 
-BUILD_ID = "moltools.build"
 ESM_TOKEN_ENV = "ESM_API_KEY"  # same name as chemistry.tools.esmfold; the UI only sets it
 
 
@@ -822,7 +820,6 @@ def register_build_workspace(window) -> None:
 
 
 __all__ = [
-    "BUILD_ID",
     "MoleculeBuildWidget",
     "register_build_workspace",
 ]

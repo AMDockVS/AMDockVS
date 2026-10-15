@@ -29,10 +29,7 @@ from PySide6.QtWidgets import (
 from amdockvs.qsar.modeling import supported_algorithms
 from amdockvs.ui.common.async_query import run_async
 from ms_components.ms_stepper import Orientation, QStepper
-
-QSAR_BUILD_VIEW_ID = "workspace.qsar_build"
-QSAR_MODELS_VIEW_ID = "workspace.qsar_models"
-PREDICTIONS_VIEW_ID = "workspace.qsar_predictions"
+from amdockvs.ui.view_ids import PREDICTIONS_VIEW_ID, QSAR_BUILD_VIEW_ID, QSAR_MODELS_VIEW_ID
 
 
 # ponytail: a selection is an `id IN [...]` filter, and SQLite binds at most 32766 values in its
@@ -956,5 +953,5 @@ def register_qsar_panels(window) -> None:
     # HTP is an import mode, not a QSAR view — it is wired into the ligand-import flow, not here.
 
 
-__all__ = ["PREDICTIONS_VIEW_ID", "QSAR_BUILD_VIEW_ID", "QSAR_MODELS_VIEW_ID", "PredictionsWidget",
+__all__ = ["PredictionsWidget",
            "QSARBuildWidget", "QSARModelsWidget", "register_qsar_panels"]

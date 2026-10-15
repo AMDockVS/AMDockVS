@@ -40,6 +40,7 @@ from amdockvs.docking.planning import (
     DockingRunRequest,
     docking_signature,
 )
+from amdockvs.ui.view_ids import COMPLEXES_VIEW_ID
 
 
 class RunPanel:
@@ -1048,8 +1049,6 @@ class RunPanel:
         # way and leaves the screen to the results it is feeding. Closing the tools dock is what
         # retires the tool (see ToolCoordinator.on_tools_dock_visibility); the studio stays
         # built, so reopening it lands back on this step with the run still attached.
-        from amdockvs.ui.catalog.domain_views import COMPLEXES_VIEW_ID  # circular at import time
-
         window = self.window()
         opener = getattr(window, "open_or_focus_view", None)
         if callable(opener):

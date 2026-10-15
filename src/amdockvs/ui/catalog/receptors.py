@@ -63,8 +63,8 @@ from ms_components.ms_table import (
     ToolbarAction,
     choices_from_class,
 )
+from amdockvs.ui.view_ids import RECEPTOR_VIEW_ID
 
-RECEPTOR_VIEW_ID = "workspace.receptors"
 RECEPTOR_PREVIEW_MAX_FILES = 50
 
 
