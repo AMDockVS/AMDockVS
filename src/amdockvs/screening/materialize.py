@@ -35,7 +35,7 @@ LIGHT_FIELDS = (
 
 # Descriptor columns a `full` payload may carry straight into the molecule row.
 DESCRIPTOR_FIELDS = (
-    "mw", "exact_mw", "logp", "hbd", "hba", "tpsa", "rotatable_bonds", "ring_count",
+    "mw", "logp", "hbd", "hba", "tpsa", "rotatable_bonds", "ring_count",
     "aromatic_ring_count", "hetero_atom_count", "heavy_atom_count", "formal_charge",
     "fraction_csp3", "n_atoms",
 )

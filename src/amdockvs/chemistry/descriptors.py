@@ -6,13 +6,32 @@ from datetime import datetime
 from amdockvs.core.paths import preferred_molecule_path
 
 
+def canonical_smiles(mol) -> str:
+    """Canonical isomeric SMILES without explicit H atoms: stereo stays (@/@@, / \\) and so does
+    the protonation state, since a charged atom carries its Hs in brackets ([NH3+], [O-])."""
+    from rdkit import Chem
+
+    try:
+        return str(Chem.MolToSmiles(Chem.RemoveHs(mol)) or "")
+    except Exception:
+        return ""
+
+
+def inchikey(mol) -> str:
+    from rdkit import Chem
+
+    try:
+        return str(Chem.MolToInchiKey(mol) or "")
+    except Exception:
+        return ""
+
+
 def calculate_basic_descriptors(mol) -> dict[str, float | int]:
     from rdkit import Chem
     from rdkit.Chem import Descriptors
 
     return {
         "mw": float(Descriptors.MolWt(mol)),
-        "exact_mw": float(Descriptors.ExactMolWt(mol)),
         "logp": float(Descriptors.MolLogP(mol)),
         "hbd": int(Descriptors.NumHDonors(mol)),
         "hba": int(Descriptors.NumHAcceptors(mol)),
@@ -72,7 +91,6 @@ def calculate_descriptor_rows(items: list[dict], *, fingerprint: dict | None = N
         row = {
             "molecule_id": molecule_id,
             "mw": None,
-            "exact_mw": None,
             "logp": None,
             "hbd": None,
             "hba": None,

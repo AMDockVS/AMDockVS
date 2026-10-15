@@ -4,7 +4,7 @@ In goes a ``Mol`` (or a raw row) plus the import policy; out comes the decision 
 fields. No file, no session: that is why a late rejection costs zero writes, and why the same
 code serves a normal import, an HTP shard or a multi-step job.
 
-Materialisation (writing the .sdf, the fragments, the relative path) lives in
+Materialisation (writing the .sdf, the relative path) lives in
 ``io/transformers/materializers.py`` and only runs over what survives here.
 
     python -m amdockvs.io.rows   # runs the checks
@@ -13,25 +13,20 @@ Materialisation (writing the .sdf, the fragments, the relative path) lives in
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
+from amdockvs.chemistry.descriptors import canonical_smiles, inchikey
 from amdockvs.chemistry.filtering import evaluate_small_molecule_filter_values
 from amdockvs.chemistry.state import molecule_state_metadata
 from amdockvs.io.import_stats import FILTERED_PROPERTY, NO_VALID_FRAGMENT
 from amdockvs.io.payloads import ImportPrefilterPolicy
 from amdockvs.core.rows import sanitize_molecule_extra_data
 from amdockvs.core.vocab import MoleculeType
-from amdockvs.molecules.fragments import (
-    analyze_ligand_fragments,
-    largest_ligand_fragment,
-    selected_fragment_from_metadata,
-)
+from amdockvs.molecules.fragments import largest_ligand_fragment, ligand_fragments
 
-# Properties the chosen fragment contributes to the row as-is.
+# Descriptor columns of a small molecule, computed on the structure it keeps.
 FRAGMENT_PROPERTY_FIELDS = (
     "mw",
-    "exact_mw",
     "logp",
     "hbd",
     "hba",
@@ -49,18 +44,12 @@ FRAGMENT_PROPERTY_FIELDS = (
 
 @dataclass(frozen=True)
 class LigandDecision:
-    """What survived every filter, still in memory and without a single file written.
-
-    ``fragment_info`` already carries the path each fragment will have; writing them is the job
-    of ``write_fragment_files``, which is only called for survivors.
-    """
+    """What survived every filter, still in memory and without a single file written. Only the
+    kept structure is ever written; the other components stay listed in ``metadata``."""
 
     kept_mol: Any
     metadata: dict[str, Any]
-    fragment_info: dict[str, Any]
-    fragment_mols: dict[int, Any]
-    selected_fragment: dict[str, Any]
-    prepped_state: dict[str, Any] | None
+    filter_values: Any = None  # the criteria's report, so the row does not compute it again
 
 
 def metadata_map_from_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -109,34 +98,25 @@ def cull_mol(mol, batch):
 
 def prep_ligand_mol(mol, prefilter: ImportPrefilterPolicy | None):
     """Run the opt-in prep steps (add Hs / gen 3D / canonical tautomer) on the kept fragment,
-    in memory. Returns ``(mol, state | None)`` — state is None when no step was requested or
-    nothing changed. Prep happens before any write so a later rejection costs no file."""
+    in memory, before any write so a later rejection costs no file."""
     if prefilter is None or not prefilter.prep_active():
-        return mol, None
+        return mol
 
     from amdockvs.chemistry.standardization import prepare_import_structure
 
-    prepped, changed = prepare_import_structure(
+    prepped, _changed = prepare_import_structure(
         mol,
         add_hs=bool(prefilter.add_hs),
         gen_3d=bool(prefilter.gen_3d),
         canonical_tautomer=bool(prefilter.canonical_tautomer),
     )
-    if not changed:
-        return mol, None
-    state = dict(molecule_state_metadata(prepped).get("state") or {})
-    state["n_atoms"] = int(prepped.GetNumAtoms() or 0)
-    return prepped, state
+    return prepped
 
 
 def evaluate_ligand_mol(
     *,
     mol,
     metadata: dict[str, Any] | None,
-    storage_root: Path,
-    role: str,
-    storage_key: str,
-    project_root: Path,
     prefilter: ImportPrefilterPolicy | None = None,
     criteria=None,
     molecule_kind: str = "",
@@ -147,42 +127,37 @@ def evaluate_ligand_mol(
     the fragment that will be stored and *before* the property gate, because the criteria have to
     judge the molecule that actually gets stored.
     """
-    analysis = analyze_ligand_fragments(
-        mol=mol,
-        storage_root=storage_root,
-        role=role,
-        storage_key=storage_key,
-        project_root=project_root,
-    )
-    if analysis is None:
+    analysis = ligand_fragments(mol)
+    if analysis is None or not analysis[0]["selected_fragment_index"]:
         return None, NO_VALID_FRAGMENT
-    fragment_info, fragment_mols = analysis
+    fragmentation, fragment_mols = analysis
     resolved_metadata = dict(metadata or {})
-    resolved_metadata["fragmentation"] = fragment_info
-    selected_fragment = selected_fragment_from_metadata(resolved_metadata)
-    if selected_fragment is None:
-        return None, NO_VALID_FRAGMENT
-    selected_mol = fragment_mols.get(int(selected_fragment.get("fragment_index") or 0))
-    if selected_mol is None:
-        return None, NO_VALID_FRAGMENT
+    resolved_metadata["fragmentation"] = fragmentation
 
-    kept_mol, prepped_state = prep_ligand_mol(selected_mol, prefilter)
+    kept_mol = prep_ligand_mol(fragment_mols[fragmentation["selected_fragment_index"]], prefilter)
+    report = None
     if criteria is not None:
         report = small_molecule_filter_values(kept_mol, molecule_kind=molecule_kind)
         if report is not None and not report.passes(criteria):
             return None, FILTERED_PROPERTY
+    return LigandDecision(kept_mol=kept_mol, metadata=resolved_metadata, filter_values=report), None
 
-    return (
-        LigandDecision(
-            kept_mol=kept_mol,
-            metadata=resolved_metadata,
-            fragment_info=fragment_info,
-            fragment_mols=fragment_mols,
-            selected_fragment=selected_fragment,
-            prepped_state=prepped_state,
-        ),
-        None,
-    )
+
+def structure_fields(mol, values=None) -> dict[str, Any]:
+    """The molecule columns that describe a small molecule's current structure."""
+    values = values or evaluate_small_molecule_filter_values(mol)
+    state = dict(molecule_state_metadata(mol).get("state") or {})
+    return {
+        "n_atoms": int(mol.GetNumAtoms() or 0),
+        **{key: values.descriptors.get(key) for key in FRAGMENT_PROPERTY_FIELDS},
+        "pains_matches": list(values.pains_matches or []),
+        "ro5_violations": list(values.ro5_violations or []),
+        "has_3d": bool(state.get("has_3d")),
+        "has_hs": bool(state.get("has_hs")),
+        "conformer_count": int(state.get("conformer_count") or 0),
+        "canonical_smiles": canonical_smiles(mol) or None,
+        "inchikey": inchikey(mol) or None,
+    }
 
 
 def ligand_row_fields(
@@ -191,24 +166,9 @@ def ligand_row_fields(
     """Dumps the decision onto the row. Mutates and returns `row`, as the original code did."""
     import json
 
-    properties = dict(decision.selected_fragment.get("properties") or {})
-    state = dict(decision.selected_fragment.get("state") or {})
-
+    row.update(structure_fields(decision.kept_mol, decision.filter_values))
     row["extra_data"] = decision.metadata
     row["current_path"] = current_path_rel
-    row["n_atoms"] = int(properties.get("n_atoms") or row.get("n_atoms") or 0)
-    for key in FRAGMENT_PROPERTY_FIELDS:
-        row[key] = properties.get(key)
-    row["pains_matches"] = list(properties.get("pains_matches") or [])
-    row["ro5_violations"] = list(properties.get("ro5_violations") or [])
-    row["has_3d"] = bool(state.get("has_3d", row.get("has_3d")))
-    row["has_hs"] = bool(state.get("has_hs", row.get("has_hs")))
-    row["conformer_count"] = int(state.get("conformer_count", row.get("conformer_count") or 0) or 0)
-    if decision.prepped_state is not None:  # prep's state overrides what the raw fragment reported
-        row["has_3d"] = bool(decision.prepped_state.get("has_3d", row["has_3d"]))
-        row["has_hs"] = bool(decision.prepped_state.get("has_hs", row["has_hs"]))
-        row["conformer_count"] = int(decision.prepped_state.get("conformer_count") or 0)
-        row["n_atoms"] = int(decision.prepped_state.get("n_atoms") or row["n_atoms"])
     row["metadata_json"] = json.dumps(decision.metadata, ensure_ascii=True)
     return row
 
@@ -224,4 +184,5 @@ __all__ = [
     "metadata_map_from_row",
     "prep_ligand_mol",
     "small_molecule_filter_values",
+    "structure_fields",
 ]

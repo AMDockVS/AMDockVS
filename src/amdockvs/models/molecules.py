@@ -96,10 +96,14 @@ class MoleculeRecord(TimestampedRecord, table=True):
     current_path: str = Field(default="")
     current_model_index: int | None = Field(default=None)
 
+    # Identity of the current structure (small molecules): finds duplicates and activities.
+    # Canonical isomeric SMILES without explicit Hs — charged atoms keep theirs in brackets.
+    inchikey: str | None = Field(default=None, index=True)
+    canonical_smiles: str | None = Field(default=None)
+
     # Basic chemical properties
     n_atoms: int = Field(default=0)
     mw: float | None = Field(default=None)
-    exact_mw: float | None = Field(default=None)
     logp: float | None = Field(default=None)
     hbd: int | None = Field(default=None)
     hba: int | None = Field(default=None)

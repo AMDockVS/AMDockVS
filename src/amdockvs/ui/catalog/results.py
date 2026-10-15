@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMenu,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSplitter,
@@ -178,7 +179,9 @@ class DockingResultsWidget(QWidget):
         ligand_layout.setContentsMargins(0, 0, 0, 0)
         self.ligand_label = QLabel("Ligand", self)
         ligand_layout.addWidget(self.ligand_label)
-        self.ligand_table = project_table(runtime, results_ligand_config(), ligand_box)
+        ligand_config = results_ligand_config()
+        ligand_config.context_menu_actions["Delete…"] = lambda objs: self._delete(objs, "result_group")
+        self.ligand_table = project_table(runtime, ligand_config, ligand_box)
         self.ligand_table.setMinimumHeight(150)
         self.ligand_table.selection_changed.connect(self._on_ligand_selection_changed)
         self.ligand_table.data_refreshed.connect(self._on_ligands_loaded)
@@ -190,7 +193,9 @@ class DockingResultsWidget(QWidget):
         pose_layout = QVBoxLayout(pose_box)
         pose_layout.setContentsMargins(0, 0, 0, 0)
         pose_layout.addWidget(QLabel("Pose", self))
-        self.pose_table = project_table(runtime, results_pose_config(), pose_box)
+        pose_config = results_pose_config()
+        pose_config.context_menu_actions["Delete…"] = lambda objs: self._delete(objs, "result")
+        self.pose_table = project_table(runtime, pose_config, pose_box)
         self.pose_table.setMinimumHeight(150)
         self.pose_table.selection_changed.connect(self._on_pose_selection_changed)
         self.pose_table.data_refreshed.connect(self._on_poses_loaded)
@@ -711,6 +716,16 @@ class DockingResultsWidget(QWidget):
             self._reload_protocols(auto_select=False, preserve_view=True)
 
     refresh_results_view = refresh_view
+
+    def _delete(self, objects, kind: str) -> None:
+        from amdockvs.ui.catalog.deletion import delete_objects
+
+        def done(deleted: int) -> None:
+            self._show_detail(None)
+            self.refresh_view()
+            QMessageBox.information(self, "Delete", f"Deleted {int(deleted)} pose(s).")
+
+        delete_objects(self, self.runtime, objects, kind=kind, done=done)
 
     def _show_detail(self, hit: DockingHitSummary | None) -> None:
         self._selected_hit = hit

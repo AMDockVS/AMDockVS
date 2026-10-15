@@ -18,6 +18,7 @@ from typing import Callable
 from ms_env import READY, Recipe, Step, StepFailed, locate, recipe_steps, remove
 
 from amdockvs.docking.engines.adgpu import adgpu_recipe
+from amdockvs.core.paths import tools_home
 from amdockvs.docking.engines.qvina import qvina_recipe
 from amdockvs.integrations.envs import (
     managed_prefix,
@@ -191,6 +192,7 @@ MANAGED_TOOLS: tuple[ManagedTool, ...] = (
     ),
     _recipe_tool("qvina", qvina_recipe),
     _recipe_tool("adgpu", adgpu_recipe),
+    _recipe_tool("ketcher", lambda runtime: tool_spec("ketcher").recipe(str(tools_home(runtime)))),
 )
 
 

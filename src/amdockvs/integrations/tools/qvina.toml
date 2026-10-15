@@ -12,9 +12,10 @@ paths = ["{prefix}/qvina2.1"]
 commands = ["qvina2.1", "qvina2", "qvina02"]
 check = ["{exe}", "--version"]
 
+# No -s on curl: its progress meter is the only sign in the install log that a download moves.
 # The upstream repo publishes the binary on its master branch, not as a release: the
 # checksum is what pins it. A changed upstream file fails the install instead of running.
 [[install]]
 name = "download QuickVina 2.1"
-argv = ["sh", "-c", "mkdir -p \"$0\" && curl -fsSL -o \"$0/qvina2.1\" https://github.com/QVina/qvina/raw/master/bin/qvina2.1 && echo \"bc1f908869181d17b48c9a9b4c2a28cce5264ccf3053e15bce32bb5baf83b43d  $0/qvina2.1\" | sha256sum -c - && chmod +x \"$0/qvina2.1\"", "{prefix}"]
+argv = ["sh", "-c", "mkdir -p \"$0\" && curl -fSL -o \"$0/qvina2.1\" https://github.com/QVina/qvina/raw/master/bin/qvina2.1 && echo \"bc1f908869181d17b48c9a9b4c2a28cce5264ccf3053e15bce32bb5baf83b43d  $0/qvina2.1\" | sha256sum -c - && chmod +x \"$0/qvina2.1\"", "{prefix}"]
 timeout = 300

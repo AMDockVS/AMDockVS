@@ -16,7 +16,7 @@ from amdockvs.core.jobs import task
 # MolSuite sink (engine-side, upsert), NOT a direct worker DB write — a second SQLite
 # connection from a process/thread worker deadlocks against the engine's connection.
 _DESCRIPTOR_COLUMNS = (
-    "mw", "exact_mw", "logp", "hbd", "hba", "tpsa", "rotatable_bonds",
+    "mw", "logp", "hbd", "hba", "tpsa", "rotatable_bonds",
     "fragment_count", "ring_count", "aromatic_ring_count", "hetero_atom_count",
     "heavy_atom_count", "formal_charge", "fraction_csp3",
 )

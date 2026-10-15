@@ -16,7 +16,6 @@ class SmallMoleculeFilterField:
     PAINS_MATCHES = "pains_matches"
     RO5_VIOLATIONS = "ro5_violations"
     MW = "mw"
-    EXACT_MW = "exact_mw"
     LOGP = "logp"
     HBD = "hbd"
     HBA = "hba"
@@ -52,7 +51,6 @@ _NUMERIC_OPERATORS = (
 
 _NUMERIC_DESCRIPTOR_SPECS: dict[str, dict[str, Any]] = {
     SmallMoleculeFilterField.MW: {"label": "MW (Da)", "kind": "float"},
-    SmallMoleculeFilterField.EXACT_MW: {"label": "Exact MW (Da)", "kind": "float"},
     SmallMoleculeFilterField.LOGP: {"label": "logP", "kind": "float"},
     SmallMoleculeFilterField.HBD: {"label": "HBD", "kind": "int"},
     SmallMoleculeFilterField.HBA: {"label": "HBA", "kind": "int"},
@@ -327,7 +325,6 @@ def annotate_row_with_small_molecule_filter_values(
         values: SmallMoleculeFilterValues,
 ) -> dict[str, Any]:
     row["mw"] = values.descriptors.get("mw")
-    row["exact_mw"] = values.descriptors.get("exact_mw")
     row["logp"] = values.descriptors.get("logp")
     row["hbd"] = values.descriptors.get("hbd")
     row["hba"] = values.descriptors.get("hba")

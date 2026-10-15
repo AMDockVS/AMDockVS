@@ -90,9 +90,6 @@ def _materialize_sdf_rows(
             row, reason = _finalize_ligand_row_from_mol(
                 row=row,
                 mol=mol,
-                storage_root=batch.storage_dir,
-                role=batch.primary_role or batch.kind,
-                storage_key=str(paths["key"]),
                 project_root=project_root,
                 current_path=current_path,
                 prefilter=batch.prefilter,

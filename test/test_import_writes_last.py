@@ -48,16 +48,15 @@ def test_rejected_molecule_writes_no_files(tmp_path):
 
     assert [row["name"] for row in rows] == ["small"]
     written = sorted(p.name for p in (tmp_path / "data" / "ligands").rglob("*.sdf"))
-    # Only the survivor's files: original + current + its two fragments. Nothing for "big".
-    assert len(written) == 4
+    # Only the survivor's files: original + current. Nothing for "big".
+    assert len(written) == 2
 
 
-def test_survivor_fragment_files_exist_where_metadata_says(tmp_path):
+def test_fragments_are_listed_not_written_and_the_row_carries_its_identity(tmp_path):
     rows = materialize_import_batch(_payload(tmp_path, [(SMALL, "small")], None))
 
     row = rows[0]
     fragments = row["extra_data"]["fragmentation"]["components"]
-    assert fragments
-    for fragment in fragments:
-        assert (tmp_path / fragment["path"]).exists()
+    assert len(fragments) == 2 and all(set(f) == {"fragment_index", "role", "smiles"} for f in fragments)
     assert (tmp_path / row["current_path"]).exists()
+    assert row["canonical_smiles"] and row["inchikey"]

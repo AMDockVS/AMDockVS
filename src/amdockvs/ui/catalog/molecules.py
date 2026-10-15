@@ -86,6 +86,7 @@ def _molecule_table_config(*, runtime) -> TableConfig:
 
 class MoleculeWidget(BoundTableWidget):
     delete_kind = "molecule"
+    editable = True
     selectable = True
 
     def __init__(self, *, runtime, parent=None):
@@ -134,7 +135,7 @@ class MoleculeWidget(BoundTableWidget):
         self._load_molecule_in_pymol(obj)
 
     def _load_molecule_in_pymol(self, molecule: MoleculeRecord) -> None:
-        source = next(reversed(self._structure_sources.values()), "original")
+        source = next(reversed(self._structure_sources.values()), "current")
         viewer = getattr(self.window(), "viewer", None)
         if viewer is not None:
             viewer.show_catalog_molecule(

@@ -17,7 +17,7 @@ from amdockvs.core.rows import molecule_row
 from amdockvs.core.vocab import MoleculeUsageClass
 from amdockvs.io.import_stats import IMPORTED, bump
 from amdockvs.io.rows import evaluate_ligand_mol, ligand_row_fields
-from amdockvs.molecules.fragments import extra_fragment_molecules, write_fragment_files
+from amdockvs.molecules.fragments import extra_fragment_molecules
 from amdockvs.core.paths import managed_paths_for_source
 
 
@@ -87,9 +87,6 @@ def _finalize_ligand_row_from_mol(
     *,
     row: dict[str, Any],
     mol,
-    storage_root: Path,
-    role: str,
-    storage_key: str,
     project_root: Path,
     current_path: Path,
     prefilter: ImportPrefilterPolicy | None = None,
@@ -108,10 +105,6 @@ def _finalize_ligand_row_from_mol(
     decision, reason = evaluate_ligand_mol(
         mol=mol,
         metadata=row.get("extra_data"),
-        storage_root=storage_root,
-        role=role,
-        storage_key=storage_key,
-        project_root=project_root,
         prefilter=prefilter,
         criteria=criteria,
         molecule_kind=molecule_kind,
@@ -121,7 +114,6 @@ def _finalize_ligand_row_from_mol(
 
     if stored_path is not None:
         stored_path.write_text(mol_block, encoding="utf-8")
-    write_fragment_files(decision.fragment_info, decision.fragment_mols, project_root=project_root)
     current_path.write_text(Chem.MolToMolBlock(decision.kept_mol), encoding="utf-8")
     return ligand_row_fields(row, decision, current_path_rel=str(current_path.relative_to(project_root))), None
 
@@ -212,9 +204,6 @@ def _split_fragment_rows(
         row, reason = _finalize_ligand_row_from_mol(
             row=row,
             mol=fragment,
-            storage_root=batch.storage_dir,
-            role=batch.primary_role or batch.kind,
-            storage_key=str(paths["key"]),
             project_root=project_root,
             current_path=paths["current_path"],
             prefilter=batch.prefilter,
