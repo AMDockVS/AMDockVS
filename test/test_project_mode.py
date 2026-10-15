@@ -90,7 +90,7 @@ def test_the_import_dialog_routes_the_library_to_the_chosen_store(runtime, tmp_p
     pytest.importorskip("PySide6")
     from PySide6.QtWidgets import QApplication
 
-    from amdockvs.ui.tools.import_workspace import LigandImportDialog
+    from amdockvs.ui.tools.importing import LigandImportDialog
     from amdockvs.core.vocab import MoleculeType
 
     QApplication.instance() or QApplication(["amdockvs-import-test"])
@@ -125,11 +125,11 @@ def test_the_import_dialog_suggests_shards_by_molecule_count(runtime, tmp_path, 
     pytest.importorskip("PySide6")
     from PySide6.QtWidgets import QApplication
 
-    from amdockvs.ui.tools import import_workspace
-    from amdockvs.ui.tools.import_workspace import LigandImportDialog
+    from amdockvs.ui.tools.importing import ligands as ligand_import
+    from amdockvs.ui.tools.importing import LigandImportDialog
 
     QApplication.instance() or QApplication(["amdockvs-import-test"])
-    monkeypatch.setattr(import_workspace, "SHARD_SUGGEST_RECORDS", 3)
+    monkeypatch.setattr(ligand_import, "SHARD_SUGGEST_RECORDS", 3)
     small, library = tmp_path / "small.smi", tmp_path / "lib.smi"
     small.write_text("CCO a\nCCN b\n")
     library.write_text("CCO a\nCCN b\nCCC c\n")
@@ -146,7 +146,7 @@ def test_the_import_dialog_defaults_to_the_existing_library(runtime, tmp_path):
     pytest.importorskip("PySide6")
     from PySide6.QtWidgets import QApplication
 
-    from amdockvs.ui.tools.import_workspace import LigandImportDialog
+    from amdockvs.ui.tools.importing import LigandImportDialog
 
     QApplication.instance() or QApplication(["amdockvs-import-test"])
     _add_shard(runtime, tmp_path)
@@ -175,7 +175,7 @@ def test_activities_only_come_with_the_reference_mark(runtime, tmp_path):
     pytest.importorskip("PySide6")
     from PySide6.QtWidgets import QApplication
 
-    from amdockvs.ui.tools.import_workspace import LigandImportDialog
+    from amdockvs.ui.tools.importing import LigandImportDialog
 
     QApplication.instance() or QApplication(["amdockvs-import-test"])
     library, actives = tmp_path / "lib.smi", tmp_path / "actives.csv"
