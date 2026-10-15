@@ -5,6 +5,48 @@ from pathlib import Path
 from amdockvs.integrations.contracts import ToolArtifact, ToolResult
 
 
+# Meeko opens every ring of 7+ atoms into CG0/G0 closure pseudo-atoms; only Vina's own scoring
+# functions close them again. Every other program (and scoring) docks those rings rigid.
+OPEN_RING_SCORING: dict[str, tuple[str, ...]] = {"vina": ("vina", "vinardo")}
+
+
+def dockable_ligand(path: Path, *, program: str, scoring_function: str | None, output_dir: Path) -> Path:
+    """The prepared ligand `program` can read: as prepared, or a rigid-ring copy under the run's
+    `output_dir`."""
+    if str(scoring_function or "").lower() in OPEN_RING_SCORING.get(str(program), ()):
+        return path
+    return rigid_ring_ligand(path, Path(output_dir) / "_rigid")
+
+
+def _has_open_rings(text: str) -> bool:
+    return any(
+        line.startswith(("ATOM", "HETATM")) and line.split()[-1].startswith(("G", "CG"))
+        for line in text.splitlines()
+    )
+
+
+def rigid_ring_ligand(path: Path, work_dir: Path) -> Path:
+    """A copy of the ligand with its open rings rigid (same atoms and coordinates) in
+    `work_dir`; a ligand without open rings is returned unchanged."""
+    text = path.read_text(encoding="utf-8", errors="replace")
+    if not _has_open_rings(text):
+        return path
+    from meeko import MoleculePreparation, PDBQTMolecule, PDBQTWriterLegacy, RDKitMolCreate
+
+    mol = RDKitMolCreate.from_pdbqt_mol(PDBQTMolecule(text, poses_to_read=1, skip_typing=True))[0]
+    if mol is None:
+        raise RuntimeError(f"Meeko could not rebuild the ligand to keep its rings rigid: {path.name}")
+    rigid, ok, error = PDBQTWriterLegacy.write_string(
+        MoleculePreparation(rigid_macrocycles=True).prepare(mol)[0]
+    )
+    if not ok:
+        raise RuntimeError(str(error or f"Meeko could not write the rigid-ring ligand: {path.name}"))
+    work_dir.mkdir(parents=True, exist_ok=True)
+    out = work_dir / f"{path.stem}.rigid.pdbqt"
+    out.write_text(rigid, encoding="utf-8")
+    return out
+
+
 def _ligand_has_3d(mol) -> bool:
     if mol is None or mol.GetNumConformers() == 0:
         return False

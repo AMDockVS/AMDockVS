@@ -170,6 +170,8 @@ def _run_gnina(
 
 
 def run_gnina_docking_rows(payload: dict) -> list[dict]:
+    from amdockvs.docking.preparation.meeko import dockable_ligand
+
     pairs = list(payload.get("pairs") or [])
     output_dir = Path(str(payload.get("output_dir") or "")).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -216,7 +218,8 @@ def run_gnina_docking_rows(payload: dict) -> list[dict]:
                 raise ValueError("gnina requires a box (center_xyz + size_xyz).")
             _run_gnina(
                 receptor_path=receptor_path,
-                ligand_path=ligand_path,
+                ligand_path=dockable_ligand(ligand_path, program="gnina", scoring_function=None,
+                                            output_dir=output_dir),
                 output_path=output_sdf,
                 box_center=center,
                 box_size=size,

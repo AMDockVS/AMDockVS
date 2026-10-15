@@ -19,6 +19,7 @@ from amdockvs.docking.results.metrics import docking_metrics, pose_file_stem
 from amdockvs.docking.results.rmsd import pose_rmsd_detail
 from amdockvs.core.paths import get_default_project_root
 from amdockvs.docking.engines.autogrid import map_prefix as _ad4_map_prefix
+from amdockvs.docking.preparation.meeko import dockable_ligand
 
 def _require_pdbqt(path: Path, *, kind: str) -> None:
     if path.suffix.lower() != ".pdbqt":
@@ -133,12 +134,13 @@ def _count_heavy_atoms_pdbqt(path: Path) -> int:
     # Heavy-atom count from the prepared ligand PDBQT: count ATOM/HETATM records whose
     # AutoDock atom type (last token) is not hydrogen. Cheap, no RDKit parse needed.
     # ponytail: AD types for H are H/HD/HS — all start with "H"; no heavy type does.
+    # G0/G1... are Meeko's ring-closure dummies and W its waters: not atoms of the ligand.
     count = 0
     for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
         if not (raw.startswith("ATOM") or raw.startswith("HETATM")):
             continue
         ad_type = raw.split()[-1] if raw.split() else ""
-        if ad_type and not ad_type.upper().startswith("H"):
+        if ad_type and not ad_type.upper().startswith(("H", "G", "W")):
             count += 1
     return count
 
@@ -434,6 +436,8 @@ def run_vina_docking_rows(
                 raise FileNotFoundError(f"receptor file missing: {receptor_path}")
             _require_pdbqt(ligand_path, kind="ligand")
             _require_pdbqt(receptor_path, kind="receptor")
+            ligand_path = dockable_ligand(ligand_path, program=engine, scoring_function=scoring_function,
+                                          output_dir=resolved_output_dir)
             # Flexible-residue prep writes "<receptor>__flex.pdbqt" next to the rigid receptor;
             # if it's there, dock with flexible side chains. Deterministic name → no extra plumbing.
             explicit_flex = str(pair.get("flex_receptor_path") or "").strip()
