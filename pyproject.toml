@@ -36,10 +36,8 @@ dependencies = [
     "ms_contactmap>=0.2.0",
     # Chemistry / structure
     "rdkit>=2025.3.5",
-    # Caps rdkit to <2026 in its own metadata, so installing AMDockVS next to a package that
-    # already pulled rdkit 2026.x downgrades it. Harmless (2026.3.6 was tested fine here),
-    # lift when dimorphite-dl relaxes the cap.
-    "dimorphite-dl>=2.0.2,<3",
+    # 2.1 is the first release whose metadata allows rdkit 2026.x; older ones downgrade it.
+    "dimorphite-dl>=2.1.0,<3",
     "meeko>=0.7.1",
     "vina>=1.2.7",
     # Non-pip runtime tool: ad4 scoring needs the autogrid4 binary on PATH (or $AMDOCK_AUTOGRID4).
@@ -64,10 +62,10 @@ dependencies = [
 # bblean is GPL-3.0 while AMDock is MIT, so it is never imported: the diversity job shells out to
 # its `bb` console script (see amdockvs/diversity/clustering.py). Optional because without it the
 # BitBIRCH method falls back to the lean in-tree implementation.
-bblean = ["bblean>=0.10", "typer>=0.16.1,<0.17"]
+bblean = ["bblean>=0.10"]
 # P2Rank is a Java tool: the JDK ships as a plain wheel (jlink-trimmed), the P2Rank
 # distribution itself is fetched on demand from Settings > External tools.
-pockets = ["jdk4py~=21.0"]
+pockets = ["jdk4py>=21"]
 # Optional receptor preparation: OpenMM/PDBFixer rebuild missing atoms and
 # minimise, ProDy is the fallback PDBQT path. All imported lazily — without
 # them those preparation options simply report they are unavailable.
