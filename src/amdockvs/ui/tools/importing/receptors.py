@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import multiprocessing
+import time
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QThread, QTimer, Qt, Signal, Slot
@@ -11,7 +14,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
-    QFormLayout,
+    QGridLayout,
     QHeaderView,
     QHBoxLayout,
     QInputDialog,
@@ -25,6 +28,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from PySide6.QtWidgets import QDialog, QDialogButtonBox
+
+from ms_components.tool_panel import PROGRESS_NAME
 
 from amdockvs.core.configuration import app_config
 from amdockvs.io.formats import QT_FILE_FILTER
@@ -66,10 +71,15 @@ class _ReceptorScanWorker(QObject):
 
     @Slot()
     def run(self) -> None:
+        # One spawned process, not this thread: the scan is Python and would hold the GIL the GUI
+        # needs to build rows. ponytail: one process = one core; ms_flow's jobs keep the rest.
         total = len(self._file_paths)
-        for index, path in enumerate(self._file_paths, start=1):
-            self.progress.emit(index, total, path, scan_receptor_structure(path))
-        self.finished.emit()
+        try:
+            with ProcessPoolExecutor(1, mp_context=multiprocessing.get_context("spawn")) as pool:
+                for index, (path, scan) in enumerate(zip(self._file_paths, pool.map(scan_receptor_structure, self._file_paths)), start=1):
+                    self.progress.emit(index, total, path, scan)
+        finally:
+            self.finished.emit()
 
 
 class ReceptorImportPanel(QWidget):
@@ -108,50 +118,60 @@ class ReceptorImportPanel(QWidget):
         self._scan_complete = not self._enable_preview
         self._scan_thread: QThread | None = None
         self._scan_worker: _ReceptorScanWorker | None = None
+        self._pending_scans: list[tuple] = []  # landed scans not yet shown (see _drain_scans)
+        self._scan_finish_pending = False
 
         root = QVBoxLayout(self)
-        options_layout = QHBoxLayout()
-        root.addLayout(options_layout)
-
-        options_form = QFormLayout()
-        options_layout.addLayout(options_form, 2)
+        # One grid: checkboxes in column 0, the Grid Box size beside the option it belongs to,
+        # and the status line on the right.
+        options = QGridLayout()
+        root.addLayout(options)
 
         # Docking mode (docking / redocking / rescoring) is chosen in the Docking Studio, not here.
         # At import, every cocrystal ligand is registered as a reference automatically.
 
         # Assembly choice is per-row now (the "Unit" column), so no global bioassembly toggle.
-        # Single-arg addRow spans both columns so the checkboxes sit flush left (no empty label gap).
         self.remove_non_structural_waters = QCheckBox("Remove non-structural waters", self)
         self.remove_non_structural_waters.setChecked(True)
-        options_form.addRow(self.remove_non_structural_waters)
+        options.addWidget(self.remove_non_structural_waters, 0, 0)
 
-        self.create_binding_sites = QCheckBox("Create binding sites from ligands and coordinated metals", self)
+        self.create_binding_sites = QCheckBox("Grid Box from ligands and coordinated metals", self)
         self.create_binding_sites.setChecked(True)
-        options_form.addRow(self.create_binding_sites)
+        options.addWidget(self.create_binding_sites, 1, 0)
 
-        self.remove_cofactors = QCheckBox("Remove cofactors during preparation", self)
-        options_form.addRow(self.remove_cofactors)
-
-        self.remove_altloc = QCheckBox("Resolve AltLoc to A / highest occupancy", self)
-        self.remove_altloc.setChecked(True)
-        options_form.addRow(self.remove_altloc)
-
+        box_size_label = QLabel("Grid Box (Å)", self)
         self.binding_site_box_size = QDoubleSpinBox(self)
         self.binding_site_box_size.setRange(8.0, 40.0)
         self.binding_site_box_size.setDecimals(1)
         self.binding_site_box_size.setSingleStep(1.0)
         self.binding_site_box_size.setValue(app_config(self._runtime).docking.box_size)
-        options_form.addRow("Binding Site Box (A)", self.binding_site_box_size)
+        options.addWidget(box_size_label, 1, 1)
+        options.addWidget(self.binding_site_box_size, 1, 2)
+        # The size only means something when boxes are created from the cocrystal components.
+        for widget in (box_size_label, self.binding_site_box_size):
+            self.create_binding_sites.toggled.connect(widget.setEnabled)
+
+        self.remove_altloc = QCheckBox("Resolve AltLoc to A / highest occupancy", self)
+        self.remove_altloc.setChecked(True)
+        options.addWidget(self.remove_altloc, 2, 0)
+
+        self.remove_cofactors = QCheckBox("Remove cofactors during preparation", self)
+        options.addWidget(self.remove_cofactors, 3, 0)
 
         self.status_label = QLabel(self)
         self.status_label.setWordWrap(True)
-        options_layout.addWidget(self.status_label, 1)
+        options.addWidget(self.status_label, 0, 3, 4, 1, Qt.AlignRight | Qt.AlignVCenter)
+        options.setColumnStretch(3, 1)
 
         self.progress_bar = QProgressBar(self)
         self.progress_bar.setRange(0, max(1, len(self._file_paths)))
         self.progress_bar.setValue(0)
         self.progress_bar.setVisible(self._enable_preview)
-        root.addWidget(self.progress_bar)
+        # Thin themed line (same as the tool panels' run progress), not a full-height bar.
+        self.progress_bar.setObjectName(PROGRESS_NAME)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setFixedHeight(3)
+        # Not laid out here: the host puts it in its footer, beside the Import/Cancel buttons.
 
         self.table = QTableWidget(0, 10, self)
         self.table.setHorizontalHeaderLabels(
@@ -161,7 +181,7 @@ class ReceptorImportPanel(QWidget):
         # Every column is user-resizable (Interactive) with a sensible default width; Chains needs
         # room for its chips+combo so it isn't clipped.
         header.setStretchLastSection(False)
-        default_column_widths = {0: 90, 1: 90, 2: 245, 3: 295, 4: 90, 5: 60, 6: 80, 7: 160, 8: 120, 9: 80}
+        default_column_widths = {0: 90, 1: 120, 2: 245, 3: 295, 4: 90, 5: 60, 6: 80, 7: 160, 8: 120, 9: 80}
         for column, width in default_column_widths.items():
             if column in [2, 3]:
                 header.setSectionResizeMode(column, QHeaderView.ResizeMode.Stretch)
@@ -178,9 +198,8 @@ class ReceptorImportPanel(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setVisible(self._enable_preview)
 
-        # Same shape as the ligand importer: table + vertical add/remove toolbar, with a drop hint.
+        # Vertical add/remove toolbar on the table's left (where the eye starts), with a drop hint.
         table_row = QHBoxLayout()
-        table_row.addWidget(self.table, 1)
         if self._show_file_controls:
             self._placeholder = TablePlaceholder(self.table, drop_hint("receptor"))
             self._placeholder.clicked.connect(self._on_add_files)
@@ -197,6 +216,7 @@ class ReceptorImportPanel(QWidget):
             toolbar.addWidget(self.remove_files_button)
             toolbar.addStretch(1)
             table_row.addLayout(toolbar)
+        table_row.addWidget(self.table, 1)
         root.addLayout(table_row, 1)
 
         self.info_label = QLabel(self)
@@ -226,6 +246,8 @@ class ReceptorImportPanel(QWidget):
         self._row_state_by_path.clear()
         self._scan_thread = None
         self._scan_worker = None
+        self._pending_scans.clear()
+        self._scan_finish_pending = False
         self._scan_complete = not self._enable_preview
         self.progress_bar.setRange(0, max(1, len(self._file_paths)))
         self.progress_bar.setValue(0)
@@ -526,35 +548,44 @@ class ReceptorImportPanel(QWidget):
         QTimer.singleShot(0, self.table.resizeRowsToContents)
 
     def _prime_table(self) -> None:
+        # Plain items only: the per-row widgets are built when that row's scan lands
+        # (_ensure_row_widgets), so thousands of files don't stall before the first row shows.
         self.table.setRowCount(len(self._file_paths))
         for row_index, path in enumerate(self._file_paths):
             self._set_item(row_index, 0, Path(path).name)
-            for column in (4, 5, 6):  # 1 (Unit), 2 (Chains), 3 (Ligands) are widgets, filled after scan
+            for column in (4, 5, 6):
                 self._set_item(row_index, column, "...")
-            # Unit (col 1): asymmetric unit vs a biological assembly, populated once the scan knows them.
-            unit_combo = WrapCombo(self.table)
-            unit_combo.currentIndexChanged.connect(self.refresh_preview)
-            self.table.setCellWidget(row_index, 1, unit_combo)
-            # Chains (col 2) is a per-row multi-select, populated once the scan knows the chains.
-            chain_button = ChipsSelect(self.table)
-            chain_button.changed.connect(self.refresh_preview)
-            chain_button.heightChanged.connect(self.table.resizeRowsToContents)
-            self.table.setCellWidget(row_index, 2, chain_button)
-            # Ligands (col 3): pick which cocrystal ligands become references (drop artifacts).
-            ligand_chips = ChipsSelect(self.table)
-            ligand_chips.changed.connect(self.refresh_preview)
-            ligand_chips.heightChanged.connect(self.table.resizeRowsToContents)
-            self.table.setCellWidget(row_index, 3, ligand_chips)
-            ligand_combo = QComboBox(self.table)
-            ligand_combo.addItem("None", "")
-            self.table.setCellWidget(row_index, 7, ligand_combo)
-            activity_edit = QLineEdit(self.table)
-            activity_edit.setPlaceholderText("Optional activity")
-            self.table.setCellWidget(row_index, 8, activity_edit)
-            # Dimer case: also import this structure as a general (screening) ligand, not a reference.
-            as_ligand = QCheckBox(self.table)
-            as_ligand.setToolTip("Also import this receptor as a general ligand (e.g. a homodimer).")
-            self.table.setCellWidget(row_index, 9, as_ligand)
+
+    def _ensure_row_widgets(self, row_index: int) -> None:
+        if self.table.cellWidget(row_index, 1) is not None:
+            return
+        # Unit (col 1): asymmetric unit vs a biological assembly.
+        unit_combo = WrapCombo(self.table)
+        unit_combo.currentIndexChanged.connect(self.refresh_preview)
+        self.table.setCellWidget(row_index, 1, unit_combo)
+        # Chains (col 2) is a per-row multi-select; Ligands (col 3) picks which cocrystal
+        # ligands become references (drop artifacts).
+        for column in (2, 3):
+            chips = ChipsSelect(self.table)
+            chips.changed.connect(self.refresh_preview)
+            chips.heightChanged.connect(lambda chips=chips: self._fit_row_of(chips))
+            self.table.setCellWidget(row_index, column, chips)
+        ligand_combo = QComboBox(self.table)
+        ligand_combo.addItem("None", "")
+        self.table.setCellWidget(row_index, 7, ligand_combo)
+        activity_edit = QLineEdit(self.table)
+        activity_edit.setPlaceholderText("Optional activity")
+        self.table.setCellWidget(row_index, 8, activity_edit)
+        # Dimer case: also import this structure as a general (screening) ligand, not a reference.
+        as_ligand = QCheckBox(self.table)
+        as_ligand.setToolTip("Also import this receptor as a general ligand (e.g. a homodimer).")
+        self.table.setCellWidget(row_index, 9, as_ligand)
+
+    def _fit_row_of(self, widget: QWidget) -> None:
+        # Only the row whose chips re-wrapped: a whole-table resize per chip change is O(rows²).
+        row = self.table.indexAt(widget.pos()).row()
+        if row >= 0:
+            self.table.resizeRowToContents(row)
 
     def _apply_mode_visibility(self) -> None:
         mode = "receptor"
@@ -590,6 +621,22 @@ class ReceptorImportPanel(QWidget):
 
     @Slot(int, int, str, dict)
     def _on_scan_progress(self, index: int, total: int, path: str, scan: dict) -> None:
+        # Queue, then drain on a timer: scans from parallel processes land faster than rows
+        # build, and showing them back-to-back would hold off every repaint until the last one.
+        self._pending_scans.append((index, total, path, scan))
+        if len(self._pending_scans) == 1:
+            QTimer.singleShot(0, self._drain_scans)
+
+    def _drain_scans(self) -> None:
+        deadline = time.monotonic() + 0.03  # ~2 frames of work, then let Qt paint
+        while self._pending_scans and time.monotonic() < deadline:
+            self._show_scan(*self._pending_scans.pop(0))
+        if self._pending_scans:
+            QTimer.singleShot(0, self._drain_scans)
+        elif self._scan_finish_pending:
+            self._finish_scan()
+
+    def _show_scan(self, index: int, total: int, path: str, scan: dict) -> None:
         self._scan_cache_by_path[path] = scan
         self.progress_bar.setRange(0, max(1, total))
         self.progress_bar.setValue(index)
@@ -617,6 +664,13 @@ class ReceptorImportPanel(QWidget):
 
     @Slot()
     def _on_scan_finished(self) -> None:
+        if self._pending_scans:
+            self._scan_finish_pending = True  # _drain_scans finishes once the queue is empty
+        else:
+            self._finish_scan()
+
+    def _finish_scan(self) -> None:
+        self._scan_finish_pending = False
         self._scan_complete = True
         self.progress_bar.setVisible(False)
         self._scan_worker = None
@@ -652,6 +706,7 @@ class ReceptorImportPanel(QWidget):
         self._set_item(row_index, 5, str(summary.get("waters") or 0))
         self._set_item(row_index, 6, str(summary.get("status") or "Review"))
         if build_widgets:
+            self._ensure_row_widgets(row_index)
             scan = self._scan_cache_by_path.get(path) or {}
             assemblies = [str(name) for name in list(scan.get("assemblies") or [])]
             assembly_chains = {str(name): [str(label) for label in labels] for name, labels in dict(scan.get("assembly_chains") or {}).items()}
@@ -743,7 +798,11 @@ class ReceptorImportDialog(QDialog):
         buttons.addButton(QDialogButtonBox.Cancel)
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
-        root.addWidget(buttons)
+        footer = QHBoxLayout()
+        footer.setSpacing(24)
+        footer.addWidget(self.panel.progress_bar, 1)
+        footer.addWidget(buttons)
+        root.addLayout(footer)
 
         self.panel.ready_changed.connect(self.import_button.setEnabled)
         self.import_button.setEnabled(self.panel.is_ready())
