@@ -8,6 +8,7 @@ from typing import Any, Callable, Iterable
 from amdockvs.io.payloads import ImportBatchPayload
 from amdockvs.io.receptor_preview import (
     ReceptorImportOptions,
+    build_receptor_import_preview,
     extract_component_to_pdb,
     scan_receptor_structure,
     write_processed_receptor,
@@ -49,7 +50,17 @@ def _materialize_structure_rows(
             current_suffix = suffix
         metadata = dict(batch.extra_data_patch or {})
         scan_payload = dict(metadata.pop("__scan", {}) or {})
-        options = _receptor_import_options_from_patch(metadata) if (batch.primary_role or batch.kind) == "receptor" else None
+        is_receptor = (batch.primary_role or batch.kind) == "receptor"
+        binding_site_specs = list(batch.binding_site_specs or [])
+        if is_receptor and not scan_payload:
+            # A bulk import comes with no preview: derive here what the import dialog would have
+            # (selected waters, reference ligands, binding sites) from the global options.
+            with as_pdb(source_file) as structure_source:
+                scan_payload = scan_receptor_structure(structure_source)
+            preview = build_receptor_import_preview(scan_payload, _receptor_import_options_from_patch(metadata))
+            metadata.update({key: dict(preview.get(key) or {}) for key in ("structure", "precheck", "workflow")})
+            binding_site_specs = list(preview.get("binding_site_specs") or [])
+        options = _receptor_import_options_from_patch(metadata) if is_receptor else None
         paths = managed_paths_for_source(
             storage_root=batch.storage_dir,
             role=batch.primary_role or batch.kind,
@@ -66,9 +77,7 @@ def _materialize_structure_rows(
         ligand_mol = None
         # A PDBQT is an engine artifact, not a structure format: hand the scanners a PDB.
         with as_pdb(source_file) as structure_source:
-            if options is not None and not scan_payload:
-                scan_payload = scan_receptor_structure(structure_source)
-            if options is not None and scan_payload:
+            if options is not None:
                 processing_summary = write_processed_receptor(
                     structure_source,
                     current_path,
@@ -140,7 +149,7 @@ def _materialize_structure_rows(
                 "size": tuple(item.get("size") or (None, None, None)),
                 "extra_data": dict(item.get("extra_data") or {}),
             }
-            for item in list(batch.binding_site_specs or [])
+            for item in binding_site_specs
         ]
         workflow = dict(metadata.get("workflow") or {})
         active_position = _active_binding_site_position(

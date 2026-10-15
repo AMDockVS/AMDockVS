@@ -26,3 +26,38 @@ def test_structural_water_and_coordinated_zinc(tmp_path):
     assert components["HOH:A:101"]["is_structural"] is False
     assert components["ZN:A:200"]["is_coordinated"] is True
 
+
+def test_bulk_import_builds_the_same_binding_sites_as_the_dialog(tmp_path):
+    from dataclasses import replace
+
+    from amdockvs.core.vocab import MoleculeType
+    from amdockvs.io.payloads import ImportBatchPayload
+    from amdockvs.io.receptor_preview import ReceptorImportOptions, build_receptor_import_maps
+    from amdockvs.io.transformers.structures import _materialize_structure_rows
+
+    lines = [
+        _atom(1, "N", "SER", 1, 0.0, 0.0, 0.0, "N", "ATOM"),
+        _atom(2, "CA", "SER", 1, 1.5, 0.0, 0.0, "C", "ATOM"),
+        _atom(3, "OG", "SER", 1, 3.0, 0.0, 0.0, "O", "ATOM"),
+        _atom(4, "O1", "LIG", 10, 9.0, 0.0, 0.0, "O"),
+        _atom(5, "C1", "LIG", 10, 10.0, 0.0, 0.0, "C"),
+        _atom(6, "C2", "LIG", 10, 11.0, 1.0, 0.0, "C"),
+    ]
+    source = tmp_path / "rec.pdb"
+    source.write_text("\n".join(lines) + "\nEND\n")
+    options = replace(ReceptorImportOptions(), create_binding_sites_from_components=True)
+
+    def first_row(build_specs: bool) -> dict:
+        storage = tmp_path / f"molecules_{build_specs}"
+        storage.mkdir()
+        patches, specs = build_receptor_import_maps([source], base_options=options, build_specs=build_specs)
+        key = str(source.resolve())
+        batch = ImportBatchPayload(
+            kind="receptor", file_path=source, storage_dir=storage, input_format="pdb", primary_role="receptor",
+            molecule_kind=MoleculeType.PROTEIN, extra_data_patch=patches[key], binding_site_specs=specs.get(key, []),
+        )
+        return list(_materialize_structure_rows(batch=batch, entries=[]))[0]
+
+    dialog, bulk = first_row(True), first_row(False)
+    assert dialog["binding_site_specs"]
+    assert bulk["binding_site_specs"] == dialog["binding_site_specs"]
