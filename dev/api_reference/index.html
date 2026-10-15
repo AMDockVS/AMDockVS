@@ -9273,16 +9273,16 @@ derived from the ligand's radius of gyration. Returns {center, size, rg}.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/docking/api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">118</span>
-<span class="normal">119</span>
-<span class="normal">120</span>
-<span class="normal">121</span>
-<span class="normal">122</span>
-<span class="normal">123</span>
-<span class="normal">124</span>
-<span class="normal">125</span>
-<span class="normal">126</span>
-<span class="normal">127</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">live_campaign_progress</span><span class="p">(</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">139</span>
+<span class="normal">140</span>
+<span class="normal">141</span>
+<span class="normal">142</span>
+<span class="normal">143</span>
+<span class="normal">144</span>
+<span class="normal">145</span>
+<span class="normal">146</span>
+<span class="normal">147</span>
+<span class="normal">148</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">live_campaign_progress</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">job_ids</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(),</span>
@@ -9316,13 +9316,13 @@ derived from the ligand's radius of gyration. Returns {center, size, rg}.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/docking/api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">129</span>
-<span class="normal">130</span>
-<span class="normal">131</span>
-<span class="normal">132</span>
-<span class="normal">133</span>
-<span class="normal">134</span>
-<span class="normal">135</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">recoverable_ranked_runs</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">150</span>
+<span class="normal">151</span>
+<span class="normal">152</span>
+<span class="normal">153</span>
+<span class="normal">154</span>
+<span class="normal">155</span>
+<span class="normal">156</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">recoverable_ranked_runs</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">"""Interrupted top-N campaigns recoverable from completed result shards."""</span>
     <span class="n">context</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="o">.</span><span class="n">_require_active_project</span><span class="p">()</span>
     <span class="k">return</span> <span class="n">recoverable_ranked_runs</span><span class="p">(</span>
@@ -9353,24 +9353,24 @@ derived from the ligand's radius of gyration. Returns {center, size, rg}.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/docking/api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">137</span>
-<span class="normal">138</span>
-<span class="normal">139</span>
-<span class="normal">140</span>
-<span class="normal">141</span>
-<span class="normal">142</span>
-<span class="normal">143</span>
-<span class="normal">144</span>
-<span class="normal">145</span>
-<span class="normal">146</span>
-<span class="normal">147</span>
-<span class="normal">148</span>
-<span class="normal">149</span>
-<span class="normal">150</span>
-<span class="normal">151</span>
-<span class="normal">152</span>
-<span class="normal">153</span>
-<span class="normal">154</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">select_hits</span><span class="p">(</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">158</span>
+<span class="normal">159</span>
+<span class="normal">160</span>
+<span class="normal">161</span>
+<span class="normal">162</span>
+<span class="normal">163</span>
+<span class="normal">164</span>
+<span class="normal">165</span>
+<span class="normal">166</span>
+<span class="normal">167</span>
+<span class="normal">168</span>
+<span class="normal">169</span>
+<span class="normal">170</span>
+<span class="normal">171</span>
+<span class="normal">172</span>
+<span class="normal">173</span>
+<span class="normal">174</span>
+<span class="normal">175</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">select_hits</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">run_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
@@ -9412,24 +9412,24 @@ derived from the ligand's radius of gyration. Returns {center, size, rg}.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/docking/api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">156</span>
-<span class="normal">157</span>
-<span class="normal">158</span>
-<span class="normal">159</span>
-<span class="normal">160</span>
-<span class="normal">161</span>
-<span class="normal">162</span>
-<span class="normal">163</span>
-<span class="normal">164</span>
-<span class="normal">165</span>
-<span class="normal">166</span>
-<span class="normal">167</span>
-<span class="normal">168</span>
-<span class="normal">169</span>
-<span class="normal">170</span>
-<span class="normal">171</span>
-<span class="normal">172</span>
-<span class="normal">173</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">recover_ranked_hits</span><span class="p">(</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">177</span>
+<span class="normal">178</span>
+<span class="normal">179</span>
+<span class="normal">180</span>
+<span class="normal">181</span>
+<span class="normal">182</span>
+<span class="normal">183</span>
+<span class="normal">184</span>
+<span class="normal">185</span>
+<span class="normal">186</span>
+<span class="normal">187</span>
+<span class="normal">188</span>
+<span class="normal">189</span>
+<span class="normal">190</span>
+<span class="normal">191</span>
+<span class="normal">192</span>
+<span class="normal">193</span>
+<span class="normal">194</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">recover_ranked_hits</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">run_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
@@ -9471,35 +9471,35 @@ derived from the ligand's radius of gyration. Returns {center, size, rg}.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/docking/api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">175</span>
-<span class="normal">176</span>
-<span class="normal">177</span>
-<span class="normal">178</span>
-<span class="normal">179</span>
-<span class="normal">180</span>
-<span class="normal">181</span>
-<span class="normal">182</span>
-<span class="normal">183</span>
-<span class="normal">184</span>
-<span class="normal">185</span>
-<span class="normal">186</span>
-<span class="normal">187</span>
-<span class="normal">188</span>
-<span class="normal">189</span>
-<span class="normal">190</span>
-<span class="normal">191</span>
-<span class="normal">192</span>
-<span class="normal">193</span>
-<span class="normal">194</span>
-<span class="normal">195</span>
-<span class="normal">196</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">196</span>
 <span class="normal">197</span>
 <span class="normal">198</span>
 <span class="normal">199</span>
 <span class="normal">200</span>
 <span class="normal">201</span>
 <span class="normal">202</span>
-<span class="normal">203</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">preparation_summary</span><span class="p">(</span>
+<span class="normal">203</span>
+<span class="normal">204</span>
+<span class="normal">205</span>
+<span class="normal">206</span>
+<span class="normal">207</span>
+<span class="normal">208</span>
+<span class="normal">209</span>
+<span class="normal">210</span>
+<span class="normal">211</span>
+<span class="normal">212</span>
+<span class="normal">213</span>
+<span class="normal">214</span>
+<span class="normal">215</span>
+<span class="normal">216</span>
+<span class="normal">217</span>
+<span class="normal">218</span>
+<span class="normal">219</span>
+<span class="normal">220</span>
+<span class="normal">221</span>
+<span class="normal">222</span>
+<span class="normal">223</span>
+<span class="normal">224</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">preparation_summary</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="n">scope</span><span class="p">:</span> <span class="n">MoleculeScope</span><span class="p">,</span>
         <span class="o">*</span><span class="p">,</span>
@@ -9552,28 +9552,28 @@ derived from the ligand's radius of gyration. Returns {center, size, rg}.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/docking/api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">205</span>
-<span class="normal">206</span>
-<span class="normal">207</span>
-<span class="normal">208</span>
-<span class="normal">209</span>
-<span class="normal">210</span>
-<span class="normal">211</span>
-<span class="normal">212</span>
-<span class="normal">213</span>
-<span class="normal">214</span>
-<span class="normal">215</span>
-<span class="normal">216</span>
-<span class="normal">217</span>
-<span class="normal">218</span>
-<span class="normal">219</span>
-<span class="normal">220</span>
-<span class="normal">221</span>
-<span class="normal">222</span>
-<span class="normal">223</span>
-<span class="normal">224</span>
-<span class="normal">225</span>
-<span class="normal">226</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">unprepared_molecules_clause</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">role_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">engines</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]):</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">226</span>
+<span class="normal">227</span>
+<span class="normal">228</span>
+<span class="normal">229</span>
+<span class="normal">230</span>
+<span class="normal">231</span>
+<span class="normal">232</span>
+<span class="normal">233</span>
+<span class="normal">234</span>
+<span class="normal">235</span>
+<span class="normal">236</span>
+<span class="normal">237</span>
+<span class="normal">238</span>
+<span class="normal">239</span>
+<span class="normal">240</span>
+<span class="normal">241</span>
+<span class="normal">242</span>
+<span class="normal">243</span>
+<span class="normal">244</span>
+<span class="normal">245</span>
+<span class="normal">246</span>
+<span class="normal">247</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">unprepared_molecules_clause</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">role_type</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">engines</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]):</span>
 <span class="w">    </span><span class="sd">"""Opaque SmartTable clause selecting molecules not ready for every engine family."""</span>
     <span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="o">.</span><span class="n">_require_active_project</span><span class="p">()</span>
     <span class="n">role</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">role_type</span> <span class="ow">or</span> <span class="s2">""</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
@@ -9621,29 +9621,29 @@ receptor, ligand, protocol and run as each id goes too — what a Results ligand
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/docking/api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">228</span>
-<span class="normal">229</span>
-<span class="normal">230</span>
-<span class="normal">231</span>
-<span class="normal">232</span>
-<span class="normal">233</span>
-<span class="normal">234</span>
-<span class="normal">235</span>
-<span class="normal">236</span>
-<span class="normal">237</span>
-<span class="normal">238</span>
-<span class="normal">239</span>
-<span class="normal">240</span>
-<span class="normal">241</span>
-<span class="normal">242</span>
-<span class="normal">243</span>
-<span class="normal">244</span>
-<span class="normal">245</span>
-<span class="normal">246</span>
-<span class="normal">247</span>
-<span class="normal">248</span>
-<span class="normal">249</span>
-<span class="normal">250</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">delete_results</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">result_ids</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span> <span class="o">*</span><span class="p">,</span> <span class="n">with_siblings</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">249</span>
+<span class="normal">250</span>
+<span class="normal">251</span>
+<span class="normal">252</span>
+<span class="normal">253</span>
+<span class="normal">254</span>
+<span class="normal">255</span>
+<span class="normal">256</span>
+<span class="normal">257</span>
+<span class="normal">258</span>
+<span class="normal">259</span>
+<span class="normal">260</span>
+<span class="normal">261</span>
+<span class="normal">262</span>
+<span class="normal">263</span>
+<span class="normal">264</span>
+<span class="normal">265</span>
+<span class="normal">266</span>
+<span class="normal">267</span>
+<span class="normal">268</span>
+<span class="normal">269</span>
+<span class="normal">270</span>
+<span class="normal">271</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">delete_results</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">result_ids</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span> <span class="o">*</span><span class="p">,</span> <span class="n">with_siblings</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""Delete results, their interactions and files. `with_siblings`: every pose of the same</span>
 <span class="sd">    receptor, ligand, protocol and run as each id goes too — what a Results ligand row</span>
 <span class="sd">    (its best pose) stands for."""</span>
@@ -9692,35 +9692,35 @@ whole inventory is the scope and narrowing it happened at import. One shard is o
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/docking/api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">425</span>
-<span class="normal">426</span>
-<span class="normal">427</span>
-<span class="normal">428</span>
-<span class="normal">429</span>
-<span class="normal">430</span>
-<span class="normal">431</span>
-<span class="normal">432</span>
-<span class="normal">433</span>
-<span class="normal">434</span>
-<span class="normal">435</span>
-<span class="normal">436</span>
-<span class="normal">437</span>
-<span class="normal">438</span>
-<span class="normal">439</span>
-<span class="normal">440</span>
-<span class="normal">441</span>
-<span class="normal">442</span>
-<span class="normal">443</span>
-<span class="normal">444</span>
-<span class="normal">445</span>
-<span class="normal">446</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">446</span>
 <span class="normal">447</span>
 <span class="normal">448</span>
 <span class="normal">449</span>
 <span class="normal">450</span>
 <span class="normal">451</span>
 <span class="normal">452</span>
-<span class="normal">453</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">prepare_ligand_shards</span><span class="p">(</span>
+<span class="normal">453</span>
+<span class="normal">454</span>
+<span class="normal">455</span>
+<span class="normal">456</span>
+<span class="normal">457</span>
+<span class="normal">458</span>
+<span class="normal">459</span>
+<span class="normal">460</span>
+<span class="normal">461</span>
+<span class="normal">462</span>
+<span class="normal">463</span>
+<span class="normal">464</span>
+<span class="normal">465</span>
+<span class="normal">466</span>
+<span class="normal">467</span>
+<span class="normal">468</span>
+<span class="normal">469</span>
+<span class="normal">470</span>
+<span class="normal">471</span>
+<span class="normal">472</span>
+<span class="normal">473</span>
+<span class="normal">474</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">prepare_ligand_shards</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="o">*</span><span class="p">,</span>
         <span class="n">program</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">VINA_PROGRAM</span><span class="o">.</span><span class="n">key</span><span class="p">,</span>
@@ -9778,28 +9778,7 @@ durable Top-N and extracts only those records from the source shards.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/docking/api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">455</span>
-<span class="normal">456</span>
-<span class="normal">457</span>
-<span class="normal">458</span>
-<span class="normal">459</span>
-<span class="normal">460</span>
-<span class="normal">461</span>
-<span class="normal">462</span>
-<span class="normal">463</span>
-<span class="normal">464</span>
-<span class="normal">465</span>
-<span class="normal">466</span>
-<span class="normal">467</span>
-<span class="normal">468</span>
-<span class="normal">469</span>
-<span class="normal">470</span>
-<span class="normal">471</span>
-<span class="normal">472</span>
-<span class="normal">473</span>
-<span class="normal">474</span>
-<span class="normal">475</span>
-<span class="normal">476</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">476</span>
 <span class="normal">477</span>
 <span class="normal">478</span>
 <span class="normal">479</span>
@@ -9902,7 +9881,12 @@ durable Top-N and extracts only those records from the source shards.</p>
 <span class="normal">576</span>
 <span class="normal">577</span>
 <span class="normal">578</span>
-<span class="normal">579</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">run_shards</span><span class="p">(</span>
+<span class="normal">579</span>
+<span class="normal">580</span>
+<span class="normal">581</span>
+<span class="normal">582</span>
+<span class="normal">583</span>
+<span class="normal">584</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">run_shards</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="o">*</span><span class="p">,</span>
         <span class="n">program</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">VINA_PROGRAM</span><span class="o">.</span><span class="n">key</span><span class="p">,</span>
@@ -9955,9 +9939,7 @@ durable Top-N and extracts only those records from the source shards.</p>
     <span class="n">program_spec</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_program_spec</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
     <span class="k">if</span> <span class="ow">not</span> <span class="n">program_spec</span><span class="o">.</span><span class="n">supports_shards</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Docking program '</span><span class="si">{</span><span class="n">program_spec</span><span class="o">.</span><span class="n">key</span><span class="si">}</span><span class="s2">' does not support sharded libraries."</span><span class="p">)</span>
-    <span class="n">resolved_engine_config</span> <span class="o">=</span> <span class="n">_validated_engine_config</span><span class="p">(</span>
-        <span class="n">program_spec</span><span class="p">,</span>
-        <span class="n">engine_config</span><span class="p">,</span>
+    <span class="n">knobs</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
         <span class="n">exhaustiveness</span><span class="o">=</span><span class="n">exhaustiveness</span><span class="p">,</span>
         <span class="n">num_modes</span><span class="o">=</span><span class="n">num_modes</span><span class="p">,</span>
         <span class="n">scoring_function</span><span class="o">=</span><span class="n">scoring_function</span><span class="p">,</span>
@@ -9969,33 +9951,19 @@ durable Top-N and extracts only those records from the source shards.</p>
         <span class="n">energy_range</span><span class="o">=</span><span class="n">energy_range</span><span class="p">,</span>
         <span class="n">min_rmsd</span><span class="o">=</span><span class="n">min_rmsd</span><span class="p">,</span>
     <span class="p">)</span>
-    <span class="n">receptor_set_ref</span> <span class="o">=</span> <span class="p">(</span>
-        <span class="kc">None</span> <span class="k">if</span> <span class="n">receptor_set</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">is_molecule_scope</span><span class="p">(</span><span class="n">receptor_set</span><span class="p">)</span>
-        <span class="k">else</span> <span class="n">ensure_molecule_set_ref</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="p">,</span> <span class="n">receptor_set</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">"docking_receptor_input"</span><span class="p">)</span>
-    <span class="p">)</span>
+    <span class="n">resolved_engine_config</span> <span class="o">=</span> <span class="n">_validated_engine_config</span><span class="p">(</span><span class="n">program_spec</span><span class="p">,</span> <span class="n">engine_config</span><span class="p">,</span> <span class="o">**</span><span class="n">knobs</span><span class="p">)</span>
+    <span class="n">receptor_set_ref</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_set_ref</span><span class="p">(</span><span class="n">receptor_set</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">"docking_receptor_input"</span><span class="p">)</span>
     <span class="n">receptor_scope</span> <span class="o">=</span> <span class="n">scope_payload</span><span class="p">(</span><span class="n">receptor_set</span><span class="p">)</span> <span class="k">if</span> <span class="n">is_molecule_scope</span><span class="p">(</span><span class="n">receptor_set</span><span class="p">)</span> <span class="k">else</span> <span class="p">{}</span>
     <span class="n">receptor_filters</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_program_scope_filters</span><span class="p">(</span><span class="n">receptor_scope</span><span class="p">,</span> <span class="n">role</span><span class="o">=</span><span class="s2">"receptor"</span><span class="p">,</span> <span class="n">program</span><span class="o">=</span><span class="n">program_spec</span><span class="p">)</span>
     <span class="n">params</span> <span class="o">=</span> <span class="n">DockShardsJobParams</span><span class="p">(</span>
-        <span class="n">output_dir</span><span class="o">=</span><span class="p">(</span>
-            <span class="nb">str</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">output_dir</span><span class="p">)</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span><span class="o">.</span><span class="n">resolve</span><span class="p">())</span> <span class="k">if</span> <span class="n">output_dir</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
-            <span class="k">else</span> <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="o">.</span><span class="n">get_project_resource_path</span><span class="p">(</span><span class="s2">"docking_results"</span><span class="p">))</span>
-        <span class="p">),</span>
+        <span class="n">output_dir</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_output_dir</span><span class="p">(</span><span class="n">output_dir</span><span class="p">),</span>
         <span class="n">engine</span><span class="o">=</span><span class="n">program_spec</span><span class="o">.</span><span class="n">docking_engine</span><span class="p">,</span>
         <span class="n">preparation_engine</span><span class="o">=</span><span class="n">program_spec</span><span class="o">.</span><span class="n">preparation_engine</span><span class="p">,</span>
         <span class="n">receptor_set_id</span><span class="o">=</span><span class="kc">None</span> <span class="k">if</span> <span class="n">receptor_set_ref</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="nb">int</span><span class="p">(</span><span class="n">receptor_set_ref</span><span class="o">.</span><span class="n">id</span><span class="p">),</span>
         <span class="n">receptor_filters</span><span class="o">=</span><span class="n">receptor_filters</span><span class="p">,</span>
-        <span class="n">exhaustiveness</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">resolved_engine_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"exhaustiveness"</span><span class="p">,</span> <span class="n">exhaustiveness</span><span class="p">)),</span>
-        <span class="n">num_modes</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">resolved_engine_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"num_modes"</span><span class="p">,</span> <span class="n">num_modes</span><span class="p">)),</span>
         <span class="n">box_center</span><span class="o">=</span><span class="n">box_center</span><span class="p">,</span>
         <span class="n">box_size</span><span class="o">=</span><span class="n">box_size</span><span class="p">,</span>
-        <span class="n">scoring_function</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">resolved_engine_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"scoring_function"</span><span class="p">,</span> <span class="n">scoring_function</span><span class="p">)),</span>
-        <span class="n">vina_backend</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">resolved_engine_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"vina_backend"</span><span class="p">,</span> <span class="n">vina_backend</span><span class="p">)),</span>
-        <span class="n">vina_command</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">resolved_engine_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"vina_command"</span><span class="p">,</span> <span class="n">vina_command</span><span class="p">)),</span>
-        <span class="n">vina_cpu</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">resolved_engine_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"vina_cpu"</span><span class="p">,</span> <span class="n">vina_cpu</span><span class="p">)),</span>
-        <span class="n">seed</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">resolved_engine_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"seed"</span><span class="p">,</span> <span class="n">seed</span><span class="p">)),</span>
-        <span class="n">spacing</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">resolved_engine_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"spacing"</span><span class="p">,</span> <span class="n">spacing</span><span class="p">)),</span>
-        <span class="n">energy_range</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">resolved_engine_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"energy_range"</span><span class="p">,</span> <span class="n">energy_range</span><span class="p">)),</span>
-        <span class="n">min_rmsd</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">resolved_engine_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"min_rmsd"</span><span class="p">,</span> <span class="n">min_rmsd</span><span class="p">)),</span>
+        <span class="o">**</span><span class="n">_engine_fields</span><span class="p">(</span><span class="n">resolved_engine_config</span><span class="p">,</span> <span class="n">knobs</span><span class="p">),</span>
         <span class="n">run_id</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">run_id</span> <span class="ow">or</span> <span class="n">uuid4</span><span class="p">()</span><span class="o">.</span><span class="n">hex</span><span class="p">),</span>
         <span class="n">protocol_metadata</span><span class="o">=</span><span class="n">DockingProtocolMetadata</span><span class="o">.</span><span class="n">from_mapping</span><span class="p">(</span><span class="n">protocol_metadata</span> <span class="ow">or</span> <span class="p">{}),</span>
         <span class="n">engine_config</span><span class="o">=</span><span class="n">resolved_engine_config</span><span class="p">,</span>
@@ -10053,12 +10021,7 @@ Returns [] when there's no active grid or the structure file is unavailable.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/docking/api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">766</span>
-<span class="normal">767</span>
-<span class="normal">768</span>
-<span class="normal">769</span>
-<span class="normal">770</span>
-<span class="normal">771</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">771</span>
 <span class="normal">772</span>
 <span class="normal">773</span>
 <span class="normal">774</span>
@@ -10083,7 +10046,12 @@ Returns [] when there's no active grid or the structure file is unavailable.</p>
 <span class="normal">793</span>
 <span class="normal">794</span>
 <span class="normal">795</span>
-<span class="normal">796</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">list_box_residues</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">receptor_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">engine</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"vina"</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="normal">796</span>
+<span class="normal">797</span>
+<span class="normal">798</span>
+<span class="normal">799</span>
+<span class="normal">800</span>
+<span class="normal">801</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">list_box_residues</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">receptor_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">engine</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"vina"</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">"""Residues with at least one atom inside the receptor's active binding-site box.</span>
 
 <span class="sd">    Candidate set for flexible-residue selection — short because the box filters it.</span>
@@ -10141,12 +10109,7 @@ skips ligands entirely (receptor sets are small).</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/docking/api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">820</span>
-<span class="normal">821</span>
-<span class="normal">822</span>
-<span class="normal">823</span>
-<span class="normal">824</span>
-<span class="normal">825</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">825</span>
 <span class="normal">826</span>
 <span class="normal">827</span>
 <span class="normal">828</span>
@@ -10193,7 +10156,12 @@ skips ligands entirely (receptor sets are small).</p>
 <span class="normal">869</span>
 <span class="normal">870</span>
 <span class="normal">871</span>
-<span class="normal">872</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">check_receptors</span><span class="p">(</span>
+<span class="normal">872</span>
+<span class="normal">873</span>
+<span class="normal">874</span>
+<span class="normal">875</span>
+<span class="normal">876</span>
+<span class="normal">877</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">check_receptors</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="o">*</span><span class="p">,</span>
         <span class="n">program</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">VINA_PROGRAM</span><span class="o">.</span><span class="n">key</span><span class="p">,</span>
@@ -10272,23 +10240,7 @@ sharded library, where returning every scored molecule would defeat the storage 
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/docking/api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 900</span>
-<span class="normal"> 901</span>
-<span class="normal"> 902</span>
-<span class="normal"> 903</span>
-<span class="normal"> 904</span>
-<span class="normal"> 905</span>
-<span class="normal"> 906</span>
-<span class="normal"> 907</span>
-<span class="normal"> 908</span>
-<span class="normal"> 909</span>
-<span class="normal"> 910</span>
-<span class="normal"> 911</span>
-<span class="normal"> 912</span>
-<span class="normal"> 913</span>
-<span class="normal"> 914</span>
-<span class="normal"> 915</span>
-<span class="normal"> 916</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"> 916</span>
 <span class="normal"> 917</span>
 <span class="normal"> 918</span>
 <span class="normal"> 919</span>
@@ -10486,18 +10438,7 @@ sharded library, where returning every scored molecule would defeat the storage 
 <span class="normal">1111</span>
 <span class="normal">1112</span>
 <span class="normal">1113</span>
-<span class="normal">1114</span>
-<span class="normal">1115</span>
-<span class="normal">1116</span>
-<span class="normal">1117</span>
-<span class="normal">1118</span>
-<span class="normal">1119</span>
-<span class="normal">1120</span>
-<span class="normal">1121</span>
-<span class="normal">1122</span>
-<span class="normal">1123</span>
-<span class="normal">1124</span>
-<span class="normal">1125</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span>
+<span class="normal">1114</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="o">*</span><span class="p">,</span>
         <span class="n">program</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">VINA_PROGRAM</span><span class="o">.</span><span class="n">key</span><span class="p">,</span>
@@ -10547,6 +10488,18 @@ sharded library, where returning every scored molecule would defeat the storage 
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"Pass either receptors or receptor_set, not both."</span><span class="p">)</span>
         <span class="n">receptor_set</span> <span class="o">=</span> <span class="n">receptors</span>
     <span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="o">.</span><span class="n">_require_active_project</span><span class="p">()</span>
+    <span class="n">knobs</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
+        <span class="n">exhaustiveness</span><span class="o">=</span><span class="n">exhaustiveness</span><span class="p">,</span>
+        <span class="n">num_modes</span><span class="o">=</span><span class="n">num_modes</span><span class="p">,</span>
+        <span class="n">scoring_function</span><span class="o">=</span><span class="n">scoring_function</span><span class="p">,</span>
+        <span class="n">vina_backend</span><span class="o">=</span><span class="n">vina_backend</span><span class="p">,</span>
+        <span class="n">vina_command</span><span class="o">=</span><span class="n">vina_command</span><span class="p">,</span>
+        <span class="n">vina_cpu</span><span class="o">=</span><span class="n">vina_cpu</span><span class="p">,</span>
+        <span class="n">seed</span><span class="o">=</span><span class="n">seed</span><span class="p">,</span>
+        <span class="n">spacing</span><span class="o">=</span><span class="n">spacing</span><span class="p">,</span>
+        <span class="n">energy_range</span><span class="o">=</span><span class="n">energy_range</span><span class="p">,</span>
+        <span class="n">min_rmsd</span><span class="o">=</span><span class="n">min_rmsd</span><span class="p">,</span>
+    <span class="p">)</span>
     <span class="k">if</span> <span class="n">ligand_set</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">has_shards</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="o">.</span><span class="n">workspace</span><span class="o">.</span><span class="n">project_db</span><span class="p">):</span>
         <span class="k">if</span> <span class="n">hit_threshold</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="nb">int</span><span class="p">(</span><span class="n">hit_cap</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
             <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
@@ -10564,18 +10517,9 @@ sharded library, where returning every scored molecule would defeat the storage 
             <span class="n">hit_cap</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">hit_cap</span><span class="p">),</span>
             <span class="n">hit_mode</span><span class="o">=</span><span class="n">hit_mode</span><span class="p">,</span>
             <span class="n">output_dir</span><span class="o">=</span><span class="n">output_dir</span><span class="p">,</span>
-            <span class="n">exhaustiveness</span><span class="o">=</span><span class="n">exhaustiveness</span><span class="p">,</span>
-            <span class="n">num_modes</span><span class="o">=</span><span class="n">num_modes</span><span class="p">,</span>
             <span class="n">box_center</span><span class="o">=</span><span class="n">box_center</span><span class="p">,</span>
             <span class="n">box_size</span><span class="o">=</span><span class="n">box_size</span><span class="p">,</span>
-            <span class="n">scoring_function</span><span class="o">=</span><span class="n">scoring_function</span><span class="p">,</span>
-            <span class="n">vina_backend</span><span class="o">=</span><span class="n">vina_backend</span><span class="p">,</span>
-            <span class="n">vina_command</span><span class="o">=</span><span class="n">vina_command</span><span class="p">,</span>
-            <span class="n">vina_cpu</span><span class="o">=</span><span class="n">vina_cpu</span><span class="p">,</span>
-            <span class="n">seed</span><span class="o">=</span><span class="n">seed</span><span class="p">,</span>
-            <span class="n">spacing</span><span class="o">=</span><span class="n">spacing</span><span class="p">,</span>
-            <span class="n">energy_range</span><span class="o">=</span><span class="n">energy_range</span><span class="p">,</span>
-            <span class="n">min_rmsd</span><span class="o">=</span><span class="n">min_rmsd</span><span class="p">,</span>
+            <span class="o">**</span><span class="n">knobs</span><span class="p">,</span>
             <span class="n">run_id</span><span class="o">=</span><span class="n">run_id</span><span class="p">,</span>
             <span class="n">protocol_metadata</span><span class="o">=</span><span class="n">protocol_metadata</span><span class="p">,</span>
             <span class="n">engine_config</span><span class="o">=</span><span class="n">engine_config</span><span class="p">,</span>
@@ -10591,25 +10535,10 @@ sharded library, where returning every scored molecule would defeat the storage 
             <span class="s2">"scientific criterion, the cap is only what makes the run end."</span>
         <span class="p">)</span>
     <span class="n">program_spec</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_program_spec</span><span class="p">(</span><span class="n">program</span><span class="p">)</span>
-    <span class="n">resolved_engine_config</span> <span class="o">=</span> <span class="n">_validated_engine_config</span><span class="p">(</span>
-        <span class="n">program_spec</span><span class="p">,</span>
-        <span class="n">engine_config</span><span class="p">,</span>
-        <span class="n">exhaustiveness</span><span class="o">=</span><span class="n">exhaustiveness</span><span class="p">,</span>
-        <span class="n">num_modes</span><span class="o">=</span><span class="n">num_modes</span><span class="p">,</span>
-        <span class="n">scoring_function</span><span class="o">=</span><span class="n">scoring_function</span><span class="p">,</span>
-        <span class="n">vina_backend</span><span class="o">=</span><span class="n">vina_backend</span><span class="p">,</span>
-        <span class="n">vina_command</span><span class="o">=</span><span class="n">vina_command</span><span class="p">,</span>
-        <span class="n">vina_cpu</span><span class="o">=</span><span class="n">vina_cpu</span><span class="p">,</span>
-        <span class="n">seed</span><span class="o">=</span><span class="n">seed</span><span class="p">,</span>
-        <span class="n">spacing</span><span class="o">=</span><span class="n">spacing</span><span class="p">,</span>
-        <span class="n">energy_range</span><span class="o">=</span><span class="n">energy_range</span><span class="p">,</span>
-        <span class="n">min_rmsd</span><span class="o">=</span><span class="n">min_rmsd</span><span class="p">,</span>
-    <span class="p">)</span>
+    <span class="n">resolved_engine_config</span> <span class="o">=</span> <span class="n">_validated_engine_config</span><span class="p">(</span><span class="n">program_spec</span><span class="p">,</span> <span class="n">engine_config</span><span class="p">,</span> <span class="o">**</span><span class="n">knobs</span><span class="p">)</span>
     <span class="n">resolved_batch_size</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">batch_size</span> <span class="ow">or</span> <span class="n">app_config</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="p">)</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">batch_size</span><span class="p">))</span>
-    <span class="n">ligand_set_ref</span> <span class="o">=</span> <span class="kc">None</span> <span class="k">if</span> <span class="n">ligand_set</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">is_molecule_scope</span><span class="p">(</span><span class="n">ligand_set</span><span class="p">)</span> <span class="k">else</span> <span class="n">ensure_molecule_set_ref</span><span class="p">(</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="p">,</span> <span class="n">ligand_set</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">"docking_ligand_input"</span><span class="p">)</span>
-    <span class="n">receptor_set_ref</span> <span class="o">=</span> <span class="kc">None</span> <span class="k">if</span> <span class="n">receptor_set</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">is_molecule_scope</span><span class="p">(</span><span class="n">receptor_set</span><span class="p">)</span> <span class="k">else</span> <span class="n">ensure_molecule_set_ref</span><span class="p">(</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="p">,</span> <span class="n">receptor_set</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">"docking_receptor_input"</span><span class="p">)</span>
+    <span class="n">ligand_set_ref</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_set_ref</span><span class="p">(</span><span class="n">ligand_set</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">"docking_ligand_input"</span><span class="p">)</span>
+    <span class="n">receptor_set_ref</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_set_ref</span><span class="p">(</span><span class="n">receptor_set</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">"docking_receptor_input"</span><span class="p">)</span>
     <span class="n">ligand_scope</span> <span class="o">=</span> <span class="n">scope_payload</span><span class="p">(</span><span class="n">ligand_set</span><span class="p">)</span> <span class="k">if</span> <span class="n">is_molecule_scope</span><span class="p">(</span><span class="n">ligand_set</span><span class="p">)</span> <span class="k">else</span> <span class="p">{}</span>
     <span class="n">receptor_scope</span> <span class="o">=</span> <span class="n">scope_payload</span><span class="p">(</span><span class="n">receptor_set</span><span class="p">)</span> <span class="k">if</span> <span class="n">is_molecule_scope</span><span class="p">(</span><span class="n">receptor_set</span><span class="p">)</span> <span class="k">else</span> <span class="p">{}</span>
     <span class="n">ligand_filters</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_program_scope_filters</span><span class="p">(</span><span class="n">ligand_scope</span><span class="p">,</span> <span class="n">role</span><span class="o">=</span><span class="s2">"ligand"</span><span class="p">,</span> <span class="n">program</span><span class="o">=</span><span class="n">program_spec</span><span class="p">)</span>
@@ -10620,7 +10549,7 @@ sharded library, where returning every scored molecule would defeat the storage 
             <span class="n">engine</span><span class="o">=</span><span class="n">program_spec</span><span class="o">.</span><span class="n">preparation_engine</span><span class="p">,</span>
         <span class="p">)</span>
         <span class="k">if</span> <span class="n">resolved_grid</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-            <span class="n">box_center</span><span class="p">,</span> <span class="n">box_size</span><span class="p">,</span> <span class="n">spacing</span> <span class="o">=</span> <span class="n">resolved_grid</span>
+            <span class="n">box_center</span><span class="p">,</span> <span class="n">box_size</span><span class="p">,</span> <span class="n">knobs</span><span class="p">[</span><span class="s2">"spacing"</span><span class="p">]</span> <span class="o">=</span> <span class="n">resolved_grid</span>
     <span class="k">if</span> <span class="p">(</span><span class="n">box_center</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">)</span> <span class="o">^</span> <span class="p">(</span><span class="n">box_size</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">):</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"docking.run requires both box_center and box_size when either one is provided."</span><span class="p">)</span>
     <span class="c1"># Always resolve counts: they gate readiness (when requested) AND give the true</span>
@@ -10671,14 +10600,8 @@ sharded library, where returning every scored molecule would defeat the storage 
     <span class="n">total_chunks</span> <span class="o">=</span> <span class="p">(</span>
         <span class="o">-</span><span class="p">(</span><span class="o">-</span><span class="n">pending_pairs</span> <span class="o">//</span> <span class="n">resolved_batch_size</span><span class="p">)</span> <span class="k">if</span> <span class="n">pending_pairs</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mi">0</span>
     <span class="p">)</span>
-    <span class="n">resolved_output</span> <span class="o">=</span> <span class="p">(</span>
-        <span class="nb">str</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">output_dir</span><span class="p">)</span><span class="o">.</span><span class="n">expanduser</span><span class="p">()</span><span class="o">.</span><span class="n">resolve</span><span class="p">())</span>
-        <span class="k">if</span> <span class="n">output_dir</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
-        <span class="k">else</span> <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="o">.</span><span class="n">get_project_resource_path</span><span class="p">(</span><span class="s2">"docking_results"</span><span class="p">))</span>
-    <span class="p">)</span>
-    <span class="n">resolved_run_id</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">run_id</span> <span class="ow">or</span> <span class="n">uuid4</span><span class="p">()</span><span class="o">.</span><span class="n">hex</span><span class="p">)</span>
     <span class="n">params</span> <span class="o">=</span> <span class="n">DockingJobParams</span><span class="p">(</span>
-        <span class="n">output_dir</span><span class="o">=</span><span class="n">resolved_output</span><span class="p">,</span>
+        <span class="n">output_dir</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_output_dir</span><span class="p">(</span><span class="n">output_dir</span><span class="p">),</span>
         <span class="n">batch_size</span><span class="o">=</span><span class="n">resolved_batch_size</span><span class="p">,</span>
         <span class="n">row_batch_size</span><span class="o">=</span><span class="n">batch_size_for</span><span class="p">(</span><span class="s2">"ligand"</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="p">),</span>
         <span class="n">ligand_set_id</span><span class="o">=</span><span class="kc">None</span> <span class="k">if</span> <span class="n">ligand_set_ref</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="nb">int</span><span class="p">(</span><span class="n">ligand_set_ref</span><span class="o">.</span><span class="n">id</span><span class="p">),</span>
@@ -10690,19 +10613,10 @@ sharded library, where returning every scored molecule would defeat the storage 
         <span class="n">requires_ligand_preparation</span><span class="o">=</span><span class="n">program_spec</span><span class="o">.</span><span class="n">requires_ligand_preparation</span><span class="p">,</span>
         <span class="n">requires_receptor_preparation</span><span class="o">=</span><span class="n">program_spec</span><span class="o">.</span><span class="n">requires_receptor_preparation</span><span class="p">,</span>
         <span class="n">requires_binding_site</span><span class="o">=</span><span class="n">program_spec</span><span class="o">.</span><span class="n">requires_binding_site</span><span class="p">,</span>
-        <span class="n">exhaustiveness</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">resolved_engine_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"exhaustiveness"</span><span class="p">,</span> <span class="n">exhaustiveness</span><span class="p">)),</span>
-        <span class="n">num_modes</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">resolved_engine_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"num_modes"</span><span class="p">,</span> <span class="n">num_modes</span><span class="p">)),</span>
         <span class="n">box_center</span><span class="o">=</span><span class="n">box_center</span><span class="p">,</span>
         <span class="n">box_size</span><span class="o">=</span><span class="n">box_size</span><span class="p">,</span>
-        <span class="n">scoring_function</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">resolved_engine_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"scoring_function"</span><span class="p">,</span> <span class="n">scoring_function</span><span class="p">)),</span>
-        <span class="n">vina_backend</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">resolved_engine_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"vina_backend"</span><span class="p">,</span> <span class="n">vina_backend</span><span class="p">)),</span>
-        <span class="n">vina_command</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">resolved_engine_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"vina_command"</span><span class="p">,</span> <span class="n">vina_command</span><span class="p">)),</span>
-        <span class="n">vina_cpu</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">resolved_engine_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"vina_cpu"</span><span class="p">,</span> <span class="n">vina_cpu</span><span class="p">)),</span>
-        <span class="n">seed</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">resolved_engine_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"seed"</span><span class="p">,</span> <span class="n">seed</span><span class="p">)),</span>
-        <span class="n">spacing</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">resolved_engine_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"spacing"</span><span class="p">,</span> <span class="n">spacing</span><span class="p">)),</span>
-        <span class="n">energy_range</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">resolved_engine_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"energy_range"</span><span class="p">,</span> <span class="n">energy_range</span><span class="p">)),</span>
-        <span class="n">min_rmsd</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">resolved_engine_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"min_rmsd"</span><span class="p">,</span> <span class="n">min_rmsd</span><span class="p">)),</span>
-        <span class="n">run_id</span><span class="o">=</span><span class="n">resolved_run_id</span><span class="p">,</span>
+        <span class="o">**</span><span class="n">_engine_fields</span><span class="p">(</span><span class="n">resolved_engine_config</span><span class="p">,</span> <span class="n">knobs</span><span class="p">),</span>
+        <span class="n">run_id</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">run_id</span> <span class="ow">or</span> <span class="n">uuid4</span><span class="p">()</span><span class="o">.</span><span class="n">hex</span><span class="p">),</span>
         <span class="n">protocol_metadata</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">protocol_metadata</span> <span class="ow">or</span> <span class="p">{}),</span>
         <span class="n">engine_config</span><span class="o">=</span><span class="n">resolved_engine_config</span><span class="p">,</span>
         <span class="n">skip_existing</span><span class="o">=</span><span class="n">skip_existing</span><span class="p">,</span>
@@ -10747,36 +10661,36 @@ sharded library, where returning every scored molecule would defeat the storage 
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/docking/api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1302</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1275</span>
+<span class="normal">1276</span>
+<span class="normal">1277</span>
+<span class="normal">1278</span>
+<span class="normal">1279</span>
+<span class="normal">1280</span>
+<span class="normal">1281</span>
+<span class="normal">1282</span>
+<span class="normal">1283</span>
+<span class="normal">1284</span>
+<span class="normal">1285</span>
+<span class="normal">1286</span>
+<span class="normal">1287</span>
+<span class="normal">1288</span>
+<span class="normal">1289</span>
+<span class="normal">1290</span>
+<span class="normal">1291</span>
+<span class="normal">1292</span>
+<span class="normal">1293</span>
+<span class="normal">1294</span>
+<span class="normal">1295</span>
+<span class="normal">1296</span>
+<span class="normal">1297</span>
+<span class="normal">1298</span>
+<span class="normal">1299</span>
+<span class="normal">1300</span>
+<span class="normal">1301</span>
+<span class="normal">1302</span>
 <span class="normal">1303</span>
-<span class="normal">1304</span>
-<span class="normal">1305</span>
-<span class="normal">1306</span>
-<span class="normal">1307</span>
-<span class="normal">1308</span>
-<span class="normal">1309</span>
-<span class="normal">1310</span>
-<span class="normal">1311</span>
-<span class="normal">1312</span>
-<span class="normal">1313</span>
-<span class="normal">1314</span>
-<span class="normal">1315</span>
-<span class="normal">1316</span>
-<span class="normal">1317</span>
-<span class="normal">1318</span>
-<span class="normal">1319</span>
-<span class="normal">1320</span>
-<span class="normal">1321</span>
-<span class="normal">1322</span>
-<span class="normal">1323</span>
-<span class="normal">1324</span>
-<span class="normal">1325</span>
-<span class="normal">1326</span>
-<span class="normal">1327</span>
-<span class="normal">1328</span>
-<span class="normal">1329</span>
-<span class="normal">1330</span>
-<span class="normal">1331</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">ligand_summaries</span><span class="p">(</span>
+<span class="normal">1304</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">ligand_summaries</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="o">*</span><span class="p">,</span>
         <span class="n">limit</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">200</span><span class="p">,</span>
@@ -10832,7 +10746,34 @@ is written to the DB, so re-run with <code>replace_existing=True</code> to refre
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/docking/api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1409</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1382</span>
+<span class="normal">1383</span>
+<span class="normal">1384</span>
+<span class="normal">1385</span>
+<span class="normal">1386</span>
+<span class="normal">1387</span>
+<span class="normal">1388</span>
+<span class="normal">1389</span>
+<span class="normal">1390</span>
+<span class="normal">1391</span>
+<span class="normal">1392</span>
+<span class="normal">1393</span>
+<span class="normal">1394</span>
+<span class="normal">1395</span>
+<span class="normal">1396</span>
+<span class="normal">1397</span>
+<span class="normal">1398</span>
+<span class="normal">1399</span>
+<span class="normal">1400</span>
+<span class="normal">1401</span>
+<span class="normal">1402</span>
+<span class="normal">1403</span>
+<span class="normal">1404</span>
+<span class="normal">1405</span>
+<span class="normal">1406</span>
+<span class="normal">1407</span>
+<span class="normal">1408</span>
+<span class="normal">1409</span>
 <span class="normal">1410</span>
 <span class="normal">1411</span>
 <span class="normal">1412</span>
@@ -10840,34 +10781,7 @@ is written to the DB, so re-run with <code>replace_existing=True</code> to refre
 <span class="normal">1414</span>
 <span class="normal">1415</span>
 <span class="normal">1416</span>
-<span class="normal">1417</span>
-<span class="normal">1418</span>
-<span class="normal">1419</span>
-<span class="normal">1420</span>
-<span class="normal">1421</span>
-<span class="normal">1422</span>
-<span class="normal">1423</span>
-<span class="normal">1424</span>
-<span class="normal">1425</span>
-<span class="normal">1426</span>
-<span class="normal">1427</span>
-<span class="normal">1428</span>
-<span class="normal">1429</span>
-<span class="normal">1430</span>
-<span class="normal">1431</span>
-<span class="normal">1432</span>
-<span class="normal">1433</span>
-<span class="normal">1434</span>
-<span class="normal">1435</span>
-<span class="normal">1436</span>
-<span class="normal">1437</span>
-<span class="normal">1438</span>
-<span class="normal">1439</span>
-<span class="normal">1440</span>
-<span class="normal">1441</span>
-<span class="normal">1442</span>
-<span class="normal">1443</span>
-<span class="normal">1444</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">compute_diagrams</span><span class="p">(</span>
+<span class="normal">1417</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">compute_diagrams</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="o">*</span><span class="p">,</span>
         <span class="n">result_ids</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -10927,12 +10841,12 @@ is written to the DB, so re-run with <code>replace_existing=True</code> to refre
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/docking/api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1446</span>
-<span class="normal">1447</span>
-<span class="normal">1448</span>
-<span class="normal">1449</span>
-<span class="normal">1450</span>
-<span class="normal">1451</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">diagram_path</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">pose_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pose_rank</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span> <span class="n">fmt</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"png"</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1419</span>
+<span class="normal">1420</span>
+<span class="normal">1421</span>
+<span class="normal">1422</span>
+<span class="normal">1423</span>
+<span class="normal">1424</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">diagram_path</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">pose_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pose_rank</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span> <span class="n">fmt</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"png"</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""Convention path for a pose's diagram (may not exist yet)."""</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">amdockvs.docking.results.diagram</span><span class="w"> </span><span class="kn">import</span> <span class="n">diagram_path_for</span>
 
