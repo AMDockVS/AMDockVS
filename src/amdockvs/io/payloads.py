@@ -13,7 +13,7 @@ from amdockvs.chemistry.filtering import (
 )
 from amdockvs.io._common import normalize_context, normalize_kind, normalize_molecule_kind, normalize_role
 
-# Concentration units -> molar; pX = -log10(M). ponytail: mirrors qsar.api._to_pchem (4 lines,
+# Concentration units -> molar; pX = -log10(M). ponytail: mirrors qsar.activities._to_pchem (4 lines,
 # duplicated to keep io out of the qsar/sklearn import path).
 _UNIT_TO_MOLAR = {"m": 1.0, "mm": 1e-3, "um": 1e-6, "µm": 1e-6, "nm": 1e-9, "pm": 1e-12, "": 1.0}
 

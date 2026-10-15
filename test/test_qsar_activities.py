@@ -1,7 +1,8 @@
 """QSAR activity ingestion helpers: pIC50 transform, structural keys, CSV column detection."""
 import pytest
 
-from amdockvs.qsar.api import QSARAPI, _structural_keys_from_smiles, _to_pchem
+from amdockvs.qsar.activities import _structural_keys_from_smiles, _to_pchem
+from amdockvs.qsar.api import QSARAPI
 
 
 def test_pchem_transform():
