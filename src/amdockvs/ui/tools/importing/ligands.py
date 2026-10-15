@@ -1,3 +1,5 @@
+"""Ligand import: a table of dropped files, each with its molecule type, and the import policy tabs."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -21,6 +23,7 @@ from PySide6.QtWidgets import (
     QTabWidget,
     QVBoxLayout,
 )
+from ms_components.theme import color
 
 from amdockvs.io.jobs import SHARD_SUGGEST_RECORDS
 from amdockvs.io.parsers.readers import count_import_records
@@ -34,18 +37,16 @@ from amdockvs.ui.common.drop_area import (
     toolbar_separator,
     write_user_input,
 )
-from amdockvs.ui.catalog.common import BoundTableWidget
-from amdockvs.ui.catalog.receptors import ReceptorImportPanel
-from amdockvs.ui.tools.molecules.filter import (
+from amdockvs.io.formats import QT_FILE_FILTER as _LIGAND_FILTER
+from amdockvs.ui.view_ids import LIGANDS_VIEW_ID, SHARDS_VIEW_ID
+from amdockvs.ui.tools.importing.common import land_on_view, nudge_monitor
+from amdockvs.ui.tools.importing.ligand_forms import (
     ImportActivityForm,
     ImportFilterCriteriaForm,
     ImportPrepareForm,
     finalize_import_prefilter_policy,
 )
 
-from amdockvs.io.formats import QT_FILE_FILTER as _LIGAND_FILTER
-from ms_components.theme import color
-from amdockvs.ui.view_ids import LIGANDS_VIEW_ID, RECEPTOR_VIEW_ID, SHARDS_VIEW_ID
 
 # Per-row molecule type choices. Default (first) is small molecule — the common ligand case.
 _TYPE_CHOICES = (
@@ -55,24 +56,6 @@ _TYPE_CHOICES = (
     ("Nucleotide", MoleculeType.NUCLEOTIDE),
     ("Polymer", MoleculeType.POLYMER),
 )
-
-
-def _land_on_view(window, view_id: str, job_ids=(), *, noun: str = "Import") -> None:
-    """Open the table the import fills and put the jobs' progress under it, where the eye is."""
-    if window is None or not hasattr(window, "open_or_focus_view"):
-        return
-    view = window.open_or_focus_view(view_id)
-    table = view if isinstance(view, BoundTableWidget) else view.findChild(BoundTableWidget)
-    if table is not None:
-        table.follow_jobs(job_ids, noun=noun, stage="Importing")
-
-
-def _nudge_monitor(window) -> None:
-    # The monitor backs off to a ~3s idle poll, so a freshly submitted job (and its progress
-    # bar) can take that long to appear. Poke it to poll now so the bar shows immediately.
-    bridge = getattr(window, "monitor_bridge", None)
-    if bridge is not None and hasattr(bridge, "request_refresh"):
-        bridge.request_refresh()
 
 
 class FileDropTable(QTableWidget):
@@ -517,99 +500,9 @@ class LigandImportDialog(QDialog):
             return
         # Land where the molecules are actually going: staying on an empty Ligands table
         # while a shard import runs reads as "nothing happened".
-        _land_on_view(self.parent(), SHARDS_VIEW_ID if self._target_sharded else LIGANDS_VIEW_ID, job_ids)
-        _nudge_monitor(self.parent())
+        land_on_view(self.parent(), SHARDS_VIEW_ID if self._target_sharded else LIGANDS_VIEW_ID, job_ids)
+        nudge_monitor(self.parent())
         self.accept()
 
 
-class ReceptorImportDialog(QDialog):
-    """Default receptor importer: the reusable ReceptorImportPanel (unchanged) hosted in a dialog."""
-
-    def __init__(self, *, runtime, parent=None, defer=False):
-        super().__init__(parent)
-        self.runtime = runtime
-        self._defer = bool(defer)  # see LigandImportDialog: defer -> capture a deferred submit
-        self.deferred_submit = None
-        self.deferred_name = ""
-        self.setWindowTitle("Import Receptors")
-        self.resize(1140, 640)
-        root = QVBoxLayout(self)
-        self.panel = ReceptorImportPanel(runtime=runtime, show_file_controls=True, parent=self)
-        root.addWidget(self.panel, 1)
-
-        buttons = QDialogButtonBox(self)
-        self.import_button = buttons.addButton("Import", QDialogButtonBox.AcceptRole)
-        buttons.addButton(QDialogButtonBox.Cancel)
-        buttons.accepted.connect(self._on_accept)
-        buttons.rejected.connect(self.reject)
-        root.addWidget(buttons)
-
-        self.panel.ready_changed.connect(self.import_button.setEnabled)
-        self.import_button.setEnabled(self.panel.is_ready())
-
-    def workflow_submit(self):
-        """(submit, name) capturing the receptor import (+ any dimer ligand-role files) as a deferred
-        job, or None if empty. Runs when the workflow runs."""
-        files = list(self.panel.file_paths)
-        if not files:
-            QMessageBox.information(self, "Import Receptors", "Add at least one receptor file.")
-            return None
-        import_request = self.panel.import_request()
-        ligand_role_files = self.panel.ligand_role_files()
-
-        def submit(rt):
-            job_ids: list = []
-            res = rt.loader.load_receptors(files, **import_request)
-            job_ids.extend(res if isinstance(res, (list, tuple)) else [res])
-            # Dimer case: flagged receptors also enter the general screening set as biopolymer ligands.
-            if ligand_role_files:
-                res2 = rt.loader.load_ligands(
-                    ligand_role_files, molecule_kind=MoleculeType.PROTEIN, primary_context="general",
-                    source_labels=import_request.get("source_labels"),
-                )
-                job_ids.extend(res2 if isinstance(res2, (list, tuple)) else [res2])
-            return [j for j in job_ids if j]
-
-        return submit, f"Import {len(files)} receptor file(s)"
-
-    def _on_accept(self) -> None:
-        if self._defer:
-            payload = self.workflow_submit()
-            if payload is None:
-                return
-            self.deferred_submit, self.deferred_name = payload
-            self.accept()
-        else:
-            self._do_import()
-
-    def _do_import(self) -> None:
-        payload = self.workflow_submit()
-        if payload is None:
-            return
-        submit, _name = payload
-        try:
-            job_ids = submit(self.runtime)
-        except Exception as exc:
-            QMessageBox.critical(self, "Import Receptors", f"Could not submit receptor import job:\n{exc}")
-            return
-        _land_on_view(self.parent(), RECEPTOR_VIEW_ID, job_ids)
-        _nudge_monitor(self.parent())
-        self.accept()
-
-
-def open_import_view(window, *, kind: str = "ligand"):
-    """Both importers are now familiar dialogs."""
-    if str(kind).lower().startswith("receptor"):
-        dialog = ReceptorImportDialog(runtime=window.runtime, parent=window)
-    else:
-        dialog = LigandImportDialog(runtime=window.runtime, parent=window)
-    dialog.exec()
-    return dialog
-
-
-__all__ = [
-    "FileDropTable",
-    "LigandImportDialog",
-    "ReceptorImportDialog",
-    "open_import_view",
-]
+__all__ = ["FileDropTable", "LigandImportDialog"]

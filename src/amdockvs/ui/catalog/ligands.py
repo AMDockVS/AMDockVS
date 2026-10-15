@@ -131,7 +131,7 @@ def import_ligands_from_file(window) -> None:
         )
         return
 
-    from amdockvs.ui.tools.import_workspace import open_import_view
+    from amdockvs.ui.tools.importing import open_import_view
 
     open_import_view(window, kind="ligand")
 

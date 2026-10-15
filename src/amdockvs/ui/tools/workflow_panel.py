@@ -633,7 +633,7 @@ class WorkflowPanel(QWidget):
         # Reuse the real import dialogs (drag-drop table, per-type grouping, streaming prefilter,
         # receptor binding-site extraction). defer=True captures the whole import as a deferred
         # submit that runs when the workflow runs — nothing is imported at config time.
-        from amdockvs.ui.tools.import_workspace import LigandImportDialog, ReceptorImportDialog
+        from amdockvs.ui.tools.importing import LigandImportDialog, ReceptorImportDialog
 
         dialog_cls = LigandImportDialog if step.kind == "import_ligands" else ReceptorImportDialog
         dlg = dialog_cls(runtime=self.runtime, parent=self.window(), defer=True)
@@ -696,7 +696,7 @@ class WorkflowPanel(QWidget):
         if step.kind in _IMPORT_KINDS:
             # Guided import: the real dialog with data going in for real (not deferred). Accepting it
             # launches the import and advances the route; the job then shows in the monitor.
-            from amdockvs.ui.tools.import_workspace import LigandImportDialog, ReceptorImportDialog
+            from amdockvs.ui.tools.importing import LigandImportDialog, ReceptorImportDialog
 
             dialog_cls = LigandImportDialog if step.kind == "import_ligands" else ReceptorImportDialog
             dlg = dialog_cls(runtime=self.runtime, parent=self.window())
