@@ -33,6 +33,7 @@ from amdockvs.ui.view_ids import (
     COMPLEXES_VIEW_ID,
     DOCKING_VIEW_ID,
     LIGANDS_VIEW_ID,
+    LIGAND_ACTIVITY_VIEW_ID,
     MOLECULES_VIEW_ID,
     OFFTARGET_VIEW_ID,
     PREP_STATUS_VIEW_ID,
@@ -139,7 +140,7 @@ def test_amdock_ui_opens_molecule_view_for_active_project(tmp_path, monkeypatch)
             assert window._app_widget.get_total_projects() >= 1
 
         snapshot = window.monitor_bridge.refresh_now()
-        view = window.central_widget.open_or_focus_view("workspace.molecules")
+        view = window.central_widget.open_or_focus_view(MOLECULES_VIEW_ID)
         app.processEvents()
         assert view is not None
         assert isinstance(view, MoleculeWidget)
@@ -170,7 +171,7 @@ def test_amdock_ui_jobs_dialog_is_one_window_and_the_indicator_steps_aside(tmp_p
         window.show()
         app.processEvents()
 
-        window.central_widget.open_or_focus_view("workspace.molecules")
+        window.central_widget.open_or_focus_view(MOLECULES_VIEW_ID)
         tabs = window.central_widget.main_content_tabs.count()
         window.views.jobs_action.trigger()
         app.processEvents()
@@ -348,8 +349,8 @@ def test_amdock_ui_domain_views_show_docking_summaries(tmp_path, monkeypatch):
         app.processEvents()
 
         results_view = window.open_complex_results()
-        activity_view = window.central_widget.open_or_focus_view("workspace.ligand_activity")
-        docking_view = window.tools.open_tool("workspace.docking")  # where a user opens it: the tool panel
+        activity_view = window.central_widget.open_or_focus_view(LIGAND_ACTIVITY_VIEW_ID)
+        docking_view = window.tools.open_tool(DOCKING_VIEW_ID)  # where a user opens it: the tool panel
         app.processEvents()
 
         # The domain views open with the right widget types; the underlying docking data
