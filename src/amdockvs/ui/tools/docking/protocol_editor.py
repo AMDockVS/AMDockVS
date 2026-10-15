@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 
 from amdockvs.docking.engines.programs import (
     GNINA_PROGRAM, QVINA_PROGRAM, VINA_PROGRAM, list_docking_programs, missing_programs)
+from amdockvs.docking.methods import METHODS, get_method
 from amdockvs.integrations.registry import MANAGED_TOOLS
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.docking.protocols import PROTOCOL_SCHEMA, protocol_hash, protocol_identity
@@ -126,6 +127,13 @@ class ProtocolEditorWidget:
         self.experiment_kind_combo.addItem("Docking", "docking")
         self.experiment_kind_combo.addItem("Redocking", "redocking")
         self.experiment_kind_combo.currentIndexChanged.connect(self._on_experiment_config_changed)
+        # The method decides which programs/scoring run and which receptors fit (methods.py).
+        self.method_combo = QComboBox(box)
+        for method in METHODS.values():
+            self.method_combo.addItem(method.label, method.key)
+        self.method_combo.setToolTip(
+            "Zinc metalloprotein: AutoDock4Zn maps, run by Vina (ad4 scoring) or AutoDock-GPU, and only "
+            "receptors with a zinc atom in the box. Standard leaves those receptors out.")
         self.receptor_type_combo = QComboBox(box)
         self.receptor_type_combo.addItem("Protein", MoleculeType.PROTEIN)
         self.receptor_type_combo.setToolTip(
@@ -138,9 +146,11 @@ class ProtocolEditorWidget:
         self.ligand_source_combo = QComboBox(box)
         self.ligand_source_combo.addItem("Screening library (shards)", "shards")
         self.ligand_source_combo.addItem("Reference ligands (rows)", "rows")
-        for combo in (self.receptor_type_combo, self.ligand_type_combo, self.ligand_source_combo):
+        for combo in (self.method_combo, self.receptor_type_combo, self.ligand_type_combo,
+                      self.ligand_source_combo):
             combo.currentIndexChanged.connect(self._on_experiment_config_changed)
         form.addRow("Experiment", self.experiment_kind_combo)
+        form.addRow("Method", self.method_combo)
         form.addRow("Ligands from", self.ligand_source_combo)
         form.addRow("Receptor type", self.receptor_type_combo)
         form.addRow("Ligand type", self.ligand_type_combo)
@@ -226,6 +236,8 @@ class ProtocolEditorWidget:
         widgets: dict[str, QWidget] = {}
         defaults = spec.validate_config({})
         for name, field in spec.config_model.model_json_schema().get("properties", {}).items():
+            if name == "method":  # Experiment Setup owns it
+                continue
             field_type = field.get("type")
             choices = list(field.get("enum") or [])
             default = defaults.get(name)
@@ -327,6 +339,9 @@ class ProtocolEditorWidget:
     def _apply_protocol_config_to_widgets(self, protocol: dict) -> None:
         program = str(protocol.get("program") or VINA_PROGRAM.key)
         config = dict(protocol.get("config") or {})
+        method = self.method_combo.findData(str(config.get("method") or "standard"))
+        if method >= 0:
+            self.method_combo.setCurrentIndex(method)  # first: it decides the scoring choices
         self._select_program(program)  # its settings; what a docking run has ticked is not touched
         docking = self._docking_defaults()
         if program == VINA_PROGRAM.key:
@@ -394,7 +409,11 @@ class ProtocolEditorWidget:
         }
 
     def _protocol_for_program(self, program: str) -> dict:
-        return self._make_protocol(program=program, config=self._protocol_config_from_widgets(program))
+        config = self._protocol_config_from_widgets(program)
+        spec = next((spec for spec in list_docking_programs() if spec.key == program), None)
+        if spec is not None and "method" in spec.config_model.model_fields:
+            config["method"] = self._method()
+        return self._make_protocol(program=program, config=config)
 
     def _current_protocol(self) -> dict:
         return self._protocol_for_program(self._current_program_key())
@@ -566,9 +585,10 @@ class ProtocolEditorWidget:
                     protocols.append(self._protocol_for_program(str(spec.key)))
             return protocols
         protocols: list[dict] = []
+        method = self._method()
         for protocol in getattr(self, "_protocols", []) or []:
             program = str(protocol.get("program") or "")
-            if program in available:
+            if program in available and str((protocol.get("config") or {}).get("method") or "standard") == method:
                 protocols.append(dict(protocol))
         return protocols
 
@@ -586,6 +606,10 @@ class ProtocolEditorWidget:
         combo = getattr(self, "experiment_kind_combo", None)
         return str(combo.currentData() or "docking") if combo is not None else "docking"
 
+    def _method(self) -> str:
+        combo = getattr(self, "method_combo", None)
+        return str(combo.currentData() or "standard") if combo is not None else "standard"
+
     def _receptor_type(self) -> str:
         combo = getattr(self, "receptor_type_combo", None)
         return str(combo.currentData() or MoleculeType.PROTEIN) if combo is not None else MoleculeType.PROTEIN
@@ -596,6 +620,8 @@ class ProtocolEditorWidget:
             combo.currentData() or MoleculeType.SMALL_MOLECULE) if combo is not None else MoleculeType.SMALL_MOLECULE
 
     def _program_compatible(self, spec) -> bool:
+        if not get_method(self._method()).allows(spec.key):
+            return False
         supports = getattr(spec, "supports", None)
         if not callable(supports):
             return True
@@ -648,7 +674,21 @@ class ProtocolEditorWidget:
                 and getattr(self, "_missing_programs", None)):
             self._check_programs()
 
+    def _sync_scoring_choices(self) -> None:
+        """Vina's scoring functions the method allows; an excluded current one is replaced."""
+        combo = getattr(self, "scoring_combo", None)
+        if combo is None:
+            return
+        method = get_method(self._method())
+        model = combo.model()
+        allowed = [row for row in range(combo.count()) if method.allows(VINA_PROGRAM.key, combo.itemText(row))]
+        for row in range(combo.count()):
+            model.item(row).setEnabled(row in allowed)
+        if allowed and combo.currentIndex() not in allowed:
+            combo.setCurrentIndex(allowed[0])
+
     def _refresh_program_availability(self) -> None:
+        self._sync_scoring_choices()
         specs = list(list_docking_programs())
         available_keys = {spec.key for spec in specs if self._program_compatible(spec)}
         runnable_keys = available_keys - set(getattr(self, "_missing_programs", ()))

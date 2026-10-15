@@ -19,6 +19,7 @@ from amdockvs.docking.results.metrics import docking_metrics, pose_file_stem
 from amdockvs.docking.results.rmsd import pose_rmsd_detail
 from amdockvs.core.paths import get_default_project_root
 from amdockvs.docking.engines.autogrid import map_prefix as _ad4_map_prefix
+from amdockvs.docking.methods import check_program, check_receptor
 from amdockvs.docking.preparation.meeko import dockable_ligand
 
 def _require_pdbqt(path: Path, *, kind: str) -> None:
@@ -368,6 +369,7 @@ def run_vina_docking_rows(
     pair_progress: Callable[[float], None] | None = None,
     collect_rows: bool = True,
     engine: str = "vina",
+    method: str = "standard",
 ) -> list[dict]:
     resolved_output_dir = Path(output_dir).expanduser().resolve()
     resolved_output_dir.mkdir(parents=True, exist_ok=True)
@@ -375,6 +377,7 @@ def run_vina_docking_rows(
     if normalized_backend not in {"python", "binary"}:
         raise ValueError(f"Unsupported vina backend: {vina_backend}")
     quickvina = engine == "qvina"  # same search and files as Vina, through its own binary
+    docking_method = check_program(method, engine, scoring_function)
 
     rows: list[dict] = []
     failures: list[dict] = []
@@ -436,6 +439,7 @@ def run_vina_docking_rows(
                 raise FileNotFoundError(f"receptor file missing: {receptor_path}")
             _require_pdbqt(ligand_path, kind="ligand")
             _require_pdbqt(receptor_path, kind="receptor")
+            check_receptor(docking_method, receptor_path, pair_box_center, pair_box_size)
             ligand_path = dockable_ligand(ligand_path, program=engine, scoring_function=scoring_function,
                                           output_dir=resolved_output_dir)
             # Flexible-residue prep writes "<receptor>__flex.pdbqt" next to the rigid receptor;
@@ -457,6 +461,7 @@ def run_vina_docking_rows(
                     box_size=pair_box_size,
                     spacing=pair_spacing,
                     flex_receptor_path=flex_receptor_path,
+                    zinc=docking_method.zinc_site,
                 )
 
             if normalized_backend == "python":
@@ -709,6 +714,7 @@ def _vina_dock_runner(payload: dict) -> list[dict]:
         pair_callback=payload.get("_pair_callback"),
         pair_progress=payload.get("_pair_progress"),
         collect_rows=bool(payload.get("_collect_rows", True)),
+        method=str(payload.get("method") or "standard"),
     )
 
 

@@ -95,6 +95,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 amdockvs = [
     "core/*.toml",
+    "docking/engines/zinc/*",
     "integrations/tools/*.toml",
     "ui/resources/icons/*.svg",
     "ui/resources/icons/*.png",

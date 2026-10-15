@@ -170,8 +170,10 @@ def _run_gnina(
 
 
 def run_gnina_docking_rows(payload: dict) -> list[dict]:
+    from amdockvs.docking.methods import check_program, check_receptor
     from amdockvs.docking.preparation.meeko import dockable_ligand
 
+    method = check_program(payload.get("method"), "gnina")
     pairs = list(payload.get("pairs") or [])
     output_dir = Path(str(payload.get("output_dir") or "")).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -216,6 +218,7 @@ def run_gnina_docking_rows(payload: dict) -> list[dict]:
                 raise FileNotFoundError(f"receptor file missing: {receptor_path}")
             if len(center) != 3 or len(size) != 3:
                 raise ValueError("gnina requires a box (center_xyz + size_xyz).")
+            check_receptor(method, receptor_path, center, size)
             _run_gnina(
                 receptor_path=receptor_path,
                 ligand_path=dockable_ligand(ligand_path, program="gnina", scoring_function=None,

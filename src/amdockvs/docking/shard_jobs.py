@@ -46,6 +46,7 @@ from amdockvs.docking.results.dataset import (
     select_hit_refs,
     select_hits,
 )
+from amdockvs.docking.methods import excludes
 from amdockvs.docking.preparation.state import docking_input_path_from_row, grid_from_row
 from amdockvs.screening.campaign import (
     advance_shard_run,
@@ -490,10 +491,13 @@ def receptor_targets(project_db, parsed: DockShardsJobParams) -> list[dict[str, 
         size = [float(v) for v in (parsed.box_size or grid.get("size") or ())]
         if len(center) != 3 or len(size) != 3:
             continue  # no binding site: not dockable, and a campaign is not the place to guess
+        receptor_path = str(docking_input_path_from_row(row, engine=parsed.preparation_engine))
+        if excludes(parsed.engine_config.get("method"), receptor_path, center, size):
+            continue  # its box does not fit the docking method
         targets.append({
             "receptor_id": int(row.get("id") or 0),
             "receptor_name": str(row.get("name") or ""),
-            "receptor_path": str(docking_input_path_from_row(row, engine=parsed.preparation_engine)),
+            "receptor_path": receptor_path,
             "box_center": center,
             "box_size": size,
             "spacing": float(grid.get("spacing") or parsed.spacing),
