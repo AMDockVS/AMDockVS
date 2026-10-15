@@ -85,7 +85,7 @@ def _p2rank_steps(_runtime) -> list[Step]:
         steps.append(
             Step(
                 "install the Java runtime (jdk4py)",
-                argv=[sys.executable, "-m", "pip", "install", "jdk4py~=21.0"],
+                argv=[sys.executable, "-m", "pip", "install", "jdk4py>=21"],
                 timeout=900,
             )
         )

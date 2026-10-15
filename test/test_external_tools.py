@@ -28,7 +28,7 @@ def test_p2rank_plan_installs_java_only_when_missing(monkeypatch, tmp_path):
     with_java = external_tools.install_steps(SimpleNamespace(), "p2rank")
 
     assert len(without_java) == len(with_java) + 1
-    assert "jdk4py~=21.0" in (without_java[0].argv or [])
+    assert "jdk4py>=21" in (without_java[0].argv or [])
     assert with_java[0].call is not None  # only the download/extract step is left
 
 
