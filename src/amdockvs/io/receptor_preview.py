@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import gemmi
+import numpy as np
 
 from amdockvs.binding_sites.from_structure import binding_site_specs_from_components
 from amdockvs.core.configuration import DEFAULT_BINDING_SITE_BOX_SIZE
@@ -518,36 +519,37 @@ def _scan_with_gemmi(path: Path) -> dict[str, Any]:
             }
 
     components = list(grouped_components.values())
-    ligand_polar_points = [
-        point
+    polar_by_ligand = [
+        _points_array([point for point, element in zip(component["atom_points"], component["atom_elements"]) if element in {"O", "N", "S"}])
         for component in components
         if component["component_class"] == "ligand"
-        for point, element in zip(component["atom_points"], component["atom_elements"])
-        if str(element or "").upper() in {"O", "N", "S"}
     ]
-    metal_centers = [component["center"] for component in components if component["component_class"] == "metal"]
-
+    metal_centers = [_points_array(component["center"]) for component in components if component["component_class"] == "metal"]
+    polymer_polar = _points_array(polymer_polar_points)
+    # A structural water bridges the polymer and a ligand or metal. Only waters inside the box of a
+    # ligand or metal are measured against it, and only those that touch one against the polymer.
+    waters = [component for component in components if component["component_class"] == "water"]
+    centers = _points_array([water["center"] for water in waters])
+    structural = _near_any(centers, polar_by_ligand, 3.2) | _near_any(centers, metal_centers, 2.8)
+    bridging = np.flatnonzero(structural)
+    structural[bridging] = _near_any(centers[bridging], [polymer_polar], 3.2)
+    for water, flag in zip(waters, structural):
+        water["is_structural"] = bool(flag)
     for component in components:
-        if component["component_class"] == "water":
-            center = component["center"]
-            near_ligand = any(_distance(center, target) <= 3.2 for target in ligand_polar_points)
-            near_polymer = any(_distance(center, target) <= 3.2 for target in polymer_polar_points)
-            near_metal = any(_distance(center, target) <= 2.8 for target in metal_centers)
-            is_structural = (near_ligand and near_polymer) or (near_metal and near_polymer)
-            component["is_structural"] = is_structural
-        elif component["component_class"] == "metal":
-            center = component["center"]
-            donor_points = [
+        if component["component_class"] != "metal" or component["resname"] not in _COORDINATION_METAL_CODES:
+            continue
+        donors = _points_array(
+            [
                 point
                 for comp in components
                 if comp is not component
                 for point, element in zip(comp["atom_points"], comp["atom_elements"])
-                if str(element or "").upper() in {"O", "N", "S"}
-            ] + list(polymer_polar_points)
-            component["is_coordinated"] = (
-                component["resname"] in _COORDINATION_METAL_CODES
-                and sum(1 for point in donor_points if 0.1 < _distance(center, point) <= 2.8) >= 2
-            )
+                if element in {"O", "N", "S"}
+            ]
+            + polymer_polar_points
+        )
+        distances = _distances(component["center"], donors)
+        component["is_coordinated"] = int(((distances > 0.1) & (distances <= 2.8)).sum()) >= 2
 
     for component in components:
         component.pop("atom_elements", None)
@@ -956,6 +958,31 @@ def _detect_bioassemblies(lines: list[str]) -> list[str]:
                 if token and token not in ids:
                     ids.append(token)
     return ids
+
+
+def _points_array(points) -> np.ndarray:
+    return np.asarray(points, dtype=float).reshape(-1, 3)
+
+
+def _near_any(points: np.ndarray, groups, cutoff: float) -> np.ndarray:
+    """Per point: is an atom of any group within `cutoff`? A group's box (its extent plus `cutoff`)
+    picks the points worth measuring, and their box the atoms worth measuring them against."""
+    near = np.zeros(len(points), dtype=bool)
+    for atoms in groups:
+        if not len(atoms) or not len(points):
+            continue
+        inside = np.flatnonzero(((points >= atoms.min(0) - cutoff) & (points <= atoms.max(0) + cutoff)).all(1))
+        if not inside.size:
+            continue
+        box = points[inside]
+        atoms = atoms[((atoms >= box.min(0) - cutoff) & (atoms <= box.max(0) + cutoff)).all(1)]
+        distances = np.sqrt(((box[:, None, :] - atoms[None, :, :]) ** 2).sum(-1))
+        near[inside] |= (distances <= cutoff).any(1)
+    return near
+
+
+def _distances(center, points: np.ndarray) -> np.ndarray:
+    return np.sqrt(((points - np.asarray(center, dtype=float)) ** 2).sum(axis=1))
 
 
 def _distance(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
