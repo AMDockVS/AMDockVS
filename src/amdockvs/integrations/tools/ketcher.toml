@@ -1,0 +1,18 @@
+# Installed and looked up by ms_env (format documented there).
+# Ketcher is a web app: what is "located" is its folder, and the check is its index.html.
+[tool]
+name = "ketcher"
+label = "Ketcher"
+purpose = "2D molecule editor for small molecules (Edit… on Molecules and Ligands)."
+footprint = "~60 MB (Ketcher standalone web build)"
+version = "3.18.0"
+prefix = "{tools_home}/editors/{name}/{version}"
+
+[locate]
+paths = ["{prefix}"]
+check = ["sh", "-c", "test -f \"$0/index.html\"", "{exe}"]
+
+[[install]]
+name = "download Ketcher 3.18.0"
+argv = ["sh", "-c", "mkdir -p \"$0\" && curl -fSL -o \"$0/ketcher.zip\" https://github.com/epam/ketcher/releases/download/v3.18.0/ketcher-standalone-3.18.0.zip && echo \"484e7f10a0e74808ae5f43f0e6448db6f4d884bdd2189aa271108474167a3e7e  $0/ketcher.zip\" | sha256sum -c - && python3 -m zipfile -e \"$0/ketcher.zip\" \"$0\" && rm \"$0/ketcher.zip\"", "{prefix}"]
+timeout = 600

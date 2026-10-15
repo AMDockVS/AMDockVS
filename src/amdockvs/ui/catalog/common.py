@@ -254,6 +254,8 @@ class BoundTableWidget(QWidget):
     # Subclasses set this to True to offer "Select" - turning the highlighted rows into an
     # `id IN [...]` column filter. See _install_select.
     selectable: bool = False
+    # Subclasses set this to True to offer "Edit…" on small molecules (Ketcher, ui/viewers/ketcher_editor).
+    editable: bool = False
 
     # Re-emits the embedded table count in case a host needs it; the visible counter is the
     # one in the ms_table toolbar (show_record_count).
@@ -304,6 +306,8 @@ class BoundTableWidget(QWidget):
         delete_shortcut.activated.connect(self.delete_selected)
         if self.selectable:
             self._install_select(config)
+        if self.editable:
+            config.context_menu_actions = {**dict(config.context_menu_actions or {}), "Edit…": self._edit_rows}
         if self.delete_kind is not None:  # last in the menu, the one that cannot be undone
             config.context_menu_actions = {**dict(config.context_menu_actions or {}), "Delete…": self.delete_selected}
 
@@ -467,6 +471,18 @@ class BoundTableWidget(QWidget):
     def selected_count(self) -> int:
         """Number of selected rows (for the statusbar); 0 if there is no table."""
         return len(self._table.get_selected_objects()) if self._table is not None else 0
+
+    def _edit_rows(self, objects) -> None:
+        from amdockvs.ui.viewers.ketcher_editor import edit_molecule
+
+        def done(edited_id: int) -> None:
+            # The edit has a new file (or is a new molecule): show it in PyMOL.
+            self._table.refresh_preserving_view()
+            edited = self.runtime.molecules.get(edited_id)
+            if edited is not None:
+                self._load_object_in_pymol(edited)
+
+        edit_molecule(self, self.runtime, objects, done=done)
 
     def delete_selected(self, objects=None) -> None:
         """Delete `objects` (the rows a context menu acts on), or the selected rows."""

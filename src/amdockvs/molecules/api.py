@@ -239,6 +239,113 @@ class MoleculeAPI:
 
         return delete_molecules(self.runtime.workspace.project_db, normalize_ids(molecule_ids))
 
+    def molblock(self, molecule_id: int) -> str:
+        """The molecule's current structure as a molfile — what the 2D editor opens."""
+        from rdkit import Chem
+
+        from amdockvs.chemistry.service import _load_ligand_mol
+        from amdockvs.core.paths import current_molecule_path
+
+        molecule = self.get(molecule_id)
+        path = current_molecule_path(molecule) if molecule is not None else None
+        if path is None or not path.is_file():
+            raise ValueError(f"Molecule {molecule_id} has no structure file.")
+        return Chem.MolToMolBlock(_load_ligand_mol(path))
+
+    def dependents(self, molecule_id: int) -> dict[str, int]:
+        """What hangs from this molecule's structure and would go if an edit replaced it."""
+        from sqlalchemy import func, or_
+
+        from amdockvs.models import DockingResultRecord
+        from amdockvs.models.qsar import LigandActivity, QSARPrediction
+
+        counts = {}
+        with self.runtime.workspace.project_db.get_session() as session:
+            for label, model, clause in (
+                ("activities", LigandActivity, LigandActivity.molecule_id == molecule_id),
+                ("docking results", DockingResultRecord, or_(DockingResultRecord.ligand_molecule_id == molecule_id,
+                                                             DockingResultRecord.receptor_molecule_id == molecule_id)),
+                ("QSAR predictions", QSARPrediction, QSARPrediction.molecule_id == molecule_id),
+            ):
+                counts[label] = int(session.exec(select(func.count()).select_from(model).where(clause)).one())
+        return {label: n for label, n in counts.items() if n}
+
+    def edit(self, molecule_id: int, molblock: str, *, copy: bool = False) -> int | None:
+        """Give a molecule an edited structure (a molfile from the 2D editor).
+
+        `copy=False` replaces it: everything computed from the old structure goes (`clear_derived`:
+        conformers, engine preparations, descriptors, fingerprints, docking results...) and so do its
+        activities, measured on the old compound; the imported original (stored_path), sets and
+        complexes stay. `copy=True` leaves the molecule alone and adds the edit as a new one, with
+        nothing of the old one's but its role. Returns the id holding the edit, or None when the
+        drawing is still the same compound, which changes nothing."""
+        self.runtime._require_active_project()
+        from datetime import datetime
+        from uuid import uuid4
+
+        from sqlalchemy import delete as sql_delete
+
+        from amdockvs.chemistry.service import _load_ligand_mol, _write_ligand_mol
+        from amdockvs.core.paths import artifact_path_for_existing, current_molecule_path
+        from amdockvs.io.rows import structure_fields
+        from amdockvs.models.qsar import LigandActivity
+        from amdockvs.molecules.editing import edited_structure
+        from amdockvs.project.deletion import clear_derived, remove_unreferenced_files
+
+        project_db = self.runtime.workspace.project_db
+        project_root = get_default_project_root()
+        molecule = self.get(molecule_id)
+        if molecule is None:
+            raise ValueError(f"Molecule {molecule_id} does not exist.")
+        source = current_molecule_path(molecule)
+        mol = edited_structure(molblock, _load_ligand_mol(source) if source is not None and source.is_file() else None)
+        if mol is None:
+            return None
+        target = artifact_path_for_existing(
+            project_root / "edits",
+            role="ligand",
+            source_path=source or project_root / f"molecule_{molecule.id}",
+            artifact_name=f"edited_{uuid4().hex[:8]}",  # a new name: PyMOL and the 2D cache key on the path
+            suffix=".sdf",
+        )
+        _write_ligand_mol(mol, target)
+        relative = str(target.relative_to(project_root))
+        fields = structure_fields(mol)
+        if not copy:
+            clear_derived(project_db, [molecule.id])
+        with project_db.get_session() as session:
+            if copy:
+                parent = session.get(MoleculeRecord, int(molecule.id))
+                row = MoleculeRecord(**parent.model_dump(exclude={"id", "created_at", "updated_at"}))
+                row.name = f"{parent.name} (edited)"
+                row.stored_path = relative  # the edit is all this molecule ever had
+                row.has_activity = False
+                row.in_set = False
+                metadata = {"edited_from": int(parent.id)}
+                replaced = None
+            else:
+                session.exec(sql_delete(LigandActivity).where(LigandActivity.molecule_id == int(molecule.id)))
+                row = session.get(MoleculeRecord, int(molecule.id))
+                row.has_activity = False
+                metadata = sanitize_molecule_extra_data(row.extra_data)
+                for stale in ("chemistry", "history", "state"):  # described the structure that is gone
+                    metadata.pop(stale, None)
+                replaced = row.current_path
+            row.current_path = relative
+            row.current_model_index = None
+            for key, value in fields.items():
+                setattr(row, key, value)
+            row.is_minimized = False
+            metadata["edited"] = True
+            row.extra_data = metadata
+            row.updated_at = datetime.now()
+            session.add(row)
+            session.commit()
+            edited_id = int(row.id)
+        if replaced:
+            remove_unreferenced_files(project_db, [replaced])  # an earlier edit's file; never the import
+        return edited_id
+
     def _selection(self, scope: MoleculeScope) -> Selection[MoleculeRecord]:
         return Selection(
             scope=scope,
