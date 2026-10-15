@@ -8,8 +8,6 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
-    QDialog,
-    QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
@@ -28,10 +26,8 @@ from PySide6.QtWidgets import (
 from amdockvs.chemistry.filtering import (
     SMALL_MOLECULE_FIELD_SPECS,
     SmallMoleculeFilterCriteria,
-    SmallMoleculeFilterField,
     SmallMoleculeFilterOperator,
     SmallMoleculeFilterRule,
-    build_small_molecule_prefilter_rules,
 )
 from amdockvs.models.molecules import MoleculeType, MoleculeUsageClass
 from amdockvs.ui.common.async_query import run_async
@@ -171,27 +167,6 @@ class ImportPrepareForm(QWidget):
         )
 
 
-class ImportQSARFilterForm(QWidget):
-    """Placeholder for the future import-time QSAR enrichment filter."""
-
-    def __init__(self, runtime=None, parent=None):
-        super().__init__(parent)
-        self.runtime = runtime
-        layout = QVBoxLayout(self)
-        label = QLabel(
-            "QSAR enrichment filters are coming soon. Train and validate QSAR models in the "
-            "QSAR workspace first; import-time filtering will stay disabled until the model "
-            "feature contract is explicit.",
-            self,
-        )
-        label.setWordWrap(True)
-        layout.addWidget(label)
-        layout.addStretch(1)
-
-    def contribute(self, policy: dict[str, Any]) -> None:
-        return
-
-
 _ACTIVITY_STRUCTURAL = {"smiles", "canonical_smiles", "smiles_canonical", "inchikey", "inchi_key",
                         "inchi key", "name", "id", "title", "compound", "molecule", "mol_id", "molecule_id"}
 
@@ -303,32 +278,6 @@ class ImportActivityForm(QWidget):
             policy["activity_kinds"] = {col: self._detected_kinds[col] for col in picked}
 
 
-class SmallMoleculeImportPrefilterForm(QWidget):
-    """HTP import prefilter: cull molecules while streaming, before they are materialized.
-
-    Thin composition of the Filters / QSAR / Activity sub-forms so callers that want the whole
-    prefilter in one widget keep working; the importer hosts the same sub-forms in separate tabs.
-    """
-
-    def __init__(self, runtime=None, parent=None):
-        super().__init__(parent)
-        self.runtime = runtime
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        self.filters_form = ImportFilterCriteriaForm(self)
-        self.qsar_form = ImportQSARFilterForm(runtime=runtime, parent=self)
-        self.activity_form = ImportActivityForm(self)
-        for form in (self.filters_form, self.qsar_form, self.activity_form):
-            layout.addWidget(form)
-
-    def policy_mapping(self) -> dict[str, Any] | None:
-        policy: dict[str, Any] = {"target_molecule_kinds": ["small_molecule"]}
-        self.filters_form.contribute(policy)
-        self.qsar_form.contribute(policy)
-        self.activity_form.contribute(policy)
-        return finalize_import_prefilter_policy(policy)
-
-
 class SmallMoleculeFilterRuleRow(QWidget):
     def __init__(self, *, on_remove, parent=None):
         super().__init__(parent)
@@ -438,36 +387,6 @@ class MoleculeTypePlaceholderWidget(QWidget):
         label.setWordWrap(True)
         layout.addWidget(label)
         layout.addStretch(1)
-
-
-class SmallMoleculeImportPrefilterDialog(QDialog):
-    def __init__(self, parent=None, *, runtime=None):
-        super().__init__(parent)
-        self.setWindowTitle("HTP Import Filter")
-        self.resize(460, 360)
-        layout = QVBoxLayout(self)
-        note = QLabel(
-            "Optional HTP import filter. Molecules that fail are dropped while streaming — before "
-            "any file or database row is written — so large libraries are enriched before docking.",
-            self,
-        )
-        note.setWordWrap(True)
-        layout.addWidget(note)
-        self.criteria_form = SmallMoleculeImportPrefilterForm(runtime=runtime, parent=self)
-        layout.addWidget(self.criteria_form)
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=self)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
-
-    def criteria_mapping(self) -> dict[str, object] | None:
-        return self.criteria_form.policy_mapping()
-
-
-def prompt_small_molecule_import_prefilter(parent) -> tuple[bool, dict[str, object] | None]:
-    dialog = SmallMoleculeImportPrefilterDialog(parent, runtime=getattr(parent, "runtime", None))
-    accepted = dialog.exec() == QDialog.Accepted
-    return accepted, (dialog.criteria_mapping() if accepted else None)
 
 
 class MoleculeFilterWidget(QWidget):
@@ -887,12 +806,8 @@ __all__ = [
     "FILTER_ID",
     "ImportFilterCriteriaForm",
     "ImportPrepareForm",
-    "ImportQSARFilterForm",
     "ImportActivityForm",
-    "SmallMoleculeImportPrefilterForm",
-    "SmallMoleculeImportPrefilterDialog",
     "finalize_import_prefilter_policy",
     "MoleculeFilterWidget",
-    "prompt_small_molecule_import_prefilter",
     "register_filter_workspace",
 ]
