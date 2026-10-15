@@ -35,9 +35,8 @@ from amdockvs.chemistry.filtering import (
 )
 from amdockvs.models.molecules import MoleculeType, MoleculeUsageClass
 from amdockvs.ui.common.async_query import run_async
-from amdockvs.ui.catalog.molecules import MOLECULES_VIEW_ID
+from amdockvs.ui.view_ids import FILTER_ID, LIGANDS_VIEW_ID, MOLECULES_VIEW_ID
 
-FILTER_ID = "moltools.filter"
 
 # Exclusions written by this tool carry this reason prefix so Recover can tell "excluded by the
 # filter" from exclusions owned by other tools (manual, diversity, ...) and never touch those.
@@ -791,7 +790,7 @@ class MoleculeFilterWidget(QWidget):
     def _open_ligands(self) -> None:
         main_window = self.window()
         if hasattr(main_window, "open_or_focus_view"):
-            main_window.open_or_focus_view("workspace.ligands")
+            main_window.open_or_focus_view(LIGANDS_VIEW_ID)
 
     def _on_evaluation_error(self, exc: Exception) -> None:
         self.apply_filter_button.setEnabled(True)
@@ -884,7 +883,6 @@ def register_filter_workspace(window) -> None:
 
 
 __all__ = [
-    "FILTER_ID",
     "ImportFilterCriteriaForm",
     "ImportPrepareForm",
     "ImportQSARFilterForm",

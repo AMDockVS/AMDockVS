@@ -25,8 +25,7 @@ from ms_components.ms_table import (
     TableLoadMode,
     choices_from_class,
 )
-
-SHARDS_VIEW_ID = "workspace.shards"
+from amdockvs.ui.view_ids import SHARDS_VIEW_ID
 
 
 def _shard_table_config() -> TableConfig:
@@ -89,4 +88,4 @@ def register_shards_workspace(window) -> None:
     )
 
 
-__all__ = ["SHARDS_VIEW_ID", "ShardsWidget", "register_shards_workspace"]
+__all__ = ["ShardsWidget", "register_shards_workspace"]

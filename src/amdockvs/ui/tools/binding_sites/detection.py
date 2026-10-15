@@ -28,16 +28,14 @@ from amdockvs.models import BindingSite, MoleculeRecord
 from amdockvs.core.configuration import app_config
 from amdockvs.core.paths import preferred_molecule_path
 from amdockvs.ui.common.async_query import run_async
-from amdockvs.ui.catalog.receptors import RECEPTOR_VIEW_ID
 from amdockvs.ui.tools.pymol_ribbon import (
     apply_receptor_atom_coloring,
     set_pymol_scene_context,
 )
 from ms_components.ms_table import FilterOperator, FilterSpec
+from amdockvs.ui.view_ids import POCKET_DETECTION_VIEW_ID, POCKET_SITES_VIEW_ID, RECEPTOR_VIEW_ID
 
 
-POCKET_DETECTION_VIEW_ID = "moltools.pocket_detection"
-POCKET_SITES_VIEW_ID = "moltools.binding_sites"
 PROFILE_OPTIONS = (
     ("Standard", "default"),
     ("AlphaFold / NMR / cryo-EM", "alphafold"),
@@ -793,8 +791,6 @@ def register_pocket_detection_workspace(window) -> None:
 
 
 __all__ = [
-    "POCKET_DETECTION_VIEW_ID",
-    "POCKET_SITES_VIEW_ID",
     "BindingSitesWidget",
     "PocketDetectionWidget",
     "register_pocket_detection_workspace",

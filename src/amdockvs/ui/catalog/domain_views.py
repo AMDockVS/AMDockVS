@@ -1,15 +1,7 @@
 from __future__ import annotations
 
 from amdockvs.ui.catalog.activity import LigandActivityWidget
-from amdockvs.ui.catalog.results import ComplexWidget
-
-COMPLEXES_VIEW_ID = "workspace.complexes"
-LIGAND_ACTIVITY_VIEW_ID = "workspace.ligand_activity"
-
-
-class ComplexResultsViewWidget(ComplexWidget):
-    def refresh(self) -> None:
-        self.refresh_view()
+from amdockvs.ui.view_ids import COMPLEXES_VIEW_ID, LIGAND_ACTIVITY_VIEW_ID
 
 
 class LigandActivityViewWidget(LigandActivityWidget):
@@ -46,11 +38,7 @@ def register_ligand_activity_workspace(window) -> None:
     )
 
 
-
 __all__ = [
-    "COMPLEXES_VIEW_ID",
-    "LIGAND_ACTIVITY_VIEW_ID",
-    "ComplexResultsViewWidget",
     "LigandActivityViewWidget",
     "register_complexes_workspace",
     "register_ligand_activity_workspace",

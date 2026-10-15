@@ -21,10 +21,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from amdockvs.models.clustering import ClusteringResult
 from amdockvs.models.molecules import MoleculeRecord
 from amdockvs.runtime import AMDockVSRuntime
-from amdockvs.ui.catalog import LIGANDS_VIEW_ID
 from amdockvs.ui.main_window import AMDockVSMainWindow
-from amdockvs.ui.tools.molecules.clusters import CLUSTERS_VIEW_ID
-from amdockvs.ui.tools.molecules.diversity import SELECTION_VIEW_ID
+from amdockvs.ui.view_ids import CLUSTERS_VIEW_ID, LIGANDS_VIEW_ID, SELECTION_VIEW_ID
 
 
 def _wait(app, done, timeout_s: float = 10.0) -> None:

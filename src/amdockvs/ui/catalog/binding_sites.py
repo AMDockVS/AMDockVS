@@ -12,9 +12,7 @@ from ms_components.ms_table import (
     TableLoadMode,
     choices_from_class,
 )
-
-
-BINDING_SITES_VIEW_ID = "workspace.binding_sites"
+from amdockvs.ui.view_ids import BINDING_SITES_VIEW_ID
 
 
 def _binding_site_table_config() -> TableConfig:
@@ -82,9 +80,7 @@ def register_binding_sites_workspace(window) -> None:
     )
 
 
-
 __all__ = [
-    "BINDING_SITES_VIEW_ID",
     "BindingSiteWidget",
     "open_binding_sites_view",
     "register_binding_sites_workspace",

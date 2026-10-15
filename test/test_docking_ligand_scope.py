@@ -17,9 +17,8 @@ from amdockvs.runtime import AMDockVSRuntime  # noqa: F401  (pydantic before PyS
 
 pytest.importorskip("PySide6")
 
-from amdockvs.ui.catalog.ligands import LIGANDS_VIEW_ID
-from amdockvs.ui.catalog.shards import SHARDS_VIEW_ID
 from amdockvs.ui.tools.docking.scope_panel import ScopePanel
+from amdockvs.ui.view_ids import LIGANDS_VIEW_ID, SHARDS_VIEW_ID
 
 
 class _Panel(ScopePanel):

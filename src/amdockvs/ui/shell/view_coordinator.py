@@ -10,7 +10,6 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QLabel, QSizePolicy, QWidget
 
-from amdockvs.ui.catalog import LIGANDS_VIEW_ID, SHARDS_VIEW_ID
 from amdockvs.ui.registry import (
     CATALOG_TABLES,
     PREVIEW_VIEW_IDS,
@@ -18,9 +17,9 @@ from amdockvs.ui.registry import (
     TOOL_VIEW_IDS,
 )
 from amdockvs.ui.resources.icons import icon as load_icon
-from amdockvs.ui.tools.workflow_panel import WORKFLOW_VIEW_ID
 from amdockvs.core.vocab import PROJECT_MODE_BADGES, PROJECT_MODE_LABELS, PROJECT_MODES, ProjectMode
 from ms_components.ms_dockwidget.widget import Region
+from amdockvs.ui.view_ids import LIGANDS_VIEW_ID, SHARDS_VIEW_ID, WORKFLOW_VIEW_ID
 
 
 class ViewCoordinator:

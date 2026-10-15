@@ -21,10 +21,14 @@ pytest.importorskip("PySide6")
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QApplication, QLabel
 
-from amdockvs.ui.catalog import LIGANDS_VIEW_ID, MOLECULES_VIEW_ID, SHARDS_VIEW_ID
-from amdockvs.ui.catalog.domain_views import LIGAND_ACTIVITY_VIEW_ID
 from amdockvs.ui.registry import CATALOG_TABLES
 from amdockvs.ui.shell.view_coordinator import ViewCoordinator
+from amdockvs.ui.view_ids import (
+    LIGANDS_VIEW_ID,
+    LIGAND_ACTIVITY_VIEW_ID,
+    MOLECULES_VIEW_ID,
+    SHARDS_VIEW_ID,
+)
 
 
 class _FakeCentral:

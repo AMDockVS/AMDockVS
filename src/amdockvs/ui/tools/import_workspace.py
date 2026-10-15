@@ -35,9 +35,7 @@ from amdockvs.ui.common.drop_area import (
     write_user_input,
 )
 from amdockvs.ui.catalog.common import BoundTableWidget
-from amdockvs.ui.catalog.ligands import LIGANDS_VIEW_ID
-from amdockvs.ui.catalog.shards import SHARDS_VIEW_ID
-from amdockvs.ui.catalog.receptors import RECEPTOR_VIEW_ID, ReceptorImportPanel
+from amdockvs.ui.catalog.receptors import ReceptorImportPanel
 from amdockvs.ui.tools.molecules.filter import (
     ImportActivityForm,
     ImportFilterCriteriaForm,
@@ -47,6 +45,7 @@ from amdockvs.ui.tools.molecules.filter import (
 
 from amdockvs.io.formats import QT_FILE_FILTER as _LIGAND_FILTER
 from ms_components.theme import color
+from amdockvs.ui.view_ids import LIGANDS_VIEW_ID, RECEPTOR_VIEW_ID, SHARDS_VIEW_ID
 
 # Per-row molecule type choices. Default (first) is small molecule — the common ligand case.
 _TYPE_CHOICES = (

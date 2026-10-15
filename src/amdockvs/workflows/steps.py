@@ -15,11 +15,10 @@ from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
 from amdockvs.workflows.orchestrator import STEP_NEEDS_CONFIG, STEP_PENDING, WorkflowStep
+from amdockvs.ui.view_ids import DOCKING_VIEW_ID
 
 Config = Mapping[str, Any]
 Submit = Callable[[Any], Any]  # runtime -> job_id(s)
-
-DOCKING_VIEW_ID = "workspace.docking"  # kept in sync with docking.py; string only, stays Qt-free
 
 
 @dataclass(frozen=True)

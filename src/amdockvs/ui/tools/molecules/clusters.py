@@ -28,8 +28,8 @@ from PySide6.QtWidgets import (
 from amdockvs.ui.catalog.ligands import LigandWidget, _ligand_table_config
 from amdockvs.ui.common.async_query import run_async
 from ms_components.ms_table import FilterOperator, FilterSpec
+from amdockvs.ui.view_ids import CLUSTERS_VIEW_ID
 
-CLUSTERS_VIEW_ID = "workspace.clusters"
 
 _TITLE = "Clusters"
 _REP_COLOR = (214, 40, 40)
@@ -405,4 +405,4 @@ def register_clusters_workspace(window) -> None:
     )
 
 
-__all__ = ["CLUSTERS_VIEW_ID", "ClustersWidget", "register_clusters_workspace"]
+__all__ = ["ClustersWidget", "register_clusters_workspace"]

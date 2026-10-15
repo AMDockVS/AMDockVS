@@ -40,15 +40,14 @@ from PySide6.QtWidgets import (
 from amdockvs.workflows.orchestrator import STEP_NEEDS_CONFIG, STEP_RUNNING, WorkflowStep
 from amdockvs.ui.resources.icons import icon as load_icon
 from amdockvs.workflows.steps import (
-    DOCKING_VIEW_ID,
     PRESET_WORKFLOWS,
     STEP_SPECS,
     build_preset,
     build_route,
     make_step,
 )
+from amdockvs.ui.view_ids import DOCKING_VIEW_ID, WORKFLOW_VIEW_ID
 
-WORKFLOW_VIEW_ID = "workspace.workflow"
 
 _IMPORT_KINDS = ("import_ligands", "import_receptors")
 
@@ -787,7 +786,6 @@ def register_workflow_panel(window) -> None:
 
 
 __all__ = [
-    "WORKFLOW_VIEW_ID",
     "WorkflowPanel",
     "WorkflowGraphView",
     "save_to_workflow",

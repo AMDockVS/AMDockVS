@@ -19,8 +19,7 @@ from ms_components.ms_table import (
     TableLoadMode,
     choices_from_class,
 )
-
-MOLECULES_VIEW_ID = "workspace.molecules"
+from amdockvs.ui.view_ids import MOLECULES_VIEW_ID
 
 
 def _molecule_table_config(*, runtime) -> TableConfig:
@@ -182,9 +181,7 @@ def register_molecules_workspace(window) -> None:
     )
 
 
-
 __all__ = [
-    "MOLECULES_VIEW_ID",
     "MoleculeWidget",
     "register_molecules_workspace",
 ]

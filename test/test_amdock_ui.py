@@ -15,21 +15,12 @@ pytest.importorskip("PySide6")
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QDockWidget, QMainWindow, QToolButton, QWidget
 
-from amdockvs.ui.catalog import LIGANDS_VIEW_ID, MOLECULES_VIEW_ID, RECEPTOR_VIEW_ID
 from amdockvs.ui.main_window import AMDockVSMainWindow
 from amdockvs.ui.shell.job_feedback import JobFeedbackController
 from amdockvs.ui.shell.projects import ApplicationWidget, ProjectsWidget
 from amdockvs.ui.catalog.activity import LigandActivityWidget
 from amdockvs.ui.catalog.results import ComplexWidget
-from amdockvs.ui.catalog.domain_views import COMPLEXES_VIEW_ID
-from amdockvs.ui.tools.docking import (
-    DOCKING_VIEW_ID,
-    PREP_STATUS_VIEW_ID,
-    DockingStudioWidget,
-    EngineStatePrepView,
-)
-from amdockvs.ui.tools.docking.offtarget import OFFTARGET_VIEW_ID
-from amdockvs.ui.tools.docking.redocking import REDOCKING_VIEW_ID
+from amdockvs.ui.tools.docking import DockingStudioWidget, EngineStatePrepView
 from amdockvs.ui.tools.binding_sites.detection import (
     P2RANK_SCORE_COLORS,
     _score_palette_indices,
@@ -37,7 +28,17 @@ from amdockvs.ui.tools.binding_sites.detection import (
 from amdockvs.ui.catalog.molecules import MoleculeWidget
 from amdockvs.ui.catalog.ligands import LigandWidget, _create_ligand_set
 from amdockvs.ui.registry import STANDING_DATA_VIEWS, TOOL_VIEW_IDS
-from amdockvs.ui.tools.molecules.build import BUILD_ID
+from amdockvs.ui.view_ids import (
+    BUILD_ID,
+    COMPLEXES_VIEW_ID,
+    DOCKING_VIEW_ID,
+    LIGANDS_VIEW_ID,
+    MOLECULES_VIEW_ID,
+    OFFTARGET_VIEW_ID,
+    PREP_STATUS_VIEW_ID,
+    RECEPTOR_VIEW_ID,
+    REDOCKING_VIEW_ID,
+)
 
 
 def _patch_fake_home(monkeypatch, fake_home: Path):

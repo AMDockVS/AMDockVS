@@ -12,24 +12,25 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from importlib import import_module
-
-from amdockvs.ui.catalog import (
+from amdockvs.ui.view_ids import (
     BINDING_SITES_VIEW_ID,
-    COMPLEX_PAIRS_VIEW_ID,
+    BUILD_ID,
+    CLUSTERS_VIEW_ID,
     COMPLEXES_VIEW_ID,
+    COMPLEX_PAIRS_VIEW_ID,
+    DOCKING_VIEW_ID,
+    FILTER_ID,
     LIGANDS_VIEW_ID,
+    LIGAND_ACTIVITY_VIEW_ID,
     MOLECULES_VIEW_ID,
+    POCKET_DETECTION_VIEW_ID,
+    PREDICTIONS_VIEW_ID,
+    QSAR_BUILD_VIEW_ID,
+    QSAR_MODELS_VIEW_ID,
     RECEPTOR_VIEW_ID,
+    SELECTION_VIEW_ID,
     SHARDS_VIEW_ID,
 )
-from amdockvs.ui.catalog.domain_views import LIGAND_ACTIVITY_VIEW_ID
-from amdockvs.ui.tools.docking.studio import DOCKING_VIEW_ID
-from amdockvs.ui.tools.molecules.build import BUILD_ID
-from amdockvs.ui.tools.molecules.clusters import CLUSTERS_VIEW_ID
-from amdockvs.ui.tools.molecules.diversity import SELECTION_VIEW_ID
-from amdockvs.ui.tools.molecules.filter import FILTER_ID
-from amdockvs.ui.tools.binding_sites.detection import POCKET_DETECTION_VIEW_ID
-from amdockvs.ui.tools.qsar.panels import PREDICTIONS_VIEW_ID, QSAR_BUILD_VIEW_ID, QSAR_MODELS_VIEW_ID
 
 
 @dataclass(frozen=True)

@@ -6,10 +6,13 @@ from __future__ import annotations
 from PySide6.QtCore import QTimer
 
 from amdockvs.ui.common.async_query import run_async
-from amdockvs.ui.catalog.domain_views import LIGAND_ACTIVITY_VIEW_ID
-from amdockvs.ui.tools.molecules.clusters import CLUSTERS_VIEW_ID
 from amdockvs.ui.tools.qsar.chart import render_structure_png
-from amdockvs.ui.tools.qsar.panels import PREDICTIONS_VIEW_ID, QSAR_MODELS_VIEW_ID
+from amdockvs.ui.view_ids import (
+    CLUSTERS_VIEW_ID,
+    LIGAND_ACTIVITY_VIEW_ID,
+    PREDICTIONS_VIEW_ID,
+    QSAR_MODELS_VIEW_ID,
+)
 
 
 class ChartController:

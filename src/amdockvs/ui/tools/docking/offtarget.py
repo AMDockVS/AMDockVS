@@ -38,8 +38,8 @@ from amdockvs.ui.tools.pymol_ribbon import (
     apply_receptor_atom_coloring,
     set_pymol_scene_context,
 )
+from amdockvs.ui.view_ids import OFFTARGET_VIEW_ID
 
-OFFTARGET_VIEW_ID = "workspace.offtarget"
 LIGAND_CAP = 200
 RECEPTOR_CAP = 10
 
@@ -444,5 +444,4 @@ def register_offtarget_workspace(window) -> None:
     )
 
 
-
-__all__ = ["OFFTARGET_VIEW_ID", "OffTargetResultsWidget", "register_offtarget_workspace"]
+__all__ = ["OffTargetResultsWidget", "register_offtarget_workspace"]
