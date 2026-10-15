@@ -5,8 +5,6 @@ which runs *after* the prep) still costs zero files written.
 """
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 pytest.importorskip("rdkit")
@@ -19,13 +17,9 @@ from amdockvs.io.payloads import ImportPrefilterPolicy
 from amdockvs.models.molecules import MoleculeType
 
 
-def _common(root: Path) -> dict:
-    return {"storage_root": root / "store", "role": "ligand", "storage_key": "t", "project_root": root}
-
-
 def test_a_salt_is_split_and_nothing_is_written(tmp_path):
     decision, reason = evaluate_ligand_mol(
-        mol=Chem.MolFromSmiles("CCO.[Na+]"), metadata={}, **_common(tmp_path)
+        mol=Chem.MolFromSmiles("CCO.[Na+]"), metadata={}
     )
     assert reason is None and decision is not None
     assert Chem.MolToSmiles(decision.kept_mol) == "CCO"
@@ -33,11 +27,14 @@ def test_a_salt_is_split_and_nothing_is_written(tmp_path):
 
     row = ligand_row_fields({}, decision, current_path_rel="data/x.sdf")
     assert row["current_path"] == "data/x.sdf" and row["n_atoms"] == 3
-    assert row["extra_data"]["fragmentation"] is decision.fragment_info
+    fragmentation = row["extra_data"]["fragmentation"]
+    assert [c["smiles"] for c in fragmentation["components"]] == ["CCO", "[Na+]"]
+    assert fragmentation["selected_fragment_index"] == 1
+    assert row["canonical_smiles"] == "CCO" and row["inchikey"] == "LFQSCWFLJHTTHZ-UHFFFAOYSA-N"
 
 
 def test_a_molecule_without_any_valid_fragment_is_rejected_with_a_reason(tmp_path):
-    decision, reason = evaluate_ligand_mol(mol=Chem.MolFromSmiles(""), metadata={}, **_common(tmp_path))
+    decision, reason = evaluate_ligand_mol(mol=Chem.MolFromSmiles(""), metadata={})
     assert decision is None and reason == NO_VALID_FRAGMENT
 
 
@@ -49,7 +46,6 @@ def test_a_late_property_rejection_still_costs_zero_files(tmp_path):
         prefilter=strict,
         criteria=active_small_molecule_criteria(strict, MoleculeType.SMALL_MOLECULE),
         molecule_kind=MoleculeType.SMALL_MOLECULE,
-        **_common(tmp_path),
     )
     assert decision is None and reason == FILTERED_PROPERTY
     assert not any(tmp_path.rglob("*.sdf"))
@@ -63,7 +59,6 @@ def test_the_same_criteria_loosened_lets_the_same_molecule_through(tmp_path):
         prefilter=loose,
         criteria=active_small_molecule_criteria(loose, MoleculeType.SMALL_MOLECULE),
         molecule_kind=MoleculeType.SMALL_MOLECULE,
-        **_common(tmp_path),
     )
     assert decision is not None and reason is None
 
@@ -73,7 +68,6 @@ def test_the_optional_prep_runs_before_the_gate_and_lands_in_the_row(tmp_path):
         mol=Chem.MolFromSmiles("CCO"),
         metadata={},
         prefilter=ImportPrefilterPolicy(add_hs=True),
-        **_common(tmp_path),
     )
-    assert reason is None and decision.prepped_state is not None
+    assert reason is None and decision.kept_mol.GetNumAtoms() == 9
     assert ligand_row_fields({}, decision, current_path_rel="x.sdf")["has_hs"] is True

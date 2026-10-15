@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping
 
 from sqlalchemy import and_, update as sql_update
@@ -21,8 +20,8 @@ from amdockvs.models import (
     SetRecord,
 )
 from amdockvs.models.molecules import sanitize_molecule_extra_data
-from amdockvs.molecules.fragments import fragment_entries_from_metadata, fragment_entry_by_index
-from amdockvs.core.paths import normalize_path, get_default_project_root
+from amdockvs.molecules.fragments import fragment_entries_from_metadata
+from amdockvs.core.paths import get_default_project_root
 from amdockvs.project.sets import (
     MoleculeSetRef,
     create_molecule_snapshot_set,
@@ -343,64 +342,56 @@ class MoleculeAPI:
             raise ValueError(f"Molecule {molecule_id} does not exist.")
         return fragment_entries_from_metadata(sanitize_molecule_extra_data(molecule.extra_data))
 
-    def get_fragment_path(self, molecule_id: int, fragment_index: int) -> Path | None:
+    def select_fragment(self, molecule_id: int, fragment_index: int) -> Any:
+        """Make another component of the imported original the molecule's current structure.
+
+        Fragments are not stored: this one is cut again from the original and written alone. What
+        was computed from the old structure goes (`clear_derived`); activities, measured on the
+        imported compound, stay."""
         self.runtime._require_active_project()
-        with self.runtime.workspace.project_db.get_session() as session:
-            molecule = session.get(MoleculeRecord, int(molecule_id))
+        from amdockvs.chemistry.service import _load_ligand_mol, _write_ligand_mol
+        from amdockvs.core.paths import artifact_path_for_existing
+        from amdockvs.io.rows import structure_fields
+        from amdockvs.molecules.fragments import fragments_of
+        from amdockvs.project.deletion import clear_derived, remove_unreferenced_files
+
+        project_db = self.runtime.workspace.project_db
+        project_root = get_default_project_root()
+        molecule = self.get(molecule_id)
         if molecule is None:
             raise ValueError(f"Molecule {molecule_id} does not exist.")
-        entry = fragment_entry_by_index(sanitize_molecule_extra_data(molecule.extra_data), int(fragment_index))
-        if entry is None:
-            return None
-        path = normalize_path(entry.get("path"))
-        if path is not None and path.is_absolute():
-            return path
-        project_root = get_default_project_root()
-        return None if project_root is None or path is None else (project_root / path).resolve()
-
-    def select_fragment(self, molecule_id: int, fragment_index: int) -> Any:
-        self.runtime._require_active_project()
-        with self.runtime.workspace.project_db.get_session() as session:
-            molecule = session.get(MoleculeRecord, int(molecule_id))
-            if molecule is None:
-                raise ValueError(f"Molecule {molecule_id} does not exist.")
-            metadata = sanitize_molecule_extra_data(molecule.extra_data)
-            fragment_entry = fragment_entry_by_index(metadata, int(fragment_index))
-            if fragment_entry is None:
-                raise ValueError(f"Fragment {fragment_index} does not exist for molecule {molecule_id}.")
-            fragment_block = metadata.get("fragmentation")
-            if not isinstance(fragment_block, dict):
-                raise ValueError(f"Molecule {molecule_id} does not define fragment metadata.")
-            fragment_block["selected_fragment_index"] = int(fragment_index)
-            metadata["fragmentation"] = fragment_block
-            molecule.extra_data = metadata
-            molecule.current_path = str(fragment_entry.get("path") or molecule.current_path or "")
-            properties = dict(fragment_entry.get("properties") or {})
-            state = dict(fragment_entry.get("state") or {})
-            molecule.n_atoms = int(properties.get("n_atoms") or molecule.n_atoms or 0)
-            molecule.mw = properties.get("mw")
-            molecule.exact_mw = properties.get("exact_mw")
-            molecule.logp = properties.get("logp")
-            molecule.hbd = properties.get("hbd")
-            molecule.hba = properties.get("hba")
-            molecule.tpsa = properties.get("tpsa")
-            molecule.rotatable_bonds = properties.get("rotatable_bonds")
-            molecule.fragment_count = properties.get("fragment_count")
-            molecule.ring_count = properties.get("ring_count")
-            molecule.aromatic_ring_count = properties.get("aromatic_ring_count")
-            molecule.hetero_atom_count = properties.get("hetero_atom_count")
-            molecule.heavy_atom_count = properties.get("heavy_atom_count")
-            molecule.formal_charge = properties.get("formal_charge")
-            molecule.fraction_csp3 = properties.get("fraction_csp3")
-            molecule.pains_matches = list(properties.get("pains_matches") or [])
-            molecule.ro5_violations = list(properties.get("ro5_violations") or [])
-            molecule.has_3d = bool(state.get("has_3d", molecule.has_3d))
-            molecule.has_hs = bool(state.get("has_hs", molecule.has_hs))
-            molecule.conformer_count = int(state.get("conformer_count", molecule.conformer_count or 0) or 0)
-            session.add(molecule)
+        original = project_root / str(molecule.stored_path or "")
+        if not molecule.stored_path or not original.is_file():
+            raise ValueError(f"Molecule {molecule_id} has no imported original to take a fragment from.")
+        fragment = fragments_of(_load_ligand_mol(original)).get(int(fragment_index))
+        if fragment is None:
+            raise ValueError(f"Fragment {fragment_index} does not exist for molecule {molecule_id}.")
+        target = artifact_path_for_existing(
+            project_root / "fragments", role="ligand", source_path=original,
+            artifact_name=f"fragment_{int(fragment_index):03d}", suffix=".sdf",
+        )
+        _write_ligand_mol(fragment, target)
+        clear_derived(project_db, [molecule.id])
+        with project_db.get_session() as session:
+            row = session.get(MoleculeRecord, int(molecule.id))
+            replaced = row.current_path
+            metadata = sanitize_molecule_extra_data(row.extra_data)
+            if isinstance(metadata.get("fragmentation"), dict):  # a copy: in place, the JSON column sees no change
+                metadata["fragmentation"] = {**metadata["fragmentation"], "selected_fragment_index": int(fragment_index)}
+            for stale in ("chemistry", "history", "state"):  # described the structure that is gone
+                metadata.pop(stale, None)
+            row.extra_data = metadata
+            row.current_path = str(target.relative_to(project_root))
+            row.current_model_index = None
+            row.is_minimized = False
+            for key, value in structure_fields(fragment).items():
+                setattr(row, key, value)
+            session.add(row)
             session.commit()
-            session.refresh(molecule)
-            return molecule
+            session.refresh(row)
+        if replaced and replaced != row.current_path:
+            remove_unreferenced_files(project_db, [replaced])
+        return row
 
     def select(
         self,

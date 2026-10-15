@@ -112,9 +112,6 @@ def _materialize_structure_rows(
             row, reason = _finalize_ligand_row_from_mol(
                 row=row,
                 mol=ligand_mol,
-                storage_root=batch.storage_dir,
-                role=batch.primary_role or batch.kind,
-                storage_key=str(paths["key"]),
                 project_root=project_root,
                 current_path=current_path,
                 prefilter=batch.prefilter,
@@ -298,7 +295,7 @@ def _cocrystal_ligand_specs(
 # CONECT records, so RDKit perceives connectivity by proximity and every bond comes out single.
 # Measured by round-tripping 6 drug-like molecules through a CONECT-less PDB
 # (test/test_cocrystal_descriptors.py): these five match the true value 6/6, while
-# mw/exact_mw/logp/tpsa/hbd/aromatic_ring_count/fraction_csp3 match 0/6.
+# mw/logp/tpsa/hbd/aromatic_ring_count/fraction_csp3 match 0/6.
 # ponytail: the rest stays NULL — a wrong MW is worse than no MW once a table filter reads it.
 # This is the last resort: cocrystal_ligand_descriptors tries the CCD first and only lands here for
 # a residue name the CCD does not know (a ligand drawn by a tool, named UNL/LIG).

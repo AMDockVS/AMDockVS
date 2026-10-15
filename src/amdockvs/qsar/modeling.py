@@ -61,7 +61,6 @@ DEFAULT_QSAR_FEATURES: tuple[str, ...] = (
     "fraction_csp3",
     "formal_charge",
     "fragment_count",
-    "exact_mw",
 )
 ALLOWED_FEATURES = frozenset(DEFAULT_QSAR_FEATURES)
 

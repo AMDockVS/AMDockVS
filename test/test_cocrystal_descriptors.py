@@ -24,7 +24,7 @@ SMILES = [
     "Clc1ccccc1C1=NCc2nnc(C)n2-c2ccc(Cl)cc12",
 ]
 # Measured, not assumed: these match 0/6 once bond orders are gone.
-UNSAFE = ("mw", "exact_mw", "logp", "tpsa", "hbd", "aromatic_ring_count", "fraction_csp3")
+UNSAFE = ("mw", "logp", "tpsa", "hbd", "aromatic_ring_count", "fraction_csp3")
 
 
 def _as_deposited_pdb(smiles: str, path: Path):

@@ -23,12 +23,10 @@ from amdockvs.models import (
     ActivityRecord,
     FingerprintRecord,
     MoleculeRecord,
-    MoleculeRepresentation,
     QSARModelRecord,
     QSARPredictionRecord,
 )
 from amdockvs.models.descriptors import FingerprintType
-from amdockvs.models.molecules import ReprType
 
 # Concentration units -> molar factor, for pX = -log10(M) transforms.
 _UNIT_TO_MOLAR = {"m": 1.0, "mm": 1e-3, "um": 1e-6, "µm": 1e-6, "nm": 1e-9, "pm": 1e-12, "": 1.0}
@@ -57,17 +55,14 @@ def _structural_keys_from_smiles(smiles: str) -> tuple[str | None, str | None]:
 def _structural_keys_from_mol(mol) -> tuple[str | None, str | None]:
     if mol is None:
         return None, None
-    try:
-        from rdkit import Chem
+    from amdockvs.chemistry.descriptors import canonical_smiles, inchikey
 
-        return Chem.MolToSmiles(mol), Chem.MolToInchiKey(mol)
-    except Exception:
-        return None, None
+    return canonical_smiles(mol) or None, inchikey(mol) or None
 
 
 def _structural_keys_from_file(path: Path) -> tuple[str | None, str | None]:
-    """(canonical_smiles, inchikey) from a ligand's stored structure file. Lets activity loading
-    match by structure even though the importer doesn't persist representations yet."""
+    """(canonical_smiles, inchikey) from a ligand's stored structure file, for molecules imported
+    before the molecule table carried them."""
     try:
         from rdkit import Chem
     except ImportError:
@@ -334,32 +329,19 @@ class QSARAPI:
             })
 
     def _structural_ligand_index(self, session) -> tuple[dict[str, int], dict[str, int]]:
-        """(inchikey->id, canonical_smiles->id) over all ligands. Uses persisted representations
-        when present (fast), otherwise computes keys from each ligand's stored structure file."""
+        """(inchikey->id, canonical_smiles->id) over all ligands, from the molecule table; a
+        molecule imported before it had those columns is read from its structure file."""
         from amdockvs.core.paths import preferred_molecule_path
 
-        inchikey_to_id = {
-            str(r.value): int(r.molecule_id)
-            for r in session.exec(
-                select(MoleculeRepresentation).where(MoleculeRepresentation.repr_type == ReprType.INCHI_KEY)
-            )
-        }
-        smiles_to_id = {
-            str(r.value): int(r.molecule_id)
-            for r in session.exec(
-                select(MoleculeRepresentation).where(MoleculeRepresentation.repr_type == ReprType.SMILES_CANONICAL)
-            )
-        }
-        if inchikey_to_id or smiles_to_id:
-            return inchikey_to_id, smiles_to_id
-        # fallback: derive identity from the stored structure (importer doesn't persist reprs yet)
+        inchikey_to_id: dict[str, int] = {}
+        smiles_to_id: dict[str, int] = {}
         for mol in session.exec(select(MoleculeRecord).where(MoleculeRecord.is_ligand.is_(True))):
-            if mol.id is None:
-                continue
-            path = preferred_molecule_path(mol)
-            if path is None or not path.exists():
-                continue
-            canon, ikey = _structural_keys_from_file(path)
+            canon, ikey = mol.canonical_smiles, mol.inchikey
+            if not (canon or ikey):
+                path = preferred_molecule_path(mol)
+                if path is None or not path.exists():
+                    continue
+                canon, ikey = _structural_keys_from_file(path)
             if ikey:
                 inchikey_to_id.setdefault(ikey, int(mol.id))
             if canon:
@@ -1441,12 +1423,7 @@ class QSARAPI:
             mol = read_mol(path, remove_hs=True)
             if mol is not None:
                 return mol
-        rep = session.exec(
-            select(MoleculeRepresentation)
-            .where(MoleculeRepresentation.molecule_id == int(rec.id or 0))
-            .where(MoleculeRepresentation.repr_type == ReprType.SMILES_CANONICAL)
-        ).first()
-        return Chem.MolFromSmiles(str(rep.value)) if rep is not None else None
+        return Chem.MolFromSmiles(rec.canonical_smiles) if rec.canonical_smiles else None
 
     def atom_contributions(self, *, model: QSARModelRef | int, ligand_id: int) -> dict[str, Any]:
         """Per-atom contribution to an ECFP4 model's prediction (StarDrop's "glowing molecule").
