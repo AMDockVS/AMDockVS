@@ -66,3 +66,15 @@ def test_bell_shows_count_only_when_unread(app):
     assert "#e05561" in bell.styleSheet()  # error tint
     bell.set_unread(0)
     assert bell.text() == "" and "#e05561" not in bell.styleSheet()
+
+
+def test_items_show_the_severity_svg_or_the_glyph_while_it_is_missing(app):
+    from amdockvs.ui.shell.notifications import severity_icon
+
+    log = NotificationLog([Notification("ok"), Notification("bad", level=WARNING)])
+    info, warning = log._list.item(1), log._list.item(0)
+    assert not info.icon().isNull() and not info.text().startswith("ℹ")  # info.svg ships
+    if severity_icon(WARNING) is None:
+        assert warning.icon().isNull() and warning.text().startswith("⚠")
+    else:
+        assert not warning.icon().isNull() and not warning.text().startswith("⚠")
