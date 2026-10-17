@@ -16,8 +16,6 @@ cannot afford to keep.
 
 from __future__ import annotations
 
-import gzip
-import json
 from contextlib import suppress
 from pathlib import Path
 from typing import Any, Iterator
@@ -28,11 +26,13 @@ from sqlmodel import select
 
 from amdockvs.core.jobs import JobSpec
 from amdockvs.docking.shard_tasks import HIT_MODE_THRESHOLD, HIT_MODE_TOP_N, dock_shards
-from ms_flow.core.data.shard import Shard
 
 from amdockvs.core.worker_io import worker_file, worker_output_dir
 from amdockvs.core.configuration import DEFAULT_HIT_SAFETY_CAP
-from amdockvs.core.constants import AMDOCKVS_OFFLOADABLE_EXECUTORS, DEFAULT_VINA_BACKEND, DEFAULT_VINA_COMMAND
+from amdockvs.core.constants import (
+    AMDOCKVS_OFFLOADABLE_EXECUTORS, DEFAULT_VINA_BACKEND, DEFAULT_VINA_COMMAND, SERIES_POSES,
+)
+from amdockvs.core.payloads import structure_payload
 from amdockvs.docking.engines.programs import chunk_resources
 from amdockvs.docking.protocols import DockingProtocolMetadata
 from amdockvs.docking.repository import inputs_dir, list_entity_rows, resolve_docking_output_dir, with_input_files
@@ -40,7 +40,6 @@ from amdockvs.docking.results.repository import count_docking_results
 from amdockvs.docking.results.dataset import (
     RESULT_DATASET_FORMAT,
     completed_result_receipts,
-    local_pose_path,
     result_fragment_path,
     result_metadata,
     select_hit_refs,
@@ -87,65 +86,20 @@ def result_shard_path(output_dir: str | Path, payload: dict, shard: dict) -> Pat
     return result_fragment_path(output_dir, payload, shard)
 
 
-def _local_pose_path(value: object) -> Path | None:
-    return local_pose_path(value)
-
-
-def _embedded_pose(payload: dict) -> tuple[str, str]:
-    """Read v2 generic poses and the v1 SDF representation kept for old projects."""
-    if "pose_text" in payload:
-        suffix = str(payload.get("pose_suffix") or ".pose").lower()
-        if not suffix.startswith(".") or not suffix[1:].isalnum():
-            suffix = ".pose"
-        return str(payload.get("pose_text") or ""), suffix
-    return str(payload.get("sdf") or ""), ".sdf"
-
-
-def _materialize_pose_files(
-    rows: list[dict[str, Any]], *, project_root: str | Path | None = None
-) -> list[dict[str, Any]]:
-    """Restore individual pose files only for rows that the hit gate selected."""
-    root = Path(project_root) if project_root is not None else get_default_project_root()
-    materialized: list[dict[str, Any]] = []
+def _with_poses(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The rows the hit gate selected, each with its pose as a payload (series `poses`) and
+    without the keys that located it in its result shard."""
+    selected: list[dict[str, Any]] = []
     for original in rows:
-        row = dict(original)
-        result_text = str(row.pop("_result_shard", "") or "")
-        record_id = int(row.pop("_result_record_id", row.get("source_index") or 0))
-        shard_id = int(row.pop("_shard_id", 0) or 0)
-        has_embedded = "_pose_text" in row
-        pose_text = str(row.pop("_pose_text", "") or "")
-        pose_suffix = str(row.pop("_pose_suffix", ".pose") or ".pose")
-        result_path = Path(result_text)
-        if result_text and not result_path.is_absolute() and root is not None:
-            result_path = root / result_path
-        if result_text and not has_embedded and not result_path.is_file():
-            raise FileNotFoundError(f"Selected pose result shard not found: {result_path}")
-        if not has_embedded and result_path.is_file():
-            with Shard.open(result_path) as shard:
-                payload = json.loads(gzip.decompress(shard[record_id].load()))
-                pose_text, pose_suffix = _embedded_pose(payload)
-                shard_id = shard_id or int(shard.shard_id)
-        if result_text and not pose_text:
-            raise ValueError(
-                f"Result shard {result_path} record {record_id} has no embedded pose."
-            )
-        if pose_text and result_text:
-            pose_dir = result_path.parent / "selected"
-            pose_dir.mkdir(parents=True, exist_ok=True)
-            pose_path = pose_dir / (
-                f"shard_{shard_id:05d}_ligand_{int(row.get('source_index') or 0):09d}"
-                f"{pose_suffix}"
-            )
-            temporary = pose_path.with_name(f"{pose_path.name}.tmp")
-            temporary.write_text(pose_text, encoding="utf-8")
-            temporary.replace(pose_path)
-            row["pose_path"] = str(pose_path)
-            metrics = dict(row.get("metrics") or {})
-            metrics["selected_pose_path"] = str(pose_path)
-            metrics["selected_pose_pdbqt_path"] = ""
-            row["metrics"] = metrics
-        materialized.append(row)
-    return materialized
+        row = {key: value for key, value in original.items() if not key.startswith("_")}
+        if "_pose_text" in original:
+            if not original["_pose_text"]:
+                raise ValueError(f"Result shard {original.get('_result_shard')} record "
+                                 f"{original.get('_result_record_id')} has no embedded pose.")
+            row["pose"] = structure_payload(original["_pose_text"], original.get("_pose_suffix") or ".pose",
+                                            SERIES_POSES)
+        selected.append(row)
+    return selected
 
 
 def _project_path(project_root: str | Path, value: str) -> Path:
@@ -237,7 +191,7 @@ def recover_ranked_hits(
     )
     scanned = sum(max(0, int(receipt.ligands_scored or 0)) for receipt in receipts)
     receptor_ids = sorted({int(receipt.receptor_molecule_id) for receipt in receipts})
-    selected = _materialize_pose_files([
+    selected = _with_poses([
         hit
         for receptor_id in receptor_ids
         for hit in select_hits(
@@ -248,14 +202,13 @@ def recover_ranked_hits(
             filters={"score__lte": float(threshold), "receptor_id": receptor_id},
             top_n=cap,
         )
-    ], project_root=project_root)
+    ])
 
     materialized = ingest_hits(
         project_db,
         selected,
         gate=HitGate(cap=max(1, len(selected))),
         payload=PAYLOAD_LIGHT,
-        project_root=project_root,
         reuse_existing=True,
     ) if selected else []
     return {
@@ -345,13 +298,11 @@ class ShardHitWriter:
     def _materialize_selected(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not rows:
             return []
-        selected = _materialize_pose_files(rows)
         return ingest_hits(
             self.project_db,
-            selected,
-            gate=HitGate(cap=len(selected)),
+            _with_poses(rows),
+            gate=HitGate(cap=len(rows)),
             payload=self.store.payload,
-            project_root=get_default_project_root(),
             reuse_existing=True,
         )
 

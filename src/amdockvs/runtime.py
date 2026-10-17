@@ -345,6 +345,23 @@ class AMDockVSRuntime(AppRuntime):
             if hasattr(configuration, "set_project_root"):
                 configuration.set_project_root(None)
 
+    def check_storage(self) -> tuple[str, str, str]:
+        """(level, title, text) of a fast check of the project's payload volumes."""
+        from amdockvs.project.storage import check_storage
+
+        self._require_active_project()
+        return check_storage(self.workspace.project_db)
+
+    def compact_storage_if_due(self) -> dict | None:
+        """Compact the payload volumes that are mostly dead bytes once no job is active; the stats,
+        or None when nothing was due."""
+        from amdockvs.project.storage import compact_if_idle
+
+        self._require_active_project()
+        return compact_if_idle(
+            self.workspace.project_db, busy=bool(self.list_jobs(statuses=NON_TERMINAL_JOB_STATUSES))
+        )
+
     def create_monitor_bridge(self, *, poll_ms: int | None = None, max_recent_jobs: int | None = None):
         from ms_components.ms_monitor import MolSuiteMonitorBridge
 

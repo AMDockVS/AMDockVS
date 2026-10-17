@@ -14,11 +14,11 @@ from __future__ import annotations
 
 import heapq
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from sqlmodel import select
 
+from amdockvs.core.payloads import payload_store
 from amdockvs.models import DockingResult, MoleculeModel, MoleculeRecord
 from amdockvs.core.vocab import FileFormat, ModelSource, MoleculeType
 
@@ -30,7 +30,7 @@ PAYLOAD_FULL = "full"
 # identity away from being regenerated locally, so they only travel in `full`.
 LIGHT_FIELDS = (
     "name", "source", "source_index", "smiles", "engine", "score", "score_type",
-    "pose_path", "pose_rank", "receptor_molecule_id", "metrics",
+    "pose", "pose_rank", "receptor_molecule_id", "metrics",
 )
 
 # Descriptor columns a `full` payload may carry straight into the molecule row.
@@ -108,7 +108,7 @@ class TopNGate(HitGate):
 
     It never holds the library: the threshold is still the coarse filter in the worker, and the
     buffer here is exactly `cap` rows. `discarded()` hands back what got pushed out, so the
-    caller can delete the pose files that will never be needed.
+    caller knows what was pushed out.
     """
 
     # (rank_key, sequence, row) — a min-heap whose smallest element is the worst kept row, so
@@ -146,31 +146,19 @@ class TopNGate(HitGate):
         return evicted
 
 
-def _relative(path: str, project_root: Path | None) -> str:
-    text = str(path or "").strip()
-    if not text or project_root is None:
-        return text
-    candidate = Path(text)
-    if not candidate.is_absolute():
-        return text
-    try:
-        return str(candidate.relative_to(project_root))
-    except ValueError:
-        return str(candidate)
-
-
-def _molecule_row(hit: Mapping[str, Any], *, payload: str, project_root: Path | None) -> dict[str, Any]:
-    pose = _relative(str(hit.get("pose_path") or ""), project_root)
+def _molecule_row(hit: Mapping[str, Any], *, payload: str, structure_id: int | None,
+                  kind: str) -> dict[str, Any]:
     row: dict[str, Any] = {
         "name": str(hit.get("name") or ""),
         "molecule_type": MoleculeType.SMALL_MOLECULE,
         "source": str(hit.get("source") or ""),
         "source_index": int(hit.get("source_index") or 0),
-        "input_format": str(hit.get("input_format") or FileFormat.SDF),
+        "input_format": str(hit.get("input_format") or kind or FileFormat.SDF),
         "is_ligand": True,
-        # The pose is the only 3D a light hit carries, so it is also its canonical copy.
-        "stored_path": pose,
-        "current_path": pose,
+        # The pose is the only 3D a light hit carries, so it is also its structure: one payload
+        # that the molecule and its docking result both hold.
+        "stored_payload_id": structure_id,
+        "current_payload_id": structure_id,
         "extra_data": {"smiles": str(hit.get("smiles") or "")},
     }
     if payload == PAYLOAD_FULL:
@@ -184,13 +172,14 @@ def ingest_hits(
     *,
     gate: HitGate,
     payload: str = PAYLOAD_LIGHT,
-    project_root: Path | str | None = None,
     reuse_existing: bool = False,
 ) -> list[dict[str, Any]]:
     """Promote hits into `molecules` + `docking_results`, gated.
 
-    Returns the materialized rows with their new `molecule_id`. Call it per returned batch:
-    the gate carries the count across calls, so the cap holds over the whole campaign.
+    A hit's `pose` is a `Payload` (series `poses`); a `full` hit's `models` are `Payload`s too.
+    Returns the materialized rows with their new `molecule_id` and `pose_payload_id`. Call it per
+    returned batch: the gate carries the count across calls, so the cap holds over the whole
+    campaign.
 
     ponytail: writes through a session instead of a job sink because the cap is what bounds
     this — at most `cap` rows ever reach it, and it runs in the process that ingests, not in a
@@ -198,12 +187,15 @@ def ingest_hits(
     """
     if payload not in (PAYLOAD_LIGHT, PAYLOAD_FULL):
         raise ValueError(f"payload must be '{PAYLOAD_LIGHT}' or '{PAYLOAD_FULL}', got {payload!r}.")
-    root = Path(project_root).expanduser().resolve() if project_root else None
     materialized: list[dict[str, Any]] = []
     selected = gate.take(hits)
     if not selected:
         return materialized
+    store = payload_store(project_db)
+    replaced: list[int] = []  # poses of results written again: released once the new ones commit
     with project_db.get_session() as session:
+        posed = [hit for hit in selected if hit.get("pose") is not None]
+        pose_ids = dict(zip(map(id, posed), store.put(session, [hit["pose"] for hit in posed])))
         molecules_by_source: dict[tuple[str, int], MoleculeRecord] = {}
         if reuse_existing:
             sources = sorted({str(hit.get("source") or "") for hit in selected})
@@ -217,10 +209,12 @@ def ingest_hits(
                 (str(row.source), int(row.source_index)): row for row in existing
             }
         for hit in selected:
+            pose_id = pose_ids.get(id(hit))
             source_key = (str(hit.get("source") or ""), int(hit.get("source_index") or 0))
             molecule = molecules_by_source.get(source_key)
             if molecule is None:
-                molecule = MoleculeRecord(**_molecule_row(hit, payload=payload, project_root=root))
+                kind = hit["pose"].kind if hit.get("pose") is not None else ""
+                molecule = MoleculeRecord(**_molecule_row(hit, payload=payload, structure_id=pose_id, kind=kind))
                 session.add(molecule)
                 session.flush()  # need the id for the result row
                 if reuse_existing:
@@ -233,9 +227,10 @@ def ingest_hits(
                 pose_rank=int(hit.get("pose_rank") or 1),
                 score=None if hit.get("score") is None else float(hit["score"]),
                 score_type=str(hit.get("score_type") or ""),
-                pose_path=_relative(str(hit.get("pose_path") or ""), root),
                 metrics=dict(hit.get("metrics") or {}),
             )
+            result_row.pop("pose_path", None)
+            result_row["pose_payload_id"] = pose_id
             docking_result = None
             if reuse_existing:
                 wanted_metrics = dict(result_row.get("metrics") or {})
@@ -256,25 +251,30 @@ def ingest_hits(
             if docking_result is None:
                 docking_result = DockingResult(**result_row)
             else:
+                if docking_result.pose_payload_id not in (None, pose_id):
+                    replaced.append(int(docking_result.pose_payload_id))
                 docking_result.score = result_row["score"]
                 docking_result.score_type = result_row["score_type"]
-                docking_result.pose_path = result_row["pose_path"]
+                docking_result.pose_payload_id = pose_id
                 docking_result.metrics = result_row["metrics"]
             session.add(docking_result)
             if payload == PAYLOAD_FULL:
-                for index, model_path in enumerate(hit.get("models") or ()):
+                models = list(hit.get("models") or ())
+                for index, model_id in enumerate(store.put(session, models)):
                     session.add(
                         MoleculeModel(
                             **MoleculeModel.build_row(
                                 molecule_id=molecule_id,
                                 model_index=index,
-                                file_path=_relative(str(model_path), root),
+                                payload_id=model_id,
                                 source=ModelSource.IMPORTED,
                             )
                         )
                     )
-            materialized.append({**hit, "molecule_id": molecule_id})
+            materialized.append({**hit, "molecule_id": molecule_id, "pose_payload_id": pose_id})
         session.commit()
+    if replaced:
+        store.release(replaced)  # a pose that is also a molecule's structure stays
     return materialized
 
 
