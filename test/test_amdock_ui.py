@@ -612,13 +612,13 @@ def test_tool_buttons_are_flat_and_keep_result_views_available(tmp_path, monkeyp
         assert id_filter(LIGANDS_VIEW_ID) == [1]
 
         # The selection is global and only the user drops it: the status bar shows it wherever
-        # they are, and its chip clears it everywhere. On its own step a picked row is listed
-        # prepared or not, so preparing a selection never leaves an empty table behind.
+        # they are, and its chip clears it everywhere. On its own step the selection obeys the
+        # "left to prepare" filter too: a prepared selection lists nothing, so it reads done.
         chip = window._status_bar.selection_indicators["ligand"]
         assert chip.isVisible() and chip.text() == "Ligands: 1 selected ✕"
         assert not window._status_bar.selection_indicators["receptor"].isVisible()
         studio.stepper.set_current_index(1)
-        assert studio._unprepared_clause("ligand") is None
+        assert studio._unprepared_clause("ligand") is not None
         chip.clicked.emit()
         assert window.selection.get("ligand") is None and not chip.isVisible()
         assert id_filter(LIGANDS_VIEW_ID) is None
