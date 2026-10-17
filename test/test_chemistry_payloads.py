@@ -67,3 +67,39 @@ def test_prediction_task_returns_payloads_and_keeps_the_stored_structure(monkeyp
     model, = out["molecule_models"]
     assert model["payload_id"] is molecule["current_payload_id"]
     assert model["pae_payload_id"].kind == "npy"
+
+
+def test_pdb2pqr_receptor_row_comes_back_as_the_pdb_payload(monkeypatch):
+    """The tool writes its PDB and a PQR sidecar into a work folder: the row gets the PDB bytes, and
+    neither file nor the temp copy of the input outlives the call."""
+    import subprocess
+
+    from amdockvs.chemistry.service import transform_receptor_rows
+    from amdockvs.chemistry.tools import receptors
+    from amdockvs.core.constants import SERIES_RECEPTORS
+
+    touched: list[Path] = []
+
+    def fake_run(cmd, **_kwargs):
+        pdb = Path(next(arg for arg in cmd if arg.startswith("--pdb-output=")).split("=", 1)[1])
+        source, pqr = Path(cmd[-2]), Path(cmd[-1])
+        assert source.read_bytes() == PDB  # the tool read a temp file holding the row's bytes
+        pdb.write_bytes(b"PROTONATED PDB\n")
+        pqr.write_bytes(b"PQR SIDECAR\n")
+        touched.extend([source, pdb, pqr])
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(receptors.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(receptors.subprocess, "run", fake_run)
+
+    update, = transform_receptor_rows(
+        operation="protonate",
+        rows=[{"id": 9, "structure": PDB, "structure_kind": "pdb", "has_3d": True, "current_model_index": 0}],
+        params={"method": "pdb2pqr"},
+        next_model_index_by_entity={9: 1},
+    )
+
+    current = update["current_payload_id"]
+    assert (current.data, current.kind, current.series) == (b"PROTONATED PDB\n", "pdb", SERIES_RECEPTORS)
+    assert update["model_rows"][0]["payload_id"] is current and update["current_model_index"] == 1
+    assert touched and not any(path.exists() for path in touched)
