@@ -1,4 +1,4 @@
-from types import SimpleNamespace
+import time
 
 import pytest
 import toml
@@ -39,42 +39,49 @@ def test_2d_preview_skips_molecules_above_configured_heavy_atom_limit(tmp_path):
     assert "<svg" in _molecule_svg_for_path(str(above_limit), max_heavy_atoms=51)
 
 
-def test_runtime_bound_2d_preview_reads_the_effective_setting(tmp_path):
+def test_runtime_bound_2d_preview_reads_the_effective_setting(tmp_path, monkeypatch):
     pytest.importorskip("rdkit")
+    from rdkit import Chem
+
+    from amdockvs import AMDockVSRuntime
     from amdockvs.core.configuration import MAX_2D_PREVIEW_HEAVY_ATOMS_PATH
-    from amdockvs.ui.catalog.common import molecule_2d_preview_paint_for_runtime
+    from amdockvs.models import MoleculeRecord
+    pytest.importorskip("PySide6")
+    from PySide6.QtWidgets import QApplication
 
-    molecule_path = tmp_path / "alkane_51.mol"
-    _write_alkane(molecule_path, 51)
-    row = {
-        "__raw__": SimpleNamespace(
-            molecule_type="small_molecule",
-            current_path=str(molecule_path),
-            stored_path="",
-        )
-    }
+    from amdockvs.ui.catalog.common import PREVIEW_READY, molecule_2d_preview_paint_for_runtime
+    from payload_seed import seed_payload
 
-    class ConfigurationStub:
-        def __init__(self, owner):
-            self._owner = owner
+    app = QApplication.instance() or QApplication(["amdockvs-preview-test"])
 
-        def get_value(self, path):
-            assert path == MAX_2D_PREVIEW_HEAVY_ATOMS_PATH
-            return self._owner.limit
+    monkeypatch.setenv("HOME", str(tmp_path))
+    runtime = AMDockVSRuntime()
+    try:
+        runtime.create_project(name="preview", folder=tmp_path / "preview", description="")
+        store = runtime.workspace.project_db
+        payload_id = seed_payload(store, Chem.MolToMolBlock(Chem.MolFromSmiles("C" * 51)), kind="mol")
+        row = {"__raw__": MoleculeRecord(name="alkane", molecule_type="small_molecule", current_payload_id=payload_id)}
+        paint = molecule_2d_preview_paint_for_runtime(runtime)
+        landed = []
+        PREVIEW_READY.ready.connect(lambda: landed.append(1))
 
-    class RuntimeStub:
-        limit = 50
+        def painted() -> str:
+            """What the cell shows once the depiction of the first paint has landed."""
+            landed.clear()
+            first = paint(row)
+            assert first == ""  # painting never waits for the read
+            deadline = time.monotonic() + 10
+            while not landed and time.monotonic() < deadline:
+                app.processEvents()
+                time.sleep(0.01)
+            assert landed
+            return paint(row)
 
-        @property
-        def amdock_configuration(self):
-            return ConfigurationStub(self)
-
-    runtime = RuntimeStub()
-    paint = molecule_2d_preview_paint_for_runtime(runtime)
-
-    assert paint(row) == ""
-    runtime.limit = 51
-    assert "<svg" in paint(row)
+        assert painted() == ""  # 51 heavy atoms, limit 50: no depiction
+        runtime.amdock_configuration.set_value(MAX_2D_PREVIEW_HEAVY_ATOMS_PATH, 51)
+        assert "<svg" in painted()
+    finally:
+        runtime.shutdown()
 
 
 def test_runtime_migrates_legacy_flat_preview_setting(tmp_path, monkeypatch):

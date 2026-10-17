@@ -53,8 +53,8 @@ def _ligand_table_config(*, runtime) -> TableConfig:
             ColumnDef("source", label="Source", width=360, sortable=True),
             ColumnDef("input_format", label="Format", width=90, sortable=True, filterable=True,
                       kind=ColumnKind.CHOICE, choices=choices_from_class(FileFormat)),
-            ColumnDef("current_path", label="Current Path", width=300, sortable=True, visible=False),
-            ColumnDef("stored_path", label="Stored Path", width=300, sortable=True, visible=False),
+            ColumnDef("current_payload_id", label="Current Payload", width=130, sortable=True, visible=False),
+            ColumnDef("stored_payload_id", label="Stored Payload", width=130, sortable=True, visible=False),
         ],
         # ponytail: no usage_class default. Filtering to `general` here hid every reference
         # cocrystal, and in a sharded project that left the table permanently empty — the

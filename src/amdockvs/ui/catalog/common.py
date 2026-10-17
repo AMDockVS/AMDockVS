@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from copy import deepcopy
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
 
@@ -13,7 +13,8 @@ from amdockvs.core.configuration import (
     DEFAULT_MAX_2D_PREVIEW_HEAVY_ATOMS,
     MAX_2D_PREVIEW_HEAVY_ATOMS_PATH,
 )
-from amdockvs.core.paths import preferred_molecule_path
+from amdockvs.core.payloads import molecule_payload_id, payload_store
+from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.common.job_follower import JobFollower
 from ms_components.ms_table import FilterOperator, FilterSpec, TableConfig, SmartTableView
 from ms_components.tool_panel import ActionBar
@@ -31,28 +32,9 @@ def _row_raw_object(row_data: dict) -> Any | None:
     return row_data.get("__raw__")
 
 
-def display_project_relative_path(path_text: Any) -> str:
-    raw = str(path_text or "").strip()
-    if not raw:
-        return ""
-    path = Path(raw)
-    if not path.is_absolute():
-        return raw
-    parts = path.parts
-    if "data" in parts:
-        return str(Path(*parts[parts.index("data") :]))
-    return raw
-
-
 def supports_2d_depiction(record_or_row: Any) -> bool:
     raw = _row_raw_object(record_or_row) if isinstance(record_or_row, dict) else record_or_row
     return str(getattr(raw, "molecule_type", "") or "") == "small_molecule"
-
-
-def resolve_molecule_display_path(record_or_row: Any) -> Path:
-    target = _row_raw_object(record_or_row) if isinstance(record_or_row, dict) else record_or_row
-    resolved = preferred_molecule_path(target if target is not None else record_or_row)
-    return resolved if resolved is not None else Path()
 
 
 def detect_preview_theme() -> str:
@@ -145,66 +127,82 @@ def _molecule_svg_for_path(
         return ""
 
 
-@lru_cache(maxsize=1024)
-def _cached_molecule_svg(
-    path_text: str,
-    mtime_ns: int,
+def _molecule_svg_for_payload(
+    data: bytes,
+    kind: str,
     width: int = _PREVIEW_WIDTH,
     height: int = _PREVIEW_HEIGHT,
-    theme: str = "auto",
+    theme: str = "light",
     max_heavy_atoms: int = DEFAULT_MAX_2D_PREVIEW_HEAVY_ATOMS,
 ) -> str:
-    del mtime_ns
-    return _molecule_svg_for_path(
-        path_text,
-        width=width,
-        height=height,
-        theme=theme,
-        max_heavy_atoms=max_heavy_atoms,
-    )
+    """The depiction of one stored structure. The reader takes paths (`io.formats.read_mol` is the
+    one reader of the app), so the bytes pass through a scratch file that lives only here."""
+    from ms_flow.payloads import scratch_file
+
+    with scratch_file(data, f".{kind or 'sdf'}") as path:
+        return _molecule_svg_for_path(str(path), width=width, height=height, theme=theme,
+                                      max_heavy_atoms=max_heavy_atoms)
 
 
-def molecule_2d_preview_paint(
-    row_data: dict,
-    *,
-    max_heavy_atoms: int = DEFAULT_MAX_2D_PREVIEW_HEAVY_ATOMS,
-) -> str:
-    if not supports_2d_depiction(row_data):
+class _PreviewReady(QObject):
+    ready = Signal()
+
+
+# Emitted when a depiction lands in the cache: tables showing the 2D column repaint.
+PREVIEW_READY = _PreviewReady()
+_PREVIEW_CACHE_SIZE = 1024
+
+
+class MoleculePreviews:
+    """2D depictions for a table's preview column. Painting must not wait, so a cell with no
+    depiction yet paints empty while the bytes are read and drawn off the GUI thread; the cell
+    repaints when `PREVIEW_READY` fires. Payload ids are never reused: a cached depiction is never stale."""
+
+    def __init__(self, runtime) -> None:
+        self._runtime = runtime
+        self._svgs: OrderedDict[tuple, str] = OrderedDict()
+        self._pending: set[tuple] = set()
+
+    def paint(self, row_data: dict) -> str:
+        if not supports_2d_depiction(row_data):
+            return ""
+        payload_id = molecule_payload_id(_row_raw_object(row_data) or row_data)
+        if not payload_id:
+            return ""
+        max_heavy_atoms = self._runtime.amdock_configuration.get_value(MAX_2D_PREVIEW_HEAVY_ATOMS_PATH)
+        theme = detect_preview_theme()
+        key = (int(payload_id), theme, int(max_heavy_atoms))
+        if key in self._svgs:
+            self._svgs.move_to_end(key)
+            return self._svgs[key]
+        if key not in self._pending:
+            self._pending.add(key)
+            store = payload_store(self._runtime)
+
+            def draw() -> str:
+                data = store.get(key[0])
+                kind = store.kinds([key[0]]).get(key[0], "")
+                return _molecule_svg_for_payload(data, kind, theme=theme, max_heavy_atoms=key[2])
+
+            run_async(draw, lambda svg: self._landed(key, svg), lambda error: self._landed(key, ""))
         return ""
-    path = resolve_molecule_display_path(row_data)
-    if not path.exists():
-        return ""
-    try:
-        stat = path.stat()
-    except OSError:
-        return ""
-    return _cached_molecule_svg(
-        str(path),
-        stat.st_mtime_ns,
-        theme=detect_preview_theme(),
-        max_heavy_atoms=max_heavy_atoms,
-    )
+
+    def _landed(self, key: tuple, svg: str) -> None:
+        self._pending.discard(key)
+        self._svgs[key] = svg
+        while len(self._svgs) > _PREVIEW_CACHE_SIZE:
+            self._svgs.popitem(last=False)
+        PREVIEW_READY.ready.emit()
 
 
 def molecule_2d_preview_paint_for_runtime(runtime):
-    def paint(row_data: dict) -> str:
-        max_heavy_atoms = runtime.amdock_configuration.get_value(MAX_2D_PREVIEW_HEAVY_ATOMS_PATH)
-        return molecule_2d_preview_paint(row_data, max_heavy_atoms=max_heavy_atoms)
-
-    return paint
+    return MoleculePreviews(runtime).paint
 
 
 def molecule_2d_preview_tooltip(row_data: dict) -> str:
     raw = _row_raw_object(row_data)
     name = getattr(raw, "name", "") if raw is not None else row_data.get("name", "")
-    current_path = getattr(raw, "current_path", "") if raw is not None else row_data.get("current_path", "")
-    stored_path = getattr(raw, "stored_path", "") if raw is not None else row_data.get("stored_path", "")
-    lines = [str(name or "").strip()]
-    if current_path:
-        lines.append(f"Current: {current_path}")
-    if stored_path:
-        lines.append(f"Stored: {stored_path}")
-    return "\n".join(line for line in lines if line)
+    return str(name or "").strip()
 
 
 def project_table(runtime, config: TableConfig, parent: QWidget | None = None) -> SmartTableView:
@@ -300,6 +298,8 @@ class BoundTableWidget(QWidget):
         # any interactive changes back to AMDock's own config, keyed by the widget class.
         self._apply_saved_view_state()
         self._table.view_state_changed.connect(self._persist_view_state)
+        if any(column.field == PREVIEW_2D_COLUMN_FIELD for column in config.columns):
+            PREVIEW_READY.ready.connect(self._table.repaint_rows)  # a depiction landed
         layout.addWidget(self._table)
         # Delete key removes the selected rows on any table that opts in via delete_kind.
         delete_shortcut = QShortcut(QKeySequence.StandardKey.Delete, self._table)
