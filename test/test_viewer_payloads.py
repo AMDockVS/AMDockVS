@@ -68,3 +68,21 @@ def test_a_pose_and_its_receptor_reach_pymol_as_bytes(tmp_path, monkeypatch):
         assert len(show(poses[1], 5)) == 5  # a wiped canvas gets the receptor back with the pose
     finally:
         runtime.shutdown()
+
+
+def test_a_redocked_complex_keeps_its_own_camera_not_the_last_complex_view(monkeypatch):
+    from amdockvs import AMDockVSRuntime  # noqa: F401 - pydantic before PySide
+    from amdockvs.ui.viewers import molecular_viewer
+
+    scenes = []
+    monkeypatch.setattr(molecular_viewer, "load_structure", lambda cmd, data, name: cmd.objects.append(name))
+    monkeypatch.setattr(molecular_viewer, "set_pymol_scene_context", lambda *a, **k: scenes.append(k))
+    cmd = _Cmd()
+    viewer = molecular_viewer.MolecularViewerController(
+        SimpleNamespace(pymol_dock=SimpleNamespace(cmd=cmd, show=lambda: None)))
+    viewer._read = lambda wanted, then: then({k: b"x" for k, v in wanted.items() if v})
+    viewer.load_hit(SimpleNamespace(run_kind="redocking", pose_payload_id=3, reference_ligand_payload_id=2,
+                                    ligand_payload_id=None, reference_receptor_payload_id=1,
+                                    receptor_payload_id=1), 1)
+    # Every complex shares the object names, so a remembered view is another complex's camera.
+    assert scenes and scenes[-1]["restore_view"] is False

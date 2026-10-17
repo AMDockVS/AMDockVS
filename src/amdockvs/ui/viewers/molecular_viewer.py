@@ -340,6 +340,9 @@ class MolecularViewerController:
                         "ligand": " or ".join(ligand_objs),
                     },
                     default_preset="amdockvs.complex",
+                    # Every complex loads under the same object names, so a remembered camera
+                    # belongs to whichever complex was shown before, in its own frame.
+                    restore_view=False,
                 )
             except Exception:
                 return
