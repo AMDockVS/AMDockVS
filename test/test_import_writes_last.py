@@ -1,9 +1,11 @@
-"""Import writes molecule files last: a rejected molecule leaves nothing on disk."""
+"""Import returns payloads and writes no molecule files: a rejected molecule leaves nothing behind."""
 from __future__ import annotations
 
 import pytest
 
 pytest.importorskip("rdkit")
+
+from ms_flow.payloads import Payload
 
 from amdockvs.io.transformers.materializers import materialize_import_batch
 
@@ -38,7 +40,7 @@ def _payload(tmp_path, records, prefilter):
     }
 
 
-def test_rejected_molecule_writes_no_files(tmp_path):
+def test_rejected_molecule_yields_no_row_and_no_file(tmp_path):
     payload = _payload(
         tmp_path,
         [(SMALL, "small"), (BIG, "big")],
@@ -47,16 +49,18 @@ def test_rejected_molecule_writes_no_files(tmp_path):
     rows = materialize_import_batch(payload)
 
     assert [row["name"] for row in rows] == ["small"]
-    written = sorted(p.name for p in (tmp_path / "data" / "ligands").rglob("*.sdf"))
-    # Only the survivor's files: original + current. Nothing for "big".
-    assert len(written) == 2
+    # The survivor carries its bytes in the row; no molecule file is written for anyone.
+    assert not list((tmp_path / "data").rglob("*.sdf"))
 
 
-def test_fragments_are_listed_not_written_and_the_row_carries_its_identity(tmp_path):
+def test_fragments_are_listed_not_written_and_the_row_carries_its_payloads(tmp_path):
     rows = materialize_import_batch(_payload(tmp_path, [(SMALL, "small")], None))
 
     row = rows[0]
     fragments = row["extra_data"]["fragmentation"]["components"]
     assert len(fragments) == 2 and all(set(f) == {"fragment_index", "role", "smiles"} for f in fragments)
-    assert (tmp_path / row["current_path"]).exists()
+    assert "current_path" not in row and "stored_path" not in row
+    assert isinstance(row["stored_payload_id"], Payload) and row["stored_payload_id"].kind == "sdf"
+    assert isinstance(row["current_payload_id"], Payload) and row["current_payload_id"].kind == "sdf"
+    assert not list((tmp_path / "data").rglob("*.sdf"))
     assert row["canonical_smiles"] and row["inchikey"]

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
@@ -15,13 +16,13 @@ from amdockvs.io.receptor_preview import (
 )
 from amdockvs.core.vocab import BindingSiteSource, MoleculeType, MoleculeUsageClass
 from amdockvs.io.import_stats import IMPORTED, bump
-from amdockvs.io.formats import as_pdb, canonical_suffix
-from amdockvs.core.paths import artifact_storage_path, managed_paths_for_source
+from amdockvs.io.formats import as_pdb, canonical_suffix, normalized_suffix
+from amdockvs.core.payloads import structure_payload
+from amdockvs.core.paths import molecule_storage_key
 from amdockvs.io.transformers.rows import (
     _build_row,
     _finalize_ligand_row_from_mol,
     _progress_update,
-    _project_root_from_storage_dir,
 )
 
 
@@ -32,10 +33,25 @@ def _materialize_structure_rows(
     progress_cb: Callable[[float], None] | None = None,
     tally: dict[str, int] | None = None,
 ) -> Iterable[dict[str, Any]]:
+    """The tools read paths, so what they produce goes through a scratch folder that dies with
+    the batch: only its bytes leave, as payloads."""
+    with tempfile.TemporaryDirectory(prefix="amdock_import_") as scratch:
+        yield from _structure_rows(
+            batch=batch, entries=entries, progress_cb=progress_cb, tally=tally, scratch=Path(scratch)
+        )
+
+
+def _structure_rows(
+    *,
+    batch: ImportBatchPayload,
+    entries: list[dict[str, Any]],
+    progress_cb: Callable[[float], None] | None,
+    tally: dict[str, int] | None,
+    scratch: Path,
+) -> Iterable[dict[str, Any]]:
     tally = tally if tally is not None else {}
     resolved_entries = entries or [{"source_index": 0, "source_file": str(batch.file_path)}]
     total_entries = len(resolved_entries)
-    project_root = _project_root_from_storage_dir(batch.storage_dir)
     for index, entry in enumerate(resolved_entries, start=1):
         source_index = int(entry.get("source_index") or 0)
         source_file = Path(entry.get("source_file") or batch.file_path).expanduser().resolve()
@@ -61,18 +77,11 @@ def _materialize_structure_rows(
             metadata.update({key: dict(preview.get(key) or {}) for key in ("structure", "precheck", "workflow")})
             binding_site_specs = list(preview.get("binding_site_specs") or [])
         options = _receptor_import_options_from_patch(metadata) if is_receptor else None
-        paths = managed_paths_for_source(
-            storage_root=batch.storage_dir,
-            role=batch.primary_role or batch.kind,
-            source_file=source_file,
-            source_index=source_index,
-            original_suffix=suffix,
-            current_suffix=current_suffix,
-            variant=_receptor_import_variant(options),
+        molecule_key = molecule_storage_key(
+            batch.primary_role or batch.kind, source_file, source_index, _receptor_import_variant(options)
         )
-        stored_path = paths["original_path"]
-        current_path = paths["current_path"]
-        shutil.copy2(source_file, stored_path)
+        current_path = scratch / f"{index}_current{current_suffix}"
+        original = structure_payload(source_file.read_bytes(), normalized_suffix(source_file) or "dat")
         processing_summary: dict[str, Any] = {}
         ligand_mol = None
         # A PDBQT is an engine artifact, not a structure format: hand the scanners a PDB.
@@ -88,9 +97,7 @@ def _materialize_structure_rows(
                 ligand_role = str(batch.primary_role or batch.kind).strip().lower() == "ligand"
                 if ligand_role and str(batch.molecule_kind or "").strip().lower() == MoleculeType.SMALL_MOLECULE:
                     ligand_mol = _load_small_molecule_from_path(source_file)
-                if ligand_mol is not None:
-                    current_path.write_text("", encoding="utf-8")
-                else:
+                if ligand_mol is None:
                     shutil.copy2(structure_source, current_path)
         metadata = {
             **metadata,
@@ -103,15 +110,15 @@ def _materialize_structure_rows(
             "has_hs": ".pdbqt" in {current_suffix, suffix},
             "conformer_count": 1 if has_3d else 0,
         }
+        # A small-molecule ligand gets its current form from the Mol once it survives the filters.
         row = _build_row(
-            project_root=project_root,
             source_file=source_file,
             source_index=source_index,
             name=source_file.stem,
-            n_atoms=_count_atoms_from_structure_lines(current_path),
+            n_atoms=0 if ligand_mol is not None else _count_atoms_from_structure_lines(current_path),
             input_format=suffix.lstrip("."),
-            stored_path=stored_path,
-            current_path=current_path,
+            stored=original,
+            current=None if ligand_mol is not None else structure_payload(current_path.read_bytes(), current_suffix),
             metadata=metadata,
             molecule_kind=batch.molecule_kind,
             primary_role=batch.primary_role,
@@ -121,8 +128,6 @@ def _materialize_structure_rows(
             row, reason = _finalize_ligand_row_from_mol(
                 row=row,
                 mol=ligand_mol,
-                project_root=project_root,
-                current_path=current_path,
                 prefilter=batch.prefilter,
             )
             if reason is not None:
@@ -136,7 +141,7 @@ def _materialize_structure_rows(
                 {
                     "role_type": str(batch.primary_role or batch.kind).strip().lower(),
                     "engine": "ad4",
-                    "files": {"prepared": str(stored_path)},
+                    "prepared_payload_id": original,
                     "is_ready": True,
                 }
             ]
@@ -169,42 +174,25 @@ def _materialize_structure_rows(
                 source_index=source_index,
                 workflow=workflow,
                 options=options,
+                scratch=scratch,
             )
-            reference_receptor_path = ""
-            if ligand_specs_list:
-                reference_path = artifact_storage_path(
-                    batch.storage_dir,
-                    role="receptor",
-                    key=str(paths["key"]),
-                    artifact_name="reference",
-                    suffix=current_path.suffix or ".pdb",
-                )
-                shutil.copy2(current_path, reference_path)
-                reference_receptor_path = str(reference_path.relative_to(project_root))
+            # One frozen receptor snapshot for every complex of this receptor.
+            reference_receptor = (
+                structure_payload(current_path.read_bytes(), current_suffix) if ligand_specs_list else None
+            )
             for ligand_specs in ligand_specs_list:
                 # Freeze the native ligand pose alongside the receptor snapshot so redocking
                 # RMSD has a stable reference that prep/3D regen can't move later.
-                reference_ligand_path = ""
-                ligand_current = Path(ligand_specs["current_path"])
-                if ligand_current.exists():
-                    ligand_reference_path = artifact_storage_path(
-                        batch.storage_dir,
-                        role="ligand",
-                        key=str(ligand_specs["selector"] or paths["key"]),
-                        artifact_name="reference",
-                        suffix=ligand_current.suffix or ".pdb",
-                    )
-                    shutil.copy2(ligand_current, ligand_reference_path)
-                    reference_ligand_path = str(ligand_reference_path.relative_to(project_root))
+                ligand_current = Path(ligand_specs["path"])
+                ligand_bytes = ligand_current.read_bytes()
                 ligand_row = _build_row(
-                    project_root=project_root,
                     source_file=source_file,
                     source_index=int(ligand_specs["source_index"]),
                     name=str(ligand_specs["name"] or f"{source_file.stem}_ligand"),
                     n_atoms=int(ligand_specs["n_atoms"] or 0),
                     input_format="pdb",
-                    stored_path=Path(ligand_specs["stored_path"]),
-                    current_path=Path(ligand_specs["current_path"]),
+                    stored=structure_payload(ligand_bytes, "pdb"),
+                    current=structure_payload(ligand_bytes, "pdb"),
                     metadata={
                         "state": {"has_3d": True, "has_hs": False, "conformer_count": 1},
                         "workflow_origin": {
@@ -231,8 +219,8 @@ def _materialize_structure_rows(
                 ligand_row["complex_spec"] = {
                     "name": f"{source_file.stem}_{ligand_specs['selector']}",
                     "receptor_ref": f"molecule::{source_file}::{source_index}",
-                    "reference_receptor_path": reference_receptor_path,
-                    "reference_ligand_path": reference_ligand_path,
+                    "reference_receptor_payload_id": reference_receptor,
+                    "reference_ligand_payload_id": structure_payload(ligand_bytes, "pdb"),
                     "binding_site_position": row.get("active_binding_site_position"),
                     "purpose": "reference",
                     "metadata": {
@@ -257,6 +245,7 @@ def _cocrystal_ligand_specs(
     source_index: int,
     workflow: dict[str, Any],
     options: ReceptorImportOptions,
+    scratch: Path,
 ) -> list[dict[str, Any]]:
     # The user-selected cocrystal ligands become references (artifact copies were deselected in the
     # Ligands chips). Fall back to all candidates if an older patch has no explicit selection.
@@ -267,23 +256,15 @@ def _cocrystal_ligand_specs(
     specs: list[dict[str, Any]] = []
     for offset, selector in enumerate(selectors, start=1):
         ligand_index = (int(source_index) * 1000) + offset
-        ligand_paths = managed_paths_for_source(
-            storage_root=batch.storage_dir,
-            role="ligand",
-            source_file=source_file,
-            source_index=ligand_index,
-            original_suffix=".pdb",
-            current_suffix=".pdb",
-        )
+        ligand_path = scratch / f"cocrystal_{ligand_index}.pdb"
         extracted = extract_component_to_pdb(
             source_file,
-            ligand_paths["original_path"],
+            ligand_path,
             selector=selector,
             use_biological_assembly=False,  # extract the cocrystal pose as deposited (ASU coords)
         )
         if extracted is None:
             continue
-        shutil.copy2(ligand_paths["original_path"], ligand_paths["current_path"])
         resname = str(extracted.get("resname") or "ligand").strip().upper()
         chain_id = str(extracted.get("chain_id") or "").strip()
         resseq = str(extracted.get("resseq") or "").strip()
@@ -292,8 +273,7 @@ def _cocrystal_ligand_specs(
             {
                 "name": ligand_name,
                 "source_index": ligand_index,
-                "stored_path": ligand_paths["original_path"],
-                "current_path": ligand_paths["current_path"],
+                "path": ligand_path,
                 "n_atoms": int(extracted.get("atom_count") or 0),
                 "selector": selector,
                 "center": tuple(extracted.get("center") or (None, None, None)),

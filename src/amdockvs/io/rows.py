@@ -4,8 +4,8 @@ In goes a ``Mol`` (or a raw row) plus the import policy; out comes the decision 
 fields. No file, no session: that is why a late rejection costs zero writes, and why the same
 code serves a normal import, an HTP shard or a multi-step job.
 
-Materialisation (writing the .sdf, the relative path) lives in
-``io/transformers/materializers.py`` and only runs over what survives here.
+Building the structure payloads of the row lives in ``io/transformers/rows.py`` and only
+runs over what survives here.
 
     python -m amdockvs.io.rows   # runs the checks
 """
@@ -44,8 +44,8 @@ FRAGMENT_PROPERTY_FIELDS = (
 
 @dataclass(frozen=True)
 class LigandDecision:
-    """What survived every filter, still in memory and without a single file written. Only the
-    kept structure is ever written; the other components stay listed in ``metadata``."""
+    """What survived every filter, still in memory and without a single payload built. Only the
+    kept structure is ever stored; the other components stay listed in ``metadata``."""
 
     kept_mol: Any
     metadata: dict[str, Any]
@@ -78,7 +78,7 @@ def small_molecule_filter_values(mol, *, molecule_kind: str):
 
 def htp_mol_filter(prefilter: ImportPrefilterPolicy | None, molecule_kind: str):
     """A ``passes(mol) -> bool`` predicate for HTP import filtering, evaluated on the in-memory
-    mol BEFORE any file/DB write so huge libraries are culled cheaply. None when inactive."""
+    mol BEFORE any payload or DB write so huge libraries are culled cheaply. None when inactive."""
     if prefilter is None or not prefilter.is_active() or not prefilter.applies_to(molecule_kind):
         return None
     return prefilter.mol_filter()
@@ -98,7 +98,7 @@ def cull_mol(mol, batch):
 
 def prep_ligand_mol(mol, prefilter: ImportPrefilterPolicy | None):
     """Run the opt-in prep steps (add Hs / gen 3D / canonical tautomer) on the kept fragment,
-    in memory, before any write so a later rejection costs no file."""
+    in memory, before any payload is built so a later rejection costs nothing."""
     if prefilter is None or not prefilter.prep_active():
         return mol
 
@@ -160,15 +160,12 @@ def structure_fields(mol, values=None) -> dict[str, Any]:
     }
 
 
-def ligand_row_fields(
-    row: dict[str, Any], decision: LigandDecision, *, current_path_rel: str
-) -> dict[str, Any]:
+def ligand_row_fields(row: dict[str, Any], decision: LigandDecision) -> dict[str, Any]:
     """Dumps the decision onto the row. Mutates and returns `row`, as the original code did."""
     import json
 
     row.update(structure_fields(decision.kept_mol, decision.filter_values))
     row["extra_data"] = decision.metadata
-    row["current_path"] = current_path_rel
     row["metadata_json"] = json.dumps(decision.metadata, ensure_ascii=True)
     return row
 

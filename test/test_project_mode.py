@@ -215,8 +215,8 @@ def test_reference_ligands_are_not_the_screening_library(runtime, tmp_path):
 
     def row(context):
         return _build_row(
-            project_root=tmp_path, source_file=tmp_path / "l.sdf", source_index=0, name="l",
-            n_atoms=1, input_format="sdf", stored_path=tmp_path / "l.sdf", current_path=None,
+            source_file=tmp_path / "l.sdf", source_index=0, name="l",
+            n_atoms=1, input_format="sdf", stored=None, current=None,
             metadata={}, molecule_kind="small_molecule", primary_role="ligand",
             primary_context=context,
         )

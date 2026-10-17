@@ -25,8 +25,8 @@ def test_a_salt_is_split_and_nothing_is_written(tmp_path):
     assert Chem.MolToSmiles(decision.kept_mol) == "CCO"
     assert not any(tmp_path.rglob("*.sdf")), "evaluating must write nothing"
 
-    row = ligand_row_fields({}, decision, current_path_rel="data/x.sdf")
-    assert row["current_path"] == "data/x.sdf" and row["n_atoms"] == 3
+    row = ligand_row_fields({}, decision)
+    assert "current_path" not in row and row["n_atoms"] == 3
     fragmentation = row["extra_data"]["fragmentation"]
     assert [c["smiles"] for c in fragmentation["components"]] == ["CCO", "[Na+]"]
     assert fragmentation["selected_fragment_index"] == 1
@@ -70,4 +70,4 @@ def test_the_optional_prep_runs_before_the_gate_and_lands_in_the_row(tmp_path):
         prefilter=ImportPrefilterPolicy(add_hs=True),
     )
     assert reason is None and decision.kept_mol.GetNumAtoms() == 9
-    assert ligand_row_fields({}, decision, current_path_rel="x.sdf")["has_hs"] is True
+    assert ligand_row_fields({}, decision)["has_hs"] is True
