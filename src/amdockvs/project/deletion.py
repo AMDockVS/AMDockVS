@@ -146,7 +146,8 @@ def _owned_payloads(project_db, ids: set[int], *, structure: bool) -> set[int]:
     collect(MoleculeModel.payload_id, MoleculeModel.pae_payload_id, where=MoleculeModel.molecule_id.in_(ids))
     collect(EngineState.prepared_payload_id, EngineState.flex_payload_id, where=EngineState.molecule_id.in_(ids))
     if structure:
-        collect(MoleculeRecord.stored_payload_id, MoleculeRecord.current_payload_id, where=MoleculeRecord.id.in_(ids))
+        collect(MoleculeRecord.stored_payload_id, MoleculeRecord.current_payload_id,
+                MoleculeRecord.properties_payload_id, where=MoleculeRecord.id.in_(ids))
         collect(ComplexRecord.reference_receptor_payload_id, ComplexRecord.reference_ligand_payload_id,
                 where=or_(ComplexRecord.receptor_molecule_id.in_(ids), ComplexRecord.ligand_molecule_id.in_(ids)))
     return _ids(filter(None, held))

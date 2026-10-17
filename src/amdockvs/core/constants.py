@@ -28,6 +28,7 @@ SERIES_PREPARED = "prepared"  # engine inputs (PDBQT), re-made when the structur
 SERIES_POSES = "poses"  # docking poses (SDF)
 SERIES_REFERENCES = "references"  # frozen complex references, never rewritten
 SERIES_AUX = "aux"  # sidecars (ESMFold PAE)
+SERIES_PROPERTIES = "properties"  # imported SDF tags, one parquet per import batch
 TABLE_MOLECULE_REPRESENTATIONS = "molecule_representations"
 TABLE_MOLECULE_MODELS = "molecule_models"
 TABLE_MOLECULE_SOURCE_PROPERTIES = "molecule_source_properties"

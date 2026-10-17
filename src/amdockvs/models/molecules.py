@@ -96,6 +96,8 @@ class MoleculeRecord(TimestampedRecord, table=True):
     stored_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
     current_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
     current_model_index: int | None = Field(default=None)
+    # properties → the import batch's SDF tags (parquet, shared by the batch), read by source_index
+    properties_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
 
     # Identity of the current structure (small molecules): finds duplicates and activities.
     # Canonical isomeric SMILES without explicit Hs — charged atoms keep theirs in brackets.

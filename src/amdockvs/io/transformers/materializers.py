@@ -24,6 +24,7 @@ from amdockvs.core.vocab import (
 )
 from amdockvs.io.import_stats import FILTERED_PREFILTER, IMPORTED, UNREADABLE, bump, write_import_stats
 from amdockvs.io.rows import active_small_molecule_criteria, cull_mol, htp_mol_filter, metadata_map_from_row
+from amdockvs.core.constants import SERIES_PROPERTIES
 from amdockvs.core.payloads import series_for, structure_payload
 from amdockvs.io.transformers.rows import (
     _apply_sdf_activity,
@@ -176,21 +177,17 @@ def materialize_multithreaded_sdf_file(
     write_import_stats(batch.storage_dir, tally)
     return [row for _, row in sorted(rows_by_index.items(), key=lambda item: item[0])]
 
-def offload_source_properties(rows: list[dict[str, Any]], storage_dir: Any) -> str | None:
-    """Move the heavy per-molecule SDF tags out of the graph payload into a parquet
-    sidecar, load-on-demand. source_properties are ~34 rows/mol (~97% of all import
+def offload_source_properties(rows: list[dict[str, Any]]) -> Any:
+    """Move the heavy per-molecule SDF tags out of the graph payload into one parquet payload
+    for the batch, load-on-demand. source_properties are ~34 rows/mol (~97% of all import
     rows) and are almost never viewed and never used hot — persisting them into the
     project DB is what makes the single sqlite writer the import bottleneck.
 
     Each row's source_properties are emptied (so build_import_graph_payload emits no
-    molecule_source_properties node) and the row records a '__props_shard' ref in its
-    extra_data so its tags can be reloaded by (shard, source_index). Returns the shard
-    filename, or None if there were no properties.
+    molecule_source_properties node) and every row holds the same Payload as
+    properties_payload_id: the sink stores it once. Tags are read back by source_index
+    (read_source_properties). Returns the Payload, or None if there were no properties.
     """
-    from uuid import uuid4
-
-    from amdockvs.io.properties import PROPERTIES_SUBDIR, PROPS_SHARD_KEY
-
     src_idx: list[int] = []
     keys: list[str] = []
     vals: list[str] = []
@@ -207,24 +204,18 @@ def offload_source_properties(rows: list[dict[str, Any]], storage_dir: Any) -> s
     if not src_idx:
         return None
 
+    import io
+
     import pyarrow as pa
     import pyarrow.parquet as pq
 
-    props_dir = Path(storage_dir).expanduser().resolve() / PROPERTIES_SUBDIR
-    props_dir.mkdir(parents=True, exist_ok=True)
-    shard = f"{uuid4().hex}.parquet"
-    pq.write_table(
-        pa.table({"source_index": src_idx, "key": keys, "value": vals}),
-        props_dir / shard,
-        compression="zstd",
-    )
+    buffer = io.BytesIO()
+    pq.write_table(pa.table({"source_index": src_idx, "key": keys, "value": vals}), buffer, compression="zstd")
+    payload = structure_payload(buffer.getvalue(), "parquet", SERIES_PROPERTIES)
     for row in rows:
         row["source_properties"] = []
-        extra = row.get("extra_data")
-        extra = dict(extra) if isinstance(extra, dict) else {}
-        extra[PROPS_SHARD_KEY] = shard
-        row["extra_data"] = extra
-    return shard
+        row["properties_payload_id"] = payload
+    return payload
 
 def _site_ref(molecule_ref: str, position: Any) -> str | None:
     return None if position is None else f"{molecule_ref}::site::{int(position)}"
@@ -270,6 +261,7 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
             "active_binding_site_ref": _site_ref(molecule_ref, row.get("active_binding_site_position")),
             "stored_payload_id": row.get("stored_payload_id"),
             "current_payload_id": row.get("current_payload_id"),
+            "properties_payload_id": row.get("properties_payload_id"),
             "current_model_index": current_model_index,
             "n_atoms": int(row.get("n_atoms") or 0),
             "inchikey": row.get("inchikey"),
