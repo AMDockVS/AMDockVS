@@ -152,3 +152,30 @@ def test_reveal_shows_one_row_without_touching_the_selection_and_show_all_gives_
     app.processEvents()
     assert _active(ligands)["id"] == [4] and "reveal" not in ligands.table._keyed_actions
     assert window.selection.get("ligand") == [4]
+
+
+def test_clearing_the_selection_sticks_when_a_tool_reloads_the_table_first():
+    """Status-bar ✕ while the docking studio is on Ligands: the studio hears the change first and
+    re-pushes its scope; that reload must not write the old id filter back into the store."""
+    from PySide6.QtWidgets import QWidget
+
+    app = QApplication.instance() or QApplication(["amdockvs-scope-test"])
+    window = QWidget()
+    window.selection = SelectionStore(window)
+    ligands = _widget(window)
+    ligands.selection_role = "ligand"
+
+    def tool(_role):
+        clause = None if window.selection.get("ligand") else (_Mol.id > 0)
+        ligands.push_scope("docking", clause=clause)
+
+    window.selection.changed.connect(tool)  # before the table's own listener
+    ligands.refresh()
+    app.processEvents()
+    window.selection.set("ligand", [1, 2])
+    app.processEvents()
+    assert _active(ligands)["id"] == [1, 2]
+
+    window.selection.set("ligand", None)
+    app.processEvents()
+    assert window.selection.get("ligand") is None and "id" not in _active(ligands)

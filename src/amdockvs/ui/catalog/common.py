@@ -273,6 +273,7 @@ class BoundTableWidget(QWidget):
         self._jobs: JobFollower | None = None
         self._selection_store: SelectionStore | None = None
         self._selection_adopted = False
+        self._mirrored_ids: list[int] | None = None  # what this table and the store last agreed on
 
         layout = QVBoxLayout(self)
         # No wrapper margins: Qt's default ~11px would inset the whole table relative to the
@@ -382,17 +383,20 @@ class BoundTableWidget(QWidget):
         store = self._store()
         if store is None or not self.selection_role or self._REVEAL_SCOPE in self._scopes:
             return  # a revealed row is a look, not the role's selection
-        if not self._selection_adopted:
-            self._adopt_selection()  # first load: the store is older than this table
+        if not self._selection_adopted or store.get(self.selection_role) != self._mirrored_ids:
+            # First load, or the store moved and another listener reloaded this table before
+            # our own _on_selection_changed ran: the store wins, the stale filter is not echoed.
+            self._adopt_selection()
         else:
-            store.set(self.selection_role, self._selected_ids())
+            self._mirrored_ids = self._selected_ids()
+            store.set(self.selection_role, self._mirrored_ids)
 
     def _adopt_selection(self) -> None:
         store = self._store()
         if store is None or not self.selection_role or self._table is None or self._REVEAL_SCOPE in self._scopes:
             return
         self._selection_adopted = True
-        ids = store.get(self.selection_role)
+        ids = self._mirrored_ids = store.get(self.selection_role)
         if ids != self._selected_ids():
             self.set_base_filter("id", FilterSpec("id", FilterOperator.IN, ids) if ids else None)
 
