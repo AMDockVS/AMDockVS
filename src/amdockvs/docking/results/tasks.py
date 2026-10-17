@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping
 
+from ms_flow.payloads import scratch_file
+
 from amdockvs.core.rows import interaction_rows
 from amdockvs.core.worker_io import project_root_from_output_dir
 from amdockvs.docking.results.interactions import collect_interaction_rows
@@ -44,8 +46,8 @@ def _write_interaction_report(
         "engine": str(row.get("engine") or ""),
         "pose_rank": int(row.get("pose_rank") or 1),
         "score": row.get("score"),
-        "pose_path": str(row.get("pose_path") or ""),
-        "receptor_path": str((row.get("metrics") or {}).get("receptor_path") or ""),
+        "pose_payload_id": row.get("pose_payload_id"),
+        "receptor_payload_id": (row.get("metrics") or {}).get("receptor_payload_id"),
         "interaction_count": len(interactions),
         "interactions": interactions,
     }
@@ -62,14 +64,13 @@ def interactions_of_poses(payload: dict):
         result_id = int(row.get("id") or 0)
         if result_id <= 0:
             continue
-        metrics = dict(row.get("metrics") or {})
-        pose_path = str(row.get("pose_path") or "")
-        receptor_path = str(metrics.get("receptor_path") or "")
-        interactions = collect_interaction_rows(
-            pose_path=pose_path,
-            receptor_path=receptor_path,
-            pose_rank=int(row.get("pose_rank") or 1),
-        )
+        pose = row.get("pose")
+        interactions = []
+        if pose is not None:
+            with scratch_file(pose, ".sdf") as pose_path:
+                interactions = collect_interaction_rows(
+                    pose_path=pose_path, receptor_path=str(row.get("receptor_path") or "")
+                )
         json_path = _write_interaction_report(
             output_dir=output_dir,
             project_root=project_root,

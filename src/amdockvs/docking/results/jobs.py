@@ -16,11 +16,14 @@ from amdockvs.core.jobs import JobSpec
 from amdockvs.docking.results.tasks import diagrams_of_poses, interactions_of_poses
 from sqlmodel import delete
 
+from ms_flow.payloads import with_payloads
+
 from amdockvs.core.worker_io import worker_file, worker_output_dir
 from amdockvs.core.constants import AMDOCKVS_LOCAL_EXECUTORS
-from amdockvs.docking.repository import absolutize_pose_paths, resolve_docking_output_dir
+from amdockvs.core.payloads import PAYLOAD_CACHE, molecule_payload_id, payload_file
+from amdockvs.docking.repository import project_db_path, resolve_docking_output_dir
 from amdockvs.docking.results.repository import list_docking_result_rows
-from amdockvs.models import InteractionsResult
+from amdockvs.models import InteractionsResult, MoleculeRecord
 
 
 class InteractionJobParams(BaseModel):
@@ -46,6 +49,22 @@ class DiagramJobParams(BaseModel):
     replace_existing: bool = False
 
 
+def _with_receptor_files(project_db, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Each row with `receptor_path`, the structure its pose was docked into (else the receptor's
+    own), written once to the project's payload cache: every pose of a receptor shares it."""
+    missing = {int(row["receptor_molecule_id"]) for row in rows
+               if not (row.get("metrics") or {}).get("receptor_payload_id")}
+    with project_db.get_session() as session:
+        own = {rid: molecule_payload_id(session.get(MoleculeRecord, rid)) for rid in missing}
+    files: dict[int, Any] = {}
+    for row in rows:
+        payload_id = (row.get("metrics") or {}).get("receptor_payload_id") or own.get(int(row["receptor_molecule_id"]))
+        if payload_id and payload_id not in files:
+            files[payload_id] = worker_file(payload_file(project_db, payload_id), cache=True)
+        row["receptor_path"] = files.get(payload_id, "")
+    return rows
+
+
 def _interaction_result_rows(project_db, params: InteractionJobParams) -> list[dict[str, Any]]:
     rows = list_docking_result_rows(
         project_db,
@@ -60,7 +79,7 @@ def _interaction_result_rows(project_db, params: InteractionJobParams) -> list[d
         with project_db.get_session() as session:
             session.exec(delete(InteractionsResult).where(InteractionsResult.docking_result_id.in_(result_ids)))
             session.commit()
-    return absolutize_pose_paths(rows, project_db)
+    return _with_receptor_files(project_db, rows)
 
 
 def _iter_interaction_chunks(
@@ -75,14 +94,8 @@ def _iter_interaction_chunks(
         yield {"rows": [], "method": params.method, "output_dir": worker_output_dir(output_dir)}
         return
     for start in range(0, len(rows), chunk_size):
-        chunk_rows = rows[start:start + chunk_size]
-        for row in chunk_rows:
-            row["pose_path"] = worker_file(row.get("pose_path"))
-            metrics = dict(row.get("metrics") or {})
-            metrics["receptor_path"] = worker_file(metrics.get("receptor_path"), cache=True)
-            row["metrics"] = metrics
         yield {
-            "rows": chunk_rows,
+            "rows": list(with_payloads(project_db, rows[start:start + chunk_size], {"pose_payload_id": "pose"})),
             "method": params.method,
             "output_dir": worker_output_dir(output_dir),
         }
@@ -118,7 +131,8 @@ interactions_job = InteractionJobSpec.to_job_definition()
 
 
 def _diagram_result_rows(project_db, params: DiagramJobParams) -> list[dict[str, Any]]:
-    return absolutize_pose_paths(
+    return _with_receptor_files(
+        project_db,
         list_docking_result_rows(
             project_db,
             result_ids=params.result_ids,
@@ -127,7 +141,6 @@ def _diagram_result_rows(project_db, params: DiagramJobParams) -> list[dict[str,
             score_lte=params.score_lte,
             pose_rank=params.pose_rank,
         ),
-        project_db,
     )
 
 
@@ -138,7 +151,7 @@ class DiagramJobSpec(JobSpec):
     params_model = DiagramJobParams
     executor = "compute"
     supported_executors = AMDOCKVS_LOCAL_EXECUTORS
-    output_spec = None  # writes PNG/SVG next to each pose; no DB rows
+    output_spec = None  # writes PNG/SVG next to each pose in the payload cache; no DB rows
     store_results = False
     required = ()
     produces = ()
@@ -153,15 +166,14 @@ class DiagramJobSpec(JobSpec):
             raise ValueError("DiagramJobSpec requires project_db in config.")
         parsed = DiagramJobParams(**params)
         rows = _diagram_result_rows(project_db, parsed)
-        output_dir = resolve_docking_output_dir({}, config_map)
+        # A diagram sits beside its pose in the payload cache, named after the pose's payload id
+        # (diagram_path_for): the viewer finds it from the pose alone.
+        output_dir = project_db_path(project_db).parent / PAYLOAD_CACHE
         chunk_size = max(1, int(parsed.chunk_size))
         for start in range(0, len(rows), chunk_size) or [0]:
             chunk_rows = rows[start:start + chunk_size]
             for row in chunk_rows:
-                row["pose_path"] = worker_file(row.get("pose_path"))
-                metrics = dict(row.get("metrics") or {})
-                metrics["receptor_path"] = worker_file(metrics.get("receptor_path"), cache=True)
-                row["metrics"] = metrics
+                row["pose_path"] = worker_file(payload_file(project_db, row["pose_payload_id"]))
             yield {
                 "rows": chunk_rows,
                 "fmt": parsed.fmt,

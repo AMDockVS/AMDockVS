@@ -63,9 +63,6 @@ _RESULT_FILTER_FIELDS = (
 
 
 
-def _fmt_path(value) -> str:
-    return "" if value is None else str(value)
-
 
 class _MetricColumns:
     """Columns of a result table, with a right-click chooser on the header.
@@ -755,9 +752,9 @@ class DockingResultsWidget(QWidget):
             "run_kind": hit.run_kind,
             "ligand_id": hit.ligand_id,
             "receptor_id": hit.receptor_id,
-            "ligand_path": _fmt_path(hit.ligand_path),
-            "receptor_path": _fmt_path(hit.receptor_path),
-            "output_path": _fmt_path(hit.output_path),
+            "ligand_payload_id": hit.ligand_payload_id,
+            "receptor_payload_id": hit.receptor_payload_id,
+            "pose_payload_id": hit.pose_payload_id,
             "updated_at": None if hit.updated_at is None else str(hit.updated_at),
             "metadata": hit.metadata,
             "metrics": {
@@ -878,9 +875,9 @@ class DockingResultsWidget(QWidget):
         # (a few kB, no ms_contactmap import): no DB round-trip and no worker to freeze the panel.
         from amdockvs.docking.results.diagram import pose_interactions
 
-        ready = bool(hit.output_path and hit.receptor_path)
+        ready = bool(hit.pose_payload_id and hit.receptor_payload_id)
         self.build_diagram_btn.setEnabled(ready)
-        rows = pose_interactions(str(hit.output_path), self._pose_rank(hit)) if hit.output_path else None
+        rows = pose_interactions(str(hit.output_path), self._pose_rank(hit)) if hit.pose_payload_id else None
         self._show_interactions(rows)
 
     def _show_interactions(self, rows: list[dict] | None) -> None:
@@ -904,11 +901,10 @@ class DockingResultsWidget(QWidget):
 
     def _build_diagram(self) -> None:
         hit = self._selected_hit
-        if hit is None or not hit.output_path or not hit.receptor_path:
+        if hit is None or not hit.pose_payload_id or not hit.receptor_payload_id:
             return
         # Widget-free captures: detection + layout solve run off the GUI thread. The solve is
         # seconds of numpy, so it rides along in the worker instead of blocking the window.
-        pose_path, receptor_path = str(hit.output_path), str(hit.receptor_path)
         rank, result_id = self._pose_rank(hit), int(hit.result_id or 0)
         label = f"{hit.ligand_name} · pose {rank}"
         self.build_diagram_btn.setEnabled(False)
@@ -917,9 +913,8 @@ class DockingResultsWidget(QWidget):
         def work():
             from amdockvs.docking.results.diagram import build_pose_diagram, save_pose_diagram
 
-            diagram = build_pose_diagram(
-                pose_path=pose_path, receptor_path=receptor_path, pose_rank=rank, name=label
-            )
+            pose_path = hit.output_path  # the receptor can be large: written here, not on the GUI thread
+            diagram = build_pose_diagram(pose_path=pose_path, receptor_path=hit.receptor_path, name=label)
             if diagram is None:
                 return None
             from ms_contactmap import solve_layout

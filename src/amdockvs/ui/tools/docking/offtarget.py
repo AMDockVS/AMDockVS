@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from amdockvs.docking.engines.vina import count_heavy_atoms
+from amdockvs.core.payloads import payload_file
 from amdockvs.project.summaries import DockingHitSummary
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.tools.pymol_ribbon import (
@@ -44,25 +44,6 @@ LIGAND_CAP = 200
 RECEPTOR_CAP = 10
 
 _METRICS = (("Affinity (kcal/mol)", "score"), ("Ligand efficiency", "ligand_efficiency"))
-
-
-def _backfill_ligand_efficiency(rows: list[dict]) -> None:
-    """Fill ligand_efficiency for rows that lack it (results docked before LE was stored),
-    deriving heavy-atom counts from each ligand's file. Cached per ligand; runs off-GUI."""
-    heavy_cache: dict[int, int] = {}
-    for row in rows:
-        if row.get("ligand_efficiency") is not None or row.get("score") is None:
-            continue
-        lid = row["ligand_id"]
-        if lid not in heavy_cache:
-            path = row.get("ligand_path")
-            try:
-                heavy_cache[lid] = count_heavy_atoms(path) if path is not None else 0
-            except Exception:
-                heavy_cache[lid] = 0
-        heavy = heavy_cache[lid]
-        if heavy > 0:
-            row["ligand_efficiency"] = round(float(row["score"]) / heavy, 4)
 
 
 class OffTargetResultsWidget(QWidget):
@@ -197,7 +178,6 @@ class OffTargetResultsWidget(QWidget):
                     ligand_ids.append(hit.ligand_id)
                     names[hit.ligand_id] = hit.ligand_name
             rows = self.runtime.docking.offtarget_rows(receptor_ids=column_ids, ligand_ids=ligand_ids)
-            _backfill_ligand_efficiency(rows)
             return ligand_ids, names, rows
 
         # Overlay only when there's nothing on screen yet; a reload (metric/reference change)
@@ -363,8 +343,9 @@ class OffTargetResultsWidget(QWidget):
                 pose = self._selected_pose(r, rid)
                 if pose is None:
                     continue
-                rec_path = pose.get("receptor_path")
-                pose_path = pose.get("pose_path")
+                project = self.runtime.workspace.project_db
+                rec_path = payload_file(project, pose.get("receptor_payload_id"))
+                pose_path = payload_file(project, pose.get("pose_payload_id"))
                 if not rec_path or not pose_path:
                     continue
                 slot += 1
@@ -425,10 +406,10 @@ class OffTargetResultsWidget(QWidget):
             receptor_id=int(receptor_id),
             receptor_name=dict(self._columns).get(receptor_id, ""),
             score=float(pose.get("score") or 0.0),
-            output_path=pose.get("pose_path"),
-            ligand_path=pose.get("ligand_path"),
-            receptor_path=pose.get("receptor_path"),
-        )
+            pose_payload_id=pose.get("pose_payload_id"),
+            ligand_payload_id=pose.get("ligand_payload_id"),
+            receptor_payload_id=pose.get("receptor_payload_id"),
+        ).of_project(self.runtime.workspace.project_db)
         self._load_hit_in_pymol(hit, int(pose.get("pose_rank") or 1))
 
 

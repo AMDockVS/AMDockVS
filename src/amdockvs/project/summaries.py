@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 
 class ProjectSummary(BaseModel):
@@ -200,14 +200,47 @@ class DockingHitSummary(BaseModel):
     sei: Optional[float] = None
     status: str = ""
     error: str = ""
-    output_path: Optional[Path] = None
-    ligand_path: Optional[Path] = None
-    receptor_path: Optional[Path] = None
-    reference_ligand_path: Optional[Path] = None
-    reference_receptor_path: Optional[Path] = None
+    pose_payload_id: Optional[int] = None
+    ligand_payload_id: Optional[int] = None
+    receptor_payload_id: Optional[int] = None
+    reference_ligand_payload_id: Optional[int] = None
+    reference_receptor_payload_id: Optional[int] = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    _project: Any = PrivateAttr(default=None)
+
+    def of_project(self, project: Any) -> "DockingHitSummary":
+        """Bind the project whose payload cache the `*_path` properties write to."""
+        self._project = project
+        return self
+
+    def _file(self, payload_id: Optional[int]) -> Optional[Path]:
+        # Written on first access only: listing hits writes nothing, opening one writes its files.
+        from amdockvs.core.payloads import payload_file
+
+        return payload_file(self._project, payload_id) if self._project is not None else None
+
+    @property
+    def output_path(self) -> Optional[Path]:
+        """The docked pose as a file, for readers that only take paths (PyMOL, the diagram)."""
+        return self._file(self.pose_payload_id)
+
+    @property
+    def ligand_path(self) -> Optional[Path]:
+        return self._file(self.ligand_payload_id)
+
+    @property
+    def receptor_path(self) -> Optional[Path]:
+        return self._file(self.receptor_payload_id)
+
+    @property
+    def reference_ligand_path(self) -> Optional[Path]:
+        return self._file(self.reference_ligand_payload_id)
+
+    @property
+    def reference_receptor_path(self) -> Optional[Path]:
+        return self._file(self.reference_receptor_payload_id)
 
 
 class ReceptorDockingSummary(BaseModel):

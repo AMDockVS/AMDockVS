@@ -183,7 +183,7 @@ class DockingResult(SQLModel, table=True):
         pose_rank: int = 1,
         score: float | None = None,
         score_type: str = "",
-        pose_path: str = "",
+        pose_payload_id: int | None = None,
         metrics: dict | None = None,
     ) -> dict[str, Any]:
         return {
@@ -193,7 +193,7 @@ class DockingResult(SQLModel, table=True):
             "pose_rank":          pose_rank,
             "score":              score,
             "score_type":         score_type,
-            "pose_path":          pose_path,
+            "pose_payload_id":    pose_payload_id,
             "rmsd_vs_reference":  None,
             "metrics":            metrics or {},
             "created_at":         datetime.now(),

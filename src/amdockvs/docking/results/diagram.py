@@ -15,7 +15,9 @@ from pathlib import Path
 
 
 def diagram_path_for(pose_path: str | Path, pose_rank: int = 1, *, suffix: str = ".png") -> Path:
-    """Deterministic diagram file next to the pose, resolvable without a DB lookup."""
+    """Deterministic diagram file next to the pose, resolvable without a DB lookup. A pose is
+    the file of its payload in the project's cache (`<id>.sdf`), so a diagram is keyed by the
+    pose's payload id and a re-docked pose never shows the diagram of the one it replaced."""
     pose = Path(pose_path)
     return pose.with_name(f"{pose.name}.rank{int(pose_rank or 1)}.diagram{suffix}")
 
@@ -24,13 +26,13 @@ def build_pose_diagram(
     *,
     pose_path: str | Path,
     receptor_path: str | Path,
-    pose_rank: int = 1,
     name: str | None = None,
 ):
     """The diagram *model* for one pose (interactions + chemistry, no Qt items) or ``None``.
 
     The ligand chemistry is the pose's own (meeko writes it exactly), never a SMILES:
     the stored one describes the imported ligand, not its prepared protonation state.
+    Each pose is its own single-record payload, so the file's first molecule is the pose.
     """
     from amdockvs.io.formats import read_mol
 
@@ -38,7 +40,7 @@ def build_pose_diagram(
     receptor = Path(receptor_path).expanduser().resolve()
     if not pose.exists() or not receptor.exists():
         return None
-    mol = read_mol(pose, sanitize=False, index=max(0, int(pose_rank or 1) - 1))
+    mol = read_mol(pose, sanitize=False)
     if mol is None:
         return None
     from ms_contactmap import build_pose_diagram as build
@@ -131,11 +133,10 @@ def render_diagrams_for_result_rows(
 ) -> int:
     """Build, save and export one diagram per docking-result row; returns how many were written.
 
-    Each row is a ``DockingResultRecord``-shaped mapping (``pose_path`` plus
-    ``metrics.receptor_path``). Files land next to the pose via
-    :func:`diagram_path_for`, so no DB column is needed to find them again.
-    Shared by the standalone job and the inline docking hook. Failures are
-    swallowed per row -- a diagram is never allowed to break a docking run.
+    Each row is a ``DockingResultRecord``-shaped mapping with ``pose_path`` and
+    ``receptor_path`` files. Files land next to the pose via :func:`diagram_path_for`
+    (or in ``output_dir`` under the same name), so no DB column is needed to find them
+    again. Failures are swallowed per row and counted out of the return value.
     """
     from ms_contactmap import solve_layout
 
@@ -143,7 +144,7 @@ def render_diagrams_for_result_rows(
     written = 0
     for row in rows:
         pose_path = str(row.get("pose_path") or "")
-        receptor_path = str((row.get("metrics") or {}).get("receptor_path") or "")
+        receptor_path = str(row.get("receptor_path") or "")
         pose_rank = int(row.get("pose_rank") or 1)
         if not pose_path or not receptor_path:
             continue
@@ -157,9 +158,7 @@ def render_diagrams_for_result_rows(
             continue
         try:
             if replace_existing or not document.exists():
-                diagram = build_pose_diagram(
-                    pose_path=pose_path, receptor_path=receptor_path, pose_rank=pose_rank
-                )
+                diagram = build_pose_diagram(pose_path=pose_path, receptor_path=receptor_path)
                 if diagram is None:
                     continue
                 save_pose_diagram(pose_path, pose_rank, diagram, solve_layout(diagram), output_dir=output_dir)

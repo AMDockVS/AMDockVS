@@ -35,7 +35,7 @@ from amdockvs.core.configuration import DEFAULT_HIT_SAFETY_CAP
 from amdockvs.core.constants import AMDOCKVS_OFFLOADABLE_EXECUTORS, DEFAULT_VINA_BACKEND, DEFAULT_VINA_COMMAND
 from amdockvs.docking.engines.programs import chunk_resources
 from amdockvs.docking.protocols import DockingProtocolMetadata
-from amdockvs.docking.repository import list_entity_rows, resolve_docking_output_dir
+from amdockvs.docking.repository import inputs_dir, list_entity_rows, resolve_docking_output_dir, with_input_files
 from amdockvs.docking.results.repository import count_docking_results
 from amdockvs.docking.results.dataset import (
     RESULT_DATASET_FORMAT,
@@ -47,7 +47,7 @@ from amdockvs.docking.results.dataset import (
     select_hits,
 )
 from amdockvs.docking.methods import excludes
-from amdockvs.docking.preparation.state import docking_input_path_from_row, grid_from_row
+from amdockvs.docking.preparation.state import grid_from_row
 from amdockvs.screening.campaign import (
     advance_shard_run,
     advance_target,
@@ -469,8 +469,9 @@ def _project_relative(path: str) -> str:
     return text
 
 
-def receptor_targets(project_db, parsed: DockShardsJobParams) -> list[dict[str, Any]]:
-    """The prepared receptors with a grid, as everything a chunk needs to dock against one."""
+def receptor_targets(project_db, parsed: DockShardsJobParams, output_dir: Path) -> list[dict[str, Any]]:
+    """The prepared receptors with a grid, as everything a chunk needs to dock against one: their
+    files written once under the run's `output_dir`."""
     rows = list_entity_rows(
         project_db,
         entity_kind="receptor",
@@ -478,8 +479,8 @@ def receptor_targets(project_db, parsed: DockShardsJobParams) -> list[dict[str, 
         set_id=parsed.receptor_set_id,
         filters={**dict(parsed.receptor_filters or {}), "prepared_engine": True},
         fields=(
-            "id", "name", "stored_path", "current_path", "input_format", "metadata_json",
-            "prepared_engine_path", "prepared_files", "grid_engine_payload",
+            "id", "name", "stored_payload_id", "current_payload_id", "metadata_json",
+            "prepared_payload_id", "flex_payload_id", "grid_engine_payload",
         ),
         order=("source", "source_index"),
     )
@@ -491,13 +492,15 @@ def receptor_targets(project_db, parsed: DockShardsJobParams) -> list[dict[str, 
         size = [float(v) for v in (parsed.box_size or grid.get("size") or ())]
         if len(center) != 3 or len(size) != 3:
             continue  # no binding site: not dockable, and a campaign is not the place to guess
-        receptor_path = str(docking_input_path_from_row(row, engine=parsed.preparation_engine))
+        files = with_input_files(project_db, row, inputs_dir(output_dir))
+        receptor_path = files["input_path"]
         if excludes(parsed.engine_config.get("method"), receptor_path, center, size):
             continue  # its box does not fit the docking method
         targets.append({
             "receptor_id": int(row.get("id") or 0),
             "receptor_name": str(row.get("name") or ""),
             "receptor_path": receptor_path,
+            "flex_receptor_path": files["flex_path"],
             "box_center": center,
             "box_size": size,
             "spacing": float(grid.get("spacing") or parsed.spacing),
@@ -508,9 +511,10 @@ def receptor_targets(project_db, parsed: DockShardsJobParams) -> list[dict[str, 
 def _shard_docking_scope(
     project_db,
     parsed: DockShardsJobParams,
+    output_dir: Path,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], set[tuple[int, int]]]:
     """Resolve the immutable shard/receptor pairs shared by counting and dispatch."""
-    targets = receptor_targets(project_db, parsed)
+    targets = receptor_targets(project_db, parsed, output_dir)
     if parsed.selected_from_receptor_id:
         targets = [
             target for target in targets
@@ -596,7 +600,8 @@ class DockShardsJobSpec(JobSpec):
         project_db = dict(config or {}).get("project_db")
         if project_db is None:
             raise ValueError("dock_shards_job requires project_db in config.")
-        targets, shards, completed = _shard_docking_scope(project_db, parsed)
+        output_dir = resolve_docking_output_dir(params, dict(config or {})) / SCREENING_SUBDIR
+        targets, shards, completed = _shard_docking_scope(project_db, parsed, output_dir)
         pending = sum(
             (int(shard.get("id") or 0), int(target["receptor_id"])) not in completed
             for shard in shards
@@ -616,7 +621,7 @@ class DockShardsJobSpec(JobSpec):
         if project_db is None:
             raise ValueError("dock_shards_job requires project_db in config.")
         output_dir = resolve_docking_output_dir(params, config_map) / SCREENING_SUBDIR
-        targets, prepared_rows, completed = _shard_docking_scope(project_db, parsed)
+        targets, prepared_rows, completed = _shard_docking_scope(project_db, parsed, output_dir)
         prepared_records = sum(int(row.get("n_records") or 0) for row in prepared_rows)
         # Chunk construction is deferred by MF while preparation is active. Resolve and plan
         # here, not in the public API, so totals describe the completed preparation snapshot.
@@ -652,9 +657,6 @@ class DockShardsJobSpec(JobSpec):
             for target in targets:
                 if (int(shard.get("shard_id") or 0), int(target["receptor_id"])) in completed:
                     continue
-                flex = Path(target["receptor_path"]).with_name(
-                    f"{Path(target['receptor_path']).stem}__flex.pdbqt"
-                )
                 emitted = True
                 yield {
                     "shards": [shard],
@@ -663,8 +665,8 @@ class DockShardsJobSpec(JobSpec):
                     "chunks_total": len(targets),
                     "output_dir": worker_output_dir(output_dir),
                     "receptor_id": target["receptor_id"],
-                    "receptor_path": worker_file(target["receptor_path"], cache=True),
-                    **({"flex_receptor_path": worker_file(flex, cache=True)} if flex.is_file() else {}),
+                    "receptor_path": target["receptor_path"],
+                    **({"flex_receptor_path": target["flex_receptor_path"]} if target.get("flex_receptor_path") else {}),
                     "box_center": target["box_center"],
                     "box_size": target["box_size"],
                     "spacing": target["spacing"],

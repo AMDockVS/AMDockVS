@@ -83,10 +83,10 @@ def test_zinc_method_narrows_the_docking_studio(monkeypatch, tmp_path):
 
 def _planned(method: str, scoring: str, tmp_path: Path) -> list[tuple[int, int]]:
     rec = str(_receptor(tmp_path))
-    receptors = [{"id": 1, "current_path": rec, "grid_engine_payload": {"center": c, "size": z}}
-                 for c, z in (ZINC_BOX,)] + [{"id": 2, "current_path": rec,
+    receptors = [{"id": 1, "input_path": rec, "grid_engine_payload": {"center": c, "size": z}}
+                 for c, z in (ZINC_BOX,)] + [{"id": 2, "input_path": rec,
                                               "grid_engine_payload": {"center": EMPTY_BOX[0], "size": EMPTY_BOX[1]}}]
-    ligands = [{"id": 10, "current_path": "a.sdf"}, {"id": 11, "current_path": "b.sdf"}]
+    ligands = [{"id": 10, "ligand": b"a"}, {"id": 11, "ligand": b"b"}]
     chunks = iter_docking_batches_from_rows(ligands=ligands, receptors=receptors, output_dir=tmp_path / "out",
                                             batch_size=10, scoring_function=scoring,
                                             engine_config={"method": method})
@@ -106,11 +106,13 @@ def test_api_lists_the_receptors_the_method_hides(monkeypatch, tmp_path):
 
     runtime = AMDockVSRuntime()
     runtime.create_project(name="p", folder=tmp_path / "p", description="")
-    rec = str(_receptor(tmp_path))
+    from payload_seed import seed_payload
+
+    rec = seed_payload(runtime.workspace.project_db, _receptor(tmp_path).read_text(), "pdb")
     ids = {}
     with runtime.workspace.project_db.get_session() as session:
         for name, (center, size) in {"zinc": ZINC_BOX, "plain": EMPTY_BOX, "nobox": (None, None)}.items():
-            row = MoleculeRecord(name=name, is_receptor=True, stored_path=rec)
+            row = MoleculeRecord(name=name, is_receptor=True, current_payload_id=rec)
             session.add(row)
             session.commit()
             if center is not None:

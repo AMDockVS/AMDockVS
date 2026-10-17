@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping
 
 from ms_flow.core.database import ProjectStore
+from ms_flow.payloads import with_payloads
 from ms_flow.query import QuerySpec, db_count, db_pages, db_rows
 from sqlmodel import select
 
@@ -21,6 +22,8 @@ from amdockvs.core.constants import (
     TABLE_DOCKING_RESULTS,
     TABLE_MOLECULES,
 )
+from amdockvs.core.payloads import molecule_payload_id, payload_store
+from amdockvs.docking.preparation.state import docking_input_payload_id
 from amdockvs.models import BindingSite, EngineState, MoleculeRecord
 from amdockvs.models.molecules import sanitize_molecule_extra_data
 from amdockvs.project.sets import (
@@ -45,6 +48,36 @@ def resolve_docking_output_dir(params: Mapping[str, Any], config: Mapping[str, A
         path.mkdir(parents=True, exist_ok=True)
         return path
     raise ValueError("output_dir is required when project resource 'docking_results' is not available.")
+
+
+def inputs_dir(output_dir: str | Path) -> Path:
+    """Where a docking job writes the receptors its programs read: a cache of payloads,
+    `<id>.<kind>`, never stale since payload ids are never reused."""
+    return Path(output_dir) / "_inputs"
+
+
+def with_input_files(project_db, row: Mapping[str, Any], directory: str | Path) -> dict[str, Any]:
+    """`row` with `input_path` (and `flex_path`, or "") as the files a docking program reads,
+    each written once under `directory`: for receptors, which every pair of a job shares."""
+    store = payload_store(project_db)
+    flex = row.get("flex_payload_id")
+    payload_id = docking_input_payload_id(row)
+    return {
+        **row,
+        "input_payload_id": payload_id,
+        "input_path": store.materialize(payload_id, directory),
+        "flex_path": store.materialize(flex, directory) if flex else "",
+    }
+
+
+def with_input_bytes(project_db, rows: Iterable[Mapping[str, Any]]):
+    """Ligand rows carrying the bytes they dock with (`ligand`, None without a structure), read a
+    window at a time: what travels in the pair, so a ligand is never a file of the project."""
+    keyed = (
+        {**row, "input_payload_id": row.get("prepared_payload_id") or molecule_payload_id(row)}
+        for row in rows
+    )
+    return with_payloads(project_db, keyed, {"input_payload_id": "ligand"})
 
 
 def project_db_path(project_db) -> Path:
@@ -534,30 +567,3 @@ def list_receptor_ids_in_set(project_db, *, receptor_set_id: int) -> list[int]:
     return list_molecule_set_ids(project_db, int(receptor_set_id))
 
 
-def project_root_from_db(project_db) -> Path | None:
-    db_path = getattr(project_db, "db_path", None)
-    if db_path is None:
-        return None
-    return Path(db_path).expanduser().resolve().parent
-
-
-def absolutize_pose_paths(rows: list[dict[str, Any]], project_db) -> list[dict[str, Any]]:
-    """`pose_path` is stored project-relative; the interaction pass runs from an arbitrary CWD in a worker.
-    Resolve it once here so every consumer (interactions, diagrams) gets a real file."""
-    project_root = project_root_from_db(project_db)
-    for row in rows:
-        row["pose_path"] = resolve_project_path(row.get("pose_path"), project_root)
-    return rows
-
-
-def resolve_project_path(raw: Any, project_root: Path | None) -> str:
-    text = str(raw or "").strip()
-    if not text:
-        return ""
-    path = Path(text).expanduser()
-    if not path.is_absolute() and project_root is not None:
-        path = project_root / path
-    try:
-        return str(path.resolve())
-    except Exception:
-        return str(path)

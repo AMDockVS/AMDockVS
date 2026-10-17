@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 from contextlib import suppress
-from pathlib import Path
 from sqlite3 import OperationalError
 from typing import Any, Iterable
 
@@ -28,10 +27,6 @@ from amdockvs.models import DockingResultRecord
 from amdockvs.docking.repository import project_db_path
 from amdockvs.project.deletion import delete_results_where
 from amdockvs.project.summaries import DockingHitSummary, DockingResultsStatsSummary, ReceptorDockingSummary
-
-
-def _project_root(project_db) -> Path:
-    return project_db_path(project_db).parent
 
 
 # --- "already computed" guard ------------------------------------------------
@@ -99,12 +94,12 @@ def list_docking_result_rows(
     score_lte: float | None = None,
     pose_rank: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Poses with a file and a score, for the interaction and diagram jobs.
+    """Poses with a structure and a score, for the interaction and diagram jobs.
 
     It goes through the ORM and not through QuerySpec because the consumer reads `metrics` as a
     dict: the model already decodes it, and a db_rows would force re-parsing the JSON by hand.
     """
-    clauses = [DockingResultRecord.score.is_not(None), DockingResultRecord.pose_path != ""]
+    clauses = [DockingResultRecord.score.is_not(None), DockingResultRecord.pose_payload_id.is_not(None)]
     ids = [int(value) for value in result_ids if int(value) > 0]
     if ids:
         clauses.append(DockingResultRecord.id.in_(ids))
@@ -164,14 +159,6 @@ def _decode_metadata(raw_metadata: str | None) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {"value": parsed}
 
 
-def _coerce_project_path(project_db, raw: str | Path | None) -> Path | None:
-    text = str(raw or "").strip()
-    if not text:
-        return None
-    path = Path(text).expanduser()
-    return path.resolve() if path.is_absolute() else (_project_root(project_db) / path).resolve()
-
-
 def _hit_select_sql(*, score_expr: str = "r.score", extra: str = "") -> str:
     """The SELECT/FROM shared by every hit query. `score_expr` is `MIN(r.score)` when the query
     groups by ligand: SQLite then picks the rest of the bare columns from that same (best) row."""
@@ -199,11 +186,11 @@ def _hit_select_sql(*, score_expr: str = "r.score", extra: str = "") -> str:
         "JSON_EXTRACT(r.metrics, '$.sei') AS sei, "
         "CASE WHEN r.score IS NULL THEN 'failed' ELSE 'completed' END AS status, "
         "COALESCE(JSON_EXTRACT(r.metrics, '$.error'), '') AS error, "
-        "r.pose_path AS output_path, "
-        "l.stored_path AS ligand_path, "
-        "rec.current_path AS receptor_path, "
-        "COALESCE(JSON_EXTRACT(r.metrics, '$.reference_ligand_path'), l.stored_path) AS reference_ligand_path, "
-        "COALESCE(JSON_EXTRACT(r.metrics, '$.reference_receptor_path'), c.reference_receptor_path, rec.current_path) AS reference_receptor_path, "
+        "r.pose_payload_id AS pose_payload_id, "
+        "COALESCE(l.current_payload_id, l.stored_payload_id) AS ligand_payload_id, "
+        "COALESCE(JSON_EXTRACT(r.metrics, '$.receptor_payload_id'), rec.current_payload_id, rec.stored_payload_id) AS receptor_payload_id, "
+        "COALESCE(c.reference_ligand_payload_id, l.stored_payload_id) AS reference_ligand_payload_id, "
+        "COALESCE(c.reference_receptor_payload_id, rec.current_payload_id, rec.stored_payload_id) AS reference_receptor_payload_id, "
         "r.metrics AS metadata_json, "
         "r.created_at AS created_at, "
         "r.created_at AS updated_at "
@@ -376,15 +363,15 @@ def _hit_summary(project_db, row: dict[str, Any]) -> DockingHitSummary:
         sei=_float_or_none(row.get("sei")),
         status=str(row.get("status") or ""),
         error=str(row.get("error") or ""),
-        output_path=_coerce_project_path(project_db, row.get("output_path")),
-        ligand_path=_coerce_project_path(project_db, row.get("ligand_path")),
-        receptor_path=_coerce_project_path(project_db, row.get("receptor_path")),
-        reference_ligand_path=_coerce_project_path(project_db, row.get("reference_ligand_path")),
-        reference_receptor_path=_coerce_project_path(project_db, row.get("reference_receptor_path")),
+        pose_payload_id=row.get("pose_payload_id"),
+        ligand_payload_id=row.get("ligand_payload_id"),
+        receptor_payload_id=row.get("receptor_payload_id"),
+        reference_ligand_payload_id=row.get("reference_ligand_payload_id"),
+        reference_receptor_payload_id=row.get("reference_receptor_payload_id"),
         metadata=_decode_metadata(row.get("metadata_json")),
         created_at=row.get("created_at"),
         updated_at=row.get("updated_at"),
-    )
+    ).of_project(project_db)
 
 def list_top_hits(
     project_db,
@@ -528,7 +515,7 @@ def list_offtarget_rows(
     limit: int = 50000,
 ) -> list[dict[str, Any]]:
     """Flat per-pose rows for the ligand-centric off-target matrix: one dict per
-    (ligand, receptor, pose) with score, ligand efficiency and pose path."""
+    (ligand, receptor, pose) with score, ligand efficiency and the payload ids of pose, receptor, ligand."""
     clauses: list[str] = []
     if receptor_ids:
         ids = ",".join(str(int(rid)) for rid in receptor_ids)
@@ -548,9 +535,9 @@ def list_offtarget_rows(
             "r.pose_rank AS pose_rank, "
             "r.score AS score, "
             "JSON_EXTRACT(r.metrics, '$.ligand_efficiency') AS ligand_efficiency, "
-            "r.pose_path AS pose_path, "
-            "rec.current_path AS receptor_path, "
-            "l.stored_path AS ligand_path "
+            "r.pose_payload_id AS pose_payload_id, "
+            "COALESCE(JSON_EXTRACT(r.metrics, '$.receptor_payload_id'), rec.current_payload_id, rec.stored_payload_id) AS receptor_payload_id, "
+            "COALESCE(l.current_payload_id, l.stored_payload_id) AS ligand_payload_id "
             f"FROM {TABLE_DOCKING_RESULTS} r "
             f"LEFT JOIN {TABLE_MOLECULES} l ON l.id = r.ligand_molecule_id "
             f"LEFT JOIN {TABLE_MOLECULES} rec ON rec.id = r.receptor_molecule_id "
@@ -570,9 +557,9 @@ def list_offtarget_rows(
             "ligand_efficiency": (
                 None if row.get("ligand_efficiency") is None else float(row.get("ligand_efficiency"))
             ),
-            "pose_path": _coerce_project_path(project_db, row.get("pose_path")),
-            "receptor_path": _coerce_project_path(project_db, row.get("receptor_path")),
-            "ligand_path": _coerce_project_path(project_db, row.get("ligand_path")),
+            "pose_payload_id": row.get("pose_payload_id"),
+            "receptor_payload_id": row.get("receptor_payload_id"),
+            "ligand_payload_id": row.get("ligand_payload_id"),
         }
         for row in rows
     ]

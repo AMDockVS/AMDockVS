@@ -175,40 +175,6 @@ class MolecularViewerController:
 
     # -- docking poses -------------------------------------------------------------
 
-    @staticmethod
-    def _repair_pose_sdf_if_needed(path: Path) -> None:
-        # ponytail: one-time self-heal for SDFs corrupted by the old write_sd_string tuple-repr
-        # bug — they're a literal "('...\\n...', [])" instead of raw SDF. Rewrite the real text so
-        # existing results render without re-docking. New files are written correctly already.
-        try:
-            text = path.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
-            return
-        if not text.lstrip().startswith(("('", '("')):
-            return
-        import ast
-
-        try:
-            value = ast.literal_eval(text)
-        except (ValueError, SyntaxError):
-            return
-        sd = value[0] if isinstance(value, tuple) and value else value
-        if isinstance(sd, str) and sd.strip():
-            path.write_text(sd, encoding="utf-8")
-
-    @staticmethod
-    def _load_pose_state(cmd, pose_path: str, obj: str, pose_rank: int = 1) -> None:
-        """Load ONE pose of a multi-pose SDF as a single-state object.
-
-        Loading the file whole gave the object all 9 poses as states and `set state` then
-        pinned it to one: the viewer counted 9 states that never changed, for every pose.
-        Copying just the selected state out keeps the count honest (1 pose = 1 state) and
-        the table stays the only pose selector.
-        """
-        tmp = f"{obj}__all"
-        cmd.load(pose_path, tmp)
-        cmd.create(obj, tmp, int(pose_rank), 1)
-        cmd.delete(tmp)
 
     @staticmethod
     def _same_existing_path(left: Path | None, right: Path | None) -> bool:
@@ -255,8 +221,7 @@ class MolecularViewerController:
             else:
                 cmd.delete(ligand_obj)  # keep the receptor; replace only the pose
             if pose_path is not None:
-                self._repair_pose_sdf_if_needed(pose_path)
-                self._load_pose_state(cmd, str(pose_path), ligand_obj, pose_rank)
+                cmd.load(str(pose_path), ligand_obj)  # each pose is its own file: one state
                 try:
                     cmd.show("sticks", ligand_obj)
                     apply_ligand_atom_coloring(cmd, ligand_obj)
@@ -317,8 +282,7 @@ class MolecularViewerController:
                 cmd.load(str(reference_ligand_path), reference_ligand_obj)
                 ligand_objs.append(reference_ligand_obj)
             if pose_path is not None:
-                self._repair_pose_sdf_if_needed(pose_path)
-                self._load_pose_state(cmd, str(pose_path), docked_pose_obj, pose_rank)
+                cmd.load(str(pose_path), docked_pose_obj)  # each pose is its own file: one state
                 ligand_objs.append(docked_pose_obj)
             for obj in ligand_objs:
                 with contextlib.suppress(Exception):
