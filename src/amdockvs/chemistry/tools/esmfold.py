@@ -6,6 +6,7 @@ and never stored by AMDock.
 """
 from __future__ import annotations
 
+import io
 import json
 import os
 import urllib.error
@@ -168,17 +169,15 @@ def prediction_metrics(data: dict[str, Any], *, model: str) -> dict[str, Any]:
     }
 
 
-def save_prediction(data: dict[str, Any], structure_path: Path, *, model: str) -> tuple[dict[str, Any], dict[str, str]]:
-    """Write the mmCIF (+ pAE sidecar .npy). Returns (metrics, {"pae": absolute path})."""
-    structure_path = Path(structure_path)
-    structure_path.parent.mkdir(parents=True, exist_ok=True)
-    complex_to_structure(data).make_mmcif_document().write_file(str(structure_path))
-    files: dict[str, str] = {}
+def prediction_files(data: dict[str, Any], *, model: str) -> tuple[dict[str, Any], bytes, bytes | None]:
+    """(metrics, mmCIF bytes, pAE matrix as .npy bytes or None): what a fold stores, no file written."""
+    cif = complex_to_structure(data).make_mmcif_document().as_string().encode()
+    pae = None
     if data.get("pae") is not None:
-        pae_path = structure_path.with_suffix(".pae.npy")
-        np.save(pae_path, np.asarray(data["pae"], dtype=np.float32))
-        files["pae"] = str(pae_path)
-    return prediction_metrics(data, model=model), files
+        buffer = io.BytesIO()
+        np.save(buffer, np.asarray(data["pae"], dtype=np.float32))
+        pae = buffer.getvalue()
+    return prediction_metrics(data, model=model), cif, pae
 
 
 def sequence_from_structure(path: str | Path) -> str:
@@ -193,13 +192,12 @@ def sequence_from_structure(path: str | Path) -> str:
 
 def predict_structure(
     sequence: str,
-    structure_path: Path,
     *,
     model: str = FAST_MODEL,
     token: str | None = None,
-) -> tuple[dict[str, Any], dict[str, str]]:
+) -> tuple[dict[str, Any], bytes, bytes | None]:
     data = fold(build_fold_request(protein_chains(sequence), model=model), token=token)
-    return save_prediction(data, structure_path, model=model)
+    return prediction_files(data, model=model)
 
 
 __all__ = [
@@ -214,8 +212,8 @@ __all__ = [
     "complex_to_structure",
     "fold",
     "predict_structure",
+    "prediction_files",
     "prediction_metrics",
     "protein_chains",
-    "save_prediction",
     "sequence_from_structure",
 ]

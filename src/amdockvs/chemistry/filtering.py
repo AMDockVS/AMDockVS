@@ -2,12 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
-from pathlib import Path
 from typing import Any, Mapping
 
 from amdockvs.chemistry.descriptors import calculate_basic_descriptors
 from amdockvs.core.constants import STATUS_FLAG_PAINS, STATUS_FLAG_RO5_VIOLATION
-from amdockvs.core.paths import preferred_molecule_path
 
 SMALL_MOLECULE_FILTER_TYPE = "small_molecule"
 
@@ -363,26 +361,6 @@ def small_molecule_filter_values_from_record(record: Any) -> SmallMoleculeFilter
     )
 
 
-def small_molecule_filter_values_from_record_or_file(record: Any) -> SmallMoleculeFilterValues | None:
-    cached = small_molecule_filter_values_from_record(record)
-    if cached is not None:
-        return cached
-    try:
-        from rdkit import Chem
-    except Exception:
-        return None
-    path = preferred_molecule_path(record)
-    if path is None:
-        return None
-    resolved = Path(path).expanduser().resolve()
-    if not resolved.exists():
-        return None
-    mol = Chem.MolFromMolFile(str(resolved), sanitize=True, removeHs=False)
-    if mol is None:
-        return None
-    return evaluate_small_molecule_filter_values(mol)
-
-
 __all__ = [
     "SMALL_MOLECULE_FILTER_TYPE",
     "SmallMoleculeFilterCriteria",
@@ -396,5 +374,4 @@ __all__ = [
     "evaluate_small_molecule_filter_values",
     "passes_small_molecule_filter",
     "small_molecule_filter_values_from_record",
-    "small_molecule_filter_values_from_record_or_file",
 ]
