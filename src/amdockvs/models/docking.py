@@ -108,6 +108,8 @@ class EngineState(SQLModel, table=True):
     # The engine's prepared input (PDBQT...) as a payload of the "prepared" series (D10);
     # `files` keeps only what is not bytes (the source it was prepared from, failures).
     prepared_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
+    # A receptor's flexible side chains, when the user picked any: the engine docks with both.
+    flex_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
     files: dict = Field(default_factory=dict, sa_type=JSON)
     is_ready: bool = Field(default=False, index=True)
 

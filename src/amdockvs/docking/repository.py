@@ -1,7 +1,7 @@
 """Entity-side queries for docking: scopes, molecule rows and preparation state.
 
 What a docking run reads *before* it runs — which ligands and receptors are in scope,
-whether they are prepared, where their files live. Result queries live in
+whether they are prepared, which payloads they dock with. Result queries live in
 :mod:`amdockvs.docking.results.repository`.
 """
 from __future__ import annotations
@@ -17,7 +17,6 @@ from sqlmodel import select
 
 from amdockvs.core.constants import (
     RESOURCE_DOCKING_RESULTS,
-    RESOURCE_MOLECULES,
     TABLE_COMPLEXES,
     TABLE_DOCKING_RESULTS,
     TABLE_MOLECULES,
@@ -30,18 +29,6 @@ from amdockvs.project.sets import (
     molecule_set_spec,
     prepared_molecules_spec,
 )
-
-
-def resolve_storage_dir(*, entity_kind: str, config: Mapping[str, Any] | None) -> Path:
-    config_map = dict(config or {})
-    resources = dict(config_map.get("project_resources") or {})
-    resource = dict(resources.get(RESOURCE_MOLECULES) or {})
-    path_text = str(resource.get("path") or "").strip()
-    if not path_text:
-        raise ValueError("Missing project resource 'molecules' for docking.")
-    path = Path(path_text).expanduser().resolve() / "docking" / str(entity_kind).strip().lower()
-    path.mkdir(parents=True, exist_ok=True)
-    return path
 
 
 def resolve_docking_output_dir(params: Mapping[str, Any], config: Mapping[str, Any] | None) -> Path:
@@ -117,7 +104,6 @@ def _augment_molecule_rows(
                 sites[int(site.id or 0)] = site
 
     prepared_flag_key = f"prepared_{str(engine).strip().lower()}"
-    prepared_path_key = f"{prepared_flag_key}_path"
     grid_flag_key = f"grid_{str(engine).strip().lower()}"
     grid_payload_key = f"{grid_flag_key}_payload"
     for row in rows:
@@ -126,15 +112,12 @@ def _augment_molecule_rows(
             continue
         engine_state = states.get(molecule_id)
         active_site = sites.get(int(row.get("active_binding_site_id") or 0))
-        files = dict(getattr(engine_state, "files", {}) or {}) if engine_state is not None else {}
-        prepared_path = str(files.get("prepared") or "").strip()
         payload = _binding_site_payload(active_site)
         prepared_ready = bool(engine_state is not None and bool(engine_state.is_ready))
         row["prepared_engine"] = prepared_ready
-        row["prepared_engine_path"] = prepared_path
         row[prepared_flag_key] = prepared_ready
-        row[prepared_path_key] = prepared_path
-        row["prepared_files"] = files
+        row["prepared_payload_id"] = engine_state.prepared_payload_id if prepared_ready else None
+        row["flex_payload_id"] = engine_state.flex_payload_id if prepared_ready else None
         grid_ready = bool(payload is not None)
         row["grid_engine"] = grid_ready
         row["grid_engine_payload"] = payload
@@ -341,7 +324,7 @@ def iter_entity_rows(
     set_id: int | None = None,
     filters: Mapping[str, Any] | None = None,
     extra_filters: Mapping[str, Any] | None = None,
-    fields: tuple[str, ...] = ("id", "stored_path", "current_path", "input_format", "metadata_json"),
+    fields: tuple[str, ...] = ("id", "stored_payload_id", "current_payload_id", "input_format", "metadata_json"),
     order: tuple[str, ...] = ("id",),
     batch_size: int = 1000,
 ) -> Iterator[dict[str, Any]]:
@@ -360,8 +343,8 @@ def iter_entity_rows(
         dict.fromkeys(
             (
                 "id",
-                "stored_path",
-                "current_path",
+                "stored_payload_id",
+                "current_payload_id",
                 "extra_data",
                 "active_binding_site_id",
                 *[field for field in requested_fields if field in model_fields],
@@ -420,7 +403,7 @@ def list_entity_rows(
     engine: str = "ad4",
     set_id: int | None = None,
     filters: Mapping[str, Any] | None = None,
-    fields: tuple[str, ...] = ("id", "stored_path", "current_path", "input_format", "metadata_json"),
+    fields: tuple[str, ...] = ("id", "stored_payload_id", "current_payload_id", "input_format", "metadata_json"),
     order: tuple[str, ...] = ("id",),
 ) -> list[dict[str, Any]]:
     return list(
@@ -549,46 +532,6 @@ def persist_receptor_grid(
 
 def list_receptor_ids_in_set(project_db, *, receptor_set_id: int) -> list[int]:
     return list_molecule_set_ids(project_db, int(receptor_set_id))
-
-
-def persist_prepared_updates(db_path: Path | str, *, entity_kind: str, updates: list[dict[str, Any]]) -> None:
-    if not updates:
-        return
-    project_db = ProjectStore()
-    project_db.connect(Path(db_path).expanduser().resolve().parent)
-    try:
-        now = datetime.now()
-        normalized_role = str(entity_kind).strip().lower()
-        with project_db.get_session() as session:
-            for update in updates:
-                molecule_id = int(update.get("entity_id") or 0)
-                if molecule_id <= 0:
-                    continue
-                record = session.exec(
-                    select(EngineState)
-                    .where(EngineState.molecule_id == molecule_id)
-                    .where(EngineState.role_type == normalized_role)
-                    .where(EngineState.engine == str(update.get("engine") or "ad4"))
-                ).first()
-                if record is None:
-                    record = EngineState(
-                        molecule_id=molecule_id,
-                        role_type=normalized_role,
-                        engine=str(update.get("engine") or "ad4"),
-                    )
-                prepared_path = str(update.get("prepared_path") or "").strip()
-                extra_files = dict(update.get("files") or {})
-                files = {"prepared": str(Path(prepared_path).expanduser().resolve())} if prepared_path else {}
-                files.update(extra_files)
-                record.files = files
-                record.is_ready = bool(prepared_path)
-                record.updated_at = now
-                if getattr(record, "created_at", None) is None:
-                    record.created_at = now
-                session.add(record)
-            session.commit()
-    finally:
-        project_db.disconnect()
 
 
 def project_root_from_db(project_db) -> Path | None:

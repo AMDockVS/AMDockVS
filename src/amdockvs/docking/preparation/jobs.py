@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from itertools import batched
 from pathlib import Path
-import json
 from typing import Any, Iterator, Mapping
 
 from pydantic import BaseModel, Field
@@ -13,18 +12,15 @@ from amdockvs.core.jobs import JobSpec
 from amdockvs.docking.preparation.tasks import prepare_entities, prepare_ligand_shards
 
 from amdockvs.core.configuration import DEFAULT_OUTPUT_FLUSH_EVERY, batch_size_for
-from amdockvs.core.worker_io import worker_file, worker_output_dir, worker_path_fields
+from amdockvs.core.payloads import molecule_payload_id, payload_store
+from amdockvs.core.worker_io import worker_file, worker_output_dir
 from amdockvs.core.constants import AMDOCKVS_OFFLOADABLE_EXECUTORS
 from amdockvs.docking.repository import (
     iter_entity_rows,
     molecule_scope_spec,
-    project_db_path,
-    resolve_storage_dir,
 )
-from amdockvs.docking.preparation.state import prepared_path_from_row
 from amdockvs.docking.preparation.shards import PREPARED_DIR
 from amdockvs.models import EngineState, ShardEngineState
-from amdockvs.core.paths import preferred_molecule_path
 from amdockvs.molecules.storage import ShardStore, shard_scope_spec
 
 
@@ -53,17 +49,16 @@ class PreparationJobParams(BaseModel):
 def scope_spec(params: PreparationJobParams, *, entity_kind: str) -> QuerySpec:
     """The scope of a preparation, fully declared: the same WHERE that feeds the feed.
 
-    `db_count` over this spec gives the ceiling of the scope. It is not the exact total: with
-    `force=False` the feed additionally drops rows whose prepared file already exists **on
-    disk**, and that is not a query (the DB flag lies if someone deleted the file). That is why
-    this job does not declare `total_chunks` — over-declaring would leave it never completing.
+    `db_count` over this spec gives the ceiling of the scope: with `force=False` the feed also
+    drops rows already prepared, which this spec does not say. That is why this job does not
+    declare `total_chunks` — over-declaring would leave it never completing.
     """
     return molecule_scope_spec(
         entity_kind=entity_kind,
         engine=params.engine,
         set_id=params.ligand_set_id if entity_kind == "ligand" else params.receptor_set_id,
         filters=params.ligand_filters if entity_kind == "ligand" else params.receptor_filters,
-        fields=("id", "stored_path", "current_path", "has_3d"),
+        fields=("id", "stored_payload_id", "current_payload_id", "has_3d"),
         order=("id",),
     )
 
@@ -84,69 +79,14 @@ def _rows_for_preparation(
         engine=engine,
         set_id=set_id,
         filters=filters,
-        fields=("id", "stored_path", "current_path", "has_3d", "prepared_engine_path", "prepared_files"),
+        fields=("id", "stored_payload_id", "current_payload_id", "has_3d", "prepared_payload_id"),
         order=("id",),
         batch_size=batch_size,
     )
     if force:
         return rows
 
-    def is_pending(row) -> bool:
-        prepared = prepared_path_from_row(row, engine=engine)
-        return prepared is None or not prepared.exists()
-
-    return filter(is_pending, rows)
-
-
-def _metadata_has_3d(raw_metadata: str | None) -> bool | None:
-    if not raw_metadata:
-        return None
-    try:
-        metadata = json.loads(raw_metadata)
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(metadata, dict):
-        return None
-    chemistry = metadata.get("chemistry")
-    if isinstance(chemistry, dict):
-        current = chemistry.get("current")
-        if isinstance(current, dict):
-            if "has_3d" in current:
-                return bool(current.get("has_3d"))
-            current_state = current.get("state")
-            if isinstance(current_state, dict) and "has_3d" in current_state:
-                return bool(current_state.get("has_3d"))
-    state = metadata.get("state")
-    if isinstance(state, dict) and "has_3d" in state:
-        return bool(state.get("has_3d"))
-    return None
-
-
-def _path_has_3d(path: str | Path) -> bool:
-    from amdockvs.io.formats import normalized_suffix, read_mol
-
-    source = Path(path).expanduser().resolve()
-    suffix = normalized_suffix(source)
-    if suffix in {".pdbqt", ".pdb", ".mol2", ".cif"}:
-        return True  # coordinate formats: a file that parses at all has 3D
-    if suffix == ".smi":
-        return False
-    mol = read_mol(source)
-    if mol is None or mol.GetNumConformers() == 0:
-        return False
-    return any(bool(mol.GetConformer(index).Is3D()) for index in range(mol.GetNumConformers()))
-
-
-def _filter_ligands_with_3d(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    valid: list[dict[str, Any]] = []
-    for row in rows:
-        has_3d = row.get("has_3d")
-        if has_3d is None:
-            stored_path = preferred_molecule_path(row)
-            has_3d = bool(stored_path and _path_has_3d(stored_path))
-        if has_3d:
-            valid.append(row)
-    return valid
+    return (row for row in rows if not row.get("prepared_payload_id"))
 
 
 def _attach_flexible_residues(project_db, rows: list[dict[str, Any]]) -> None:
@@ -162,12 +102,23 @@ def _attach_flexible_residues(project_db, rows: list[dict[str, Any]]) -> None:
                 row["flexible_residues"] = [str(k) for k in keys]
 
 
+def _with_structures(project_db, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Each row with the bytes it is prepared from (`structure`, `structure_kind`), read in disk order."""
+    for row in rows:
+        row["structure_payload_id"] = molecule_payload_id(row)
+    ids = {row["structure_payload_id"] for row in rows} - {None}
+    store = payload_store(project_db)
+    found, kinds = (store.get_many(ids), store.kinds(ids)) if ids else ({}, {})
+    for row in rows:
+        row["structure"] = found.get(row["structure_payload_id"])
+        row["structure_kind"] = kinds.get(row["structure_payload_id"], "")
+    return rows
+
+
 def _iter_preparation_batches(
     *,
     project_db,
-    db_path: Path,
     entity_kind: str,
-    output_dir: Path,
     params: PreparationJobParams,
 ) -> Iterator[dict[str, Any]]:
     set_id = params.ligand_set_id if entity_kind == "ligand" else params.receptor_set_id
@@ -187,8 +138,7 @@ def _iter_preparation_batches(
         return {
             "entity_kind": entity_kind,
             "engine": params.engine,
-            "output_dir": worker_output_dir(output_dir),
-            "rows": [worker_path_fields(row, "stored_path", "current_path") for row in rows],
+            "rows": _with_structures(project_db, rows),
             "keep_waters": bool(params.keep_waters),
             "keep_cofactors": bool(params.keep_cofactors),
         }
@@ -220,9 +170,7 @@ def _build_preparation_chunks(
         raise ValueError(f"prepare_{entity_kind}s_job requires project_db in config.")
     yield from _iter_preparation_batches(
         project_db=project_db,
-        db_path=project_db_path(project_db),
         entity_kind=entity_kind,
-        output_dir=resolve_storage_dir(entity_kind=entity_kind, config=config_map),
         params=parsed,
     )
 

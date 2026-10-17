@@ -18,13 +18,14 @@ from amdockvs.core.vocab import (
 
 
 def engine_state_row(*, molecule_id: int, role_type: str, engine: str, prepared_payload_id: Any = None,
-                     files: dict | None = None, is_ready: bool = False) -> dict[str, Any]:
+                     flex_payload_id: Any = None, files: dict | None = None, is_ready: bool = False) -> dict[str, Any]:
     now = datetime.now()
     return {
         "molecule_id": molecule_id,
         "role_type": role_type,
         "engine": engine,
         "prepared_payload_id": prepared_payload_id,
+        "flex_payload_id": flex_payload_id,
         "files": files or {},
         "is_ready": is_ready,
         "created_at": now,

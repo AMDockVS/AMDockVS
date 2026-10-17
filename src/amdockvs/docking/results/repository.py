@@ -792,10 +792,8 @@ __all__ = [
     "list_results",
     "list_top_hits",
     "persist_receptor_grid",
-    "persist_prepared_updates",
     "pivot_availability",
     "project_db_path",
     "resolve_docking_output_dir",
-    "resolve_storage_dir",
     "update_receptor_metadata_json",
 ]
