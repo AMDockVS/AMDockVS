@@ -15,6 +15,7 @@ from amdockvs.chemistry.jobs import LigandChemistryJobParams, _iter_ligand_chemi
 from amdockvs.docking.preparation.jobs import PreparationJobParams
 from amdockvs.docking.preparation.jobs import scope_spec as preparation_scope_spec
 from amdockvs.models.molecules import MoleculeRecord
+from payload_seed import seed_payload
 from amdockvs.binding_sites.jobs import P2RankPredictionParams
 from amdockvs.binding_sites.jobs import scope_spec as pockets_scope_spec
 from amdockvs.qsar.jobs import DescriptorJobParams, _iter_descriptor_batches
@@ -23,17 +24,18 @@ from amdockvs.qsar.jobs import scope_spec as qsar_scope_spec
 
 def _project(tmp_path, *, ligands=5, receptors=2):
     store = ProjectStore.open_at(tmp_path / "project.db")
+    structure = seed_payload(store, "mol\n\n\nM  END\n", "sdf")
     with store.get_session() as session:
         for i in range(ligands):
             session.add(MoleculeRecord(
                 name=f"lig_{i}", is_ligand=True, source="/data/libs.sdf", source_index=i,
-                input_format="sdf", stored_path=f"/data/lig_{i}.sdf", has_3d=True,
+                input_format="sdf", stored_payload_id=structure, has_3d=True,
                 excluded=(i == 0),  # one excluded: the scope has to discount it in SQL
             ))
         for i in range(receptors):
             session.add(MoleculeRecord(
                 name=f"rec_{i}", is_receptor=True, source="/data/rec.pdb",
-                input_format="pdb", stored_path=f"/data/rec_{i}.pdb", has_3d=True,
+                input_format="pdb", stored_payload_id=structure, has_3d=True,
             ))
         session.commit()
     return store
@@ -46,7 +48,7 @@ def test_chemistry_count_matches_its_feed(tmp_path):
     fed = sum(
         len(chunk["rows"])
         for chunk in _iter_ligand_chemistry_batches(
-            project_db=store, db_path=Path(store.db_path), output_dir=tmp_path, params=params
+            project_db=store, params=params
         )
     )
     assert db_count(store, spec) == fed == 4  # 5 ligands - 1 excluded

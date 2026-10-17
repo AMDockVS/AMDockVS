@@ -23,7 +23,8 @@ from amdockvs.core.constants import (
 from amdockvs.core.vocab import ModelSource
 from amdockvs.core.worker_io import worker_file, worker_output_dir
 from amdockvs.models import BindingSite
-from amdockvs.core.paths import preferred_molecule_path, set_default_project_root
+from amdockvs.core.paths import set_default_project_root
+from amdockvs.core.payloads import molecule_payload_id, payload_file
 from amdockvs.binding_sites.p2rank import P2RANK_VERSION
 
 
@@ -107,7 +108,7 @@ def scope_spec(params: P2RankPredictionParams) -> QuerySpec:
         filters["id__in"] = [int(value) for value in params.receptor_ids]
     return QuerySpec(
         table=TABLE_MOLECULES,
-        fields=("id", "name", "stored_path", "current_path", "current_model_index", "extra_data"),
+        fields=("id", "name", "stored_payload_id", "current_payload_id", "current_model_index", "extra_data"),
         filters=filters,
         order=("id",),
     )
@@ -199,9 +200,9 @@ def p2rank_prediction_job(params: dict, config: dict | None = None) -> Iterator[
         receptor_id = int(receptor.get("id") or 0)
         if receptor_id not in recalculate_ids:
             continue
-        receptor_path = preferred_molecule_path(receptor)
-        if receptor_path is None or not receptor_path.is_file():
-            raise ValueError(f"Receptor {receptor_id} has no readable structure file.")
+        receptor_path = payload_file(project_db, molecule_payload_id(receptor))  # P2Rank only reads paths
+        if receptor_path is None:
+            raise ValueError(f"Receptor {receptor_id} has no structure.")
         emitted = True
         yield {
             "receptor_id": receptor_id,

@@ -57,7 +57,7 @@ def protonate_receptor_pdb2pqr_file(
     # `output` is the PDB, not the PQR: PQR has no element column and puts charge/radius where
     # occupancy/B-factor belong, so every consumer that reads elements (RDKit -> Meeko receptor
     # prep, our complex builder) sees an empty element and dies. pdb2pqr writes both in one run,
-    # and the PQR stays beside it for whoever wants its charges.
+    # and the PQR lands beside it, in the work folder `run_receptor_tool` removes on return.
     pqr = output.with_suffix(".pqr")
     subprocess.run(
         [

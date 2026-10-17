@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import io
 import json
 import subprocess
-import tempfile
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+
+from ms_flow.payloads import scratch_file
 
 
 def _molecule_id(molecule) -> int:
@@ -30,10 +32,11 @@ def _read_sdf_by_id(path: Path) -> dict[int, Any]:
     return results
 
 
-def _write_sdf(path: Path, entries: Sequence[tuple[int, Any]]) -> None:
+def _sdf_bytes(entries: Sequence[tuple[int, Any]]) -> bytes:
     from rdkit import Chem
 
-    writer = Chem.SDWriter(str(path))
+    buffer = io.StringIO()
+    writer = Chem.SDWriter(buffer)
     try:
         for entity_id, source in entries:
             molecule = Chem.Mol(source)
@@ -42,6 +45,7 @@ def _write_sdf(path: Path, entries: Sequence[tuple[int, Any]]) -> None:
             writer.write(molecule)
     finally:
         writer.close()
+    return buffer.getvalue().encode()
 
 
 def _run(command: list[str], *, timeout: int) -> None:
@@ -77,11 +81,7 @@ def _openbabel(
     command: Path,
     ph: float,
 ) -> dict[int, Any]:
-    with tempfile.TemporaryDirectory(prefix="amdockvs-openbabel-") as temporary:
-        root = Path(temporary)
-        input_path = root / "input.sdf"
-        output_path = root / "output.sdf"
-        _write_sdf(input_path, entries)
+    with scratch_file(_sdf_bytes(entries), ".sdf") as input_path, scratch_file(b"", ".sdf") as output_path:
         _run(
             [str(command), "-isdf", str(input_path), "-osdf", "-O", str(output_path), "-p", str(float(ph))],
             timeout=max(600, len(entries) * 20),
@@ -100,19 +100,10 @@ def _pkasso(
 ) -> dict[int, Any]:
     from rdkit import Chem
 
-    with tempfile.TemporaryDirectory(prefix="amdockvs-pkasso-") as temporary:
-        root = Path(temporary)
-        input_path = root / "input.json"
-        output_path = root / "output.sdf"
-        input_path.write_text(
-            json.dumps(
-                [
-                    {"id": entity_id, "smiles": Chem.MolToSmiles(Chem.RemoveHs(molecule))}
-                    for entity_id, molecule in entries
-                ]
-            ),
-            encoding="utf-8",
-        )
+    request = json.dumps(
+        [{"id": entity_id, "smiles": Chem.MolToSmiles(Chem.RemoveHs(molecule))} for entity_id, molecule in entries]
+    ).encode()
+    with scratch_file(request, ".json") as input_path, scratch_file(b"", ".sdf") as output_path:
         runner = Path(__file__).with_name("pkasso_runner.py").resolve()
         command = [
             str(python),

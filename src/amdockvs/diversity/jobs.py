@@ -35,7 +35,7 @@ from amdockvs.core.constants import (
 from amdockvs.models import ClusteringResult
 from amdockvs.models.descriptors import FingerprintType
 from amdockvs.docking.repository import molecule_set_spec
-from amdockvs.core.paths import preferred_molecule_path, set_default_project_root
+from amdockvs.core.paths import set_default_project_root
 from amdockvs.diversity.clustering import fp_matrix_from_bitstrings
 
 
@@ -66,7 +66,7 @@ def _scope_spec(params: SelectionClusterJobParams) -> QuerySpec:
     Set membership is a subquery, not a Python `set` holding every id in the set: that set
     grew with the library and also forced row-by-row filtering outside the db.
     """
-    filters = {"is_ligand": True, "excluded": False, "stored_path__ne": "", **dict(params.molecule_filters or {})}
+    filters = {"is_ligand": True, "excluded": False, "stored_payload_id__is_not_null": True, **dict(params.molecule_filters or {})}
     filters.pop("_limit", None)
     in_specs: list[QuerySpec] = []
     if params.molecule_set_id is not None:
@@ -79,7 +79,7 @@ def _scope_spec(params: SelectionClusterJobParams) -> QuerySpec:
         filters["id__in_subquery"] = in_specs
     return QuerySpec(
         table=TABLE_MOLECULES,
-        fields=("id", "stored_path", "current_path", "current_model_index", "input_format"),
+        fields=("id", "stored_payload_id", "current_payload_id", "current_model_index", "input_format"),
         filters=filters,
         order=("id",),
     )
@@ -130,17 +130,13 @@ def stored_fingerprints_for_ids(project_db, molecule_ids: list[int], *, radius: 
     return out
 
 
-def _fingerprint_from_file(row: dict[str, Any], *, radius: int, nbits: int) -> bytes | None:
+def _fingerprint_from_structure(project_db, row: dict[str, Any], *, radius: int, nbits: int) -> bytes | None:
     """Compute a Morgan fingerprint bitstring for a molecule whose FingerprintRecord is missing.
     Fallback path so selection works without a prior fingerprint job (slower — serial, in-process)."""
-    from rdkit import Chem
-
     from amdockvs.chemistry.fingerprints import morgan_fingerprint
+    from amdockvs.chemistry.structures import molecule_mol
 
-    path = preferred_molecule_path(row)
-    if path is None or not Path(path).exists():
-        return None
-    mol = Chem.MolFromMolFile(str(path), sanitize=True, removeHs=False)
+    mol = molecule_mol(project_db, row)
     if mol is None:
         return None
     return morgan_fingerprint(mol, radius=int(radius), n_bits=int(nbits)).ToBitString().encode("ascii")
@@ -176,7 +172,7 @@ def _write_packed_fingerprints(
             keep_ids: list[int] = []
             bitstrings: list[bytes] = []
             for molecule_id, row in zip(ids, batch):
-                fp = stored.get(molecule_id) or _fingerprint_from_file(row, radius=params.fp_radius, nbits=nbits)
+                fp = stored.get(molecule_id) or _fingerprint_from_structure(project_db, row, radius=params.fp_radius, nbits=nbits)
                 if fp is None or len(fp) != nbits:
                     continue  # unparseable / no structure / wrong width -> excluded from clustering
                 keep_ids.append(molecule_id)
