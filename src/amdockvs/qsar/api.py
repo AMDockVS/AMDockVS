@@ -138,7 +138,7 @@ class QSARAPI(ActivitiesMixin):
 
     def _scaffold_keys(self, records) -> dict[int, str]:
         """molecule_id -> Bemis-Murcko scaffold SMILES (empty string when unparseable)."""
-        from amdockvs.core.paths import preferred_molecule_path
+        from amdockvs.chemistry.structures import molecule_mol
 
         try:
             from rdkit import Chem
@@ -148,12 +148,7 @@ class QSARAPI(ActivitiesMixin):
         out: dict[int, str] = {}
         for rec in records:
             mid = int(rec.id or 0)
-            path = preferred_molecule_path(rec)
-            mol = None
-            if path is not None and path.exists():
-                from amdockvs.io.formats import read_mol
-
-                mol = read_mol(path, remove_hs=True)
+            mol = molecule_mol(self.runtime.workspace.project_db, rec, remove_hs=True)
             out[mid] = "" if mol is None else MurckoScaffold.MurckoScaffoldSmiles(mol=mol)
         return out
 
@@ -932,18 +927,14 @@ class QSARAPI(ActivitiesMixin):
             return {int(mid): str(sub) for mid, sub in (record.metrics or {}).get("split_assignment", [])}
 
     def _ligand_mol(self, session, rec):
-        """An RDKit mol for a ligand: from its stored structure file, else its canonical SMILES."""
+        """An RDKit mol for a ligand: from its stored structure, else its canonical SMILES."""
         from rdkit import Chem
 
-        from amdockvs.core.paths import preferred_molecule_path
+        from amdockvs.chemistry.structures import molecule_mol
 
-        path = preferred_molecule_path(rec)
-        if path is not None and path.exists():
-            from amdockvs.io.formats import read_mol
-
-            mol = read_mol(path, remove_hs=True)
-            if mol is not None:
-                return mol
+        mol = molecule_mol(self.runtime.workspace.project_db, rec, remove_hs=True)
+        if mol is not None:
+            return mol
         return Chem.MolFromSmiles(rec.canonical_smiles) if rec.canonical_smiles else None
 
     def atom_contributions(self, *, model: QSARModelRef | int, ligand_id: int) -> dict[str, Any]:

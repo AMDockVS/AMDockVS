@@ -7,6 +7,7 @@ project's store. No path to a molecule exists anywhere: a program that only read
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Mapping
 
 from ms_flow.payloads import Payload
@@ -33,10 +34,26 @@ def payload_store(project: Any):
     return resolve_project_store(project).payloads
 
 
+PAYLOAD_CACHE = Path("cache") / "payloads"
+
+
+def payload_file(project: Any, payload_id: int | None) -> Path | None:
+    """A stored structure as `<project>/cache/payloads/<id>.<kind>`, for a reader that only takes
+    paths (PyMOL, RDKit's file readers, ms_contactmap). Written once and never stale: payload ids
+    are never reused."""
+    if not payload_id:
+        return None
+    from ms_flow.core.database import resolve_project_store
+
+    store = resolve_project_store(project)
+    return Path(store.payloads.materialize(int(payload_id), Path(store.db_path).parent / PAYLOAD_CACHE))
+
+
 def read_structure(project: Any, payload_id: int) -> tuple[str, str]:
     """(text, kind) of one stored structure."""
     store = payload_store(project)
     return store.get(payload_id).decode(), store.kinds([payload_id]).get(payload_id, "")
 
 
-__all__ = ["molecule_payload_id", "payload_store", "read_structure", "structure_payload"]
+__all__ = ["PAYLOAD_CACHE", "molecule_payload_id", "payload_file", "payload_store", "read_structure",
+           "structure_payload"]

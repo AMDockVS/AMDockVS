@@ -49,19 +49,12 @@ def _structural_keys_from_mol(mol) -> tuple[str | None, str | None]:
     return canonical_smiles(mol) or None, inchikey(mol) or None
 
 
-def _structural_keys_from_file(path: Path) -> tuple[str | None, str | None]:
-    """(canonical_smiles, inchikey) from a ligand's stored structure file, for molecules imported
+def _structural_keys_from_row(project_db, row) -> tuple[str | None, str | None]:
+    """(canonical_smiles, inchikey) from a ligand's stored structure, for molecules imported
     before the molecule table carried them."""
-    try:
-        from rdkit import Chem
-    except ImportError:
-        return None, None
-    from amdockvs.io.formats import read_mol
+    from amdockvs.chemistry.structures import molecule_mol
 
-    mol = read_mol(path, remove_hs=True)
-    if mol is None:
-        return None, None
-    return _structural_keys_from_mol(mol)
+    return _structural_keys_from_mol(molecule_mol(project_db, row, remove_hs=True))
 
 
 class ActivitiesMixin:
@@ -179,18 +172,13 @@ class ActivitiesMixin:
 
     def _structural_ligand_index(self, session) -> tuple[dict[str, int], dict[str, int]]:
         """(inchikey->id, canonical_smiles->id) over all ligands, from the molecule table; a
-        molecule imported before it had those columns is read from its structure file."""
-        from amdockvs.core.paths import preferred_molecule_path
-
+        molecule imported before it had those columns is read from its structure."""
         inchikey_to_id: dict[str, int] = {}
         smiles_to_id: dict[str, int] = {}
         for mol in session.exec(select(MoleculeRecord).where(MoleculeRecord.is_ligand.is_(True))):
             canon, ikey = mol.canonical_smiles, mol.inchikey
             if not (canon or ikey):
-                path = preferred_molecule_path(mol)
-                if path is None or not path.exists():
-                    continue
-                canon, ikey = _structural_keys_from_file(path)
+                canon, ikey = _structural_keys_from_row(self.runtime.workspace.project_db, mol)
             if ikey:
                 inchikey_to_id.setdefault(ikey, int(mol.id))
             if canon:
