@@ -18,7 +18,7 @@ from ms_flow.selection import Selection
 from amdockvs.core.configuration import app_config
 from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR, RESOURCE_POCKET_PREDICTIONS
 from amdockvs.models import BindingSite, MoleculeRecord
-from amdockvs.core.paths import preferred_molecule_path
+from amdockvs.core.payloads import molecule_payload_id, read_structure
 from amdockvs.binding_sites.boxes import box_from_coords
 from amdockvs.binding_sites.jobs import P2RankPredictionParams, p2rank_prediction_job
 from amdockvs.binding_sites.p2rank import (
@@ -41,15 +41,15 @@ def defined_reference_ligands(extra_data: Any) -> list[str]:
     return [str(value) for value in values if str(value or "").strip()]
 
 
-def _read_atom_coords(path: Path) -> list[tuple[float, float, float]]:
-    """Atom coordinates from a molecule file. Fixed columns for PDB/PDBQT, RDKit for the rest."""
-    from amdockvs.io.formats import normalized_suffix, read_mol
+def _read_atom_coords(text: str, kind: str) -> list[tuple[float, float, float]]:
+    """Atom coordinates from a stored structure. Fixed columns for PDB/PDBQT, RDKit for the rest."""
+    from amdockvs.chemistry.structures import mol_from_bytes
 
-    if normalized_suffix(path) in {".pdb", ".pdbqt"}:
+    if kind in {"pdb", "pdbqt"}:
         # Columns, not a parser: a box only needs coordinates, and this reads a structure the
         # CCD does not know (UNL/LIG) just as well as one it does.
         coords: list[tuple[float, float, float]] = []
-        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        for line in text.splitlines():
             if not (line.startswith("ATOM") or line.startswith("HETATM")):
                 continue
             try:
@@ -57,7 +57,7 @@ def _read_atom_coords(path: Path) -> list[tuple[float, float, float]]:
             except (ValueError, IndexError):
                 continue
         return coords
-    mol = read_mol(path, sanitize=False, remove_hs=False)
+    mol = mol_from_bytes(text, kind, sanitize=False, remove_hs=False)
     if mol is None or mol.GetNumConformers() == 0:
         return []
     conf = mol.GetConformer()
@@ -164,13 +164,11 @@ class BindingSiteAPI:
             ).all()
             result = []
             for row in rows:
-                path = preferred_molecule_path(row)
                 defined_ligands = defined_reference_ligands(row.extra_data)
                 result.append(
                     {
                         "id": int(row.id or 0),
                         "name": str(row.name or f"receptor_{int(row.id or 0)}"),
-                        "path": "" if path is None else str(path),
                         "defined_ligands": defined_ligands,
                         "has_defined_ligands": bool(defined_ligands),
                         "p2rank_profile": prediction_profiles.get(
@@ -405,12 +403,12 @@ class BindingSiteAPI:
             ligand = session.get(MoleculeRecord, int(ligand_id))
             if ligand is None:
                 raise ValueError(f"Molecule {ligand_id} does not exist.")
-            path = preferred_molecule_path(ligand)
-        if path is None or not Path(path).exists():
-            raise ValueError(f"Ligand {ligand_id} has no readable structure file.")
-        coords = _read_atom_coords(Path(path))
+            payload_id = molecule_payload_id(ligand)
+        if payload_id is None:
+            raise ValueError(f"Ligand {ligand_id} has no stored structure.")
+        coords = _read_atom_coords(*read_structure(self.runtime, payload_id))
         if not coords:
-            raise ValueError(f"No atom coordinates found in {Path(path).name}.")
+            raise ValueError(f"No atom coordinates found in ligand {ligand_id}.")
         geometry = app_config(self.runtime).binding_sites
         return box_from_coords(
             coords,

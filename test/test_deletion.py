@@ -2,12 +2,17 @@
 deleting a complex removes its results but keeps the molecules."""
 from contextlib import contextmanager
 
+from ms_flow.core.database.project import ProjectStore
+from payload_seed import seed_payload
+
 from sqlmodel import Session, SQLModel, create_engine, select
 
+from amdockvs.core.payloads import PAYLOAD_CACHE
 from amdockvs.project.deletion import clear_derived, delete_complexes, delete_molecules
 from amdockvs.models import (
     ComplexRecord,
     DockingResultRecord,
+    EngineState,
     FingerprintRecord,
     LigandActivity,
     MoleculeModel,
@@ -69,46 +74,65 @@ def test_delete_complex_keeps_molecules():
 
 
 def _project(tmp_path):
-    """Two ligands: 2 owns a.sdf, a model and a fingerprint; 3 shares b.sdf as its stored file."""
-    engine = create_engine(f"sqlite:///{tmp_path / 'project.db'}")
-    SQLModel.metadata.create_all(engine)
-    for name in ("a.sdf", "a_edit.sdf", "model.sdf", "b.sdf", "b.mshard"):
-        (tmp_path / name).write_text("x")
-    outside = tmp_path.parent / f"{tmp_path.name}_outside.sdf"
-    outside.write_text("x")
-    with Session(engine) as s:
-        s.add(MoleculeRecord(id=2, name="a", is_ligand=True, stored_path="a.sdf", current_path="a_edit.sdf"))
-        s.add(MoleculeRecord(id=3, name="b", is_ligand=True, stored_path="b.sdf", current_path=str(outside)))
-        s.add(MoleculeRecord(id=4, name="c", is_ligand=True, stored_path="b.mshard", current_path="b.sdf"))
-        s.add(MoleculeModel(molecule_id=2, model_index=1, file_path="model.sdf"))
+    """Two ligands: 2 owns a stored and an edited structure, a model, a preparation and a fingerprint;
+    3 and 4 share one structure; a cached copy of every payload was opened once."""
+    store = ProjectStore.open_at(tmp_path / "project.db")
+    ids = {name: seed_payload(store, f"{name}\n", "sdf") for name in
+           ("a", "a_edit", "model", "pae", "prepared", "shared", "alone", "frozen")}
+    with store.get_session() as s:
+        s.add(MoleculeRecord(id=2, name="a", is_ligand=True, stored_payload_id=ids["a"], current_payload_id=ids["a_edit"]))
+        s.add(MoleculeRecord(id=3, name="b", is_ligand=True, stored_payload_id=ids["shared"], current_payload_id=ids["alone"]))
+        s.add(MoleculeRecord(id=4, name="c", is_ligand=True, stored_payload_id=ids["shared"], current_payload_id=ids["shared"]))
+        s.commit()
+        s.add(MoleculeModel(molecule_id=2, model_index=1, payload_id=ids["model"], pae_payload_id=ids["pae"]))
+        s.add(EngineState(molecule_id=2, role_type="ligand", engine="vina", prepared_payload_id=ids["prepared"]))
         s.add(FingerprintRecord(molecule_id=2, fp_type="morgan", fp_binary=b""))
         s.add(LigandActivity(molecule_id=2, activity_type="IC50", value=1.0))
+        s.add(ComplexRecord(receptor_molecule_id=3, ligand_molecule_id=2, purpose="redocking",
+                            reference_ligand_payload_id=ids["frozen"]))
         s.commit()
-    return _FakeDB(engine, tmp_path / "project.db"), outside
+    cache = tmp_path / PAYLOAD_CACHE
+    cache.mkdir(parents=True)
+    for pid in ids.values():
+        (cache / f"{pid}.sdf").write_text("x")
+    stored = lambda: {name for name, pid in ids.items() if pid in store.payloads.kinds(ids.values())}
+    cached = lambda: {name for name, pid in ids.items() if (cache / f"{pid}.sdf").exists()}
+    return store, stored, cached
 
 
 def test_clear_derived_keeps_the_compound_and_its_structure(tmp_path):
-    db, _ = _project(tmp_path)
+    db, stored, cached = _project(tmp_path)
     clear_derived(db, [2])
     with db.get_session() as s:
         assert s.exec(select(MoleculeModel)).all() == []
         assert s.exec(select(FingerprintRecord)).all() == []
+        assert s.exec(select(EngineState)).all() == []
         assert len(s.exec(select(LigandActivity)).all()) == 1   # describes the compound: stays
-    assert not (tmp_path / "model.sdf").exists()
-    assert (tmp_path / "a.sdf").exists() and (tmp_path / "a_edit.sdf").exists()
+    for kept in (stored(), cached()):
+        assert not {"model", "pae", "prepared"} & kept          # what was computed from it went
+        assert {"a", "a_edit", "shared", "alone", "frozen"} <= kept  # the structure did not
 
 
-def test_delete_molecule_removes_only_its_own_files(tmp_path):
-    db, outside = _project(tmp_path)
+def test_delete_molecule_releases_only_its_own_payloads(tmp_path):
+    db, stored, cached = _project(tmp_path)
     assert delete_molecules(db, [2, 3]) == 2
     with db.get_session() as s:
         assert s.exec(select(LigandActivity)).all() == []
-    assert not any((tmp_path / n).exists() for n in ("a.sdf", "a_edit.sdf", "model.sdf"))
-    assert (tmp_path / "b.sdf").exists()      # molecule 4 still names it
-    assert outside.exists()                   # not the project's
+        assert s.exec(select(ComplexRecord)).all() == []
+    assert stored() == cached() == {"shared"}   # molecule 4 still holds it
     delete_molecules(db, [4])
-    assert not (tmp_path / "b.sdf").exists()
-    assert (tmp_path / "b.mshard").exists()   # a container holds other molecules
+    assert stored() == cached() == set()
+    assert db.payloads.check().clean
+
+
+def test_a_payload_a_result_still_holds_survives_the_molecule(tmp_path):
+    db, stored, _ = _project(tmp_path)
+    with db.get_session() as s:
+        pose = s.get(MoleculeRecord, 3).current_payload_id
+        s.add(DockingResultRecord(receptor_molecule_id=4, ligand_molecule_id=4, engine="vina", pose_payload_id=pose))
+        s.commit()
+    delete_molecules(db, [3])
+    assert "alone" in stored()   # the other molecule's result still shows it
 
 
 def test_deleting_a_ligand_row_takes_its_run_poses_only():

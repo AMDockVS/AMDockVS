@@ -33,7 +33,7 @@ from amdockvs.diversity.clustering import (
 )
 from amdockvs.diversity.jobs import (
     SelectionClusterJobParams,
-    _fingerprint_from_file,
+    _fingerprint_from_structure,
     activity_values,
     scope_molecule_count,
     scope_molecule_rows,
@@ -270,7 +270,7 @@ class DiversityAPI:
         bitstrings: list[bytes] = []
         for row in rows:
             mol_id = int(row["id"])
-            fp = stored.get(mol_id) or _fingerprint_from_file(row, radius=fp_radius, nbits=fp_nbits)
+            fp = stored.get(mol_id) or _fingerprint_from_structure(project_db, row, radius=fp_radius, nbits=fp_nbits)
             if fp is None:
                 continue
             ordered_ids.append(mol_id)
@@ -418,7 +418,7 @@ class DiversityAPI:
         bitstrings: list[bytes] = []
         for row in rows:
             mol_id = int(row["id"])
-            fp = stored.get(mol_id) or _fingerprint_from_file(row, radius=fp_radius, nbits=fp_nbits)
+            fp = stored.get(mol_id) or _fingerprint_from_structure(project_db, row, radius=fp_radius, nbits=fp_nbits)
             if fp is None:
                 continue
             ordered_ids.append(mol_id)
@@ -621,21 +621,17 @@ class DiversityAPI:
         return MoleculeSetRef(id=int(ref.id), kind="snapshot")
 
     def molblock_for(self, molecule_id: int) -> str | None:
-        """A 2-D-drawable molblock for one molecule (its stored structure file), or None if there's
+        """A 2-D-drawable molblock for one molecule (its stored structure), or None if there's
         no usable structure. Best-effort — used by the universe scatter's hover preview."""
         from rdkit import Chem
 
-        from amdockvs.core.paths import preferred_molecule_path
+        from amdockvs.chemistry.structures import molecule_mol
 
         self.runtime._require_active_project()
-        with self.runtime.workspace.project_db.get_session() as session:
+        project_db = self.runtime.workspace.project_db
+        with project_db.get_session() as session:
             rec = session.get(MoleculeRecord, int(molecule_id))
-            path = preferred_molecule_path(rec) if rec is not None else None
-        if path is None or not path.exists():
-            return None
-        from amdockvs.io.formats import read_mol
-
-        mol = read_mol(path, remove_hs=True)
+        mol = molecule_mol(project_db, rec, remove_hs=True) if rec is not None else None
         return Chem.MolToMolBlock(mol) if mol is not None else None
 
     # --- saved results: durable summary row + parquet graph sidecar -----------

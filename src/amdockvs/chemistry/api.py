@@ -535,7 +535,7 @@ class ChemistryAPI:
     ) -> str | JobStatus:
         """Predict protein structures from sequence with the ESMFold API (thread executor).
 
-        Only proteins without 3D by default; `force=True` predicts again and repoints current_path
+        Only proteins without 3D by default; `force=True` predicts again and points the current structure
         to the new model. The token comes from ESM_API_KEY and is never stored.
         """
         self.runtime._require_active_project()

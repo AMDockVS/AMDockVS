@@ -14,6 +14,7 @@ from amdockvs.core.constants import (
     TABLE_MOLECULE_REPRESENTATIONS,
     TABLE_MOLECULE_SOURCE_PROPERTIES,
     TABLE_MOLECULES,
+    TABLE_PAYLOADS,
 )
 from amdockvs.core.rows import molecule_model_row, molecule_row, sanitize_molecule_extra_data
 from .base import TimestampedRecord
@@ -89,12 +90,14 @@ class MoleculeRecord(TimestampedRecord, table=True):
         foreign_key=f"{TABLE_BINDING_SITES}.id",
     )
 
-    # Paths relative to project root
-    # stored_path → canonical imported copy
-    # current_path → currently selected working model/conformer
-    stored_path: str = Field(default="")
-    current_path: str = Field(default="")
+    # Payloads (ms_flow volumes): the bytes live in volumes/, the format is the payload's kind.
+    # stored → the input as imported, only when it differs from the current form (D11)
+    # current → the working structure (selected model/conformer, protonated, 3D...)
+    stored_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
+    current_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
     current_model_index: int | None = Field(default=None)
+    # properties → the import batch's SDF tags (parquet, shared by the batch), read by source_index
+    properties_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
 
     # Identity of the current structure (small molecules): finds duplicates and activities.
     # Canonical isomeric SMILES without explicit Hs — charged atoms keep theirs in brackets.
@@ -238,8 +241,7 @@ class MoleculeModel(SQLModel, table=True):
     (imported or first generated). Additional indices are conformers or
     alternative models.
 
-    molecules.stored_path always mirrors the canonical imported copy.
-    molecules.current_path / current_model_index point to the active model.
+    molecules.current_payload_id / current_model_index point to the active model.
 
     Applies to both small molecules (RDKit conformers) and proteins
     (ESMFold predictions, NMR ensembles).
@@ -253,12 +255,12 @@ class MoleculeModel(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     molecule_id: int = Field(foreign_key=f"{TABLE_MOLECULES}.id", index=True)
     model_index: int = Field(default=0)  # 0 = canonical
-    file_path: str = Field(default="")  # relative to project root
+    payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
     energy: float | None = Field(default=None)  # kcal/mol if minimized
     source: str = Field(default=ModelSource.IMPORTED)  # see ModelSource
-    # Per-model quality data (e.g. ESMFold plddt_mean/ptm) and sidecar files (e.g. {"pae": path}).
+    # Per-model quality data (e.g. ESMFold plddt_mean/ptm); ESMFold's PAE matrix as a payload.
     metrics: dict = Field(default_factory=dict, sa_type=JSON)
-    files: dict = Field(default_factory=dict, sa_type=JSON)
+    pae_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
     created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
     build_row = staticmethod(molecule_model_row)

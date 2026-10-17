@@ -487,8 +487,10 @@ def test_top_n_writes_nothing_until_the_campaign_closes(tmp_path):
             ).all()]
             results = session.exec(select(DockingResultRecord)).all()
         assert names == ["lib:1", "lib:0"]  # -12.0 then -9.0; -8.5 was pushed out
-        assert sorted((tmp_path / row.pose_path).read_text() for row in results) == [
-            "pose-0\n", "pose-1\n",
+        from amdockvs.core.payloads import read_structure
+
+        assert sorted(read_structure(project_db, row.pose_payload_id) for row in results) == [
+            ("pose-0\n", "sdf"), ("pose-1\n", "sdf"),
         ]
     finally:
         runtime.close_project()
@@ -652,7 +654,11 @@ def test_interrupted_top_n_is_recovered_from_completed_result_shards(tmp_path):
         with project_db.get_session() as session:
             results = session.exec(select(DockingResultRecord).order_by(DockingResultRecord.score)).all()
         assert [row.score for row in results] == [-10.0, -9.0]
-        assert all((tmp_path / str(row.pose_path)).is_file() for row in results)
+        from amdockvs.core.payloads import read_structure
+
+        assert [read_structure(project_db, row.pose_payload_id)[0] for row in results] == [
+            "ligand-1\n$$$$\n", "ligand-2\n$$$$\n",
+        ]
         assert shard_jobs.recoverable_ranked_runs(project_db, project_root=tmp_path) == []
     finally:
         runtime.close_project()

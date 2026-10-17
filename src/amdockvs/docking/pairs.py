@@ -1,6 +1,7 @@
 """Building the (ligand, receptor) payloads a docking chunk consumes.
 
-Everything a worker needs travels in the pair: prepared paths, the box, the protocol
+Everything a worker needs travels in the pair: the ligand's prepared bytes, the receptor's
+files (written once per job, `input_path`/`flex_path` of its row), the box, the protocol
 options and the import-time descriptors. The worker re-reads nothing from the database,
 which is what lets a chunk run on another machine.
 """
@@ -12,7 +13,7 @@ from typing import Callable, Iterable, Iterator, Mapping
 from amdockvs.core.constants import DEFAULT_VINA_BACKEND, DEFAULT_VINA_COMMAND
 from amdockvs.docking.engines.programs import chunk_resources
 from amdockvs.docking.methods import excludes
-from amdockvs.docking.preparation.state import docking_input_path_from_row, grid_from_row
+from amdockvs.docking.preparation.state import grid_from_row
 
 
 def _ligand_descriptors_from_row(ligand_row: Mapping[str, object]) -> dict[str, float]:
@@ -30,29 +31,28 @@ def build_docking_pair(
     receptor_row: Mapping[str, object],
     exhaustiveness: int = 8,
     num_modes: int = 9,
-    engine: str = "vina",
     complex_id: int | None = None,
     run_kind: str = "screening",
     box_center: list[float] | tuple[float, float, float] | None = None,
     box_size: list[float] | tuple[float, float, float] | None = None,
     spacing: float | None = None,
-    reference_ligand_path: str | Path | None = None,
-    reference_receptor_path: str | Path | None = None,
+    reference_ligand_path: object = "",
+    reference_receptor_path: object = "",
 ) -> dict[str, object]:
-    ligand_source_path = str(ligand_row.get("current_path") or ligand_row.get("stored_path") or "")
+    if ligand_row.get("ligand") is None:
+        raise ValueError(f"Ligand {ligand_row.get('id')} has no structure to dock.")
     return {
         "complex_id": None if complex_id is None else int(complex_id),
         "run_kind": str(run_kind or "screening"),
         "ligand_id": int(ligand_row.get("id") or 0),
         "receptor_id": int(receptor_row.get("id") or 0),
-        "ligand_artifact_id": int(ligand_row.get("artifact_id") or 0) or None,
-        "receptor_artifact_id": int(receptor_row.get("artifact_id") or 0) or None,
-        "ligand_path": str(docking_input_path_from_row(ligand_row, engine=engine)),
-        "ligand_source_path": ligand_source_path,
+        "ligand": ligand_row["ligand"],
         "ligand_descriptors": _ligand_descriptors_from_row(ligand_row),
-        "receptor_path": str(docking_input_path_from_row(receptor_row, engine=engine)),
-        "reference_ligand_path": str(reference_ligand_path or ""),
-        "reference_receptor_path": str(reference_receptor_path or ""),
+        "receptor_path": receptor_row["input_path"],
+        "receptor_payload_id": receptor_row.get("input_payload_id"),
+        "flex_receptor_path": receptor_row.get("flex_path") or "",
+        "reference_ligand_path": reference_ligand_path or "",
+        "reference_receptor_path": reference_receptor_path or "",
         "exhaustiveness": int(exhaustiveness),
         "num_modes": int(num_modes),
         "box_center": None if box_center is None else [float(value) for value in box_center],
@@ -68,22 +68,12 @@ def build_failed_docking_pair(
     reason: str,
     complex_id: int | None = None,
     run_kind: str = "screening",
-    reference_ligand_path: str | Path | None = None,
-    reference_receptor_path: str | Path | None = None,
 ) -> dict[str, object]:
-    ligand_source_path = str(ligand_row.get("current_path") or ligand_row.get("stored_path") or "")
     return {
         "complex_id": None if complex_id is None else int(complex_id),
         "run_kind": str(run_kind or "screening"),
         "ligand_id": int(ligand_row.get("id") or 0),
         "receptor_id": int(receptor_row.get("id") or 0),
-        "ligand_artifact_id": int(ligand_row.get("artifact_id") or 0) or None,
-        "receptor_artifact_id": int(receptor_row.get("artifact_id") or 0) or None,
-        "ligand_path": str(ligand_row.get("prepared_engine_path") or ligand_row.get("current_path") or ligand_row.get("stored_path") or ""),
-        "ligand_source_path": ligand_source_path,
-        "receptor_path": str(receptor_row.get("prepared_engine_path") or receptor_row.get("current_path") or receptor_row.get("stored_path") or ""),
-        "reference_ligand_path": str(reference_ligand_path or ""),
-        "reference_receptor_path": str(reference_receptor_path or ""),
         "invalid_reason": str(reason or "Invalid docking pair."),
     }
 
@@ -174,7 +164,6 @@ def iter_docking_batches_from_rows(
                         receptor_row=receptor_row,
                         exhaustiveness=exhaustiveness,
                         num_modes=num_modes,
-                        engine=prep_engine,
                         box_center=effective_center,
                         box_size=effective_size,
                         spacing=effective_spacing,

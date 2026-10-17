@@ -8,15 +8,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from ms_flow.payloads import scratch_file
+
 from amdockvs.chemistry.service import transform_ligand_rows, transform_receptor_rows
 from amdockvs.chemistry.shards import transform_ligand_shard
 from amdockvs.chemistry.tools.esmfold import predict_structure, sequence_from_structure
-from amdockvs.core.constants import AMDOCKVS_OFFLOADABLE_EXECUTORS
+from amdockvs.core.constants import AMDOCKVS_OFFLOADABLE_EXECUTORS, SERIES_AUX, SERIES_RECEPTORS
 from amdockvs.core.jobs import task
-from amdockvs.core.paths import artifact_storage_path, current_molecule_path, molecule_storage_key, set_default_project_root
+from amdockvs.core.payloads import structure_payload
 from amdockvs.core.rows import molecule_model_row
 from amdockvs.core.vocab import ModelSource, ShardState
-from amdockvs.core.worker_io import project_root_from_output_dir, restore_worker_paths
 
 
 def _chemistry_graph_payload(updates: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
@@ -37,8 +38,8 @@ def _chemistry_graph_payload(updates: list[dict[str, Any]]) -> dict[str, list[di
         for key in ("has_3d", "has_hs", "is_minimized", "conformer_count"):
             if key in state:
                 mol_row[key] = state[key]
-        if "current_path" in update:
-            mol_row["current_path"] = str(update.get("current_path") or "")
+        if "current_payload_id" in update:
+            mol_row["current_payload_id"] = update["current_payload_id"]
         if "current_model_index" in update:
             current_model_index = update.get("current_model_index")
             mol_row["current_model_index"] = None if current_model_index is None else int(current_model_index)
@@ -48,20 +49,6 @@ def _chemistry_graph_payload(updates: list[dict[str, Any]]) -> dict[str, list[di
     return {"molecules": molecules, "molecule_models": molecule_models}
 
 
-def _whole(updates: list[dict[str, Any]], output_dir: Path) -> list[dict[str, Any]]:
-    """The files the service wrote, by their whole path: it names them relative to the folder
-    two above `output_dir`. A result names its files whole, which is what brings them back from
-    a disk that is not this one; the job cuts them to the project's (`relative_paths`)."""
-    root = output_dir.parent.parent
-    for update in updates:
-        if update.get("current_path"):
-            update["current_path"] = str(root / update["current_path"])
-        for row in update.get("model_rows") or ():
-            if row.get("file_path"):
-                row["file_path"] = str(root / row["file_path"])
-    return updates
-
-
 @task(
     name="amdock_ligand_chemistry_batch",
     description="Apply a reusable ligand chemistry operation and persist metadata updates.",
@@ -69,13 +56,9 @@ def _whole(updates: list[dict[str, Any]], output_dir: Path) -> list[dict[str, An
     supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
 )
 def ligand_chemistry_task(payload: dict, progress_cb=None):
-    output_dir = Path(str(payload.get("output_dir") or "")).expanduser().resolve()
-    set_default_project_root(project_root_from_output_dir(output_dir))
-    rows = list(payload.get("rows") or [])
     result = transform_ligand_rows(
         operations=payload.get("operation") or "",
-        output_dir=output_dir,
-        rows=rows,
+        rows=list(payload.get("rows") or []),
         params=dict(payload.get("params") or {}),
         next_model_index_by_entity=dict(payload.get("next_model_index_by_entity") or {}),
         progress_cb=progress_cb,
@@ -95,7 +78,7 @@ def ligand_chemistry_task(payload: dict, progress_cb=None):
             f"updated={len(updates)} failed={failure_count} "
             f"samples={result.get('failure_samples') or []}"
         )
-    return _chemistry_graph_payload(restore_worker_paths(_whole(updates, output_dir), rows))
+    return _chemistry_graph_payload(updates)
 
 
 @task(
@@ -105,12 +88,9 @@ def ligand_chemistry_task(payload: dict, progress_cb=None):
     supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
 )
 def receptor_chemistry_task(payload: dict, progress_cb=None):
-    output_dir = Path(str(payload.get("output_dir") or "")).expanduser().resolve()
-    set_default_project_root(project_root_from_output_dir(output_dir))
     rows = list(payload.get("rows") or [])
     updates = transform_receptor_rows(
         operation=str(payload.get("operation") or ""),
-        output_dir=output_dir,
         rows=rows,
         params=dict(payload.get("params") or {}),
         next_model_index_by_entity=dict(payload.get("next_model_index_by_entity") or {}),
@@ -118,7 +98,7 @@ def receptor_chemistry_task(payload: dict, progress_cb=None):
     )
     if list(payload.get("rows") or []) and not updates:
         raise RuntimeError("Receptor chemistry batch produced no updates.")
-    return _chemistry_graph_payload(restore_worker_paths(_whole(list(updates or []), output_dir), rows))
+    return _chemistry_graph_payload(list(updates or []))
 
 
 @task(
@@ -129,36 +109,28 @@ def receptor_chemistry_task(payload: dict, progress_cb=None):
 )
 def receptor_prediction_task(payload: dict, progress_cb=None):
     """One protein per chunk: a failed call fails that protein only, not credits spent on others."""
-    output_dir = Path(str(payload["output_dir"])).expanduser().resolve()
-    project_root = project_root_from_output_dir(output_dir)
-    set_default_project_root(project_root)
     row = dict(payload["row"])
     receptor_id = int(row["id"])
     sequence = str(payload.get("sequence") or "")
     if not sequence:
-        structure = current_molecule_path(row)
-        if structure is None or not structure.is_file():
+        if not payload.get("structure"):
             raise ValueError(f"Receptor {receptor_id} has neither a sequence nor a structure to read one from.")
-        sequence = sequence_from_structure(structure)
+        with scratch_file(payload["structure"], f".{payload.get('structure_kind') or 'cif'}") as path:
+            sequence = sequence_from_structure(path)
     model_index = int(payload["model_index"])
-    # variant=id: labelled sources ("user input") repeat across imports, the molecule id does not.
-    key = molecule_storage_key("receptor", Path(str(row.get("source") or "receptor")), int(row.get("source_index") or 0), variant=str(receptor_id))
-    target = artifact_storage_path(output_dir, role="receptor", key=key, artifact_name=f"esmfold_{model_index}", suffix=".cif")
-    metrics, files = predict_structure(sequence, target, model=str(payload["model"]))
+    metrics, cif, pae = predict_structure(sequence, model=str(payload["model"]))
     if metrics.get("potential_sequence_of_concern"):
         print(f"ESMFold flagged receptor {receptor_id} as a potential sequence of concern.")
     if progress_cb is not None:
         progress_cb(100.0)
 
-    def relative(path) -> str:
-        return str(Path(path).resolve().relative_to(project_root))
-
-    current_path = relative(target)
+    current = structure_payload(cif, "cif", SERIES_RECEPTORS)
     return {
         "molecules": [{
             "id": receptor_id,
-            "stored_path": str(payload.get("stored_path") or "") or current_path,
-            "current_path": current_path,
+            # The first prediction is also the canonical structure of a protein that had none.
+            "stored_payload_id": row.get("stored_payload_id") or current,
+            "current_payload_id": current,
             "current_model_index": model_index,
             "has_3d": True,
             "has_hs": False,
@@ -170,10 +142,10 @@ def receptor_prediction_task(payload: dict, progress_cb=None):
             molecule_model_row(
                 molecule_id=receptor_id,
                 model_index=model_index,
-                file_path=current_path,
+                payload_id=current,
                 source=ModelSource.ESMFOLD,
                 metrics=metrics,
-                files={name: relative(path) for name, path in files.items()},
+                pae_payload_id=None if pae is None else structure_payload(pae, "npy", SERIES_AUX),
             )
         ],
     }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from itertools import batched, islice
 from pathlib import Path
@@ -8,6 +9,7 @@ from uuid import uuid4
 
 from sqlalchemy import exists, or_
 from sqlmodel import select
+from ms_flow.payloads import scratch_file
 from ms_flow.selection import Selection
 
 import amdockvs.docking.results.repository as results_repo
@@ -83,7 +85,7 @@ from amdockvs.core.normalize import PathLike
 from amdockvs.molecules.scopes import MoleculeScope, is_molecule_scope, scope_payload
 from amdockvs.binding_sites.repository import active_site as _active_site, site_payload
 from amdockvs.docking.residues import residues_in_box
-from amdockvs.core.paths import preferred_molecule_path
+from amdockvs.core.payloads import molecule_payload_id, read_structure
 from amdockvs.io.formats import as_pdb
 from amdockvs.molecules.api import ensure_molecule_set_ref
 from amdockvs.models import BindingSite, EngineState, MoleculeRecord
@@ -678,6 +680,18 @@ class DockingAPI:
             "spacing": float(extra_data.get("spacing") or 0.375),
         }
 
+    @contextlib.contextmanager
+    def _receptor_as_pdb(self, receptor):
+        """The receptor's stored structure as a PDB file for the block, or None when it has none.
+        The source structure is read, not the prepared one: preparation keeps its metals."""
+        payload_id = molecule_payload_id(receptor)
+        if payload_id is None:
+            yield None
+            return
+        text, kind = read_structure(self.runtime.workspace.project_db, payload_id)
+        with scratch_file(text.encode(), f".{kind}") as path, as_pdb(path) as readable:
+            yield readable
+
     def method_misfit_receptor_ids(self, *, method: str) -> list[int]:
         """Receptors whose active box does not fit the docking `method` (methods.py).
         Receptors without a box are not judged: the user still has to define one. The source
@@ -696,11 +710,8 @@ class DockingAPI:
             box = site_payload(site)
             if box is None:
                 continue
-            path = preferred_molecule_path(receptor)
-            if path is None or not path.exists():
-                continue
-            with as_pdb(path) as readable:  # mmCIF too: the Zn check reads PDB columns
-                if excludes(method, readable, box["center"], box["size"]):
+            with self._receptor_as_pdb(receptor) as readable:  # mmCIF too: the Zn check reads PDB columns
+                if readable is not None and excludes(method, readable, box["center"], box["size"]):
                     misfits.append(int(receptor.id))
         return misfits
 
@@ -811,11 +822,10 @@ class DockingAPI:
             receptor = session.get(MoleculeRecord, int(receptor_id))
         if receptor is None:
             return []
-        path = preferred_molecule_path(receptor)
-        if path is None or not path.exists():
-            return []
         try:
-            with as_pdb(path) as readable_receptor:
+            with self._receptor_as_pdb(receptor) as readable_receptor:
+                if readable_receptor is None:
+                    return []
                 residues = residues_in_box(
                     readable_receptor.read_text(encoding="utf-8", errors="ignore"), center, size
                 )
@@ -1121,12 +1131,10 @@ class DockingAPI:
             protocol_metadata=dict(protocol_metadata or {}),
             engine_config=resolved_engine_config,
             skip_existing=skip_existing,
-            compute_diagram=bool(compute_diagram),
-            diagram_format=str(diagram_format or "png"),
             hit_threshold=hit_threshold,
             hit_cap=max(0, int(hit_cap)),
         )
-        return self.runtime.submit_job(
+        job_id = self.runtime.submit_job(
             docking_job,
             params=params.model_dump(mode="python"),
             executor_name=executor_name,
@@ -1138,6 +1146,11 @@ class DockingAPI:
             # Declare the real chunk total so progress = processed/total (not processed/emitted).
             total_chunks=total_chunks,
         )
+        if compute_diagram:
+            # A pose's diagram is keyed by its payload id, which exists once the result is stored.
+            self.compute_diagrams(run_id=params.run_id, pose_rank=None, fmt=diagram_format,
+                                  depends_on=[job_id])
+        return job_id
 
     def redock(
             self,
@@ -1272,10 +1285,8 @@ class DockingAPI:
             protocol_metadata=dict(protocol_metadata or {}),
             engine_config=resolved_engine_config,
             skip_existing=skip_existing,
-            compute_diagram=bool(compute_diagram),
-            diagram_format=str(diagram_format or "png"),
         )
-        return self.runtime.submit_job(
+        job_id = self.runtime.submit_job(
             redocking_job,
             params=params.model_dump(mode="python"),
             executor_name=executor_name,
@@ -1283,6 +1294,11 @@ class DockingAPI:
             cpu_required=program_spec.resource_requirements(resolved_engine_config)["cpu_required"],
             total_chunks=total_chunks,
         )
+        if compute_diagram:
+            # A pose's diagram is keyed by its payload id, which exists once the result is stored.
+            self.compute_diagrams(run_id=params.run_id, pose_rank=None, fmt=diagram_format,
+                                  depends_on=[job_id])
+        return job_id
 
     def list_results(self, *, limit: int = 5000, offset: int = 0):
         return results_repo.list_results(self._project_db(), limit=limit, offset=offset)

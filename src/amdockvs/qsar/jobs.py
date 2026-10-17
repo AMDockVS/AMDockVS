@@ -12,7 +12,7 @@ from ms_flow.sinks import graph_sink
 from amdockvs.core.jobs import job
 from amdockvs.qsar.tasks import _DESCRIPTOR_COLUMNS, calculate_descriptor_batch
 
-from amdockvs.core.worker_io import worker_file
+from amdockvs.chemistry.structures import with_structures
 from amdockvs.core.configuration import DEFAULT_LIGAND_BATCH_SIZE
 from amdockvs.core.constants import (
     AMDOCKVS_OFFLOADABLE_EXECUTORS,
@@ -21,7 +21,6 @@ from amdockvs.core.constants import (
     TABLE_MOLECULES,
 )
 from amdockvs.core.paths import set_default_project_root
-from amdockvs.core.paths import preferred_molecule_path
 from amdockvs.models import FingerprintRecord, MoleculeRecord
 from amdockvs.molecules.storage import as_store, store_from_config
 from amdockvs.models.descriptors import FingerprintType
@@ -71,7 +70,7 @@ def scope_spec(params: DescriptorJobParams) -> QuerySpec:
     filters = dict(params.molecule_filters or {})
     limit = filters.pop("_limit", None)
 
-    resolved: dict[str, Any] = {"is_ligand": True, "excluded": False, "stored_path__ne": ""}
+    resolved: dict[str, Any] = {"is_ligand": True, "excluded": False, "stored_payload_id__is_not_null": True}
     in_specs: list[QuerySpec] = []
     if params.molecule_set_id is not None:
         in_specs.append(molecule_set_spec(int(params.molecule_set_id)))
@@ -111,7 +110,7 @@ def scope_spec(params: DescriptorJobParams) -> QuerySpec:
 
     return QuerySpec(
         table=TABLE_MOLECULES,
-        fields=("id", "stored_path", "current_path"),
+        fields=("id", "stored_payload_id", "current_payload_id"),
         filters=resolved,
         limit=None if limit is None else int(limit),
     )
@@ -121,13 +120,11 @@ def _iter_descriptor_batches(source, params: DescriptorJobParams) -> Iterator[di
     """`source` is the ligand store or the project db."""
     batch_size = max(1, int(params.batch_size))
     fp_spec = {"radius": int(params.fp_radius), "nbits": int(params.fp_nbits)} if params.compute_fingerprints else None
-    rows = as_store(source).iter_rows(scope_spec(params), batch_size=batch_size)
+    store = as_store(source)
+    rows = with_structures(store.project_db, store.iter_rows(scope_spec(params), batch_size=batch_size))
     for batch in batched(rows, batch_size):
         items = [
-            {
-                "molecule_id": int(row["id"]),
-                "stored_path": worker_file(preferred_molecule_path(row) or row.get("stored_path")),
-            }
+            {"molecule_id": int(row["id"]), "structure": row["structure"], "structure_kind": row["structure_kind"]}
             for row in batch
         ]
         yield {"items": items, "fp": fp_spec}

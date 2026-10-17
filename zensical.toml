@@ -10,6 +10,7 @@ copyright = "Copyright &copy; 2026 AMDockVS authors"
 nav = [
   { "Home" = "index.md" },
   { "API guide" = "runtime_api.md" },
+  { "Data and export" = "data_and_export.md" },
   { "Examples" = "examples.md" },
   { "API reference" = "api_reference.md" },
 ]

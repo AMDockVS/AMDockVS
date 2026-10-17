@@ -6,21 +6,18 @@ from __future__ import annotations
 import contextlib
 import logging
 import math
-from pathlib import Path
 
-from amdockvs.core.paths import (
-    current_molecule_path,
-    get_default_project_root,
-    preferred_molecule_path,
-    stored_molecule_path,
-)
+from amdockvs.core.payloads import molecule_payload_id, payload_store
 from amdockvs.project.summaries import DockingHitSummary
+from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.tools.pymol_ribbon import (
     PLDDT_BANDS,
     apply_ligand_atom_coloring,
     apply_receptor_atom_coloring,
     apply_receptor_ligand_atom_coloring,
     apply_scene_atom_coloring,
+    fetch_structures,
+    load_structure,
     set_pymol_scene_context,
 )
 
@@ -53,6 +50,30 @@ class MolecularViewerController:
     def __init__(self, window):
         self.w = window
         self.grid_preview_enabled = True
+        self._request = 0  # the latest read wins: a slower, older click must not repaint the canvas
+
+    # -- reading structures --------------------------------------------------------
+
+    def _later(self, work, then) -> None:
+        """`work()` off the GUI thread, then `then(result)` on it, unless a newer request came."""
+        self._request += 1
+        request = self._request
+
+        def done(result) -> None:
+            if request == self._request:
+                then(result)
+
+        run_async(work, done, lambda error: _log.warning("PyMOL could not read its structures: %s", error))
+
+    def _read(self, wanted: dict, then) -> None:
+        """`then({name: (bytes, kind)})` for the payload ids in `wanted` that are set."""
+        ids = {name: int(payload_id) for name, payload_id in wanted.items() if payload_id}
+        if not ids:
+            self._request += 1
+            then({})
+            return
+        store = payload_store(self.w.runtime)
+        self._later(lambda: fetch_structures(store, ids), then)
 
     # -- grid box ------------------------------------------------------------------
 
@@ -89,14 +110,16 @@ class MolecularViewerController:
         self.w.aux.show_catalog_selection_details("receptor", receptor)
         if self.w.pymol_dock is None:  # headless / PyMOL failed to load: details panel is enough
             return
+        self._read({"receptor": molecule_payload_id(receptor)}, lambda found: self._show_receptor(receptor, found))
+
+    def _show_receptor(self, receptor, found: dict) -> None:
         cmd = self.w.pymol_dock.cmd
-        path = current_molecule_path(receptor)
-        if path is not None and path.exists():
+        if "receptor" in found:
             name = self._receptor_pymol_name(receptor)
             try:
                 self.w.pymol_dock.show()
                 cmd.delete("all")
-                cmd.load(str(path), name)
+                load_structure(cmd, found["receptor"], name)
                 apply_receptor_atom_coloring(cmd, name)
                 cmd.zoom("all", 3)
                 cmd.orient(name)
@@ -175,222 +198,183 @@ class MolecularViewerController:
 
     # -- docking poses -------------------------------------------------------------
 
-    @staticmethod
-    def _repair_pose_sdf_if_needed(path: Path) -> None:
-        # ponytail: one-time self-heal for SDFs corrupted by the old write_sd_string tuple-repr
-        # bug — they're a literal "('...\\n...', [])" instead of raw SDF. Rewrite the real text so
-        # existing results render without re-docking. New files are written correctly already.
-        try:
-            text = path.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
-            return
-        if not text.lstrip().startswith(("('", '("')):
-            return
-        import ast
-
-        try:
-            value = ast.literal_eval(text)
-        except (ValueError, SyntaxError):
-            return
-        sd = value[0] if isinstance(value, tuple) and value else value
-        if isinstance(sd, str) and sd.strip():
-            path.write_text(sd, encoding="utf-8")
-
-    @staticmethod
-    def _load_pose_state(cmd, pose_path: str, obj: str, pose_rank: int = 1) -> None:
-        """Load ONE pose of a multi-pose SDF as a single-state object.
-
-        Loading the file whole gave the object all 9 poses as states and `set state` then
-        pinned it to one: the viewer counted 9 states that never changed, for every pose.
-        Copying just the selected state out keeps the count honest (1 pose = 1 state) and
-        the table stays the only pose selector.
-        """
-        tmp = f"{obj}__all"
-        cmd.load(pose_path, tmp)
-        cmd.create(obj, tmp, int(pose_rank), 1)
-        cmd.delete(tmp)
-
-    @staticmethod
-    def _same_existing_path(left: Path | None, right: Path | None) -> bool:
-        if left is None or right is None:
-            return False
-        try:
-            return left.exists() and right.exists() and left.resolve() == right.resolve()
-        except Exception:
-            return False
-
     def load_hit(self, hit: DockingHitSummary, pose_rank: int = 1) -> None:
         dock = self.w.pymol_dock
-        if dock is None:
+        if dock is None or getattr(dock, "cmd", None) is None:
             return
-        cmd = getattr(dock, "cmd", None)
-        if cmd is None:
+        if str(getattr(hit, "run_kind", "") or "").strip().lower() == "redocking" and (
+            hit.pose_payload_id or hit.reference_ligand_payload_id or hit.ligand_payload_id
+        ):
+            self._load_redocking_hit(dock, hit)
             return
-        if str(getattr(hit, "run_kind", "") or "").strip().lower() == "redocking":
-            if self._load_redocking_hit(cmd, dock, hit, pose_rank):
-                return
-        # The docked POSE lives in output_path (the .dock.sdf); ligand_path is the undocked input.
-        pose_path = hit.output_path if hit.output_path is not None and hit.output_path.exists() else None
-        if pose_path is None and hit.ligand_path is not None and hit.ligand_path.exists():
-            pose_path = hit.ligand_path
-        # Results are grouped by receptor, so load it ONCE: only reload when the receptor changes,
-        # then just swap the ligand pose. Avoids re-loading the receptor on every ligand/pose click.
-        receptor_obj = f"receptor_{hit.receptor_id}"
-        ligand_obj = "amdock_result_pose"
-        try:
-            dock.show()
-            # Ask PyMOL what it actually holds instead of remembering what we loaded: switching
-            # tabs runs cmd.delete("all") (sync_to_active_view), and a cached "receptor N
-            # is already loaded" flag then hides the receptor for the rest of the session.
-            try:
-                loaded = receptor_obj in set(cmd.get_names("objects"))
-            except Exception:
-                loaded = False
-            if not loaded:
-                cmd.delete("all")
-                if hit.receptor_path is not None and hit.receptor_path.exists():
-                    cmd.load(str(hit.receptor_path), receptor_obj)
-                    apply_receptor_atom_coloring(cmd, receptor_obj)
-                    cmd.zoom(receptor_obj, 3)
-            else:
-                cmd.delete(ligand_obj)  # keep the receptor; replace only the pose
-            if pose_path is not None:
-                self._repair_pose_sdf_if_needed(pose_path)
-                self._load_pose_state(cmd, str(pose_path), ligand_obj, pose_rank)
-                try:
-                    cmd.show("sticks", ligand_obj)
-                    apply_ligand_atom_coloring(cmd, ligand_obj)
-                    cmd.zoom(ligand_obj, 5)
-                except Exception:
-                    pass
-            selections = {"receptor": receptor_obj}
-            if pose_path is not None:
-                selections["ligand"] = ligand_obj
-            set_pymol_scene_context(
-                dock,
-                "docking_pose",
-                target="all",
-                selections=selections,
-                default_preset="amdockvs.complex",
-            )
-        except Exception:
-            return
+        self._load_docked_hit(dock, hit)
 
-    def _load_redocking_hit(self, cmd, dock, hit: DockingHitSummary, pose_rank: int = 1) -> bool:
-        pose_path = hit.output_path if hit.output_path is not None and hit.output_path.exists() else None
-        reference_ligand_path = (
-            hit.reference_ligand_path
-            if hit.reference_ligand_path is not None and hit.reference_ligand_path.exists()
-            else hit.ligand_path if hit.ligand_path is not None and hit.ligand_path.exists()
-            else None
-        )
-        reference_receptor_path = (
-            hit.reference_receptor_path
-            if hit.reference_receptor_path is not None and hit.reference_receptor_path.exists()
-            else None
-        )
-        receptor_path = hit.receptor_path if hit.receptor_path is not None and hit.receptor_path.exists() else None
-        if pose_path is None and reference_ligand_path is None:
-            return False
+    def _load_docked_hit(self, dock, hit: DockingHitSummary, *, with_receptor: bool = False) -> None:
+        cmd = dock.cmd
+        receptor_obj = f"receptor_{hit.receptor_id}"
+        # Results are grouped by receptor, so load it ONCE: only read and reload it when it
+        # changes, then just swap the ligand pose. Ask PyMOL what it actually holds instead of
+        # remembering what we loaded: switching tabs runs cmd.delete("all") (sync_to_active_view),
+        # and a cached "receptor N is already loaded" flag then hides the receptor for the rest of
+        # the session.
+        wanted = {"pose": hit.pose_payload_id or hit.ligand_payload_id}  # else the undocked input
+        if with_receptor or not self._holds(cmd, receptor_obj):
+            wanted["receptor"] = hit.receptor_payload_id
+
+        def show(found: dict) -> None:
+            ligand_obj = "amdock_result_pose"
+            try:
+                dock.show()
+                if not self._holds(cmd, receptor_obj):
+                    if "receptor" not in found and hit.receptor_payload_id and not with_receptor:
+                        # Cleared while the pose was being read: ask again, receptor included.
+                        self._load_docked_hit(dock, hit, with_receptor=True)
+                        return
+                    cmd.delete("all")
+                    if "receptor" in found:
+                        load_structure(cmd, found["receptor"], receptor_obj)
+                        apply_receptor_atom_coloring(cmd, receptor_obj)
+                        cmd.zoom(receptor_obj, 3)
+                else:
+                    cmd.delete(ligand_obj)  # keep the receptor; replace only the pose
+                if "pose" in found:
+                    load_structure(cmd, found["pose"], ligand_obj)  # each pose is its own payload: one state
+                    try:
+                        cmd.show("sticks", ligand_obj)
+                        apply_ligand_atom_coloring(cmd, ligand_obj)
+                        cmd.zoom(ligand_obj, 5)
+                    except Exception:
+                        pass
+                selections = {"receptor": receptor_obj}
+                if "pose" in found:
+                    selections["ligand"] = ligand_obj
+                set_pymol_scene_context(
+                    dock,
+                    "docking_pose",
+                    target="all",
+                    selections=selections,
+                    default_preset="amdockvs.complex",
+                )
+            except Exception:
+                return
+
+        self._read(wanted, show)
+
+    @staticmethod
+    def _holds(cmd, name: str) -> bool:
         try:
-            dock.show()
-            cmd.delete("all")
-            reference_receptor_obj = "redock_reference_receptor"
-            docking_receptor_obj = "redock_docking_receptor"
-            reference_ligand_obj = "redock_reference_ligand"
-            docked_pose_obj = "redock_docked_pose"
-            if reference_receptor_path is not None:
-                cmd.load(str(reference_receptor_path), reference_receptor_obj)
-                apply_receptor_atom_coloring(cmd, reference_receptor_obj)
-            if receptor_path is not None and not self._same_existing_path(reference_receptor_path, receptor_path):
-                cmd.load(str(receptor_path), docking_receptor_obj)
-                apply_receptor_atom_coloring(cmd, docking_receptor_obj)
-                try:
-                    cmd.align(docking_receptor_obj, reference_receptor_obj)
-                except Exception:
-                    pass
-            elif reference_receptor_path is None and receptor_path is not None:
-                cmd.load(str(receptor_path), reference_receptor_obj)
-                apply_receptor_atom_coloring(cmd, reference_receptor_obj)
-            ligand_objs: list[str] = []
-            if reference_ligand_path is not None:
-                cmd.load(str(reference_ligand_path), reference_ligand_obj)
-                ligand_objs.append(reference_ligand_obj)
-            if pose_path is not None:
-                self._repair_pose_sdf_if_needed(pose_path)
-                self._load_pose_state(cmd, str(pose_path), docked_pose_obj, pose_rank)
-                ligand_objs.append(docked_pose_obj)
-            for obj in ligand_objs:
-                with contextlib.suppress(Exception):
-                    cmd.show("sticks", obj)
-                    # Reference ligand takes the receptor's coloring so it reads as "the known
-                    # answer in context" and the docked pose (ligand coloring) is the one that
-                    # stands out. ponytail: exact palette TBD — reusing the two existing schemes.
-                    if obj == reference_ligand_obj:
-                        apply_receptor_atom_coloring(cmd, obj)
-                    else:
-                        apply_ligand_atom_coloring(cmd, obj)
-            # Orient on the ligand zone but pull back (generous buffer) so the pose sits in
-            # context, not literally in the viewer's face.
-            if ligand_objs:
-                ligand_sel = " or ".join(ligand_objs)
-                with contextlib.suppress(Exception):
-                    cmd.orient(ligand_sel)
-                    cmd.zoom(ligand_sel, 8.0)
-            else:
-                with contextlib.suppress(Exception):
-                    cmd.zoom("all", 3)
-            receptor_objs: list[str] = []
-            if reference_receptor_path is not None or (
-                    reference_receptor_path is None and receptor_path is not None
-            ):
-                receptor_objs.append(reference_receptor_obj)
-            if receptor_path is not None and not self._same_existing_path(
-                    reference_receptor_path,
-                    receptor_path,
-            ):
-                receptor_objs.append(docking_receptor_obj)
-            set_pymol_scene_context(
-                dock,
-                "redocking",
-                target="all",
-                selections={
-                    "receptor": " or ".join(receptor_objs) or "polymer.protein",
-                    "ligand": " or ".join(ligand_objs),
-                },
-                default_preset="amdockvs.complex",
-            )
-            return True
+            return name in set(cmd.get_names("objects"))
         except Exception:
             return False
+
+    def _load_redocking_hit(self, dock, hit: DockingHitSummary) -> None:
+        cmd = dock.cmd
+        # The same payload docked and measured against: one receptor on the canvas, not two.
+        same_receptor = bool(hit.reference_receptor_payload_id) and (
+            hit.reference_receptor_payload_id == hit.receptor_payload_id
+        )
+        wanted = {
+            "pose": hit.pose_payload_id,
+            "reference_ligand": hit.reference_ligand_payload_id or hit.ligand_payload_id,
+            "reference_receptor": hit.reference_receptor_payload_id,
+            "receptor": hit.receptor_payload_id,
+        }
+
+        def show(found: dict) -> None:
+            try:
+                dock.show()
+                cmd.delete("all")
+                reference_receptor_obj = "redock_reference_receptor"
+                docking_receptor_obj = "redock_docking_receptor"
+                reference_ligand_obj = "redock_reference_ligand"
+                docked_pose_obj = "redock_docked_pose"
+                receptor_objs: list[str] = []
+                if "reference_receptor" in found:
+                    load_structure(cmd, found["reference_receptor"], reference_receptor_obj)
+                    apply_receptor_atom_coloring(cmd, reference_receptor_obj)
+                    receptor_objs.append(reference_receptor_obj)
+                if "receptor" in found and not same_receptor:
+                    if "reference_receptor" in found:
+                        load_structure(cmd, found["receptor"], docking_receptor_obj)
+                        apply_receptor_atom_coloring(cmd, docking_receptor_obj)
+                        receptor_objs.append(docking_receptor_obj)
+                        with contextlib.suppress(Exception):
+                            cmd.align(docking_receptor_obj, reference_receptor_obj)
+                    else:
+                        load_structure(cmd, found["receptor"], reference_receptor_obj)
+                        apply_receptor_atom_coloring(cmd, reference_receptor_obj)
+                        receptor_objs.append(reference_receptor_obj)
+                ligand_objs: list[str] = []
+                if "reference_ligand" in found:
+                    load_structure(cmd, found["reference_ligand"], reference_ligand_obj)
+                    ligand_objs.append(reference_ligand_obj)
+                if "pose" in found:
+                    load_structure(cmd, found["pose"], docked_pose_obj)  # each pose is its own payload: one state
+                    ligand_objs.append(docked_pose_obj)
+                for obj in ligand_objs:
+                    with contextlib.suppress(Exception):
+                        cmd.show("sticks", obj)
+                        # Reference ligand takes the receptor's coloring so it reads as "the known
+                        # answer in context" and the docked pose (ligand coloring) is the one that
+                        # stands out. ponytail: exact palette TBD — reusing the two existing schemes.
+                        if obj == reference_ligand_obj:
+                            apply_receptor_atom_coloring(cmd, obj)
+                        else:
+                            apply_ligand_atom_coloring(cmd, obj)
+                # Orient on the ligand zone but pull back (generous buffer) so the pose sits in
+                # context, not literally in the viewer's face.
+                if ligand_objs:
+                    ligand_sel = " or ".join(ligand_objs)
+                    with contextlib.suppress(Exception):
+                        cmd.orient(ligand_sel)
+                        cmd.zoom(ligand_sel, 8.0)
+                else:
+                    with contextlib.suppress(Exception):
+                        cmd.zoom("all", 3)
+                set_pymol_scene_context(
+                    dock,
+                    "redocking",
+                    target="all",
+                    selections={
+                        "receptor": " or ".join(receptor_objs) or "polymer.protein",
+                        "ligand": " or ".join(ligand_objs),
+                    },
+                    default_preset="amdockvs.complex",
+                )
+            except Exception:
+                return
+
+        self._read(wanted, show)
 
     # -- shown from the Details panel ----------------------------------------------
 
-    def show_file(self, path_text: str, object_name: str) -> None:
-        path = Path(str(path_text or "")).expanduser()
-        if not path.exists():
-            return
+    def show_payload(self, payload_id: int, object_name: str) -> None:
+        """One stored structure, alone on the canvas."""
         dock = self.w.pymol_dock
-        if dock is None:
+        if dock is None or getattr(dock, "cmd", None) is None or not payload_id:
             return
-        cmd = getattr(dock, "cmd", None)
-        if cmd is None:
-            return
-        try:
-            dock.show()
-            cmd.delete("all")
-            cmd.load(str(path), str(object_name or "selected_file"))
-            apply_scene_atom_coloring(self.w)
-            cmd.zoom("all", 3)
-            loaded_object = str(object_name or "selected_file")
-            set_pymol_scene_context(
-                dock,
-                "generic",
-                target=loaded_object,
-                selections={"molecule": loaded_object},
-            )
-        except Exception:
-            return
+        loaded_object = str(object_name or "selected_file")
+
+        def show(found: dict) -> None:
+            if "structure" not in found:
+                return
+            cmd = dock.cmd
+            try:
+                dock.show()
+                cmd.delete("all")
+                load_structure(cmd, found["structure"], loaded_object)
+                apply_scene_atom_coloring(self.w)
+                cmd.zoom("all", 3)
+                set_pymol_scene_context(
+                    dock,
+                    "generic",
+                    target=loaded_object,
+                    selections={"molecule": loaded_object},
+                )
+            except Exception:
+                return
+
+        self._read({"structure": payload_id}, show)
 
     def show_catalog_molecule(
         self,
@@ -401,7 +385,7 @@ class MolecularViewerController:
         details_kind: str,
         orient: bool,
     ) -> None:
-        """Show a catalog row while preserving its established object name and path policy."""
+        """Show a catalog row while preserving its established object name policy."""
         self.w.aux.show_catalog_selection_details(details_kind, molecule)
         self._show_molecule(
             molecule,
@@ -421,7 +405,10 @@ class MolecularViewerController:
     def show_plddt(self, molecule) -> None:
         if molecule is None:
             return
-        self.show_molecule(molecule, "current")
+        self._show_molecule(molecule, source="current", object_prefix="molecule", orient=True,
+                            then=self._color_plddt)
+
+    def _color_plddt(self, molecule) -> None:
         cmd = getattr(self.w.pymol_dock, "cmd", None)
         if cmd is None:
             return
@@ -430,6 +417,13 @@ class MolecularViewerController:
             cmd.set_color(color_name, [value / 255 for value in rgb])
             cmd.color(color_name, f"{name} and {condition}")
 
+    @staticmethod
+    def _structure_id(molecule, source: str) -> int | None:
+        """The payload a molecule shows for `source`: "stored" is the input as imported when the
+        molecule kept it, anything else its working form."""
+        stored = getattr(molecule, "stored_payload_id", None)
+        return (stored or molecule_payload_id(molecule)) if source == "stored" else molecule_payload_id(molecule)
+
     def _show_molecule(
         self,
         molecule,
@@ -437,169 +431,175 @@ class MolecularViewerController:
         source: str,
         object_prefix: str,
         orient: bool,
+        then=None,
     ) -> None:
-        source = str(source or "").strip().lower()
-        if source == "current":
-            path = current_molecule_path(molecule)
-        elif source == "preferred":
-            path = preferred_molecule_path(molecule)
-        else:
-            path = stored_molecule_path(molecule)
-        if path is None or not path.exists():
-            _log.warning("Molecule %s has no %s structure on disk (%s)", getattr(molecule, "id", None), source, path)
+        payload_id = self._structure_id(molecule, str(source or "").strip().lower())
+        if not payload_id:
+            _log.warning("Molecule %s has no %s structure stored", getattr(molecule, "id", None), source)
             return
         dock = self.w.pymol_dock
-        if dock is None:
-            return
-        cmd = getattr(dock, "cmd", None)
-        if cmd is None:
+        if dock is None or getattr(dock, "cmd", None) is None:
             return
         object_name = f"{object_prefix}_{getattr(molecule, 'id', 'selected')}"
-        try:
-            dock.show()
-            cmd.delete("all")
-            cmd.load(str(path), object_name)
-            if bool(getattr(molecule, "is_ligand", False)):
-                context_kind = "ligand"
-                context_role = "ligand"
-                default_preset = "amdockvs.ligand"
-                try:
-                    cmd.show("sticks", object_name)
-                    apply_ligand_atom_coloring(cmd, object_name)
-                except Exception:
-                    pass
-            elif bool(getattr(molecule, "is_receptor", False)):
-                context_kind = "receptor"
-                context_role = "receptor"
-                default_preset = "amdockvs.receptor"
-                apply_receptor_atom_coloring(cmd, object_name)
-            else:
-                context_kind = "generic"
-                context_role = "molecule"
-                default_preset = ""
-                apply_scene_atom_coloring(self.w)
-            cmd.zoom(object_name, 3)
-            if orient:
-                try:
-                    cmd.orient(object_name)
-                    width, height = cmd.get_viewport()
-                    if height > width:
-                        cmd.turn("z", 90)  # orient lays the long axis across; a tall panel wants it upright
-                except Exception:
-                    pass
-            _frame(cmd, object_name)
-            set_pymol_scene_context(
-                dock,
-                context_kind,
-                target=object_name,
-                selections={context_role: object_name},
-                default_preset=default_preset,
-            )
-        except Exception:
-            _log.exception("PyMOL could not show %s", path)
+
+        def show(found: dict) -> None:
+            cmd = dock.cmd
+            try:
+                dock.show()
+                cmd.delete("all")
+                load_structure(cmd, found["structure"], object_name)
+                if bool(getattr(molecule, "is_ligand", False)):
+                    context_kind = "ligand"
+                    context_role = "ligand"
+                    default_preset = "amdockvs.ligand"
+                    try:
+                        cmd.show("sticks", object_name)
+                        apply_ligand_atom_coloring(cmd, object_name)
+                    except Exception:
+                        pass
+                elif bool(getattr(molecule, "is_receptor", False)):
+                    context_kind = "receptor"
+                    context_role = "receptor"
+                    default_preset = "amdockvs.receptor"
+                    apply_receptor_atom_coloring(cmd, object_name)
+                else:
+                    context_kind = "generic"
+                    context_role = "molecule"
+                    default_preset = ""
+                    apply_scene_atom_coloring(self.w)
+                cmd.zoom(object_name, 3)
+                if orient:
+                    try:
+                        cmd.orient(object_name)
+                        width, height = cmd.get_viewport()
+                        if height > width:
+                            cmd.turn("z", 90)  # orient lays the long axis across; a tall panel wants it upright
+                    except Exception:
+                        pass
+                _frame(cmd, object_name)
+                set_pymol_scene_context(
+                    dock,
+                    context_kind,
+                    target=object_name,
+                    selections={context_role: object_name},
+                    default_preset=default_preset,
+                )
+            except Exception:
+                _log.exception("PyMOL could not show %s", object_name)
+                return
+            if then is not None:
+                then(molecule)
+
+        self._read({"structure": payload_id}, lambda found: show(found) if "structure" in found else None)
 
     def show_binding_site(self, molecule, site) -> None:
-        receptor_path = current_molecule_path(molecule)
-        if receptor_path is None or not receptor_path.exists():
-            return
         dock = self.w.pymol_dock
-        if dock is None:
-            return
-        cmd = getattr(dock, "cmd", None)
-        if cmd is None:
+        if dock is None or getattr(dock, "cmd", None) is None:
             return
         receptor_name = f"receptor_{getattr(molecule, 'id', 'selected')}"
-        try:
-            dock.show()
-            cmd.delete("all")
-            cmd.load(str(receptor_path), receptor_name)
-            apply_receptor_atom_coloring(cmd, receptor_name)
-            cmd.zoom(receptor_name, 3)
-            set_pymol_scene_context(
-                dock,
-                "receptor",
-                target=receptor_name,
-                selections={"receptor": receptor_name},
-                default_preset="amdockvs.receptor",
-            )
-        except Exception:
-            return
-        if self.w.grid_dock is not None:
-            try:
-                self.w.grid_dock.focus_binding_site(
-                    molecule,
-                    site_id=int(getattr(site, "id", 0) or 0),
-                    ensure_selected=True,
-                )
-                self.show_grid_panel()
-            except Exception:
-                pass
 
-    def show_complex(self, pair) -> bool:
-        dock = self.w.pymol_dock
-        if dock is None:
-            return False
-        cmd = getattr(dock, "cmd", None)
-        if cmd is None:
-            return False
-        raw_reference_path = str(getattr(pair, "reference_receptor_path", "") or "").strip()
-        reference_path = Path(raw_reference_path).expanduser() if raw_reference_path else None
-        if reference_path is not None and not reference_path.is_absolute():
-            project_root = get_default_project_root()
-            if project_root is not None:
-                reference_path = (project_root / reference_path).resolve()
-        ligand = self.w.runtime.molecules.get(
-            int(getattr(pair, "ligand_molecule_id", 0) or 0)
-        )
-        receptor = self.w.runtime.molecules.get(
-            int(getattr(pair, "receptor_molecule_id", 0) or 0)
-        )
-        ligand_path = stored_molecule_path(ligand) if ligand is not None else None
-        if reference_path is None or not reference_path.exists():
-            reference_path = current_molecule_path(receptor) if receptor is not None else None
-        if reference_path is None or not reference_path.exists():
-            return False
-        try:
-            dock.show()
-            cmd.delete("all")
-            receptor_obj = f"complex_receptor_{int(getattr(pair, 'id', 0) or 0)}"
-            ligand_obj = f"complex_ligand_{int(getattr(pair, 'id', 0) or 0)}"
-            cmd.load(str(reference_path), receptor_obj)
-            if ligand_path is not None and ligand_path.exists():
-                cmd.load(str(ligand_path), ligand_obj)
+        def show(found: dict) -> None:
+            cmd = dock.cmd
+            if "receptor" not in found:
+                return
+            try:
+                dock.show()
+                cmd.delete("all")
+                load_structure(cmd, found["receptor"], receptor_name)
+                apply_receptor_atom_coloring(cmd, receptor_name)
+                cmd.zoom(receptor_name, 3)
+                set_pymol_scene_context(
+                    dock,
+                    "receptor",
+                    target=receptor_name,
+                    selections={"receptor": receptor_name},
+                    default_preset="amdockvs.receptor",
+                )
+            except Exception:
+                return
+            if self.w.grid_dock is not None:
                 try:
-                    cmd.show("sticks", ligand_obj)
-                    apply_receptor_ligand_atom_coloring(
-                        cmd,
-                        receptor_selection=receptor_obj,
-                        ligand_selections=[ligand_obj],
+                    self.w.grid_dock.focus_binding_site(
+                        molecule,
+                        site_id=int(getattr(site, "id", 0) or 0),
+                        ensure_selected=True,
                     )
-                    cmd.orient(ligand_obj)
+                    self.show_grid_panel()
                 except Exception:
                     pass
-            else:
-                apply_receptor_atom_coloring(cmd, receptor_obj)
-            cmd.zoom("all", 3)
-            selections = {"receptor": receptor_obj}
-            if ligand_path is not None and ligand_path.exists():
-                selections["ligand"] = ligand_obj
-            set_pymol_scene_context(
-                dock,
-                "complex",
-                target="all",
-                selections=selections,
-                default_preset="amdockvs.complex",
-            )
-        except Exception:
+
+        self._read({"receptor": molecule_payload_id(molecule)}, show)
+
+    def show_complex(self, pair) -> bool:
+        """Start showing a pair; True when PyMOL took the request (it draws once the bytes are read)."""
+        dock = self.w.pymol_dock
+        if dock is None or getattr(dock, "cmd", None) is None:
             return False
-        if receptor is not None and self.w.grid_dock is not None:
+        molecules = self.w.runtime.molecules
+        store = payload_store(self.w.runtime)
+        pair_id = int(getattr(pair, "id", 0) or 0)
+
+        def work():
+            # The pair's snapshots, else the molecules' own forms: all read here, off the GUI thread.
+            ligand = molecules.get(int(getattr(pair, "ligand_molecule_id", 0) or 0))
+            receptor = molecules.get(int(getattr(pair, "receptor_molecule_id", 0) or 0))
+            wanted = {
+                "receptor": getattr(pair, "reference_receptor_payload_id", None)
+                or (molecule_payload_id(receptor) if receptor is not None else None),
+                "ligand": getattr(pair, "reference_ligand_payload_id", None)
+                or (self._structure_id(ligand, "stored") if ligand is not None else None),
+            }
+            ids = {name: int(payload_id) for name, payload_id in wanted.items() if payload_id}
+            return (fetch_structures(store, ids) if ids else {}), receptor
+
+        def show(result) -> None:
+            found, receptor = result
+            if "receptor" not in found:
+                return
+            cmd = dock.cmd
             try:
-                self.w.grid_dock.focus_binding_site(
-                    receptor,
-                    site_id=int(getattr(pair, "binding_site_id", 0) or 0),
-                    ensure_selected=True,
+                dock.show()
+                cmd.delete("all")
+                receptor_obj = f"complex_receptor_{pair_id}"
+                ligand_obj = f"complex_ligand_{pair_id}"
+                load_structure(cmd, found["receptor"], receptor_obj)
+                if "ligand" in found:
+                    load_structure(cmd, found["ligand"], ligand_obj)
+                    try:
+                        cmd.show("sticks", ligand_obj)
+                        apply_receptor_ligand_atom_coloring(
+                            cmd,
+                            receptor_selection=receptor_obj,
+                            ligand_selections=[ligand_obj],
+                        )
+                        cmd.orient(ligand_obj)
+                    except Exception:
+                        pass
+                else:
+                    apply_receptor_atom_coloring(cmd, receptor_obj)
+                cmd.zoom("all", 3)
+                selections = {"receptor": receptor_obj}
+                if "ligand" in found:
+                    selections["ligand"] = ligand_obj
+                set_pymol_scene_context(
+                    dock,
+                    "complex",
+                    target="all",
+                    selections=selections,
+                    default_preset="amdockvs.complex",
                 )
-                self.show_grid_panel()
             except Exception:
-                pass
+                return
+            if receptor is not None and self.w.grid_dock is not None:
+                try:
+                    self.w.grid_dock.focus_binding_site(
+                        receptor,
+                        site_id=int(getattr(pair, "binding_site_id", 0) or 0),
+                        ensure_selected=True,
+                    )
+                    self.show_grid_panel()
+                except Exception:
+                    pass
+
+        self._later(work, show)
         return True

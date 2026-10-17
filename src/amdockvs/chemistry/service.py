@@ -1,28 +1,30 @@
+"""The Build of ligand and receptor rows: each row brings its structure's bytes (`structure`, and
+its format in `structure_kind`) and the update hands the result back as a `Payload`, the
+molecule's new current structure. What was imported (`stored_payload_id`) is never touched.
+"""
 from __future__ import annotations
 
 import json
-import shutil
-from datetime import datetime
+import tempfile
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Mapping, Sequence
+
+from ms_flow.payloads import scratch_file
 
 from amdockvs.chemistry.pipeline import LIGAND_STEPS, normalize_steps, run_pipeline
 from amdockvs.chemistry.state import mol_has_explicit_hs
+from amdockvs.chemistry.structures import mol_from_bytes, sdf_payload
 from amdockvs.chemistry.tools import (
     fix_receptor_pdb_file,
     minimize_receptor_openmm_file,
     protonate_receptor_pdb2pqr_file,
     protonate_receptor_reduce_file,
 )
-from amdockvs.io.formats import as_pdb
+from amdockvs.core.constants import SERIES_RECEPTORS
+from amdockvs.core.payloads import structure_payload
 from amdockvs.core.rows import molecule_model_row
 from amdockvs.core.vocab import ModelSource
-from amdockvs.core.paths import (
-    artifact_path_for_existing,
-    current_molecule_path,
-    set_default_project_root,
-    stored_molecule_path,
-)
+from amdockvs.io.formats import as_pdb
 
 
 def decode_metadata(raw_metadata: Any) -> dict[str, Any]:
@@ -39,108 +41,19 @@ def decode_metadata(raw_metadata: Any) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
-def chemistry_current_entry(metadata: Mapping[str, Any] | None) -> dict[str, Any] | None:
-    del metadata
-    return None
-
-
-def ligand_working_path(row: Mapping[str, Any], *, structure_source: str = "current") -> Path:
-    source = str(structure_source or "current").strip().lower()
-    path = stored_molecule_path(row) if source == "original" else current_molecule_path(row)
-    if path is None:
-        raise ValueError(f"Ligand {row.get('id')} has no stored_path.")
-    return path
-
-
-def receptor_working_path(row: Mapping[str, Any], *, structure_source: str = "current") -> Path:
-    source = str(structure_source or "current").strip().lower()
-    path = stored_molecule_path(row) if source == "original" else current_molecule_path(row)
-    if path is None:
-        raise ValueError(f"Receptor {row.get('id')} has no stored_path.")
-    return path
-
-
-def merge_chemistry_metadata(
-    metadata: Mapping[str, Any] | None,
-    *,
-    operation: str,
-    path: Path,
-    source_path: Path,
-    params: Mapping[str, Any] | None = None,
-    state: Mapping[str, Any] | None = None,
-    promote_current: bool = True,
-) -> dict[str, Any]:
-    del operation, path, source_path, params, state, promote_current
+def clean_metadata(metadata: Mapping[str, Any] | None) -> dict[str, Any]:
+    """extra_data without the keys that described an older structure."""
     merged = decode_metadata(metadata)
-    merged.pop("chemistry", None)
-    merged.pop("history", None)
-    merged.pop("project_root", None)
-    merged.pop("state", None)
+    for stale in ("chemistry", "history", "project_root", "state"):
+        merged.pop(stale, None)
     return merged
 
 
-def _project_root_from_row(row: Mapping[str, Any], *, output_dir: Path) -> Path:
-    del row
-    return output_dir.expanduser().resolve().parent.parent
-
-
-def _relative_to_project_root(path: Path, *, project_root: Path) -> str:
-    return str(path.expanduser().resolve().relative_to(project_root.expanduser().resolve()))
-
-
-def _load_ligand_mol(path: Path):
-    from amdockvs.io.formats import is_readable, read_mol
-
-    if not is_readable(path):
-        raise ValueError(f"Chemistry ligand tools do not support format '{path.suffix}'.")
-    mol = read_mol(path)
+def load_ligand_mol(data: bytes | str | None, kind: str | None):
+    mol = mol_from_bytes(data, kind)
     if mol is None:
-        raise ValueError(f"Could not parse ligand file: {path}")
+        raise ValueError(f"Could not parse the ligand structure ({kind or 'no format'}).")
     return mol
-
-
-def _write_ligand_mol(mol, path: Path, *, conf_id: int | None = None) -> None:
-    from rdkit import Chem
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(Chem.MolToMolBlock(mol, confId=conf_id if conf_id is not None else -1), encoding="utf-8")
-
-
-def _write_ligand_conformer_files(
-    mol,
-    *,
-    output_dir: Path,
-    source_path: Path,
-    start_index: int,
-    project_root: Path,
-) -> tuple[list[dict[str, Any]], str | None, int | None]:
-    model_rows: list[dict[str, Any]] = []
-    active_relative_path: str | None = None
-    active_model_index: int | None = None
-    for offset, conformer in enumerate(mol.GetConformers()):
-        model_index = int(start_index) + int(offset)
-        output_path = artifact_path_for_existing(
-            output_dir,
-            role="ligand",
-            source_path=source_path,
-            artifact_name=f"conformer_{model_index}",
-            suffix=".sdf",
-        )
-        _write_ligand_mol(mol, output_path, conf_id=conformer.GetId())
-        relative_path = _relative_to_project_root(output_path, project_root=project_root)
-        if active_relative_path is None:
-            active_relative_path = relative_path
-            active_model_index = model_index
-        model_rows.append(
-            molecule_model_row(
-                molecule_id=0,
-                model_index=model_index,
-                file_path=relative_path,
-                source=ModelSource.ETKDG,
-                energy=None,
-            )
-        )
-    return model_rows, active_relative_path, active_model_index
 
 
 def _ligand_state(steps: Sequence[tuple[str, Mapping[str, Any]]], result_mol) -> dict[str, Any]:
@@ -173,7 +86,6 @@ def _ligand_state(steps: Sequence[tuple[str, Mapping[str, Any]]], result_mol) ->
 def transform_ligand_rows(
     *,
     operations: str | Sequence[Any],
-    output_dir: Path,
     rows: Iterable[Mapping[str, Any]],
     params: Mapping[str, Any] | None = None,
     next_model_index_by_entity: Mapping[int, int] | None = None,
@@ -183,7 +95,8 @@ def transform_ligand_rows(
 
     `operations` is a step list — `[("standardize", {}), ("protonate", {"ph": 7.4})]` — or a
     bare name for a single step. The batch goes through `run_pipeline` once and only the final
-    molecule is written, so standardize+protonate+3D leaves one file per ligand, not three.
+    molecule is kept, so standardize+protonate+3D gives one payload per ligand, not three. A
+    model row and the molecule it makes current share one `Payload` object.
     """
     resolved_steps = normalize_steps(operations)
     if not resolved_steps:
@@ -193,145 +106,94 @@ def transform_ligand_rows(
             raise ValueError(f"Unsupported ligand chemistry operation: {name}")
 
     normalized_params = dict(params or {})
-    project_root = output_dir.expanduser().resolve().parent.parent
-    set_default_project_root(project_root)
     next_index_map = {int(key): int(value) for key, value in dict(next_model_index_by_entity or {}).items()}
     row_list = [dict(row) for row in rows]
     updates: list[dict[str, Any]] = []
     failed_rows: list[dict[str, Any]] = []
-    structure_source = str(normalized_params.get("structure_source") or "current")
-    run_id = str(normalized_params.get("run_id") or "run")[:16]
     # ponytail: one shared bag behind each step's own params, and every step takes only the
     # keys its core declares. Two steps that name a parameter alike (`fragment_mode`) share the
     # bag's value — pass it per step to tell them apart.
     resolved_steps = [
         (name, {**normalized_params, **dict(step_params)}) for name, step_params in resolved_steps
     ]
-    operation_label = "+".join(name for name, _ in resolved_steps)
-    last_name, last_params = resolved_steps[-1]
+    last_name = resolved_steps[-1][0]
     # A minimize may follow the ensemble; the ensemble is still what gets written.
     writes_ensemble = any(name == "conformers" for name, _ in resolved_steps)
 
     # Load the whole batch first: protonation runs once over the set, so the pipeline needs
     # every molecule in hand before the first step. A slot that fails to load carries its
     # exception through the pipeline and lands in `failed_rows` below, still in position.
-    sources: list[Path | None] = []
     batch: list[Any] = []
     for index, row in enumerate(row_list, start=1):
-        source_path = None
         loaded = None  # a `None` slot is not a failure: there is nothing to write back to
         if int(row.get("id") or 0) > 0:
             try:
-                source_path = ligand_working_path(row, structure_source=structure_source)
-                loaded = _load_ligand_mol(source_path)
+                loaded = load_ligand_mol(row.get("structure"), row.get("structure_kind"))
             except Exception as exc:
                 loaded = exc
-        # One append each, always: the write-back loop pairs these lists with `row_list`.
-        sources.append(source_path)
+        # One append each, always: the write-back loop pairs this list with `row_list`.
         batch.append(loaded)
         if progress_cb is not None:
             progress_cb((index / max(1, len(row_list))) * 50.0)
 
     results = run_pipeline(batch, resolved_steps)
 
-    for index, (row, source_path, result) in enumerate(zip(row_list, sources, results), start=1):
+    for index, (row, result) in enumerate(zip(row_list, results), start=1):
         ligand_id = int(row.get("id") or 0)
         if progress_cb is not None:
             progress_cb(50.0 + (index / max(1, len(row_list))) * 50.0)
         if ligand_id <= 0:
             continue
         if result is None or isinstance(result, Exception):
-            failed_rows.append(
-                {
-                    "entity_id": ligand_id,
-                    "source_path": str(row.get("current_path") or row.get("stored_path") or ""),
-                    "error": str(result) if result is not None else "No structure was produced.",
-                }
-            )
+            failed_rows.append({
+                "entity_id": ligand_id,
+                "error": str(result) if result is not None else "No structure was produced.",
+            })
             continue
         try:
-            metadata = decode_metadata(row.get("extra_data"))
             model_rows: list[dict[str, Any]] = []
             current_model_index = row.get("current_model_index")
             next_index = int(next_index_map.get(ligand_id, 0))
 
             if writes_ensemble:
-                model_rows, current_relative_path, current_model_index = _write_ligand_conformer_files(
-                    result,
-                    output_dir=output_dir,
-                    source_path=source_path,
-                    start_index=next_index,
-                    project_root=project_root,
-                )
-                for model_row in model_rows:
-                    model_row["molecule_id"] = ligand_id
-                output_path = project_root / str(current_relative_path or "")
+                current = None
+                for offset, conformer in enumerate(result.GetConformers()):
+                    payload = sdf_payload(result, conf_id=conformer.GetId())
+                    if current is None:
+                        current, current_model_index = payload, next_index + offset
+                    model_rows.append(molecule_model_row(
+                        molecule_id=ligand_id, model_index=next_index + offset, payload_id=payload,
+                        source=ModelSource.ETKDG,
+                    ))
             else:
-                if last_name == "generate_3d":
+                current = sdf_payload(result)
+                if last_name in {"generate_3d", "minimize"}:
                     current_model_index = next_index
-                    artifact_name = f"model_{current_model_index}_{run_id}"
-                elif last_name == "minimize":
-                    current_model_index = next_index
-                    artifact_name = f"minimized_{current_model_index}"
-                else:
+                    model_rows.append(molecule_model_row(
+                        molecule_id=ligand_id, model_index=next_index, payload_id=current,
+                        source=ModelSource.RDKIT,
+                    ))
+                elif result.GetNumConformers() == 0:
                     # standardize / protonate keep whatever model was current, unless the
                     # result has no coordinates at all.
-                    current_model_index = current_model_index if result.GetNumConformers() > 0 else None
-                    artifact_name = (
-                        f"standardized_{run_id}"
-                        if last_name == "standardize"
-                        else f"protonated_{last_params.get('method') or 'dimorphite'}_{run_id}"
-                    )
-                output_path = artifact_path_for_existing(
-                    output_dir,
-                    role="ligand",
-                    source_path=source_path,
-                    artifact_name=artifact_name,
-                    suffix=".sdf",
-                )
-                _write_ligand_mol(result, output_path)
-                current_relative_path = _relative_to_project_root(output_path, project_root=project_root)
-                if last_name in {"generate_3d", "minimize"}:
-                    model_rows.append(
-                        molecule_model_row(
-                            molecule_id=ligand_id,
-                            model_index=int(current_model_index),
-                            file_path=current_relative_path,
-                            source=ModelSource.RDKIT,
-                            energy=None,
-                        )
-                    )
+                    current_model_index = None
 
             state = {
                 **_ligand_state(resolved_steps, result),
                 "conformer_count": result.GetNumConformers(),
             }
-            updates.append(
-                {
-                    "entity_id": ligand_id,
-                    "extra_data": merge_chemistry_metadata(metadata, operation=operation_label, path=output_path, source_path=source_path, params=normalized_params, state=state, promote_current=not writes_ensemble),
-                    "operation_kind": f"chemistry_{operation_label}",
-                    "current_path": str(current_relative_path or row.get("current_path") or ""),
-                    "current_model_index": None if current_model_index is None else int(current_model_index),
-                    "state": state,
-                    "model_rows": model_rows,
-                    "operation_params": {
-                        "operation": operation_label,
-                        "source_path": str(source_path),
-                        "output_path": str(output_path),
-                        "current_path": str(current_relative_path or row.get("current_path") or ""),
-                        **normalized_params,
-                    },
-                }
-            )
+            update = {
+                "entity_id": ligand_id,
+                "extra_data": clean_metadata(row.get("extra_data")),
+                "current_model_index": None if current_model_index is None else int(current_model_index),
+                "state": state,
+                "model_rows": model_rows,
+            }
+            if current is not None:
+                update["current_payload_id"] = current
+            updates.append(update)
         except Exception as exc:
-            failed_rows.append(
-                {
-                    "entity_id": ligand_id,
-                    "source_path": str(row.get("current_path") or row.get("stored_path") or ""),
-                    "error": str(exc),
-                }
-            )
+            failed_rows.append({"entity_id": ligand_id, "error": str(exc)})
     return {
         "updates": updates,
         "failure_count": len(failed_rows),
@@ -341,10 +203,25 @@ def transform_ligand_rows(
     }
 
 
+def run_receptor_tool(data: bytes, kind: str, run: Callable[[Path, Path], Any]) -> bytes:
+    """`run(source_pdb, output_pdb)` over stored bytes; the PDB it writes comes back as bytes.
+
+    pdbfixer, reduce, pdb2pqr and OpenMM all read PDB; the stored structure is mmCIF. Every file
+    (the input, a converted copy, the output and pdb2pqr's .pqr beside it) is gone on return.
+    """
+    with (
+        scratch_file(data, f".{str(kind or 'pdb').lstrip('.').lower()}") as source,
+        as_pdb(source) as readable,
+        tempfile.TemporaryDirectory(prefix="amdockvs-receptor-") as work,
+    ):
+        output = Path(work) / "receptor.pdb"
+        run(readable, output)
+        return output.read_bytes()
+
+
 def transform_receptor_rows(
     *,
     operation: str,
-    output_dir: Path,
     rows: Iterable[Mapping[str, Any]],
     params: Mapping[str, Any] | None = None,
     next_model_index_by_entity: Mapping[int, int] | None = None,
@@ -355,8 +232,6 @@ def transform_receptor_rows(
         raise ValueError(f"Unsupported receptor chemistry operation: {operation}")
 
     normalized_params = dict(params or {})
-    project_root = output_dir.expanduser().resolve().parent.parent
-    set_default_project_root(project_root)
     next_index_map = {int(key): int(value) for key, value in dict(next_model_index_by_entity or {}).items()}
     row_list = [dict(row) for row in rows]
     updates: list[dict[str, Any]] = []
@@ -364,97 +239,70 @@ def transform_receptor_rows(
         receptor_id = int(row.get("id") or 0)
         if receptor_id <= 0:
             continue
-        metadata = decode_metadata(row.get("extra_data"))
-        source_path = receptor_working_path(
-            row,
-            structure_source=str(normalized_params.get("structure_source") or "current"),
-        )
+        if not row.get("structure"):
+            raise ValueError(f"Receptor {receptor_id} has no structure.")
         current_model_index = 0 if not bool(row.get("has_3d")) and row.get("current_model_index") is None else int(next_index_map.get(receptor_id, 0))
-        target_path: Path
-        # pdbfixer, reduce, pdb2pqr and OpenMM all read PDB; the stored structure is mmCIF.
-        with as_pdb(source_path) as readable:
-            if operation_name == "fix":
-                target_path = artifact_path_for_existing(
-                    output_dir,
-                    role="receptor",
-                    source_path=source_path,
-                    artifact_name=f"fixed_{current_model_index}",
-                    suffix=".pdb",
-                )
+        if operation_name == "fix":
+            def run(source: Path, output: Path) -> None:
                 fix_receptor_pdb_file(
-                    source_path=readable,
-                    output_path=target_path,
+                    source_path=source,
+                    output_path=output,
                     add_missing_residues=bool(normalized_params.get("add_missing_residues", True)),
                     add_missing_atoms=bool(normalized_params.get("add_missing_atoms", True)),
                     replace_nonstandard=bool(normalized_params.get("replace_nonstandard", True)),
                     remove_heterogens=bool(normalized_params.get("remove_heterogens", False)),
                     keep_water=bool(normalized_params.get("keep_water", True)),
                 )
-                state = {"has_hs": False, "has_3d": True, "is_minimized": False, "fixed_with": "pdbfixer"}
-            elif operation_name == "protonate":
-                method = str(normalized_params.get("method") or "reduce").strip().lower()
-                suffix = ".pdb"  # pdb2pqr too: it writes the PQR as a sidecar, we register the PDB
-                target_path = artifact_path_for_existing(
-                    output_dir,
-                    role="receptor",
-                    source_path=source_path,
-                    artifact_name=f"protonated_{current_model_index}",
-                    suffix=suffix,
-                )
-                if method == "reduce":
-                    protonate_receptor_reduce_file(source_path=readable, output_path=target_path)
-                elif method == "pdb2pqr":
+            state = {"has_hs": False, "has_3d": True, "is_minimized": False, "fixed_with": "pdbfixer"}
+        elif operation_name == "protonate":
+            method = str(normalized_params.get("method") or "reduce").strip().lower()
+            if method == "reduce":
+                def run(source: Path, output: Path) -> None:
+                    protonate_receptor_reduce_file(source_path=source, output_path=output)
+            elif method == "pdb2pqr":
+                def run(source: Path, output: Path) -> None:
+                    # pdb2pqr too gives the PDB: it writes the PQR as a sidecar, which is dropped
                     protonate_receptor_pdb2pqr_file(
-                        source_path=readable,
-                        output_path=target_path,
+                        source_path=source,
+                        output_path=output,
                         forcefield=str(normalized_params.get("forcefield", "AMBER")),
                         ph=float(normalized_params.get("ph", 7.0)),
                     )
-                else:
-                    raise ValueError("protonate_receptors method must be 'reduce' or 'pdb2pqr'.")
-                state = {"has_hs": True, "has_3d": True, "is_minimized": False, "protonation_model": method}
             else:
-                target_path = artifact_path_for_existing(
-                    output_dir,
-                    role="receptor",
-                    source_path=source_path,
-                    artifact_name=f"minimized_{current_model_index}",
-                    suffix=".pdb",
-                )
-                forcefields = tuple(normalized_params.get("forcefields") or ("amber14-all.xml",))
+                raise ValueError("protonate_receptors method must be 'reduce' or 'pdb2pqr'.")
+            state = {"has_hs": True, "has_3d": True, "is_minimized": False, "protonation_model": method}
+        else:
+            forcefields = tuple(normalized_params.get("forcefields") or ("amber14-all.xml",))
+
+            def run(source: Path, output: Path) -> None:
                 minimize_receptor_openmm_file(
-                    source_path=readable,
-                    output_path=target_path,
+                    source_path=source,
+                    output_path=output,
                     forcefields=forcefields,
                     max_iterations=int(normalized_params.get("max_iterations", 500)),
                     tolerance_kj_mol=float(normalized_params.get("tolerance_kj_mol", 10.0)),
                 )
-                state = {"has_hs": True, "has_3d": True, "is_minimized": True, "forcefield": list(forcefields)}
+            state = {"has_hs": True, "has_3d": True, "is_minimized": True, "forcefield": list(forcefields)}
 
-        current_relative_path = _relative_to_project_root(target_path, project_root=project_root)
+        current = structure_payload(
+            run_receptor_tool(bytes(row["structure"]), str(row.get("structure_kind") or ""), run),
+            "pdb", SERIES_RECEPTORS,
+        )
         updates.append(
             {
                 "entity_id": receptor_id,
-                "extra_data": merge_chemistry_metadata(metadata, operation=f"receptor_{operation_name}", path=target_path, source_path=source_path, params=normalized_params, state=state),
-                "operation_kind": f"chemistry_receptor_{operation_name}",
-                "current_path": current_relative_path,
+                "extra_data": clean_metadata(row.get("extra_data")),
+                "current_payload_id": current,
                 "current_model_index": current_model_index,
                 "state": state,
                 "model_rows": [
                     molecule_model_row(
                         molecule_id=receptor_id,
                         model_index=current_model_index,
-                        file_path=current_relative_path,
+                        payload_id=current,
                         source={"fix": ModelSource.FIXED, "protonate": ModelSource.PROTONATED}.get(operation_name, ModelSource.MINIMIZED),
-                        energy=None,
                     )
                 ],
-                "operation_params": {
-                    "operation": operation_name,
-                    "source_path": str(source_path),
-                    "output_path": str(target_path),
-                    **normalized_params,
-                },
             }
         )
         if progress_cb is not None:
@@ -463,11 +311,10 @@ def transform_receptor_rows(
 
 
 __all__ = [
-    "chemistry_current_entry",
+    "clean_metadata",
     "decode_metadata",
-    "ligand_working_path",
-    "merge_chemistry_metadata",
-    "receptor_working_path",
+    "load_ligand_mol",
+    "run_receptor_tool",
     "transform_ligand_rows",
     "transform_receptor_rows",
 ]

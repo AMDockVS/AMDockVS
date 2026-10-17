@@ -23,7 +23,6 @@ _LAZY_EXPORTS = {
     "evaluate_small_molecule_filter_values": ("amdockvs.chemistry.filtering", "evaluate_small_molecule_filter_values"),
     "passes_small_molecule_filter": ("amdockvs.chemistry.filtering", "passes_small_molecule_filter"),
     "small_molecule_filter_values_from_record": ("amdockvs.chemistry.filtering", "small_molecule_filter_values_from_record"),
-    "small_molecule_filter_values_from_record_or_file": ("amdockvs.chemistry.filtering", "small_molecule_filter_values_from_record_or_file"),
     "fingerprint_from_molecule": ("amdockvs.chemistry.fingerprints", "fingerprint_from_molecule"),
     "fingerprint_to_bitstring": ("amdockvs.chemistry.fingerprints", "fingerprint_to_bitstring"),
     "morgan_fingerprint": ("amdockvs.chemistry.fingerprints", "morgan_fingerprint"),

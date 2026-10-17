@@ -14,6 +14,8 @@ from amdockvs.docking.pairs import iter_docking_batches_from_rows
 from amdockvs.models.docking import DockingResult, EngineState
 from amdockvs.models.molecules import MoleculeRecord
 
+from payload_seed import seed_payload
+
 ENGINE = "vina"
 N_LIGANDS = 50
 N_RECEPTORS = 2
@@ -27,15 +29,17 @@ def _protocol_hash() -> str:
 def _project(tmp_path):
     store = ProjectStore.open_at(tmp_path / "project.db")
     proto = _protocol_hash()
+    receptor_pid = seed_payload(store, "REMARK receptor\n", "pdbqt")
+    ligand_pid = seed_payload(store, "REMARK ligand\n", "pdbqt")
     with store.get_session() as session:
         receptors = []
         for i in range(N_RECEPTORS):
-            rec = MoleculeRecord(name=f"rec_{i}", is_receptor=True, has_3d=True, stored_path=f"rec_{i}.pdb")
+            rec = MoleculeRecord(name=f"rec_{i}", is_receptor=True, has_3d=True, current_payload_id=receptor_pid)
             session.add(rec)
             receptors.append(rec)
         ligands = []
         for i in range(N_LIGANDS):
-            lig = MoleculeRecord(name=f"lig_{i}", is_ligand=True, stored_path=f"lig_{i}.sdf")
+            lig = MoleculeRecord(name=f"lig_{i}", is_ligand=True, current_payload_id=ligand_pid)
             session.add(lig)
             ligands.append(lig)
         session.commit()

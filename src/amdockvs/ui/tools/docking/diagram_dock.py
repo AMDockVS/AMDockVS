@@ -61,12 +61,7 @@ class InteractionDiagramDock(MSDockWidget):
     def show_hit(self, hit: DockingHitSummary | None, pose_rank: int = 1) -> None:
         self._hit = hit
         self._pose_rank = int(pose_rank or 1)
-        ready = (
-            hit is not None
-            and hit.output_path is not None
-            and hit.output_path.exists()
-            and hit.receptor_path is not None
-        )
+        ready = hit is not None and bool(hit.pose_payload_id and hit.receptor_payload_id)
         if not ready:
             self.placeholder.setText(_PLACEHOLDER)
             self.stack.setCurrentWidget(self.placeholder)

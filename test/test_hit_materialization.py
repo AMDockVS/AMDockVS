@@ -11,6 +11,8 @@ from sqlmodel import select
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from amdockvs.core.constants import SERIES_POSES
+from amdockvs.core.payloads import payload_store, read_structure, structure_payload
 from amdockvs.screening.materialize import HitGate, ingest_hits
 from amdockvs.models import DockingResult, MoleculeModel, MoleculeRecord
 from amdockvs.molecules.storage import ShardStore
@@ -35,14 +37,14 @@ def hit_rows(count, *, score=-9.0, receptor_id=1):
             "engine": "vina",
             "score": score,
             "score_type": "vina_score",
-            "pose_path": f"poses/hit_{index}.pdbqt",
+            "pose": structure_payload(f"pose {index}\n", "pdbqt", SERIES_POSES),
             "pose_rank": 1,
             "receptor_molecule_id": receptor_id,
             "metrics": {"run_id": "run-1"},
             # Only a `full` payload keeps these.
             "logp": 1.23,
             "heavy_atom_count": 3,
-            "models": [f"models/hit_{index}_0.sdf"],
+            "models": [structure_payload(f"model {index}\n", "sdf")],
         }
         for index in range(count)
     ]
@@ -75,7 +77,9 @@ def test_light_payload_keeps_smiles_and_pose_but_no_descriptors(project):
         assert molecule.extra_data["smiles"] == "CCO"
         assert molecule.logp is None and molecule.heavy_atom_count is None
         assert not session.exec(select(MoleculeModel)).all()
-    assert result.pose_path == "poses/hit_0.pdbqt"
+    # The pose is the hit's only 3D: one payload, held by the molecule and by its result.
+    assert molecule.current_payload_id == molecule.stored_payload_id == result.pose_payload_id
+    assert read_structure(project_db, result.pose_payload_id) == ("pose 0\n", "pdbqt")
     assert result.score == -9.0
     assert result.ligand_molecule_id == molecule.id
 
@@ -86,7 +90,8 @@ def test_full_payload_brings_descriptors_and_conformers(project):
     with project_db.get_session() as session:
         molecule = session.exec(select(MoleculeRecord)).one()
         assert molecule.logp == 1.23 and molecule.heavy_atom_count == 3
-        assert len(session.exec(select(MoleculeModel)).all()) == 1
+        (model,) = session.exec(select(MoleculeModel)).all()
+    assert read_structure(project_db, model.payload_id) == ("model 0\n", "sdf")
 
 
 def test_a_cap_is_not_optional(project):
@@ -124,3 +129,9 @@ def test_off_target_results_reuse_the_reference_hit_molecule(project):
     assert len(molecules) == 1
     assert [row.receptor_molecule_id for row in results] == receptor_ids
     assert {row.ligand_molecule_id for row in results} == {molecules[0].id}
+    # The retry wrote the off-target pose again: the one it replaced is released, and the
+    # reference pose stays as the molecule's structure.
+    report = payload_store(project_db).check()
+    assert report.ok and report.unreferenced == []
+    assert molecules[0].current_payload_id == results[0].pose_payload_id
+    assert results[1].pose_payload_id != results[0].pose_payload_id

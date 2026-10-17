@@ -32,7 +32,6 @@ from ms_flow.query import QuerySpec, db_count, db_pages
 
 from amdockvs.core.constants import TABLE_MOLECULES, TABLE_SCREENING_SHARDS
 from amdockvs.screening.materialize import HitGate, PAYLOAD_LIGHT, ingest_hits
-from amdockvs.core.paths import get_default_project_root
 from amdockvs.core.vocab import MoleculeType, MoleculeUsageClass, ProjectMode, ShardState
 
 
@@ -250,7 +249,6 @@ class ShardStore:
             rows,
             gate=self.gate,
             payload=self.payload,
-            project_root=get_default_project_root(),
         )
 
     def finalize(self) -> list[dict[str, Any]]:
@@ -266,7 +264,6 @@ class ShardStore:
             rows,
             gate=HitGate(cap=len(rows)),
             payload=self.payload,
-            project_root=get_default_project_root(),
         )
 
 

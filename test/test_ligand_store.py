@@ -18,14 +18,17 @@ from amdockvs.diversity.jobs import SelectionClusterJobParams, scope_molecule_co
 class FakeStore:
     """Holds two ligands and nothing else. No session, no engine, no db_path."""
 
-    def __init__(self):
+    def __init__(self, project_db=None):
         self.specs = []
+        self.project_db = project_db  # the structures' bytes are still the project's
+
+    structure = None
 
     def iter_rows(self, spec, *, batch_size=128):
         self.specs.append(spec)
-        yield {"id": 1, "stored_path": "/data/a.sdf", "current_path": "", "current_model_index": None,
+        yield {"id": 1, "stored_payload_id": self.structure, "current_payload_id": None, "current_model_index": None,
                "input_format": "sdf", "extra_data": {}, "has_3d": True}
-        yield {"id": 2, "stored_path": "/data/b.sdf", "current_path": "", "current_model_index": None,
+        yield {"id": 2, "stored_payload_id": self.structure, "current_payload_id": None, "current_model_index": None,
                "input_format": "sdf", "extra_data": {}, "has_3d": True}
 
     def count(self, spec):
@@ -42,11 +45,19 @@ def test_chemistry_feed_reads_the_store():
     assert store.specs[0].filters["is_ligand"] is True  # the scope is still the tool's
 
 
-def test_qsar_feed_reads_the_store():
-    store = FakeStore()
+def test_qsar_feed_reads_the_store(tmp_path):
+    from ms_flow.core.database.project import ProjectStore
+
+    from payload_seed import seed_payload
+
+    project = ProjectStore.open_at(tmp_path / "project.db")
+    store = FakeStore(project)
+    store.structure = seed_payload(project, "mol\n\n\nM  END\n", "sdf")
     params = DescriptorJobParams(batch_size=2, only_missing=False, compute_fingerprints=False)
     items = [item for chunk in _iter_descriptor_batches(store, params) for item in chunk["items"]]
     assert [item["molecule_id"] for item in items] == [1, 2]
+    assert {(item["structure"], item["structure_kind"]) for item in items} == {(b"mol\n\n\nM  END\n", "sdf")}
+    project.dispose()
 
 
 def test_selection_feed_and_count_read_the_store():
