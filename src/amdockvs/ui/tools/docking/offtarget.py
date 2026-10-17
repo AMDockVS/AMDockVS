@@ -343,7 +343,7 @@ class OffTargetResultsWidget(QWidget):
                 pose = self._selected_pose(r, rid)
                 if pose is None:
                     continue
-                project = self.runtime.workspace.project_db
+                project = self.runtime
                 rec_path = payload_file(project, pose.get("receptor_payload_id"))
                 pose_path = payload_file(project, pose.get("pose_payload_id"))
                 if not rec_path or not pose_path:
@@ -409,7 +409,7 @@ class OffTargetResultsWidget(QWidget):
             pose_payload_id=pose.get("pose_payload_id"),
             ligand_payload_id=pose.get("ligand_payload_id"),
             receptor_payload_id=pose.get("receptor_payload_id"),
-        ).of_project(self.runtime.workspace.project_db)
+        ).of_project(self.runtime)
         self._load_hit_in_pymol(hit, int(pose.get("pose_rank") or 1))
 
 
