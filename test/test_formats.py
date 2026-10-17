@@ -106,6 +106,8 @@ def test_a_pdbqt_becomes_an_sdf_and_a_prepared_ad4_molecule():
             ("ad4", "ligand", True)
         ]
         assert states[0]["prepared_payload_id"].data.startswith(b"REMARK")
+        # The original is also the prepared input: one object, so one stored blob.
+        assert states[0]["prepared_payload_id"] is row["stored_payload_id"]
 
 
 def test_a_receptor_pdbqt_is_stored_as_mmcif():

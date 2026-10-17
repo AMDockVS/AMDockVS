@@ -15,6 +15,7 @@ from amdockvs.io.transformers.rows import (
     _apply_sdf_activity,
     _build_row,
     _finalize_ligand_row_from_mol,
+    share_current,
     _progress_update,
     _split_fragment_rows,
 )
@@ -70,7 +71,8 @@ def _materialize_smiles_rows(
             name=name,
             n_atoms=mol.GetNumAtoms(),
             input_format="smiles",
-            stored=structure_payload(resolved_mol_block, "sdf"),
+            # The original is the SMILES itself; the 3D-less block below is only the current form.
+            stored=structure_payload(smiles, "smi"),
             current=None,
             metadata={**molecule_state_metadata(mol), "smiles": smiles},
             molecule_kind=batch.molecule_kind,
@@ -92,7 +94,7 @@ def _materialize_smiles_rows(
                 _progress_update(progress_cb, index, total_entries)
                 continue
         else:
-            row["current_payload_id"] = structure_payload(resolved_mol_block, "sdf")
+            share_current(row, structure_payload(resolved_mol_block, "sdf"))
         bump(tally, IMPORTED)
         yield row
         yield from _split_fragment_rows(

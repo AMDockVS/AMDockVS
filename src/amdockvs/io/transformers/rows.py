@@ -82,6 +82,17 @@ def _build_row(
         "conformer_count": max(0, int(state.get("conformer_count", int(built.get("conformer_count") or 0)) or 0)),
     }
 
+def share_current(row: dict[str, Any], current: Payload) -> None:
+    """Set the row's current form, reusing the stored payload when it is the same bytes (D11).
+
+    The same `Payload` object in both columns is what makes the sink store one blob and give
+    both columns one id; a copy would store the structure twice.
+    """
+    stored = row.get("stored_payload_id")
+    same = stored is not None and stored.kind == current.kind and stored.data == current.data
+    row["current_payload_id"] = stored if same else current
+
+
 def _finalize_ligand_row_from_mol(
     *,
     row: dict[str, Any],
@@ -108,7 +119,7 @@ def _finalize_ligand_row_from_mol(
     if decision is None:
         return None, reason
 
-    row["current_payload_id"] = structure_payload(Chem.MolToMolBlock(decision.kept_mol), "sdf")
+    share_current(row, structure_payload(Chem.MolToMolBlock(decision.kept_mol), "sdf"))
     return ligand_row_fields(row, decision), None
 
 def _progress_update(progress_cb: Callable[[float], None] | None, completed: int, total: int) -> None:

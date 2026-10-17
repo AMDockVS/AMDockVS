@@ -22,6 +22,7 @@ from amdockvs.core.paths import molecule_storage_key
 from amdockvs.io.transformers.rows import (
     _build_row,
     _finalize_ligand_row_from_mol,
+    share_current,
     _progress_update,
 )
 
@@ -118,12 +119,14 @@ def _structure_rows(
             n_atoms=0 if ligand_mol is not None else _count_atoms_from_structure_lines(current_path),
             input_format=suffix.lstrip("."),
             stored=original,
-            current=None if ligand_mol is not None else structure_payload(current_path.read_bytes(), current_suffix),
+            current=None,
             metadata=metadata,
             molecule_kind=batch.molecule_kind,
             primary_role=batch.primary_role,
             primary_context=batch.primary_context,
         )
+        if ligand_mol is None:
+            share_current(row, structure_payload(current_path.read_bytes(), current_suffix))
         if ligand_mol is not None:
             row, reason = _finalize_ligand_row_from_mol(
                 row=row,
@@ -192,7 +195,7 @@ def _structure_rows(
                     n_atoms=int(ligand_specs["n_atoms"] or 0),
                     input_format="pdb",
                     stored=structure_payload(ligand_bytes, "pdb"),
-                    current=structure_payload(ligand_bytes, "pdb"),
+                    current=None,
                     metadata={
                         "state": {"has_3d": True, "has_hs": False, "conformer_count": 1},
                         "workflow_origin": {
@@ -205,6 +208,7 @@ def _structure_rows(
                     primary_context="cocrystal",
                     usage_class=MoleculeUsageClass.REFERENCE,
                 )
+                share_current(ligand_row, structure_payload(ligand_bytes, "pdb"))
                 # This row skips _finalize_ligand_row_from_mol (the receptor route has no ligand
                 # Mol), so without this its descriptors stay NULL and any table filter on them
                 # drops the reference ligand silently. A .cif source gives all of them (deposited

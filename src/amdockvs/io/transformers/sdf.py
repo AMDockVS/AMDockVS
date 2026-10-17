@@ -15,6 +15,7 @@ from amdockvs.io.transformers.rows import (
     _apply_sdf_activity,
     _build_row,
     _finalize_ligand_row_from_mol,
+    share_current,
     _progress_update,
     _source_properties_from_mapping,
     _split_fragment_rows,
@@ -87,7 +88,7 @@ def _materialize_sdf_rows(
                 _progress_update(progress_cb, index, total_entries)
                 continue
         else:
-            row["current_payload_id"] = structure_payload(mol_block, "sdf")
+            share_current(row, structure_payload(mol_block, "sdf"))
         bump(tally, IMPORTED)
         yield row
         yield from _split_fragment_rows(

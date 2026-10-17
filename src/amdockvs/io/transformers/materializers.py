@@ -29,6 +29,7 @@ from amdockvs.io.transformers.rows import (
     _apply_sdf_activity,
     _build_row,
     _finalize_ligand_row_from_mol,
+    share_current,
     _progress_update,
     _source_properties_from_mapping,
 )
@@ -164,7 +165,7 @@ def materialize_multithreaded_sdf_file(
                 _progress_update(progress_cb, captured, expected_records)
                 continue
         else:
-            row["current_payload_id"] = structure_payload(mol_block, "sdf")
+            share_current(row, structure_payload(mol_block, "sdf"))
         bump(tally, IMPORTED)
         rows_by_index[source_index] = row
         captured = min(expected_records, processed)
