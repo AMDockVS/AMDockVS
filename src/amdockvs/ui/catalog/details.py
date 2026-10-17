@@ -126,7 +126,8 @@ class CatalogDetailsView(QWidget):
             model = details.current_model
             self._add_section(
                 "Model",
-                {"Index": model.model_index, "Source": model.source, **dict(model.metrics or {}), **dict(model.files or {})},
+                {"Index": model.model_index, "Source": model.source, "Payload": model.payload_id,
+                 **dict(model.metrics or {})},
             )
         if binding_sites:
             section = QTreeWidgetItem(["Binding Sites", str(len(binding_sites))])
