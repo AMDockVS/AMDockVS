@@ -215,7 +215,10 @@ def set_pymol_scene_context(
     target: str = "all",
     selections: dict[str, str] | None = None,
     default_preset: str = "",
+    restore_view: bool = True,
 ) -> None:
+    """`restore_view=False` keeps the camera the caller just set (an oriented catalog row);
+    the molecule's remembered style still applies."""
     setter = getattr(dock, "set_scene_context", None)
     if callable(setter):
         setter(
@@ -224,7 +227,7 @@ def set_pymol_scene_context(
             selections=selections,
             default_preset=default_preset,
         )
-    _apply_scene_memory(dock, kind, target, selections)
+    _apply_scene_memory(dock, kind, target, selections, restore_view=restore_view)
 
 
 def _context_selection(
@@ -731,7 +734,8 @@ def _set_view(dock, view) -> None:
         pass
 
 
-def _apply_scene_memory(dock, kind: str, target: str, selections: dict[str, str] | None) -> None:
+def _apply_scene_memory(dock, kind: str, target: str, selections: dict[str, str] | None,
+                        *, restore_view: bool = True) -> None:
     cache = getattr(dock, "_amdock_scene_cache", None)
     if cache is None:
         return  # toolbar / memory not installed yet
@@ -744,7 +748,7 @@ def _apply_scene_memory(dock, kind: str, target: str, selections: dict[str, str]
         cache.move_to_end(key)
         if entry.get("preset"):
             _apply_preset(dock, entry["preset"])
-        if entry.get("view") is not None:
+        if restore_view and entry.get("view") is not None:
             _set_view(dock, entry["view"])  # restore orientation last, over any preset zoom
         return
     if getattr(dock, "_amdock_keep_style", False):
