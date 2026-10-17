@@ -26,7 +26,6 @@ class LigandSummary(BaseModel):
     n_atoms: int = 0
     input_format: str = ""
     source: Path
-    stored_path: Optional[Path] = None
     status: bool = True
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: Optional[datetime] = None
@@ -39,7 +38,6 @@ class ReceptorSummary(BaseModel):
     name: str = ""
     n_atoms: int = 0
     input_format: str = ""
-    stored_path: Optional[Path] = None
     active: bool = True
     selected: bool = True
     status: str = ""
