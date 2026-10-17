@@ -9,13 +9,14 @@ from amdockvs.io.payloads import ImportBatchPayload
 from amdockvs.core.vocab import FileFormat, MoleculeType
 from amdockvs.io.import_stats import FILTERED_PREFILTER, IMPORTED, UNREADABLE, bump
 from amdockvs.io.rows import active_small_molecule_criteria, cull_mol, htp_mol_filter
-from amdockvs.core.paths import managed_paths_for_source
+from amdockvs.core.payloads import series_for, structure_payload
+from amdockvs.core.paths import molecule_storage_key
 from amdockvs.io.transformers.rows import (
     _apply_sdf_activity,
     _build_row,
     _finalize_ligand_row_from_mol,
+    share_current,
     _progress_update,
-    _project_root_from_storage_dir,
     _source_properties_from_mapping,
     _split_fragment_rows,
 )
@@ -34,7 +35,6 @@ def _materialize_sdf_rows(
     criteria = active_small_molecule_criteria(batch.prefilter, batch.molecule_kind)
     htp_passes = htp_mol_filter(batch.prefilter, batch.molecule_kind)
     total_entries = len(entries)
-    project_root = _project_root_from_storage_dir(batch.storage_dir)
     for index, entry in enumerate(entries, start=1):
         source_index = int(entry.get("source_index") or 0)
         raw = entry.get("raw")
@@ -60,25 +60,14 @@ def _materialize_sdf_rows(
             bump(tally, FILTERED_PREFILTER)
             _progress_update(progress_cb, index, total_entries)
             continue
-        paths = managed_paths_for_source(
-            storage_root=batch.storage_dir,
-            role=batch.primary_role or batch.kind,
-            source_file=batch.file_path,
-            source_index=source_index,
-            original_suffix=".sdf",
-            current_suffix=".sdf",
-        )
-        stored_path = paths["original_path"]
-        current_path = paths["current_path"]
         row = _build_row(
-            project_root=project_root,
             source_file=batch.file_path,
             source_index=source_index,
             name=name,
             n_atoms=mol.GetNumAtoms(),
             input_format=FileFormat.SDF,
-            stored_path=stored_path,
-            current_path=current_path,
+            stored=structure_payload(mol_block, "sdf", series_for(batch.primary_role or batch.kind)),
+            current=None,
             metadata=molecule_state_metadata(mol),
             molecule_kind=batch.molecule_kind,
             primary_role=batch.primary_role,
@@ -90,11 +79,7 @@ def _materialize_sdf_rows(
             row, reason = _finalize_ligand_row_from_mol(
                 row=row,
                 mol=mol,
-                project_root=project_root,
-                current_path=current_path,
                 prefilter=batch.prefilter,
-                stored_path=stored_path,
-                mol_block=mol_block,
                 criteria=criteria,
                 molecule_kind=batch.molecule_kind,
             )
@@ -103,13 +88,13 @@ def _materialize_sdf_rows(
                 _progress_update(progress_cb, index, total_entries)
                 continue
         else:
-            stored_path.write_text(mol_block, encoding="utf-8")
-            current_path.write_text(mol_block, encoding="utf-8")
+            share_current(row, structure_payload(mol_block, "sdf", series_for(batch.primary_role or batch.kind)))
         bump(tally, IMPORTED)
         yield row
         yield from _split_fragment_rows(
-            batch=batch, project_root=project_root, source_index=source_index, name=name, mol=mol,
-            parent_key=str(paths["key"]), input_format=FileFormat.SDF, criteria=criteria,
+            batch=batch, source_index=source_index, name=name, mol=mol,
+            parent_key=molecule_storage_key(batch.primary_role or batch.kind, batch.file_path, source_index),
+            input_format=FileFormat.SDF, criteria=criteria,
             source_properties=entry.get("source_properties"), tally=tally,
         )
         _progress_update(progress_cb, index, total_entries)

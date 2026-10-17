@@ -12,13 +12,18 @@ from typing import Any, Mapping
 
 from ms_flow.payloads import Payload
 
-from amdockvs.core.constants import SERIES_MOLECULES
+from amdockvs.core.constants import SERIES_MOLECULES, SERIES_RECEPTORS
 
 
 def structure_payload(data: bytes | str, kind: str, series: str = SERIES_MOLECULES) -> Payload:
     """Bytes (or text) of one structure in format `kind` ("sdf", ".PDB"...), as a sink stores them."""
     return Payload(data.encode() if isinstance(data, str) else bytes(data), kind=kind.lstrip(".").lower(),
                    series=series)
+
+
+def series_for(role: str | None) -> str:
+    """Receptors live apart from ligands: their lifetime and size differ (contract, Columns)."""
+    return SERIES_RECEPTORS if str(role or "").strip().lower() == "receptor" else SERIES_MOLECULES
 
 
 def molecule_payload_id(row: Mapping[str, Any] | Any) -> int | None:
@@ -56,4 +61,4 @@ def read_structure(project: Any, payload_id: int) -> tuple[str, str]:
 
 
 __all__ = ["PAYLOAD_CACHE", "molecule_payload_id", "payload_file", "payload_store", "read_structure",
-           "structure_payload"]
+           "series_for", "structure_payload"]

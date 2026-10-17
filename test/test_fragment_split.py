@@ -68,7 +68,8 @@ def test_split_fragments_materializes_the_co_component_as_its_own_row(tmp_path):
 
     rows = materialize_import_batch(payload)
     assert [row["name"] for row in rows] == ["pair", "pair [frag02]"]
-    assert len({row["current_path"] for row in rows}) == 2  # separate files, not one overwritten
+    # Separate payloads, not one shared: the extra is its own structure.
+    assert rows[0]["current_payload_id"].data != rows[1]["current_payload_id"].data
     # The extra points back at the record's own molecule, by the index its parent lists it under.
     link = rows[1]["extra_data"]["split_from"]
     assert link["parent_name"] == "pair" and link["source_index"] == 0

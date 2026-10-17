@@ -175,29 +175,6 @@ def artifact_storage_path(
     return root / f"{key}__{safe_name}{normalized_suffix}"
 
 
-def managed_paths_for_source(
-    storage_root: str | Path,
-    *,
-    role: str,
-    source_file: Path,
-    source_index: int,
-    original_suffix: str,
-    current_suffix: str | None = None,
-    variant: str = "",
-) -> dict[str, Path | str]:
-    key = molecule_storage_key(str(role), source_file, source_index, variant)
-    return {
-        "key": key,
-        "original_path": original_storage_path(storage_root, role=role, key=key, suffix=original_suffix),
-        "current_path": current_storage_path(
-            storage_root,
-            role=role,
-            key=key,
-            suffix=original_suffix if current_suffix is None else current_suffix,
-        ),
-    }
-
-
 def current_path_for_existing(
     storage_root: str | Path,
     *,
@@ -243,7 +220,6 @@ __all__ = [
     "current_path_for_existing",
     "current_storage_path",
     "infer_storage_key",
-    "managed_paths_for_source",
     "molecule_storage_key",
     "normalize_path",
     "original_storage_path",

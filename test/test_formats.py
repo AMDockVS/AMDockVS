@@ -98,14 +98,17 @@ def test_a_pdbqt_becomes_an_sdf_and_a_prepared_ad4_molecule():
         rows = list(_materialize_structure_rows(batch=batch, entries=[]))
         assert len(rows) == 1
         row = rows[0]
-        # Stored as SDF; the PDBQT survives untouched as the engine artifact.
-        assert Path(row["current_path"]).suffix == ".sdf"
-        assert Path(row["stored_path"]).suffix == ".pdbqt"
+        # Current form is SDF; the PDBQT survives untouched as the original and the engine artifact.
+        assert row["current_payload_id"].kind == "sdf"
+        assert row["stored_payload_id"].kind == "pdbqt"
         states = build_import_graph_payload(rows)["engine_states"]
         assert [(s["engine"], s["role_type"], s["is_ready"]) for s in states] == [
             ("ad4", "ligand", True)
         ]
-        assert Path(states[0]["files"]["prepared"]).read_text().startswith("REMARK")
+        assert states[0]["prepared_payload_id"].data.startswith(b"REMARK")
+        # Its own copy in its own series: re-preparing must not release the original.
+        assert states[0]["prepared_payload_id"].series == "prepared"
+        assert states[0]["prepared_payload_id"] is not row["stored_payload_id"]
 
 
 def test_a_receptor_pdbqt_is_stored_as_mmcif():
@@ -123,8 +126,11 @@ def test_a_receptor_pdbqt_is_stored_as_mmcif():
             molecule_kind=MoleculeType.PROTEIN,
         )
         row = list(_materialize_structure_rows(batch=batch, entries=[]))[0]
-        current = root / row["current_path"]  # rows carry project-relative paths
-        assert current.suffix == ".cif"
+        current_payload = row["current_payload_id"]
+        assert current_payload.kind == "cif" and current_payload.series == "receptors"
+        assert row["stored_payload_id"].series == "receptors"
+        current = root / "rec.cif"
+        current.write_bytes(current_payload.data)
         # PDB is what the preparation tools read, so the archive must render back to one whose
         # element column holds elements and whose chain column is a single character.
         with as_pdb(current) as rendered:

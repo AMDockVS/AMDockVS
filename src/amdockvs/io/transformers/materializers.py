@@ -24,13 +24,13 @@ from amdockvs.core.vocab import (
 )
 from amdockvs.io.import_stats import FILTERED_PREFILTER, IMPORTED, UNREADABLE, bump, write_import_stats
 from amdockvs.io.rows import active_small_molecule_criteria, cull_mol, htp_mol_filter, metadata_map_from_row
-from amdockvs.core.paths import managed_paths_for_source
+from amdockvs.core.payloads import series_for, structure_payload
 from amdockvs.io.transformers.rows import (
     _apply_sdf_activity,
     _build_row,
     _finalize_ligand_row_from_mol,
+    share_current,
     _progress_update,
-    _project_root_from_storage_dir,
     _source_properties_from_mapping,
 )
 from amdockvs.io.transformers.sdf import _materialize_sdf_rows, _mol_source_properties
@@ -99,7 +99,6 @@ def materialize_multithreaded_sdf_file(
 
     expected_records = max(1, count_import_records(batch.file_path))
     batch.storage_dir.mkdir(parents=True, exist_ok=True)
-    project_root = _project_root_from_storage_dir(batch.storage_dir)
     supplier = Chem.MultithreadedSDMolSupplier(
         str(batch.file_path),
         sanitize=True,
@@ -124,34 +123,23 @@ def materialize_multithreaded_sdf_file(
             _progress_update(progress_cb, captured, expected_records)
             continue
 
-        # HTP pre-materialization cull: filter on the in-memory mol before writing any file.
+        # HTP pre-materialization cull: filter on the in-memory mol before any payload is built.
         if htp_passes is not None and not htp_passes(cull_mol(mol, batch)):
             bump(tally, FILTERED_PREFILTER)
             captured = min(expected_records, processed)
             _progress_update(progress_cb, captured, expected_records)
             continue
 
-        paths = managed_paths_for_source(
-            storage_root=batch.storage_dir,
-            role=batch.primary_role or batch.kind,
-            source_file=batch.file_path,
-            source_index=source_index,
-            original_suffix=".sdf",
-            current_suffix=".sdf",
-        )
-        stored_path = paths["original_path"]
-        current_path = paths["current_path"]
         mol_block = Chem.MolToMolBlock(mol)
         name = mol.GetProp("_Name") if mol.HasProp("_Name") else f"{batch.file_path.stem}_{source_index}"
         row = _build_row(
-            project_root=project_root,
             source_file=batch.file_path,
             source_index=source_index,
             name=name,
             n_atoms=mol.GetNumHeavyAtoms(),
             input_format=FileFormat.SDF,
-            stored_path=stored_path,
-            current_path=current_path,
+            stored=structure_payload(mol_block, "sdf", series_for(batch.primary_role or batch.kind)),
+            current=None,
             metadata={
                 **molecule_state_metadata(mol),
                 "reader": "MultithreadedSDMolSupplier",
@@ -167,11 +155,7 @@ def materialize_multithreaded_sdf_file(
             row, reason = _finalize_ligand_row_from_mol(
                 row=row,
                 mol=mol,
-                project_root=project_root,
-                current_path=current_path,
                 prefilter=batch.prefilter,
-                stored_path=stored_path,
-                mol_block=mol_block,
                 criteria=criteria,
                 molecule_kind=batch.molecule_kind,
             )
@@ -181,8 +165,7 @@ def materialize_multithreaded_sdf_file(
                 _progress_update(progress_cb, captured, expected_records)
                 continue
         else:
-            stored_path.write_text(mol_block, encoding="utf-8")
-            current_path.write_text(mol_block, encoding="utf-8")
+            share_current(row, structure_payload(mol_block, "sdf", series_for(batch.primary_role or batch.kind)))
         bump(tally, IMPORTED)
         rows_by_index[source_index] = row
         captured = min(expected_records, processed)
@@ -263,13 +246,13 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
         current_model_index: int | None = None
         role = str(row.get("primary_role") or "").strip().lower()
         metadata_map = metadata_map_from_row(row)
-        if bool(row.get("has_3d")) and str(row.get("current_path") or "").strip():
+        if bool(row.get("has_3d")) and row.get("current_payload_id") is not None:
             current_model_index = 0
             molecule_models.append(
                 {
                     "molecule_ref": molecule_ref,
                     "model_index": 0,
-                    "file_path": str(row.get("current_path") or ""),
+                    "payload_id": row["current_payload_id"],
                     "energy": None,
                     "source": ModelSource.IMPORTED,
                     "created_at": row.get("created_at"),
@@ -285,8 +268,8 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
             "is_ligand": role == "ligand",
             "active_binding_site_id": None,
             "active_binding_site_ref": _site_ref(molecule_ref, row.get("active_binding_site_position")),
-            "stored_path": str(row.get("stored_path") or ""),
-            "current_path": str(row.get("current_path") or ""),
+            "stored_payload_id": row.get("stored_payload_id"),
+            "current_payload_id": row.get("current_payload_id"),
             "current_model_index": current_model_index,
             "n_atoms": int(row.get("n_atoms") or 0),
             "inchikey": row.get("inchikey"),
@@ -377,8 +360,8 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
                     "name": str(complex_spec.get("name") or ""),
                     "receptor_ref": str(complex_spec.get("receptor_ref") or ""),
                     "ligand_ref": molecule_ref,
-                    "reference_receptor_path": str(complex_spec.get("reference_receptor_path") or ""),
-                    "reference_ligand_path": str(complex_spec.get("reference_ligand_path") or ""),
+                    "reference_receptor_payload_id": complex_spec.get("reference_receptor_payload_id"),
+                    "reference_ligand_payload_id": complex_spec.get("reference_ligand_payload_id"),
                     # The site belongs to the receptor, not to the ligand whose row carries complex_spec.
                     "binding_site_ref": _site_ref(
                         str(complex_spec.get("receptor_ref") or ""),
@@ -397,6 +380,7 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
                     "molecule_ref": molecule_ref,
                     "role_type": str(engine_spec.get("role_type") or role),
                     "engine": str(engine_spec.get("engine") or "ad4"),
+                    "prepared_payload_id": engine_spec.get("prepared_payload_id"),
                     "files": dict(engine_spec.get("files") or {}),
                     "is_ready": bool(engine_spec.get("is_ready")),
                     "created_at": row.get("created_at"),
