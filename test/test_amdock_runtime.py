@@ -79,7 +79,8 @@ def _require_docking_stack():
 
 def _wait_completed(runtime: AMDockVSRuntime, job_ids: list[str], *, timeout_s: float = 120.0):
     status_map = runtime.wait_for_jobs(job_ids, timeout_s=timeout_s, poll_s=0.05)
-    assert all(item.status == "completed" for item in status_map.values())
+    assert all(item.status == "completed" for item in status_map.values()), {
+        item.task_type: (item.status, item.error) for item in status_map.values() if item.status != "completed"}
     return status_map
 
 

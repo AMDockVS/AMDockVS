@@ -91,11 +91,6 @@ def test_a_receptor_import_lands_in_the_receptors_and_references_series(tmp_path
     assert graph["complexes"][0]["reference_ligand_payload_id"] is spec["reference_ligand_payload_id"]
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="ms_flow's PayloadStore sink stores each Payload occurrence; it needs identity dedupe "
-    "in project_store_ops._put_payloads before one object in two columns gets one id",
-)
 def test_persisted_equal_forms_share_one_id(tmp_path):
     graph = build_import_graph_payload([_sdf_row(tmp_path, "CCO")])
     store = ProjectStore.open_at(tmp_path / "project.db")
