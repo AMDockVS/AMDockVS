@@ -18,7 +18,6 @@ from amdockvs.core.constants import (
     RESOURCE_MOLECULES,
     RESOURCE_QSAR_MODELS,
     TABLE_MOLECULES,
-    TABLE_SCREENING_SHARD_RUNS,
 )
 from amdockvs.manifest import AMDOCKVS_DEFAULT_PROJECT_DIRS, AMDOCKVS_PROJECT_RESOURCES
 from amdockvs.core.configuration import (
@@ -318,23 +317,18 @@ class AMDockVSRuntime(AppRuntime):
         }
 
     def on_project_activated(self, context):
-        # SQLModel creates new app tables but intentionally does not alter existing ones.
-        # Keep this additive migration beside the app model that owns the column.
-        added = (
-            (TABLE_SCREENING_SHARD_RUNS, "result_path", "VARCHAR DEFAULT ''"),
-            (TABLE_MOLECULES, "inchikey", "VARCHAR"),
-            (TABLE_MOLECULES, "canonical_smiles", "VARCHAR"),
-        )
+        # Projects from before payloads keep file paths in their rows; they are refused, not
+        # migrated (D9 of the volumes plan). The path column is the format mark.
         with self.workspace.project_db.get_session() as session:
-            connection = session.connection()
-            for table, column, ddl in added:
-                columns = {str(row[1]) for row in connection.exec_driver_sql(f"PRAGMA table_info({table});").fetchall()}
-                if columns and column not in columns:
-                    connection.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {column} {ddl};")
-            connection.exec_driver_sql(
-                f"CREATE INDEX IF NOT EXISTS ix_{TABLE_MOLECULES}_inchikey ON {TABLE_MOLECULES} (inchikey);"
+            columns = session.connection().exec_driver_sql(f"PRAGMA table_info({TABLE_MOLECULES});").fetchall()
+        if "stored_path" in {str(row[1]) for row in columns}:
+            name = getattr(context, "name", "") or context.path
+            self.close_project()
+            raise ValueError(
+                f"Project '{name}' was made by an older AMDockVS that kept molecules as files. "
+                "This version stores them inside the project and cannot open it: import its "
+                "molecules into a new project."
             )
-            session.commit()
         # Built once per project: a feed asks the runtime where the ligands are, it does not ask
         # the mode — there is no mode to ask.
         self._ligand_store = DbStore(self.workspace.project_db)

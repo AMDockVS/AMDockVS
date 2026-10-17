@@ -6,6 +6,7 @@ from sqlalchemy import DateTime, Index, JSON, UniqueConstraint
 from sqlmodel import SQLModel, Field
 
 from amdockvs.core.constants import (
+    TABLE_PAYLOADS,
     TABLE_BINDING_SITES,
     TABLE_COMPLEXES,
     TABLE_LIGAND_ACTIVITIES,
@@ -38,11 +39,11 @@ class ComplexRecord(SQLModel, table=True):
 
     receptor_molecule_id: int = Field(foreign_key=f"{TABLE_MOLECULES}.id", index=True)
     ligand_molecule_id: int = Field(foreign_key=f"{TABLE_MOLECULES}.id", index=True)
-    reference_receptor_path: str = Field(default="")
+    reference_receptor_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
     # Frozen copy of the native ligand pose captured at pair creation. RMSD for redocking
-    # must measure against this snapshot, not the ligand's live current_path (which prep/3D
-    # regen can move) — otherwise validation compares against a target that changed.
-    reference_ligand_path: str = Field(default="")
+    # must measure against this snapshot, not the ligand's live current payload (which prep/3D
+    # regen can replace) — otherwise validation compares against a target that changed.
+    reference_ligand_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
 
     binding_site_id: int | None = Field(default=None, foreign_key=f"{TABLE_BINDING_SITES}.id")
     activity_id: int | None = Field(default=None, foreign_key=f"{TABLE_LIGAND_ACTIVITIES}.id")

@@ -6,6 +6,7 @@ from sqlmodel import SQLModel, Field
 
 from amdockvs.core.rows import binding_site_row, engine_state_row, interaction_rows
 from amdockvs.core.constants import (
+    TABLE_PAYLOADS,
     TABLE_BINDING_SITES,
     TABLE_CONSENSUS_SCORES,
     TABLE_DOCKING_RESULTS,
@@ -104,6 +105,9 @@ class EngineState(SQLModel, table=True):
     role_type: str = Field(index=True)  # "receptor" | "ligand"
     engine: str = Field(index=True)  # "vina" | "adgpu" | ...
 
+    # The engine's prepared input (PDBQT...) as a payload of the "prepared" series (D10);
+    # `files` keeps only what is not bytes (the source it was prepared from, failures).
+    prepared_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
     files: dict = Field(default_factory=dict, sa_type=JSON)
     is_ready: bool = Field(default=False, index=True)
 
@@ -126,7 +130,7 @@ class DockingResult(SQLModel, table=True):
     references individual rows by id.
 
     rmsd_vs_reference is populated only for redocking experiments
-    (set purpose='redocking') after comparing against crystal_pose_path.
+    (set purpose='redocking') after comparing against the complex's reference ligand.
     """
 
     __tablename__ = TABLE_DOCKING_RESULTS
@@ -153,8 +157,8 @@ class DockingResult(SQLModel, table=True):
     score: float | None       = Field(default=None)   # binding energy kcal/mol
     score_type: str           = Field(default="")     # "vina_score" | "ad4_score" | ...
 
-    # Pose file — relative to project root
-    pose_path: str            = Field(default="")
+    # Pose (SDF) as a payload of the "poses" series
+    pose_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
 
     # Redocking validation — populated by post-processing step
     rmsd_vs_reference: float | None = Field(default=None)

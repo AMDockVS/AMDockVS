@@ -1,8 +1,9 @@
 """Rows as a table takes them, built as plain dicts by the task that produces them.
 
 A row heading to a sink is written as it comes: SQLModel does not run there, so what the model
-would default (the timestamps) is set here. No SQL in this module: a worker loads it, and the
-models hand these out as their `build_row`.
+would default (the timestamps) is set here. A `*_payload_id` field takes an id or an
+`ms_flow.payloads.Payload`: the sink stores the bytes and writes the id in the same transaction.
+No SQL in this module: a worker loads it, and the models hand these out as their `build_row`.
 """
 from __future__ import annotations
 
@@ -16,13 +17,14 @@ from amdockvs.core.vocab import (
 )
 
 
-def engine_state_row(*, molecule_id: int, role_type: str, engine: str, files: dict | None = None,
-                     is_ready: bool = False) -> dict[str, Any]:
+def engine_state_row(*, molecule_id: int, role_type: str, engine: str, prepared_payload_id: Any = None,
+                     files: dict | None = None, is_ready: bool = False) -> dict[str, Any]:
     now = datetime.now()
     return {
         "molecule_id": molecule_id,
         "role_type": role_type,
         "engine": engine,
+        "prepared_payload_id": prepared_payload_id,
         "files": files or {},
         "is_ready": is_ready,
         "created_at": now,
@@ -85,15 +87,14 @@ def sanitize_molecule_extra_data(value: Any) -> dict[str, Any]:
 
 def molecule_row(
         *,
-        project_root: Path,
         source_file: Path,
         source_index: int,
         name: str,
         molecule_type: str,
         n_atoms: int,
         input_format: str,
-        stored_path: Path | None,
-        current_path: Path | None = None,
+        current_payload_id: Any = None,
+        stored_payload_id: Any = None,
         current_model_index: int | None = None,
         extra_data: dict | None = None,
         created_at: datetime | None = None,
@@ -110,9 +111,10 @@ def molecule_row(
         "source": str(source_file.resolve()),
         "source_index": max(0, source_index),
         "input_format": str(input_format or FileFormat.UNKNOWN),
-        # A sequence-only protein has no file yet: both paths stay "" until a model is predicted.
-        "stored_path": str(stored_path.relative_to(project_root)) if stored_path else "",
-        "current_path": str((current_path or stored_path).relative_to(project_root)) if stored_path else "",
+        # A sequence-only protein has no structure yet: both stay None until a model is predicted.
+        # stored only when the input differs from the current form (D11).
+        "stored_payload_id": stored_payload_id,
+        "current_payload_id": current_payload_id,
         "current_model_index": None if current_model_index is None else int(current_model_index),
         "active_binding_site_id": None,
         "n_atoms": max(0, n_atoms),
@@ -153,20 +155,20 @@ def molecule_model_row(
         *,
         molecule_id: int,
         model_index: int,
-        file_path: str,
+        payload_id: Any,
         source: str = ModelSource.IMPORTED,
         energy: float | None = None,
         metrics: dict | None = None,
-        files: dict | None = None,
+        pae_payload_id: Any = None,
 ) -> dict[str, Any]:
     return {
         "molecule_id": molecule_id,
         "model_index": model_index,
-        "file_path": file_path,
+        "payload_id": payload_id,
         "energy": energy,
         "source": source,
         "metrics": dict(metrics or {}),
-        "files": dict(files or {}),
+        "pae_payload_id": pae_payload_id,
         "created_at": datetime.now(),
     }
 
