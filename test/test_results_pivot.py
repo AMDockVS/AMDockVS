@@ -115,7 +115,8 @@ def test_view_level_activity_tracks_the_current_pivot_and_hides_when_done():
 
     assert not widget.activity.isHidden()
     assert widget.progress_label.text() == "Docking · 8 / 12 dockings"
-    assert widget.updated_label.text() == "Waiting for new results…"
+    assert widget.updated_label.text() == "…"
+    assert "waiting" in widget.updated_label.toolTip()
 
     widget.pivot_combo.setCurrentIndex(widget.pivot_combo.findData("redocking"))
     assert widget.progress_label.text() == "Redocking · 2 / 4 dockings"
@@ -139,16 +140,14 @@ def test_shard_docking_does_not_mix_chunk_and_molecule_progress():
 @pytest.mark.parametrize(
     ("age", "expected"),
     [
-        (0.2, "Updated just now"),
-        (1.2, "Updated 1s ago"),
-        (9.8, "Updated 9s ago"),
-        (10.1, "Updated 10s ago"),
-        (17.0, "Updated 15s ago"),
-        (29.9, "Updated 25s ago"),
-        (30.1, "Updated 30s ago"),
-        (49.0, "Updated 40s ago"),
-        (60.1, "Updated 1m ago"),
-        (125.0, "Updated 2m ago"),
+        (0.2, "now"),
+        (1.2, "1s"),
+        (9.8, "9s"),
+        (17.0, "17s"),
+        (59.9, "59s"),
+        (60.1, "1m"),
+        (125.0, "2m"),
+        (7300.0, "2h"),
     ],
 )
 def test_freshness_text_advances_on_non_intrusive_steps(age, expected):
@@ -180,7 +179,8 @@ def test_freshness_tracks_data_while_hidden_without_repainting():
     widget._view_visible = True
     widget._update_activity()
     assert widget._last_data_refresh["hits"] == data_time
-    assert widget.updated_label.text() == "Updated just now"
+    assert widget.updated_label.text() == "now"
+    assert widget.updated_label.toolTip().startswith("Last update: just now")
 
 
 def test_reopening_results_preserves_the_last_data_time():

@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import time
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QPainter, QPalette, QPen
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -42,22 +43,70 @@ _PIVOTS = (
 
 
 def _freshness_text_and_delay(age_seconds: float) -> tuple[str, int]:
-    """Human freshness plus milliseconds until the next visible text boundary."""
+    """Short age for the ring ("now", "12s", "3m", "2h") plus milliseconds until it changes."""
     age = max(0.0, float(age_seconds))
     whole = int(age)
     if whole < 1:
-        return "Updated just now", max(100, int((1.0 - age) * 1000))
-    if whole < 10:
-        next_boundary = whole + 1
-        return f"Updated {whole}s ago", max(100, int((next_boundary - age) * 1000))
-    if whole < 30:
-        shown = (whole // 5) * 5
-        return f"Updated {shown}s ago", max(100, int((shown + 5 - age) * 1000))
+        return "now", max(100, int((1.0 - age) * 1000))
     if whole < 60:
-        shown = (whole // 10) * 10
-        return f"Updated {shown}s ago", max(100, int((shown + 10 - age) * 1000))
-    minutes = whole // 60
-    return f"Updated {minutes}m ago", max(100, int(((minutes + 1) * 60 - age) * 1000))
+        return f"{whole}s", max(100, int((whole + 1 - age) * 1000))
+    unit, step = ("m", 60) if whole < 3600 else ("h", 3600)
+    shown = whole // step
+    return f"{shown}{unit}", max(100, int(((shown + 1) * step - age) * 1000))
+
+
+class FreshnessRing(QWidget):
+    """Time since the last result update, inside a ring that fills over the first minute.
+
+    Fixed size, so the activity row does not jump as the age grows from 1 to 3 digits.
+    """
+
+    def __init__(self, parent=None, *, size: int = 30):
+        super().__init__(parent)
+        self.setObjectName("resultsFreshness")
+        self.setFixedSize(size, size)
+        self._text = ""
+        self._fraction = 0.0
+        self.set_age(None)
+
+    def text(self) -> str:
+        return self._text
+
+    def set_age(self, age_seconds: float | None) -> int:
+        """Show `age_seconds` (None = no update yet); returns ms until the next change."""
+        if age_seconds is None:
+            text, delay_ms, fraction = "…", 1000, 0.0
+            tip = "Last update: waiting for the first results"
+        else:
+            text, delay_ms = _freshness_text_and_delay(age_seconds)
+            fraction = min(max(0.0, age_seconds) / 60.0, 1.0)
+            at = time.strftime("%H:%M:%S", time.localtime(time.time() - age_seconds))
+            tip = f"Last update: {text} ago ({at})" if text != "now" else f"Last update: just now ({at})"
+        if (text, fraction) != (self._text, self._fraction):
+            self._text, self._fraction = text, fraction
+            self.update()
+        self.setToolTip(tip)
+        return delay_ms
+
+    def paintEvent(self, _event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        rect = self.rect().adjusted(2, 2, -2, -2)
+        track = self.palette().color(QPalette.ColorRole.Mid)
+        pen = QPen(track)
+        pen.setWidth(2)
+        painter.setPen(pen)
+        painter.drawEllipse(rect)
+        pen.setColor(self.palette().color(QPalette.ColorRole.Highlight))
+        pen.setCapStyle(Qt.RoundCap)
+        painter.setPen(pen)
+        # Clockwise from 12 o'clock.
+        painter.drawArc(rect, 90 * 16, -int(self._fraction * 360 * 16))
+        font = painter.font()
+        font.setPointSizeF(max(6.0, font.pointSizeF() * 0.75))
+        painter.setFont(font)
+        painter.setPen(self.palette().color(QPalette.ColorRole.WindowText))
+        painter.drawText(rect, Qt.AlignCenter, self._text)
 
 
 class ResultsPivotWidget(QWidget):
@@ -98,8 +147,7 @@ class ResultsPivotWidget(QWidget):
         activity_layout.setSpacing(12)
         self.progress_label = QLabel("", self.activity)
         self.progress_label.setObjectName("resultsProgress")
-        self.updated_label = QLabel("", self.activity)
-        self.updated_label.setObjectName("resultsFreshness")
+        self.updated_label = FreshnessRing(self.activity)
         activity_layout.addWidget(self.progress_label)
         activity_layout.addWidget(self.updated_label)
         controls.addWidget(self.activity)
@@ -363,13 +411,8 @@ class ResultsPivotWidget(QWidget):
             self._freshness_timer.stop()
             return
         last_refresh = float(self._last_data_refresh.get(self._current_key, 0.0))
-        if last_refresh <= 0:
-            text, delay_ms = "Waiting for new results…", 1000
-        else:
-            text, delay_ms = _freshness_text_and_delay(time.monotonic() - last_refresh)
-        if self.updated_label.text() != text:
-            self.updated_label.setText(text)
-        self._freshness_timer.start(delay_ms)
+        age = time.monotonic() - last_refresh if last_refresh > 0 else None
+        self._freshness_timer.start(self.updated_label.set_age(age))
 
     def _on_page_refreshed(self, key: str, changed: bool = True) -> None:
         if not changed:
