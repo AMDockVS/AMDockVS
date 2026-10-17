@@ -18,6 +18,7 @@ from sqlalchemy import delete
 from sqlalchemy.exc import OperationalError as _SAOperationalError
 from sqlmodel import or_, select
 
+from amdockvs.core.payloads import PAYLOAD_CACHE
 from amdockvs.models import (
     BindingSite,
     ClusteringResult,
@@ -73,16 +74,13 @@ def _safe_update(project_db, model, condition, values: dict) -> int:
 
 def delete_results_where(project_db, condition) -> int:
     """Delete the docking results that meet `condition` and, before them, what was computed from
-    them: their interactions and their files. The one way a result row leaves the project. Returns
-    how many results."""
+    them: their interactions, their pose payloads and the diagrams cached beside them. The one way a
+    result row leaves the project. Returns how many results."""
     record = DockingResultRecord
     doomed = select(record.id).where(condition)
-    poses: set[str] = set()
-    held: set[str] = set()  # the poses a molecule has as its structure: a promoted hit's only 3D
+    poses: set[int] = set()
     with suppress(*OperationalError), project_db.get_session() as session:
-        poses = set(session.exec(select(record.pose_path).where(condition).distinct()).all())
-        structures = select(MoleculeRecord.stored_path).union(select(MoleculeRecord.current_path))
-        held = set(session.exec(select(record.pose_path).where(condition, record.pose_path.in_(structures))).all())
+        poses = set(filter(None, session.exec(select(record.pose_payload_id).where(condition)).all()))
     deleted = 0
     for model, which in ((InteractionsResult, InteractionsResult.docking_result_id.in_(doomed)),
                          (DockingResultRecord, condition)):
@@ -90,35 +88,28 @@ def delete_results_where(project_db, condition) -> int:
             with project_db.get_session() as session:
                 deleted = session.exec(delete(model).where(which)).rowcount
                 session.commit()
-    database = getattr(project_db, "db_path", None)  # none in memory: no project folder, no files
-    if poses and database is not None:
-        with suppress(*OperationalError), project_db.get_session() as session:
-            held |= set(session.exec(select(record.pose_path).distinct()).all())  # what other results still show
-        _remove_result_files(Path(database).parent, poses, held)
+    if poses and getattr(project_db, "db_path", None) is not None:  # none in memory: no payloads, no cache
+        _release_poses(project_db, poses)
     return int(deleted or 0)
 
 
-def _remove_result_files(project_root: Path, poses: set[str], held: set[str]) -> None:
-    """Remove the diagrams drawn from `poses` and, for those not in `held`, the pose and the engine's
-    own output next to it. Nothing outside the project is touched.
+def _release_poses(project_db, poses: set[int]) -> None:
+    """Release the pose payloads nothing references any more (a promoted hit keeps its pose as its
+    structure), and the files cached under their ids: the pose and its diagrams (see diagram_path_for)."""
+    from ms_flow.core.database import resolve_project_store
 
-    ponytail: a pose that keeps some of its rows loses every diagram, also those of the rows that
-    stay; they are drawn again on demand."""
-    root = project_root.resolve()
-    folders: dict[Path, dict[str, bool]] = {}  # folder -> pose file name -> the pose goes too
-    for pose in filter(None, poses):
-        path = (root / pose).resolve()  # a relative path is the project's; an absolute one stays as it is
-        if path.is_relative_to(root):
-            folders.setdefault(path.parent, {})[path.name] = pose not in held
-    for folder, names in folders.items():
-        with suppress(OSError):
-            for entry in list(os.scandir(folder)):  # one listing per folder, however many poses
-                name = entry.name
-                diagram = ".diagram." in name and name.rsplit(".rank", 1)[0] in names  # see diagram_path_for
-                twin = name.endswith(".pdbqt") and names.get(f"{name[:-6]}.sdf")  # Vina's output beside the SDF
-                if diagram or twin or names.get(name):
-                    with suppress(OSError):
-                        os.unlink(entry.path)
+    store = resolve_project_store(project_db)
+    store.payloads.release(poses)
+    cached: dict[int, list[str]] = {}  # only the poses someone opened: few, however many went
+    with suppress(OSError):
+        for entry in os.scandir(Path(store.db_path).parent / PAYLOAD_CACHE):
+            head = entry.name.split(".", 1)[0]
+            if head.isdigit() and int(head) in poses:
+                cached.setdefault(int(head), []).append(entry.path)
+    for pid in cached.keys() - store.payloads.kinds(cached).keys():
+        for path in cached[pid]:
+            with suppress(OSError):
+                os.unlink(path)
 
 
 def delete_binding_sites(project_db, binding_site_ids: Iterable[int]) -> int:
