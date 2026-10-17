@@ -14,7 +14,7 @@ Setup:
 - Docking: Vina (the API default), exhaustiveness 8, seed 1, the app's default executors.
 - Runs alternated files/volumes, 3 each. A fresh project per run, under a temporary HOME, deleted afterwards.
 - Machine: AMD Ryzen 7 3700X (8 cores / 16 threads), NVMe, no other load.
-- Raw runs: `docking_steps_2026-10-17.jsonl`.
+- Raw runs: `docking_steps_2026-10-17.jsonl`. Charts and the method: `docking_steps_2026-10-17.html`.
 
 | step | files (s) | volumes (s) |
 |---|---|---|

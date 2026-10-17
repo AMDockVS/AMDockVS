@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Docking step by step: files vs volumes (2026-10-17)</title>
+<style>
+.viz-root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface-1: #fcfcfb;
+  --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
+  --series-1: #2a78d6; --series-2: #eb6834; --good: #006300;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) .viz-root {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface-1: #1a1a19;
+    --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+    --series-1: #3987e5; --series-2: #d95926; --good: #0ca30c;
+  }
+}
+:root[data-theme="dark"] .viz-root {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface-1: #1a1a19;
+  --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+  --series-1: #3987e5; --series-2: #d95926; --good: #0ca30c;
+}
+body { margin: 0; }
+.viz-root { background: var(--page); color: var(--text-primary);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 24px; min-height: 100vh; }
+main { max-width: 980px; margin: 0 auto; }
+h1 { font-size: 22px; margin: 0 0 4px; }
+h2 { font-size: 16px; margin: 0 0 2px; }
+.sub { color: var(--text-secondary); margin: 0 0 12px; }
+.card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+  padding: 16px 18px; margin: 16px 0; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.tile .k { color: var(--text-secondary); font-size: 12px; }
+.tile .v { font-size: 22px; white-space: nowrap; font-weight: 600; }
+.tile .d { color: var(--text-muted); font-size: 12px; }
+.legend { display: flex; gap: 16px; color: var(--text-secondary); font-size: 12px; margin: 4px 0 8px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+svg text { fill: var(--text-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
+svg .muted { fill: var(--text-muted); }
+svg .grid { stroke: var(--grid); stroke-width: 1; }
+svg .axis { stroke: var(--axis); stroke-width: 1; }
+svg .hit { fill: transparent; cursor: default; }
+svg .hl { fill: var(--text-primary); opacity: 0; }
+svg g:hover > .hl { opacity: 0.05; }
+.small { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; font-size: 13px; }
+th, td { text-align: right; padding: 4px 8px; border-bottom: 1px solid var(--grid); }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--text-secondary); font-weight: 600; }
+code, pre { font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+pre { background: var(--page); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+  overflow-x: auto; white-space: pre; }
+ol, ul { padding-left: 20px; margin: 6px 0; }
+li { margin: 3px 0; }
+details summary { cursor: pointer; color: var(--text-secondary); }
+#tip { position: fixed; pointer-events: none; background: var(--surface-1); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; font-size: 12px;
+  box-shadow: 0 4px 14px rgba(0,0,0,.15); display: none; z-index: 10; white-space: nowrap; }
+#tip b { font-weight: 600; }
+#tip .sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
+</style>
+</head>
+<body>
+<div class="viz-root">
+<main>
+<h1>Docking step by step: files vs volumes</h1>
+<p class="sub">2026-10-17 · one small docking project, timed step by step against the two storage generations · 3 runs each</p>
+
+<div class="tiles" id="tiles"></div>
+
+<div class="card">
+  <h2>Total time per run</h2>
+  <p class="sub">Each dot is one full run (all steps). The two methods overlap: the spread between runs of the same method is bigger than the gap between methods.</p>
+  <div class="legend"><span><i style="background:var(--series-1)"></i>files</span><span><i style="background:var(--series-2)"></i>volumes</span></div>
+  <svg id="runs" width="100%" height="150" role="img" aria-label="Total seconds per run, files vs volumes"></svg>
+</div>
+
+<div class="card">
+  <h2>Where the time goes (median run)</h2>
+  <p class="sub">Docking (Vina's search) is ~95% of the wall time. Storage can only change the thin slice on the right.</p>
+  <div class="legend" id="share-legend"></div>
+  <svg id="share" width="100%" height="120" role="img" aria-label="Share of wall time per step"></svg>
+</div>
+
+<div class="card">
+  <h2>Every step except docking</h2>
+  <p class="sub">Bar = median of 3 runs; the line across it = slowest to fastest run. Docking is left out so these seconds are visible (it is 149 s files / 148 s volumes).</p>
+  <div class="legend"><span><i style="background:var(--series-1)"></i>files</span><span><i style="background:var(--series-2)"></i>volumes</span></div>
+  <svg id="steps" width="100%" height="10" role="img" aria-label="Median seconds per step, docking excluded"></svg>
+</div>
+
+<div class="card">
+  <h2>Reading results and what is left on disk</h2>
+  <p class="sub">Each panel has its own scale. Same results (210 poses) in both; these are what changed.</p>
+  <div class="legend"><span><i style="background:var(--series-1)"></i>files</span><span><i style="background:var(--series-2)"></i>volumes</span></div>
+  <div class="small" id="small"></div>
+</div>
+
+<div class="card">
+  <h2>How the comparison was done</h2>
+  <ol>
+    <li><b>Two code generations side by side.</b> <i>files</i> = AMDockVS <code>a9a29c6</code> (main) + ms_flow <code>b371dbe</code> (main, 0.2.0): poses and receptors are files on disk.
+      <i>volumes</i> = AMDockVS <code>66c9e83</code> (<code>feat/volumes-integration</code>) + ms_flow <code>9719c98</code> (<code>feat/payload-volumes-v7</code>): poses and receptors are payloads inside the project's volumes.
+      The old pair was checked out as detached git worktrees in <code>/tmp/bench_old/</code>; the same conda env (MSDD_312) ran both.</li>
+    <li><b>One script, public API only.</b> <code>test/benchmarks/bench_docking_steps.py</code> drives <code>AMDockVSRuntime</code> exactly as a user script would, so the <em>same file</em> runs against either checkout: which one is tested is decided only by which <code>src</code> comes first on <code>PYTHONPATH</code>.</li>
+    <li><b>A fresh project per run.</b> Each run makes a temporary HOME (so nothing registers in the real <code>~/.molsuite</code>), creates the project, runs the steps below, writes one JSON line, and deletes everything.</li>
+    <li><b>Each step timed around its job</b> with <code>time.monotonic()</code>, waiting for the job to finish (<code>wait_for_jobs</code>), with the app's default executors:
+      <ul>
+        <li><code>create_project</code>, <code>import_receptors</code> (1iep + 4O71), <code>import_ligands</code> (first 10 Enamine H100K records),</li>
+        <li><code>generate_3d</code> (the records are 2D, so this is real work), <code>prepare_receptors</code>, <code>prepare_ligands</code>,</li>
+        <li><code>set_grid</code> (box 22 Å; 1iep at 15.190, 53.903, 16.917; 4O71 at the CPB ligand centroid 24.659, 98.749, 31.691),</li>
+        <li><code>docking</code>: Vina, exhaustiveness 8, seed 1, 2 × 10 = 20 pairs,</li>
+        <li><code>read_poses</code>: read every hit's pose plus each receptor once, i.e. what the viewer needs; it also counts the bytes read.</li>
+      </ul></li>
+    <li><b>Alternated runs</b>: files, volumes, files, volumes, files, volumes — so drift in the machine (temperature, cache) hits both equally. AMD Ryzen 7 3700X (8 cores / 16 threads), NVMe, nothing else running.</li>
+    <li><b>Same answer check</b>: both produce 210 poses and the same three best scores (−10.77, −10.77, −10.74), so the timing compares equal work.</li>
+    <li><b>Medians</b> of the 3 runs per method (<code>--summarize</code>); the raw JSON lines are in <code>docking_steps_2026-10-17.jsonl</code>.</li>
+  </ol>
+  <details>
+    <summary>Commands</summary>
+<pre># old pair (files)
+git -C AMDockVS worktree add --detach /tmp/bench_old/amdock main
+git -C ms_flow  worktree add --detach /tmp/bench_old/ms_flow main
+
+C=~/PycharmProjects
+REC="--receptor data/docking/1iep_receptorH.pdb@15.190,53.903,16.917 --receptor /tmp/bench_old/4O71.pdb@24.659,98.749,31.691"
+OLD=/tmp/bench_old/amdock/src:/tmp/bench_old/ms_flow/src:$C/ms_components/src:$C/ms_contactmap/src:$C/ms_env/src
+NEW=src:$C/ms_flow/src:$C/ms_components/src:$C/ms_contactmap/src:$C/ms_env/src   # ms_flow on feat/payload-volumes-v7
+
+for i in 1 2 3; do
+  PYTHONPATH=$OLD python test/benchmarks/bench_docking_steps.py --label files   --out results.jsonl $REC
+  PYTHONPATH=$NEW python test/benchmarks/bench_docking_steps.py --label volumes --out results.jsonl $REC
+done
+python test/benchmarks/bench_docking_steps.py --summarize results.jsonl</pre>
+  </details>
+</div>
+
+<div class="card">
+  <h2>Reading it</h2>
+  <ul>
+    <li><b>Docking is unaffected.</b> 149.3 s vs 148.3 s median, runs spread 146.8–150.9 s (files) and 145.6–154.3 s (volumes): the difference is noise.</li>
+    <li><b>import_receptors</b> is the only step that got slower: +0.2 s in 2 of the 3 volume runs, most likely writing the receptors into the volumes.</li>
+    <li><b>read_poses</b> is 2× faster and reads 6× fewer bytes. With files, each pose was a whole multi-mode SDF read once per mode; each volume payload holds only its own mode.</li>
+    <li><b>On disk</b>: 100 fewer files and 2.3 MB less at this size. The file gap grows with the number of pairs (<code>bench_project_files.py</code>: 10 files for 100k results).</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h2>Table view</h2>
+  <div id="tables"></div>
+</div>
+</main>
+</div>
+<div id="tip"></div>
+
+<script>
+const RUNS = [{"label": "files", "code": "/tmp/bench_old/amdock/src", "receptors": 2, "ligands": 10, "steps": {"create_project": 0.06, "import_receptors": 1.02, "import_ligands": 0.61, "generate_3d": 0.63, "prepare_receptors": 3.89, "prepare_ligands": 1.21, "set_grid": 0.02, "docking": 150.91, "read_poses": 0.1}, "hits": 210, "read_bytes": 7930973, "engine": ["vina"], "best_scores": [-10.77, -10.77, -10.74], "files": 118, "size_mb": 7.1, "total_s": 158.45},
+{"label": "volumes", "code": "/home/mario/PycharmProjects/AMDockVS/.claude/worktrees/integration/src", "receptors": 2, "ligands": 10, "steps": {"create_project": 0.07, "import_receptors": 1.01, "import_ligands": 0.61, "generate_3d": 0.63, "prepare_receptors": 4.1, "prepare_ligands": 1.21, "set_grid": 0.01, "docking": 154.25, "read_poses": 0.04}, "hits": 210, "read_bytes": 1242984, "engine": ["vina"], "best_scores": [-10.77, -10.77, -10.74], "files": 18, "size_mb": 4.8, "total_s": 161.93},
+{"label": "files", "code": "/tmp/bench_old/amdock/src", "receptors": 2, "ligands": 10, "steps": {"create_project": 0.08, "import_receptors": 1.03, "import_ligands": 0.61, "generate_3d": 0.64, "prepare_receptors": 3.9, "prepare_ligands": 1.21, "set_grid": 0.03, "docking": 149.26, "read_poses": 0.1}, "hits": 210, "read_bytes": 7930973, "engine": ["vina"], "best_scores": [-10.77, -10.77, -10.74], "files": 118, "size_mb": 7.1, "total_s": 156.86},
+{"label": "volumes", "code": "/home/mario/PycharmProjects/AMDockVS/.claude/worktrees/integration/src", "receptors": 2, "ligands": 10, "steps": {"create_project": 0.07, "import_receptors": 1.21, "import_ligands": 0.61, "generate_3d": 0.64, "prepare_receptors": 3.9, "prepare_ligands": 1.21, "set_grid": 0.03, "docking": 145.61, "read_poses": 0.05}, "hits": 210, "read_bytes": 1242984, "engine": ["vina"], "best_scores": [-10.77, -10.77, -10.74], "files": 18, "size_mb": 4.8, "total_s": 153.33},
+{"label": "files", "code": "/tmp/bench_old/amdock/src", "receptors": 2, "ligands": 10, "steps": {"create_project": 0.06, "import_receptors": 1.01, "import_ligands": 0.61, "generate_3d": 0.63, "prepare_receptors": 3.9, "prepare_ligands": 1.21, "set_grid": 0.03, "docking": 146.76, "read_poses": 0.1}, "hits": 210, "read_bytes": 7930973, "engine": ["vina"], "best_scores": [-10.77, -10.77, -10.74], "files": 118, "size_mb": 7.1, "total_s": 154.31},
+{"label": "volumes", "code": "/home/mario/PycharmProjects/AMDockVS/.claude/worktrees/integration/src", "receptors": 2, "ligands": 10, "steps": {"create_project": 0.07, "import_receptors": 1.21, "import_ligands": 0.61, "generate_3d": 0.64, "prepare_receptors": 3.7, "prepare_ligands": 1.21, "set_grid": 0.03, "docking": 148.25, "read_poses": 0.05}, "hits": 210, "read_bytes": 1242984, "engine": ["vina"], "best_scores": [-10.77, -10.77, -10.74], "files": 18, "size_mb": 4.8, "total_s": 155.77}];
+const METHODS = ["files", "volumes"];
+const COLOR = { files: "var(--series-1)", volumes: "var(--series-2)" };
+const STEPS = ["create_project","import_receptors","import_ligands","generate_3d","prepare_receptors","prepare_ligands","set_grid","docking","read_poses"];
+const NS = "http://www.w3.org/2000/svg";
+const by = m => RUNS.filter(r => r.label === m);
+const median = a => { const s = [...a].sort((x, y) => x - y), n = s.length; return n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2; };
+const med = (m, f) => median(by(m).map(f));
+const fmt = (v, d = 2) => v.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+
+function el(parent, tag, attrs = {}, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (text !== undefined) e.textContent = text;
+  parent.appendChild(e);
+  return e;
+}
+const tip = document.getElementById("tip");
+function hover(target, html) {
+  target.addEventListener("mousemove", ev => {
+    tip.innerHTML = html; tip.style.display = "block";
+    const x = Math.min(ev.clientX + 14, window.innerWidth - tip.offsetWidth - 8);
+    tip.style.left = x + "px"; tip.style.top = (ev.clientY + 14) + "px";
+  });
+  target.addEventListener("mouseleave", () => { tip.style.display = "none"; });
+}
+const sw = m => `<span class="sw" style="background:${COLOR[m]}"></span>`;
+function niceTicks(lo, hi, n = 5) {
+  const step0 = (hi - lo) / n, mag = 10 ** Math.floor(Math.log10(step0));
+  const step = [1, 2, 2.5, 5, 10].map(s => s * mag).find(s => s >= step0);
+  const out = []; for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(+v.toFixed(6));
+  return out;
+}
+// a horizontal bar with only its data end rounded (4px), anchored square on the baseline
+function hbar(g, x0, x1, y, h, fill) {
+  const w = Math.max(0, x1 - x0), r = Math.min(4, w, h / 2);
+  el(g, "path", { fill, d: `M${x0},${y}H${x0 + w - r}Q${x0 + w},${y} ${x0 + w},${y + r}V${y + h - r}Q${x0 + w},${y + h} ${x0 + w - r},${y + h}H${x0}Z` });
+}
+
+// --- tiles
+(function tiles() {
+  const t = document.getElementById("tiles");
+  const tot = m => med(m, r => r.total_s), dock = m => med(m, r => r.steps.docking);
+  const rp = m => med(m, r => r.steps.read_poses), rb = m => med(m, r => r.read_bytes) / 1e6;
+  const f = m => by(m).at(-1).files;
+  const items = [
+    ["Total, median run", `${fmt(tot("files"), 1)} → ${fmt(tot("volumes"), 1)}`, "seconds, files → volumes; within run-to-run noise"],
+    ["Docking share of wall time", `${Math.round(100 * dock("files") / tot("files"))}%`, "Vina's search; storage does not touch it"],
+    ["read_poses", `${fmt(rp("files") / rp("volumes"), 0)}× faster`, `${fmt(rp("files"))} → ${fmt(rp("volumes"))} s`],
+    ["Bytes read by read_poses", `${fmt(rb("files") / rb("volumes"), 0)}× fewer`, `${fmt(rb("files"), 1)} → ${fmt(rb("volumes"), 1)} MB`],
+    ["Project files", `${f("files")} → ${f("volumes")}`, "same 210 poses"],
+  ];
+  for (const [k, v, d] of items) t.insertAdjacentHTML("beforeend", `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="d">${d}</div></div>`);
+})();
+
+// --- total per run: dot strip
+function drawRuns() {
+  const svg = document.getElementById("runs"); svg.innerHTML = "";
+  const W = svg.clientWidth, H = 150, L = 70, R = 20, T = 14, B = 26;
+  const vals = RUNS.map(r => r.total_s), lo = 150, hi = 165;
+  const x = v => L + (v - lo) / (hi - lo) * (W - L - R);
+  for (const v of niceTicks(lo, hi, 6)) {
+    el(svg, "line", { class: "grid", x1: x(v), x2: x(v), y1: T, y2: H - B });
+    el(svg, "text", { x: x(v), y: H - 8, "text-anchor": "middle", class: "muted" }, `${v} s`);
+  }
+  const rowY = m => T + (METHODS.indexOf(m) + 0.5) * (H - T - B) / METHODS.length;
+  for (const m of METHODS) {
+    const y = rowY(m);
+    el(svg, "text", { x: L - 10, y: y + 4, "text-anchor": "end" }, m);
+    const md = med(m, r => r.total_s);
+    el(svg, "line", { x1: x(md), x2: x(md), y1: y - 16, y2: y + 16, stroke: "var(--text-secondary)", "stroke-width": 2 });
+    el(svg, "text", { x: x(md), y: y - 20, "text-anchor": "middle", class: "muted" }, `median ${fmt(md, 1)}`);
+    by(m).forEach((r, i) => {
+      const order = RUNS.indexOf(r) + 1;
+      const g = el(svg, "g");
+      el(g, "circle", { cx: x(r.total_s), cy: y, r: 6, fill: COLOR[m], stroke: "var(--surface-1)", "stroke-width": 2 });
+      const hit = el(g, "circle", { cx: x(r.total_s), cy: y, r: 14, class: "hit" });
+      hover(hit, `${sw(m)}<b>${m}</b> · run ${i + 1} (overall #${order})<br>total ${fmt(r.total_s)} s<br>docking ${fmt(r.steps.docking)} s`);
+    });
+  }
+}
+
+// --- share of time: one stacked bar per method, docking vs the rest
+function drawShare() {
+  const svg = document.getElementById("share"); svg.innerHTML = "";
+  const W = svg.clientWidth, L = 70, R = 64, T = 8, bh = 26, gap = 18;
+  const parts = [
+    ["docking", r => r.steps.docking, "docking"],
+    ["preparation", r => r.steps.generate_3d + r.steps.prepare_receptors + r.steps.prepare_ligands, "generate_3d + prepare"],
+    ["import", r => r.steps.create_project + r.steps.import_receptors + r.steps.import_ligands, "create + import"],
+    ["other", r => r.steps.set_grid + r.steps.read_poses, "set_grid + read_poses"],
+  ];
+  // shades of the method's own hue: docking solid, the rest lighter steps of the same series
+  const alpha = [1, 0.65, 0.4, 0.2];
+  document.getElementById("share-legend").innerHTML = parts.map((p, i) =>
+    `<span><i style="background:var(--text-secondary);opacity:${alpha[i]}"></i>${p[2]}</span>`).join("");
+  const maxT = Math.max(...METHODS.map(m => med(m, r => r.total_s)));
+  const x = v => L + v / maxT * (W - L - R);
+  METHODS.forEach((m, mi) => {
+    const y = T + mi * (bh + gap);
+    el(svg, "text", { x: L - 10, y: y + bh / 2 + 4, "text-anchor": "end" }, m);
+    let acc = 0;
+    const total = parts.reduce((s, p) => s + med(m, p[1]), 0);
+    parts.forEach((p, i) => {
+      const v = med(m, p[1]), x0 = x(acc), x1 = x(acc + v);
+      const g = el(svg, "g");
+      const last = i === parts.length - 1;
+      if (last) hbar(g, x0, x1, y, bh, COLOR[m]); else el(g, "rect", { x: x0, y, width: Math.max(0, x1 - x0 - 2), height: bh, fill: COLOR[m] });
+      g.lastChild.setAttribute("opacity", alpha[i]);
+      const hit = el(g, "rect", { x: x0, y: y - 4, width: Math.max(8, x1 - x0), height: bh + 8, class: "hit" });
+      hover(hit, `${sw(m)}<b>${m}</b> · ${p[2]}<br>${fmt(v)} s · ${fmt(100 * v / total, 1)}% of the run`);
+      if (i === 0) el(svg, "text", { x: x0 + 8, y: y + bh / 2 + 4, style: "fill:#fff;font-weight:600" }, `docking ${fmt(100 * v / total, 1)}%`);
+      acc += v;
+    });
+    el(svg, "text", { x: x(acc) + 6, y: y + bh / 2 + 4 }, `${fmt(total, 1)} s`);
+  });
+}
+
+// --- non-docking steps: grouped horizontal bars + min-max whisker
+function drawSteps() {
+  const svg = document.getElementById("steps"); svg.innerHTML = "";
+  const steps = STEPS.filter(s => s !== "docking");
+  const W = svg.clientWidth, L = 130, R = 60, T = 6, bh = 11, inner = 2, group = 2 * bh + inner + 14, B = 24;
+  const H = T + steps.length * group + B; svg.setAttribute("height", H);
+  const hi = Math.max(...RUNS.flatMap(r => steps.map(s => r.steps[s]))) * 1.05;
+  const x = v => L + v / hi * (W - L - R);
+  for (const v of niceTicks(0, hi, 5)) {
+    el(svg, "line", { class: "grid", x1: x(v), x2: x(v), y1: T, y2: H - B });
+    el(svg, "text", { x: x(v), y: H - 6, "text-anchor": "middle", class: "muted" }, `${v} s`);
+  }
+  el(svg, "line", { class: "axis", x1: L, x2: L, y1: T, y2: H - B });
+  steps.forEach((s, si) => {
+    const gy = T + si * group;
+    el(svg, "text", { x: L - 10, y: gy + bh + 4, "text-anchor": "end" }, s);
+    METHODS.forEach((m, mi) => {
+      const vals = by(m).map(r => r.steps[s]), md = median(vals);
+      const y = gy + mi * (bh + inner);
+      const g = el(svg, "g");
+      hbar(g, x(0), x(md), y, bh, COLOR[m]);
+      const lo = Math.min(...vals), hiv = Math.max(...vals);
+      if (hiv > lo) el(g, "line", { x1: x(lo), x2: x(hiv), y1: y + bh / 2, y2: y + bh / 2, stroke: "var(--text-primary)", "stroke-width": 1.5, opacity: 0.6 });
+      el(svg, "text", { x: Math.max(x(md), x(hiv)) + 6, y: y + bh - 1, class: "muted" }, fmt(md));
+      const hit = el(g, "rect", { x: L, y: y - 1, width: W - L - R, height: bh + 2, class: "hit" });
+      hover(hit, `${sw(m)}<b>${m}</b> · ${s}<br>median ${fmt(md)} s<br>runs: ${vals.map(v => fmt(v)).join(", ")} s`);
+    });
+  });
+}
+
+// --- small multiples: each its own scale
+function drawSmall() {
+  const host = document.getElementById("small"); host.innerHTML = "";
+  const panels = [
+    ["read_poses time", r => r.steps.read_poses, v => `${fmt(v)} s`],
+    ["bytes read by read_poses", r => r.read_bytes / 1e6, v => `${fmt(v, 1)} MB`],
+    ["files in the project", r => r.files, v => `${v}`],
+    ["project size", r => r.size_mb, v => `${fmt(v, 1)} MB`],
+  ];
+  // every panel goes in the grid before any is measured: a lone first panel spans the whole row
+  const divs = panels.map(([title]) => {
+    const div = document.createElement("div");
+    div.innerHTML = `<div style="font-size:12px;color:var(--text-secondary);margin-bottom:2px">${title}</div>`;
+    host.appendChild(div);
+    return div;
+  });
+  for (const [pi, [title, f, show]] of panels.entries()) {
+    const div = divs[pi];
+    const svg = el(div, "svg", { width: "100%", height: 76 });
+    const W = div.clientWidth, L = 62, R = 64, bh = 18, gap = 8;
+    const vals = METHODS.map(m => med(m, f)), hi = Math.max(...vals);
+    const x = v => L + v / hi * (W - L - R);
+    el(svg, "line", { class: "axis", x1: L, x2: L, y1: 4, y2: 4 + 2 * bh + gap + 4 });
+    METHODS.forEach((m, i) => {
+      const y = 6 + i * (bh + gap), v = vals[i];
+      el(svg, "text", { x: L - 8, y: y + bh / 2 + 4, "text-anchor": "end" }, m);
+      const g = el(svg, "g");
+      hbar(g, x(0), x(v), y, bh, COLOR[m]);
+      el(svg, "text", { x: x(v) + 6, y: y + bh / 2 + 4, style: "fill:var(--text-primary)" }, show(v));
+      const hit = el(g, "rect", { x: L, y, width: W - L - R, height: bh, class: "hit" });
+      hover(hit, `${sw(m)}<b>${m}</b> · ${title}<br>${show(v)}${m === "volumes" ? ` (${fmt(vals[0] / v, 1)}× less)` : ""}`);
+    });
+  }
+}
+
+// --- tables
+(function tables() {
+  const rows = STEPS.map(s => `<tr><td>${s}</td>${METHODS.map(m => `<td>${fmt(med(m, r => r.steps[s]))}</td>`).join("")}</tr>`).join("")
+    + `<tr><td><b>total</b></td>${METHODS.map(m => `<td><b>${fmt(med(m, r => r.total_s))}</b></td>`).join("")}</tr>`
+    + `<tr><td>hits (poses)</td>${METHODS.map(m => `<td>${by(m).at(-1).hits}</td>`).join("")}</tr>`
+    + `<tr><td>project files</td>${METHODS.map(m => `<td>${by(m).at(-1).files}</td>`).join("")}</tr>`
+    + `<tr><td>project size (MB)</td>${METHODS.map(m => `<td>${fmt(by(m).at(-1).size_mb, 1)}</td>`).join("")}</tr>`
+    + `<tr><td>bytes read by read_poses (MB)</td>${METHODS.map(m => `<td>${fmt(med(m, r => r.read_bytes) / 1e6, 1)}</td>`).join("")}</tr>`;
+  const raw = RUNS.map((r, i) => `<tr><td>#${i + 1} ${r.label}</td>${STEPS.map(s => `<td>${fmt(r.steps[s])}</td>`).join("")}<td><b>${fmt(r.total_s)}</b></td></tr>`).join("");
+  document.getElementById("tables").innerHTML =
+    `<p class="sub">Median of 3 runs (seconds unless noted)</p><table><tr><th>step</th><th>files</th><th>volumes</th></tr>${rows}</table>
+     <p class="sub" style="margin-top:14px">Every run, in the order it ran (seconds)</p>
+     <div style="overflow-x:auto"><table><tr><th>run</th>${STEPS.map(s => `<th>${s}</th>`).join("")}<th>total</th></tr>${raw}</table></div>`;
+})();
+
+function drawAll() { drawRuns(); drawShare(); drawSteps(); drawSmall(); }
+drawAll();
+let t; window.addEventListener("resize", () => { clearTimeout(t); t = setTimeout(drawAll, 120); });
+</script>
+</body>
+</html>
