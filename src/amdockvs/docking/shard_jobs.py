@@ -443,7 +443,7 @@ def receptor_targets(project_db, parsed: DockShardsJobParams, output_dir: Path) 
         size = [float(v) for v in (parsed.box_size or grid.get("size") or ())]
         if len(center) != 3 or len(size) != 3:
             continue  # no binding site: not dockable, and a campaign is not the place to guess
-        files = with_input_files(project_db, row, inputs_dir(output_dir))
+        files = with_input_files(project_db, row, inputs_dir(project_db))
         receptor_path = files["input_path"]
         if excludes(parsed.engine_config.get("method"), receptor_path, center, size):
             continue  # its box does not fit the docking method

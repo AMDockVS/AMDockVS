@@ -5,7 +5,6 @@ _LAZY_EXPORTS = {
     "MoleculeScope": ("amdockvs.molecules.api", "MoleculeScope"),
     "AMDOCKVS_APP_ID": ("amdockvs.runtime", "AMDOCKVS_APP_ID"),
     "AMDOCKVS_APP_NAME": ("amdockvs.runtime", "AMDOCKVS_APP_NAME"),
-    "AMDOCKVS_DEFAULT_PROJECT_DIRS": ("amdockvs.runtime", "AMDOCKVS_DEFAULT_PROJECT_DIRS"),
     "AMDOCKVS_PROJECT_RESOURCES": ("amdockvs.runtime", "AMDOCKVS_PROJECT_RESOURCES"),
     "AMDOCKVS_SCOPE_ID": ("amdockvs.runtime", "AMDOCKVS_SCOPE_ID"),
     "AMDockVSRuntime": ("amdockvs.runtime", "AMDockVSRuntime"),
@@ -41,7 +40,6 @@ def __getattr__(name: str):
 __all__ = [
     "AMDOCKVS_APP_ID",
     "AMDOCKVS_APP_NAME",
-    "AMDOCKVS_DEFAULT_PROJECT_DIRS",
     "AMDOCKVS_PROJECT_RESOURCES",
     "AMDOCKVS_SCOPE_ID",
     "AMDockVSRuntime",

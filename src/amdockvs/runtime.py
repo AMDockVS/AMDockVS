@@ -13,13 +13,10 @@ from amdockvs.core.constants import (
     AMDOCKVS_APP_NAME,
     AMDOCKVS_SCOPE_ID,
     RESOURCE_DOCKING_RESULTS,
-    RESOURCE_EXPORTS,
-    RESOURCE_JOBS,
-    RESOURCE_MOLECULES,
     RESOURCE_QSAR_MODELS,
     TABLE_MOLECULES,
 )
-from amdockvs.manifest import AMDOCKVS_DEFAULT_PROJECT_DIRS, AMDOCKVS_PROJECT_RESOURCES
+from amdockvs.manifest import AMDOCKVS_PROJECT_RESOURCES
 from amdockvs.core.configuration import (
     MAX_2D_PREVIEW_HEAVY_ATOMS,
     MAX_2D_PREVIEW_HEAVY_ATOMS_PATH,
@@ -309,11 +306,8 @@ class AMDockVSRuntime(AppRuntime):
         context = self._require_active_project()
         return {
             "project_root": Path(context.path).expanduser().resolve(),
-            "molecule_data_dir": self.get_project_resource_path(RESOURCE_MOLECULES),
             "docking_results_dir": self.get_project_resource_path(RESOURCE_DOCKING_RESULTS),
             "qsar_models_dir": self.get_project_resource_path(RESOURCE_QSAR_MODELS),
-            "exports_dir": self.get_project_resource_path(RESOURCE_EXPORTS),
-            "jobs_dir": self.get_project_resource_path(RESOURCE_JOBS),
         }
 
     def on_project_activated(self, context):
@@ -683,7 +677,6 @@ class AMDockVSRuntime(AppRuntime):
 __all__ = [
     "AMDOCKVS_APP_ID",
     "AMDOCKVS_APP_NAME",
-    "AMDOCKVS_DEFAULT_PROJECT_DIRS",
     "AMDOCKVS_PROJECT_RESOURCES",
     "AMDOCKVS_SCOPE_ID",
     "AMDockVSRuntime",
