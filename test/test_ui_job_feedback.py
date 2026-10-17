@@ -123,8 +123,10 @@ def test_opening_a_project_checks_its_storage_off_the_gui_thread_and_reports_to_
         window.show()
         app.processEvents()
         seen = []
-        check = runtime.check_storage
-        monkeypatch.setattr(runtime, "check_storage", lambda: (seen.append(threading.current_thread()), check())[1])
+        healthy = runtime.check_storage()
+        assert healthy[0] == "info"  # a healthy check stays out of the log; a problem gets in
+        leftovers = ("warning", "Project storage has leftovers", "2 unused entries can be cleared by a repair.")
+        monkeypatch.setattr(runtime, "check_storage", lambda: (seen.append(threading.current_thread()), leftovers)[1])
         window.jobs.notifications.clear()
         window.jobs.on_monitor_project_changed(SimpleNamespace(project_id="another-project"))
         deadline = time.monotonic() + 10
@@ -132,7 +134,7 @@ def test_opening_a_project_checks_its_storage_off_the_gui_thread_and_reports_to_
             app.processEvents()
             time.sleep(0.01)
         assert seen and seen[0] is not threading.main_thread()
-        assert window.jobs.notifications[-1].title == "Project storage checked"
+        assert window.jobs.notifications[-1].title == "Project storage has leftovers"
         assert runtime.compact_storage_if_due() is None  # a new project has nothing dead
     finally:
         if window is not None:

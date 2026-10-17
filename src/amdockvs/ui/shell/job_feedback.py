@@ -90,9 +90,12 @@ class JobFeedbackController:
     # -- project storage -----------------------------------------------------------
 
     def _check_storage(self) -> None:
-        """A fast check of the project's volumes, reported to the log; it never blocks the window."""
-        runtime = self.w.runtime
-        run_async(runtime.check_storage, lambda note: self.post_notification(note[1], note[2], note[0]),
+        """A fast check of the project's volumes; only a problem reaches the log, and it never blocks the window."""
+        def done(note) -> None:
+            if note[0] != INFO:
+                self.post_notification(note[1], note[2], note[0])
+
+        run_async(self.w.runtime.check_storage, done,
                   on_error=lambda exc: self.post_notification("Storage check failed", str(exc), ERROR))
 
     def _compact_storage(self) -> None:
