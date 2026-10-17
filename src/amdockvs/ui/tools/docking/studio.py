@@ -205,10 +205,11 @@ class DockingStudioWidget(
 
     def on_job_finished(self, *_args) -> None:
         """A preparation job landing changes the counts under the Run step. Re-check instead of
-        leaving a stale "0 / 20 prepared" until the user clicks something. `_check_requirements`
-        self-gates on the step, so this is free while the user is anywhere else; off screen
+        leaving a stale "0 / 20 prepared" until the user clicks something — on the step's own
+        counts too, not only under Run. `_check_requirements` self-gates on the step, so this is free while the user is anywhere else; off screen
         showEvent does the catching up."""
         if self.isVisible():
+            self._dispatch_refresh(force=True)  # the prepared counts of the step on screen
             self._check_requirements()
 
     def on_jobs_snapshot(self, snapshot) -> None:

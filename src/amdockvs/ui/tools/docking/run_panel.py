@@ -370,8 +370,7 @@ class RunPanel:
             self._set_prep_family_counts(
                 data.get("ligands_prepared_by_engine") or {}, int(data["ligands_total"])
             )
-            # Green only when ALL in scope are prepared; orange (⚠) for a partial subset;
-            # red when none are prepared. Surfaces once you leave the step.
+            # Checked only when ALL in scope are prepared.
             self._mark_step(self.step_ligands, data["ligands_prepared"], data["ligands_total"])
         if "receptors_total" not in data:
             return
@@ -386,7 +385,7 @@ class RunPanel:
             focused_has_grid = bool(p.get("focused_has_grid"))
             self.flex_box.setEnabled(focused_has_grid)
             self._sync_flex_for_focus(focused_has_grid)
-            self.step_receptors.set_error(True)
+            self.step_receptors.set_done(False)
             return
         if p["kind"] == "error":
             self.flex_box.setEnabled(False)
@@ -411,12 +410,8 @@ class RunPanel:
 
     @staticmethod
     def _mark_step(step, prepared: int, total: int) -> None:
-        if total > 0 and prepared >= total:
-            step.set_done(True)
-        elif prepared > 0:
-            step.set_warning(True)
-        else:
-            step.set_error(True)
+        # Done or not: a step is never painted as failed or partial; its counts say how far it got.
+        step.set_done(total > 0 and prepared >= total)
 
     @staticmethod
     def _set_scope_summary(bar, headline: str, detail: str = "") -> None:
@@ -532,7 +527,7 @@ class RunPanel:
         if "error" in result:  # only a genuine exception blanks everything
             for counter in (self.req_ligands_count, self.req_receptors_count):
                 counter.setText("—")
-            self.step_run.set_error(True)
+            self.step_run.set_done(False)
             self.check_status_label.setText(result["error"])
             return
         lig, rec = result["ligands"], result["receptors"]
