@@ -24,7 +24,7 @@ from amdockvs.core.vocab import (
 )
 from amdockvs.io.import_stats import FILTERED_PREFILTER, IMPORTED, UNREADABLE, bump, write_import_stats
 from amdockvs.io.rows import active_small_molecule_criteria, cull_mol, htp_mol_filter, metadata_map_from_row
-from amdockvs.core.payloads import structure_payload
+from amdockvs.core.payloads import series_for, structure_payload
 from amdockvs.io.transformers.rows import (
     _apply_sdf_activity,
     _build_row,
@@ -138,7 +138,7 @@ def materialize_multithreaded_sdf_file(
             name=name,
             n_atoms=mol.GetNumHeavyAtoms(),
             input_format=FileFormat.SDF,
-            stored=structure_payload(mol_block, "sdf"),
+            stored=structure_payload(mol_block, "sdf", series_for(batch.primary_role or batch.kind)),
             current=None,
             metadata={
                 **molecule_state_metadata(mol),
@@ -165,7 +165,7 @@ def materialize_multithreaded_sdf_file(
                 _progress_update(progress_cb, captured, expected_records)
                 continue
         else:
-            share_current(row, structure_payload(mol_block, "sdf"))
+            share_current(row, structure_payload(mol_block, "sdf", series_for(batch.primary_role or batch.kind)))
         bump(tally, IMPORTED)
         rows_by_index[source_index] = row
         captured = min(expected_records, processed)

@@ -106,8 +106,9 @@ def test_a_pdbqt_becomes_an_sdf_and_a_prepared_ad4_molecule():
             ("ad4", "ligand", True)
         ]
         assert states[0]["prepared_payload_id"].data.startswith(b"REMARK")
-        # The original is also the prepared input: one object, so one stored blob.
-        assert states[0]["prepared_payload_id"] is row["stored_payload_id"]
+        # Its own copy in its own series: re-preparing must not release the original.
+        assert states[0]["prepared_payload_id"].series == "prepared"
+        assert states[0]["prepared_payload_id"] is not row["stored_payload_id"]
 
 
 def test_a_receptor_pdbqt_is_stored_as_mmcif():
@@ -126,7 +127,8 @@ def test_a_receptor_pdbqt_is_stored_as_mmcif():
         )
         row = list(_materialize_structure_rows(batch=batch, entries=[]))[0]
         current_payload = row["current_payload_id"]
-        assert current_payload.kind == "cif"
+        assert current_payload.kind == "cif" and current_payload.series == "receptors"
+        assert row["stored_payload_id"].series == "receptors"
         current = root / "rec.cif"
         current.write_bytes(current_payload.data)
         # PDB is what the preparation tools read, so the archive must render back to one whose

@@ -17,7 +17,8 @@ from amdockvs.io.receptor_preview import (
 from amdockvs.core.vocab import BindingSiteSource, MoleculeType, MoleculeUsageClass
 from amdockvs.io.import_stats import IMPORTED, bump
 from amdockvs.io.formats import as_pdb, canonical_suffix, normalized_suffix
-from amdockvs.core.payloads import structure_payload
+from amdockvs.core.constants import SERIES_PREPARED, SERIES_REFERENCES
+from amdockvs.core.payloads import series_for, structure_payload
 from amdockvs.core.paths import molecule_storage_key
 from amdockvs.io.transformers.rows import (
     _build_row,
@@ -82,7 +83,10 @@ def _structure_rows(
             batch.primary_role or batch.kind, source_file, source_index, _receptor_import_variant(options)
         )
         current_path = scratch / f"{index}_current{current_suffix}"
-        original = structure_payload(source_file.read_bytes(), normalized_suffix(source_file) or "dat")
+        series = series_for(batch.primary_role or batch.kind)
+        source_bytes = source_file.read_bytes()
+        source_kind = normalized_suffix(source_file) or "dat"
+        original = structure_payload(source_bytes, source_kind, series)
         processing_summary: dict[str, Any] = {}
         ligand_mol = None
         # A PDBQT is an engine artifact, not a structure format: hand the scanners a PDB.
@@ -126,7 +130,7 @@ def _structure_rows(
             primary_context=batch.primary_context,
         )
         if ligand_mol is None:
-            share_current(row, structure_payload(current_path.read_bytes(), current_suffix))
+            share_current(row, structure_payload(current_path.read_bytes(), current_suffix, series))
         if ligand_mol is not None:
             row, reason = _finalize_ligand_row_from_mol(
                 row=row,
@@ -144,7 +148,8 @@ def _structure_rows(
                 {
                     "role_type": str(batch.primary_role or batch.kind).strip().lower(),
                     "engine": "ad4",
-                    "prepared_payload_id": original,
+                    # Its own copy: re-preparing releases it without touching the original.
+                    "prepared_payload_id": structure_payload(source_bytes, source_kind, SERIES_PREPARED),
                     "is_ready": True,
                 }
             ]
@@ -181,7 +186,9 @@ def _structure_rows(
             )
             # One frozen receptor snapshot for every complex of this receptor.
             reference_receptor = (
-                structure_payload(current_path.read_bytes(), current_suffix) if ligand_specs_list else None
+                structure_payload(current_path.read_bytes(), current_suffix, SERIES_REFERENCES)
+                if ligand_specs_list
+                else None
             )
             for ligand_specs in ligand_specs_list:
                 # Freeze the native ligand pose alongside the receptor snapshot so redocking
@@ -224,7 +231,7 @@ def _structure_rows(
                     "name": f"{source_file.stem}_{ligand_specs['selector']}",
                     "receptor_ref": f"molecule::{source_file}::{source_index}",
                     "reference_receptor_payload_id": reference_receptor,
-                    "reference_ligand_payload_id": structure_payload(ligand_bytes, "pdb"),
+                    "reference_ligand_payload_id": structure_payload(ligand_bytes, "pdb", SERIES_REFERENCES),
                     "binding_site_position": row.get("active_binding_site_position"),
                     "purpose": "reference",
                     "metadata": {

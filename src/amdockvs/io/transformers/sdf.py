@@ -9,7 +9,7 @@ from amdockvs.io.payloads import ImportBatchPayload
 from amdockvs.core.vocab import FileFormat, MoleculeType
 from amdockvs.io.import_stats import FILTERED_PREFILTER, IMPORTED, UNREADABLE, bump
 from amdockvs.io.rows import active_small_molecule_criteria, cull_mol, htp_mol_filter
-from amdockvs.core.payloads import structure_payload
+from amdockvs.core.payloads import series_for, structure_payload
 from amdockvs.core.paths import molecule_storage_key
 from amdockvs.io.transformers.rows import (
     _apply_sdf_activity,
@@ -66,7 +66,7 @@ def _materialize_sdf_rows(
             name=name,
             n_atoms=mol.GetNumAtoms(),
             input_format=FileFormat.SDF,
-            stored=structure_payload(mol_block, "sdf"),
+            stored=structure_payload(mol_block, "sdf", series_for(batch.primary_role or batch.kind)),
             current=None,
             metadata=molecule_state_metadata(mol),
             molecule_kind=batch.molecule_kind,
@@ -88,7 +88,7 @@ def _materialize_sdf_rows(
                 _progress_update(progress_cb, index, total_entries)
                 continue
         else:
-            share_current(row, structure_payload(mol_block, "sdf"))
+            share_current(row, structure_payload(mol_block, "sdf", series_for(batch.primary_role or batch.kind)))
         bump(tally, IMPORTED)
         yield row
         yield from _split_fragment_rows(

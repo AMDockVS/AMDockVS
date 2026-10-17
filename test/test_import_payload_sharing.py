@@ -63,6 +63,34 @@ def test_a_smiles_import_keeps_the_smiles_as_the_original(tmp_path):
     assert row["current_payload_id"].kind == "sdf"
 
 
+def test_a_receptor_import_lands_in_the_receptors_and_references_series(tmp_path):
+    """The imported PDB is a payload of series `receptors`; the frozen cocrystal pair is
+    `references`, the ligand row itself is an ordinary molecule."""
+    from pathlib import Path
+
+    from amdockvs.io.payloads import ImportBatchPayload
+    from amdockvs.io.transformers.structures import _materialize_structure_rows
+
+    het = [l for l in (Path(__file__).parent / "data" / "ccd_ligand.pdb").read_text().splitlines() if l.startswith("HETATM")]
+    ca = [f"ATOM  {i:5d}  CA  ALA A{i:4d}    {i * 3.8:8.3f}{0:8.3f}{0:8.3f}  1.00 20.00           C" for i in range(1, 6)]
+    source = tmp_path / "rec.pdb"
+    source.write_text("\n".join(ca + het + ["END", ""]), encoding="utf-8")
+    batch = ImportBatchPayload(
+        kind="receptor", file_path=source, storage_dir=tmp_path, input_format="pdb",
+        primary_role="receptor", molecule_kind="protein",
+    )
+    receptor, ligand = list(_materialize_structure_rows(batch=batch, entries=[]))
+
+    assert receptor["stored_payload_id"].series == receptor["current_payload_id"].series == "receptors"
+    assert receptor["stored_payload_id"].data == source.read_bytes()  # the input as-is
+    assert ligand["stored_payload_id"] is ligand["current_payload_id"]
+    assert ligand["stored_payload_id"].series == "molecules"
+    spec = ligand["complex_spec"]
+    assert spec["reference_receptor_payload_id"].series == spec["reference_ligand_payload_id"].series == "references"
+    graph = build_import_graph_payload([receptor, ligand])
+    assert graph["complexes"][0]["reference_ligand_payload_id"] is spec["reference_ligand_payload_id"]
+
+
 @pytest.mark.xfail(
     strict=False,
     reason="ms_flow's PayloadStore sink stores each Payload occurrence; it needs identity dedupe "
