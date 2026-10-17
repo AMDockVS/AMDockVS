@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QMessageBox,
     QPushButton,
     QSpinBox,
@@ -118,6 +119,8 @@ class RedockingWidget(QWidget):
         self.results_table.verticalHeader().setVisible(False)
         self.results_table.horizontalHeader().setStretchLastSection(True)
         self.results_table.itemSelectionChanged.connect(self._view_selected)
+        self.results_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.results_table.customContextMenuRequested.connect(self._show_context_menu)
         self.results_tabs = QTabWidget(results_box)
         self.results_tabs.addTab(self.results_table, "Table")
         self.charts_panel = RedockingChartsPanel(results_box)
@@ -338,6 +341,23 @@ class RedockingWidget(QWidget):
             return
         hit = self._rows[row_index]
         self._load_hit_in_pymol(hit, self._pose_rank(hit))
+
+
+    def _show_context_menu(self, pos) -> None:
+        """Details of the redocked complex, or its row in Complexes."""
+        item = self.results_table.itemAt(pos)
+        show = getattr(self.window(), "show_record", None)
+        if item is None or not callable(show):
+            return
+        row = self.results_table.item(item.row(), 0)
+        hit = self._rows[int(row.data(Qt.UserRole) or 0)]
+        menu = QMenu(self.results_table)
+        if hit.complex_id is not None:
+            menu.addAction("Show complex details", lambda: show("complex", hit.complex_id))
+            menu.addAction("Show in Complexes", lambda: show("complex", hit.complex_id, reveal=True))
+        menu.addAction("Show ligand details", lambda: show("ligand", hit.ligand_id))
+        menu.addAction("Show in Ligands", lambda: show("ligand", hit.ligand_id, reveal=True))
+        menu.exec(self.results_table.viewport().mapToGlobal(pos))
 
 
 def register_redocking_workspace(window) -> None:

@@ -164,7 +164,12 @@ class DockingResultsWidget(QWidget):
         receptor_layout = QVBoxLayout(receptor_box)
         receptor_layout.setContentsMargins(0, 0, 0, 0)
         receptor_layout.addWidget(QLabel("Receptor", self))
-        self.receptor_table = project_table(runtime, results_receptor_config(), receptor_box)
+        receptor_config = results_receptor_config()
+        receptor_config.context_menu_actions = {
+            "Show receptor details": lambda objs: self._show_record(objs, "receptor", "id"),
+            "Show in Receptors": lambda objs: self._show_record(objs, "receptor", "id", reveal=True),
+        }
+        self.receptor_table = project_table(runtime, receptor_config, receptor_box)
         self.receptor_table.setMinimumHeight(150)
         self.receptor_table.selection_changed.connect(self._on_receptor_selection_changed)
         self.receptor_table.data_refreshed.connect(self._on_receptors_loaded)
@@ -178,6 +183,10 @@ class DockingResultsWidget(QWidget):
         self.ligand_label = QLabel("Ligand", self)
         ligand_layout.addWidget(self.ligand_label)
         ligand_config = results_ligand_config()
+        ligand_config.context_menu_actions["Show ligand details"] = (
+            lambda objs: self._show_record(objs, "ligand", "ligand_molecule_id"))
+        ligand_config.context_menu_actions["Show in Ligands"] = (
+            lambda objs: self._show_record(objs, "ligand", "ligand_molecule_id", reveal=True))
         ligand_config.context_menu_actions["Export poses (SDF)…"] = lambda objs: export_poses(self, runtime, objs)
         ligand_config.context_menu_actions["Delete…"] = lambda objs: self._delete(objs, "result_group")
         self.ligand_table = project_table(runtime, ligand_config, ligand_box)
@@ -217,6 +226,13 @@ class DockingResultsWidget(QWidget):
         detail_scroll.setWidget(self._build_detail_panel(detail_scroll))
         self._aux_panel = detail_scroll
         self._on_receptors_loaded()
+
+    def _show_record(self, objects, kind: str, field: str, *, reveal: bool = False) -> None:
+        """A row names a receptor or ligand by id only: open its details, or its catalog row."""
+        show = getattr(self.window(), "show_record", None)
+        obj = next(iter(objects or ()), None)
+        if callable(show) and obj is not None and getattr(obj, field, None):
+            show(kind, int(getattr(obj, field)), reveal=reveal)
 
     def aux_panel(self) -> QWidget | None:
         """The window's auxiliary zone asks every tab for this; None = it has nothing to show."""

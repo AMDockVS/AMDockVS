@@ -123,3 +123,32 @@ def test_selection_is_shared_by_the_tables_bound_to_its_role():
     molecules.bind_selection(None)  # the tool leaves: its table lets go, the selection stays
     app.processEvents()
     assert "id" not in _active(molecules) and _active(ligands)["id"] == [2]
+
+
+def test_reveal_shows_one_row_without_touching_the_selection_and_show_all_gives_it_back():
+    """Docking Results → "Show in Ligands": a look at one row, not a new selection."""
+    from PySide6.QtWidgets import QWidget
+
+    app = QApplication.instance() or QApplication(["amdockvs-scope-test"])
+    window = QWidget()
+    window.selection = SelectionStore(window)
+    window.selection.set("ligand", [2, 3])
+    ligands = _widget(window)
+    ligands.selection_role = "ligand"
+    ligands.refresh()
+    app.processEvents()
+    assert _active(ligands)["id"] == [2, 3]
+
+    ligands.reveal([7], label="ligand 7")
+    app.processEvents()
+    assert _active(ligands)["id"] == [7]
+    assert window.selection.get("ligand") == [2, 3]
+    window.selection.set("ligand", [4])  # selected elsewhere meanwhile: the revealed row stays
+    assert _active(ligands)["id"] == [7]
+
+    show_all = ligands.table._keyed_actions["reveal"][0]
+    assert show_all.text() == "Show all"
+    show_all.trigger()
+    app.processEvents()
+    assert _active(ligands)["id"] == [4] and "reveal" not in ligands.table._keyed_actions
+    assert window.selection.get("ligand") == [4]

@@ -35,6 +35,7 @@ from ms_components.ms_dockwidget.widget import Behavior, DockManager, MSDockWidg
 from ms_components.ms_executors import ExecutorsPanel
 from ms_components.ms_pymol.widget import PymolDockWidget
 from amdockvs.ui.view_ids import (
+    COMPLEX_PAIRS_VIEW_ID,
     COMPLEXES_VIEW_ID,
     LIGANDS_VIEW_ID,
     OFFTARGET_VIEW_ID,
@@ -450,6 +451,19 @@ class AMDockVSMainWindow(QMainWindow):
 
     def show_catalog_selection_details(self, kind: str, obj) -> None:
         self.aux.show_catalog_selection_details(kind, obj)
+
+    def show_record(self, kind: str, record_id: int, *, reveal: bool = False) -> None:
+        """A receptor/ligand/complex named in another table: its details in a window, or
+        (reveal) its row in its own catalog tab, shown alone until "Show all"."""
+        api = self.runtime.complexes if kind == "complex" else self.runtime.molecules
+        record = api.get(int(record_id))  # one row by primary key, cheap on the GUI thread
+        if record is None:
+            return
+        if not reveal:
+            self.aux.open_details_window(kind, record)
+            return
+        view_id = {"complex": COMPLEX_PAIRS_VIEW_ID, "receptor": RECEPTOR_VIEW_ID}.get(kind, LIGANDS_VIEW_ID)
+        self.open_or_focus_view(view_id).reveal([record.id], label=getattr(record, "name", None) or f"{kind} {record.id}")
 
     def _on_current_view_changed(self, view_id: str) -> None:
         self.viewer.hide_grid_panel()

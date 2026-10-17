@@ -465,6 +465,18 @@ def test_amdock_ui_domain_views_show_docking_summaries(tmp_path, monkeypatch):
         window.viewer.load_hit(hit, 1)
         assert f"receptor_{hit.receptor_id}" in _loaded(f"receptor_{hit.receptor_id}", "amdock_result_pose")
 
+        # A results row names its ligand by id only: "Show ligand details" opens a window,
+        # "Show in Ligands" opens the catalog on that one row (not as the selection).
+        window.show_record("ligand", hit.ligand_id)
+        details = window.aux._details_window
+        assert details.isVisible() and hit.ligand_name in details.windowTitle()
+        window.show_record("receptor", hit.receptor_id, reveal=True)
+        app.processEvents()
+        receptors = window.central_widget.open_or_focus_view(RECEPTOR_VIEW_ID)
+        id_filter = next(f for f in receptors.table._builder.active_filters if f.field == "id")
+        assert id_filter.value == [hit.receptor_id]
+        assert window.selection.get("receptor") is None
+
         assert len(runtime.docking.list_results()) == 4
         assert runtime.docking.result_stats().completed_results == 4
     finally:
