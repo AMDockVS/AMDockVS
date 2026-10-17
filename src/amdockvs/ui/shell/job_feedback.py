@@ -18,6 +18,7 @@ from amdockvs.ui.shell.notifications import (
     NotificationBell,
     NotificationLog,
 )
+from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.resources.icons import icon as load_icon
 
 
@@ -86,6 +87,24 @@ class JobFeedbackController:
             self._unread_level = level
         self.notification_bell.set_unread(self._unread_notifications, level=self._unread_level)
 
+    # -- project storage -----------------------------------------------------------
+
+    def _check_storage(self) -> None:
+        """A fast check of the project's volumes, reported to the log; it never blocks the window."""
+        runtime = self.w.runtime
+        run_async(runtime.check_storage, lambda note: self.post_notification(note[1], note[2], note[0]),
+                  on_error=lambda exc: self.post_notification("Storage check failed", str(exc), ERROR))
+
+    def _compact_storage(self) -> None:
+        """When the last job ends, compact the volumes that are mostly dead bytes."""
+        def done(stats) -> None:
+            if stats and stats["moved"]:
+                self.post_notification("Project storage compacted", f"{stats['moved']} structures moved, "
+                                       f"{stats['read_mb'] - stats['written_mb']:.0f} MB freed.")
+
+        run_async(self.w.runtime.compact_storage_if_due, done,
+                  on_error=lambda exc: self.post_notification("Storage compaction failed", str(exc), WARNING))
+
     def open_notifications(self) -> None:
         self.notification_log.popup_at(self.notification_bell)
         self._unread_notifications = 0
@@ -109,6 +128,7 @@ class JobFeedbackController:
         if not self.jobs_active and was_active:
             self.view_refresh_timer.stop()
             self._refresh_counts_only()  # final total once the run is over
+            self._compact_storage()
         # Global progress = mean progress over the non-terminal (active) jobs.
         active_jobs = [job for job in getattr(snapshot, "jobs", []) if not job.is_terminal]
         progress = (
@@ -188,6 +208,7 @@ class JobFeedbackController:
         if not project_id or project_id == self._monitor_project_id:
             return
         self._monitor_project_id = project_id
+        self._check_storage()
         self._shown_failure_jobs.clear()
         self._pending_failure_jobs.clear()
         self.failure_summary_timer.stop()
