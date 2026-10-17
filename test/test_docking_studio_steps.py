@@ -52,3 +52,20 @@ def test_redocking_picked_ligands_bring_exactly_their_receptors():
     assert panel._selected_receptor_ids == [0]  # no pair: no receptor, not every receptor
     panel._run_kind = lambda: "docking"
     assert panel._selected_receptor_ids == [22]
+
+
+def test_redocking_results_tick_live_single_flight_and_keep_an_unchanged_table(monkeypatch):
+    from amdockvs.ui.tools.docking import redocking
+
+    calls = []
+    monkeypatch.setattr(redocking, "run_async", lambda fn, done, on_error=None: calls.append(done))
+    emitted = []
+    page = SimpleNamespace(_results_loading=False, _data_signature=(), _fetch_results=None,
+                           data_refreshed=SimpleNamespace(emit=emitted.append))
+    page._refresh_results = lambda: redocking.RedockingWidget._refresh_results(page)
+    page._apply_results = lambda rows: redocking.RedockingWidget._apply_results(page, rows)
+    assert redocking.RedockingWidget.refresh_counts(page) is True  # the live cadence reads results
+    redocking.RedockingWidget.refresh_counts(page)
+    assert len(calls) == 1  # a tick on a pending read does not queue another
+    calls[0]([])  # nothing new: no table rebuild (the stub has no table to rebuild)
+    assert emitted == [False] and page._results_loading is False

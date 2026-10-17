@@ -52,6 +52,7 @@ class RedockingWidget(QWidget):
         self._load_hit_in_pymol = load_hit_in_pymol
         self._rows: list[DockingHitSummary] = []
         self._data_signature = None
+        self._results_loading = False
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 5, 0, 5)
 
@@ -215,6 +216,9 @@ class RedockingWidget(QWidget):
         return "-" if value is None else f"{float(value):.{decimals}f}"
 
     def _refresh_results(self) -> None:
+        if self._results_loading:
+            return  # single-flight: a live tick landing on a slow read does not queue another
+        self._results_loading = True
         run_async(
             self._fetch_results,
             self._apply_results,
@@ -250,8 +254,10 @@ class RedockingWidget(QWidget):
         return {key: index for index, key in enumerate(keys, start=1)}
 
     def _apply_results(self, rows) -> None:
+        self._results_loading = False
         if isinstance(rows, dict) and rows.get("error"):
             self._rows = []
+            self._data_signature = None  # the table is empty now: the next read repaints it
             self.results_table.setRowCount(0)
             self.results_status.setText(str(rows["error"]))
             self.data_refreshed.emit(False)
@@ -270,6 +276,10 @@ class RedockingWidget(QWidget):
             for hit in rows
         ))
         changed = signature != self._data_signature
+        if not changed:
+            # A live tick with nothing new: keep the table (and the user's row) as it is.
+            self.data_refreshed.emit(False)
+            return
         self._data_signature = signature
         self._protocol_ids = self._assign_protocol_ids(rows)
         self._rows = sorted(
@@ -308,6 +318,12 @@ class RedockingWidget(QWidget):
         self.data_refreshed.emit(changed)
 
     refresh_results_view = _refresh_results
+
+    def refresh_counts(self) -> bool:
+        # The live cadence while redocking runs: each finished pair shows up as it lands,
+        # not all at once when the last job ends.
+        self._refresh_results()
+        return True
 
     def _build_records(self) -> list[dict]:
         # Flatten the loaded hits into the plain records redocking_metrics expects. A "case" is one
