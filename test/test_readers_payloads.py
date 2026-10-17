@@ -82,3 +82,15 @@ def test_p2rank_feed_hands_the_receptor_as_a_file_with_the_payload_bytes(tmp_pat
     assert chunk["receptor_id"] == 3 and str(path).endswith(".pdb")
     assert open(getattr(path, "path", path), "rb").read() == PDB
     store.dispose()
+
+
+def test_box_from_a_reference_ligand_reads_its_payload(tmp_path):
+    from amdockvs.binding_sites.api import BindingSiteAPI
+
+    store = _project(tmp_path)
+    runtime = SimpleNamespace(workspace=SimpleNamespace(project_db=store), _require_active_project=lambda: None)
+    api = BindingSiteAPI(runtime)
+    box = api.suggest_box_from_ligand(ligand_id=3)  # one atom at the origin: the box is centred there
+    assert list(box["center"]) == [0.0, 0.0, 0.0]
+    assert "path" not in api.list_receptors()[0]
+    store.dispose()
