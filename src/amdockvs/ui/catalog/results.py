@@ -41,6 +41,7 @@ from amdockvs.docking.results.tables import (
 from amdockvs.project.summaries import DockingHitSummary
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.catalog.common import project_table
+from amdockvs.ui.catalog.export import export_pose_files, export_poses
 from ms_components.ms_table import FilterOperator, FilterSpec, MetricFilterBar, SmartTableView
 
 try:
@@ -177,6 +178,7 @@ class DockingResultsWidget(QWidget):
         self.ligand_label = QLabel("Ligand", self)
         ligand_layout.addWidget(self.ligand_label)
         ligand_config = results_ligand_config()
+        ligand_config.context_menu_actions["Export poses (SDF)…"] = lambda objs: export_poses(self, runtime, objs)
         ligand_config.context_menu_actions["Delete…"] = lambda objs: self._delete(objs, "result_group")
         self.ligand_table = project_table(runtime, ligand_config, ligand_box)
         self.ligand_table.setMinimumHeight(150)
@@ -191,6 +193,8 @@ class DockingResultsWidget(QWidget):
         pose_layout.setContentsMargins(0, 0, 0, 0)
         pose_layout.addWidget(QLabel("Pose", self))
         pose_config = results_pose_config()
+        pose_config.context_menu_actions["Export poses (SDF)…"] = lambda objs: export_poses(self, runtime, objs)
+        pose_config.context_menu_actions["Export poses (ZIP)…"] = lambda objs: export_pose_files(self, runtime, objs)
         pose_config.context_menu_actions["Delete…"] = lambda objs: self._delete(objs, "result")
         self.pose_table = project_table(runtime, pose_config, pose_box)
         self.pose_table.setMinimumHeight(150)

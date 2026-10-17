@@ -308,6 +308,9 @@ class BoundTableWidget(QWidget):
             self._install_select(config)
         if self.editable:
             config.context_menu_actions = {**dict(config.context_menu_actions or {}), "Edit…": self._edit_rows}
+        if self.delete_kind == "molecule":
+            config.context_menu_actions = {**dict(config.context_menu_actions or {}),
+                                           "Export structures (ZIP)…": self._export_structures}
         if self.delete_kind is not None:  # last in the menu, the one that cannot be undone
             config.context_menu_actions = {**dict(config.context_menu_actions or {}), "Delete…": self.delete_selected}
 
@@ -483,6 +486,11 @@ class BoundTableWidget(QWidget):
                 self._load_object_in_pymol(edited)
 
         edit_molecule(self, self.runtime, objects, done=done)
+
+    def _export_structures(self, objects) -> None:
+        from amdockvs.ui.catalog.export import export_molecules
+
+        export_molecules(self, self.runtime, objects)
 
     def delete_selected(self, objects=None) -> None:
         """Delete `objects` (the rows a context menu acts on), or the selected rows."""
