@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from rdkit import Chem
 
 from amdockvs.chemistry.protonation import protonate_molecule_batch
@@ -126,3 +128,18 @@ def test_pdb2pqr_hands_downstream_a_pdb_not_a_pqr(tmp_path, monkeypatch):
     assert output.suffix == ".pdb"
     assert f"--pdb-output={output}" in seen["cmd"]
     assert seen["cmd"][-1].endswith("protonated_0.pqr")  # the PQR is the sidecar, not the result
+
+
+def test_external_tools_get_scratch_files_that_are_gone_afterwards(tmp_path):
+    """OpenBabel stand-in: copies its input SDF to the output path; no file survives the call."""
+    fake = tmp_path / "obabel"
+    fake.write_text("#!/bin/sh\n# args: -isdf IN -osdf -O OUT -p PH\ncp \"$2\" \"$5\"\necho \"$2 $5\" > " + str(tmp_path / "seen") + "\n")
+    fake.chmod(0o755)
+
+    result = protonate_molecule_batch(
+        [(5, Chem.MolFromSmiles("CCO"))], method="openbabel", params={"tool_command": str(fake)}
+    )
+
+    assert set(result) == {5} and result[5].GetNumAtoms() == 9  # ethanol with every H
+    for name in (tmp_path / "seen").read_text().split():
+        assert not Path(name).exists()
