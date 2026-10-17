@@ -192,3 +192,34 @@ def test_a_program_that_is_not_installed_stays_listed_and_cannot_be_run(monkeypa
     assert "QuickVina 2" in rows()
     assert studio._program_checks["qvina"].isEnabled()
     assert studio._program_notices["qvina"][1].isHidden()
+
+
+def test_redocking_readiness_counts_distinct_receptors_and_keeps_picked_pairs_whole():
+    """4 pairs over 3 receptors (receptor 20 holds two ligands); ligands 1,2 prepared, receptors
+    20,21 ready. Picking ligands narrows the pairs; their receptors come with them."""
+    pairs = [SimpleNamespace(id=i, ligand_molecule_id=lig, receptor_molecule_id=rec)
+             for i, (lig, rec) in enumerate([(1, 20), (2, 20), (3, 21), (4, 22)], start=1)]
+    prepared = {1, 2}
+
+    class _Molecules:
+        all = staticmethod(lambda: {})
+        filter = staticmethod(lambda scope, filters: {**scope, **filters})
+        stream_ids = staticmethod(lambda scope: [i for i in scope["id__in"]
+                                                 if not scope.get("prepared") or i in prepared])
+
+    runtime = SimpleNamespace(molecules=_Molecules(),
+                              complexes=SimpleNamespace(list=lambda purpose: list(pairs)))
+    service = DockingReadinessService(runtime)
+    service.receptors = lambda scope, program: SimpleNamespace(
+        ready_ids=tuple(i for i in scope["id__in"] if i in (20, 21)), failed=0)
+    service.preparation = lambda *_a, **_k: SimpleNamespace(failed=0)
+
+    every = service.evaluate_redocking(program="vina").as_mapping()
+    assert (every["ligands"]["ready"], every["ligands"]["total"]) == (2, 4)
+    assert (every["receptors"]["ready"], every["receptors"]["total"]) == (2, 3)
+    assert every["ready_complex_ids"] == [1, 2]
+
+    picked = service.evaluate_redocking(program="vina", ligand_ids=[2, 4]).as_mapping()
+    assert (picked["ligands"]["ready"], picked["ligands"]["total"]) == (1, 2)
+    assert (picked["receptors"]["ready"], picked["receptors"]["total"]) == (1, 2)
+    assert picked["ready_complex_ids"] == [2]

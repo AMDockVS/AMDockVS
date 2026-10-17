@@ -461,6 +461,8 @@ class RunPanel:
     def _compute_redocking_requirement_counts(self, inp: dict) -> dict:
         return self.readiness_service.evaluate_redocking(
             program=inp["program"],
+            ligand_ids=inp.get("sel_lig") or (),
+            receptor_ids=inp.get("sel_rec") or (),
             ligand_type=inp.get("ligand_type") or MoleculeType.SMALL_MOLECULE,
             receptor_type=inp.get("receptor_type") or MoleculeType.PROTEIN,
         ).as_mapping()
@@ -564,7 +566,8 @@ class RunPanel:
             self.req_ligands_count.setText(f"{lig['ready']} / {lig['total']}")
             self.req_receptors_count.setText(f"{rec['ready']} / {rec['total']}")
             # Redocking runs the original pairs, so the pair count is the ready-complex count.
-            self._pairs_text(f"{int(rec.get('ready') or 0)} original pair(s)")
+            pairs = len(result.get("ready_complex_ids") or ())
+            self._pairs_text(f"{pairs} original pair(s)")
             self.step_run.set_done(result["ready"])
             notes = []
             if int(result.get("total_complexes") or 0) == 0:
@@ -581,7 +584,7 @@ class RunPanel:
             if failures:
                 notes.append("; ".join(failures))
             self.check_status_label.setText(
-                f"Ready to redock {int(rec.get('ready') or 0)} original pair(s)."
+                f"Ready to redock {pairs} original pair(s)."
                 if result["ready"] and not notes
                 else "; ".join(notes) + "."
             )

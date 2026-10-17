@@ -197,16 +197,26 @@ class DockingReadinessService:
         program: str,
         ligand_type: str = MoleculeType.SMALL_MOLECULE,
         receptor_type: str = MoleculeType.PROTEIN,
+        ligand_ids: Iterable[int] = (),
+        receptor_ids: Iterable[int] = (),
     ) -> DockingReadiness:
-        complexes = tuple(self.runtime.complexes.list(purpose="redocking,reference"))
-        ligand_ids = sorted({int(getattr(row, "ligand_molecule_id", 0) or 0) for row in complexes})
-        receptor_ids = sorted({int(getattr(row, "receptor_molecule_id", 0) or 0) for row in complexes})
+        """The original pairs a redocking would run. Picked ligands and receptors narrow the
+        pairs, never break them: a pair is in when its ligand (and its receptor) is picked."""
+        picked_ligands = {int(value) for value in ligand_ids}
+        picked_receptors = {int(value) for value in receptor_ids}
+        complexes = tuple(
+            row for row in self.runtime.complexes.list(purpose="redocking,reference")
+            if (not picked_ligands or int(getattr(row, "ligand_molecule_id", 0) or 0) in picked_ligands)
+            and (not picked_receptors or int(getattr(row, "receptor_molecule_id", 0) or 0) in picked_receptors)
+        )
+        pair_ligands = sorted({int(getattr(row, "ligand_molecule_id", 0) or 0) for row in complexes})
+        pair_receptors = sorted({int(getattr(row, "receptor_molecule_id", 0) or 0) for row in complexes})
         program_spec = get_docking_program(program)
         prep_engine = str(program_spec.preparation_engine)
         ligand_scope = self.runtime.molecules.filter(
             self.runtime.molecules.all(),
             filters={
-                "id__in": ligand_ids or [0],
+                "id__in": pair_ligands or [0],
                 "is_ligand": True,
                 "molecule_type": ligand_type,
                 "excluded": False,
@@ -228,7 +238,7 @@ class DockingReadinessService:
         receptor_scope = self.runtime.molecules.filter(
             self.runtime.molecules.all(),
             filters={
-                "id__in": receptor_ids or [0],
+                "id__in": pair_receptors or [0],
                 "is_receptor": True,
                 "molecule_type": receptor_type,
                 "excluded": False,
@@ -249,13 +259,13 @@ class DockingReadinessService:
             else EntityReadiness()
         )
         ligands = EntityReadiness(
-            total=len(ligand_ids),
+            total=len(pair_ligands),
             ready=len(prepared_ligand_ids),
             failed=ligand_prep.failed,
         )
-        receptors = EntityReadiness(
-            total=len(complexes),
-            ready=len(ready_complex_ids),
+        receptors = EntityReadiness(  # distinct receptors: one can hold several reference ligands
+            total=len(pair_receptors),
+            ready=len(ready_receptors),
             failed=receptor_status.failed,
             ready_ids=receptor_status.ready_ids,
         )
