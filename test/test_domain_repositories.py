@@ -4,6 +4,7 @@ statistics in molecules/repository.py, aggregating in SQL instead of reading the
 from datetime import datetime
 
 from ms_flow.core.database.project import ProjectStore
+from payload_seed import seed_payload
 from sqlmodel import select
 
 from amdockvs.docking.results import repository
@@ -32,7 +33,8 @@ def _project(tmp_path):
             for lig, score in zip(ligands[:2], (-9.5, -7.0)):
                 session.add(DockingResult(
                     receptor_molecule_id=rec.id, ligand_molecule_id=lig.id, engine=ENGINE,
-                    pose_rank=rank, score=score - rank, pose_path=f"poses/{lig.id}_{rank}.pdbqt",
+                    pose_rank=rank, score=score - rank,
+                    pose_payload_id=seed_payload(store, f"pose {lig.id} {rank}", "pdbqt"),
                     metrics={"run_kind": "screening", "protocol": {"hash": "h1", "label": "Vina"}},
                     created_at=datetime.now(),
                 ))
