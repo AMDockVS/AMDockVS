@@ -34,8 +34,8 @@ def _receptor_table_config(runtime) -> TableConfig:
             ColumnDef("source", label="Source", width=360, sortable=True),
             ColumnDef("input_format", label="Format", width=90, sortable=True, filterable=True,
                       kind=ColumnKind.CHOICE, choices=choices_from_class(FileFormat)),
-            ColumnDef("current_path", label="Current Path", width=300, sortable=True, visible=False),
-            ColumnDef("stored_path", label="Stored Path", width=300, sortable=True, visible=False),
+            ColumnDef("current_payload_id", label="Current Payload", width=130, sortable=True, visible=False),
+            ColumnDef("stored_payload_id", label="Stored Payload", width=130, sortable=True, visible=False),
         ],
         default_filters=[
             FilterSpec("is_receptor", FilterOperator.EQ, True, label="is_receptor"),

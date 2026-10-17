@@ -223,24 +223,12 @@ class DockingHitSummary(BaseModel):
 
     @property
     def output_path(self) -> Optional[Path]:
-        """The docked pose as a file, for readers that only take paths (PyMOL, the diagram)."""
+        """The docked pose as a file, for readers that only take paths (the diagram)."""
         return self._file(self.pose_payload_id)
-
-    @property
-    def ligand_path(self) -> Optional[Path]:
-        return self._file(self.ligand_payload_id)
 
     @property
     def receptor_path(self) -> Optional[Path]:
         return self._file(self.receptor_payload_id)
-
-    @property
-    def reference_ligand_path(self) -> Optional[Path]:
-        return self._file(self.reference_ligand_payload_id)
-
-    @property
-    def reference_receptor_path(self) -> Optional[Path]:
-        return self._file(self.reference_receptor_payload_id)
 
 
 class ReceptorDockingSummary(BaseModel):

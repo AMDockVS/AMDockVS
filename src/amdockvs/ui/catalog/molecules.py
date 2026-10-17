@@ -6,7 +6,6 @@ from amdockvs.models import MoleculeRecord
 from amdockvs.ui.catalog.common import (
     BoundTableWidget,
     PREVIEW_2D_COLUMN_FIELD,
-    display_project_relative_path,
     molecule_2d_preview_paint_for_runtime,
     molecule_2d_preview_tooltip,
 )
@@ -53,22 +52,8 @@ def _molecule_table_config(*, runtime) -> TableConfig:
                       kind=ColumnKind.CHOICE, choices=choices_from_class(FileFormat)),
             ColumnDef("source", label="Source", width=320, sortable=True),
             ColumnDef("current_model_index", label="Active Model", width=130, sortable=True, visible=False),
-            ColumnDef(
-                "current_path",
-                label="Current Path",
-                width=300,
-                sortable=True,
-                visible=False,
-                formatter=display_project_relative_path,
-            ),
-            ColumnDef(
-                "stored_path",
-                label="Stored Path",
-                width=300,
-                sortable=True,
-                visible=False,
-                formatter=display_project_relative_path,
-            ),
+            ColumnDef("current_payload_id", label="Current Payload", width=130, sortable=True, visible=False),
+            ColumnDef("stored_payload_id", label="Stored Payload", width=130, sortable=True, visible=False),
         ],
         # default_sort=[SortSpec("id", descending=True)],
         page_size=25,
