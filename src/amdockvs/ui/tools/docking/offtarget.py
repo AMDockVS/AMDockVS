@@ -13,6 +13,7 @@ the difference); off-target columns use each receptor's best pose.
 """
 from __future__ import annotations
 
+import logging
 from typing import Callable
 
 from PySide6.QtCore import Qt, Signal
@@ -30,15 +31,19 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from amdockvs.core.payloads import payload_file
+from amdockvs.core.payloads import payload_store
 from amdockvs.project.summaries import DockingHitSummary
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.tools.pymol_ribbon import (
     apply_ligand_atom_coloring,
     apply_receptor_atom_coloring,
+    fetch_structures,
+    load_structure,
     set_pymol_scene_context,
 )
 from amdockvs.ui.view_ids import OFFTARGET_VIEW_ID
+
+_log = logging.getLogger(__name__)
 
 LIGAND_CAP = 200
 RECEPTOR_CAP = 10
@@ -331,6 +336,20 @@ class OffTargetResultsWidget(QWidget):
         if cmd is None:
             return
         ref_id = self._columns[0][0]
+        poses = {rid: self._selected_pose(r, rid) for rid, _name in self._columns}
+        wanted = {}
+        for rid, pose in poses.items():
+            if pose is not None and pose.get("receptor_payload_id") and pose.get("pose_payload_id"):
+                wanted[f"rec_{rid}"] = int(pose["receptor_payload_id"])
+                wanted[f"lig_{rid}"] = int(pose["pose_payload_id"])
+        store = payload_store(self.runtime)
+        run_async(
+            lambda: fetch_structures(store, wanted) if wanted else {},
+            lambda found: self._draw_ligand_grid(cmd, dock, ref_id, found),
+            lambda error: _log.warning("Could not read the poses for the PyMOL grid: %s", error),
+        )
+
+    def _draw_ligand_grid(self, cmd, dock, ref_id: int, found: dict) -> None:
         try:
             dock.show()
             cmd.delete("all")
@@ -340,18 +359,12 @@ class OffTargetResultsWidget(QWidget):
             loaded_ligand_objs: list[str] = []
             slot = 0
             for rid, _name in self._columns:
-                pose = self._selected_pose(r, rid)
-                if pose is None:
-                    continue
-                project = self.runtime.workspace.project_db
-                rec_path = payload_file(project, pose.get("receptor_payload_id"))
-                pose_path = payload_file(project, pose.get("pose_payload_id"))
-                if not rec_path or not pose_path:
+                rec_obj, lig_obj = f"rec_{rid}", f"lig_{rid}"
+                if rec_obj not in found:
                     continue
                 slot += 1
-                rec_obj, lig_obj = f"rec_{rid}", f"lig_{rid}"
-                cmd.load(str(rec_path), rec_obj)
-                cmd.load(str(pose_path), lig_obj)
+                load_structure(cmd, found[rec_obj], rec_obj)
+                load_structure(cmd, found[lig_obj], lig_obj)
                 loaded_receptor_objs.append(rec_obj)
                 loaded_ligand_objs.append(lig_obj)
                 apply_receptor_atom_coloring(cmd, rec_obj)
@@ -409,7 +422,7 @@ class OffTargetResultsWidget(QWidget):
             pose_payload_id=pose.get("pose_payload_id"),
             ligand_payload_id=pose.get("ligand_payload_id"),
             receptor_payload_id=pose.get("receptor_payload_id"),
-        ).of_project(self.runtime.workspace.project_db)
+        ).of_project(self.runtime)
         self._load_hit_in_pymol(hit, int(pose.get("pose_rank") or 1))
 
 

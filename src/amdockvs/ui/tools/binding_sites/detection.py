@@ -26,10 +26,12 @@ from PySide6.QtWidgets import (
 
 from amdockvs.models import BindingSite, MoleculeRecord
 from amdockvs.core.configuration import app_config
-from amdockvs.core.paths import preferred_molecule_path
+from amdockvs.core.payloads import molecule_payload_id, payload_store
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.tools.pymol_ribbon import (
     apply_receptor_atom_coloring,
+    fetch_structures,
+    load_structure,
     set_pymol_scene_context,
 )
 from ms_components.ms_table import FilterOperator, FilterSpec
@@ -271,18 +273,31 @@ class BindingSitesWidget(QWidget):
             self.status_label.setText("PyMOL is not available in this session.")
             return
         focus = self._current_site() or sites[0]
+        store = payload_store(self.runtime)
+        binding_sites = self.runtime.binding_sites
+
+        def read() -> dict:
+            receptor_id = molecule_payload_id(binding_sites.get_receptor(int(focus.molecule_id)))
+            if not receptor_id:
+                raise FileNotFoundError(f"Receptor {focus.molecule_id} has no stored structure.")
+            return fetch_structures(store, {"receptor": receptor_id})
+
+        run_async(
+            read,
+            lambda found: self._draw_sites_in_pymol(sites, focus, found["receptor"]),
+            lambda exc: self._show_error("Could not display P2Rank pockets", exc),
+        )
+
+    def _draw_sites_in_pymol(self, sites: list[BindingSite], focus: BindingSite, receptor: tuple) -> None:
+        dock, cmd = self._pymol_command()
+        if cmd is None:
+            return
         try:
-            receptor = self.runtime.binding_sites.get_receptor(int(focus.molecule_id))
-            receptor_path = preferred_molecule_path(receptor)
-            if receptor_path is None or not receptor_path.is_file():
-                raise FileNotFoundError(
-                    f"Receptor {focus.molecule_id} has no readable structure."
-                )
             dock.show()
             self._clear_pymol_pockets()
             receptor_obj = "amdock_p2rank_receptor"
             pocket_selection = "amdock_p2rank_pockets"
-            cmd.load(str(receptor_path), receptor_obj)
+            load_structure(cmd, receptor, receptor_obj)
             apply_receptor_atom_coloring(cmd, receptor_obj)
             cmd.show_as("cartoon", receptor_obj)
 

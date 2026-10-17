@@ -76,6 +76,24 @@ _SURFACE_PRESET_CONTEXTS = frozenset(
 )
 
 
+# PyMOL's name for a payload kind when it differs.
+_PYMOL_FORMATS = {"ent": "pdb", "mmcif": "cif"}
+
+
+def fetch_structures(store, ids: dict) -> dict:
+    """{name: (bytes, kind)} of the payloads in `ids` ({name: payload id}), read in volume order.
+    Blocking: call it from `run_async`, never from the GUI thread."""
+    found = store.get_many(ids.values())
+    kinds = store.kinds(ids.values())
+    return {name: (found[payload_id], kinds.get(payload_id, "")) for name, payload_id in ids.items()}
+
+
+def load_structure(cmd, structure: tuple, name: str) -> None:
+    """Put a stored structure `(bytes, kind)` on the PyMOL canvas straight from its bytes."""
+    data, kind = structure
+    cmd.load_raw(data, _PYMOL_FORMATS.get(kind, kind), name)
+
+
 def _pymol_cmd(window):
     dock = getattr(window, "pymol_dock", None)
     if dock is None:
