@@ -6,7 +6,6 @@ result rows in, rows out — but the input already exists in the database. Split
 """
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Iterator
 
 from pydantic import BaseModel, Field
@@ -21,13 +20,12 @@ from ms_flow.payloads import with_payloads
 from amdockvs.core.worker_io import worker_file, worker_output_dir
 from amdockvs.core.constants import AMDOCKVS_LOCAL_EXECUTORS
 from amdockvs.core.payloads import PAYLOAD_CACHE, molecule_payload_id, payload_file
-from amdockvs.docking.repository import project_db_path, resolve_docking_output_dir
+from amdockvs.docking.repository import project_db_path
 from amdockvs.docking.results.repository import list_docking_result_rows
 from amdockvs.models import InteractionsResult, MoleculeRecord
 
 
 class InteractionJobParams(BaseModel):
-    output_dir: str | None = None
     result_ids: list[int] = Field(default_factory=list)
     run_id: str = ""
     receptor_id: int | None = Field(default=None, ge=1)
@@ -82,22 +80,16 @@ def _interaction_result_rows(project_db, params: InteractionJobParams) -> list[d
     return _with_receptor_files(project_db, rows)
 
 
-def _iter_interaction_chunks(
-    *,
-    project_db,
-    params: InteractionJobParams,
-    output_dir: Path,
-) -> Iterator[dict[str, Any]]:
+def _iter_interaction_chunks(*, project_db, params: InteractionJobParams) -> Iterator[dict[str, Any]]:
     rows = _interaction_result_rows(project_db, params)
     chunk_size = max(1, int(params.chunk_size))
     if not rows:
-        yield {"rows": [], "method": params.method, "output_dir": worker_output_dir(output_dir)}
+        yield {"rows": [], "method": params.method}
         return
     for start in range(0, len(rows), chunk_size):
         yield {
             "rows": list(with_payloads(project_db, rows[start:start + chunk_size], {"pose_payload_id": "pose"})),
             "method": params.method,
-            "output_dir": worker_output_dir(output_dir),
         }
 
 
@@ -122,9 +114,7 @@ class InteractionJobSpec(JobSpec):
         project_db = config_map.get("project_db")
         if project_db is None:
             raise ValueError("InteractionJobSpec requires project_db in config.")
-        parsed = InteractionJobParams(**params)
-        output_dir = resolve_docking_output_dir({"output_dir": parsed.output_dir}, config_map) / "interactions"
-        yield from _iter_interaction_chunks(project_db=project_db, params=parsed, output_dir=output_dir)
+        yield from _iter_interaction_chunks(project_db=project_db, params=InteractionJobParams(**params))
 
 
 interactions_job = InteractionJobSpec.to_job_definition()

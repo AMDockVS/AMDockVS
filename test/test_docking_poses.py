@@ -42,7 +42,7 @@ def test_each_row_keeps_the_pose_of_its_rank_and_no_file_survives(monkeypatch, t
     assert list(tmp_path.iterdir()) == []  # the SDF and Vina's PDBQT went with the chunk
 
 
-def test_the_interaction_job_reads_the_pose_bytes_and_the_receptor_it_was_docked_into(tmp_path):
+def test_the_interaction_job_reads_the_pose_bytes_and_the_receptor_it_was_docked_into(tmp_path, monkeypatch):
     from ms_flow.core.database.project import ProjectStore
     from payload_seed import seed_payload
 
@@ -64,10 +64,19 @@ def test_the_interaction_job_reads_the_pose_bytes_and_the_receptor_it_was_docked
                                   score=-8.0, pose_payload_id=pose, metrics={"receptor_payload_id": docked}))
         session.commit()
 
-    (chunk,) = InteractionJobSpec.build_chunks({"output_dir": str(tmp_path / "out")}, {"project_db": store})
+    (chunk,) = InteractionJobSpec.build_chunks({}, {"project_db": store})
     (row,) = chunk["rows"]
     assert row["pose"] == MOL.format(n=1).encode()
     assert Path(row["receptor_path"]).read_text() == "ATOM prepared\n"
+
+    from amdockvs.docking.results import tasks
+
+    monkeypatch.setattr(tasks, "collect_interaction_rows", lambda **_: [
+        {"interaction_type": "hbond", "residue": "ASP", "residue_index": 86, "distance": 2.9, "geometry": {}}])
+    files = set(tmp_path.rglob("*"))
+    (out,) = tasks.interactions_of_poses(chunk)
+    assert out["interaction_type"] == "hbond" and out["docking_result_id"] == row["id"]
+    assert set(tmp_path.rglob("*")) == files  # the rows are the result: no report file per pose
     store.dispose()
 
 
