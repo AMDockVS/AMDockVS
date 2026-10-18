@@ -78,3 +78,12 @@ def test_items_show_the_severity_svg_or_the_glyph_while_it_is_missing(app):
         assert warning.icon().isNull() and warning.text().startswith("⚠")
     else:
         assert not warning.icon().isNull() and not warning.text().startswith("⚠")
+
+
+def test_double_click_opens_the_whole_entry_with_its_traceback(app):
+    note = Notification("Jobs failed", "boom", ERROR, details="Traceback (most recent call last): ...")
+    log = NotificationLog([note])
+    log._list.itemDoubleClicked.emit(log._list.item(0))
+    assert log.entry_dialog.text() == "boom"
+    assert log.entry_dialog.detailedText() == note.details
+    log.entry_dialog.close()

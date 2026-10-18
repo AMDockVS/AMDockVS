@@ -4,10 +4,12 @@ indicators and the incremental refresh of the open views while a run is insertin
 from __future__ import annotations
 
 import re
+import sys
 import time
+import traceback
 
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtCore import QThread, Qt, QTimer
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from amdockvs.ui.shell.notifications import (
     ERROR,
@@ -72,11 +74,32 @@ class JobFeedbackController:
         self.notification_log = NotificationLog(self.notifications, parent=self.w)
         self.notification_log.setWindowFlags(Qt.Popup)  # closes on click-away
         self.notification_log.cleared.connect(self.notifications.clear)
+        self._catch_unhandled_exceptions()
         return self.notification_bell
 
-    def post_notification(self, title: str, text: str = "", level: str = INFO) -> None:
+    def _catch_unhandled_exceptions(self) -> None:
+        """An exception in a slot used to reach stderr only: post it, traceback under details."""
+        # The newest window takes over: a closed one's hook is unwrapped, not chained.
+        previous = getattr(sys.excepthook, "amdock_previous", sys.excepthook)
+
+        def hook(kind, value, tb) -> None:
+            previous(kind, value, tb)
+            app = QApplication.instance()
+            # ponytail: GUI thread only; a worker thread's exception still goes to stderr alone.
+            if app is None or QThread.currentThread() != app.thread():
+                return
+            try:
+                self.post_notification(f"Unexpected error: {kind.__name__}", str(value), ERROR,
+                                       details="".join(traceback.format_exception(kind, value, tb)))
+            except RuntimeError:  # the window is gone (closed, or a test's)
+                pass
+
+        hook.amdock_previous = previous
+        sys.excepthook = hook
+
+    def post_notification(self, title: str, text: str = "", level: str = INFO, *, details: str = "") -> None:
         """Record something worth remembering. Unread count clears when the log is opened."""
-        note = Notification(title=str(title), text=str(text), level=str(level))
+        note = Notification(title=str(title), text=str(text), level=str(level), details=str(details))
         self.notifications.append(note)
         del self.notifications[:-MAX_ENTRIES]
         self.notification_log.append(note)
@@ -293,7 +316,7 @@ class JobFeedbackController:
                 sorted(self._persisted_seen_failure_jobs),
             )
         # Modal on purpose: "your 8h run failed" cannot wait in a list the user may never open.
-        self.post_notification("Jobs failed", message.replace("\n\n", " · "), ERROR)
+        self.post_notification("Jobs failed", message.replace("\n\n", " · "), ERROR, details="\n\n".join(details))
         box = QMessageBox(QMessageBox.Icon.Warning, "Jobs Failed", message, QMessageBox.StandardButton.Ok, self.w)
         if details:  # whole, behind "Show Details": a traceback cut short tells nobody anything
             box.setDetailedText("\n\n".join(details))
