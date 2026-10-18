@@ -1,0 +1,92 @@
+"""A residue picked in the 2D diagram, shown in PyMOL with its contacts drawn in 3D.
+
+Each contact is a PyMOL distance between two pseudoatoms, coloured like its line in the 2D
+diagram, so both views read the same. Ring contacts start from the ring centroid (a small
+sphere); water bridges go through the water. No atom-index mapping crosses into PyMOL:
+the diagram's ligand atoms are the pose's heavy atoms in file order, which is also the
+order PyMOL keeps, so the coordinates come straight from the loaded pose.
+"""
+from __future__ import annotations
+
+GROUP = "amdock_interactions"
+
+
+def residue_selection(receptor_obj: str, key: str) -> str:
+    """``A:248B:LEU`` -> the PyMOL selection of that residue in ``receptor_obj``."""
+    chain, number, _name = key.split(":")
+    selection = f"{receptor_obj} and resi {number}"
+    return f"{selection} and chain {chain}" if chain.strip() else selection
+
+
+def _centroid(points) -> tuple[float, float, float]:
+    n = len(points)
+    return tuple(sum(p[i] for p in points) / n for i in range(3))
+
+
+def _nearest(cmd, selection: str, to) -> tuple[float, float, float] | None:
+    coords = cmd.get_coords(selection)
+    if coords is None or not len(coords):
+        return None
+    return tuple(min(coords, key=lambda p: sum((p[i] - to[i]) ** 2 for i in range(3))))
+
+
+def show_residue_interactions(cmd, *, receptor_obj: str, ligand_obj: str, key: str, diagram) -> int:
+    """Sticks + zoom on residue ``key``, one dashed distance per contact; the number drawn."""
+    from ms_contactmap.model import INTERACTION_STYLES
+
+    cmd.delete(GROUP)
+    residue = residue_selection(receptor_obj, key)
+    cmd.show("sticks", f"({residue}) and not hydro")
+    cmd.label(f"({residue}) and name CA", '"%s %s%s" % (resn, chain, resi)')
+    ligand = cmd.get_coords(f"{ligand_obj} and not elem H")
+    if ligand is None or len(ligand) != diagram.mol.GetNumAtoms():
+        cmd.zoom(residue, 5)
+        return 0  # not the pose this diagram was built from: show the residue, draw nothing
+
+    names: list[str] = []
+
+    def point(xyz, *, sphere: bool = False) -> str:
+        name = f"{GROUP}_p{len(names)}"
+        cmd.pseudoatom(name, pos=[float(v) for v in xyz])
+        cmd.hide("everything", name)
+        if sphere:
+            cmd.show("spheres", name)
+            cmd.set("sphere_scale", 0.25, name)
+        names.append(name)
+        return name
+
+    def dash(a: str, b: str, color: str) -> None:
+        name = f"{GROUP}_d{len(names)}"
+        cmd.distance(name, a, b)
+        cmd.set("dash_color", color.replace("#", "0x"), name)
+        cmd.set("dash_gap", 0.35, name)
+        names.append(name)
+
+    drawn = 0
+    for interaction in diagram.interactions:
+        if interaction.residue_key != key and interaction.via_water != key:
+            continue
+        atoms = [ligand[i] for i in interaction.ligand_atoms if i < len(ligand)]
+        if not atoms:
+            continue
+        start = _centroid(atoms)
+        protein = residue
+        if interaction.protein_atom:
+            protein += f" and name {interaction.protein_atom}"
+        color = INTERACTION_STYLES[interaction.kind].color
+        a = point(start, sphere=len(atoms) > 1)
+        if interaction.via_water:
+            water = _nearest(cmd, residue_selection(receptor_obj, interaction.via_water), start)
+            if water is not None:
+                w = point(water, sphere=True)
+                dash(a, w, color)
+                a = w
+        end = _nearest(cmd, protein, start) or _nearest(cmd, residue, start)
+        if end is None:
+            continue
+        dash(a, point(end), color)
+        drawn += 1
+    if names:
+        cmd.group(GROUP, " ".join(names))
+    cmd.zoom(f"({residue}) or {ligand_obj}", 3)
+    return drawn

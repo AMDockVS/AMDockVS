@@ -123,6 +123,7 @@ class AMDockVSMainWindow(QMainWindow):
         # foot of the right bar, level with where the panel opens.
         self.diagram_dock = InteractionDiagramDock("2D Interactions", self.dock_manager, runtime=runtime, parent=self)
         self.diagram_dock.settings_requested.connect(lambda node: self.open_settings(node=node))
+        self.diagram_dock.residue_selected.connect(lambda *pick: self.viewer.show_diagram_residue(*pick))
         self.dock_manager.add_dock(
             self.diagram_dock,
             dock_id="diagram",

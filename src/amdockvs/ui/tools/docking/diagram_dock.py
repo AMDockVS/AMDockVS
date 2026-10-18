@@ -33,12 +33,15 @@ class InteractionDiagramDock(MSDockWidget):
 
     #: Settings-tree node to open: embedded here, the diagram has no settings of its own.
     settings_requested = Signal(str)
+    #: (hit, residue key, diagram) -- a residue picked in the diagram, for PyMOL to show.
+    residue_selected = Signal(object, str, object)
 
     def __init__(self, title: str, dock_manager: DockManager, *, runtime, parent: QWidget | None = None):
         super().__init__(title, dock_manager, parent)
         self.runtime = runtime
         self._hit: DockingHitSummary | None = None
         self._pose_rank = 1
+        self._diagram = None
         self.view: QWidget | None = None  # ms_contactmap widget, created on first diagram
 
         container = QWidget(self)
@@ -88,6 +91,7 @@ class InteractionDiagramDock(MSDockWidget):
 
     # --- drawing ------------------------------------------------------------
     def _draw(self, diagram, layout, *, label: str) -> None:
+        self._diagram = diagram
         self._ensure_view().set_layout(diagram, layout)
         self.stack.setCurrentWidget(self.view)
         self.status.setText(f"{label} — {len(diagram.interactions)} interactions")
@@ -100,9 +104,14 @@ class InteractionDiagramDock(MSDockWidget):
             self.view.set_configure_action(
                 "Defaults…", lambda: self.settings_requested.emit("ms_contactmap")
             )
+            self.view.residueSelected.connect(self._on_residue_selected)
             self.apply_settings()
             self.stack.addWidget(self.view)
         return self.view
+
+    def _on_residue_selected(self, key: str) -> None:
+        if key and self._hit is not None and self._diagram is not None:
+            self.residue_selected.emit(self._hit, key, self._diagram)
 
     def apply_settings(self) -> None:
         """Restyle the diagram from Settings › MS-ContactMap (again whenever settings are saved)."""

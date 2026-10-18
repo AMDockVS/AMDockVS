@@ -179,6 +179,19 @@ class MolecularViewerController:
         except Exception:
             return
 
+    def show_diagram_residue(self, hit: DockingHitSummary, key: str, diagram) -> None:
+        """A residue picked in the 2D diagram: sticks, zoom and its contacts drawn in 3D."""
+        dock = self.w.pymol_dock
+        cmd = getattr(dock, "cmd", None)
+        receptor_obj = f"receptor_{hit.receptor_id}"
+        if cmd is None or not self._holds(cmd, receptor_obj) or not self._holds(cmd, "amdock_result_pose"):
+            return  # ponytail: docked poses only; a redocking hit loads under other names
+        from amdockvs.ui.viewers.interactions_3d import show_residue_interactions
+
+        with contextlib.suppress(Exception):
+            show_residue_interactions(cmd, receptor_obj=receptor_obj, ligand_obj="amdock_result_pose",
+                                      key=key, diagram=diagram)
+
     def sync_to_active_view(self, view_id: str | None) -> None:
         """PyMOL follows the active tab: a structural view shows its first row; any other
         view (or an empty table) clears PyMOL so it never keeps showing a stale molecule."""
@@ -237,6 +250,7 @@ class MolecularViewerController:
                         cmd.zoom(receptor_obj, 3)
                 else:
                     cmd.delete(ligand_obj)  # keep the receptor; replace only the pose
+                    cmd.delete("amdock_interactions")  # the previous pose's 3D contacts
                 if "pose" in found:
                     load_structure(cmd, found["pose"], ligand_obj)  # each pose is its own payload: one state
                     try:
