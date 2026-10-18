@@ -358,6 +358,7 @@ def _receptor_import_variant(options: ReceptorImportOptions | None) -> str:
         options.selected_cocrystal_key,
         None if options.selected_reference_ligands is None else tuple(options.selected_reference_ligands),
         options.selected_metals,
+        options.selected_waters,
     ))
 
 
@@ -388,6 +389,7 @@ def _receptor_import_options_from_patch(extra_data_patch: dict[str, Any]) -> Rec
         ),
         selected_metals=_optional_tuple(import_profile.get("selected_metals")),
         grid_box_metals=_optional_tuple(import_profile.get("grid_box_metals")),
+        selected_waters=_optional_tuple(import_profile.get("selected_waters")),
     )
 
 
