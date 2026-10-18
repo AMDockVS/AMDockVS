@@ -259,12 +259,6 @@ class JobFeedbackController:
                 f"{count} ligand(s) do not have 3D conformers.\n"
                 "Generate 3D coordinates before running ligand preparation."
             )
-        docking_missing_match = re.search(r"missing_counts=({.*})", text)
-        if docking_missing_match:
-            return (
-                "Docking requirements are not satisfied.\n"
-                f"{docking_missing_match.group(1)}"
-            )
         if "Traceback (most recent call last)" in text:
             # ponytail: the last line is the exception and the first line of what it says; an
             # error that says more in several lines has the rest under "Show Details".

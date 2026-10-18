@@ -4,7 +4,7 @@ import contextlib
 from dataclasses import dataclass
 from itertools import batched, islice
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 from uuid import uuid4
 
 from sqlalchemy import exists, or_
@@ -125,6 +125,30 @@ def _engine_fields(resolved: dict[str, Any], knobs: dict[str, Any]) -> dict[str,
     """The flat engine fields of a job: the validated config wins, the call's own knobs fill in
     what the program's config model does not know."""
     return {name: cast(resolved.get(name, knobs[name])) for name, cast in _ENGINE_FIELDS.items()}
+
+
+def _requirements_message(program: str, check: Mapping[str, Any]) -> str:
+    """What blocks a docking run, in words: how many of what, and which ids (a sample)."""
+    counts, missing = dict(check.get("counts") or {}), dict(check.get("missing") or {})
+    lines = []
+    if not counts.get("ligands_total"):
+        lines.append("no ligands in the scope")
+    if not counts.get("receptors_total"):
+        lines.append("no receptors in the scope")
+    # `missing` holds capped samples, so the real numbers come from `counts`.
+    for count, total, what, sample in (
+        ("ligands_missing", "ligands_total", "ligands are not prepared", "ligands_prepared"),
+        ("receptors_missing", "receptors_total", "receptors are not prepared", "receptors_prepared"),
+        ("receptor_grids_missing", "receptors_total", "receptors have no grid box", "receptor_binding_sites"),
+    ):
+        if counts.get(count):
+            ids = ", ".join(str(i) for i in missing.get(sample) or [])
+            more = ", …" if counts[count] > len(missing.get(sample) or []) else ""
+            lines.append(f"{counts[count]} of {counts[total]} {what} (ids {ids}{more})")
+    return (
+        f"Docking with {program} can't start: " + "; ".join(lines) + ". "
+        "Prepare them (the Prep Status tab shows why one failed) or exclude them, and run again."
+    )
 
 
 @dataclass
@@ -1073,14 +1097,7 @@ class DockingAPI:
             receptor_set=receptor_set if is_molecule_scope(receptor_set) else receptor_set_ref,
         )
         if check_required and not bool(requirement_check.get("ready")):
-            missing = dict(requirement_check.get("missing") or {})
-            counts = dict(requirement_check.get("counts") or {})
-            required_jobs = dict(requirement_check.get("required_jobs") or {})
-            # `missing` holds capped samples, so the real numbers come from `counts`.
-            raise RuntimeError(
-                f"docking.run requirements are not satisfied for docking.{program_spec.key}. "
-                f"counts={counts}; missing_sample={missing}; required_jobs={required_jobs}"
-            )
+            raise RuntimeError(_requirements_message(program_spec.key, requirement_check))
         run_counts = dict(requirement_check.get("counts") or {})
         # The docking feed pairs every prepared ligand with every prepared receptor
         # (receptors without a grid still emit a failed-pair chunk), batched by batch_size.

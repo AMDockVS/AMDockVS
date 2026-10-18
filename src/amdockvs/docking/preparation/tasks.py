@@ -4,6 +4,7 @@ No SQL and no job declaration here: a worker loads this module and nothing of `j
 """
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -60,7 +61,21 @@ def prepare_entities(payload: dict, progress_cb=None):
         keep_cofactors=bool(payload.get("keep_cofactors")),
         progress_cb=progress_cb,
     )
-    return _engine_state_rows_from_summary(summary, entity_kind=entity_kind)
+    engines = _engine_state_rows_from_summary(summary, entity_kind=entity_kind)
+    # ponytail: every failure is excluded, even an environment one (missing tool); Filter's
+    # "Excluded" scope brings them back. Skip whole-batch failures if that bites.
+    now = datetime.now()
+    failures = [
+        {
+            "id": row["molecule_id"],
+            "excluded": True,
+            "exclusion_reason": f"Docking preparation ({row['engine']}): {(row['files']['error'].strip() or 'failed').splitlines()[0]}",
+            "updated_at": now,
+        }
+        for row in engines
+        if not row["is_ready"]
+    ]
+    return {"engines": engines, "molecule_failures": failures}
 
 
 def prepare_ligand_shards(payload: dict, progress_cb=None):

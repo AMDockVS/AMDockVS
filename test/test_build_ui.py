@@ -324,6 +324,8 @@ def test_molecules_structure_source_lives_and_dies_with_tool_scope(tmp_path, mon
 
 
 def test_a_finished_build_lists_the_molecules_it_excluded(build_widget, monkeypatch):
+    from PySide6.QtWidgets import QTreeWidget
+
     from amdockvs.ui.tools.molecules import build as build_module
 
     monkeypatch.setattr(build_module, "run_async", lambda fn, on_result, *a, **k: on_result(fn()))
@@ -341,7 +343,7 @@ def test_a_finished_build_lists_the_molecules_it_excluded(build_widget, monkeypa
     build_widget.ligand_jobs.on_finished("pipeline-job", "completed")
 
     assert asked and asked[0] <= __import__("datetime").datetime.now()
-    tree = build_widget.failures_dialog.findChild(build_module.QTreeWidget)
+    tree = build_widget.failures_dialog.findChild(QTreeWidget)
     groups = [tree.topLevelItem(i) for i in range(tree.topLevelItemCount())]
     assert len(groups) == 2  # four failures, two causes: atom numbers don't split a cause
     assert groups[0].childCount() == groups[1].childCount() == 2

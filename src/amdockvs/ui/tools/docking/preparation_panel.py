@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -14,6 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from amdockvs.ui.common.async_query import run_async
+from amdockvs.ui.common.failures import show_failures
 from amdockvs.ui.common.job_follower import JobFollower
 from amdockvs.ui.common.widgets import RunDestinationCombo, gate_workflow_save, split_button
 from ms_components.tool_panel import ToolPanel
@@ -126,6 +129,8 @@ class PreparationPanel:
         # keeps the experiment combination (type + usage class) on it. Per-engine prep status
         # is its own tab (PREP_STATUS_VIEW_ID) — only the counts stay, on the action bar.
         panel = ToolPanel(self)
+        self._prep_started: dict[str, datetime] = {}  # follower noun -> when its run was submitted
+        self.failures_dialog = None
 
         # Preparation area (image-3 design): a vertical target list on the left drives a
         # QStackedWidget of option pages — row 0 = General Options (force re-prepare), then
@@ -183,6 +188,7 @@ class PreparationPanel:
         self.ligand_bar.add_action(self.prepare_ligands_button)
         self.ligand_bar.set_summary("Ligand scope unresolved.")
         self.ligand_prep_jobs = JobFollower(self, self.ligand_bar, noun="Ligand preparation")
+        self.ligand_prep_jobs.finished.connect(lambda _status: self._report_prep_failures(self.ligand_prep_jobs))
         return panel
 
     def _prep_families(self, role: str = "ligand") -> dict[str, list]:
@@ -343,6 +349,7 @@ class PreparationPanel:
         self.receptor_bar.add_action(self.prepare_receptor_button)
         self.receptor_bar.set_summary("Receptor scope unresolved.")
         self.receptor_prep_jobs = JobFollower(self, self.receptor_bar, noun="Receptor preparation")
+        self.receptor_prep_jobs.finished.connect(lambda _status: self._report_prep_failures(self.receptor_prep_jobs))
         return panel
 
     def _build_receptor_general_prep_page(self) -> QWidget:
@@ -667,8 +674,18 @@ class PreparationPanel:
         # ponytail: one entry per program; they run side by side, so "step i of n" only
         # means "job i". Fine while every selected program shares one prep family (K=1).
         if job_ids or before:
+            # What the engine can't prepare is excluded with updated_at = now (a second earlier covers rounding).
+            self._prep_started[follower.noun] = datetime.now().replace(microsecond=0)
             # The noun says ligand/receptor; the program is noise (families share one prep).
             follower.follow([*before, *((follower.noun, job_id) for job_id in job_ids.values())], unit=unit)
+
+    def _report_prep_failures(self, follower) -> None:
+        since = self._prep_started.pop(follower.noun, None)
+        if since is not None:
+            run_async(lambda: self.runtime.molecules.excluded_since(since), lambda rows: self._show_prep_failures(follower.noun, rows))
+
+    def _show_prep_failures(self, noun: str, rows: list[tuple[int, str, str]]) -> None:
+        self.failures_dialog = show_failures(self, noun, rows) or self.failures_dialog
 
     def _set_sharded_prep_mode(self, sharded: bool) -> None:
         """A physical shard is already the HTP task, so no second batch control applies."""

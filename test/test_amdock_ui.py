@@ -394,6 +394,17 @@ def test_amdock_ui_domain_views_show_docking_summaries(tmp_path, monkeypatch):
         docking_view.receptor_prep_jobs.on_finished("job-x", "failed")
         assert docking_view.run_button.isEnabled() and warnings  # failed prep: nothing launched
 
+        # A finished preparation lists the molecules the engine couldn't prepare (now excluded).
+        from amdockvs.ui.tools.docking import preparation_panel
+
+        monkeypatch.setattr(preparation_panel, "run_async", lambda fn, on_result, *a, **k: on_result(fn()))
+        monkeypatch.setattr(docking_view.runtime.molecules, "excluded_since", lambda since: [
+            (1454, "LIG_1454", "Docking preparation (ad4): Gasteiger charges are NaN")])
+        docking_view._follow_prep(docking_view.ligand_prep_jobs, {"vina": "job-z"})
+        docking_view.ligand_prep_jobs.on_finished("job-z", "completed")
+        assert docking_view.failures_dialog.windowTitle() == "Ligand preparation: 1 molecules failed"
+        docking_view.failures_dialog.close()
+
         # Reopened while a docking runs: the first snapshot re-attaches it to Preview (with Cancel).
         from types import SimpleNamespace
 
