@@ -21,6 +21,7 @@ from amdockvs.ui.shell.notifications import (
     NotificationLog,
 )
 from amdockvs.ui.common.async_query import run_async
+from amdockvs.ui.view_ids import MOLECULES_VIEW_ID
 from amdockvs.ui.resources.icons import icon as load_icon
 
 
@@ -118,10 +119,11 @@ class JobFeedbackController:
         """A fast check of the project's volumes; only a problem reaches the log, and it never blocks the window."""
         def done(note) -> None:
             if note[0] != INFO:
-                self.post_notification(note[1], note[2], note[0])
+                self.post_notification(note[1], note[2], note[0], open=self.w._show_project_summary)
 
         run_async(self.w.runtime.check_storage, done,
-                  on_error=lambda exc: self.post_notification("Storage check failed", str(exc), ERROR))
+                  on_error=lambda exc: self.post_notification("Storage check failed", str(exc), ERROR,
+                                                                open=self.w._show_project_summary))
 
     def _compact_storage(self) -> None:
         """When the last job ends, release the structures no row uses and compact the volumes that
@@ -129,12 +131,15 @@ class JobFeedbackController:
         def done(stats) -> None:
             if stats and stats["moved"]:
                 self.post_notification("Project storage compacted", f"{stats['released']} unused structures released, "
-                                       f"{stats['moved']} moved, {stats['read_mb'] - stats['written_mb']:.0f} MB freed.")
+                                       f"{stats['moved']} moved, {stats['read_mb'] - stats['written_mb']:.0f} MB freed.",
+                                       open=self.w._show_project_summary)
             elif stats and stats["released"]:
-                self.post_notification("Project storage tidied", f"{stats['released']} unused structures released.")
+                self.post_notification("Project storage tidied", f"{stats['released']} unused structures released.",
+                                       open=self.w._show_project_summary)
 
         run_async(self.w.runtime.compact_storage_if_due, done,
-                  on_error=lambda exc: self.post_notification("Storage compaction failed", str(exc), WARNING))
+                  on_error=lambda exc: self.post_notification("Storage compaction failed", str(exc), WARNING,
+                                                                open=self.w._show_project_summary))
 
     def open_notifications(self) -> None:
         self.notification_log.popup_at(self.notification_bell)
@@ -316,7 +321,8 @@ class JobFeedbackController:
                 sorted(self._persisted_seen_failure_jobs),
             )
         # Modal on purpose: "your 8h run failed" cannot wait in a list the user may never open.
-        self.post_notification("Jobs failed", message.replace("\n\n", " · "), ERROR, details="\n\n".join(details))
+        self.post_notification("Jobs failed", message.replace("\n\n", " · "), ERROR, details="\n\n".join(details),
+                               open=self.w.open_jobs_monitor)
         box = QMessageBox(QMessageBox.Icon.Warning, "Jobs Failed", message, QMessageBox.StandardButton.Ok, self.w)
         if details:  # whole, behind "Show Details": a traceback cut short tells nobody anything
             box.setDetailedText("\n\n".join(details))
@@ -360,7 +366,8 @@ class JobFeedbackController:
         message = summarize(tally)
         self.w.statusBar().showMessage(message, 8000)
         skipped = sum(int(v or 0) for k, v in tally.items() if k != IMPORTED)
-        self.post_notification("Import summary", message, WARNING if skipped else INFO)
+        self.post_notification("Import summary", message, WARNING if skipped else INFO,
+                               open=lambda: self.w.open_or_focus_view(MOLECULES_VIEW_ID))
 
     # -- incremental view refresh while a run inserts rows -------------------------
 

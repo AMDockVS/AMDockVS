@@ -94,3 +94,31 @@ def test_a_started_job_entry_opens_the_jobs_monitor_not_a_dialog(app):
     log = NotificationLog([Notification("Docking started.", open=lambda: opened.append(True))])
     log._list.itemDoubleClicked.emit(log._list.item(0))
     assert opened == [True] and not hasattr(log, "entry_dialog")
+
+
+def test_storage_and_import_entries_open_where_the_problem_is(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    import amdockvs.io.import_stats as import_stats
+    from amdockvs.ui.shell import job_feedback
+    from amdockvs.ui.view_ids import MOLECULES_VIEW_ID
+
+    opened = []
+    window = SimpleNamespace(
+        runtime=SimpleNamespace(check_storage=lambda: (WARNING, "Storage leftovers", "3 orphans"),
+                                get_project_resource_path=lambda _name: tmp_path),
+        _show_project_summary=lambda: opened.append("summary"),
+        open_or_focus_view=opened.append,
+        statusBar=lambda: SimpleNamespace(showMessage=lambda *_a: None),
+    )
+    feedback = object.__new__(job_feedback.JobFeedbackController)  # its timers want a real window
+    feedback.w, feedback.notifications = window, []
+    feedback.notification_log = SimpleNamespace(append=lambda _n: None, isVisible=lambda: True)
+    monkeypatch.setattr(job_feedback, "run_async", lambda fn, done, on_error=None: done(fn()))
+    monkeypatch.setattr(import_stats, "drain_import_stats", lambda _path: {import_stats.IMPORTED: 4})
+
+    feedback._check_storage()
+    feedback._report_import_summary()
+    for note in feedback.notifications:
+        note.open()
+    assert opened == ["summary", MOLECULES_VIEW_ID]
