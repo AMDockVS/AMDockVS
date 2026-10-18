@@ -167,3 +167,17 @@ def test_a_broken_row_does_not_take_the_batch_down():
     assert result["failure_count"] == 1
     assert result["failure_samples"][0]["entity_id"] == 1
     assert [update["entity_id"] for update in result["updates"]] == [2]
+
+
+def test_3d_builds_fused_rings_etkdg_rejects_and_refuses_impossible_stereo():
+    buildable = Chem.MolFromSmiles("O[C@@H]1[C@H]2CNC[C@H]1OC2")
+    built = generate_ligand_3d(buildable)
+    Chem.AssignStereochemistryFrom3D(built)
+    assert Chem.MolToSmiles(Chem.RemoveHs(built)) == Chem.MolToSmiles(buildable)
+
+    try:
+        generate_ligand_3d(Chem.MolFromSmiles("CS(=O)(=O)N1C[C@@H]2C[C@@]2(N)C1"))  # trans-fused cyclopropane
+    except ValueError as exc:
+        assert "stereochemistry" in str(exc)
+    else:
+        raise AssertionError("an impossible ring fusion must not get coordinates")

@@ -106,6 +106,15 @@ def protonate_ligand_molecule(mol):
     return Chem.AddHs(Chem.Mol(mol))
 
 
+def _stereo_matches(mol, conf_id: int) -> bool:
+    """Whether conformer `conf_id` has the stereo `mol` declares."""
+    from rdkit import Chem
+
+    probe = Chem.Mol(mol, confId=conf_id)
+    Chem.AssignStereochemistryFrom3D(probe)
+    return Chem.MolToSmiles(Chem.RemoveHs(probe)) == Chem.MolToSmiles(Chem.RemoveHs(mol))
+
+
 def generate_ligand_3d(
     mol,
     *,
@@ -142,7 +151,19 @@ def generate_ligand_3d(
         params.useRandomCoords = True
         conf_ids = list(AllChem.EmbedMultipleConfs(work_mol, numConfs=num_confs, params=params))
     if not conf_ids:
-        raise ValueError("RDKit could not generate a 3D conformer.")
+        # Fused small rings often defeat ETKDG's chirality checks though the stereo is buildable:
+        # embed without them and keep only conformers whose 3D stereo is the one asked for.
+        params.enforceChirality = False
+        conf_ids = list(AllChem.EmbedMultipleConfs(work_mol, numConfs=num_confs, params=params))
+        conf_ids = [cid for cid in conf_ids if _stereo_matches(work_mol, cid)]
+        for cid in [c.GetId() for c in work_mol.GetConformers()]:
+            if cid not in conf_ids:
+                work_mol.RemoveConformer(cid)
+    if not conf_ids:
+        raise ValueError(
+            "RDKit could not generate a 3D conformer: the stereochemistry given cannot be built "
+            "(often an impossible ring fusion)."
+        )
     minimized = False
     if len(conf_ids) > 1:
         # Best of N: raw embeddings have no comparable energy, so each attempt is optimized first.
