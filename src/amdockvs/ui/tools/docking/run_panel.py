@@ -154,7 +154,7 @@ class RunPanel:
             "Ligands x receptors x selected programs. With 'Skip pairs already docked' on, pairs "
             "that already have a result for the same protocol are not run again."
         )
-        self.run_button = split_button("Run Docking", bar, on_click=self._run_docking)
+        self.run_button = split_button("Run Docking", bar, on_click=self._run_docking, primary=True)
         gate_workflow_save(self.run_button.menu().addAction(
             "Save to workflow…", self._add_docking_to_workflow
         ))

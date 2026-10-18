@@ -372,6 +372,7 @@ def test_amdock_ui_domain_views_show_docking_summaries(tmp_path, monkeypatch):
             assert button.popupMode() == QToolButton.MenuButtonPopup
             assert [a.text() for a in button.menu().actions()] == ["Save to workflow…"]
             assert not button.menu().actions()[0].isEnabled()  # workflows can't chain jobs yet
+            assert button.minimumHeight() >= 44 and button.font().bold()  # each step's big CTA
 
         # The auxiliary prep table follows the step's table.
         docking_view.stepper.set_current_index(2)
