@@ -103,7 +103,10 @@ def _cluster_leads(dlg_path: Path, sdf_path: Path, num_modes: int) -> list[dict]
     molecule = PDBQTMolecule(
         dlg_path.read_text(encoding="utf-8", errors="replace"), name=dlg_path.stem, is_dlg=True, skip_typing=True
     )
+    from amdockvs.docking.preparation.meeko import boron_in_sd
+
     sd_string, _failures = RDKitMolCreate.write_sd_string(molecule, only_cluster_leads=True, keep_flexres=False)
+    sd_string = boron_in_sd(str(sd_string or ""))
     blocks = [block for block in str(sd_string or "").split("$$$$\n") if block.strip()][: max(1, int(num_modes))]
     if not blocks:
         raise RuntimeError(f"Meeko could not read poses from {dlg_path.name}")

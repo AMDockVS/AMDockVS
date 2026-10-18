@@ -200,8 +200,10 @@ def _convert_vina_pdbqt_to_sdf(
     )
     if not str(sd_string or "").strip():
         raise RuntimeError(f"Meeko could not convert docked PDBQT to SDF: {pdbqt_path.name}")
+    from amdockvs.docking.preparation.meeko import boron_in_sd
+
     sdf_path.parent.mkdir(parents=True, exist_ok=True)
-    sdf_path.write_text(str(sd_string), encoding="utf-8")
+    sdf_path.write_text(boron_in_sd(str(sd_string)), encoding="utf-8")
     return sdf_path
 
 
