@@ -7,9 +7,15 @@
         <loc>https://amdockvs.github.io/AMDockVS/latest/api_reference/</loc>
       </url>
       <url>
+        <loc>https://amdockvs.github.io/AMDockVS/latest/data_and_export/</loc>
+      </url>
+      <url>
         <loc>https://amdockvs.github.io/AMDockVS/latest/examples/</loc>
       </url>
       <url>
         <loc>https://amdockvs.github.io/AMDockVS/latest/runtime_api/</loc>
+      </url>
+      <url>
+        <loc>https://amdockvs.github.io/AMDockVS/latest/volumes_contract/</loc>
       </url>
 </urlset>
