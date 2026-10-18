@@ -66,7 +66,6 @@ class DockingRunRequest:
     executor_name: str = "thread"
     run_id: str = ""
     compute_interactions: bool = False
-    compute_diagram: bool = False
     complex_ids: tuple[int, ...] = ()
 
 

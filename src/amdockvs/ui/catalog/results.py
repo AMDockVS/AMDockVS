@@ -890,19 +890,25 @@ class DockingResultsWidget(QWidget):
         )
 
     def _load_interactions(self, hit: DockingHitSummary) -> None:
-        # Our own detection writes them next to the pose, so listing them is a plain JSON read
-        # (a few kB, no ms_contactmap import): no DB round-trip and no worker to freeze the panel.
+        # The pose's rows of `interaction_results` (an indexed lookup of a few rows), else what a
+        # diagram built for it found (a JSON beside the pose).
         from amdockvs.docking.results.diagram import pose_interactions
 
         ready = bool(hit.pose_payload_id and hit.receptor_payload_id)
         self.build_diagram_btn.setEnabled(ready)
-        rows = pose_interactions(str(hit.output_path), self._pose_rank(hit)) if hit.pose_payload_id else None
-        self._show_interactions(rows)
+        rows = None
+        if hit.pose_payload_id:
+            rows = self.runtime.docking.list_interactions(result_id=int(hit.result_id or 0)) or None
+        if rows is None and hit.pose_payload_id:
+            drawn = pose_interactions(str(hit.output_path), self._pose_rank(hit))
+            rows = None if drawn is None else [{"interaction_type": row.get("type"), "residue": row.get("residue"),
+                                                 "distance": row.get("distance_angstrom")} for row in drawn]
+        self._show_interactions(None if rows is None else [row for row in rows if row.get("interaction_type") != "none"])
 
     def _show_interactions(self, rows: list[dict] | None) -> None:
         self.interactions_text.clear()
         if rows is None:
-            self.interactions_status.setText("No diagram for this pose yet - press Build diagram.")
+            self.interactions_status.setText("Interactions not computed for this pose - press Build diagram.")
             return
         if not rows:
             self.interactions_status.setText("No interactions detected for this pose.")
@@ -910,10 +916,10 @@ class DockingResultsWidget(QWidget):
         counts: dict[str, int] = {}
         lines: list[str] = []
         for row in rows:
-            kind = str(row.get("type") or "interaction")
+            kind = str(row.get("interaction_type") or "interaction")
             counts[kind] = counts.get(kind, 0) + 1
             residue = str(row.get("residue") or "-")
-            lines.append(f"{kind:14s} {residue:12s} {fmt_float(row.get('distance_angstrom'))} A")
+            lines.append(f"{kind:14s} {residue:12s} {fmt_float(row.get('distance'))} A")
         summary = ", ".join(f"{key}: {value}" for key, value in sorted(counts.items()))
         self.interactions_status.setText(f"{len(rows)} interaction(s): {summary}")
         self.interactions_text.setPlainText("\n".join(lines[:200]))

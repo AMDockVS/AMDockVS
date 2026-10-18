@@ -13,6 +13,7 @@ MOL = "pose{n}\n  RDKit          3D\n\n  1  0  0  0  0  0  0  0  0  0999 V2000\n
 
 def test_each_row_keeps_the_pose_of_its_rank_and_no_file_survives(monkeypatch, tmp_path):
     monkeypatch.setattr(docking_registry, "DOCK_RUNNERS", dict(docking_registry.DOCK_RUNNERS))
+    monkeypatch.setattr(docking_registry, "_BUILTINS_LOADED", docking_registry._BUILTINS_LOADED)  # loaded into the copy
     seen = {}
 
     def runner(payload):
@@ -71,11 +72,13 @@ def test_the_interaction_job_reads_the_pose_bytes_and_the_receptor_it_was_docked
 
     from amdockvs.docking.results import tasks
 
-    monkeypatch.setattr(tasks, "collect_interaction_rows", lambda **_: [
-        {"interaction_type": "hbond", "residue": "ASP", "residue_index": 86, "distance": 2.9, "geometry": {}}])
+    asked = []
+    monkeypatch.setattr(tasks, "detect_interactions", lambda work: asked.extend(work) or [[
+        {"interaction_type": "hbond", "residue": "ASP", "residue_index": 86, "distance": 2.9, "geometry": {}}]])
     files = set(tmp_path.rglob("*"))
     (out,) = tasks.interactions_of_poses(chunk)
-    assert out["interaction_type"] == "hbond" and out["docking_result_id"] == row["id"]
+    assert asked == [(MOL.format(n=1).encode(), b"ATOM prepared\n", "pdbqt")]
+    assert out["interaction_type"] == "hbond" and (out["receptor_payload_id"], out["pose_payload_id"]) == (docked, pose)
     assert set(tmp_path.rglob("*")) == files  # the rows are the result: no report file per pose
     store.dispose()
 
@@ -116,3 +119,67 @@ def test_vina_docks_with_the_ligand_as_bytes_and_the_receptor_carried(where, tmp
     assert all(pose is not None and pose.GetNumAtoms() > 10 for pose in poses)
     assert {row["metrics"]["receptor_payload_id"] for row in rows} == {7}
     assert not list((tmp_path / "out").rglob("*.*"))  # the poses went as bytes
+
+
+def test_a_chunk_finds_the_interactions_of_its_poses_and_stores_each_pose_once(tmp_path):
+    """Docking and interactions in one task (`dock_with_interactions`): the detection runs in an
+    interpreter of its own on the pose bytes, and the sink gives the pose one id in both tables."""
+    pytest.importorskip("vina")
+    from ms_flow.core.database.project import ProjectStore
+    from ms_flow.engine import writer
+
+    from amdockvs.docking.jobs import DockingJobSpec
+    from amdockvs.docking.tasks import dock_with_interactions
+    from amdockvs.models.molecules import MoleculeRecord
+
+    data = Path(__file__).resolve().parent / "data"
+    receptor = tmp_path / "site.pdbqt"
+    receptor.write_text("".join(line for line in (data / "1s63_zn_site.pdbqt").open() if " Zn" not in line[66:]))
+    pair = {"ligand_id": 2, "receptor_id": 1, "ligand": (data / "1s63_ligand.pdbqt").read_bytes(),
+            "receptor_path": str(receptor), "receptor_payload_id": 7, "exhaustiveness": 1, "num_modes": 2,
+            "box_center": [18.0, 134.0, -1.0], "box_size": [15.0, 11.25, 18.75], "spacing": 0.375}
+    chunk = {"engine": "vina", "pairs": [pair], "output_dir": str(tmp_path / "out"), "scoring_function": "vina",
+             "vina_backend": "python", "vina_cpu": 1, "seed": 1, "energy_range": 3.0, "min_rmsd": 1.0}
+
+    assert dock_with_interactions(chunk)["interaction_results"] == []  # not asked for
+    out = dock_with_interactions({**chunk, "interactions": True})
+    docked, found = out["docking_results"], out["interaction_results"]
+    assert docked and {row["receptor_payload_id"] for row in found} == {7}
+    assert {id(row["pose_payload_id"]) for row in found} == {id(row["pose_payload_id"]) for row in docked}
+    assert {row["interaction_type"] for row in found} - {"none"}  # 1s63's ligand touches its site
+
+    store = ProjectStore.open_at(tmp_path / "project.db")
+    with store.get_session() as session:
+        session.add_all([MoleculeRecord(id=1, name="r", is_receptor=True), MoleculeRecord(id=2, name="l", is_ligand=True)])
+        session.commit()
+    writer(DockingJobSpec.output_spec, store).write([out])
+    with store.get_session() as session:
+        poses = lambda table: {row[0] for row in session.connection().exec_driver_sql(f"SELECT pose_payload_id FROM {table}")}
+        assert poses("interaction_results") == poses("docking_results") and None not in poses("docking_results")
+        assert len(poses("docking_results")) == len(docked)
+    store.dispose()
+
+
+def test_a_project_with_interactions_keyed_by_result_gets_the_table_keyed_by_structures(tmp_path):
+    from types import SimpleNamespace
+
+    from ms_flow.core.database.project import ProjectStore
+
+    from amdockvs.runtime import AMDockVSRuntime
+
+    store = ProjectStore.open_at(tmp_path / "project.db")
+    with store.get_session() as session:
+        conn = session.connection()
+        conn.exec_driver_sql("DROP TABLE interaction_results")
+        conn.exec_driver_sql("CREATE TABLE interaction_results (id INTEGER PRIMARY KEY, docking_result_id INTEGER)")
+        conn.exec_driver_sql("INSERT INTO interaction_results (docking_result_id) VALUES (1)")
+        session.commit()
+    runtime = SimpleNamespace(workspace=SimpleNamespace(project_db=store))
+    AMDockVSRuntime._rekey_interactions(runtime)
+    AMDockVSRuntime._rekey_interactions(runtime)  # once made again, left alone
+    with store.get_session() as session:
+        conn = session.connection()
+        columns = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(interaction_results)")}
+        assert {"receptor_payload_id", "pose_payload_id"} <= columns and "docking_result_id" not in columns
+        assert conn.exec_driver_sql("SELECT COUNT(*) FROM interaction_results").scalar() == 0
+    store.dispose()

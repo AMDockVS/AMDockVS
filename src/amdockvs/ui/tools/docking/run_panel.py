@@ -126,19 +126,13 @@ class RunPanel:
             "engine (a single indexed scan). Uncheck to re-dock and replace previous results."
         )
         run_layout.addRow(self.skip_existing_check)
-        self.compute_interactions_check = QCheckBox("Compute interactions after docking", run_box)
+        self.compute_interactions_check = QCheckBox("Compute interactions", run_box)
         self.compute_interactions_check.setToolTip(
-            "Submit an async interaction job chained after this docking run. Useful for small "
-            "sets or remote/HPC execution; for large VS, compute interactions later from Results."
+            "Find the protein-ligand interactions of every pose right after it is docked, in the "
+            "same task, and store them with the results (about a second per ligand). Results "
+            "lists them and draws their 2D diagram."
         )
         run_layout.addRow(self.compute_interactions_check)
-        self.render_diagrams_check = QCheckBox("Render 2D interaction diagrams", run_box)
-        self.render_diagrams_check.setToolTip(
-            "Draw each pose's 2D interaction diagram inside the docking run itself (one render "
-            "subprocess per pose — cheap for a handful of poses, expensive for a large VS). "
-            "Leave it off and render on demand from Results instead."
-        )
-        run_layout.addRow(self.render_diagrams_check)
 
         self.run_bar = bar = panel.action_bar
         # Idle, the headline is the Dockings count and the detail mirrors the preparations the
@@ -718,7 +712,6 @@ class RunPanel:
             "executor_name": self.run_destination.executor_name(),
             "skip_existing": bool(self.skip_existing_check.isChecked()),
             "compute_interactions": bool(self.compute_interactions_check.isChecked()),
-            "compute_diagram": bool(self.render_diagrams_check.isChecked()),
             "run_id": uuid4().hex,
         }
         return inp, params
@@ -1003,7 +996,6 @@ class RunPanel:
             executor_name=str(params["executor_name"]),
             run_id=str(params["run_id"]),
             compute_interactions=bool(params.get("compute_interactions")),
-            compute_diagram=bool(params.get("compute_diagram")),
             complex_ids=complex_ids,
         )
         try:

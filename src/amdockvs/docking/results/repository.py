@@ -570,7 +570,7 @@ def list_interactions(project_db, *, result_id: int) -> list[dict[str, Any]]:
         query=(
             "SELECT interaction_type, residue, residue_index, distance, geometry, created_at "
             f"FROM {TABLE_INTERACTION_RESULTS} "
-            f"WHERE docking_result_id = {int(result_id)} "
+            f"WHERE pose_payload_id = (SELECT pose_payload_id FROM {TABLE_DOCKING_RESULTS} WHERE id = {int(result_id)}) "
             "ORDER BY interaction_type ASC, residue_index ASC, distance ASC"
         ),
     )
@@ -590,12 +590,13 @@ def interaction_stats(project_db, *, result_ids: list[int] | None = None) -> dic
     ids = sorted({int(value) for value in (result_ids or []) if int(value) > 0})
     id_clause = ""
     if ids:
-        id_clause = f"AND docking_result_id IN ({','.join(str(value) for value in ids)}) "
+        id_clause = (f"AND pose_payload_id IN (SELECT pose_payload_id FROM {TABLE_DOCKING_RESULTS} "
+                     f"WHERE id IN ({','.join(str(value) for value in ids)})) ")
     type_rows = db_rows(
         project_db,
         query=(
             "SELECT interaction_type AS label, "
-            "COUNT(DISTINCT docking_result_id) AS hit_count, "
+            "COUNT(DISTINCT pose_payload_id) AS hit_count, "
             "COUNT(*) AS interaction_count "
             f"FROM {TABLE_INTERACTION_RESULTS} "
             "WHERE COALESCE(interaction_type, '') != 'none' "
@@ -613,7 +614,7 @@ def interaction_stats(project_db, *, result_ids: list[int] | None = None) -> dic
             "WHEN COALESCE(residue, '') != '' THEN residue "
             "ELSE CAST(residue_index AS TEXT) "
             "END AS label, "
-            "COUNT(DISTINCT docking_result_id) AS hit_count, "
+            "COUNT(DISTINCT pose_payload_id) AS hit_count, "
             "COUNT(*) AS interaction_count "
             f"FROM {TABLE_INTERACTION_RESULTS} "
             "WHERE COALESCE(interaction_type, '') != 'none' "

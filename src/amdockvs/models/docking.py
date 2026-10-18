@@ -245,15 +245,20 @@ class InteractionsResult(SQLModel, table=True):
         "water_bridge", "pi_stacking", "pi_cation", "halogen_bond"
 
     residue format: "ALA123:A" (resname + resnum + chain)
+
+    Keyed by the structures, not by a docking result: the receptor the pose sits in and the
+    pose itself, so a reference complex has interactions too. A pose with none detected keeps
+    one "none" row: computed, nothing found.
     """
 
     __tablename__ = TABLE_INTERACTION_RESULTS
     __table_args__ = (
-        Index("idx_interaction_result", "docking_result_id"),
+        Index("idx_interaction_pose", "pose_payload_id", "receptor_payload_id"),
     )
 
-    id: int | None         = Field(default=None, primary_key=True)
-    docking_result_id: int = Field(foreign_key=f"{TABLE_DOCKING_RESULTS}.id", index=True)
+    id: int | None           = Field(default=None, primary_key=True)
+    receptor_payload_id: int = Field()  # ponytail: no FK, like docking_results.metrics: a re-prepared receptor may drop it
+    pose_payload_id: int     = Field(foreign_key=f"{TABLE_PAYLOADS}.id")
 
     interaction_type: str  = Field()
     residue: str           = Field()         # "ALA123:A"

@@ -42,8 +42,8 @@ def test_only_the_pairs_docked_again_lose_their_older_rows(tmp_path):
         session.commit()
         # every result has a contact computed from its pose
         results = {row.id: label[row.pose_payload_id] for row in session.exec(select(DockingResult)).all()}
-        session.add_all([InteractionsResult(docking_result_id=result_id, interaction_type="hydrophobic",
-                                            residue="ALA1:A") for result_id in results])
+        session.add_all([InteractionsResult(receptor_payload_id=1, pose_payload_id=pid, interaction_type="hydrophobic",
+                                            residue="ALA1:A") for pid in pose.values()])
         session.commit()
     # ...and files someone opened: the cached pose and the diagram drawn from it
     cache = tmp_path / PAYLOAD_CACHE
@@ -63,7 +63,7 @@ def test_only_the_pairs_docked_again_lose_their_older_rows(tmp_path):
 
     def contacts():
         with store.get_session() as session:
-            return sorted(results[row.docking_result_id] for row in session.exec(select(InteractionsResult)).all())
+            return sorted(label[row.pose_payload_id] for row in session.exec(select(InteractionsResult)).all())
 
     # the contacts, the pose payload and the cached files of a dropped result went with it
     assert contacts() == left

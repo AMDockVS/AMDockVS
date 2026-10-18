@@ -80,12 +80,11 @@ def delete_results_where(project_db, condition) -> int:
     them: their interactions, their pose payloads and the diagrams cached beside them. The one way a
     result row leaves the project. Returns how many results."""
     record = DockingResultRecord
-    doomed = select(record.id).where(condition)
     poses: set[int] = set()
     with suppress(*OperationalError), project_db.get_session() as session:
         poses = set(filter(None, session.exec(select(record.pose_payload_id).where(condition)).all()))
     deleted = 0
-    for model, which in ((InteractionsResult, InteractionsResult.docking_result_id.in_(doomed)),
+    for model, which in ((InteractionsResult, InteractionsResult.pose_payload_id.in_(poses)),
                          (DockingResultRecord, condition)):
         with suppress(*OperationalError):  # either table may not exist yet
             with project_db.get_session() as session:

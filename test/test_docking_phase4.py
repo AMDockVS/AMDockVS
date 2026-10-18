@@ -148,7 +148,8 @@ def test_submission_service_dispatches_only_through_runtime_docking():
     result = DockingSubmissionService(runtime).submit(request, ready_receptor_ids=(10,))
 
     assert result.job_ids == {f"1:Vina:{protocol.hash[:8]}": "job-1"}
-    assert result.interaction_job_id == "interactions-1"
+    assert result.interaction_job_id == ""  # found inside the docking chunks
+    assert runtime.docking.run_calls[0]["compute_interactions"] is True
     assert result.receptor_ids == (10,)
     assert runtime.docking.run_calls[0]["ligand_set"][1] == {
         "prepared": True,

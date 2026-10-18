@@ -1002,8 +1002,7 @@ class DockingAPI:
             depends_on: list[str] | None = None,
             check_required: bool = True,
             skip_existing: bool = True,
-            compute_diagram: bool = False,
-            diagram_format: str = "png",
+            compute_interactions: bool = False,
             hit_threshold: float | None = None,
             hit_cap: int = 0,
             hit_mode: str = HIT_MODE_THRESHOLD,
@@ -1013,6 +1012,7 @@ class DockingAPI:
 
         ``hit_threshold``/``hit_cap`` are optional for materialized rows and mandatory for a
         sharded library, where returning every scored molecule would defeat the storage model.
+        ``compute_interactions`` finds each pose's interactions in the chunk that docked it.
         """
         if ligands is not None:
             if ligand_set is not None:
@@ -1040,10 +1040,10 @@ class DockingAPI:
                 raise ValueError(
                     "docking.run over a sharded library requires hit_threshold and hit_cap."
                 )
-            if compute_diagram:
+            if compute_interactions:
                 raise ValueError(
-                    "compute_diagram is not available during sharded docking; compute diagrams "
-                    "after hits have been materialized."
+                    "compute_interactions is not available during sharded docking; compute "
+                    "interactions after hits have been materialized."
                 )
             return self.run_shards(
                 program=program,
@@ -1150,6 +1150,7 @@ class DockingAPI:
             skip_existing=skip_existing,
             hit_threshold=hit_threshold,
             hit_cap=max(0, int(hit_cap)),
+            interactions=bool(compute_interactions),
         )
         job_id = self.runtime.submit_job(
             docking_job,
@@ -1163,10 +1164,6 @@ class DockingAPI:
             # Declare the real chunk total so progress = processed/total (not processed/emitted).
             total_chunks=total_chunks,
         )
-        if compute_diagram:
-            # A pose's diagram is keyed by its payload id, which exists once the result is stored.
-            self.compute_diagrams(run_id=params.run_id, pose_rank=None, fmt=diagram_format,
-                                  depends_on=[job_id])
         return job_id
 
     def redock(
@@ -1197,8 +1194,6 @@ class DockingAPI:
             depends_on: list[str] | None = None,
             check_required: bool = True,
             skip_existing: bool = True,
-            compute_diagram: bool = False,
-            diagram_format: str = "png",
     ) -> str:
         self.runtime._require_active_project()
         program_spec = self.get_program_spec(program)
@@ -1311,10 +1306,6 @@ class DockingAPI:
             cpu_required=program_spec.resource_requirements(resolved_engine_config)["cpu_required"],
             total_chunks=total_chunks,
         )
-        if compute_diagram:
-            # A pose's diagram is keyed by its payload id, which exists once the result is stored.
-            self.compute_diagrams(run_id=params.run_id, pose_rank=None, fmt=diagram_format,
-                                  depends_on=[job_id])
         return job_id
 
     def list_results(self, *, limit: int = 5000, offset: int = 0):
