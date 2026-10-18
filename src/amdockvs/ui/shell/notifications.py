@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QPushButton,
     QToolButton,
     QVBoxLayout,
@@ -44,6 +45,7 @@ class Notification:
     text: str = ""
     level: str = INFO
     at: datetime = field(default_factory=datetime.now)
+    details: str = ""  # the whole story (a traceback): behind "Show Details" on double-click
 
     def as_line(self, *, glyph: bool = True) -> str:
         icon = f"{_ICONS.get(self.level, _ICONS[INFO])}  " if glyph else ""
@@ -77,6 +79,8 @@ class NotificationLog(QWidget):
         self._list = QListWidget(self)
         self._list.setWordWrap(True)
         self._list.setAlternatingRowColors(True)
+        self._list.setToolTip("Double-click an entry to read all of it.")
+        self._list.itemDoubleClicked.connect(self._show_entry)
         layout.addWidget(self._list, 1)
         row = QHBoxLayout()
         self._empty = QLabel("Nothing to report yet.", self)
@@ -105,10 +109,24 @@ class NotificationLog(QWidget):
         item = QListWidgetItem(note.as_line(glyph=icon is None))
         if icon is not None:
             item.setIcon(icon)
+        item.setData(Qt.ItemDataRole.UserRole, note)
         if at_top:
             self._list.insertItem(0, item)
         else:
             self._list.addItem(item)
+
+    def _show_entry(self, item: QListWidgetItem) -> None:
+        note: Notification = item.data(Qt.ItemDataRole.UserRole)
+        icon = {ERROR: QMessageBox.Icon.Critical, WARNING: QMessageBox.Icon.Warning}.get(
+            note.level, QMessageBox.Icon.Information
+        )
+        self.hide()  # a popup: it would close under the dialog anyway
+        box = QMessageBox(icon, note.title, note.text or note.title, QMessageBox.StandardButton.Ok,
+                          self.parentWidget())
+        if note.details:
+            box.setDetailedText(note.details)
+        box.open()  # not exec: a test or a busy event loop must not block on it
+        self.entry_dialog = box
 
     def _on_clear(self) -> None:
         self._list.clear()
