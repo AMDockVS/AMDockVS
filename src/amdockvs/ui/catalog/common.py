@@ -294,6 +294,8 @@ class BoundTableWidget(QWidget):
         self._table.data_refreshed.connect(lambda total: setattr(self, "record_count", int(total)))
         self._table.data_refreshed.connect(self.records_changed)
         self._table.data_refreshed.connect(self._publish_selection)
+        self._show_first_pending = False  # activated before its rows landed: show row 1 when they do
+        self._table.data_refreshed.connect(self._show_first_when_loaded)
         self._table.selection_changed.connect(lambda objs: self.selection_count_changed.emit(len(objs)))
         # Restore this table's saved view prefs (visible columns + sort), then persist
         # any interactive changes back to AMDock's own config, keyed by the widget class.
@@ -526,6 +528,7 @@ class BoundTableWidget(QWidget):
         obj = None
         if table is not None and table._model.rowCount() > 0:
             obj = table._model.get_raw_object(0)
+        self._show_first_pending = obj is None and table is not None
         if obj is None:
             self.clear_pymol()
             return
@@ -537,6 +540,10 @@ class BoundTableWidget(QWidget):
             self._load_object_in_pymol(obj)
         except NotImplementedError:
             self.clear_pymol()
+
+    def _show_first_when_loaded(self, *_args) -> None:
+        if self._show_first_pending and self.isVisible() and self._table._model.rowCount() > 0:
+            self.show_active_in_pymol()
 
     def refresh(self) -> None:
         if self._table is not None:
