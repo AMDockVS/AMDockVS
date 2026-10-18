@@ -428,12 +428,16 @@ class AMDockVSMainWindow(QMainWindow):
         """
         from PySide6.QtWidgets import QToolBar
 
-        for bar in self.findChildren(QToolBar):  # data toolbar + PyMOL bar + dock/tool buttons
-            bar.setEnabled(on)
+        # data toolbar + PyMOL bar + dock/tool buttons, the docks already on screen, the status bar
+        widgets = [*self.findChildren(QToolBar), self._status_bar]
         if self.dock_manager is not None:
-            for entry in self.dock_manager.entries.values():  # docks already on screen
-                entry.dock.setEnabled(on)
-        self._status_bar.setEnabled(on)
+            widgets += [entry.dock for entry in self.dock_manager.entries.values()]
+        if not on:  # remember what would show, so a bar the user hid stays hidden later
+            self._shown_with_project = [w for w in widgets if w.isVisibleTo(self)]
+        for widget in widgets:
+            widget.setEnabled(on)
+        for widget in getattr(self, "_shown_with_project", ()):
+            widget.setVisible(on)  # hidden, not greyed: the welcome screen stands alone
         for action in self._project_actions:
             action.setEnabled(on)
 
