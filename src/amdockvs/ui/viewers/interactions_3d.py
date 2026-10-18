@@ -31,6 +31,17 @@ def _nearest(cmd, selection: str, to) -> tuple[float, float, float] | None:
     return tuple(min(coords, key=lambda p: sum((p[i] - to[i]) ** 2 for i in range(3))))
 
 
+def _nearest_pair(cmd, ligand, selection: str):
+    """The ligand point closest to any atom of ``selection``, or ``None`` when it selects nothing."""
+    import numpy as np
+
+    target = cmd.get_coords(selection)
+    if target is None or not len(target):
+        return None
+    gaps = np.linalg.norm(np.asarray(ligand)[:, None, :] - np.asarray(target)[None, :, :], axis=2)
+    return tuple(ligand[int(gaps.min(axis=1).argmin())])
+
+
 def show_residue_interactions(cmd, *, receptor_obj: str, ligand_obj: str, key: str, diagram) -> int:
     """Sticks + zoom on residue ``key``, one dashed distance per contact; the number drawn."""
     ligand = cmd.get_coords(f"{ligand_obj} and not elem H")
@@ -79,13 +90,16 @@ def _draw(cmd, receptor_obj: str, ligand_obj: str, key: str, contacts, ligand) -
 
     drawn = 0
     for interaction in contacts:
-        atoms = [ligand[i] for i in interaction.ligand_atoms if i < len(ligand)]
-        if not atoms:
-            continue
-        start = _centroid(atoms)
         protein = residue_selection(receptor_obj, interaction.residue_key)
         if interaction.protein_atom:
             protein += f" and name {interaction.protein_atom}"
+        atoms = [ligand[i] for i in interaction.ligand_atoms if i < len(ligand)]
+        if not atoms:  # a table row saved without its ligand atoms: the ligand atom nearest the residue
+            near = _nearest_pair(cmd, ligand, protein) or _nearest_pair(cmd, ligand, residue_selection(receptor_obj, interaction.residue_key))
+            if near is None:
+                continue
+            atoms = [near]
+        start = _centroid(atoms)
         color = INTERACTION_STYLES[interaction.kind].color if interaction.kind in INTERACTION_STYLES else "#808080"
         a = point(start, sphere=len(atoms) > 1)
         if interaction.via_water:
