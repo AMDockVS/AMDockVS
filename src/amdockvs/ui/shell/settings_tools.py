@@ -8,6 +8,7 @@ half-installed tool is a failure that costs more to clean up than the wait.
 
 from __future__ import annotations
 
+from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -29,6 +30,15 @@ from amdockvs.integrations.registry import (
     uninstall_tool,
 )
 from amdockvs.ui.common.async_query import run_async
+
+
+class _ToolEvents(QObject):
+    installed = Signal(str)  # tool_id: missing on the last check, there now
+
+
+# ponytail: one app-wide signal; every panel that gates on a managed tool listens to it and
+# switches that tool on. Connect bound methods of widgets so a closed panel drops off.
+tool_events = _ToolEvents()
 
 
 def _human_size(size_bytes: int) -> str:
@@ -128,6 +138,11 @@ class ExternalToolsPage(QWidget):
         )
 
     def _apply(self, statuses) -> None:
+        installed = {status.tool_id for status in statuses if status.installed}
+        known = getattr(self, "_installed", None)
+        self._installed = installed
+        for tool_id in sorted(installed - known) if known is not None else ():
+            tool_events.installed.emit(tool_id)  # installed from here, or found by Refresh
         for status in statuses:
             row = self._rows.get(status.tool_id)
             if row is not None:

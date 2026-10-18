@@ -192,6 +192,7 @@ def test_a_program_that_is_not_installed_stays_listed_and_cannot_be_run(monkeypa
     assert "QuickVina 2" in rows()
     assert studio._program_checks["qvina"].isEnabled()
     assert studio._program_notices["qvina"][1].isHidden()
+    assert "qvina" in ticked() and studio._current_program_key() == "qvina"  # and left active
 
 
 def test_redocking_readiness_counts_distinct_receptors_and_keeps_picked_pairs_whole():
