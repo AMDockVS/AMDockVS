@@ -247,12 +247,17 @@ class DockingResultsWidget(QWidget):
         table.horizontalHeader().setStretchLastSection(True)
 
     def _build_detail_panel(self, parent: QWidget) -> QWidget:
-        box = QGroupBox("Selected Result", parent)
-        layout = QVBoxLayout(box)
 
+        results_container = QWidget(parent)
+        layout = QHBoxLayout(results_container)
+
+        box = QGroupBox("Selected Result", results_container)
+        layout.addWidget(box, 1)
+
+        box_layout = QVBoxLayout(box)
         self.detail_placeholder = QLabel("Select a docking result to inspect it.", box)
         self.detail_placeholder.setWordWrap(True)
-        layout.addWidget(self.detail_placeholder)
+        box_layout.addWidget(self.detail_placeholder)
 
         # Structured key fields — the important stuff, not a JSON dump.
         self.detail_fields = QWidget(box)
@@ -274,7 +279,7 @@ class DockingResultsWidget(QWidget):
         form.addRow("Receptor", self.d_receptor)
         form.addRow(self._d_error_caption, self.d_error)
         self.detail_fields.setVisible(False)
-        layout.addWidget(self.detail_fields)
+        box_layout.addWidget(self.detail_fields)
 
         # "See more" — the low-relevance data (ids, paths, metadata), collapsed by default.
         self.detail_more_btn = QToolButton(box)
@@ -284,13 +289,13 @@ class DockingResultsWidget(QWidget):
         self.detail_more_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.detail_more_btn.toggled.connect(self._on_toggle_detail_more)
         self.detail_more_btn.setVisible(False)
-        layout.addWidget(self.detail_more_btn)
+        box_layout.addWidget(self.detail_more_btn)
 
         self.detail_more = QTextEdit(box)
         self.detail_more.setReadOnly(True)
         self.detail_more.setVisible(False)
         self.detail_more.setMaximumHeight(160)
-        layout.addWidget(self.detail_more)
+        box_layout.addWidget(self.detail_more)
 
         # Interactions and the 2D diagram are one pass over the same pose, and the pose is what
         # this panel owns (C6) -- so the button is here, not in the diagram dock, which stays a
@@ -315,9 +320,9 @@ class DockingResultsWidget(QWidget):
         self.interactions_text.setMinimumHeight(90)
         self.interactions_text.setMaximumHeight(180)
         interactions_layout.addWidget(self.interactions_text)
-        layout.addWidget(self.interactions_box)
-        layout.addStretch(1)
-        return box
+        layout.addWidget(self.interactions_box, 1)
+        # layout.addStretch(1)
+        return results_container
 
     def _build_analytics_panel(self, parent: QWidget) -> QWidget:
         box = QGroupBox("Analytics", parent)
