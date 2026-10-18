@@ -8,6 +8,8 @@ import sys
 
 import pytest
 
+import amdockvs.core.configuration  # noqa: F401  - pydantic before PySide6 (see test_ui_job_feedback)
+
 pytest.importorskip("PySide6")
 from PySide6.QtWidgets import QApplication
 from sqlalchemy.orm import sessionmaker
@@ -32,7 +34,7 @@ class _Runtime:
 
     def __init__(self):
         engine = create_engine("sqlite://")
-        SQLModel.metadata.create_all(engine)
+        SQLModel.metadata.create_all(engine, tables=[_Mol.__table__])
         factory = sessionmaker(bind=engine, class_=Session)
         self.active_context = object()
         self.amdock_configuration = None
@@ -179,3 +181,22 @@ def test_clearing_the_selection_sticks_when_a_tool_reloads_the_table_first():
     window.selection.set("ligand", None)
     app.processEvents()
     assert window.selection.get("ligand") is None and "id" not in _active(ligands)
+
+
+def test_delete_all_shown_takes_every_filtered_row_not_just_the_loaded_page(monkeypatch):
+    from amdockvs.ui.catalog import deletion
+
+    BoundTableWidget.delete_kind = "molecule"  # what a deleting catalog subclass declares
+    try:
+        widget = _widget()
+    finally:
+        BoundTableWidget.delete_kind = None
+    widget.delete_kind = "molecule"
+    with widget.runtime.workspace.project_db.get_session() as session:
+        session.add_all([_Mol(usage_class="general") for _ in range(45)] + [_Mol(usage_class="reference")])
+        session.commit()
+    asked = []
+    monkeypatch.setattr(deletion, "delete_objects", lambda _p, _r, objects, **_k: asked.extend(objects))
+    (action,) = widget.table._keyed_actions["delete_shown"]  # a toolbar verb, not a row-menu one
+    action.trigger()
+    assert asked == list(range(1, 46))  # the reference row is filtered out, so it stays

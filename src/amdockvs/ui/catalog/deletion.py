@@ -21,9 +21,9 @@ _KINDS = {
 
 
 def delete_objects(parent, runtime, objects, *, kind: str, done: Callable[[int], None]) -> None:
-    """Confirm, delete `objects` (rows of `kind`) off the GUI thread, then call `done(count)`."""
+    """Confirm, delete `objects` (rows of `kind`, or bare ids) off the GUI thread, then call `done(count)`."""
     description = _KINDS[kind]
-    ids = sorted({int(getattr(o, "id", 0) or 0) for o in objects or ()} - {0})
+    ids = sorted({int(getattr(o, "id", o) or 0) for o in objects or ()} - {0})
     if not ids:
         QMessageBox.information(parent, "Delete", "Select at least one row to delete.")
         return

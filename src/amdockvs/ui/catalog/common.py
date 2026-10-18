@@ -316,6 +316,10 @@ class BoundTableWidget(QWidget):
                                            "Export structures (ZIP)…": self._export_structures}
         if self.delete_kind is not None:  # last in the menu, the one that cannot be undone
             config.context_menu_actions = {**dict(config.context_menu_actions or {}), "Delete…": self.delete_selected}
+            # The whole filtered set, every page: a table-wide verb, so it lives in the toolbar.
+            self._table.set_toolbar_actions("delete_shown", [ToolbarAction(
+                label="Delete all shown…", on_click=self.delete_shown,
+                tooltip="Delete every row the current filters show, on all pages")])
 
     # --- Jobs filling this table ------------------------------------------------------
     def follow_jobs(self, job_ids, *, noun: str, stage: str) -> None:
@@ -505,6 +509,16 @@ class BoundTableWidget(QWidget):
         from amdockvs.ui.catalog.deletion import delete_selected_objects
 
         delete_selected_objects(self, kind=self.delete_kind, objects=objects)
+
+    def delete_shown(self, _objects=None) -> None:
+        """Delete every row the table shows, across all pages: filter first, then this."""
+        if self.delete_kind is None or self._table is None:
+            return
+        from amdockvs.ui.catalog.deletion import delete_selected_objects
+
+        # ponytail: the ids are read on the GUI thread; fine for 10^4 rows, push the
+        # builder's query down as a subquery delete if a catalog of 10^6 needs this.
+        delete_selected_objects(self, kind=self.delete_kind, objects=self._table.all_filtered_ids())
 
     # --- PyMOL follows the active tab ----------------------------------------
     def _load_object_in_pymol(self, obj) -> None:
