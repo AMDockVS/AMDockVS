@@ -200,7 +200,7 @@ class ReceptorImportPanel(QWidget):
         # Every column is user-resizable (Interactive) with a sensible default width; Chains needs
         # room for its chips+combo so it isn't clipped.
         header.setStretchLastSection(False)
-        default_column_widths = {0: 90, 1: 120, 2: 245, 3: 295, 4: 190, 5: 60, 6: 80, 7: 160, 8: 120, 9: 80}
+        default_column_widths = {0: 90, 1: 120, 2: 245, 3: 295, 4: 190, 5: 190, 6: 80, 7: 160, 8: 120, 9: 80}
         for column, width in default_column_widths.items():
             if column in [2, 3]:
                 header.setSectionResizeMode(column, QHeaderView.ResizeMode.Stretch)
@@ -490,6 +490,10 @@ class ReceptorImportPanel(QWidget):
             selected_metals = None
             if last_sig is not None and last_sig == sig and isinstance(metal_chips, ChipsSelect):
                 selected_metals = metal_chips.selected_items()
+            water_chips = self.table.cellWidget(row_index, 5)
+            selected_waters = None
+            if last_sig is not None and last_sig == sig and isinstance(water_chips, ChipsSelect):
+                selected_waters = water_chips.selected_items()
 
             if isinstance(ligand_widget, QComboBox):
                 selected_ligand = str(ligand_widget.currentData() or "")
@@ -502,6 +506,7 @@ class ReceptorImportPanel(QWidget):
                 "selected_assembly": selected_assembly,
                 "selected_reference_ligands": selected_reference_ligands,
                 "selected_metals": selected_metals,
+                "selected_waters": selected_waters,
             }
         self._row_state_by_path = state_by_path
 
@@ -550,6 +555,7 @@ class ReceptorImportPanel(QWidget):
                         "selected_assembly": state.get("selected_assembly", ""),
                         "selected_reference_ligands": _as_ref_tuple(state.get("selected_reference_ligands")),
                         "selected_metals": _as_ref_tuple(state.get("selected_metals")),
+                        "selected_waters": _as_ref_tuple(state.get("selected_waters")),
                     }
                 )
                 preview = build_receptor_import_preview(scan, options)
@@ -582,8 +588,7 @@ class ReceptorImportPanel(QWidget):
         self.table.setRowCount(len(self._file_paths))
         for row_index, path in enumerate(self._file_paths):
             self._set_item(row_index, 0, Path(path).name)
-            for column in (5, 6):
-                self._set_item(row_index, column, "...")
+            self._set_item(row_index, 6, "...")
 
     def _ensure_row_widgets(self, row_index: int) -> None:
         if self.table.cellWidget(row_index, 1) is not None:
@@ -593,8 +598,9 @@ class ReceptorImportPanel(QWidget):
         unit_combo.currentIndexChanged.connect(self.refresh_preview)
         self.table.setCellWidget(row_index, 1, unit_combo)
         # Chains (col 2) is a per-row multi-select; Ligands (col 3) picks which cocrystal
-        # ligands become references (drop artifacts); Metals (col 4) which metals stay.
-        for column in (2, 3, 4):
+        # ligands become references (drop artifacts); Metals (col 4) and Waters (col 5, the
+        # structural ones) which stay in the receptor.
+        for column in (2, 3, 4, 5):
             chips = ChipsSelect(self.table)
             chips.changed.connect(self.refresh_preview)
             chips.heightChanged.connect(lambda chips=chips: self._fit_row_of(chips))
@@ -731,7 +737,6 @@ class ReceptorImportPanel(QWidget):
             candidate_count += 1
         self._set_item(row_index, 0, Path(path).name)
         # Columns 1 (Unit), 2 (Chains), 3 (Ligands) are widgets, populated below when build_widgets.
-        self._set_item(row_index, 5, str(summary.get("waters") or 0))
         self._set_item(row_index, 6, str(summary.get("status") or "Review"))
         if build_widgets:
             self._ensure_row_widgets(row_index)
@@ -787,6 +792,12 @@ class ReceptorImportPanel(QWidget):
                 metal_chips.blockSignals(True)
                 metal_chips.set_items(list((preview.get("workflow") or {}).get("metal_candidates") or []), selected=captured)
                 metal_chips.blockSignals(False)
+            water_chips = self.table.cellWidget(row_index, 5)
+            if isinstance(water_chips, ChipsSelect):
+                water_chips.blockSignals(True)
+                water_chips.set_items(list((preview.get("workflow") or {}).get("water_candidates") or []),
+                                      selected=state.get("selected_waters"))
+                water_chips.blockSignals(False)
 
             ligand_combo = self._ligand_widget(row_index)
             if ligand_combo is not None:

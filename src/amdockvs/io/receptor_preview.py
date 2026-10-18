@@ -67,6 +67,8 @@ class ReceptorImportOptions:
     selected_metals: tuple[str, ...] | None = None
     # Metal residue names that center a Grid Box; None = every coordinated metal.
     grid_box_metals: tuple[str, ...] | None = None
+    # Structural water selectors to keep; None = all. Non-structural ones follow remove_non_structural_waters.
+    selected_waters: tuple[str, ...] | None = None
 
 
 def preview_receptor_import(file_path: str | Path, options: ReceptorImportOptions) -> dict[str, Any]:
@@ -139,6 +141,7 @@ def build_receptor_import_maps(
             selected_assembly=str(state.get("selected_assembly", "")),
             selected_reference_ligands=None if refs is None else tuple(refs),
             selected_metals=None if state.get("selected_metals") is None else tuple(state["selected_metals"]),
+            selected_waters=None if state.get("selected_waters") is None else tuple(state["selected_waters"]),
         )
         preview = build_receptor_import_preview(scan, options)
         extra_data_patch_by_file[path] = {
@@ -188,9 +191,14 @@ def build_receptor_import_preview(scan: dict[str, Any], options: ReceptorImportO
         kept_metals = set(options.selected_metals)
         components = [comp for comp in components if comp["component_class"] != "metal" or comp["selector"] in kept_metals]
 
+    water_candidates = [comp["selector"] for comp in components if comp["component_class"] == "water" and comp.get("is_structural")]
+    kept_waters = None if options.selected_waters is None else set(options.selected_waters)
     for component in components:
         if component["component_class"] == "water":
-            component["is_selected"] = bool(component.get("is_structural")) if options.remove_non_structural_waters else True
+            if component.get("is_structural"):
+                component["is_selected"] = kept_waters is None or component["selector"] in kept_waters
+            else:
+                component["is_selected"] = not options.remove_non_structural_waters
 
     # Reference-ligand selection: which cocrystals to keep (None = all). Artifact copies get
     # dropped here, so they neither become references nor spawn a binding site.
@@ -214,6 +222,7 @@ def build_receptor_import_preview(scan: dict[str, Any], options: ReceptorImportO
     workflow = _build_workflow_payload(components, options)
     workflow["reference_ligands"] = list(reference_ligands)
     workflow["metal_candidates"] = metal_candidates
+    workflow["water_candidates"] = water_candidates
     status, messages = _build_status(
         atom_count=atom_count,
         missing_residues=missing_residues,
@@ -242,6 +251,7 @@ def build_receptor_import_preview(scan: dict[str, Any], options: ReceptorImportO
             "selected_assembly": chosen_assembly,
             "selected_reference_ligands": None if options.selected_reference_ligands is None else list(options.selected_reference_ligands),
             "selected_metals": _as_list(options.selected_metals),
+            "selected_waters": _as_list(options.selected_waters),
             "grid_box_metals": _as_list(options.grid_box_metals),
         },
         "assembly": {
@@ -911,9 +921,14 @@ def _components_to_remove(scan: dict[str, Any], options: ReceptorImportOptions, 
             if selector_parts is not None:
                 removable.append(selector_parts)
             continue
-        if component_class == "water" and options.remove_non_structural_waters:
+        if component_class == "water":
+            structural = bool(component.get("is_structural"))
+            dropped = (
+                options.remove_non_structural_waters if not structural
+                else options.selected_waters is not None and selector not in options.selected_waters
+            )
             selector_parts = _parse_selector(selector)
-            if selector_parts is not None and not bool(component.get("is_structural")):
+            if dropped and selector_parts is not None:
                 removable.append(selector_parts)
             continue
         if component_class == "cofactor" and options.remove_cofactors:

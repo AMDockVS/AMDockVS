@@ -17,12 +17,15 @@ def _atom(serial, name, resname, resseq, x, y, element, record="ATOM"):
 
 
 def _receptor(path):
-    """A Gly chain plus ZN 301 and CD 302/303, each held by two waters (coordinated)."""
+    """A Gly chain plus ZN 301 and CD 302/303, each held by two waters (coordinated); HOH 401 is structural."""
     lines, serial = [], 1
     for resseq in range(1, 4):
         for name, element, dx in (("N", "N", 0.0), ("CA", "C", 1.5), ("C", "C", 3.0), ("O", "O", 4.0)):
             lines.append(_atom(serial, name, "GLY", resseq, 40.0 + 4 * resseq + dx, 40.0, element))
             serial += 1
+    # A backbone O 2.8 Å from the first ZN water makes that one water structural (polymer-metal bridge).
+    lines.append(_atom(serial, "O", "GLY", 9, 0.0, -5.0, "O"))
+    serial += 1
     water = 401
     for resseq, metal, x in ((301, "ZN", 0.0), (302, "CD", 10.0), (303, "CD", 20.0)):
         lines.append(_atom(serial, metal, metal, resseq, x, 0.0, metal, "HETATM"))
@@ -72,7 +75,23 @@ def test_import_panel_forwards_the_metals_taken_off_and_the_grid_box_metals(tmp_
     panel.refresh_preview()
     metals = panel.table.cellWidget(0, 4)
     assert metals.selected_items() == ["ZN:A:301", "CD:A:302", "CD:A:303"]
+    assert panel.table.cellWidget(0, 5).selected_items() == ["HOH:A:401"]  # only structural waters are chips
     metals._remove("CD:A:302")
     request = panel.import_request()
     assert request["per_file"][path]["selected_metals"] == ["ZN:A:301", "CD:A:303"]
     assert request["grid_box_metals"] == ["ZN", "FE", "MG", "MN", "CU", "CO", "NI"]  # the config's list
+
+
+def test_a_structural_water_taken_off_leaves_the_structure(tmp_path):
+    source = _receptor(tmp_path / "rec.pdb")
+    scan = scan_receptor_structure(source)
+    assert build_receptor_import_preview(scan, ReceptorImportOptions())["workflow"]["water_candidates"] == ["HOH:A:401"]
+
+    def waters(options):
+        out = tmp_path / "out.pdb"
+        write_processed_receptor(source, out, scan=scan, options=options)
+        return sorted(res.seqid.num for chain in gemmi.read_structure(str(out))[0] for res in chain if res.name == "HOH")
+
+    assert waters(ReceptorImportOptions()) == [401]  # non-structural ones go by the checkbox
+    assert waters(ReceptorImportOptions(selected_waters=())) == []
+    assert waters(ReceptorImportOptions(remove_non_structural_waters=False, selected_waters=())) == [402, 403, 404, 405, 406]
