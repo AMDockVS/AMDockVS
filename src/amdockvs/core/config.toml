@@ -6,6 +6,7 @@ max_2d_preview_heavy_atoms = 50
 
 [imports]
 max_inflight = 32
+grid_box_metals = ["ZN", "FE", "MG", "MN", "CU", "CO", "NI"]
 
 [preparation]
 ligands_per_task = 1000

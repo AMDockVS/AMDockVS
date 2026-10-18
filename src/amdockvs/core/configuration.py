@@ -166,6 +166,11 @@ class ImportConfiguration(BaseModel):
         title="Import tasks in flight",
         description="Upper bound on import tasks dispatched before results are consumed.",
     )
+    grid_box_metals: list[str] = Field(
+        ["ZN", "FE", "MG", "MN", "CU", "CO", "NI"],
+        title="Metals that center a Grid Box",
+        description="Coordinated metals (PDB residue names) a receptor import turns into a Grid Box.",
+    )
 
 
 _DIAGRAM_STYLE = DiagramStyle()
