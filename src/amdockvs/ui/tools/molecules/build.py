@@ -318,7 +318,15 @@ class MoleculeBuildWidget(QWidget):
         self._sync_pkasso_options()
         self._sync_small_molecule_protonation_options()
         self._ready = True
+        self._activate_after_check: str | None = None
+        from amdockvs.ui.shell.settings_tools import tool_events
+        tool_events.installed.connect(self._on_tool_installed)
         self.refresh()
+
+    def _on_tool_installed(self, tool_id: str) -> None:
+        if tool_id in ("openbabel", "pkasso"):
+            self._activate_after_check = tool_id
+            self._refresh_protonation_tools()
 
     @staticmethod
     def _structure_combo(parent: QWidget) -> QComboBox:
@@ -533,6 +541,10 @@ class MoleculeBuildWidget(QWidget):
             openbabel=bool(openbabel.installed),
             pkasso=bool(pkasso.installed),
         )
+        method, self._activate_after_check = self._activate_after_check, None
+        if method and self._protonation_tool_ready.get(method):
+            self.ligand_protonation_method.setCurrentIndex(self.ligand_protonation_method.findData(method))
+            self.ligand_protonation_section.setChecked(True)
         self._sync_small_molecule_protonation_options()
 
     def _show_protonation_tool_error(self, title: str, exc: Exception) -> None:

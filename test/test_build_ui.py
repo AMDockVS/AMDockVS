@@ -347,3 +347,29 @@ def test_a_finished_build_lists_the_molecules_it_excluded(build_widget, monkeypa
     assert groups[0].childCount() == groups[1].childCount() == 2
     first = groups[0].child(0) if "3D" in groups[0].text(0) else groups[1].child(0)
     assert [first.text(c) for c in range(3)] == ["ZINC7", "7", "generate_3d: RDKit could not generate a 3D conformer."]
+
+def test_a_protonation_tool_installed_from_settings_becomes_the_method_in_use(build_widget, monkeypatch):
+    from amdockvs.ui.shell.settings_tools import ExternalToolsPage, tool_events
+    from amdockvs.ui.tools.molecules import build as build_module
+
+    installed = set()
+    build_widget.runtime.chemistry.small_molecule_protonation_tool_status = (
+        lambda name: SimpleNamespace(installed=name in installed, message="")
+    )
+    monkeypatch.setattr(build_module, "run_async", lambda job, done, **_kw: done(job()))
+    build_widget._refresh_protonation_tools()
+    assert build_widget.ligand_protonation_method.currentData() == "dimorphite"
+
+    # The Settings page announces what turned up between two checks, and only that.
+    page = SimpleNamespace(_rows={}, install_all_button=SimpleNamespace(setEnabled=lambda _on: None))
+    announced = []
+    tool_events.installed.connect(announced.append)
+    statuses = lambda: [SimpleNamespace(tool_id=t, installed=t in installed) for t in ("openbabel", "pkasso")]
+    ExternalToolsPage._apply(page, statuses())  # first look: nothing is "new"
+    installed.add("openbabel")
+    ExternalToolsPage._apply(page, statuses())
+    tool_events.installed.disconnect(announced.append)
+
+    assert announced == ["openbabel"]
+    assert build_widget.ligand_protonation_method.currentData() == "openbabel"
+    assert build_widget.ligand_protonation_section.isChecked()

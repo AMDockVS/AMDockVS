@@ -517,7 +517,13 @@ class PocketDetectionWidget(QWidget):
 
         self._ready = True
         self._connect_job_signal()
+        from amdockvs.ui.shell.settings_tools import tool_events
+        tool_events.installed.connect(self._on_tool_installed)
         self.refresh()
+
+    def _on_tool_installed(self, tool_id: str) -> None:
+        if tool_id == "p2rank":
+            self.refresh()
 
     def _connect_job_signal(self) -> None:
         if self._job_signal_connected:
