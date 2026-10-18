@@ -176,7 +176,7 @@ class PreparationPanel:
         # The launch button acts on the whole step, not on the option page that happens to be
         # selected, so it lives on the action bar.
         self.ligand_bar = panel.action_bar
-        self.prepare_ligands_button = split_button("Prepare Ligands", self.ligand_bar, on_click=self._prepare_ligands)
+        self.prepare_ligands_button = split_button("Prepare Ligands", self.ligand_bar, on_click=self._prepare_ligands, primary=True)
         gate_workflow_save(self.prepare_ligands_button.menu().addAction(
             "Save to workflow…", self._save_prepare_ligands_to_workflow
         ))
@@ -335,7 +335,7 @@ class PreparationPanel:
         # On the action bar — same reason as the Ligands step.
         self.receptor_bar = panel.action_bar
         self.prepare_receptor_button = split_button(
-            "Prepare Receptors", self.receptor_bar, on_click=self._prepare_receptors
+            "Prepare Receptors", self.receptor_bar, on_click=self._prepare_receptors, primary=True
         )
         gate_workflow_save(self.prepare_receptor_button.menu().addAction(
             "Save to workflow…", self._save_prepare_receptors_to_workflow
