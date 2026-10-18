@@ -356,6 +356,15 @@ class AMDockVSRuntime(AppRuntime):
             self.workspace.project_db, busy=bool(self.list_jobs(statuses=NON_TERMINAL_JOB_STATUSES))
         )
 
+    def repair_storage(self):
+        """Clear the payload volumes' leftovers (see `check_storage`); refused while a job is active."""
+        from amdockvs.project.storage import repair_if_idle
+
+        self._require_active_project()
+        return repair_if_idle(
+            self.workspace.project_db, busy=bool(self.list_jobs(statuses=NON_TERMINAL_JOB_STATUSES))
+        )
+
     def create_monitor_bridge(self, *, poll_ms: int | None = None, max_recent_jobs: int | None = None):
         from ms_components.ms_monitor import MolSuiteMonitorBridge
 

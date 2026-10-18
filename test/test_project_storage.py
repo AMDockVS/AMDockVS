@@ -2,6 +2,8 @@
 check when it opens, and compaction once no job runs and a volume is mostly dead bytes."""
 from random import Random
 
+import pytest
+
 import ms_flow.payloads as flow_payloads
 from ms_flow.core.database.project import ProjectStore
 from payload_seed import seed_payload
@@ -10,7 +12,7 @@ from sqlmodel import select
 from amdockvs.core.payloads import payload_store
 from amdockvs.models.molecules import MoleculeRecord
 from amdockvs.project.deletion import delete_molecules
-from amdockvs.project.storage import check_storage, compact_if_idle, compact_storage, storage_stats
+from amdockvs.project.storage import check_storage, compact_if_idle, compact_storage, repair_if_idle, storage_stats
 
 
 def _project(tmp_path, monkeypatch):
@@ -51,6 +53,10 @@ def test_the_check_reports_by_how_bad_it_is(tmp_path, monkeypatch):
     seed_payload(store, "nobody holds this")
     level, _, text = check_storage(store)
     assert level == "warning" and "1 unused" in text
+    with pytest.raises(RuntimeError):  # a running job's fresh structure has no row yet
+        repair_if_idle(store, busy=True)
+    assert repair_if_idle(store, busy=False).clean and check_storage(store)[0] == "info"
+    seed_payload(store, "nobody holds this")
     next(payload_store(store).directory.glob("*.vol")).unlink()
     assert check_storage(store)[0] == "error"
 

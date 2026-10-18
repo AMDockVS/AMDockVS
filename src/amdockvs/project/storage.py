@@ -75,8 +75,19 @@ def check_storage(project_db) -> tuple[str, str, str]:
         return "error", "Project storage is damaged", text + "."
     garbage = len(report.unreferenced) + len(report.empty) + len(report.orphans)
     if garbage:
-        return "warning", "Project storage has leftovers", f"{garbage} unused entries can be cleared by a repair."
+        return "warning", "Project storage has leftovers", (
+            f"{garbage} unused entries (structures no row points to any more) can be cleared: "
+            "click the project name in the status bar, then Repair."
+        )
     return "info", "Project storage checked", "Nothing to repair."
+
+
+def repair_if_idle(project_db, *, busy: bool) -> Report:
+    """Clear what `check` calls leftovers (unreferenced structures, empty volumes, orphan files); the
+    new check. Never while a job runs: a structure it just wrote has no row pointing to it yet."""
+    if busy:
+        raise RuntimeError("Jobs are running; repair once they end.")
+    return payload_store(project_db).repair()
 
 
 def compact_if_idle(project_db, *, busy: bool, min_dead: float = MIN_DEAD) -> dict | None:
@@ -91,4 +102,4 @@ def compact_if_idle(project_db, *, busy: bool, min_dead: float = MIN_DEAD) -> di
     return store.compact(min_dead, small=0)
 
 
-__all__ = ["MIN_DEAD", "StorageStats", "check_storage", "compact_if_idle", "compact_storage", "storage_stats"]
+__all__ = ["MIN_DEAD", "StorageStats", "check_storage", "compact_if_idle", "compact_storage", "repair_if_idle", "storage_stats"]
