@@ -16,7 +16,7 @@ from amdockvs.core.configuration import (
 from amdockvs.core.payloads import molecule_payload_id, payload_store
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.common.job_follower import JobFollower
-from ms_components.ms_table import FilterOperator, FilterSpec, TableConfig, SmartTableView
+from ms_components.ms_table import FilterOperator, FilterSpec, TableConfig, SmartTableView, ToolbarAction
 from ms_components.tool_panel import ActionBar
 
 # How long a finished run's outcome stays under the table before the strip hides.
@@ -273,6 +273,7 @@ class BoundTableWidget(QWidget):
         self._jobs: JobFollower | None = None
         self._selection_store: SelectionStore | None = None
         self._selection_adopted = False
+        self._mirrored_ids: list[int] | None = None  # what this table and the store last agreed on
 
         layout = QVBoxLayout(self)
         # No wrapper margins: Qt's default ~11px would inset the whole table relative to the
@@ -380,19 +381,22 @@ class BoundTableWidget(QWidget):
 
     def _publish_selection(self, *_args) -> None:
         store = self._store()
-        if store is None or not self.selection_role:
-            return
-        if not self._selection_adopted:
-            self._adopt_selection()  # first load: the store is older than this table
+        if store is None or not self.selection_role or self._REVEAL_SCOPE in self._scopes:
+            return  # a revealed row is a look, not the role's selection
+        if not self._selection_adopted or store.get(self.selection_role) != self._mirrored_ids:
+            # First load, or the store moved and another listener reloaded this table before
+            # our own _on_selection_changed ran: the store wins, the stale filter is not echoed.
+            self._adopt_selection()
         else:
-            store.set(self.selection_role, self._selected_ids())
+            self._mirrored_ids = self._selected_ids()
+            store.set(self.selection_role, self._mirrored_ids)
 
     def _adopt_selection(self) -> None:
         store = self._store()
-        if store is None or not self.selection_role or self._table is None:
+        if store is None or not self.selection_role or self._table is None or self._REVEAL_SCOPE in self._scopes:
             return
         self._selection_adopted = True
-        ids = store.get(self.selection_role)
+        ids = self._mirrored_ids = store.get(self.selection_role)
         if ids != self._selected_ids():
             self.set_base_filter("id", FilterSpec("id", FilterOperator.IN, ids) if ids else None)
 
@@ -610,6 +614,42 @@ class BoundTableWidget(QWidget):
         self.set_base_clause(key, None)
         self.set_toolbar_actions(key, ())
         self.set_empty_state(None)
+
+    _REVEAL_SCOPE = "reveal"
+
+    def reveal(self, ids, *, label: str) -> None:
+        """Show only these rows, the first one highlighted, until the user clicks "Show all".
+
+        Another tab's way of saying "this one" (Docking Results → Ligands): it never becomes
+        the role's selection, and "Show all" gives the table back with that selection intact.
+        """
+        if self._table is None:
+            return
+
+        def show_all(_objects=None) -> None:
+            # Put the role's selection back while still revealing (that reload must not publish
+            # "no filter" as the selection), then release a scope that no longer owns "id".
+            store = self._store()
+            ids = store.get(self.selection_role) if store is not None and self.selection_role else None
+            self._scopes[self._REVEAL_SCOPE] = set()
+            self.set_base_filter("id", FilterSpec("id", FilterOperator.IN, ids) if ids
+                                 else self._default_filters.get("id"))
+            self.pop_scope(self._REVEAL_SCOPE)
+
+        self._table.data_refreshed.connect(self._select_revealed, Qt.SingleShotConnection)
+        # Marked before the filter lands: its reload must not publish the id as the selection.
+        self._scopes.setdefault(self._REVEAL_SCOPE, set())
+        self.push_scope(
+            self._REVEAL_SCOPE,
+            filters=[FilterSpec("id", FilterOperator.IN, sorted({int(i) for i in ids}))],
+            actions=[ToolbarAction(label="Show all", on_click=show_all,
+                                   tooltip=f"Showing only {label}. Click to see every row again.")],
+            empty_message=f"{label} is hidden by this table's other filters",
+        )
+
+    def _select_revealed(self, *_args) -> None:
+        if self._table is not None:
+            self._table.select_first_row()
 
     def set_toolbar_actions(self, key: str, actions=()) -> None:
         """Lend this table's toolbar to a tool (empty/None hands it back).

@@ -340,6 +340,9 @@ class MolecularViewerController:
                         "ligand": " or ".join(ligand_objs),
                     },
                     default_preset="amdockvs.complex",
+                    # Every complex loads under the same object names, so a remembered camera
+                    # belongs to whichever complex was shown before, in its own frame.
+                    restore_view=False,
                 )
             except Exception:
                 return
@@ -483,6 +486,9 @@ class MolecularViewerController:
                     target=object_name,
                     selections={context_role: object_name},
                     default_preset=default_preset,
+                    # Oriented means framed whole: a view remembered from a zoom (or from Docking
+                    # Studio's box camera, same object name) must not replace it.
+                    restore_view=not orient,
                 )
             except Exception:
                 _log.exception("PyMOL could not show %s", object_name)

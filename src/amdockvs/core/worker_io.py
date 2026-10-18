@@ -75,7 +75,7 @@ def worker_output_dir(path: str | Path) -> Dir:
 def project_root_from_output_dir(path: str | Path) -> Path:
     """Resolve the project-shaped temporary root used by transferred Ray outputs."""
     resolved = Path(path).expanduser().resolve()
-    markers = {"data", "results", "exports", "jobs"}
+    markers = {"docking", "pockets", "models", "shards", "tmp", "cache"}
     indexes = [index for index, part in enumerate(resolved.parts) if part in markers]
     return Path(*resolved.parts[: max(indexes)]) if indexes else resolved.parent
 

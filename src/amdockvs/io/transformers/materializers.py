@@ -49,7 +49,6 @@ def materialize_import_batch(
 
     if not batch.file_path.exists() or not batch.file_path.is_file():
         raise FileNotFoundError(f"Input file does not exist: {batch.file_path}")
-    batch.storage_dir.mkdir(parents=True, exist_ok=True)
 
     # Current path: the chunk carries a byte range and its records are re-read here. `records`
     # (embedded raw text) still works for formats without a separator and for old payloads;
@@ -99,7 +98,6 @@ def materialize_multithreaded_sdf_file(
         raise FileNotFoundError(f"Input file does not exist: {batch.file_path}")
 
     expected_records = max(1, count_import_records(batch.file_path))
-    batch.storage_dir.mkdir(parents=True, exist_ok=True)
     supplier = Chem.MultithreadedSDMolSupplier(
         str(batch.file_path),
         sanitize=True,

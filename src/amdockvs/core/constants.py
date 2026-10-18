@@ -11,12 +11,10 @@ from pathlib import Path
 AMDOCKVS_APP_ID = "amdockvs"
 AMDOCKVS_SCOPE_ID = "docking"
 AMDOCKVS_APP_NAME = "AMDockVS"
-RESOURCE_MOLECULES = "molecules"
+RESOURCE_IMPORT_STATS = "import_stats"
 RESOURCE_DOCKING_RESULTS = "docking_results"
 RESOURCE_QSAR_MODELS = "qsar_models"
 RESOURCE_POCKET_PREDICTIONS = "pocket_predictions"
-RESOURCE_EXPORTS = "exports"
-RESOURCE_JOBS = "jobs"
 RESOURCE_SHARDS = "shards"
 
 TABLE_MOLECULES = "molecules"

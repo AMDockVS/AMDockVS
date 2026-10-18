@@ -10,8 +10,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from importlib.resources import files
 
 from PySide6.QtCore import QPoint, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -28,6 +30,9 @@ WARNING = "warning"
 ERROR = "error"
 
 _ICONS = {INFO: "ℹ", WARNING: "⚠", ERROR: "⛔"}
+_COLORS = {WARNING: "#d9a441", ERROR: "#e05561"}
+# Lucide icons per severity in ui/resources/icons; the glyph above stands in while one is missing.
+_ICON_FILES = {INFO: "info.svg", WARNING: "warning.svg", ERROR: "error.svg"}
 # ponytail: fixed cap, no persistence across restarts. Store to the project db if the history
 # turns out to be worth keeping between sessions.
 MAX_ENTRIES = 200
@@ -40,10 +45,22 @@ class Notification:
     level: str = INFO
     at: datetime = field(default_factory=datetime.now)
 
-    def as_line(self) -> str:
-        icon = _ICONS.get(self.level, _ICONS[INFO])
+    def as_line(self, *, glyph: bool = True) -> str:
+        icon = f"{_ICONS.get(self.level, _ICONS[INFO])}  " if glyph else ""
         body = f" — {self.text}" if self.text else ""
-        return f"{icon}  {self.at:%H:%M}  {self.title}{body}"
+        return f"{icon}{self.at:%H:%M}  {self.title}{body}"
+
+
+def severity_icon(level: str) -> QIcon | None:
+    """The severity's SVG, tinted amber/red (info follows the theme); None if the file is missing."""
+    from amdockvs.ui.resources import icons
+    from amdockvs.ui.resources.icons.themed import themed_icon
+
+    path = files(icons) / _ICON_FILES.get(level, _ICON_FILES[INFO])
+    if not path.is_file():
+        return None
+    color = _COLORS.get(level)
+    return themed_icon(str(path), QColor(color)) if color else icons.icon(path.name)
 
 
 class NotificationLog(QWidget):
@@ -83,7 +100,11 @@ class NotificationLog(QWidget):
         self._empty.setVisible(False)
 
     def _add_item(self, note: Notification, *, at_top: bool = False) -> None:
-        item = QListWidgetItem(note.as_line())  # severity rides on the icon, not on a frozen color
+        # Severity rides on the icon; the text glyph only stands in for a missing SVG.
+        icon = severity_icon(note.level)
+        item = QListWidgetItem(note.as_line(glyph=icon is None))
+        if icon is not None:
+            item.setIcon(icon)
         if at_top:
             self._list.insertItem(0, item)
         else:
@@ -128,7 +149,7 @@ class NotificationBell(QToolButton):
     def set_unread(self, count: int, *, level: str = INFO) -> None:
         count = max(0, int(count))
         self.setText("" if count <= 0 else f" {count}")
-        color = {ERROR: "#e05561", WARNING: "#d9a441"}.get(level if count else INFO, "")
+        color = _COLORS.get(level if count else INFO, "")
         self.setStyleSheet(
             "QToolButton { padding: 0; margin: 0; border: none; background: transparent;"
             f"font-size: 11px; font-weight: 600; {f'color: {color};' if color else ''} }}"
