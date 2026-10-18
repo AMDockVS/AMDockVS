@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Sequence
 
@@ -22,7 +23,36 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="amdockvs")
     parser.add_argument("-pi", "--project-id", help="UUID of the project to open at start-up.")
     parser.add_argument("-pp", "--project-path", help="Path of the project to open at start-up.")
+    parser.add_argument("--delete-project-id", help=argparse.SUPPRESS)  # set by restart(), see below
     return parser
+
+
+_restart_args: list[str] | None = None
+
+
+def restart(window, *args: str) -> None:
+    """Hot restart: close `window`, shut the runtime down as on exit, then re-exec in this process.
+
+    How the app switches project and deletes the one it has open: a fresh process holds no
+    project state, so nothing has to be torn down view by view.
+    """
+    global _restart_args
+    from PySide6.QtWidgets import QApplication
+
+    _restart_args = list(args)
+    window.close()
+    QApplication.quit()
+
+
+def _delete_project(runtime: AMDockVSRuntime, project_id: str) -> None:
+    from ms_flow.api import ProjectCatalogBackend
+
+    backend = ProjectCatalogBackend(app_id_filter=runtime.app_id, discover_apps=False,
+                                    app_modules=["amdockvs.manifest"])
+    try:
+        backend.delete_projects([project_id], delete_files=True)
+    finally:
+        backend.shutdown()
 
 
 FREEZE_LOG = "/tmp/amdock_stacks.log"
@@ -149,6 +179,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if splash is not None:
             splash.status("Opening project…")
         try:
+            if args.delete_project_id:
+                _delete_project(runtime, args.delete_project_id)
             _open_startup_project(
                 runtime,
                 project_id=args.project_id,
@@ -186,3 +218,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             runtime.shutdown()
             if owns_app:
                 qt_app.quit()
+            if _restart_args is not None:
+                sys.stdout.flush()
+                os.execv(sys.executable, [sys.executable, "-m", "amdockvs", *_restart_args])
