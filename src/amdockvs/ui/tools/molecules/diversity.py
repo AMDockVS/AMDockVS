@@ -136,7 +136,7 @@ class DiversitySelectionWidget(QWidget):
             project_root = self.runtime.get_project_paths()["project_root"]
         except Exception:  # no active project yet
             return None
-        return Path(project_root) / "diversity_preview_cache.json"
+        return Path(project_root) / "cache" / "diversity_preview.json"
 
     def _save_cache(self) -> None:
         """Persist the accumulated pile next to the project DB. Basis arrays are stored as plain
@@ -159,6 +159,7 @@ class DiversitySelectionWidget(QWidget):
             "all_points": self._all_points, "total_in_scope": self._total_in_scope,
         }
         try:
+            path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(payload), encoding="utf-8")
         except OSError:
             pass
