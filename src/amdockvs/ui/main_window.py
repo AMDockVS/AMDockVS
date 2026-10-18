@@ -309,6 +309,7 @@ class AMDockVSMainWindow(QMainWindow):
 
         self._app_widget = ApplicationWidget(runtime=self.runtime, parent=self)
         self._app_widget.project_requested.connect(self._on_application_project_requested)
+        self._app_widget.active_project_delete_requested.connect(self._on_active_project_delete_requested)
         self._app_widget.settings_saved.connect(self._on_app_settings_saved)
         self._app_widget.exit_requested.connect(self.close)
 
@@ -423,7 +424,7 @@ class AMDockVSMainWindow(QMainWindow):
 
         Gating the entry points is why the views need no "no project" state of their own:
         nothing can build one. ponytail: one-way switch — active_context never goes back to
-        None (another project opens a new process, see _on_application_project_requested);
+        None (another project hot-restarts the app, see _on_application_project_requested);
         make it a signal the day a project can be closed in place.
         """
         from PySide6.QtWidgets import QToolBar
@@ -612,21 +613,20 @@ class AMDockVSMainWindow(QMainWindow):
         reply = QMessageBox.question(
             self,
             "Open Project",
-            "The selected project will open in a fresh AMDock window. The current window will close. Continue?",
+            "AMDockVS restarts to open the selected project. Continue?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.Yes,
         )
-        if reply != QMessageBox.Yes:
-            return
-        try:
-            process = self._app_widget.launch_project(project_id)
-        except Exception as exc:
-            QMessageBox.critical(self, "Open Project", f"Could not launch the selected project:\n{exc}")
-            return
-        if process.poll() is not None:
-            QMessageBox.critical(self, "Open Project", "The new AMDock process exited before initialization.")
-            return
-        self.close()
+        if reply == QMessageBox.Yes:
+            from amdockvs.app import restart
+
+            restart(self, "--project-id", str(project_id))
+
+    def _on_active_project_delete_requested(self, project_id: str) -> None:
+        """The projects browser confirmed deleting the open project: restart without it, then delete."""
+        from amdockvs.app import restart
+
+        restart(self, "--delete-project-id", str(project_id))
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._closing:
