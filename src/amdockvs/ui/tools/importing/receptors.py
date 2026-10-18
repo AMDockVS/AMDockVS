@@ -45,8 +45,8 @@ from amdockvs.ui.common.drop_area import (
     USER_INPUT_SOURCE,
     TablePlaceholder,
     drop_hint,
-    icon_button,
-    toolbar_separator,
+    side_toolbar,
+    tool_action,
     write_user_input,
 )
 from amdockvs.ui.view_ids import RECEPTOR_VIEW_ID
@@ -222,19 +222,16 @@ class ReceptorImportPanel(QWidget):
         if self._show_file_controls:
             self._placeholder = TablePlaceholder(self.table, drop_hint("receptor"))
             self._placeholder.clicked.connect(self._on_add_files)
-            toolbar = QVBoxLayout()
-            self.add_files_button = icon_button(self, "file-plus.svg", "Add files")
-            self.add_text_button = icon_button(self, "text-input.svg", "Add sequence (FASTA or a bare sequence)")
-            self.remove_files_button = icon_button(self, "shredder.svg", "Remove selected files")
-            self.add_files_button.clicked.connect(self._on_add_files)
-            self.add_text_button.clicked.connect(self._on_add_text)
-            self.remove_files_button.clicked.connect(self._on_remove_selected_files)
-            toolbar.addWidget(self.add_files_button)
-            toolbar.addWidget(self.add_text_button)
-            toolbar.addWidget(toolbar_separator(self))
-            toolbar.addWidget(self.remove_files_button)
-            toolbar.addStretch(1)
-            table_row.addLayout(toolbar)
+            toolbar = side_toolbar(self)
+            self.add_files_action = tool_action(toolbar, "file-plus.svg", "Add files", "Add receptor files", self._on_add_files)
+            self.add_text_action = tool_action(
+                toolbar, "text-input.svg", "Add sequence", "Add a sequence (FASTA or a bare sequence)", self._on_add_text
+            )
+            toolbar.addSeparator()
+            self.remove_files_action = tool_action(
+                toolbar, "shredder.svg", "Remove", "Remove the selected files", self._on_remove_selected_files
+            )
+            table_row.addWidget(toolbar)
         table_row.addWidget(self.table, 1)
         root.addLayout(table_row, 1)
 
@@ -326,9 +323,9 @@ class ReceptorImportPanel(QWidget):
         if not self._show_file_controls:
             return
         can_edit = self._scan_complete or not self._file_paths
-        self.add_files_button.setEnabled(can_edit)
-        self.add_text_button.setEnabled(can_edit)
-        self.remove_files_button.setEnabled(can_edit and self.table.rowCount() > 0)
+        self.add_files_action.setEnabled(can_edit)
+        self.add_text_action.setEnabled(can_edit)
+        self.remove_files_action.setEnabled(can_edit and self.table.rowCount() > 0)
 
     def _on_add_files(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(
