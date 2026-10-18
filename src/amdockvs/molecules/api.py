@@ -100,6 +100,18 @@ class MoleculeAPI:
         with self.runtime.workspace.project_db.get_session() as session:
             return session.get(MoleculeRecord, int(molecule_id))
 
+    def excluded_since(self, when, *, limit: int = 10_000) -> list[tuple[int, str, str]]:
+        """``(id, name, reason)`` of the molecules excluded at or after ``when`` — what a run failed."""
+        self.runtime._require_active_project()
+        with self.runtime.workspace.project_db.get_session() as session:
+            rows = session.exec(
+                select(MoleculeRecord.id, MoleculeRecord.name, MoleculeRecord.exclusion_reason)
+                .where(MoleculeRecord.excluded == True, MoleculeRecord.updated_at >= when)  # noqa: E712
+                .order_by(MoleculeRecord.id)
+                .limit(int(limit))
+            ).all()
+        return [(int(i), str(name or ""), str(reason or "")) for i, name, reason in rows]
+
     def details(self, molecule_id: int) -> Details | None:
         """Load the complete Details-panel projection for a molecule."""
         self.runtime._require_active_project()

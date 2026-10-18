@@ -321,3 +321,29 @@ def test_molecules_structure_source_lives_and_dies_with_tool_scope(tmp_path, mon
             widget.close()
         runtime.shutdown()
         app.processEvents()
+
+
+def test_a_finished_build_lists_the_molecules_it_excluded(build_widget, monkeypatch):
+    from amdockvs.ui.tools.molecules import build as build_module
+
+    monkeypatch.setattr(build_module, "run_async", lambda fn, on_result, *a, **k: on_result(fn()))
+    asked = []
+    build_widget.runtime.molecules.excluded_since = lambda since: asked.append(since) or [
+        (7, "ZINC7", "generate_3d: RDKit could not generate a 3D conformer."),
+        (8, "ZINC8", "standardize: Explicit valence for atom # 3 N, 4, is greater than permitted"),
+        (9, "ZINC9", "generate_3d: RDKit could not generate a 3D conformer."),
+        (10, "ZINC10", "standardize: Explicit valence for atom # 12 N, 4, is greater than permitted"),
+    ]
+    build_widget._protonation_tool_ready["dimorphite"] = True
+    build_widget._sync_build_button()
+
+    build_widget.run_build_ligands_button.click()
+    build_widget.ligand_jobs.on_finished("pipeline-job", "completed")
+
+    assert asked and asked[0] <= __import__("datetime").datetime.now()
+    tree = build_widget.failures_dialog.findChild(build_module.QTreeWidget)
+    groups = [tree.topLevelItem(i) for i in range(tree.topLevelItemCount())]
+    assert len(groups) == 2  # four failures, two causes: atom numbers don't split a cause
+    assert groups[0].childCount() == groups[1].childCount() == 2
+    first = groups[0].child(0) if "3D" in groups[0].text(0) else groups[1].child(0)
+    assert [first.text(c) for c in range(3)] == ["ZINC7", "7", "generate_3d: RDKit could not generate a 3D conformer."]
