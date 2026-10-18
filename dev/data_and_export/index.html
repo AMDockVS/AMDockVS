@@ -579,15 +579,38 @@ so it copies, backs up and syncs like a small one.</p>
 <td>The project log.</td>
 </tr>
 <tr>
-<td><code>cache/</code></td>
-<td>Files rebuilt on demand (a structure written out for a viewer, a 2D diagram). Safe to delete.</td>
+<td><code>shards/</code></td>
+<td>HTPVS ligand libraries (<code>.mshard</code>).</td>
 </tr>
 <tr>
-<td><code>data/</code>, <code>results/</code></td>
-<td>Import leftovers, HTPVS shards, per-run docking folders, QSAR models, clustering runs.</td>
+<td><code>docking/</code></td>
+<td>Result fragments of sharded campaigns, and the docking programs' working files.</td>
+</tr>
+<tr>
+<td><code>models/</code></td>
+<td>QSAR models.</td>
+</tr>
+<tr>
+<td><code>pockets/</code></td>
+<td>P2Rank outputs; the viewer draws pocket points from them.</td>
+</tr>
+<tr>
+<td><code>clustering_runs/</code></td>
+<td>The plot data of each diversity clustering run.</td>
+</tr>
+<tr>
+<td><code>cache/</code></td>
+<td>Files rebuilt on demand (a structure written out for a viewer, docking inputs, a 2D diagram). Safe to delete.</td>
+</tr>
+<tr>
+<td><code>tmp/</code></td>
+<td>Job temporaries, removed when the job ends.</td>
 </tr>
 </tbody>
 </table>
+<p>A new project holds only the databases, <code>config.toml</code> and <code>logs/</code>: every other folder
+appears the first time something is written there. Exports go wherever you choose in the
+save dialog, which opens in the folder of the previous export.</p>
 <p>Copy or move the whole folder. Never copy <code>project.db</code> without <code>volumes/</code>: the database
 only points at the structures.</p>
 <h2 id="keeping-storage-tidy">Keeping storage tidy<a class="headerlink" href="#keeping-storage-tidy" title="Permanent link">&para;</a></h2>
