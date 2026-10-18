@@ -122,11 +122,14 @@ class JobFeedbackController:
                   on_error=lambda exc: self.post_notification("Storage check failed", str(exc), ERROR))
 
     def _compact_storage(self) -> None:
-        """When the last job ends, compact the volumes that are mostly dead bytes."""
+        """When the last job ends, release the structures no row uses and compact the volumes that
+        are mostly dead bytes."""
         def done(stats) -> None:
             if stats and stats["moved"]:
-                self.post_notification("Project storage compacted", f"{stats['moved']} structures moved, "
-                                       f"{stats['read_mb'] - stats['written_mb']:.0f} MB freed.")
+                self.post_notification("Project storage compacted", f"{stats['released']} unused structures released, "
+                                       f"{stats['moved']} moved, {stats['read_mb'] - stats['written_mb']:.0f} MB freed.")
+            elif stats and stats["released"]:
+                self.post_notification("Project storage tidied", f"{stats['released']} unused structures released.")
 
         run_async(self.w.runtime.compact_storage_if_due, done,
                   on_error=lambda exc: self.post_notification("Storage compaction failed", str(exc), WARNING))

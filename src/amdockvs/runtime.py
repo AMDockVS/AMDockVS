@@ -347,8 +347,8 @@ class AMDockVSRuntime(AppRuntime):
         return check_storage(self.workspace.project_db)
 
     def compact_storage_if_due(self) -> dict | None:
-        """Compact the payload volumes that are mostly dead bytes once no job is active; the stats,
-        or None when nothing was due."""
+        """Once no job is active, release the structures no row uses and compact the payload volumes
+        that are mostly dead bytes; the stats, or None when nothing was due."""
         from amdockvs.project.storage import compact_if_idle
 
         self._require_active_project()

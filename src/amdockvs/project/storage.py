@@ -91,15 +91,20 @@ def repair_if_idle(project_db, *, busy: bool) -> Report:
 
 
 def compact_if_idle(project_db, *, busy: bool, min_dead: float = MIN_DEAD) -> dict | None:
-    """Compact the volumes that are `min_dead` dead or more, unless a job is running. Returns the
-    stats of the compaction, or None when nothing was due. Merging small volumes is left to the
-    explicit button: it would run after every job."""
+    """Once no job runs: release what no row points to any more (a structure a job replaced, an
+    emptied volume, an orphan file), then compact the volumes that are `min_dead` dead or more.
+    Returns the stats (`released` structures plus what `compact` reports), or None when there was
+    nothing to do. Merging small volumes is left to the explicit button: it would run after every job."""
     if busy:
         return None
     store = payload_store(project_db)
-    if not any(dead >= min_dead for dead in store.check().dead.values()):
-        return None
-    return store.compact(min_dead, small=0)
+    report = store.check()
+    released = len(report.unreferenced)
+    if released or report.empty or report.orphans:
+        report = store.repair(report)
+    if not any(dead >= min_dead for dead in report.dead.values()):
+        return {"released": released, "volumes": 0, "moved": 0, "read_mb": 0.0, "written_mb": 0.0} if released else None
+    return {**store.compact(min_dead, small=0), "released": released}
 
 
 __all__ = ["MIN_DEAD", "StorageStats", "check_storage", "compact_if_idle", "compact_storage", "repair_if_idle", "storage_stats"]
