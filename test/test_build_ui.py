@@ -375,3 +375,18 @@ def test_a_protonation_tool_installed_from_settings_becomes_the_method_in_use(bu
     assert announced == ["openbabel"]
     assert build_widget.ligand_protonation_method.currentData() == "openbabel"
     assert build_widget.ligand_protonation_section.isChecked()
+
+
+def test_a_mass_failure_lists_a_few_molecules_per_cause_and_counts_the_rest(build_widget):
+    from PySide6.QtWidgets import QTreeWidget
+
+    from amdockvs.ui.common.failures import PER_CAUSE, show_failures
+    from ms_components.tool_panel import format_count
+
+    rows = [(i, f"Z{i}", f"generate_3d: embedding failed after {i} tries") for i in range(1, 2001)]
+    dialog = show_failures(build_widget, "Build", rows)
+    tree = dialog.findChild(QTreeWidget)
+    [cause] = [tree.topLevelItem(i) for i in range(tree.topLevelItemCount())]  # numbers don't split it
+    assert cause.childCount() == PER_CAUSE + 1
+    assert cause.child(PER_CAUSE).text(0) == f"… and {format_count(2000 - PER_CAUSE)} more"
+    dialog.close()

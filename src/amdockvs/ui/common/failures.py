@@ -7,6 +7,9 @@ from PySide6.QtWidgets import QDialog, QDialogButtonBox, QTreeWidget, QTreeWidge
 
 from ms_components.tool_panel import format_count, hint_label
 
+PER_CAUSE = 50  # molecules listed under a cause; the rest is a count (Filter's "Excluded" has them all)
+FETCHED = 10_000  # MoleculeAPI.excluded_since's default limit: that many rows means "or more"
+
 
 def failure_kind(reason: str) -> str:
     """The cause without its specifics: numbers (atom indices, counts) stop splitting the group."""
@@ -20,7 +23,8 @@ def show_failures(parent: QWidget, title: str, rows: list[tuple[int, str, str]])
     if not rows:
         return None
     dialog = QDialog(parent)
-    dialog.setWindowTitle(f"{title}: {format_count(len(rows))} molecules failed")
+    more = "+" if len(rows) >= FETCHED else ""
+    dialog.setWindowTitle(f"{title}: {format_count(len(rows))}{more} molecules failed")
     layout = QVBoxLayout(dialog)
     layout.addWidget(hint_label(
         "These molecules were excluded and later steps skip them. "
@@ -34,8 +38,10 @@ def show_failures(parent: QWidget, title: str, rows: list[tuple[int, str, str]])
     tree.setHeaderLabels(["Reason / molecule", "ID", "Error"])
     for kind, members in sorted(groups.items(), key=lambda item: -len(item[1])):
         branch = QTreeWidgetItem(tree, [f"{kind}  ({format_count(len(members))})"])
-        for molecule_id, name, reason in members:
+        for molecule_id, name, reason in members[:PER_CAUSE]:
             QTreeWidgetItem(branch, [name, str(molecule_id), reason])
+        if len(members) > PER_CAUSE:  # a mass failure stays a few lines, not a 10k-row list
+            QTreeWidgetItem(branch, [f"… and {format_count(len(members) - PER_CAUSE)} more"])
     if len(groups) == 1:
         tree.expandAll()
     tree.resizeColumnToContents(0)
