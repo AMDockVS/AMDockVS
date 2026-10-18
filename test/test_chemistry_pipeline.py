@@ -181,3 +181,16 @@ def test_a_failed_molecule_is_excluded_with_the_step_it_failed_at():
     assert failed["id"] == 2 and failed["excluded"] is True
     assert failed["exclusion_reason"].split(":")[0] in {"standardize", "generate_3d"}
 
+
+def test_3d_builds_fused_rings_etkdg_rejects_and_refuses_impossible_stereo():
+    buildable = Chem.MolFromSmiles("O[C@@H]1[C@H]2CNC[C@H]1OC2")
+    built = generate_ligand_3d(buildable)
+    Chem.AssignStereochemistryFrom3D(built)
+    assert Chem.MolToSmiles(Chem.RemoveHs(built)) == Chem.MolToSmiles(buildable)
+
+    try:
+        generate_ligand_3d(Chem.MolFromSmiles("CS(=O)(=O)N1C[C@@H]2C[C@@]2(N)C1"))  # trans-fused cyclopropane
+    except ValueError as exc:
+        assert "stereochemistry" in str(exc)
+    else:
+        raise AssertionError("an impossible ring fusion must not get coordinates")
