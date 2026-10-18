@@ -324,11 +324,11 @@ class JobFeedbackController:
         can't log to the monitor). Type-agnostic: non-import jobs write no tally, so draining is
         a no-op for them. Goes to the notification log so the breakdown is still there minutes
         later — a transient popup is exactly what made a filtered-out import undiagnosable."""
-        from amdockvs.core.constants import RESOURCE_MOLECULES
+        from amdockvs.core.constants import RESOURCE_IMPORT_STATS
         from amdockvs.io.import_stats import IMPORTED, drain_import_stats, summarize
 
         try:
-            storage = self.w.runtime.get_project_resource_path(RESOURCE_MOLECULES)
+            storage = self.w.runtime.get_project_resource_path(RESOURCE_IMPORT_STATS)
         except Exception:  # noqa: BLE001 - no active project / resource: nothing to report
             return
         tally = drain_import_stats(storage)

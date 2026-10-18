@@ -302,7 +302,7 @@ def iter_docking_batches(
         ),
         order=("source", "source_index"),
     )
-    receptors = [with_input_files(project_db, row, inputs_dir(output_dir)) for row in receptor_rows]
+    receptors = [with_input_files(project_db, row, inputs_dir(project_db)) for row in receptor_rows]
     if not receptors:
         return
 
@@ -453,7 +453,7 @@ def iter_redocking_batches(
     prep_engine = str(preparation_engine or engine)
     resolved_output_dir = Path(output_dir).expanduser().resolve()
     resolved_output_dir.mkdir(parents=True, exist_ok=True)
-    directory = inputs_dir(resolved_output_dir)
+    directory = inputs_dir(project_db)
     molecule_rows = get_molecule_rows_by_ids(project_db, molecule_ids, engine=prep_engine)
     ligand_ids = {int(row.get("ligand_molecule_id") or 0) for row in complex_rows}
     for row in with_input_bytes(project_db, [molecule_rows[i] for i in ligand_ids if i in molecule_rows]):

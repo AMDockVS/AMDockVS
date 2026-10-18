@@ -21,7 +21,7 @@ from amdockvs.core.configuration import (
 from amdockvs.core.constants import (
     AMDOCKVS_LOCAL_EXECUTORS,
     AMDOCKVS_PROCESS_EXECUTORS,
-    RESOURCE_MOLECULES,
+    RESOURCE_IMPORT_STATS,
 )
 from ms_flow.core.data.shard import MAX_RECORDS as MAX_SHARD_RECORDS
 
@@ -182,7 +182,7 @@ def _resolve_storage_dir(*, kind: str, params: Mapping[str, Any], config: Mappin
     resources = dict(config_map.get("project_resources") or {})
     resource_key = str(params.get("storage_resource") or "").strip().lower()
     if not resource_key:
-        resource_key = RESOURCE_MOLECULES
+        resource_key = RESOURCE_IMPORT_STATS
     resource = dict(resources.get(resource_key) or {})
     if path_text := str(resource.get("path") or "").strip():
         return Path(path_text).expanduser().resolve()
@@ -302,7 +302,7 @@ def load_ligands_file_job(params: dict, config: dict | None = None) -> Iterator[
         "primary_role": str(dict(params or {}).get("primary_role") or "ligand"),
         "primary_context": str(dict(params or {}).get("primary_context") or "general"),
         "molecule_kind": str(dict(params or {}).get("molecule_kind") or "small_molecule"),
-        "storage_resource": str(dict(params or {}).get("storage_resource") or RESOURCE_MOLECULES),
+        "storage_resource": str(dict(params or {}).get("storage_resource") or RESOURCE_IMPORT_STATS),
     }
     yield from iter_import_chunks("ligand", params=params_map, config=config)
 
@@ -324,7 +324,7 @@ def load_receptors_file_job(params: dict, config: dict | None = None) -> Iterato
         "primary_role": str(dict(params or {}).get("primary_role") or "receptor"),
         "primary_context": str(dict(params or {}).get("primary_context") or "general"),
         "molecule_kind": str(dict(params or {}).get("molecule_kind") or "protein"),
-        "storage_resource": str(dict(params or {}).get("storage_resource") or RESOURCE_MOLECULES),
+        "storage_resource": str(dict(params or {}).get("storage_resource") or RESOURCE_IMPORT_STATS),
     }
     yield from iter_import_chunks("receptor", params=params_map, config=config)
 

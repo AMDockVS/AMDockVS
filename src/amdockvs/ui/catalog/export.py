@@ -7,18 +7,23 @@ from pathlib import Path
 
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
-from amdockvs.core.constants import RESOURCE_EXPORTS
 from amdockvs.core.payloads import molecule_payload_id, payload_store
 from amdockvs.io.export import export_poses_sdf, export_structures
 from amdockvs.ui.common.async_query import run_async
 
 
+# Exports go where the user puts them: the dialog opens where the last one went.
+# ponytail: per session; persist it in the app config if users ask for it across restarts.
+_last_dir = Path.home()
+
+
 def _export(parent, runtime, title: str, name: str, pattern: str, work) -> None:
     """Ask for the file, then run `work(store, path) -> count` off the GUI thread."""
-    start = Path(runtime.get_project_resource_path(RESOURCE_EXPORTS)) / name
-    path, _ = QFileDialog.getSaveFileName(parent, title, str(start), pattern)
+    global _last_dir
+    path, _ = QFileDialog.getSaveFileName(parent, title, str(_last_dir / name), pattern)
     if not path:
         return
+    _last_dir = Path(path).parent
     store = payload_store(runtime)
     run_async(
         lambda: work(store, path),

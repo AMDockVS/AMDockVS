@@ -50,10 +50,10 @@ def resolve_docking_output_dir(params: Mapping[str, Any], config: Mapping[str, A
     raise ValueError("output_dir is required when project resource 'docking_results' is not available.")
 
 
-def inputs_dir(output_dir: str | Path) -> Path:
+def inputs_dir(project_db) -> Path:
     """Where a docking job writes the receptors its programs read: a cache of payloads,
-    `<id>.<kind>`, never stale since payload ids are never reused."""
-    return Path(output_dir) / "_inputs"
+    `<id>.<kind>`, never stale since payload ids are never reused, under the project's cache/."""
+    return project_db_path(project_db).parent / "cache" / "inputs"
 
 
 def with_input_files(project_db, row: Mapping[str, Any], directory: str | Path) -> dict[str, Any]:
