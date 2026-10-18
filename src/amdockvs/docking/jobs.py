@@ -300,7 +300,6 @@ def iter_docking_batches(
             "flex_payload_id",
             "grid_engine_payload",
         ),
-        order=("source", "source_index"),
     )
     receptors = [with_input_files(project_db, row, inputs_dir(project_db)) for row in receptor_rows]
     if not receptors:
