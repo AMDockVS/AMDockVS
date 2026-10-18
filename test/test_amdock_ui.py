@@ -437,8 +437,8 @@ def test_amdock_ui_domain_views_show_docking_summaries(tmp_path, monkeypatch):
         assert not timer.isActive()
 
         # 2D interaction diagram: its own dock under PyMOL, driven by the same pose selection.
-        # It only draws the saved JSON (C6); "Build diagram" belongs to Selected Result, which
-        # owns the pose and lists the interactions of that same pass.
+        # It draws the saved JSON or builds it (test_diagram_dock); "Build diagram" stays in
+        # Selected Result to rebuild it.
         assert window.dockWidgetArea(window.diagram_dock) == Qt.RightDockWidgetArea
         hit = runtime.docking.top_hits(limit=1)[0]
         window.load_hit_in_pymol(hit, 1)

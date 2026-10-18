@@ -5,10 +5,8 @@ readings of the same thing, so they share the right column. The diagram is a liv
 (ms_contactmap's `InteractionDiagramWidget`) -- zoomable, draggable residues, rotate/mirror/
 recompute in its toolbar -- not a rendered image.
 
-The dock only *draws*: it follows the ligand>pose selection and shows whatever the saved
-diagram document holds. Building is Selected Result's "Build diagram" (same pass that fills
-its interaction list), so this view stays agnostic to poses, receptors and detection -- exactly
-what ms_contactmap needs to be reusable outside AMDock.
+The dock follows the ligand>pose selection and shows the saved diagram document; a pose with
+none gets one built off the GUI thread and saved beside it, so the next click is a JSON read.
 """
 from __future__ import annotations
 
@@ -25,11 +23,11 @@ from amdockvs.project.summaries import DockingHitSummary
 from ms_components.ms_dockwidget.widget import DockManager, MSDockWidget
 
 _PLACEHOLDER = "Select a docking pose to see its 2D interaction diagram."
-_NOT_BUILT = "No diagram for this pose yet — build it from Selected Result › Interactions."
+_BUILDING = "Drawing the diagram of this pose…"
 
 
 class InteractionDiagramDock(MSDockWidget):
-    """Shows the selected pose's saved diagram; the panel that owns the pose builds it."""
+    """Shows the selected pose's diagram, building and saving it the first time."""
 
     #: Settings-tree node to open: embedded here, the diagram has no settings of its own.
     settings_requested = Signal(str)
@@ -71,18 +69,46 @@ class InteractionDiagramDock(MSDockWidget):
             self.status.setText("")
             return
         # A saved diagram is a JSON read plus a scene build (milliseconds), so the dock can
-        # follow every click. Nothing saved: show the placeholder rather than the previous
-        # pose's diagram, which would silently read as this one's.
+        # follow every click. Nothing saved: build it (seconds, off the GUI thread) and show a
+        # placeholder meanwhile rather than the previous pose's diagram.
         from amdockvs.docking.results.diagram import load_pose_diagram
 
         cached = load_pose_diagram(str(hit.output_path), self._pose_rank)
         label = f"{hit.ligand_name} · pose {self._pose_rank}"
         if cached is None:
-            self.placeholder.setText(_NOT_BUILT)
+            self.placeholder.setText(_BUILDING)
             self.stack.setCurrentWidget(self.placeholder)
             self.status.setText(label)
+            self._build(hit, self._pose_rank, label)
             return
         self._draw(*cached, label=label)
+
+    def _build(self, hit: DockingHitSummary, rank: int, label: str) -> None:
+        from amdockvs.ui.common.async_query import run_async
+
+        key = (hit.result_id, rank)
+
+        def work():
+            from ms_contactmap import solve_layout
+
+            from amdockvs.docking.results.diagram import build_pose_diagram, save_pose_diagram
+
+            diagram = build_pose_diagram(pose_path=hit.output_path, receptor_path=hit.receptor_path, name=label)
+            if diagram is None:
+                return None
+            layout = solve_layout(diagram)
+            save_pose_diagram(hit.output_path, rank, diagram, layout)
+            return diagram, layout
+
+        def done(built, error: str = "") -> None:
+            if self._hit is None or (self._hit.result_id, self._pose_rank) != key:
+                return  # the user moved on; the saved diagram waits for the next click
+            if built is None:
+                self.placeholder.setText(f"Could not draw the diagram of this pose: {error or 'pose or receptor missing'}.")
+                return
+            self._draw(*built, label=label)
+
+        run_async(work, done, on_error=lambda exc: done(None, str(exc)))
 
     def reload(self) -> None:
         """Re-check the cache for the current selection (a diagram job may have just filled it)."""
