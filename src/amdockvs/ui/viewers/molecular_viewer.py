@@ -181,16 +181,25 @@ class MolecularViewerController:
 
     def show_diagram_residue(self, hit: DockingHitSummary, key: str, diagram) -> None:
         """A residue picked in the 2D diagram: sticks, zoom and its contacts drawn in 3D."""
-        dock = self.w.pymol_dock
-        cmd = getattr(dock, "cmd", None)
+        from amdockvs.ui.viewers.interactions_3d import show_residue_interactions
+
+        self._on_pose(hit, lambda cmd, receptor_obj: show_residue_interactions(
+            cmd, receptor_obj=receptor_obj, ligand_obj="amdock_result_pose", key=key, diagram=diagram))
+
+    def show_interaction(self, hit: DockingHitSummary, contact) -> None:
+        """One contact picked in Selected Result's interaction table, drawn in its type's colour."""
+        from amdockvs.ui.viewers.interactions_3d import show_interaction
+
+        self._on_pose(hit, lambda cmd, receptor_obj: show_interaction(
+            cmd, receptor_obj=receptor_obj, ligand_obj="amdock_result_pose", contact=contact))
+
+    def _on_pose(self, hit: DockingHitSummary, draw) -> None:
+        cmd = getattr(self.w.pymol_dock, "cmd", None)
         receptor_obj = f"receptor_{hit.receptor_id}"
         if cmd is None or not self._holds(cmd, receptor_obj) or not self._holds(cmd, "amdock_result_pose"):
             return  # ponytail: docked poses only; a redocking hit loads under other names
-        from amdockvs.ui.viewers.interactions_3d import show_residue_interactions
-
         with contextlib.suppress(Exception):
-            show_residue_interactions(cmd, receptor_obj=receptor_obj, ligand_obj="amdock_result_pose",
-                                      key=key, diagram=diagram)
+            draw(cmd, receptor_obj)
 
     def sync_to_active_view(self, view_id: str | None) -> None:
         """PyMOL follows the active tab: a structural view shows its first row; any other

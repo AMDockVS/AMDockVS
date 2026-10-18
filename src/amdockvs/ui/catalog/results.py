@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import json
 import time
+from types import SimpleNamespace
 from typing import Callable
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -63,6 +65,33 @@ _RESULT_FILTER_FIELDS = (
 )
 
 
+
+
+
+def _residue_key(residue: str) -> str:
+    """``LEU248:A`` (a table row's residue) -> ``A:248:LEU`` (ms_contactmap's key), for rows saved
+    before they carried the key."""
+    name_number, _, chain = residue.partition(":")
+    split = next((i for i, c in enumerate(name_number) if c.isdigit() or c == "-"), len(name_number))
+    return f"{chain}:{name_number[split:]}:{name_number[:split]}"
+
+
+def _table_contact(row: dict) -> SimpleNamespace:
+    geometry = row.get("geometry") or {}
+    extra = geometry.get("provider_payload") or {}
+    return SimpleNamespace(
+        label=row["interaction_type"], kind=geometry.get("provider_interaction") or row["interaction_type"],
+        residue=row["residue"], distance=row.get("distance"),
+        residue_key=extra.get("residue_key") or _residue_key(row["residue"]),
+        ligand_atoms=tuple(extra.get("ligand_atoms") or ()),  # none on older rows: PyMOL shows the residue only
+        protein_atom=extra.get("protein_atom"), via_water=extra.get("via_water"))
+
+
+def _diagram_contact(row: dict) -> SimpleNamespace:
+    return SimpleNamespace(
+        label=row.get("type"), kind=row.get("type"), residue=row.get("residue"), distance=row.get("distance_angstrom"),
+        residue_key=row.get("residue"), ligand_atoms=tuple(row.get("ligand_atoms") or ()),
+        protein_atom=row.get("protein_atom"), via_water=row.get("via_water"))
 
 
 class _MetricColumns:
@@ -315,11 +344,18 @@ class DockingResultsWidget(QWidget):
         self.build_diagram_btn.clicked.connect(self._build_diagram)
         header.addWidget(self.build_diagram_btn)
         interactions_layout.addLayout(header)
-        self.interactions_text = QTextEdit(self.interactions_box)
-        self.interactions_text.setReadOnly(True)
-        self.interactions_text.setMinimumHeight(90)
-        self.interactions_text.setMaximumHeight(180)
-        interactions_layout.addWidget(self.interactions_text)
+        # One row per contact; picking one draws it in PyMOL in the colour of its type.
+        self.interactions_table = QTableWidget(0, 3, self.interactions_box)
+        self.interactions_table.setHorizontalHeaderLabels(["Type", "Residue", "Distance (Å)"])
+        self.interactions_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.interactions_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.interactions_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.interactions_table.verticalHeader().setVisible(False)
+        self.interactions_table.horizontalHeader().setStretchLastSection(True)
+        self.interactions_table.setMinimumHeight(90)
+        self.interactions_table.setMaximumHeight(180)
+        self.interactions_table.itemSelectionChanged.connect(self._on_interaction_picked)
+        interactions_layout.addWidget(self.interactions_table)
         layout.addWidget(self.interactions_box, 1)
         # layout.addStretch(1)
         return results_container
@@ -755,8 +791,8 @@ class DockingResultsWidget(QWidget):
             self.detail_fields.setVisible(False)
             self.detail_more_btn.setVisible(False)
             self.detail_more.setVisible(False)
+            self._show_interactions([])
             self.interactions_status.setText("Select a pose to load interactions.")
-            self.interactions_text.clear()
             self.build_diagram_btn.setEnabled(False)
             return
         self.detail_placeholder.setVisible(False)
@@ -896,22 +932,27 @@ class DockingResultsWidget(QWidget):
 
     def _load_interactions(self, hit: DockingHitSummary) -> None:
         # The pose's rows of `interaction_results` (an indexed lookup of a few rows), else what a
-        # diagram built for it found (a JSON beside the pose).
+        # diagram built for it found (a JSON beside the pose). Each row keeps what PyMOL draws.
         from amdockvs.docking.results.diagram import pose_interactions
 
         ready = bool(hit.pose_payload_id and hit.receptor_payload_id)
         self.build_diagram_btn.setEnabled(ready)
         rows = None
         if hit.pose_payload_id:
-            rows = self.runtime.docking.list_interactions(result_id=int(hit.result_id or 0)) or None
+            rows = [_table_contact(row) for row in self.runtime.docking.list_interactions(result_id=int(hit.result_id or 0))] or None
         if rows is None and hit.pose_payload_id:
             drawn = pose_interactions(str(hit.output_path), self._pose_rank(hit))
-            rows = None if drawn is None else [{"interaction_type": row.get("type"), "residue": row.get("residue"),
-                                                 "distance": row.get("distance_angstrom")} for row in drawn]
-        self._show_interactions(None if rows is None else [row for row in rows if row.get("interaction_type") != "none"])
+            rows = None if drawn is None else [_diagram_contact(row) for row in drawn]
+        self._show_interactions(None if rows is None else [row for row in rows if row.kind != "none"])
 
-    def _show_interactions(self, rows: list[dict] | None) -> None:
-        self.interactions_text.clear()
+    def _show_interactions(self, rows: list[SimpleNamespace] | None) -> None:
+        from ms_contactmap.model import INTERACTION_STYLES
+
+        table = self.interactions_table
+        table.blockSignals(True)
+        table.setRowCount(0)
+        table.blockSignals(False)
+        self._contacts = list(rows or [])
         if rows is None:
             self.interactions_status.setText("Interactions not computed for this pose - press Build diagram.")
             return
@@ -919,15 +960,25 @@ class DockingResultsWidget(QWidget):
             self.interactions_status.setText("No interactions detected for this pose.")
             return
         counts: dict[str, int] = {}
-        lines: list[str] = []
-        for row in rows:
-            kind = str(row.get("interaction_type") or "interaction")
-            counts[kind] = counts.get(kind, 0) + 1
-            residue = str(row.get("residue") or "-")
-            lines.append(f"{kind:14s} {residue:12s} {fmt_float(row.get('distance'))} A")
+        table.setRowCount(len(rows))
+        for index, row in enumerate(rows):
+            counts[row.label] = counts.get(row.label, 0) + 1
+            kind = QTableWidgetItem(row.label)
+            style = INTERACTION_STYLES.get(row.kind)
+            if style is not None:
+                kind.setForeground(QColor(style.color))
+            table.setItem(index, 0, kind)
+            table.setItem(index, 1, QTableWidgetItem(row.residue))
+            table.setItem(index, 2, QTableWidgetItem(fmt_float(row.distance)))
+        table.resizeColumnsToContents()
         summary = ", ".join(f"{key}: {value}" for key, value in sorted(counts.items()))
         self.interactions_status.setText(f"{len(rows)} interaction(s): {summary}")
-        self.interactions_text.setPlainText("\n".join(lines[:200]))
+
+    def _on_interaction_picked(self) -> None:
+        rows = self.interactions_table.selectionModel().selectedRows()
+        viewer = getattr(self.window(), "viewer", None)
+        if rows and viewer is not None and self._selected_hit is not None:
+            viewer.show_interaction(self._selected_hit, self._contacts[rows[0].row()])
 
     def _build_diagram(self) -> None:
         hit = self._selected_hit

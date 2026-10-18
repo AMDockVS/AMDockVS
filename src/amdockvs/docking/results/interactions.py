@@ -70,6 +70,8 @@ def collect_interaction_rows(*, pose: bytes, receptor: bytes, receptor_format: s
                     "provider_interaction": str(interaction.kind),
                     "provider_payload": _json_safe(
                         {
+                            "residue_key": interaction.residue_key,
+                            "ligand_atoms": list(interaction.ligand_atoms),  # what PyMOL draws from
                             "ligand_is_donor": interaction.ligand_is_donor,
                             "protein_atom": interaction.protein_atom,
                             "angle": interaction.angle,

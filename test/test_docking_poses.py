@@ -147,6 +147,7 @@ def test_a_chunk_finds_the_interactions_of_its_poses_and_stores_each_pose_once(t
     assert docked and {row["receptor_payload_id"] for row in found} == {7}
     assert {id(row["pose_payload_id"]) for row in found} == {id(row["pose_payload_id"]) for row in docked}
     assert {row["interaction_type"] for row in found} - {"none"}  # 1s63's ligand touches its site
+    assert all(row["geometry"]["provider_payload"]["ligand_atoms"] for row in found)  # what PyMOL draws from
 
     store = ProjectStore.open_at(tmp_path / "project.db")
     with store.get_session() as session:

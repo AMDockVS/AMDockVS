@@ -7,7 +7,7 @@ from rdkit.Chem import AllChem  # noqa: E402
 
 from ms_contactmap.model import Diagram, Interaction, Residue, ResidueRef  # noqa: E402
 
-from amdockvs.ui.viewers.interactions_3d import GROUP, show_residue_interactions  # noqa: E402
+from amdockvs.ui.viewers.interactions_3d import GROUP, show_interaction, show_residue_interactions  # noqa: E402
 
 _SER = """\
 ATOM      1  N   SER A  10       0.000   0.000   0.000  1.00  0.00           N
@@ -47,5 +47,19 @@ def test_contacts_of_the_picked_residue_are_drawn_at_their_3d_length(tmp_path):
         points = [n for n in cmd.get_names("objects") if n.startswith(f"{GROUP}_p")]
         assert round(cmd.get_distance(points[0], points[1]), 1) == 2.8
         assert GROUP in cmd.get_names("all")
+
+        # A contact picked in the interaction table: just that one, in its type's colour.
+        from amdockvs.ui.catalog.results import _table_contact
+
+        row = {"interaction_type": "hydrogen_bond", "residue": "SER10:A", "distance": 2.8,
+               "geometry": {"provider_interaction": "hbond",
+                            "provider_payload": {"ligand_atoms": [2], "protein_atom": "OG"}}}
+        contact = _table_contact(row)
+        assert contact.residue_key == key  # parsed from the residue: this row has no key saved
+        assert show_interaction(cmd, receptor_obj="receptor_1", ligand_obj="pose", contact=contact) == 1
+        (dash,) = [n for n in cmd.get_names("objects") if n.startswith(f"{GROUP}_d")]
+        assert cmd.get("dash_color", dash) != cmd.get("dash_color")  # its own colour, not the default
+        points = [n for n in cmd.get_names("objects") if n.startswith(f"{GROUP}_p")]
+        assert round(cmd.get_distance(points[0], points[1]), 1) == 2.8
     finally:
         session.stop()

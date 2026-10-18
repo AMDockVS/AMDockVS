@@ -446,6 +446,17 @@ def test_amdock_ui_domain_views_show_docking_summaries(tmp_path, monkeypatch):
         assert not hasattr(window.diagram_dock, "render_button")
         hits_page = results_view.current_page()
         assert hits_page.build_diagram_btn.text() == "Build diagram"
+        # Interactions are a table: picking a row hands that contact to PyMOL.
+        from amdockvs.ui.catalog.results import _table_contact
+
+        picked = []
+        monkeypatch.setattr(window.viewer, "show_interaction", lambda hit, contact: picked.append(contact))
+        hits_page._selected_hit = hit
+        hits_page._show_interactions([_table_contact({"interaction_type": "hydrophobic", "residue": "LYS273:A",
+                                                      "distance": 3.6, "geometry": {}})])
+        assert hits_page.interactions_table.rowCount() == 1
+        hits_page.interactions_table.selectRow(0)
+        assert [c.residue_key for c in picked] == ["A:273:LYS"]
 
         # PyMOL for a docking pose: the receptor is loaded once and only the pose is swapped,
         # but a wiped scene (switching tabs runs cmd.delete("all")) must bring it back instead
