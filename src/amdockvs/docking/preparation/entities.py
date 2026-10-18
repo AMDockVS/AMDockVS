@@ -56,11 +56,16 @@ def _prepare_ligand(
     return output_path
 
 
+# Meeko has templates, and AD4/Vina atom types, only for these coordination metals. Any other
+# (CD, CO, NI...) makes Meeko fail the whole receptor, so it is left out of the PDBQT.
+TYPED_METALS = frozenset({"ZN", "FE", "MN", "MG", "CA", "CU"})
+
+
 def receptor_excluded_resnames(*, keep_waters: bool, keep_cofactors: bool) -> frozenset[str]:
     """HET codes to leave out of the receptor PDBQT, from the same curated lists import uses."""
     from amdockvs.io.receptor_preview import hetero_codes
 
-    excluded: set[str] = set()
+    excluded: set[str] = set(hetero_codes("coordination_metal") - TYPED_METALS)
     if not keep_waters:
         excluded |= hetero_codes("water")
     if not keep_cofactors:
