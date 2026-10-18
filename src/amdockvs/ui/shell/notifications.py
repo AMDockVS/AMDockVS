@@ -9,6 +9,7 @@ slot next to Ligands/Receptors, and click-away dismissal is what the gesture exp
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Callable
 from datetime import datetime
 from importlib.resources import files
 
@@ -46,6 +47,7 @@ class Notification:
     level: str = INFO
     at: datetime = field(default_factory=datetime.now)
     details: str = ""  # the whole story (a traceback): behind "Show Details" on double-click
+    open: Callable[[], object] | None = field(default=None, compare=False)  # double-click goes there, no dialog
 
     def as_line(self, *, glyph: bool = True) -> str:
         icon = f"{_ICONS.get(self.level, _ICONS[INFO])}  " if glyph else ""
@@ -117,6 +119,10 @@ class NotificationLog(QWidget):
 
     def _show_entry(self, item: QListWidgetItem) -> None:
         note: Notification = item.data(Qt.ItemDataRole.UserRole)
+        if note.open is not None:
+            self.hide()
+            note.open()
+            return
         icon = {ERROR: QMessageBox.Icon.Critical, WARNING: QMessageBox.Icon.Warning}.get(
             note.level, QMessageBox.Icon.Information
         )

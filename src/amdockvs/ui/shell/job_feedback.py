@@ -97,9 +97,11 @@ class JobFeedbackController:
         hook.amdock_previous = previous
         sys.excepthook = hook
 
-    def post_notification(self, title: str, text: str = "", level: str = INFO, *, details: str = "") -> None:
-        """Record something worth remembering. Unread count clears when the log is opened."""
-        note = Notification(title=str(title), text=str(text), level=str(level), details=str(details))
+    def post_notification(self, title: str, text: str = "", level: str = INFO, *, details: str = "",
+                          open=None) -> None:
+        """Record something worth remembering. Unread count clears when the log is opened. With
+        `open`, a double-click on the entry calls it instead of showing the text in a dialog."""
+        note = Notification(title=str(title), text=str(text), level=str(level), details=str(details), open=open)
         self.notifications.append(note)
         del self.notifications[:-MAX_ENTRIES]
         self.notification_log.append(note)
@@ -171,7 +173,8 @@ class JobFeedbackController:
     def on_job_submitted_notice(self, job_name: str, _job_id: str) -> None:
         label = re.sub(r"^amdockvs[_ ]|[_ ]job$", "", str(job_name)).replace("_", " ").strip() or "Job"
         self.post_notification(
-            f"{label.capitalize()} started.", "Running in the background — follow it in the Jobs monitor."
+            f"{label.capitalize()} started.", "Running in the background — double-click to open the Jobs monitor.",
+            open=self.w.open_jobs_monitor,
         )
         # Show its progress bar now instead of waiting for the monitor's idle poll.
         self.w.monitor_bridge.request_refresh()

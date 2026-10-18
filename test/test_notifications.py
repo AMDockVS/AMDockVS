@@ -87,3 +87,10 @@ def test_double_click_opens_the_whole_entry_with_its_traceback(app):
     assert log.entry_dialog.text() == "boom"
     assert log.entry_dialog.detailedText() == note.details
     log.entry_dialog.close()
+
+
+def test_a_started_job_entry_opens_the_jobs_monitor_not_a_dialog(app):
+    opened = []
+    log = NotificationLog([Notification("Docking started.", open=lambda: opened.append(True))])
+    log._list.itemDoubleClicked.emit(log._list.item(0))
+    assert opened == [True] and not hasattr(log, "entry_dialog")
