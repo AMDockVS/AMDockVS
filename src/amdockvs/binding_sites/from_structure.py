@@ -18,12 +18,15 @@ def binding_site_specs_from_components(
     *,
     box_size: float,
     reference_ligands: list[str] | None = None,
+    metal_codes: Iterable[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Specs for the kept reference ligands and the coordinated metals.
 
     `reference_ligands` None means "every ligand component"; a list restricts it to
-    the selectors the user kept (artifact copies were dropped upstream).
+    the selectors the user kept (artifact copies were dropped upstream). `metal_codes` None
+    means "every coordinated metal"; a list keeps the metals whose residue name is in it.
     """
+    metal_set = None if metal_codes is None else {str(code).upper() for code in metal_codes}
     size = (float(box_size),) * 3
     reference_set = None if reference_ligands is None else set(reference_ligands)
     specs: list[dict[str, Any]] = []
@@ -35,6 +38,8 @@ def binding_site_specs_from_components(
                 continue
             name = f"{component['resname']} site"
         elif component_class == "metal" and component.get("is_coordinated"):
+            if metal_set is not None and str(component["resname"]).upper() not in metal_set:
+                continue
             name = f"{component['resname']} metal site"
         else:
             continue

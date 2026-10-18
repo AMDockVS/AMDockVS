@@ -357,6 +357,7 @@ def _receptor_import_variant(options: ReceptorImportOptions | None) -> str:
         options.remove_altloc,
         options.selected_cocrystal_key,
         None if options.selected_reference_ligands is None else tuple(options.selected_reference_ligands),
+        options.selected_metals,
     ))
 
 
@@ -385,7 +386,13 @@ def _receptor_import_options_from_patch(extra_data_patch: dict[str, Any]) -> Rec
             if import_profile.get("selected_reference_ligands") is None
             else tuple(str(selector) for selector in import_profile.get("selected_reference_ligands") or ())
         ),
+        selected_metals=_optional_tuple(import_profile.get("selected_metals")),
+        grid_box_metals=_optional_tuple(import_profile.get("grid_box_metals")),
     )
+
+
+def _optional_tuple(values) -> tuple[str, ...] | None:
+    return None if values is None else tuple(str(value) for value in values)
 
 def _active_binding_site_position(
     specs: list[dict[str, Any]],

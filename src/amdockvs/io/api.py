@@ -247,6 +247,7 @@ class LoaderAPI:
         binding_site_box_size: float | None = None,
         remove_non_structural_waters: bool = True,
         create_binding_sites: bool = True,
+        grid_box_metals: Iterable[str] | None = None,
         remove_cofactors: bool = False,
         remove_altloc: bool = True,
         use_biological_assembly: bool = False,
@@ -281,6 +282,9 @@ class LoaderAPI:
                 remove_altloc=bool(remove_altloc),
                 import_mode=str(import_mode or "receptor"),
                 binding_site_box_size=box,
+                grid_box_metals=tuple(
+                    grid_box_metals if grid_box_metals is not None else app_config(self.runtime).imports.grid_box_metals
+                ),
             )
             extra_data_patch_by_file, binding_site_specs_by_file = build_receptor_import_maps(
                 [str(path) for path in normalized_files],
