@@ -14,8 +14,17 @@ so it copies, backs up and syncs like a small one.
 | `executor.db` | The job journal. An interrupted job resumes from it. |
 | `config.toml` | Project settings. |
 | `logs/` | The project log. |
-| `cache/` | Files rebuilt on demand (a structure written out for a viewer, a 2D diagram). Safe to delete. |
-| `data/`, `results/` | Import leftovers, HTPVS shards, per-run docking folders, QSAR models, clustering runs. |
+| `shards/` | HTPVS ligand libraries (`.mshard`). |
+| `docking/` | Result fragments of sharded campaigns, and the docking programs' working files. |
+| `models/` | QSAR models. |
+| `pockets/` | P2Rank outputs; the viewer draws pocket points from them. |
+| `clustering_runs/` | The plot data of each diversity clustering run. |
+| `cache/` | Files rebuilt on demand (a structure written out for a viewer, docking inputs, a 2D diagram). Safe to delete. |
+| `tmp/` | Job temporaries, removed when the job ends. |
+
+A new project holds only the databases, `config.toml` and `logs/`: every other folder
+appears the first time something is written there. Exports go wherever you choose in the
+save dialog, which opens in the folder of the previous export.
 
 Copy or move the whole folder. Never copy `project.db` without `volumes/`: the database
 only points at the structures.
