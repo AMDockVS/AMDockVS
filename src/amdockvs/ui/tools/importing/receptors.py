@@ -51,7 +51,8 @@ from amdockvs.ui.common.drop_area import (
 )
 from amdockvs.ui.view_ids import RECEPTOR_VIEW_ID
 from amdockvs.models.molecules import MoleculeType
-from amdockvs.ui.common.widgets import ChipsSelect, WrapCombo
+from amdockvs.ui.common.widgets import WrapCombo
+from ms_components.chips import ChipsSelect
 from amdockvs.ui.tools.importing.common import land_on_view, nudge_monitor
 
 
