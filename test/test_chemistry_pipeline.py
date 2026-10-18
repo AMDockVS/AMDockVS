@@ -58,35 +58,27 @@ def test_unknown_step_is_rejected():
         raise AssertionError("an unknown operation must not pass silently")
 
 
-def _row(molecule_id: int, source):
+def _row(molecule_id: int, smiles: str | None):
+    """What the job feed hands the task: the row with the bytes of its structure."""
+    molblock = None if smiles is None else Chem.MolToMolBlock(Chem.MolFromSmiles(smiles))
     return {
         "id": molecule_id,
-        "stored_path": str(source),
-        "current_path": str(source),
+        "structure": None if molblock is None else molblock.encode(),
+        "structure_kind": "sdf",
         "current_model_index": None,
         "extra_data": {},
         "has_3d": False,
     }
 
 
-def test_multi_step_rows_write_one_file_and_report_the_folded_state(tmp_path):
-    from amdockvs.chemistry.service import transform_ligand_rows
+def test_multi_step_rows_return_one_payload_and_report_the_folded_state():
+    from ms_flow.payloads import Payload
 
-    project_root = tmp_path / "project"
-    output_dir = project_root / "data" / "molecules"
-    artifacts = output_dir / "original"
-    artifacts.mkdir(parents=True)
-    sources = []
-    for index, smiles in enumerate(SMILES, start=1):
-        path = artifacts / f"lig{index}.sdf"
-        path.write_text(Chem.MolToMolBlock(Chem.MolFromSmiles(smiles)), encoding="utf-8")
-        sources.append(path)
+    from amdockvs.chemistry.service import transform_ligand_rows
 
     result = transform_ligand_rows(
         operations=[("standardize", {}), ("protonate", {"method": "explicit_hs"}), ("generate_3d", {})],
-        output_dir=output_dir,
-        rows=[_row(index, path) for index, path in enumerate(sources, start=1)],
-        params={"structure_source": "current", "run_id": "multi"},
+        rows=[_row(index, smiles) for index, smiles in enumerate(SMILES, start=1)],
         next_model_index_by_entity={1: 0, 2: 0, 3: 0},
     )
 
@@ -97,10 +89,11 @@ def test_multi_step_rows_write_one_file_and_report_the_folded_state(tmp_path):
         assert len(update["model_rows"]) == 1
         assert update["state"]["has_3d"] is True
         assert update["state"]["has_hs"] is True
-        assert (project_root / update["current_path"]).is_file()
-    # One pass, one artifact per ligand — not one per step.
-    written = [path for path in output_dir.rglob("*.sdf") if path.parent != artifacts]
-    assert len(written) == len(SMILES)
+        # One pass, one structure per ligand — not one per step — and the model is that structure.
+        current = update["current_payload_id"]
+        assert isinstance(current, Payload) and (current.kind, current.series) == ("sdf", "molecules")
+        assert update["model_rows"][0]["payload_id"] is current
+        assert Chem.MolFromMolBlock(current.data.decode(), removeHs=False).GetNumConformers() == 1
 
 
 def _mmff_energies(mol):
@@ -141,13 +134,8 @@ def test_minimize_prunes_conformers_that_converged_and_sorts_by_energy():
     assert energies == sorted(energies)
 
 
-def test_minimize_after_conformers_still_writes_the_ensemble(tmp_path):
+def test_minimize_after_conformers_still_writes_the_ensemble():
     from amdockvs.chemistry.service import transform_ligand_rows
-
-    output_dir = tmp_path / "project" / "data" / "molecules"
-    source = output_dir / "original" / "lig.sdf"
-    source.parent.mkdir(parents=True)
-    source.write_text(Chem.MolToMolBlock(Chem.MolFromSmiles("CCCCCCO")), encoding="utf-8")
 
     result = transform_ligand_rows(
         operations=[
@@ -155,32 +143,25 @@ def test_minimize_after_conformers_still_writes_the_ensemble(tmp_path):
             ("conformers", {"num_conformers": 4, "prune_rms_thresh": 0.0, "optimize": False}),
             ("minimize", {}),
         ],
-        output_dir=output_dir,
-        rows=[_row(1, source)],
-        params={"structure_source": "current", "run_id": "ens"},
+        rows=[_row(1, "CCCCCCO")],
         next_model_index_by_entity={1: 0},
     )
 
     update, = result["updates"]
     assert len(update["model_rows"]) == update["state"]["conformer_count"] > 1
     assert update["state"]["is_minimized"] is True
+    # Every conformer is its own payload and the first one is the molecule's current structure.
+    assert len({id(row["payload_id"]) for row in update["model_rows"]}) == len(update["model_rows"])
+    assert update["current_payload_id"] is update["model_rows"][0]["payload_id"]
+    assert update["current_model_index"] == 0
 
 
-def test_a_broken_row_does_not_take_the_batch_down(tmp_path):
+def test_a_broken_row_does_not_take_the_batch_down():
     from amdockvs.chemistry.service import transform_ligand_rows
-
-    project_root = tmp_path / "project"
-    output_dir = project_root / "data" / "molecules"
-    artifacts = output_dir / "original"
-    artifacts.mkdir(parents=True)
-    good = artifacts / "good.sdf"
-    good.write_text(Chem.MolToMolBlock(Chem.MolFromSmiles(SMILES[0])), encoding="utf-8")
 
     result = transform_ligand_rows(
         operations="standardize",
-        output_dir=output_dir,
-        rows=[_row(1, artifacts / "missing.sdf"), _row(2, good)],
-        params={"structure_source": "current", "run_id": "partial"},
+        rows=[_row(1, None), _row(2, SMILES[0])],
     )
 
     assert result["failure_count"] == 1

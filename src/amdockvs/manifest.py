@@ -6,29 +6,34 @@ from amdockvs.core.constants import (
     AMDOCKVS_APP_ID,
     AMDOCKVS_APP_NAME,
     RESOURCE_DOCKING_RESULTS,
-    RESOURCE_EXPORTS,
-    RESOURCE_JOBS,
-    RESOURCE_MOLECULES,
+    RESOURCE_IMPORT_STATS,
     RESOURCE_POCKET_PREDICTIONS,
     RESOURCE_QSAR_MODELS,
     RESOURCE_SHARDS,
     AMDOCKVS_SCOPE_ID,
 )
 
+# A flat project: data folders beside the databases (volumes/ is ms_flow's), cache/ safe to
+# delete at any time, tmp/ for job temporaries. Each folder appears on its first write.
 AMDOCKVS_PROJECT_RESOURCES = (
-    ProjectResourceSpec(key=RESOURCE_MOLECULES, relative_path="data/molecules", description="General molecule artifacts"),
-    ProjectResourceSpec(key=RESOURCE_DOCKING_RESULTS, relative_path="results/docking", description="Docking outputs"),
-    ProjectResourceSpec(key=RESOURCE_QSAR_MODELS, relative_path="results/qsar_models", description="QSAR model artifacts"),
+    ProjectResourceSpec(key=RESOURCE_SHARDS, relative_path="shards", description="htpvs ligand shards"),
+    ProjectResourceSpec(
+        key=RESOURCE_DOCKING_RESULTS,
+        relative_path="docking",
+        description="Campaign result fragments and docking programs' working files",
+    ),
+    ProjectResourceSpec(key=RESOURCE_QSAR_MODELS, relative_path="models", description="QSAR models"),
     ProjectResourceSpec(
         key=RESOURCE_POCKET_PREDICTIONS,
-        relative_path="results/pockets",
-        description="Pocket-prediction artifacts",
+        relative_path="pockets",
+        description="P2Rank outputs; the viewer draws pocket points from them",
     ),
-    ProjectResourceSpec(key=RESOURCE_EXPORTS, relative_path="exports", description="User exports"),
-    ProjectResourceSpec(key=RESOURCE_JOBS, relative_path="jobs", description="App-level job artifacts"),
-    ProjectResourceSpec(key=RESOURCE_SHARDS, relative_path="data/shards", description="htpvs ligand shards"),
+    ProjectResourceSpec(
+        key=RESOURCE_IMPORT_STATS,
+        relative_path="tmp/import",
+        description="Per-batch import tallies, drained when the import ends",
+    ),
 )
-AMDOCKVS_DEFAULT_PROJECT_DIRS = tuple(spec.relative_path for spec in AMDOCKVS_PROJECT_RESOURCES)
 
 # Distribution metadata is absent when the source tree is used directly through PYTHONPATH.
 try:

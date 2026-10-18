@@ -170,7 +170,7 @@ def _without_resnames(text: str, exclude: frozenset[str]) -> str:
     return "".join(kept)
 
 
-def _polymer_from_pdb(source: Path, receptor_text: str, templates, mk_prep):
+def _polymer_from_pdb(receptor_text: str, templates, mk_prep):
     """Meeko's own PDB reader, falling back to ProDy for the structures it refuses."""
     from meeko import Polymer
 
@@ -180,14 +180,12 @@ def _polymer_from_pdb(source: Path, receptor_text: str, templates, mk_prep):
         )
     except ValueError:
         import prody
+        from ms_flow.payloads import scratch_file
 
-        return Polymer.from_prody(
-            prody.parsePDB(str(_filtered_copy(source, receptor_text)), altloc="all"),
-            templates,
-            mk_prep,
-            allow_bad_res=True,
-            default_altloc="A",
-        )
+        # ProDy parses a path, not a string: hand it the filtered text, not the file on disk.
+        with scratch_file(receptor_text.encode(), ".pdb") as filtered:
+            structure = prody.parsePDB(str(filtered), altloc="all")
+        return Polymer.from_prody(structure, templates, mk_prep, allow_bad_res=True, default_altloc="A")
 
 
 def prepare_receptor_vina_pdbqt(
@@ -221,7 +219,7 @@ def prepare_receptor_vina_pdbqt(
 
     with as_pdb(source) as readable:
         receptor_text = _without_resnames(readable.read_text(encoding="utf-8"), exclude_resnames)
-        polymer = _polymer_from_pdb(readable, receptor_text, templates, mk_prep)
+        polymer = _polymer_from_pdb(receptor_text, templates, mk_prep)
     # Mark the user-picked residues flexible before writing; this is what makes Meeko emit a
     # non-empty flex block. A bad/missing key is skipped, not fatal — one typo shouldn't sink prep.
     flex_applied: list[str] = []
@@ -260,15 +258,6 @@ def prepare_receptor_vina_pdbqt(
         ),
         metadata={"engine": "vina", "format": "pdbqt", **extra},
     )
-
-
-def _filtered_copy(source: Path, text: str) -> Path:
-    """ProDy parses a path, not a string: hand it the filtered text, not the file on disk."""
-    if text == source.read_text(encoding="utf-8"):
-        return source
-    tmp = source.with_name(f"{source.stem}__prep_filtered.pdb")
-    tmp.write_text(text, encoding="utf-8")
-    return tmp
 
 
 __all__ = [

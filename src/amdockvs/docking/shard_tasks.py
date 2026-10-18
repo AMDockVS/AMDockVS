@@ -11,6 +11,8 @@ from typing import Any
 
 from ms_flow.core.data.shard import Shard
 
+from amdockvs.core.constants import SERIES_POSES
+from amdockvs.core.payloads import structure_payload
 from amdockvs.docking.engines.registry import run_docking_chunk
 from amdockvs.docking.preparation.shards import extract_ligands
 from amdockvs.docking.results.dataset import ResultFragmentWriter, local_pose_path, result_fragment_path, result_row
@@ -46,7 +48,8 @@ def _discard_poses(rows: list[dict]) -> None:
 
 
 def _hit_row(row: dict, *, smiles: str, source: str, shard_index: int) -> dict[str, Any]:
-    """A docking result row turned into what `ingest_hits` promotes: a molecule and its pose."""
+    """A docking result row turned into what `ingest_hits` promotes: a molecule; its pose is added
+    by the caller as a payload."""
     ligand_id = int(row.get("ligand_molecule_id") or 0)
     metrics = {**dict(row.get("metrics") or {}), "shard_source": source, "shard_index": shard_index,
                "shard_record_id": ligand_id}
@@ -60,7 +63,6 @@ def _hit_row(row: dict, *, smiles: str, source: str, shard_index: int) -> dict[s
         "engine": str(row.get("engine") or ""),
         "score": row.get("score"),
         "score_type": str(row.get("score_type") or ""),
-        "pose_path": str(row.get("pose_path") or ""),
         "pose_rank": int(row.get("pose_rank") or 1),
         "receptor_molecule_id": int(row.get("receptor_molecule_id") or 0),
         "metrics": metrics,
@@ -145,99 +147,84 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
         processed = 0
         hits: list[dict] = []
         hits_found = 0
-        try:
-            with ResultFragmentWriter(
-                result_path,
-                metadata={
-                    "dataset_id": header["dataset_id"],
-                    "shard_id": header["shard_id"],
-                    "base_id": header["base_id"],
-                    "slot_count": header["slot_count"],
-                    "source_shard": source,
-                    "run_id": str(payload.get("run_id") or ""),
-                    "protocol": dict(payload.get("protocol_metadata") or {}),
-                    "receptor_id": envelope["receptor_id"],
-                    "selection": {
-                        "mode": str(payload.get("hit_mode") or HIT_MODE_THRESHOLD),
-                        "cap": int(payload.get("hit_cap") or 0),
-                        "threshold": threshold,
-                        **(
-                            {"selected_from_receptor_id": int(payload["selected_from_receptor_id"])}
-                            if payload.get("selected_from_receptor_id") else {}
-                        ),
-                    },
+        with ResultFragmentWriter(
+            result_path,
+            metadata={
+                "dataset_id": header["dataset_id"],
+                "shard_id": header["shard_id"],
+                "base_id": header["base_id"],
+                "slot_count": header["slot_count"],
+                "source_shard": source,
+                "run_id": str(payload.get("run_id") or ""),
+                "protocol": dict(payload.get("protocol_metadata") or {}),
+                "receptor_id": envelope["receptor_id"],
+                "selection": {
+                    "mode": str(payload.get("hit_mode") or HIT_MODE_THRESHOLD),
+                    "cap": int(payload.get("hit_cap") or 0),
+                    "threshold": threshold,
+                    **(
+                        {"selected_from_receptor_id": int(payload["selected_from_receptor_id"])}
+                        if payload.get("selected_from_receptor_id") else {}
+                    ),
                 },
-            ) as writer:
-                def consume_pair(pair_rows: list[dict]) -> None:
-                    nonlocal hits_found, processed
-                    if not pair_rows:
-                        return
-                    row = next(
-                        (item for item in pair_rows if int(item.get("pose_rank") or 1) == 1),
-                        pair_rows[0],
+            },
+        ) as writer:
+            def consume_pair(pair_rows: list[dict]) -> None:
+                nonlocal hits_found, processed
+                if not pair_rows:
+                    return
+                row = next(
+                    (item for item in pair_rows if int(item.get("pose_rank") or 1) == 1),
+                    pair_rows[0],
+                )
+                ligand_id = int(row.get("ligand_molecule_id") or 0)
+                stored = result_row(row, smiles=smiles.get(ligand_id, ""))
+                writer.add(stored)
+                is_hit = (
+                    row.get("score") is not None
+                    and bool(stored.get("has_pose"))
+                    and (
+                        bool(payload.get("selected_from_receptor_id"))
+                        or float(row["score"]) <= threshold
                     )
-                    ligand_id = int(row.get("ligand_molecule_id") or 0)
-                    stored = result_row(row, smiles=smiles.get(ligand_id, ""))
-                    writer.add(stored)
-                    is_hit = (
-                        row.get("score") is not None
-                        and bool(stored.get("has_pose"))
-                        and (
-                            bool(payload.get("selected_from_receptor_id"))
-                            or float(row["score"]) <= threshold
+                )
+                if is_hit:
+                    hits_found += 1
+                    if (
+                        str(payload.get("hit_mode") or HIT_MODE_THRESHOLD) != HIT_MODE_TOP_N
+                        or payload.get("selected_from_receptor_id")
+                    ):
+                        hit = _hit_row(
+                            row,
+                            smiles=smiles.get(ligand_id, ""),
+                            source=source,
+                            shard_index=shard_index,
                         )
-                    )
-                    if is_hit:
-                        hits_found += 1
-                        if (
-                            str(payload.get("hit_mode") or HIT_MODE_THRESHOLD) != HIT_MODE_TOP_N
-                            or payload.get("selected_from_receptor_id")
-                        ):
-                            hit = _hit_row(
-                                row,
-                                smiles=smiles.get(ligand_id, ""),
-                                source=source,
-                                shard_index=shard_index,
-                            )
-                            hit["pose_path"] = ""
-                            hit["metrics"] = {
-                                **dict(hit.get("metrics") or {}),
-                                "selected_pose_path": "",
-                                "selected_pose_pdbqt_path": "",
-                            }
-                            hit["_pose_text"] = stored["pose_text"]
-                            hit["_pose_suffix"] = stored["pose_suffix"]
-                            hit["_result_shard"] = str(result_path)
-                            hit["_result_record_id"] = ligand_id
-                            hit["_shard_id"] = int(shard.get("shard_id") or 0)
-                            hits.append(hit)
-                    # The result shard is now the durable copy. No engine-specific loose pose
-                    # survives the callback; selected hits are restored by the parent later.
-                    _discard_poses([row])
-                    processed += 1
-                    if progress_cb is not None:
-                        progress_cb(processed)
+                        # Compressed when pickled, so in the worker: the parent only appends it.
+                        hit["pose"] = structure_payload(stored["pose_text"], stored["pose_suffix"], SERIES_POSES)
+                        hits.append(hit)
+                # The result shard is now the durable copy. No engine-specific loose pose
+                # survives the callback; a hit carries its pose as a payload.
+                _discard_poses([row])
+                processed += 1
+                if progress_cb is not None:
+                    progress_cb(processed)
 
-                rows = run_docking_chunk({
-                    **payload,
-                    "pairs": pairs,
-                    "report_name": f"shard_{shard_index:05d}_r{envelope['receptor_id']:05d}.json",
-                    "_pair_callback": consume_pair,
-                    "_collect_rows": False,
-                })
-                # Registered engines predating the streaming callback still work; they merely
-                # flush at the end of their engine call until they adopt the callback contract.
-                if rows:
-                    by_ligand: dict[int, list[dict]] = {}
-                    for row in rows:
-                        by_ligand.setdefault(int(row.get("ligand_molecule_id") or 0), []).append(row)
-                    for pair_rows in by_ligand.values():
-                        consume_pair(pair_rows)
-        except BaseException:
-            # A canceled/failed task has no receipt; do not leave interactive pose files
-            # for work that will be retried as a whole shard.
-            _discard_poses(hits)
-            raise
+            rows = run_docking_chunk({
+                **payload,
+                "pairs": pairs,
+                "report_name": f"shard_{shard_index:05d}_r{envelope['receptor_id']:05d}.json",
+                "_pair_callback": consume_pair,
+                "_collect_rows": False,
+            })
+            # Registered engines predating the streaming callback still work; they merely
+            # flush at the end of their engine call until they adopt the callback contract.
+            if rows:
+                by_ligand: dict[int, list[dict]] = {}
+                for row in rows:
+                    by_ligand.setdefault(int(row.get("ligand_molecule_id") or 0), []).append(row)
+                for pair_rows in by_ligand.values():
+                    consume_pair(pair_rows)
     envelope["scored"] = processed
     envelope["hits"] = hits
     envelope["hits_found"] = hits_found

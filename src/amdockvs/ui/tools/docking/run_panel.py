@@ -370,8 +370,7 @@ class RunPanel:
             self._set_prep_family_counts(
                 data.get("ligands_prepared_by_engine") or {}, int(data["ligands_total"])
             )
-            # Green only when ALL in scope are prepared; orange (⚠) for a partial subset;
-            # red when none are prepared. Surfaces once you leave the step.
+            # Checked only when ALL in scope are prepared.
             self._mark_step(self.step_ligands, data["ligands_prepared"], data["ligands_total"])
         if "receptors_total" not in data:
             return
@@ -386,7 +385,7 @@ class RunPanel:
             focused_has_grid = bool(p.get("focused_has_grid"))
             self.flex_box.setEnabled(focused_has_grid)
             self._sync_flex_for_focus(focused_has_grid)
-            self.step_receptors.set_error(True)
+            self.step_receptors.set_done(False)
             return
         if p["kind"] == "error":
             self.flex_box.setEnabled(False)
@@ -411,12 +410,8 @@ class RunPanel:
 
     @staticmethod
     def _mark_step(step, prepared: int, total: int) -> None:
-        if total > 0 and prepared >= total:
-            step.set_done(True)
-        elif prepared > 0:
-            step.set_warning(True)
-        else:
-            step.set_error(True)
+        # Done or not: a step is never painted as failed or partial; its counts say how far it got.
+        step.set_done(total > 0 and prepared >= total)
 
     @staticmethod
     def _set_scope_summary(bar, headline: str, detail: str = "") -> None:
@@ -466,6 +461,8 @@ class RunPanel:
     def _compute_redocking_requirement_counts(self, inp: dict) -> dict:
         return self.readiness_service.evaluate_redocking(
             program=inp["program"],
+            ligand_ids=inp.get("sel_lig") or (),
+            receptor_ids=inp.get("sel_rec") or (),
             ligand_type=inp.get("ligand_type") or MoleculeType.SMALL_MOLECULE,
             receptor_type=inp.get("receptor_type") or MoleculeType.PROTEIN,
         ).as_mapping()
@@ -532,7 +529,7 @@ class RunPanel:
         if "error" in result:  # only a genuine exception blanks everything
             for counter in (self.req_ligands_count, self.req_receptors_count):
                 counter.setText("—")
-            self.step_run.set_error(True)
+            self.step_run.set_done(False)
             self.check_status_label.setText(result["error"])
             return
         lig, rec = result["ligands"], result["receptors"]
@@ -569,7 +566,8 @@ class RunPanel:
             self.req_ligands_count.setText(f"{lig['ready']} / {lig['total']}")
             self.req_receptors_count.setText(f"{rec['ready']} / {rec['total']}")
             # Redocking runs the original pairs, so the pair count is the ready-complex count.
-            self._pairs_text(f"{int(rec.get('ready') or 0)} original pair(s)")
+            pairs = len(result.get("ready_complex_ids") or ())
+            self._pairs_text(f"{pairs} original pair(s)")
             self.step_run.set_done(result["ready"])
             notes = []
             if int(result.get("total_complexes") or 0) == 0:
@@ -586,7 +584,7 @@ class RunPanel:
             if failures:
                 notes.append("; ".join(failures))
             self.check_status_label.setText(
-                f"Ready to redock {int(rec.get('ready') or 0)} original pair(s)."
+                f"Ready to redock {pairs} original pair(s)."
                 if result["ready"] and not notes
                 else "; ".join(notes) + "."
             )

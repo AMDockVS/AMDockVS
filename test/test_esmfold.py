@@ -1,6 +1,8 @@
 """ESMFold core without the network: FASTA parsing, request shape, response -> mmCIF round trip."""
 from __future__ import annotations
 
+import io
+
 import numpy as np
 import pytest
 
@@ -8,7 +10,7 @@ from amdockvs.chemistry.tools.esmfold import (
     build_fold_request,
     chain_input,
     protein_chains,
-    save_prediction,
+    prediction_files,
     sequence_from_structure,
 )
 from amdockvs.io.parsers.readers import parse_fasta
@@ -32,7 +34,7 @@ def test_request_is_generic_over_chain_types():
     assert body["all_atom_input"]["sequences"] == chains
 
 
-def test_complex_response_writes_structure_with_plddt(tmp_path):
+def test_complex_response_gives_structure_bytes_with_plddt(tmp_path):
     positions = [[float(i), 0.0, 0.0] for i in range(9)]
     data = {
         "plddt": [0.9, 0.4],
@@ -49,9 +51,10 @@ def test_complex_response_writes_structure_with_plddt(tmp_path):
             "metadata": {"chain_lookup": {"0": "A"}},
         },
     }
-    metrics, files = save_prediction(data, tmp_path / "model.cif", model="esmfold2-fast-2026-05")
+    metrics, cif, pae = prediction_files(data, model="esmfold2-fast-2026-05")
     assert metrics["plddt_mean"] == 65.0 and metrics["ptm"] == 0.5
-    assert np.load(files["pae"]).shape == (2, 2)
+    assert np.load(io.BytesIO(pae)).shape == (2, 2)
+    (tmp_path / "model.cif").write_bytes(cif)  # the bytes are a real mmCIF
     assert sequence_from_structure(tmp_path / "model.cif") == "GA"
 
     import gemmi

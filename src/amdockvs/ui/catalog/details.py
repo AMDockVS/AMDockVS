@@ -16,7 +16,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from amdockvs.models import BindingSite, ComplexRecord, MoleculeRecord
-from amdockvs.core.paths import get_default_project_root
 from amdockvs.ui.tools.pymol_ribbon import PLDDT_BANDS
 class CatalogDetailsView(QWidget):
     """Molecule/complex inspector. Lives as a central tab that follows the catalog
@@ -25,7 +24,7 @@ class CatalogDetailsView(QWidget):
     show_molecule_requested = Signal(object, str)
     show_binding_site_requested = Signal(object, object)
     show_complex_requested = Signal(object)
-    show_file_requested = Signal(str, str)
+    show_payload_requested = Signal(int, str)
     show_plddt_requested = Signal(object)
 
     def __init__(self, *, runtime, parent: QWidget | None = None):
@@ -115,10 +114,10 @@ class CatalogDetailsView(QWidget):
             },
         )
         self._add_section(
-            "Paths",
+            "Structures",
             {
-                "Stored": molecule.stored_path,
-                "Current": molecule.current_path,
+                "Stored payload": molecule.stored_payload_id,
+                "Current payload": molecule.current_payload_id,
                 "Source": molecule.source,
             },
         )
@@ -127,7 +126,8 @@ class CatalogDetailsView(QWidget):
             model = details.current_model
             self._add_section(
                 "Model",
-                {"Index": model.model_index, "Source": model.source, **dict(model.metrics or {}), **dict(model.files or {})},
+                {"Index": model.model_index, "Source": model.source, "Payload": model.payload_id,
+                 **dict(model.metrics or {})},
             )
         if binding_sites:
             section = QTreeWidgetItem(["Binding Sites", str(len(binding_sites))])
@@ -164,7 +164,6 @@ class CatalogDetailsView(QWidget):
         receptor = details.receptor
         ligand = details.ligand
         activity = details.activity
-        reference_path = self._resolve_reference_path(str(getattr(pair, "reference_receptor_path", "") or ""))
         self._current_kind = "complex"
         self._current_molecule = None
         self._current_complex = pair
@@ -178,17 +177,15 @@ class CatalogDetailsView(QWidget):
                 "Purpose": pair.purpose,
                 "Binding Site": pair.binding_site_id,
                 "Receptor ID": pair.receptor_molecule_id,
-                "Reference Receptor Path": getattr(pair, "reference_receptor_path", ""),
+                "Reference Receptor payload": pair.reference_receptor_payload_id,
                 "Ligand ID": pair.ligand_molecule_id,
                 "Activity ID": pair.activity_id,
             },
         )
         if receptor is not None:
-            self._add_section("Processed Receptor", {"Name": receptor.name, "Current": receptor.current_path})
-        if reference_path is not None:
-            self._add_section("Reference Receptor", {"Path": str(reference_path)})
+            self._add_section("Processed Receptor", {"Name": receptor.name, "Current payload": receptor.current_payload_id})
         if ligand is not None:
-            self._add_section("Reference Ligand", {"Name": ligand.name, "Stored": ligand.stored_path})
+            self._add_section("Reference Ligand", {"Name": ligand.name, "Stored payload": ligand.stored_payload_id})
         if activity is not None:
             self._add_section("Activity", {"Value": activity.value, "Type": activity.activity_type, "Unit": activity.unit})
         metadata_text = str(pair.metadata_json or "").strip() or "{}"
@@ -308,7 +305,7 @@ class CatalogDetailsView(QWidget):
             primary_text = "Show Pair"
             secondary_text = "Show Reference"
             primary_enabled = True
-            secondary_enabled = bool(str(getattr(self._current_complex, "reference_receptor_path", "") or "").strip())
+            secondary_enabled = bool(self._current_complex.reference_receptor_payload_id)
 
         self.show_primary_button.setText(primary_text)
         self.show_secondary_button.setText(secondary_text)
@@ -331,9 +328,9 @@ class CatalogDetailsView(QWidget):
             self.show_molecule_requested.emit(self._current_molecule, "stored")
             return
         if self._current_kind == "complex" and self._current_complex is not None:
-            reference_path = self._resolve_reference_path(str(getattr(self._current_complex, "reference_receptor_path", "") or ""))
-            if reference_path is not None:
-                self.show_file_requested.emit(str(reference_path), f"complex_reference_{int(self._current_complex.id or 0)}")
+            payload_id = self._current_complex.reference_receptor_payload_id
+            if payload_id:
+                self.show_payload_requested.emit(int(payload_id), f"complex_reference_{int(self._current_complex.id or 0)}")
 
     def _emit_binding_site_action(self) -> None:
         if self._current_kind != "molecule" or self._current_molecule is None:
@@ -342,17 +339,6 @@ class CatalogDetailsView(QWidget):
         if site is None:
             return
         self.show_binding_site_requested.emit(self._current_molecule, site)
-
-    @staticmethod
-    def _resolve_reference_path(raw_path: str) -> Path | None:
-        text = str(raw_path or "").strip()
-        if not text:
-            return None
-        path = Path(text).expanduser()
-        if path.is_absolute():
-            return path
-        project_root = get_default_project_root()
-        return (project_root / path).resolve() if project_root is not None else path.resolve()
 
 
 __all__ = ["CatalogDetailsView"]

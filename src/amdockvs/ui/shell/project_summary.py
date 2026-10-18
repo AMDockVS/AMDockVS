@@ -7,8 +7,12 @@ from typing import Any, Callable, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QDialog, QDialogButtonBox, QFormLayout, QFrame, QGridLayout, QLabel, QVBoxLayout,
+    QDialog, QDialogButtonBox, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QVBoxLayout,
 )
+
+from amdockvs.core.payloads import payload_store
+from amdockvs.project.storage import compact_storage, storage_stats
+from amdockvs.ui.common.async_query import run_async
 
 
 def _safe_count(fn: Callable[[], Any]) -> Optional[int]:
@@ -37,6 +41,52 @@ def _count_box(label: str, value: Optional[int]) -> QFrame:
     lay.addWidget(num)
     lay.addWidget(cap)
     return box
+
+
+def _storage_section(dlg: QDialog, runtime) -> QVBoxLayout:
+    """Size and dead bytes of the structure volumes, with Check (reads every structure) and
+    Compact (reclaims the dead bytes). All of it runs off the GUI thread."""
+    store = payload_store(runtime)
+    layout = QVBoxLayout()
+    layout.addWidget(QLabel("Structure storage"))
+    text = QLabel("Reading…")
+    text.setStyleSheet("color:palette(mid);")
+    layout.addWidget(text)
+    row = QHBoxLayout()
+    check, compact = QPushButton("Check"), QPushButton("Compact")
+    for button in (check, compact):
+        row.addWidget(button)
+    row.addStretch(1)
+    layout.addLayout(row)
+    open_ = [True]  # a result that lands after the dialog closed has nowhere to go
+    dlg.finished.connect(lambda _code: open_.__setitem__(0, False))
+
+    def run(work, note: str) -> None:
+        text.setText(note)
+        check.setEnabled(False)
+        compact.setEnabled(False)
+        run_async(work, show, on_error=fail)
+
+    def show(stats) -> None:
+        if open_[0]:
+            text.setText(stats.summary())
+            check.setEnabled(True)
+            compact.setEnabled(True)
+
+    def fail(exc) -> None:
+        if open_[0]:
+            text.setText(f"Storage error: {exc}")
+            check.setEnabled(True)
+            compact.setEnabled(True)
+
+    def compacted() -> object:
+        compact_storage(store)
+        return storage_stats(store)
+
+    check.clicked.connect(lambda: run(lambda: storage_stats(store, full=True), "Checking every structure…"))
+    compact.clicked.connect(lambda: run(compacted, "Compacting…"))
+    run(lambda: storage_stats(store), "Reading…")
+    return layout
 
 
 def show_project_summary(window) -> None:
@@ -101,6 +151,7 @@ def show_project_summary(window) -> None:
     for col, (label, value) in enumerate(counts):
         grid.addWidget(_count_box(label, value), 0, col)
     root.addLayout(grid)
+    root.addLayout(_storage_section(dlg, runtime))
 
     buttons = QDialogButtonBox()
     manage = buttons.addButton("Manage projects…", QDialogButtonBox.ActionRole)

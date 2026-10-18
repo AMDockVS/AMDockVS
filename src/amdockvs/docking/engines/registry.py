@@ -110,12 +110,7 @@ def run_docking_chunk(payload: dict, progress_cb=None) -> list[dict]:
             f"No docking runner registered for engine '{engine}'. "
             f"Registered engines: {sorted(DOCK_RUNNERS)}."
         )
-    rows = runner(payload)
-    if payload.get("compute_diagram") and rows:
-        from amdockvs.docking.results.diagram import render_diagrams_for_result_rows
-
-        render_diagrams_for_result_rows(rows, fmt=str(payload.get("diagram_format") or "png"))
-    return rows
+    return runner(payload)
 
 
 __all__ = [

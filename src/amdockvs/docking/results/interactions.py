@@ -43,7 +43,6 @@ def collect_interaction_rows(
     *,
     pose_path: str | Path,
     receptor_path: str | Path,
-    pose_rank: int = 1,
 ) -> list[dict]:
     """Protein-ligand interactions for one pose, from ms_contactmap's native detector.
 
@@ -54,7 +53,7 @@ def collect_interaction_rows(
     """
     from amdockvs.docking.results.diagram import build_pose_diagram
 
-    diagram = build_pose_diagram(pose_path=pose_path, receptor_path=receptor_path, pose_rank=pose_rank)
+    diagram = build_pose_diagram(pose_path=pose_path, receptor_path=receptor_path)
     if diagram is None:
         return []
     residues = {residue.key: residue.ref for residue in diagram.residues}

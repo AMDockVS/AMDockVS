@@ -17,7 +17,7 @@ from amdockvs.io.transformers import (
 )
 
 
-# Offload SDF tags to parquet sidecars instead of persisting ~34 rows/mol into the
+# Offload SDF tags to one parquet payload per batch instead of persisting ~34 rows/mol into the
 # project DB. Env-toggle so it can be A/B'd; default on (props are load-on-demand).
 OFFLOAD_IMPORT_PROPERTIES = os.environ.get("AMDOCK_OFFLOAD_PROPS", "1") == "1"
 
@@ -31,7 +31,7 @@ OFFLOAD_IMPORT_PROPERTIES = os.environ.get("AMDOCK_OFFLOAD_PROPS", "1") == "1"
 def materialize_import_rows(payload: dict, progress_cb=None):
     rows = materialize_import_batch(payload, progress_cb=progress_cb)
     if OFFLOAD_IMPORT_PROPERTIES:
-        offload_source_properties(rows, payload.get("storage_dir"))
+        offload_source_properties(rows)
     return build_import_graph_payload(rows)
 
 
@@ -44,6 +44,8 @@ def materialize_import_rows(payload: dict, progress_cb=None):
 )
 def materialize_multithreaded_sdf_rows(payload: dict, progress_cb=None):
     rows = materialize_multithreaded_sdf_file(payload, progress_cb=progress_cb)
+    if OFFLOAD_IMPORT_PROPERTIES:
+        offload_source_properties(rows)
     return build_import_graph_payload(rows)
 
 

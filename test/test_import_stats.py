@@ -2,6 +2,7 @@
 (loky can't log to the monitor); the GUI drains + sums them when the import job finishes."""
 
 import tempfile
+from pathlib import Path
 
 from amdockvs.io.import_stats import (
     FILTERED_PREFILTER,
@@ -18,9 +19,10 @@ def test_drain_sums_and_clears_shards():
     d = tempfile.mkdtemp()
     write_import_stats(d, {IMPORTED: 3, FILTERED_PREFILTER: 1})
     write_import_stats(d, {IMPORTED: 2, UNREADABLE: 1})
-    write_import_stats(d, {})  # empty tally writes no shard
+    write_import_stats(d, {})  # empty tally writes nothing
+    assert len(list(Path(d).iterdir())) == 1  # one file however many batches
     assert drain_import_stats(d) == {IMPORTED: 5, FILTERED_PREFILTER: 1, UNREADABLE: 1}
-    assert drain_import_stats(d) == {}  # shards deleted on drain
+    assert drain_import_stats(d) == {}  # deleted on drain
 
 
 def test_bump_and_summaries():

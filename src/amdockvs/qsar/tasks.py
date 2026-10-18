@@ -29,9 +29,8 @@ _DESCRIPTOR_COLUMNS = (
     supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
 )
 def calculate_descriptor_batch(payload: dict):
-    # The worker only reads molecule files (set_default_project_root resolves stored paths)
-    # and COMPUTES; it returns rows for the engine-side sink to persist. It does not open a
-    # DB connection.
+    # The worker gets each molecule's bytes in its item and COMPUTES; it returns rows for the
+    # engine-side sink to persist. It does not open a DB connection.
     rows = calculate_descriptor_rows(list(payload.get("items") or []), fingerprint=payload.get("fp"))
     return _descriptor_graph_payload(rows)
 

@@ -4,6 +4,9 @@ Run directly (process pools need a __main__ guard), not under pytest:
 
     python test/e2e/smoke_full_pipeline.py
 
+AMDOCK_SMOKE_EXECUTOR picks where the jobs run: `thread` (default), `compute` (the process pool
+of this machine) or `ray` (a local Ray with `shared=False`, so every file goes by payload).
+
 Every stage is isolated: one failure is recorded and the run continues, so a single pass says
 which parts of the product work and which do not. Exit code is the number of failed stages.
 """
@@ -25,7 +28,8 @@ DATA = REPO / "data" / "docking"
 RECEPTOR = DATA / "1iep_receptorH.pdb"
 LIGANDS = DATA / "ligs.sdf"
 BOX = DATA / "1iep_receptor.box.txt"
-EXECUTOR = "thread"
+SMOKE_EXECUTOR = os.environ.get("AMDOCK_SMOKE_EXECUTOR", "thread")
+EXECUTOR = "thread" if SMOKE_EXECUTOR == "thread" else "compute"
 
 RESULTS: list[tuple[str, str, str]] = []
 
@@ -50,6 +54,30 @@ def _why(row) -> str:
     """JobStatus has no `error` field: the counters are what says a job really worked."""
     return (f"status={row.status} chunks done={row.chunks_done} failed={row.chunks_failed} "
             f"stage_failed={row.chunks_stage_failed} total={row.chunks_total}")
+
+
+def use_executor(rt) -> None:
+    """With `ray`, the pool behind `compute` becomes a Ray that sees no disk of this machine."""
+    if SMOKE_EXECUTOR == "ray":
+        from ms_flow.engine import RayExecutor
+
+        rt.workspace.engine.register("local", RayExecutor(None, shared=False, num_cpus=4))
+
+
+def export_stage(rt, tmp, label):
+    @stage(f"{label} export: poses SDF + structures ZIP")
+    def _export():
+        from amdockvs.core.payloads import payload_store
+        from amdockvs.io.export import export_poses_sdf, export_structures
+
+        hits = rt.docking.top_hits(limit=5)
+        assert hits, "no hits to export"
+        store = payload_store(rt)
+        sdf = export_poses_sdf(store, hits, tmp / f"{label}_poses.sdf")
+        zipped = export_structures(store, [(h.ligand_name or str(h.ligand_id), h.pose_payload_id) for h in hits],
+                                   tmp / f"{label}_poses.zip")
+        assert zipped == len(hits), (zipped, len(hits))
+        return f"{sdf} SDF records, {zipped} files zipped"
 
 
 def parse_box():
@@ -354,8 +382,10 @@ def main() -> int:
         rt = AMDockVSRuntime()
         try:
             rt.create_project(name=f"smoke_{folder}", folder=tmp / folder)
-            print(f"\n######## {label} ########", flush=True)
+            use_executor(rt)
+            print(f"\n######## {label} ({SMOKE_EXECUTOR}) ########", flush=True)
             body(rt, tmp)
+            export_stage(rt, tmp, label)
         except Exception as error:  # noqa: BLE001
             RESULTS.append(("FAIL", f"{label} project setup", f"{type(error).__name__}: {error}"))
             traceback.print_exc()

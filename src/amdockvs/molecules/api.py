@@ -21,7 +21,6 @@ from amdockvs.models import (
 )
 from amdockvs.models.molecules import sanitize_molecule_extra_data
 from amdockvs.molecules.fragments import fragment_entries_from_metadata
-from amdockvs.core.paths import get_default_project_root
 from amdockvs.project.sets import (
     MoleculeSetRef,
     create_molecule_snapshot_set,
@@ -93,7 +92,7 @@ class MoleculeAPI:
         receptor_complexes: tuple[ComplexRecord, ...]
         ligand_complexes: tuple[ComplexRecord, ...]
         activities: tuple[LigandActivity, ...]
-        current_model: MoleculeModel | None = None  # the model current_path points at (metrics, files)
+        current_model: MoleculeModel | None = None  # the model current_payload_id points at (metrics, files)
 
     def get(self, molecule_id: int) -> MoleculeRecord | None:
         """Return one molecule without exposing the project session to callers."""
@@ -243,14 +242,13 @@ class MoleculeAPI:
         """The molecule's current structure as a molfile — what the 2D editor opens."""
         from rdkit import Chem
 
-        from amdockvs.chemistry.service import _load_ligand_mol
-        from amdockvs.core.paths import current_molecule_path
+        from amdockvs.chemistry.structures import molecule_mol
 
         molecule = self.get(molecule_id)
-        path = current_molecule_path(molecule) if molecule is not None else None
-        if path is None or not path.is_file():
-            raise ValueError(f"Molecule {molecule_id} has no structure file.")
-        return Chem.MolToMolBlock(_load_ligand_mol(path))
+        mol = molecule_mol(self.runtime.workspace.project_db, molecule) if molecule is not None else None
+        if mol is None:
+            raise ValueError(f"Molecule {molecule_id} has no structure.")
+        return Chem.MolToMolBlock(mol)
 
     def dependents(self, molecule_id: int) -> dict[str, int]:
         """What hangs from this molecule's structure and would go if an edit replaced it."""
@@ -275,50 +273,40 @@ class MoleculeAPI:
 
         `copy=False` replaces it: everything computed from the old structure goes (`clear_derived`:
         conformers, engine preparations, descriptors, fingerprints, docking results...) and so do its
-        activities, measured on the old compound; the imported original (stored_path), sets and
+        activities, measured on the old compound; the imported original (stored_payload_id), sets and
         complexes stay. `copy=True` leaves the molecule alone and adds the edit as a new one, with
         nothing of the old one's but its role. Returns the id holding the edit, or None when the
         drawing is still the same compound, which changes nothing."""
         self.runtime._require_active_project()
         from datetime import datetime
-        from uuid import uuid4
 
         from sqlalchemy import delete as sql_delete
 
-        from amdockvs.chemistry.service import _load_ligand_mol, _write_ligand_mol
-        from amdockvs.core.paths import artifact_path_for_existing, current_molecule_path
+        from amdockvs.chemistry.structures import molecule_mol, sdf_payload
+        from amdockvs.core.payloads import payload_store
         from amdockvs.io.rows import structure_fields
         from amdockvs.models.qsar import LigandActivity
         from amdockvs.molecules.editing import edited_structure
-        from amdockvs.project.deletion import clear_derived, remove_unreferenced_files
+        from amdockvs.project.deletion import clear_derived
 
         project_db = self.runtime.workspace.project_db
-        project_root = get_default_project_root()
         molecule = self.get(molecule_id)
         if molecule is None:
             raise ValueError(f"Molecule {molecule_id} does not exist.")
-        source = current_molecule_path(molecule)
-        mol = edited_structure(molblock, _load_ligand_mol(source) if source is not None and source.is_file() else None)
+        mol = edited_structure(molblock, molecule_mol(project_db, molecule))
         if mol is None:
             return None
-        target = artifact_path_for_existing(
-            project_root / "edits",
-            role="ligand",
-            source_path=source or project_root / f"molecule_{molecule.id}",
-            artifact_name=f"edited_{uuid4().hex[:8]}",  # a new name: PyMOL and the 2D cache key on the path
-            suffix=".sdf",
-        )
-        _write_ligand_mol(mol, target)
-        relative = str(target.relative_to(project_root))
         fields = structure_fields(mol)
+        store = payload_store(project_db)
         if not copy:
             clear_derived(project_db, [molecule.id])
         with project_db.get_session() as session:
+            edited_payload, = store.put(session, [sdf_payload(mol)])
             if copy:
                 parent = session.get(MoleculeRecord, int(molecule.id))
                 row = MoleculeRecord(**parent.model_dump(exclude={"id", "created_at", "updated_at"}))
                 row.name = f"{parent.name} (edited)"
-                row.stored_path = relative  # the edit is all this molecule ever had
+                row.stored_payload_id = edited_payload  # the edit is all this molecule ever had
                 row.has_activity = False
                 row.in_set = False
                 metadata = {"edited_from": int(parent.id)}
@@ -330,8 +318,8 @@ class MoleculeAPI:
                 metadata = sanitize_molecule_extra_data(row.extra_data)
                 for stale in ("chemistry", "history", "state"):  # described the structure that is gone
                     metadata.pop(stale, None)
-                replaced = row.current_path
-            row.current_path = relative
+                replaced = row.current_payload_id
+            row.current_payload_id = edited_payload
             row.current_model_index = None
             for key, value in fields.items():
                 setattr(row, key, value)
@@ -343,7 +331,7 @@ class MoleculeAPI:
             session.commit()
             edited_id = int(row.id)
         if replaced:
-            remove_unreferenced_files(project_db, [replaced])  # an earlier edit's file; never the import
+            store.release([replaced])  # an earlier edit's bytes; the import is still referenced, so it stays
         return edited_id
 
     def _selection(self, scope: MoleculeScope) -> Selection[MoleculeRecord]:
@@ -456,39 +444,35 @@ class MoleculeAPI:
         was computed from the old structure goes (`clear_derived`); activities, measured on the
         imported compound, stay."""
         self.runtime._require_active_project()
-        from amdockvs.chemistry.service import _load_ligand_mol, _write_ligand_mol
-        from amdockvs.core.paths import artifact_path_for_existing
+        from amdockvs.chemistry.structures import molecule_mol, sdf_payload
+        from amdockvs.core.payloads import payload_store
         from amdockvs.io.rows import structure_fields
         from amdockvs.molecules.fragments import fragments_of
-        from amdockvs.project.deletion import clear_derived, remove_unreferenced_files
+        from amdockvs.project.deletion import clear_derived
 
         project_db = self.runtime.workspace.project_db
-        project_root = get_default_project_root()
         molecule = self.get(molecule_id)
         if molecule is None:
             raise ValueError(f"Molecule {molecule_id} does not exist.")
-        original = project_root / str(molecule.stored_path or "")
-        if not molecule.stored_path or not original.is_file():
+        original = molecule_mol(project_db, {"stored_payload_id": molecule.stored_payload_id})
+        if original is None:
             raise ValueError(f"Molecule {molecule_id} has no imported original to take a fragment from.")
-        fragment = fragments_of(_load_ligand_mol(original)).get(int(fragment_index))
+        fragment = fragments_of(original).get(int(fragment_index))
         if fragment is None:
             raise ValueError(f"Fragment {fragment_index} does not exist for molecule {molecule_id}.")
-        target = artifact_path_for_existing(
-            project_root / "fragments", role="ligand", source_path=original,
-            artifact_name=f"fragment_{int(fragment_index):03d}", suffix=".sdf",
-        )
-        _write_ligand_mol(fragment, target)
+        store = payload_store(project_db)
         clear_derived(project_db, [molecule.id])
         with project_db.get_session() as session:
+            fragment_payload, = store.put(session, [sdf_payload(fragment)])
             row = session.get(MoleculeRecord, int(molecule.id))
-            replaced = row.current_path
+            replaced = row.current_payload_id
             metadata = sanitize_molecule_extra_data(row.extra_data)
             if isinstance(metadata.get("fragmentation"), dict):  # a copy: in place, the JSON column sees no change
                 metadata["fragmentation"] = {**metadata["fragmentation"], "selected_fragment_index": int(fragment_index)}
             for stale in ("chemistry", "history", "state"):  # described the structure that is gone
                 metadata.pop(stale, None)
             row.extra_data = metadata
-            row.current_path = str(target.relative_to(project_root))
+            row.current_payload_id = fragment_payload
             row.current_model_index = None
             row.is_minimized = False
             for key, value in structure_fields(fragment).items():
@@ -496,8 +480,8 @@ class MoleculeAPI:
             session.add(row)
             session.commit()
             session.refresh(row)
-        if replaced and replaced != row.current_path:
-            remove_unreferenced_files(project_db, [replaced])
+        if replaced:
+            store.release([replaced])  # a no-op while it is still the import or a model's
         return row
 
     def select(

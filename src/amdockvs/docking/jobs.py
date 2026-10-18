@@ -17,7 +17,8 @@ from amdockvs.core.jobs import JobSpec
 from amdockvs.docking.tasks import dock_pairs
 
 from amdockvs.core.configuration import DEFAULT_DOCKING_BATCH_SIZE, DEFAULT_LIGAND_BATCH_SIZE
-from amdockvs.core.worker_io import worker_file, worker_output_dir
+from amdockvs.core.payloads import payload_store
+from amdockvs.core.worker_io import worker_output_dir
 from amdockvs.core.constants import (
     AMDOCKVS_OFFLOADABLE_EXECUTORS,
     DEFAULT_VINA_BACKEND,
@@ -34,48 +35,30 @@ from amdockvs.screening.campaign import plan_targets
 from amdockvs.docking.repository import (
     count_entity_rows,
     docked_ligands_spec,
-    project_root_from_db,
-    resolve_project_path,
     entity_ids,
+    inputs_dir,
     iter_entity_rows,
     molecule_scope_spec,
     get_molecule_rows_by_ids,
     list_complex_rows,
     list_entity_rows,
     resolve_docking_output_dir,
+    with_input_bytes,
+    with_input_files,
 )
 from amdockvs.docking.results.repository import (
     count_docking_results,
     supersede_results,
     existing_result_pairs,
 )
-from amdockvs.docking.engines.registry import run_docking_chunk
 from amdockvs.docking.protocols import DockingProtocolMetadata
 from ms_flow.query import db_count
 from amdockvs.models import DockingResultRecord
 
 
 def _transport_docking_chunk(chunk: dict[str, Any]) -> dict[str, Any]:
-    """Mark only the paths opened by a docking worker; receptor files are reusable."""
+    """The output folder is the only path a worker opens that is not already a `File`."""
     chunk["output_dir"] = worker_output_dir(str(chunk["output_dir"]))
-    for pair in list(chunk.get("pairs") or []):
-        for key, cache in (
-            ("ligand_path", False),
-            ("ligand_source_path", False),
-            ("receptor_path", True),
-            ("reference_ligand_path", False),
-            ("reference_receptor_path", True),
-        ):
-            logical = str(pair.get(key) or "")
-            if logical:
-                pair[f"{key}_logical"] = logical
-                pair[key] = worker_file(logical, cache=cache)
-        receptor = str(pair.get("receptor_path_logical") or "")
-        if receptor:
-            source = Path(receptor).expanduser()
-            flex = source.with_name(f"{source.stem}__flex.pdbqt")
-            if flex.is_file():
-                pair["flex_receptor_path"] = worker_file(flex, cache=True)
     return chunk
 
 
@@ -227,8 +210,6 @@ class DockingJobParams(BaseModel):
     protocol_metadata: DockingProtocolMetadata = Field(default_factory=DockingProtocolMetadata)
     engine_config: dict[str, Any] = Field(default_factory=dict)
     skip_existing: bool = True
-    compute_diagram: bool = False
-    diagram_format: str = "png"
     # Threshold AND cap, whichever binds first (§4). Off by default: `hit_cap=0` docks
     # everything, which is what a `vs` run wants.
     hit_threshold: float | None = None
@@ -260,8 +241,6 @@ class RedockingJobParams(BaseModel):
     protocol_metadata: DockingProtocolMetadata = Field(default_factory=DockingProtocolMetadata)
     engine_config: dict[str, Any] = Field(default_factory=dict)
     skip_existing: bool = True
-    compute_diagram: bool = False
-    diagram_format: str = "png"
 
 
 from amdockvs.docking.engines.programs import chunk_resources
@@ -314,17 +293,16 @@ def iter_docking_batches(
         filters=normalized_receptor_filters,
         fields=(
             "id",
-            "stored_path",
-            "current_path",
-            "input_format",
+            "stored_payload_id",
+            "current_payload_id",
             "metadata_json",
-            "prepared_engine_path",
-            "prepared_files",
+            "prepared_payload_id",
+            "flex_payload_id",
             "grid_engine_payload",
         ),
         order=("source", "source_index"),
     )
-    receptors = [dict(row) for row in receptor_rows]
+    receptors = [with_input_files(project_db, row, inputs_dir(project_db)) for row in receptor_rows]
     if not receptors:
         return
 
@@ -369,7 +347,7 @@ def iter_docking_batches(
                     protocol_hash=protocol_hash or None,
                 )
             }
-        return iter_entity_rows(
+        return with_input_bytes(project_db, iter_entity_rows(
             project_db,
             entity_kind="ligand",
             engine=prep_engine,
@@ -377,12 +355,11 @@ def iter_docking_batches(
             filters=normalized_ligand_filters,
             extra_filters=extra_filters,
             # Descriptors travel with the row: they are what feeds LLE/BEI/SEI in the worker.
-            fields=("id", "stored_path", "current_path", "input_format", "metadata_json",
-                    "prepared_engine_path", "prepared_files",
+            fields=("id", "stored_payload_id", "current_payload_id", "prepared_payload_id",
                     "heavy_atom_count", "mw", "logp", "tpsa", "hbd", "hba"),
             order=("id",),
             batch_size=int(row_batch_size),
-        )
+        ))
 
     yield from iter_docking_batches_from_rows(
         ligands=ligands_for,
@@ -474,10 +451,14 @@ def iter_redocking_batches(
         if ligand_id > 0:
             molecule_ids.append(ligand_id)
     prep_engine = str(preparation_engine or engine)
-    molecule_rows = get_molecule_rows_by_ids(project_db, molecule_ids, engine=prep_engine)
-    project_root = project_root_from_db(project_db)
     resolved_output_dir = Path(output_dir).expanduser().resolve()
     resolved_output_dir.mkdir(parents=True, exist_ok=True)
+    directory = inputs_dir(project_db)
+    molecule_rows = get_molecule_rows_by_ids(project_db, molecule_ids, engine=prep_engine)
+    ligand_ids = {int(row.get("ligand_molecule_id") or 0) for row in complex_rows}
+    for row in with_input_bytes(project_db, [molecule_rows[i] for i in ligand_ids if i in molecule_rows]):
+        molecule_rows[int(row["id"])] = row
+    store = payload_store(project_db)
     normalized_batch_size = max(1, int(batch_size))
     batch: list[dict[str, Any]] = []
     for complex_row in complex_rows:
@@ -486,20 +467,14 @@ def iter_redocking_batches(
         ligand_row = molecule_rows.get(int(complex_row.get("ligand_molecule_id") or 0))
         if complex_id <= 0 or receptor_row is None or ligand_row is None:
             continue
-        # Prefer the frozen snapshot captured at pair creation; fall back to the ligand's
-        # live path only for complexes imported before the snapshot existed.
-        reference_ligand_path = resolve_project_path(
-            complex_row.get("reference_ligand_path")
-            or ligand_row.get("current_path")
-            or ligand_row.get("stored_path"),
-            project_root,
-        )
-        reference_receptor_path = resolve_project_path(
-            complex_row.get("reference_receptor_path") or receptor_row.get("current_path") or receptor_row.get("stored_path"),
-            project_root,
-        )
         if (int(receptor_row.get("id") or 0), int(ligand_row.get("id") or 0)) in skip_pairs:
             continue  # already docked for this engine — lightweight skip
+        # The frozen snapshot captured at pair creation, not the molecules' live structures.
+        reference_ligand_path, reference_receptor_path = (
+            store.materialize(pid, directory) if pid else ""
+            for pid in (complex_row.get("reference_ligand_payload_id"),
+                        complex_row.get("reference_receptor_payload_id"))
+        )
         pair_grid = grid_from_row(receptor_row, engine=prep_engine)
         effective_center = (
             tuple(float(value) for value in box_center)
@@ -523,18 +498,15 @@ def iter_redocking_batches(
                         f"Complex {complex_id} requires explicit box_center/box_size "
                         "or a stored receptor grid."
                     ),
-                    reference_ligand_path=reference_ligand_path,
-                    reference_receptor_path=reference_receptor_path,
                 )
             )
         else:
             try:
                 pair = build_docking_pair(
                     ligand_row=ligand_row,
-                    receptor_row=receptor_row,
+                    receptor_row=with_input_files(project_db, receptor_row, directory),
                     exhaustiveness=exhaustiveness,
                     num_modes=num_modes,
-                    engine=prep_engine,
                     complex_id=complex_id,
                     run_kind="redocking",
                     box_center=effective_center,
@@ -554,8 +526,6 @@ def iter_redocking_batches(
                         complex_id=complex_id,
                         run_kind="redocking",
                         reason=str(exc),
-                        reference_ligand_path=reference_ligand_path,
-                        reference_receptor_path=reference_receptor_path,
                     )
                 )
         if len(batch) >= normalized_batch_size:
@@ -731,11 +701,6 @@ class DockingJobSpec(JobSpec):
                     break
             if parsed.hit_threshold is not None:
                 chunk["hit_threshold"] = float(parsed.hit_threshold)
-            # Inline diagrams: flag rides on the chunk so run_docking_chunk renders in the
-            # same worker after docking (no service.py plumbing needed).
-            if parsed.compute_diagram:
-                chunk["compute_diagram"] = True
-                chunk["diagram_format"] = parsed.diagram_format
             yield _transport_docking_chunk(chunk)
 
 
@@ -761,7 +726,7 @@ class RedockingJobSpec(JobSpec):
     required = ()
     produces = ()
 
-    run_chunk = staticmethod(run_docking_chunk)
+    run_chunk = staticmethod(dock_pairs)
     finalize = staticmethod(_supersede)
 
     @staticmethod
@@ -799,9 +764,6 @@ class RedockingJobSpec(JobSpec):
             skip_existing=parsed.skip_existing,
             requires_binding_site=parsed.requires_binding_site,
         ):
-            if parsed.compute_diagram:
-                chunk["compute_diagram"] = True
-                chunk["diagram_format"] = parsed.diagram_format
             yield _transport_docking_chunk(chunk)
 
 

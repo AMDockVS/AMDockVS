@@ -8,7 +8,7 @@ tools will use for the center tables.
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QWidget
 
 from amdockvs.ui.catalog.details import CatalogDetailsView
 from amdockvs.ui.view_ids import (
@@ -39,6 +39,7 @@ class AuxiliaryPanelController:
         self._seeded = False
         self._user_checked = False  # panel state to give back when a tool releases the slot
         self.last_selection: tuple[str, object] | None = None
+        self._details_window: QDialog | None = None
 
     def install_action(self, action) -> None:
         self.action = action
@@ -108,6 +109,9 @@ class AuxiliaryPanelController:
 
     def reset(self) -> None:
         """Drop the auxiliary contents so they rebuild against the new project context."""
+        if self._details_window is not None:
+            self._details_window.deleteLater()
+            self._details_window = None
         for aux_id, page in self.views.items():
             self.w.central_widget.aux_widget.removeWidget(page)
             page.setParent(None) if aux_id == self.AUX_VIEW_PANEL else page.deleteLater()
@@ -146,16 +150,35 @@ class AuxiliaryPanelController:
 
     # -- Details page --------------------------------------------------------------
 
-    def _build_details_view(self) -> QWidget:
+    def _build_details_view(self, parent: QWidget | None = None) -> QWidget:
         viewer = self.w.viewer
-        view = CatalogDetailsView(runtime=self.w.runtime, parent=self.w.central_widget)
+        view = CatalogDetailsView(runtime=self.w.runtime, parent=parent or self.w.central_widget)
         view.show_molecule_requested.connect(viewer.show_molecule)
         view.show_binding_site_requested.connect(viewer.show_binding_site)
         view.show_complex_requested.connect(viewer.show_complex)
-        view.show_file_requested.connect(viewer.show_file)
+        view.show_payload_requested.connect(viewer.show_payload)
         view.show_plddt_requested.connect(viewer.show_plddt)
-        self._push_selection_to_details(view)  # open non-blank on the current selection
+        if parent is None:
+            self._push_selection_to_details(view)  # open non-blank on the current selection
         return view
+
+    def open_details_window(self, kind: str, obj) -> None:
+        """Details of one record in a window of its own, for a tab whose auxiliary zone is
+        taken (Docking Results keeps "Selected Result" there). One window, reused."""
+        if self._details_window is None:
+            dialog = QDialog(self.w)
+            dialog.resize(520, 420)
+            QVBoxLayout(dialog).addWidget(self._build_details_view(dialog))
+            self._details_window = dialog
+        dialog = self._details_window
+        view = dialog.findChild(CatalogDetailsView)
+        if kind == "complex":
+            view.show_complex(obj)
+        else:
+            view.show_molecule(obj)
+        dialog.setWindowTitle(f"Details — {getattr(obj, 'name', None) or f'{kind} {obj.id}'}")
+        dialog.show()
+        dialog.raise_()
 
     def _push_selection_to_details(self, view) -> None:
         selection = self.last_selection

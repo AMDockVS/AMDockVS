@@ -14,18 +14,16 @@ from amdockvs.chemistry.tasks import ligand_chemistry_task, receptor_chemistry_t
 from amdockvs.core.configuration import DEFAULT_OUTPUT_FLUSH_EVERY
 from amdockvs.core.constants import AMDOCKVS_OFFLOADABLE_EXECUTORS
 from amdockvs.molecules.storage import ShardStore, shard_scope_spec, store_from_config
-from amdockvs.core.worker_io import worker_file, worker_output_dir, worker_path_fields
+from amdockvs.core.worker_io import worker_file, worker_output_dir
 from amdockvs.chemistry.repository import (
     iter_ligand_rows,
     iter_receptor_rows,
     max_model_index_by_molecule_ids,
-    project_db_path,
-    resolve_ligand_storage_dir,
-    resolve_receptor_storage_dir,
     scope_spec,
     sequences_by_molecule_ids,
 )
 from amdockvs.chemistry.pipeline import normalize_steps
+from amdockvs.chemistry.structures import with_structures
 from amdockvs.chemistry.tools.esmfold import FAST_MODEL
 from amdockvs.io.shards import shard_generation_writer
 from amdockvs.models import MoleculeModel, MoleculeRecord
@@ -46,7 +44,7 @@ CHEMISTRY_GRAPH_OUTPUT = graph_sink(
                 "has_hs",
                 "is_minimized",
                 "conformer_count",
-                "current_path",
+                "current_payload_id",
                 "current_model_index",
                 "updated_at",
             ],
@@ -80,23 +78,22 @@ class ReceptorChemistryJobParams(BaseModel):
 def _chemistry_batches(
     *,
     project_db,
-    db_path: Path,
-    output_dir: Path,
     params,
     rows: Iterator[dict[str, Any]],
     gpu: bool = False,
 ) -> Iterator[dict[str, Any]]:
     """One batch of rows = one chunk. `batched` comes from itertools: no hand-rolled accumulator
-    and no duplicated final-flush block, which is where the two copies of this came from."""
-    for batch in batched(rows, max(1, int(params.batch_size))):
+    and no duplicated final-flush block, which is where the two copies of this came from. Each row
+    brings the bytes of the structure it works on, so the task opens no project file."""
+    original = str(params.params.get("structure_source") or "current") == "original"
+    for batch in batched(with_structures(project_db, rows, original=original), max(1, int(params.batch_size))):
         batch_rows = list(batch)
         batch_ids = [int(row.get("id") or 0) for row in batch_rows if int(row.get("id") or 0) > 0]
         max_index_map = max_model_index_by_molecule_ids(project_db, batch_ids)
         yield {
             "operation": params.operation,
-            "output_dir": worker_output_dir(output_dir),
             "params": dict(params.params or {}),
-            "rows": [worker_path_fields(row, "stored_path", "current_path") for row in batch_rows],
+            "rows": batch_rows,
             "next_model_index_by_entity": {
                 entity_id: int(max_index_map.get(entity_id, -1)) + 1 for entity_id in batch_ids
             },
@@ -107,15 +104,11 @@ def _chemistry_batches(
 def _iter_ligand_chemistry_batches(
     *,
     project_db,
-    db_path: Path,
-    output_dir: Path,
     params: LigandChemistryJobParams,
     store=None,
 ) -> Iterator[dict[str, Any]]:
     return _chemistry_batches(
         project_db=project_db,
-        db_path=db_path,
-        output_dir=output_dir,
         params=params,
         rows=iter_ligand_rows(
             store or project_db,
@@ -131,14 +124,10 @@ def _iter_ligand_chemistry_batches(
 def _iter_receptor_chemistry_batches(
     *,
     project_db,
-    db_path: Path,
-    output_dir: Path,
     params: ReceptorChemistryJobParams,
 ) -> Iterator[dict[str, Any]]:
     return _chemistry_batches(
         project_db=project_db,
-        db_path=db_path,
-        output_dir=output_dir,
         params=params,
         rows=iter_receptor_rows(
             project_db,
@@ -156,7 +145,6 @@ def _iter_receptor_chemistry_batches(
     executor="compute",
     supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
     output_spec=CHEMISTRY_GRAPH_OUTPUT,
-    relative_paths=True,
     output_flush_every=DEFAULT_OUTPUT_FLUSH_EVERY,
     store_results=False,
 )
@@ -168,8 +156,6 @@ def ligand_chemistry_job(params: dict, config: dict | None = None) -> Iterator[d
         raise ValueError("ligand_chemistry_job requires project_db in config.")
     yield from _iter_ligand_chemistry_batches(
         project_db=project_db,
-        db_path=project_db_path(project_db),
-        output_dir=resolve_ligand_storage_dir(config_map),
         params=parsed,
         store=store_from_config(config_map),
     )
@@ -182,7 +168,6 @@ def ligand_chemistry_job(params: dict, config: dict | None = None) -> Iterator[d
     executor="compute",
     supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
     output_spec=CHEMISTRY_GRAPH_OUTPUT,
-    relative_paths=True,
     output_flush_every=DEFAULT_OUTPUT_FLUSH_EVERY,
     store_results=False,
 )
@@ -194,8 +179,6 @@ def receptor_chemistry_job(params: dict, config: dict | None = None) -> Iterator
         raise ValueError("receptor_chemistry_job requires project_db in config.")
     yield from _iter_receptor_chemistry_batches(
         project_db=project_db,
-        db_path=project_db_path(project_db),
-        output_dir=resolve_receptor_storage_dir(config_map),
         params=parsed,
     )
 
@@ -207,15 +190,15 @@ class ReceptorPredictionJobParams(BaseModel):
     receptor_filters: dict[str, Any] = Field(default_factory=dict)
 
 
-# Like CHEMISTRY_GRAPH_OUTPUT, plus stored_path: a sequence-only protein's first model is its
-# canonical structure, so the prediction fills both paths. extra_data is left untouched.
+# Like CHEMISTRY_GRAPH_OUTPUT, plus stored_payload_id: a sequence-only protein's first model is its
+# canonical structure, so the prediction fills both. extra_data is left untouched.
 PREDICTION_GRAPH_OUTPUT = graph_sink(
     nodes=(
         {
             "name": "molecules",
             "model": MoleculeRecord,
             "columns": [
-                "id", "stored_path", "current_path", "current_model_index",
+                "id", "stored_payload_id", "current_payload_id", "current_model_index",
                 "has_3d", "has_hs", "is_minimized", "conformer_count", "updated_at",
             ],
             "write_mode": "upsert",
@@ -226,7 +209,9 @@ PREDICTION_GRAPH_OUTPUT = graph_sink(
     ),
 )
 
-_PREDICTION_FIELDS = ("id", "source", "source_index", "stored_path", "current_path", "current_model_index", "has_3d")
+_PREDICTION_FIELDS = (
+    "id", "source", "source_index", "stored_payload_id", "current_payload_id", "current_model_index", "has_3d",
+)
 
 
 def prediction_scope_spec(params: ReceptorPredictionJobParams):
@@ -255,21 +240,25 @@ def receptor_prediction_job(params: dict, config: dict | None = None) -> Iterato
     project_db = config_map.get("project_db")
     if project_db is None:
         raise ValueError("receptor_prediction_job requires project_db in config.")
-    output_dir = worker_output_dir(resolve_receptor_storage_dir(config_map))
     for page in batched(db_pages(project_db, prediction_scope_spec(parsed), page_size=32), 32):
         rows = [dict(row) for row in page if parsed.force or not bool(row.get("has_3d"))]
         ids = [int(row["id"]) for row in rows]
         sequences = sequences_by_molecule_ids(project_db, ids)
         max_index = max_model_index_by_molecule_ids(project_db, ids)
+        # A forced re-prediction of a structure without a stored sequence reads it from the structure.
+        structures = {
+            row["id"]: row for row in with_structures(project_db, [r for r in rows if not sequences.get(int(r["id"]))])
+        }
         for row in rows:
             receptor_id = int(row["id"])
+            known = structures.get(receptor_id, {})
             yield {
-                "row": worker_path_fields(row, "stored_path", "current_path"),
-                "stored_path": str(row.get("stored_path") or ""),
+                "row": row,
                 "sequence": sequences.get(receptor_id, ""),
+                "structure": known.get("structure"),
+                "structure_kind": known.get("structure_kind"),
                 "model_index": max_index[receptor_id] + 1 if receptor_id in max_index else 0,
                 "model": parsed.model,
-                "output_dir": output_dir,
             }
 
 

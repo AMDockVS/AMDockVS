@@ -1,4 +1,5 @@
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -444,19 +445,37 @@ def test_amdock_ui_domain_views_show_docking_summaries(tmp_path, monkeypatch):
                 return list(self.objects)
             def delete(self, name):
                 self.objects = [] if name == "all" else [o for o in self.objects if o != name]
-            def load(self, _path, name):
-                self.objects.append(name)
+            def load_raw(self, _data, _format, name):
+                self.objects.append(name)  # a structure read from the project's volumes
             def create(self, name, _source, _source_state=0, _target_state=0):
                 self.objects.append(name)  # one pose copied out as a single-state object
             def __getattr__(self, _name):  # zoom/show/set/color/select: don't care
                 return lambda *a, **k: None
 
+        def _loaded(*names):  # the structures are read off the GUI thread: let the result arrive
+            deadline = time.monotonic() + 10
+            while not all(n in window.pymol_dock.cmd.objects for n in names) and time.monotonic() < deadline:
+                app.processEvents()
+            return window.pymol_dock.cmd.objects
+
         window.pymol_dock = SimpleNamespace(cmd=_Cmd(), show=lambda: None)
         window.viewer.load_hit(hit, 1)
-        assert window.pymol_dock.cmd.objects == [f"receptor_{hit.receptor_id}", "amdock_result_pose"]
+        assert _loaded("amdock_result_pose") == [f"receptor_{hit.receptor_id}", "amdock_result_pose"]
         window.pymol_dock.cmd.delete("all")
         window.viewer.load_hit(hit, 1)
-        assert f"receptor_{hit.receptor_id}" in window.pymol_dock.cmd.objects
+        assert f"receptor_{hit.receptor_id}" in _loaded(f"receptor_{hit.receptor_id}", "amdock_result_pose")
+
+        # A results row names its ligand by id only: "Show ligand details" opens a window,
+        # "Show in Ligands" opens the catalog on that one row (not as the selection).
+        window.show_record("ligand", hit.ligand_id)
+        details = window.aux._details_window
+        assert details.isVisible() and hit.ligand_name in details.windowTitle()
+        window.show_record("receptor", hit.receptor_id, reveal=True)
+        app.processEvents()
+        receptors = window.central_widget.open_or_focus_view(RECEPTOR_VIEW_ID)
+        id_filter = next(f for f in receptors.table._builder.active_filters if f.field == "id")
+        assert id_filter.value == [hit.receptor_id]
+        assert window.selection.get("receptor") is None
 
         assert len(runtime.docking.list_results()) == 4
         assert runtime.docking.result_stats().completed_results == 4
@@ -593,13 +612,13 @@ def test_tool_buttons_are_flat_and_keep_result_views_available(tmp_path, monkeyp
         assert id_filter(LIGANDS_VIEW_ID) == [1]
 
         # The selection is global and only the user drops it: the status bar shows it wherever
-        # they are, and its chip clears it everywhere. On its own step a picked row is listed
-        # prepared or not, so preparing a selection never leaves an empty table behind.
+        # they are, and its chip clears it everywhere. On its own step the selection obeys the
+        # "left to prepare" filter too: a prepared selection lists nothing, so it reads done.
         chip = window._status_bar.selection_indicators["ligand"]
         assert chip.isVisible() and chip.text() == "Ligands: 1 selected ✕"
         assert not window._status_bar.selection_indicators["receptor"].isVisible()
         studio.stepper.set_current_index(1)
-        assert studio._unprepared_clause("ligand") is None
+        assert studio._unprepared_clause("ligand") is not None
         chip.clicked.emit()
         assert window.selection.get("ligand") is None and not chip.isVisible()
         assert id_filter(LIGANDS_VIEW_ID) is None

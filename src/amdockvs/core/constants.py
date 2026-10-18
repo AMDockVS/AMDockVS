@@ -11,15 +11,22 @@ from pathlib import Path
 AMDOCKVS_APP_ID = "amdockvs"
 AMDOCKVS_SCOPE_ID = "docking"
 AMDOCKVS_APP_NAME = "AMDockVS"
-RESOURCE_MOLECULES = "molecules"
+RESOURCE_IMPORT_STATS = "import_stats"
 RESOURCE_DOCKING_RESULTS = "docking_results"
 RESOURCE_QSAR_MODELS = "qsar_models"
 RESOURCE_POCKET_PREDICTIONS = "pocket_predictions"
-RESOURCE_EXPORTS = "exports"
-RESOURCE_JOBS = "jobs"
 RESOURCE_SHARDS = "shards"
 
 TABLE_MOLECULES = "molecules"
+TABLE_PAYLOADS = "ms_payloads"  # ms_flow's; app columns `<role>_payload_id` reference it
+# Payload series: payloads with the same lifetime share volumes (ms_flow.payloads).
+SERIES_MOLECULES = "molecules"  # ligand structures, stored + current, and their models
+SERIES_RECEPTORS = "receptors"  # receptor structures, stored + current, and their models
+SERIES_PREPARED = "prepared"  # engine inputs (PDBQT), re-made when the structure changes
+SERIES_POSES = "poses"  # docking poses (SDF)
+SERIES_REFERENCES = "references"  # frozen complex references, never rewritten
+SERIES_AUX = "aux"  # sidecars (ESMFold PAE)
+SERIES_PROPERTIES = "properties"  # imported SDF tags, one parquet per import batch
 TABLE_MOLECULE_REPRESENTATIONS = "molecule_representations"
 TABLE_MOLECULE_MODELS = "molecule_models"
 TABLE_MOLECULE_SOURCE_PROPERTIES = "molecule_source_properties"

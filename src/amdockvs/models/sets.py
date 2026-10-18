@@ -51,7 +51,6 @@ class MoleculeSetMember(SQLModel, table=True):
 
     # Context flags — only relevant for specific set purposes
     is_grid_reference:    bool = Field(default=False)  # grid_reference sets
-    crystal_pose_path:    str  = Field(default="")     # redocking sets
     use_as_pharmacophore: bool = Field(default=False)  # substructure sets
     use_as_substructure:  bool = Field(default=False)  # substructure sets
 

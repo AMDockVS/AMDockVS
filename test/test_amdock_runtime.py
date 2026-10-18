@@ -79,7 +79,8 @@ def _require_docking_stack():
 
 def _wait_completed(runtime: AMDockVSRuntime, job_ids: list[str], *, timeout_s: float = 120.0):
     status_map = runtime.wait_for_jobs(job_ids, timeout_s=timeout_s, poll_s=0.05)
-    assert all(item.status == "completed" for item in status_map.values())
+    assert all(item.status == "completed" for item in status_map.values()), {
+        item.task_type: (item.status, item.error) for item in status_map.values() if item.status != "completed"}
     return status_map
 
 
@@ -197,7 +198,7 @@ def test_loader_api_dispatches_jobs_via_jobdefinition_helpers(monkeypatch, tmp_p
             "params": {
                 "file_paths": [str(ligands_file.resolve())],
                 "batch_size": 25,
-                "storage_resource": "molecules",
+                "storage_resource": "import_stats",
                 "primary_role": "ligand",
                 "primary_context": "screening",
                 "molecule_kind": "small_molecule",
@@ -242,13 +243,11 @@ def test_amdock_manifest_and_runtime_declare_project_resource_contract(tmp_path,
     runtime = AMDockVSRuntime()
     try:
         assert tuple(spec.key for spec in manifest.project_resources) == (
-            "molecules",
+            "shards",
             "docking_results",
             "qsar_models",
             "pocket_predictions",
-            "exports",
-            "jobs",
-            "shards",
+            "import_stats",
         )
 
         project = runtime.create_project(
@@ -259,11 +258,10 @@ def test_amdock_manifest_and_runtime_declare_project_resource_contract(tmp_path,
         paths = runtime.get_project_paths()
 
         assert project.scope == "docking"
-        assert runtime.get_project_resource_path("molecules") == paths["molecule_data_dir"]
         assert runtime.get_project_resource_path("docking_results") == paths["docking_results_dir"]
-        assert runtime.get_project_resource_path("pocket_predictions").is_dir()
-        assert paths["molecule_data_dir"].is_dir()
-        assert paths["docking_results_dir"].is_dir()
+        # A fresh project is its databases, config and logs: every other folder appears on its
+        # first write, so no project carries a tree of empty ones.
+        assert sorted(p.name for p in paths["project_root"].iterdir() if p.is_dir()) == ["logs"]
     finally:
         runtime.shutdown()
 
@@ -685,3 +683,15 @@ def test_amdock_runtime_exposes_domain_queries_for_receptors_and_docking_results
         )
     finally:
         runtime.shutdown()
+
+
+def test_worker_paths_find_the_project_root_in_the_flat_layout(tmp_path):
+    from types import SimpleNamespace
+
+    from amdockvs.core.worker_io import project_root_from_output_dir
+    from amdockvs.docking.repository import inputs_dir
+
+    project = tmp_path / "docking" / "p3"  # a folder above the project may share a name
+    assert project_root_from_output_dir(project / "docking") == project
+    assert project_root_from_output_dir(project / "tmp" / "import") == project
+    assert inputs_dir(SimpleNamespace(db_path=project / "project.db")) == project / "cache" / "inputs"

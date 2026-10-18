@@ -3,13 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
 # Per-molecule import accounting. Workers run in loky processes and can't log to the monitor or
-# emit job events, but they share the project filesystem — so each batch drops a tiny JSON tally
-# here and the GUI drains + sums them when the import job finishes. Mirrors the props-offload
-# sidecar pattern (offload_source_properties).
-_STATS_SUBDIR = "import_stats"
+# emit job events, but they share the project filesystem — so each batch appends one JSON line
+# to a single file and the GUI drains + sums them when the import job finishes. One file, not one
+# per batch: a 700k import has hundreds of batches.
+_STATS_FILE = "import_stats.jsonl"
 
 # Reason keys (why a source record didn't become a molecule). "imported" is the success bucket.
 IMPORTED = "imported"
@@ -24,30 +23,34 @@ def bump(tally: dict[str, int], reason: str, count: int = 1) -> None:
 
 
 def write_import_stats(storage_dir: str | Path | None, tally: dict[str, int]) -> None:
-    """Persist one batch's tally as a uuid-named JSON shard (no-op if empty or dir missing)."""
+    """Append one batch's tally as a JSON line (no-op if empty or no dir). A line this short is
+    written in one `write` on an append-mode file, so batches running at once never interleave."""
     if not storage_dir or not any(tally.values()):
         return
-    stats_dir = Path(storage_dir).expanduser().resolve() / _STATS_SUBDIR
+    stats_dir = Path(storage_dir).expanduser().resolve()
     stats_dir.mkdir(parents=True, exist_ok=True)
-    (stats_dir / f"{uuid4().hex}.json").write_text(json.dumps(tally), encoding="utf-8")
+    with open(stats_dir / _STATS_FILE, "a", encoding="utf-8") as out:
+        out.write(json.dumps(tally) + "\n")
 
 
 def drain_import_stats(storage_dir: str | Path | None) -> dict[str, int]:
-    """Sum and delete every pending tally shard. Returns {reason: count} incl. 'imported'."""
+    """Sum and delete the pending tallies. Returns {reason: count} incl. 'imported'."""
     total: dict[str, int] = {}
     if not storage_dir:
         return total
-    stats_dir = Path(storage_dir).expanduser().resolve() / _STATS_SUBDIR
-    if not stats_dir.is_dir():
+    path = Path(storage_dir).expanduser().resolve() / _STATS_FILE
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
         return total
-    for shard in stats_dir.glob("*.json"):
+    path.unlink(missing_ok=True)
+    for line in lines:
         try:
-            data = json.loads(shard.read_text(encoding="utf-8"))
-        except Exception:  # noqa: BLE001 - a corrupt shard must not sink the summary
+            data = json.loads(line)
+        except Exception:  # noqa: BLE001 - a corrupt line must not sink the summary
             data = {}
         for key, value in dict(data).items():
             total[key] = int(total.get(key, 0)) + int(value or 0)
-        shard.unlink(missing_ok=True)
     return total
 
 

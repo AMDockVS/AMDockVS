@@ -13,14 +13,10 @@ from amdockvs.core.constants import (
     AMDOCKVS_APP_NAME,
     AMDOCKVS_SCOPE_ID,
     RESOURCE_DOCKING_RESULTS,
-    RESOURCE_EXPORTS,
-    RESOURCE_JOBS,
-    RESOURCE_MOLECULES,
     RESOURCE_QSAR_MODELS,
     TABLE_MOLECULES,
-    TABLE_SCREENING_SHARD_RUNS,
 )
-from amdockvs.manifest import AMDOCKVS_DEFAULT_PROJECT_DIRS, AMDOCKVS_PROJECT_RESOURCES
+from amdockvs.manifest import AMDOCKVS_PROJECT_RESOURCES
 from amdockvs.core.configuration import (
     MAX_2D_PREVIEW_HEAVY_ATOMS,
     MAX_2D_PREVIEW_HEAVY_ATOMS_PATH,
@@ -310,31 +306,23 @@ class AMDockVSRuntime(AppRuntime):
         context = self._require_active_project()
         return {
             "project_root": Path(context.path).expanduser().resolve(),
-            "molecule_data_dir": self.get_project_resource_path(RESOURCE_MOLECULES),
             "docking_results_dir": self.get_project_resource_path(RESOURCE_DOCKING_RESULTS),
             "qsar_models_dir": self.get_project_resource_path(RESOURCE_QSAR_MODELS),
-            "exports_dir": self.get_project_resource_path(RESOURCE_EXPORTS),
-            "jobs_dir": self.get_project_resource_path(RESOURCE_JOBS),
         }
 
     def on_project_activated(self, context):
-        # SQLModel creates new app tables but intentionally does not alter existing ones.
-        # Keep this additive migration beside the app model that owns the column.
-        added = (
-            (TABLE_SCREENING_SHARD_RUNS, "result_path", "VARCHAR DEFAULT ''"),
-            (TABLE_MOLECULES, "inchikey", "VARCHAR"),
-            (TABLE_MOLECULES, "canonical_smiles", "VARCHAR"),
-        )
+        # Projects from before payloads keep file paths in their rows; they are refused, not
+        # migrated (D9 of the volumes plan). The path column is the format mark.
         with self.workspace.project_db.get_session() as session:
-            connection = session.connection()
-            for table, column, ddl in added:
-                columns = {str(row[1]) for row in connection.exec_driver_sql(f"PRAGMA table_info({table});").fetchall()}
-                if columns and column not in columns:
-                    connection.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {column} {ddl};")
-            connection.exec_driver_sql(
-                f"CREATE INDEX IF NOT EXISTS ix_{TABLE_MOLECULES}_inchikey ON {TABLE_MOLECULES} (inchikey);"
+            columns = session.connection().exec_driver_sql(f"PRAGMA table_info({TABLE_MOLECULES});").fetchall()
+        if "stored_path" in {str(row[1]) for row in columns}:
+            name = getattr(context, "name", "") or context.path
+            self.close_project()
+            raise ValueError(
+                f"Project '{name}' was made by an older AMDockVS that kept molecules as files. "
+                "This version stores them inside the project and cannot open it: import its "
+                "molecules into a new project."
             )
-            session.commit()
         # Built once per project: a feed asks the runtime where the ligands are, it does not ask
         # the mode — there is no mode to ask.
         self._ligand_store = DbStore(self.workspace.project_db)
@@ -350,6 +338,23 @@ class AMDockVSRuntime(AppRuntime):
         for configuration in self._configuration_sources:
             if hasattr(configuration, "set_project_root"):
                 configuration.set_project_root(None)
+
+    def check_storage(self) -> tuple[str, str, str]:
+        """(level, title, text) of a fast check of the project's payload volumes."""
+        from amdockvs.project.storage import check_storage
+
+        self._require_active_project()
+        return check_storage(self.workspace.project_db)
+
+    def compact_storage_if_due(self) -> dict | None:
+        """Compact the payload volumes that are mostly dead bytes once no job is active; the stats,
+        or None when nothing was due."""
+        from amdockvs.project.storage import compact_if_idle
+
+        self._require_active_project()
+        return compact_if_idle(
+            self.workspace.project_db, busy=bool(self.list_jobs(statuses=NON_TERMINAL_JOB_STATUSES))
+        )
 
     def create_monitor_bridge(self, *, poll_ms: int | None = None, max_recent_jobs: int | None = None):
         from ms_components.ms_monitor import MolSuiteMonitorBridge
@@ -672,7 +677,6 @@ class AMDockVSRuntime(AppRuntime):
 __all__ = [
     "AMDOCKVS_APP_ID",
     "AMDOCKVS_APP_NAME",
-    "AMDOCKVS_DEFAULT_PROJECT_DIRS",
     "AMDOCKVS_PROJECT_RESOURCES",
     "AMDOCKVS_SCOPE_ID",
     "AMDockVSRuntime",

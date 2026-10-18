@@ -41,6 +41,7 @@ from amdockvs.docking.results.tables import (
 from amdockvs.project.summaries import DockingHitSummary
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.catalog.common import project_table
+from amdockvs.ui.catalog.export import export_pose_files, export_poses
 from ms_components.ms_table import FilterOperator, FilterSpec, MetricFilterBar, SmartTableView
 
 try:
@@ -62,9 +63,6 @@ _RESULT_FILTER_FIELDS = (
 )
 
 
-
-def _fmt_path(value) -> str:
-    return "" if value is None else str(value)
 
 
 class _MetricColumns:
@@ -166,7 +164,12 @@ class DockingResultsWidget(QWidget):
         receptor_layout = QVBoxLayout(receptor_box)
         receptor_layout.setContentsMargins(0, 0, 0, 0)
         receptor_layout.addWidget(QLabel("Receptor", self))
-        self.receptor_table = project_table(runtime, results_receptor_config(), receptor_box)
+        receptor_config = results_receptor_config()
+        receptor_config.context_menu_actions = {
+            "Show receptor details": lambda objs: self._show_record(objs, "receptor", "id"),
+            "Show in Receptors": lambda objs: self._show_record(objs, "receptor", "id", reveal=True),
+        }
+        self.receptor_table = project_table(runtime, receptor_config, receptor_box)
         self.receptor_table.setMinimumHeight(150)
         self.receptor_table.selection_changed.connect(self._on_receptor_selection_changed)
         self.receptor_table.data_refreshed.connect(self._on_receptors_loaded)
@@ -180,6 +183,11 @@ class DockingResultsWidget(QWidget):
         self.ligand_label = QLabel("Ligand", self)
         ligand_layout.addWidget(self.ligand_label)
         ligand_config = results_ligand_config()
+        ligand_config.context_menu_actions["Show ligand details"] = (
+            lambda objs: self._show_record(objs, "ligand", "ligand_molecule_id"))
+        ligand_config.context_menu_actions["Show in Ligands"] = (
+            lambda objs: self._show_record(objs, "ligand", "ligand_molecule_id", reveal=True))
+        ligand_config.context_menu_actions["Export poses (SDF)…"] = lambda objs: export_poses(self, runtime, objs)
         ligand_config.context_menu_actions["Delete…"] = lambda objs: self._delete(objs, "result_group")
         self.ligand_table = project_table(runtime, ligand_config, ligand_box)
         self.ligand_table.setMinimumHeight(150)
@@ -194,6 +202,8 @@ class DockingResultsWidget(QWidget):
         pose_layout.setContentsMargins(0, 0, 0, 0)
         pose_layout.addWidget(QLabel("Pose", self))
         pose_config = results_pose_config()
+        pose_config.context_menu_actions["Export poses (SDF)…"] = lambda objs: export_poses(self, runtime, objs)
+        pose_config.context_menu_actions["Export poses (ZIP)…"] = lambda objs: export_pose_files(self, runtime, objs)
         pose_config.context_menu_actions["Delete…"] = lambda objs: self._delete(objs, "result")
         self.pose_table = project_table(runtime, pose_config, pose_box)
         self.pose_table.setMinimumHeight(150)
@@ -216,6 +226,13 @@ class DockingResultsWidget(QWidget):
         detail_scroll.setWidget(self._build_detail_panel(detail_scroll))
         self._aux_panel = detail_scroll
         self._on_receptors_loaded()
+
+    def _show_record(self, objects, kind: str, field: str, *, reveal: bool = False) -> None:
+        """A row names a receptor or ligand by id only: open its details, or its catalog row."""
+        show = getattr(self.window(), "show_record", None)
+        obj = next(iter(objects or ()), None)
+        if callable(show) and obj is not None and getattr(obj, field, None):
+            show(kind, int(getattr(obj, field)), reveal=reveal)
 
     def aux_panel(self) -> QWidget | None:
         """The window's auxiliary zone asks every tab for this; None = it has nothing to show."""
@@ -755,9 +772,9 @@ class DockingResultsWidget(QWidget):
             "run_kind": hit.run_kind,
             "ligand_id": hit.ligand_id,
             "receptor_id": hit.receptor_id,
-            "ligand_path": _fmt_path(hit.ligand_path),
-            "receptor_path": _fmt_path(hit.receptor_path),
-            "output_path": _fmt_path(hit.output_path),
+            "ligand_payload_id": hit.ligand_payload_id,
+            "receptor_payload_id": hit.receptor_payload_id,
+            "pose_payload_id": hit.pose_payload_id,
             "updated_at": None if hit.updated_at is None else str(hit.updated_at),
             "metadata": hit.metadata,
             "metrics": {
@@ -878,9 +895,9 @@ class DockingResultsWidget(QWidget):
         # (a few kB, no ms_contactmap import): no DB round-trip and no worker to freeze the panel.
         from amdockvs.docking.results.diagram import pose_interactions
 
-        ready = bool(hit.output_path and hit.receptor_path)
+        ready = bool(hit.pose_payload_id and hit.receptor_payload_id)
         self.build_diagram_btn.setEnabled(ready)
-        rows = pose_interactions(str(hit.output_path), self._pose_rank(hit)) if hit.output_path else None
+        rows = pose_interactions(str(hit.output_path), self._pose_rank(hit)) if hit.pose_payload_id else None
         self._show_interactions(rows)
 
     def _show_interactions(self, rows: list[dict] | None) -> None:
@@ -904,11 +921,10 @@ class DockingResultsWidget(QWidget):
 
     def _build_diagram(self) -> None:
         hit = self._selected_hit
-        if hit is None or not hit.output_path or not hit.receptor_path:
+        if hit is None or not hit.pose_payload_id or not hit.receptor_payload_id:
             return
         # Widget-free captures: detection + layout solve run off the GUI thread. The solve is
         # seconds of numpy, so it rides along in the worker instead of blocking the window.
-        pose_path, receptor_path = str(hit.output_path), str(hit.receptor_path)
         rank, result_id = self._pose_rank(hit), int(hit.result_id or 0)
         label = f"{hit.ligand_name} · pose {rank}"
         self.build_diagram_btn.setEnabled(False)
@@ -917,9 +933,8 @@ class DockingResultsWidget(QWidget):
         def work():
             from amdockvs.docking.results.diagram import build_pose_diagram, save_pose_diagram
 
-            diagram = build_pose_diagram(
-                pose_path=pose_path, receptor_path=receptor_path, pose_rank=rank, name=label
-            )
+            pose_path = hit.output_path  # the receptor can be large: written here, not on the GUI thread
+            diagram = build_pose_diagram(pose_path=pose_path, receptor_path=hit.receptor_path, name=label)
             if diagram is None:
                 return None
             from ms_contactmap import solve_layout

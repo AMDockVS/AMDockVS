@@ -15,7 +15,7 @@ from amdockvs.io.jobs import (
 )
 from amdockvs.core.normalize import PathLike, group_files, normalize_files
 from amdockvs.core.configuration import app_config
-from amdockvs.core.constants import RESOURCE_SHARDS
+from amdockvs.core.constants import RESOURCE_IMPORT_STATS, RESOURCE_SHARDS
 from amdockvs.molecules.storage import LIBRARY_ROWS, LIBRARY_SHARDS, check_library_target
 from amdockvs.core.vocab import MoleculeType
 
@@ -91,7 +91,7 @@ class LoaderAPI:
         params = {
             "file_paths": [str(file_path) for file_path in normalized_files],
             "batch_size": max(1, int(batch_size)),
-            "storage_resource": "molecules",
+            "storage_resource": RESOURCE_IMPORT_STATS,
             "primary_role": str(primary_role or ""),
             "primary_context": str(primary_context or "general"),
             "molecule_kind": str(molecule_kind or "unknown"),
@@ -135,7 +135,7 @@ class LoaderAPI:
         params = {
             "file_paths": [str(file_path) for file_path in normalized_files],
             "batch_size": max(1, int(batch_size)),
-            "storage_resource": "molecules",
+            "storage_resource": RESOURCE_IMPORT_STATS,
             "primary_role": "ligand",
             "primary_context": str(primary_context or "general"),
             "molecule_kind": str(molecule_kind or "small_molecule"),
@@ -300,7 +300,7 @@ class LoaderAPI:
         params = {
             "file_paths": [str(file_path) for file_path in normalized_files],
             "batch_size": max(1, int(batch_size)),
-            "storage_resource": "molecules",
+            "storage_resource": RESOURCE_IMPORT_STATS,
             "primary_role": "receptor",
             "primary_context": str(primary_context or "general"),
             "molecule_kind": str(molecule_kind or "protein"),
@@ -343,7 +343,7 @@ class LoaderAPI:
             params = {
                 "file_paths": [str(path) for path in group],
                 "num_threads": max(1, int(num_threads)),
-                "storage_resource": "molecules",
+                "storage_resource": RESOURCE_IMPORT_STATS,
                 "primary_role": "ligand",
                 "primary_context": str(primary_context or "general"),
                 "molecule_kind": str(molecule_kind or "small_molecule"),

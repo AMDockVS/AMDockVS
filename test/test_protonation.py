@@ -4,13 +4,11 @@ from rdkit import Chem
 
 from amdockvs.chemistry.protonation import protonate_molecule_batch
 from amdockvs.chemistry.jobs import LigandChemistryJobParams, _iter_ligand_chemistry_batches
-from amdockvs.chemistry.service import ligand_working_path, transform_ligand_rows
+from amdockvs.chemistry.service import transform_ligand_rows
 
 
-def _write_mol(path: Path, smiles: str) -> None:
-    molecule = Chem.MolFromSmiles(smiles)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(Chem.MolToMolBlock(molecule), encoding="utf-8")
+def _molblock(smiles: str) -> bytes:
+    return Chem.MolToMolBlock(Chem.MolFromSmiles(smiles)).encode()
 
 
 def test_explicit_hs_adds_every_hydrogen_and_keeps_charges():
@@ -22,52 +20,72 @@ def test_explicit_hs_adds_every_hydrogen_and_keeps_charges():
     assert Chem.MolToSmiles(Chem.RemoveHs(result)) == Chem.MolToSmiles(source)
 
 
+def _seeded(tmp_path, original: str, current: str):
+    """A project with one ligand whose imported structure is `original` and current one `current`."""
+    from ms_flow.core.database.project import ProjectStore
+
+    from amdockvs.models.molecules import MoleculeRecord
+    from payload_seed import seed_payload
+
+    store = ProjectStore.open_at(tmp_path / "project.db")
+    stored = seed_payload(store, _molblock(original), "sdf")
+    now = seed_payload(store, _molblock(current), "sdf")
+    with store.get_session() as session:
+        session.add(MoleculeRecord(name="lig", is_ligand=True, molecule_type="small_molecule",
+                                   stored_payload_id=stored, current_payload_id=now))
+        session.commit()
+    return store
+
+
 def test_structure_source_selects_original_or_current(tmp_path):
-    original = tmp_path / "original.sdf"
-    current = tmp_path / "current.sdf"
-    _write_mol(original, "CC")
-    _write_mol(current, "CCC")
-    row = {"id": 1, "stored_path": str(original), "current_path": str(current)}
+    from amdockvs.chemistry.structures import mol_from_bytes, with_structures
 
-    assert ligand_working_path(row, structure_source="original") == original
-    assert ligand_working_path(row, structure_source="current") == current
+    store = _seeded(tmp_path, "CC", "CCC")
+    rows = [{"id": 1, "stored_payload_id": 1, "current_payload_id": 2}]
+
+    original, = with_structures(store, rows, original=True)
+    current, = with_structures(store, rows)
+
+    assert mol_from_bytes(original["structure"], original["structure_kind"]).GetNumAtoms() == 2
+    assert mol_from_bytes(current["structure"], current["structure_kind"]).GetNumAtoms() == 3
+    store.dispose()
 
 
-def test_protonation_promotes_new_artifact_without_overwriting_input(tmp_path):
-    project_root = tmp_path / "project"
-    output_dir = project_root / "data" / "molecules"
-    source = output_dir / "original" / "ethanol.sdf"
-    _write_mol(source, "CCO")
-    before = source.read_text(encoding="utf-8")
+def test_protonation_returns_a_new_payload_and_leaves_the_input_alone():
+    from ms_flow.payloads import Payload
 
+    source = _molblock("CCO")
     result = transform_ligand_rows(
         operations="protonate",
-        output_dir=output_dir,
         rows=[{
             "id": 3,
-            "stored_path": str(source),
-            "current_path": str(source),
+            "structure": source,
+            "structure_kind": "sdf",
             "current_model_index": None,
             "extra_data": {},
             "has_3d": False,
         }],
-        params={"method": "explicit_hs", "structure_source": "current", "run_id": "abc123"},
+        params={"method": "explicit_hs"},
     )
 
     update = result["updates"][0]
-    promoted = project_root / update["current_path"]
-    assert source.read_text(encoding="utf-8") == before
-    assert promoted != source
-    assert promoted.is_file()
+    promoted = update["current_payload_id"]
+    assert isinstance(promoted, Payload) and promoted.data != source
+    assert source == _molblock("CCO")
     assert update["state"]["has_hs"] is True
+    assert update["model_rows"] == []  # protonating makes no model: the current 3D one stays
 
 
 def test_pkasso_gpu_is_requested_once_per_database_batch(tmp_path, monkeypatch):
+    from payload_seed import seed_payload
+
+    from ms_flow.core.database.project import ProjectStore
+
+    store = ProjectStore.open_at(tmp_path / "project.db")
+    structure = seed_payload(store, _molblock("CCO"), "sdf")
+
     def _rows(_project_db, **_kwargs):
-        yield from (
-            {"id": index, "stored_path": f"{index}.sdf", "current_path": f"{index}.sdf"}
-            for index in range(1, 6)
-        )
+        yield from ({"id": index, "current_payload_id": structure} for index in range(1, 6))
 
     # The feed reads through `iter_ligand_rows` (scope_spec + db_pages); what this test checks is
     # the chunking and the per-chunk GPU flag, so the source is swapped out, not the database.
@@ -80,15 +98,12 @@ def test_pkasso_gpu_is_requested_once_per_database_batch(tmp_path, monkeypatch):
         params={"method": "pkasso", "gpu": True},
     )
 
-    batches = list(_iter_ligand_chemistry_batches(
-        project_db=object(),
-        db_path=tmp_path / "project.db",
-        output_dir=tmp_path / "data" / "molecules",
-        params=params,
-    ))
+    batches = list(_iter_ligand_chemistry_batches(project_db=store, params=params))
 
     assert [len(batch["rows"]) for batch in batches] == [2, 2, 1]
     assert [batch["_gpu_required"] for batch in batches] == [1, 1, 1]
+    assert {row["structure"] for batch in batches for row in batch["rows"]} == {_molblock("CCO")}  # the bytes ride along
+    store.dispose()
 
 
 def test_pdb2pqr_hands_downstream_a_pdb_not_a_pqr(tmp_path, monkeypatch):
@@ -113,3 +128,18 @@ def test_pdb2pqr_hands_downstream_a_pdb_not_a_pqr(tmp_path, monkeypatch):
     assert output.suffix == ".pdb"
     assert f"--pdb-output={output}" in seen["cmd"]
     assert seen["cmd"][-1].endswith("protonated_0.pqr")  # the PQR is the sidecar, not the result
+
+
+def test_external_tools_get_scratch_files_that_are_gone_afterwards(tmp_path):
+    """OpenBabel stand-in: copies its input SDF to the output path; no file survives the call."""
+    fake = tmp_path / "obabel"
+    fake.write_text("#!/bin/sh\n# args: -isdf IN -osdf -O OUT -p PH\ncp \"$2\" \"$5\"\necho \"$2 $5\" > " + str(tmp_path / "seen") + "\n")
+    fake.chmod(0o755)
+
+    result = protonate_molecule_batch(
+        [(5, Chem.MolFromSmiles("CCO"))], method="openbabel", params={"tool_command": str(fake)}
+    )
+
+    assert set(result) == {5} and result[5].GetNumAtoms() == 9  # ethanol with every H
+    for name in (tmp_path / "seen").read_text().split():
+        assert not Path(name).exists()

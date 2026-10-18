@@ -81,6 +81,15 @@ class ScopePanel:
 
     @property
     def _selected_receptor_ids(self) -> list[int]:
+        ligand_ids = set(self._selected_ligand_ids) if self._run_kind() == "redocking" else set()
+        if ligand_ids:
+            # Redocking runs original pairs: picked ligands bring exactly their own receptors
+            # ([0] = none of them is in a pair, so no receptor rather than every receptor).
+            return sorted({
+                int(row.receptor_molecule_id)
+                for row in self.runtime.complexes.list(purpose="redocking,reference")
+                if int(row.ligand_molecule_id) in ligand_ids
+            }) or [0]
         widget = self._catalog_receptor_widget()
         return (widget.scope_ids() if widget is not None else None) or []
 

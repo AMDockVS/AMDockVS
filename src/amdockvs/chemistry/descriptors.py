@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import json
 from datetime import datetime
 
-from amdockvs.core.paths import preferred_molecule_path
+from amdockvs.chemistry.structures import mol_from_bytes
 
 
 def canonical_smiles(mol) -> str:
@@ -80,14 +79,11 @@ def calculate_descriptor_rows(items: list[dict], *, fingerprint: dict | None = N
     """Compute physchem descriptors per item. When ``fingerprint`` ({"radius","nbits"}) is given,
     also attach a Morgan fingerprint as ``row["fp_binary"]`` (the bitstring as ascii bytes — a
     later np.frombuffer unpacks it without RDKit) plus fp_type/fp_nbits/fp_radius."""
-    from rdkit import Chem
-
     fp_radius = int((fingerprint or {}).get("radius", 2))
     fp_nbits = int((fingerprint or {}).get("nbits", 2048))
     results: list[dict] = []
     for item in items:
         molecule_id = int(item.get("molecule_id") or 0)
-        stored_path = preferred_molecule_path(item)
         row = {
             "molecule_id": molecule_id,
             "mw": None,
@@ -109,11 +105,11 @@ def calculate_descriptor_rows(items: list[dict], *, fingerprint: dict | None = N
             "created_at": datetime.now(),
         }
         try:
-            if stored_path is None or not stored_path.exists():
-                raise FileNotFoundError(f"stored_path does not exist: {stored_path}")
-            mol = Chem.MolFromMolFile(str(stored_path), sanitize=True, removeHs=False)
+            if not item.get("structure"):
+                raise ValueError("The molecule has no structure to describe.")
+            mol = mol_from_bytes(item["structure"], item.get("structure_kind"))
             if mol is None:
-                raise ValueError(f"RDKit could not parse molecule from {stored_path}")
+                raise ValueError(f"Could not parse the structure ({item.get('structure_kind') or 'no format'}).")
             row.update(calculate_basic_descriptors(mol))
             if fingerprint is not None:
                 from amdockvs.chemistry.fingerprints import morgan_fingerprint
@@ -124,11 +120,9 @@ def calculate_descriptor_rows(items: list[dict], *, fingerprint: dict | None = N
                 row["fp_type"] = FingerprintType.ECFP6 if fp_radius >= 3 else FingerprintType.ECFP4
                 row["fp_nbits"] = fp_nbits
                 row["fp_radius"] = fp_radius
-            row["metadata_json"] = json.dumps({"stored_path": str(stored_path)}, ensure_ascii=True)
         except Exception as exc:
             row["status"] = "failed"
             row["error"] = str(exc)
-            row["metadata_json"] = json.dumps({"stored_path": str(stored_path)}, ensure_ascii=True)
         results.append(row)
     return results
 

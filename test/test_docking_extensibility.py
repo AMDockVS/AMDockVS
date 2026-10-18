@@ -161,8 +161,8 @@ def test_readiness_honors_programs_without_preparation_or_binding_site(monkeypat
 def test_batching_allows_program_without_binding_site(tmp_path):
     chunks = list(
         iter_docking_batches_from_rows(
-            ligands=[{"id": 1, "current_path": "ligand.sdf"}],
-            receptors=[{"id": 2, "current_path": "receptor.pdb"}],
+            ligands=[{"id": 1, "ligand": b"ligand"}],
+            receptors=[{"id": 2, "input_path": "receptor.pdbqt"}],
             output_dir=tmp_path,
             batch_size=1,
             engine="vina",

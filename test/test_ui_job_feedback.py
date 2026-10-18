@@ -105,3 +105,38 @@ def test_a_failed_job_shows_its_error_and_keeps_the_traceback_for_the_details():
     assert failure(error) == (
         "RuntimeError: QuickVina 2 is not installed. Install it from Settings > External tools.", error)
     assert failure("job 3 failed") == ("job 3 failed", "")  # nothing more to say: no details to open
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+def test_opening_a_project_checks_its_storage_off_the_gui_thread_and_reports_to_the_log(tmp_path, monkeypatch):
+    import threading
+    import time
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("AMDOCK_DISABLE_PYMOL", "1")
+    app = QApplication.instance() or QApplication(["amdockvs-ui"])
+    window = None
+    runtime = AMDockVSRuntime()
+    try:
+        runtime.create_project(name="ui_storage", folder=tmp_path / "ui_storage", description="storage check")
+        window = AMDockVSMainWindow(runtime=runtime)
+        window.show()
+        app.processEvents()
+        seen = []
+        healthy = runtime.check_storage()
+        assert healthy[0] == "info"  # a healthy check stays out of the log; a problem gets in
+        leftovers = ("warning", "Project storage has leftovers", "2 unused entries can be cleared by a repair.")
+        monkeypatch.setattr(runtime, "check_storage", lambda: (seen.append(threading.current_thread()), leftovers)[1])
+        window.jobs.notifications.clear()
+        window.jobs.on_monitor_project_changed(SimpleNamespace(project_id="another-project"))
+        deadline = time.monotonic() + 10
+        while not window.jobs.notifications and time.monotonic() < deadline:
+            app.processEvents()
+            time.sleep(0.01)
+        assert seen and seen[0] is not threading.main_thread()
+        assert window.jobs.notifications[-1].title == "Project storage has leftovers"
+        assert runtime.compact_storage_if_due() is None  # a new project has nothing dead
+    finally:
+        if window is not None:
+            window.close()
+        runtime.shutdown()

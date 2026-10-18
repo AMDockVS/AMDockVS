@@ -35,11 +35,17 @@ from ms_components.ms_dockwidget.widget import Behavior, DockManager, MSDockWidg
 from ms_components.ms_executors import ExecutorsPanel
 from ms_components.ms_pymol.widget import PymolDockWidget
 from amdockvs.ui.view_ids import (
+    COMPLEX_PAIRS_VIEW_ID,
     COMPLEXES_VIEW_ID,
     LIGANDS_VIEW_ID,
+    OFFTARGET_VIEW_ID,
     RECEPTOR_VIEW_ID,
+    REDOCKING_VIEW_ID,
     WORKFLOW_VIEW_ID,
 )
+
+# Views whose rows are docked poses: the 2D interaction diagram only has something to show there.
+_RESULT_VIEW_IDS = frozenset({COMPLEXES_VIEW_ID, OFFTARGET_VIEW_ID, REDOCKING_VIEW_ID})
 
 
 def _pymol_disabled() -> bool:
@@ -67,6 +73,7 @@ class AMDockVSMainWindow(QMainWindow):
         self.jobs_dialog: JobsDialog | None = None  # built on first open_jobs_monitor()
         self.executors_panel: ExecutorsPanel | None = None  # built on first open_executors_panel()
         self._closing = False
+        self._diagram_parked = False  # hidden by leaving the results views, reopens on return
         # A file of ours, not Qt's per-organization place: it goes when the home goes.
         self._settings = QSettings(str(amdock_home() / "ui_state.ini"), QSettings.Format.IniFormat)
 
@@ -445,14 +452,41 @@ class AMDockVSMainWindow(QMainWindow):
     def show_catalog_selection_details(self, kind: str, obj) -> None:
         self.aux.show_catalog_selection_details(kind, obj)
 
+    def show_record(self, kind: str, record_id: int, *, reveal: bool = False) -> None:
+        """A receptor/ligand/complex named in another table: its details in a window, or
+        (reveal) its row in its own catalog tab, shown alone until "Show all"."""
+        api = self.runtime.complexes if kind == "complex" else self.runtime.molecules
+        record = api.get(int(record_id))  # one row by primary key, cheap on the GUI thread
+        if record is None:
+            return
+        if not reveal:
+            self.aux.open_details_window(kind, record)
+            return
+        view_id = {"complex": COMPLEX_PAIRS_VIEW_ID, "receptor": RECEPTOR_VIEW_ID}.get(kind, LIGANDS_VIEW_ID)
+        self.open_or_focus_view(view_id).reveal([record.id], label=getattr(record, "name", None) or f"{kind} {record.id}")
+
     def _on_current_view_changed(self, view_id: str) -> None:
         self.viewer.hide_grid_panel()
         self.aux.set_occupant()  # the tab on screen may own the auxiliary panel
         self.charts.sync_to_active_view(view_id)
         self.viewer.sync_to_active_view(view_id)
+        self._sync_diagram_to_view(view_id)
         # Switching tabs changes whether a jobs surface is on screen, so the status
         # bar indicator (the always-visible fallback) has to be re-evaluated.
         self.jobs.update_jobs_statusbar()
+
+    def _sync_diagram_to_view(self, view_id: str) -> None:
+        """The 2D diagram follows the results views: it hides when the user leaves them and
+        comes back on return if it was open. Closing it by hand on another tab is respected."""
+        # ponytail: experimental complexes have no diagram of their own yet; when they do, a
+        # view showing one joins _RESULT_VIEW_IDS.
+        on_results = str(view_id) in _RESULT_VIEW_IDS
+        if not on_results and self.dock_manager.buttons["diagram"].isChecked():
+            self._diagram_parked = True
+            self.dock_manager.toggle("diagram", False)
+        elif on_results and self._diagram_parked:
+            self._diagram_parked = False
+            self.dock_manager.toggle("diagram", True)
 
     def _on_view_open_state_changed(self, view_id: str, is_open: bool) -> None:
         self.views.sync_workflow_action(str(view_id), bool(is_open))
