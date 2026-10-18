@@ -712,13 +712,15 @@ def test_ui_is_locked_until_a_project_is_open(tmp_path, monkeypatch):
         window.show()
         app.processEvents()
 
-        assert not window.views.catalog_toolbar.isEnabled()
+        assert not window.views.catalog_toolbar.isVisible()
+        assert not window._status_bar.isVisible()
         assert not window.diagram_dock.isEnabled()
         assert not any(action.isEnabled() for action in window._project_actions)
         assert window.central_widget.isEnabled()  # the welcome screen stays clickable
 
         window._set_project_ui_enabled(True)
-        assert window.views.catalog_toolbar.isEnabled()
+        assert window.views.catalog_toolbar.isVisible() and window.views.catalog_toolbar.isEnabled()
+        assert window._status_bar.isVisible()
         assert window.diagram_dock.isEnabled()
         assert all(action.isEnabled() for action in window._project_actions)
     finally:
