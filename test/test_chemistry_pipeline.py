@@ -167,3 +167,17 @@ def test_a_broken_row_does_not_take_the_batch_down():
     assert result["failure_count"] == 1
     assert result["failure_samples"][0]["entity_id"] == 1
     assert [update["entity_id"] for update in result["updates"]] == [2]
+
+
+def test_a_failed_molecule_is_excluded_with_the_step_it_failed_at():
+    from amdockvs.chemistry.tasks import ligand_chemistry_task
+
+    rows = [_row(1, SMILES[0]), _row(2, SMILES[1])]
+    rows[1]["structure"] = Chem.MolToMolBlock(Chem.Mol()).encode()  # no atoms: 3D cannot embed it
+    payload = ligand_chemistry_task({"operation": [["standardize", {}], ["generate_3d", {}]], "rows": rows})
+
+    assert [row["id"] for row in payload["molecules"]] == [1]
+    [failed] = payload["molecule_failures"]
+    assert failed["id"] == 2 and failed["excluded"] is True
+    assert failed["exclusion_reason"].split(":")[0] in {"standardize", "generate_3d"}
+

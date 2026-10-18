@@ -20,8 +20,14 @@ from amdockvs.core.rows import molecule_model_row
 from amdockvs.core.vocab import ModelSource, ShardState
 
 
-def _chemistry_graph_payload(updates: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
-    """Map chemistry updates into the molecules-upsert / molecule_models-insert graph payload."""
+def _chemistry_graph_payload(
+    updates: list[dict[str, Any]], failures: list[dict[str, Any]] = ()
+) -> dict[str, list[dict[str, Any]]]:
+    """Map chemistry updates into the molecules-upsert / molecule_models-insert graph payload.
+
+    A molecule that failed is marked excluded with the step and error as the reason: later
+    steps skip it, and Filter's "Excluded" scope lists it and brings it back.
+    """
     now = datetime.now()
     molecules: list[dict[str, Any]] = []
     molecule_models: list[dict[str, Any]] = []
@@ -46,7 +52,12 @@ def _chemistry_graph_payload(updates: list[dict[str, Any]]) -> dict[str, list[di
         molecules.append(mol_row)
         for model_row in list(update.get("model_rows") or []):
             molecule_models.append(dict(model_row))
-    return {"molecules": molecules, "molecule_models": molecule_models}
+    failed = [
+        {"id": int(f["entity_id"]), "excluded": True, "exclusion_reason": str(f.get("error") or ""), "updated_at": now}
+        for f in failures
+        if int(f.get("entity_id") or 0) > 0
+    ]
+    return {"molecules": molecules, "molecule_models": molecule_models, "molecule_failures": failed}
 
 
 @task(
@@ -72,13 +83,7 @@ def ligand_chemistry_task(payload: dict, progress_cb=None):
             "Ligand chemistry batch failed for every molecule. "
             f"processed={processed_count} failed={failure_count} samples={sample[:3]}"
         )
-    if failure_count > 0:
-        print(
-            "Ligand chemistry batch completed with skipped molecules: "
-            f"updated={len(updates)} failed={failure_count} "
-            f"samples={result.get('failure_samples') or []}"
-        )
-    return _chemistry_graph_payload(updates)
+    return _chemistry_graph_payload(updates, list(result.get("failures") or []))
 
 
 @task(
