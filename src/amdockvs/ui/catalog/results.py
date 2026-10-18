@@ -444,7 +444,7 @@ class DockingResultsWidget(QWidget):
         signature = tuple(
             (
                 int(getattr(row.get("__raw__"), "id", 0) or 0),
-                row.get("docked"), row.get("done"), row.get("missing"),
+                row.get("ligands"), row.get("progress"),
             )
             for row in rows if row is not None
         )
@@ -688,14 +688,13 @@ class DockingResultsWidget(QWidget):
             finally:
                 self._receptor_refreshing = False
             return bool(self.ligand_table.refresh_counts())
-        # Patch only the three aggregate cells. A model reset here used to repaint the table
+        # Patch only the aggregate cells. A model reset here used to repaint the table
         # and reselect its row every three seconds while docking was running.
         progress = self.runtime.docking.live_campaign_progress(job_ids=self._active_shard_job_ids)
         patches = {
             receptor_id: {
                 "ligands": values["ligands"],
-                "docked": values["docked"],
-                "pending": "" if values["pending"] <= 0 else f"{values['pending']:,}",
+                "progress": values["docked"] / values["ligands"] if values["ligands"] else 0.0,
             }
             for receptor_id, values in progress.items()
         }

@@ -278,7 +278,7 @@ def test_live_hits_refreshes_receptor_aggregates_and_only_the_ligand_count():
     assert widget.refresh_counts() is True
     receptor = widget.receptor_table._model.get_row_data(0)
     # No campaign plan for this receptor, so the counters fall back to the results themselves.
-    assert receptor["docked"] == 2 and receptor["ligands"] == 2 and receptor["pending"] == ""  # 0 pending reads as blank
+    assert receptor["ligands"] == 2 and receptor["progress"] == 1.0
     assert widget.ligand_table.record_total == 2
     assert "2 records" in widget.ligand_table._result_count_label.text()
     assert widget.ligand_table._model.loaded_count == 1
@@ -312,7 +312,11 @@ def test_live_campaign_progress_patches_cells_without_resetting_or_losing_select
     assert widget.refresh_counts() is True
 
     row = widget.receptor_table._model.get_row_data(0)
-    assert row["docked"] == 37 and row["pending"] == "963"
+    assert row["progress"] == pytest.approx(0.037)
+    from PySide6.QtCore import Qt
+    model = widget.receptor_table._model
+    tip = model.data(model.index(0, [c.field for c in model._visible_cols].index("progress")), Qt.ToolTipRole)
+    assert tip == "37 of 1,000 ligands docked, 963 pending"
     assert widget.receptor_table.get_selected_object().id == 41
     assert resets == []
 
@@ -382,7 +386,7 @@ def test_a_scheduled_receptor_is_listed_before_it_has_any_result():
     widget.receptor_table.refresh()
     row = widget.receptor_table._model.get_row_data(0)
     assert row["name"] == "4UWF" and row["ligands"] == 11950
-    assert row["docked"] == 27 and row["pending"] == "11,923"
+    assert row["progress"] == pytest.approx(27 / 11950)
 
 
 def test_a_row_mode_plan_counts_docked_from_its_results():
@@ -403,7 +407,7 @@ def test_a_row_mode_plan_counts_docked_from_its_results():
     ))
     widget.receptor_table.refresh()
     row = widget.receptor_table._model.get_row_data(0)
-    assert row["ligands"] == 901 and row["docked"] == 3 and row["pending"] == "898"
+    assert row["ligands"] == 901 and row["progress"] == pytest.approx(3 / 901)
 
 def test_live_ligand_reload_keeps_the_selected_ligand_context():
     QApplication.instance() or QApplication(["amdockvs-live-results-test"])
