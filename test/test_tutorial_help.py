@@ -92,3 +92,28 @@ def test_help_tour_with_and_without_project_is_read_only(tmp_path, monkeypatch, 
         if window is not None:
             window.close()
         runtime.shutdown()
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+def test_a_renamed_menu_does_not_break_the_tour(tmp_path, monkeypatch):
+    from amdockvs.ui.tutorials import start_interface_tour
+
+    monkeypatch.setenv("MOLSUITE_HOME", str(tmp_path / "molsuite"))
+    monkeypatch.setenv("AMDOCK_HOME", str(tmp_path / "amdock"))
+    monkeypatch.setenv("AMDOCK_DISABLE_PYMOL", "1")
+    app = QApplication.instance() or QApplication(["amdockvs-tutorial-test"])
+    runtime = AMDockVSRuntime()
+    window = None
+    try:
+        window = AMDockVSMainWindow(runtime=runtime)
+        window.show()
+        app.processEvents()
+        for action in window.menuBar().actions():
+            action.setText(action.text().replace("&Help", "&Ayuda"))
+        controller = start_interface_tour(window)
+        assert controller.is_active and controller.targets["help"].widget is window.menuBar()
+        controller.stop()
+    finally:
+        if window is not None:
+            window.close()
+        runtime.shutdown()

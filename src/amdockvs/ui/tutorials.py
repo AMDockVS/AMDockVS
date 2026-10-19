@@ -73,7 +73,9 @@ def start_interface_tour(window: AMDockVSMainWindow) -> TutorialController:
     visible = [section for section in sections if section[1] is not None and section[1].isVisible()]
     controller.targets = {key: TutorialTarget(widget) for key, widget, _title, _text in visible}
     for key, menu_text in (("projects", "&File"), ("help", "&Help")):
-        action = next(action for action in window.menuBar().actions() if action.text() == menu_text)
+        action = next((action for action in window.menuBar().actions() if action.text() == menu_text), None)
+        if action is None:  # a renamed menu: the step points at the whole menu bar instead
+            continue
         controller.targets[key] = TutorialTarget(
             window.menuBar(), rect=lambda action=action: window.menuBar().actionGeometry(action)
         )
