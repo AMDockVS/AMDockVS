@@ -979,12 +979,14 @@ class GridBoxSettingDockWidget(QWidget):
 
     def _sync_enabled_state(self) -> None:
         has_receptor = self._current_molecule is not None
-        has_selected_site = self._selected_site() is not None
+        selected = self._selected_site()
+        has_selected_site = selected is not None
+        active_id = int(getattr(self._current_molecule, "active_binding_site_id", 0) or 0)
         self.site_tree.setEnabled(has_receptor)
         self.show_working_box.setEnabled(has_receptor)
         self.new_button.setEnabled(has_receptor)
         self.save_button.setEnabled(has_receptor)  # with no saved site to overwrite, Save saves as new
-        self.activate_button.setEnabled(has_selected_site)
+        self.activate_button.setEnabled(has_selected_site and int(selected.id or 0) != active_id)  # already active: nothing to do
 
 
 __all__ = ["GridBoxSettingDockWidget"]

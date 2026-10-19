@@ -137,3 +137,13 @@ def test_grid_box_actions_fit_one_row_and_save_without_a_site_saves_as_new(grid_
     assert widget.save_button.isEnabled()
     widget.save_button.click()
     assert saved_as_new == [True]
+
+
+def test_set_active_is_off_for_the_site_that_is_already_active(grid_box_widget):
+    widget = grid_box_widget
+    item = lambda site_id: next(widget.site_tree.topLevelItem(r) for r in range(widget.site_tree.topLevelItemCount())
+                                if widget.site_tree.topLevelItem(r).data(0, Qt.UserRole) == ("site", site_id))
+    widget.site_tree.setCurrentItem(item(2))  # the active one
+    assert not widget.activate_button.isEnabled()
+    widget.site_tree.setCurrentItem(item(1))
+    assert widget.activate_button.isEnabled()
