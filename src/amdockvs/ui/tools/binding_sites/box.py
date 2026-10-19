@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
-    QWidget,
+    QWidget, QTabWidget,
 )
 
 from amdockvs.core.configuration import app_config
@@ -157,7 +157,7 @@ class GridBoxSettingDockWidget(QWidget):
         self.site_tree.setUniformRowHeights(True)
         self.site_tree.itemSelectionChanged.connect(self._on_tree_selection_changed)
         self.site_tree.currentItemChanged.connect(self._on_current_item_changed)
-        self.site_tree.setMinimumHeight(10)
+        self.site_tree.setMinimumHeight(60)
         layout.addWidget(self.site_tree, 1)
 
         self.show_working_box = QCheckBox("Show working box", self)
@@ -165,19 +165,25 @@ class GridBoxSettingDockWidget(QWidget):
         self.show_working_box.toggled.connect(lambda _checked: self._refresh_preview(force=True))
         layout.addWidget(self.show_working_box)
 
-        editor_box = QGroupBox("Working Box", self)
-        editor_layout = QFormLayout(editor_box)
+
+        self.box_settings = QTabWidget()
+
+        editor_tab = QWidget(self.box_settings)
+        self.box_settings.addTab(editor_tab, "Box")
+
+        editor_layout = QFormLayout(editor_tab)
+        # editor_layout.setContentsMargins(5, 2, 5, 0)
 
         editor_layout.addRow(QLabel("Center"))
         center_layout = QGridLayout()
         self.cx = self._coord_spinbox()
         self.cy = self._coord_spinbox()
         self.cz = self._coord_spinbox()
-        center_layout.addWidget(QLabel("X", editor_box), 0, 0)
+        center_layout.addWidget(QLabel("X", editor_tab), 0, 0)
         center_layout.addWidget(self.cx, 0, 1)
-        center_layout.addWidget(QLabel("Y", editor_box), 0, 2)
+        center_layout.addWidget(QLabel("Y", editor_tab), 0, 2)
         center_layout.addWidget(self.cy, 0, 3)
-        center_layout.addWidget(QLabel("Z", editor_box), 0, 4)
+        center_layout.addWidget(QLabel("Z", editor_tab), 0, 4)
         center_layout.addWidget(self.cz, 0, 5)
         editor_layout.addRow(center_layout)
 
@@ -186,19 +192,23 @@ class GridBoxSettingDockWidget(QWidget):
         self.sx = self._size_spinbox()
         self.sy = self._size_spinbox()
         self.sz = self._size_spinbox()
-        size_layout.addWidget(QLabel("X", editor_box), 0, 0)
+        size_layout.addWidget(QLabel("X", editor_tab), 0, 0)
         size_layout.addWidget(self.sx, 0, 1)
-        size_layout.addWidget(QLabel("Y", editor_box), 0, 2)
+        size_layout.addWidget(QLabel("Y", editor_tab), 0, 2)
         size_layout.addWidget(self.sy, 0, 3)
-        size_layout.addWidget(QLabel("Z", editor_box), 0, 4)
+        size_layout.addWidget(QLabel("Z", editor_tab), 0, 4)
         size_layout.addWidget(self.sz, 0, 5)
         editor_layout.addRow(size_layout)
 
+        style_tab = QWidget(self.box_settings)
+        style_layout = QGridLayout(style_tab)
+        self.box_settings.addTab(style_tab, "Style")
+
         # Radio group (not two checkboxes): a box with neither faces nor edges is invisible, so
         # the style is always exactly one of these three — the box can never disappear.
-        self.style_both = QRadioButton("Faces + Edges", editor_box)
-        self.style_faces = QRadioButton("Faces", editor_box)
-        self.style_edges = QRadioButton("Edges", editor_box)
+        self.style_both = QRadioButton("Faces + Edges", style_tab)
+        self.style_faces = QRadioButton("Faces", style_tab)
+        self.style_edges = QRadioButton("Edges", style_tab)
         self.style_both.setToolTip(
             "Display style for ALL visible boxes. Faces + Edges is the default; a box with neither would be invisible.")
         self.style_both.setChecked(True)
@@ -206,69 +216,68 @@ class GridBoxSettingDockWidget(QWidget):
         for button in (self.style_both, self.style_faces, self.style_edges):
             self.style_group.addButton(button)
         self.style_group.buttonToggled.connect(lambda *_args: self._on_style_changed())
-        style_grid = QGridLayout()
-        style_grid.addWidget(self.style_both, 0, 0, 1, 4)
-        style_grid.addWidget(self.style_faces, 1, 0)
-        style_grid.addWidget(self.style_edges, 2, 0)
-        style_grid.setColumnStretch(0, 1)
-        editor_layout.addRow(QLabel("Style"))
 
-        self.opacity = QDoubleSpinBox(editor_box)
+        style_layout.addWidget(self.style_both, 0, 0, 1, 4)
+        style_layout.addWidget(self.style_faces, 1, 0)
+        style_layout.addWidget(self.style_edges, 2, 0)
+        style_layout.setColumnStretch(0, 1)
+
+        self.opacity = QDoubleSpinBox(style_tab)
         self.opacity.setRange(0.1, 1.0)
         self.opacity.setDecimals(2)
         self.opacity.setSingleStep(0.05)
         self.opacity.setValue(0.35)
         self.opacity.valueChanged.connect(self._on_style_changed)
-        style_grid.addWidget(QLabel("Opacity"), 1, 2)
-        style_grid.addWidget(self.opacity, 1, 3)
+        style_layout.addWidget(QLabel("Opacity"), 1, 2)
+        style_layout.addWidget(self.opacity, 1, 3)
 
-        self.edge_width = QDoubleSpinBox(editor_box)
+        self.edge_width = QDoubleSpinBox(style_tab)
         self.edge_width.setRange(1.0, 10.0)
         self.edge_width.setDecimals(1)
         self.edge_width.setSingleStep(0.5)
         self.edge_width.setValue(2.0)
         self.edge_width.valueChanged.connect(self._on_style_changed)
-        style_grid.addWidget(QLabel("Edge Width"), 2, 2)
-        style_grid.addWidget(self.edge_width, 2, 3)
+        style_layout.addWidget(QLabel("Edge Width"), 2, 2)
+        style_layout.addWidget(self.edge_width, 2, 3)
 
         for widget in (self.cx, self.cy, self.cz, self.sx, self.sy, self.sz):
             widget.valueChanged.connect(self._on_geometry_changed)
 
-        editor_layout.addRow(style_grid)
-        layout.addWidget(editor_box)
+        # editor_layout.addRow(style_grid)
+        layout.addWidget(self.box_settings)
 
         buttons = QGridLayout()
-        self.load_active_button = QPushButton("Load Active", self)
-        self.load_active_button.clicked.connect(self._load_active_site)
-        buttons.addWidget(self.load_active_button, 0, 0)
         self.new_button = QPushButton("New", self)
         self.new_button.clicked.connect(self._new_working_box)
-        buttons.addWidget(self.new_button, 0, 1)
+        buttons.addWidget(self.new_button, 0, 0)
+        self.load_active_button = QPushButton("Load Active", self)
+        self.load_active_button.clicked.connect(self._load_active_site)
+        buttons.addWidget(self.load_active_button, 0, 1)
         self.save_button = QPushButton("Save", self)
         self.save_button.clicked.connect(self._save_selected_site)
-        buttons.addWidget(self.save_button, 0, 2)
+        buttons.addWidget(self.save_button, 1, 0)
         self.save_as_button = QPushButton("Save As New", self)
         self.save_as_button.clicked.connect(self._save_new_site)
-        buttons.addWidget(self.save_as_button, 1, 0)
+        buttons.addWidget(self.save_as_button, 1, 1)
         self.activate_button = QPushButton("Set Active", self)
         self.activate_button.clicked.connect(self._set_active_site)
-        buttons.addWidget(self.activate_button, 1, 1)
+        buttons.addWidget(self.activate_button, 2, 0)
         self.clear_button = QPushButton("Clear Overlay", self)
         self.clear_button.clicked.connect(self._clear_preview)
-        buttons.addWidget(self.clear_button, 1, 2)
-        self.auto_box_button = QPushButton("Auto box from ligand…", self)
+        buttons.addWidget(self.clear_button, 2, 1)
+        self.auto_box_button = QPushButton("From ligand", self)
         self.auto_box_button.setToolTip(
             "Center + cubic box size derived from a reference ligand's radius of gyration."
         )
         self.auto_box_button.clicked.connect(self._auto_box_from_ligand)
-        buttons.addWidget(self.auto_box_button, 2, 0, 1, 3)
-        self.box_from_selection_button = QPushButton("Box from residue/selection…", self)
+        buttons.addWidget(self.auto_box_button, 3, 0)
+        self.box_from_selection_button = QPushButton("From Selection…", self)
         self.box_from_selection_button.setToolTip(
             "Center the box on a surface pseudo-ligand over a PyMOL selection (residues), so the "
             "box hugs the pocket mouth instead of burying itself in the protein."
         )
         self.box_from_selection_button.clicked.connect(self._box_from_selection)
-        buttons.addWidget(self.box_from_selection_button, 3, 0, 1, 3)
+        buttons.addWidget(self.box_from_selection_button, 3, 1)
         # for button in (
         #     self.load_active_button,
         #     self.new_button,
