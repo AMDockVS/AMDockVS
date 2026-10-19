@@ -121,3 +121,19 @@ def test_grid_box_receptor_row_exposes_legend(grid_box_widget):
     assert "Unsaved working box" in tooltip
     assert "Colored name" in tooltip
     assert "Active docking site" in tooltip
+
+
+def test_grid_box_actions_fit_one_row_and_save_without_a_site_saves_as_new(grid_box_widget, monkeypatch):
+    """New ▾, Save ▾ and Set Active replace the old eight buttons; the variants live in the menus."""
+    widget = grid_box_widget
+    assert [a.text() for a in widget.new_button.menu().actions()] == [
+        "From active site", "From ligand", "From selection…"]
+    assert [a.text() for a in widget.save_button.menu().actions()] == ["Save as new…"]
+    saved_as_new = []
+    monkeypatch.setattr(widget, "_save_new_site", lambda: saved_as_new.append(True))
+    widget.site_tree.clearSelection()
+    widget.site_tree.setCurrentItem(None)
+    widget._working.source_site_id = None
+    assert widget.save_button.isEnabled()
+    widget.save_button.click()
+    assert saved_as_new == [True]

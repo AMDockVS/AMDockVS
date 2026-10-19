@@ -16,8 +16,11 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QMessageBox,
+    QMenu,
     QPushButton,
     QRadioButton,
+    QSizePolicy,
+    QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -246,51 +249,39 @@ class GridBoxSettingDockWidget(QWidget):
         # editor_layout.addRow(style_grid)
         layout.addWidget(self.box_settings)
 
-        buttons = QGridLayout()
-        self.new_button = QPushButton("New", self)
-        self.new_button.clicked.connect(self._new_working_box)
-        buttons.addWidget(self.new_button, 0, 0)
-        self.load_active_button = QPushButton("Load Active", self)
-        self.load_active_button.clicked.connect(self._load_active_site)
-        buttons.addWidget(self.load_active_button, 0, 1)
-        self.save_button = QPushButton("Save", self)
-        self.save_button.clicked.connect(self._save_selected_site)
-        buttons.addWidget(self.save_button, 1, 0)
-        self.save_as_button = QPushButton("Save As New", self)
-        self.save_as_button.clicked.connect(self._save_new_site)
-        buttons.addWidget(self.save_as_button, 1, 1)
-        self.activate_button = QPushButton("Set Active", self)
-        self.activate_button.clicked.connect(self._set_active_site)
-        buttons.addWidget(self.activate_button, 2, 0)
-        self.clear_button = QPushButton("Clear Overlay", self)
-        self.clear_button.clicked.connect(self._clear_preview)
-        buttons.addWidget(self.clear_button, 2, 1)
-        self.auto_box_button = QPushButton("From ligand", self)
-        self.auto_box_button.setToolTip(
+        # ponytail: one row, three text buttons; variants of New/Save sit behind their arrow.
+        buttons = QHBoxLayout()
+        self.new_button = self._split_button("New", self._new_working_box)
+        self.load_active_action = self.new_button.menu().addAction("From active site", self._load_active_site)
+        self.auto_box_action = self.new_button.menu().addAction("From ligand", self._auto_box_from_ligand)
+        self.auto_box_action.setToolTip(
             "Center + cubic box size derived from a reference ligand's radius of gyration."
         )
-        self.auto_box_button.clicked.connect(self._auto_box_from_ligand)
-        buttons.addWidget(self.auto_box_button, 3, 0)
-        self.box_from_selection_button = QPushButton("From Selection…", self)
-        self.box_from_selection_button.setToolTip(
+        self.box_from_selection_action = self.new_button.menu().addAction("From selection…", self._box_from_selection)
+        self.box_from_selection_action.setToolTip(
             "Center the box on a surface pseudo-ligand over a PyMOL selection (residues), so the "
             "box hugs the pocket mouth instead of burying itself in the protein."
         )
-        self.box_from_selection_button.clicked.connect(self._box_from_selection)
-        buttons.addWidget(self.box_from_selection_button, 3, 1)
-        # for button in (
-        #     self.load_active_button,
-        #     self.new_button,
-        #     self.save_button,
-        #     self.save_as_button,
-        #     self.activate_button,
-        #     self.clear_button,
-        # ):
-        #     buttons.addWidget(button)
+        self.save_button = self._split_button("Save", self._save_selected_site)
+        self.save_as_action = self.save_button.menu().addAction("Save as new…", self._save_new_site)
+        self.activate_button = QPushButton("Set Active", self)
+        self.activate_button.clicked.connect(self._set_active_site)
+        for button in (self.new_button, self.save_button, self.activate_button):
+            buttons.addWidget(button)
         layout.addLayout(buttons)
 
         self._sync_enabled_state()
         self.hide()
+
+    def _split_button(self, text: str, slot) -> QToolButton:
+        """A text button whose click runs ``slot`` and whose arrow lists the variants."""
+        button = QToolButton(self)
+        button.setText(text)
+        button.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        button.setMenu(QMenu(button))
+        button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        button.clicked.connect(slot)
+        return button
 
     def _style_flags(self) -> tuple[bool, bool]:
         if self.style_faces.isChecked():
@@ -899,7 +890,10 @@ class GridBoxSettingDockWidget(QWidget):
         site = self._selected_site()
         if site is None and self._working.source_site_id is not None:
             site = self._site_by_id(int(self._working.source_site_id))
-        if molecule is None or site is None:
+        if molecule is None:
+            return
+        if site is None:  # nothing saved to overwrite yet: Save means save as new
+            self._save_new_site()
             return
         try:
             self.runtime.binding_sites.save_site(
@@ -986,16 +980,11 @@ class GridBoxSettingDockWidget(QWidget):
     def _sync_enabled_state(self) -> None:
         has_receptor = self._current_molecule is not None
         has_selected_site = self._selected_site() is not None
-        can_save_existing = has_selected_site or self._working.source_site_id is not None
         self.site_tree.setEnabled(has_receptor)
         self.show_working_box.setEnabled(has_receptor)
-        self.load_active_button.setEnabled(has_receptor)
         self.new_button.setEnabled(has_receptor)
-        self.save_button.setEnabled(can_save_existing)
-        self.save_as_button.setEnabled(has_receptor)
+        self.save_button.setEnabled(has_receptor)  # with no saved site to overwrite, Save saves as new
         self.activate_button.setEnabled(has_selected_site)
-        self.box_from_selection_button.setEnabled(has_receptor)
-        self.clear_button.setEnabled(True)
 
 
 __all__ = ["GridBoxSettingDockWidget"]
