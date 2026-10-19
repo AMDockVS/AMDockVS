@@ -351,6 +351,13 @@ class AMDockVSMainWindow(QMainWindow):
         toolbars_menu.triggered.connect(lambda a: self.views.set_toolbar_button_style(a.data()))
 
         help_menu = menu_bar.addMenu("&Help")
+
+        def guided_tour():
+            from amdockvs.ui.tutorials import start_interface_tour
+
+            start_interface_tour(self)
+
+        help_menu.addAction("Guided tour…", guided_tour)
         help_menu.addAction(load_icon("web.svg"), "Web Site",
                             lambda: QDesktopServices.openUrl(QUrl(self._WEB_URL)))
         help_menu.addAction(load_icon("doc.svg"), "Documentation",
