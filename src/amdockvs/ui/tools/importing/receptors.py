@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
+    QFrame,
 )
 from PySide6.QtWidgets import QDialog, QDialogButtonBox
 
@@ -34,6 +35,7 @@ from ms_components.tool_panel import PROGRESS_NAME
 from amdockvs.core.configuration import app_config
 from amdockvs.io.formats import QT_FILE_FILTER
 from amdockvs.io.receptor_preview import (
+    COORDINATION_METAL_CODES,
     ReceptorImportOptions,
     build_receptor_import_preview,
     scan_receptor_structure,
@@ -43,13 +45,14 @@ from amdockvs.ui.common.drop_area import (
     USER_INPUT_SOURCE,
     TablePlaceholder,
     drop_hint,
-    icon_button,
-    toolbar_separator,
+    side_toolbar,
+    tool_action,
     write_user_input,
 )
 from amdockvs.ui.view_ids import RECEPTOR_VIEW_ID
 from amdockvs.models.molecules import MoleculeType
-from amdockvs.ui.common.widgets import ChipsSelect, WrapCombo
+from amdockvs.ui.common.widgets import WrapCombo
+from ms_components.chips import ChipsSelect
 from amdockvs.ui.tools.importing.common import land_on_view, nudge_monitor
 
 
@@ -145,10 +148,26 @@ class ReceptorImportPanel(QWidget):
         self.binding_site_box_size.setDecimals(1)
         self.binding_site_box_size.setSingleStep(1.0)
         self.binding_site_box_size.setValue(app_config(self._runtime).docking.box_size)
-        options.addWidget(box_size_label, 1, 1)
-        options.addWidget(self.binding_site_box_size, 1, 2)
-        # The size only means something when boxes are created from the cocrystal components.
-        for widget in (box_size_label, self.binding_site_box_size):
+        options.addWidget(box_size_label, 0, 2)
+        options.addWidget(self.binding_site_box_size, 0, 3, Qt.AlignLeft)
+
+        separator = QFrame(self)
+        separator.setFrameShape(QFrame.Shape.VLine)
+        options.addWidget(separator, 0, 1, 4, 1)
+
+        # Which coordinated metals center a Grid Box: the config's list, more typed in (Mn + Enter).
+        metals_label = QLabel("Metals", self)
+        metals_label.setToolTip("Coordinated metals that become the center of a Grid Box.")
+        self.metals_box = ChipsSelect(self, editable=True, reorderable=True, normalize=lambda text: text.strip().upper())
+        self.metals_box.setMinimumWidth(300)  # chips wrap in rows, not one per line
+        configured = list(app_config(self._runtime).imports.grid_box_metals)
+        self.metals_box.set_items(
+            configured + [code for code in COORDINATION_METAL_CODES if code not in configured], selected=configured
+        )
+        options.addWidget(metals_label, 1, 2, Qt.AlignTop)
+        options.addWidget(self.metals_box, 1, 3, 3, 1)
+        # The size and metals only mean something when boxes are created from the cocrystal components.
+        for widget in (box_size_label, self.binding_site_box_size, metals_label, self.metals_box):
             self.create_binding_sites.toggled.connect(widget.setEnabled)
 
         self.remove_altloc = QCheckBox("Resolve AltLoc to A / highest occupancy", self)
@@ -160,8 +179,8 @@ class ReceptorImportPanel(QWidget):
 
         self.status_label = QLabel(self)
         self.status_label.setWordWrap(True)
-        options.addWidget(self.status_label, 0, 3, 4, 1, Qt.AlignRight | Qt.AlignVCenter)
-        options.setColumnStretch(3, 1)
+        options.addWidget(self.status_label, 0, 4, 4, 1, Qt.AlignRight | Qt.AlignVCenter)
+        options.setColumnStretch(4, 1)
 
         self.progress_bar = QProgressBar(self)
         self.progress_bar.setRange(0, max(1, len(self._file_paths)))
@@ -181,7 +200,7 @@ class ReceptorImportPanel(QWidget):
         # Every column is user-resizable (Interactive) with a sensible default width; Chains needs
         # room for its chips+combo so it isn't clipped.
         header.setStretchLastSection(False)
-        default_column_widths = {0: 90, 1: 120, 2: 245, 3: 295, 4: 90, 5: 60, 6: 80, 7: 160, 8: 120, 9: 80}
+        default_column_widths = {0: 90, 1: 120, 2: 245, 3: 295, 4: 190, 5: 190, 6: 80, 7: 160, 8: 120, 9: 80}
         for column, width in default_column_widths.items():
             if column in [2, 3]:
                 header.setSectionResizeMode(column, QHeaderView.ResizeMode.Stretch)
@@ -203,19 +222,16 @@ class ReceptorImportPanel(QWidget):
         if self._show_file_controls:
             self._placeholder = TablePlaceholder(self.table, drop_hint("receptor"))
             self._placeholder.clicked.connect(self._on_add_files)
-            toolbar = QVBoxLayout()
-            self.add_files_button = icon_button(self, "file-plus.svg", "Add files")
-            self.add_text_button = icon_button(self, "text-input.svg", "Add sequence (FASTA or a bare sequence)")
-            self.remove_files_button = icon_button(self, "shredder.svg", "Remove selected files")
-            self.add_files_button.clicked.connect(self._on_add_files)
-            self.add_text_button.clicked.connect(self._on_add_text)
-            self.remove_files_button.clicked.connect(self._on_remove_selected_files)
-            toolbar.addWidget(self.add_files_button)
-            toolbar.addWidget(self.add_text_button)
-            toolbar.addWidget(toolbar_separator(self))
-            toolbar.addWidget(self.remove_files_button)
-            toolbar.addStretch(1)
-            table_row.addLayout(toolbar)
+            toolbar = side_toolbar(self)
+            self.add_files_action = tool_action(toolbar, "file-plus.svg", "Add files", "Add receptor files", self._on_add_files)
+            self.add_text_action = tool_action(
+                toolbar, "text-input.svg", "Add sequence", "Add a sequence (FASTA or a bare sequence)", self._on_add_text
+            )
+            toolbar.addSeparator()
+            self.remove_files_action = tool_action(
+                toolbar, "shredder.svg", "Remove", "Remove the selected files", self._on_remove_selected_files
+            )
+            table_row.addWidget(toolbar)
         table_row.addWidget(self.table, 1)
         root.addLayout(table_row, 1)
 
@@ -234,6 +250,7 @@ class ReceptorImportPanel(QWidget):
         self.remove_cofactors.toggled.connect(self.refresh_preview)
         self.remove_altloc.toggled.connect(self.refresh_preview)
         self.binding_site_box_size.valueChanged.connect(self.refresh_preview)
+        self.metals_box.changed.connect(self.refresh_preview)
 
         self.set_files(self._file_paths)
 
@@ -306,9 +323,9 @@ class ReceptorImportPanel(QWidget):
         if not self._show_file_controls:
             return
         can_edit = self._scan_complete or not self._file_paths
-        self.add_files_button.setEnabled(can_edit)
-        self.add_text_button.setEnabled(can_edit)
-        self.remove_files_button.setEnabled(can_edit and self.table.rowCount() > 0)
+        self.add_files_action.setEnabled(can_edit)
+        self.add_text_action.setEnabled(can_edit)
+        self.remove_files_action.setEnabled(can_edit and self.table.rowCount() > 0)
 
     def _on_add_files(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(
@@ -398,6 +415,7 @@ class ReceptorImportPanel(QWidget):
             "binding_site_box_size": base.binding_site_box_size,
             "remove_non_structural_waters": base.remove_non_structural_waters,
             "create_binding_sites": base.create_binding_sites_from_components,
+            "grid_box_metals": list(base.grid_box_metals or ()),
             "remove_cofactors": base.remove_cofactors,
             "remove_altloc": base.remove_altloc,
             "use_biological_assembly": base.use_biological_assembly,
@@ -417,6 +435,7 @@ class ReceptorImportPanel(QWidget):
             remove_altloc=self.remove_altloc.isChecked(),
             import_mode="receptor",
             binding_site_box_size=float(self.binding_site_box_size.value()),
+            grid_box_metals=tuple(self.metals_box.selected_items()),
         )
 
     def _capture_row_state(self) -> None:
@@ -463,6 +482,15 @@ class ReceptorImportPanel(QWidget):
             self._ligand_sig_by_path[path] = sig
             if last_sig is not None and last_sig == sig and isinstance(ligand_chips, ChipsSelect):
                 selected_reference_ligands = ligand_chips.selected_items()
+            # Metals follow the same rule: a unit/chain change offers a new set, all kept again.
+            metal_chips = self.table.cellWidget(row_index, 4)
+            selected_metals = None
+            if last_sig is not None and last_sig == sig and isinstance(metal_chips, ChipsSelect):
+                selected_metals = metal_chips.selected_items()
+            water_chips = self.table.cellWidget(row_index, 5)
+            selected_waters = None
+            if last_sig is not None and last_sig == sig and isinstance(water_chips, ChipsSelect):
+                selected_waters = water_chips.selected_items()
 
             if isinstance(ligand_widget, QComboBox):
                 selected_ligand = str(ligand_widget.currentData() or "")
@@ -474,6 +502,8 @@ class ReceptorImportPanel(QWidget):
                 "selected_chain_ids": selected_chains,
                 "selected_assembly": selected_assembly,
                 "selected_reference_ligands": selected_reference_ligands,
+                "selected_metals": selected_metals,
+                "selected_waters": selected_waters,
             }
         self._row_state_by_path = state_by_path
 
@@ -521,6 +551,8 @@ class ReceptorImportPanel(QWidget):
                         "selected_chain_ids": tuple(state.get("selected_chain_ids") or ()),
                         "selected_assembly": state.get("selected_assembly", ""),
                         "selected_reference_ligands": _as_ref_tuple(state.get("selected_reference_ligands")),
+                        "selected_metals": _as_ref_tuple(state.get("selected_metals")),
+                        "selected_waters": _as_ref_tuple(state.get("selected_waters")),
                     }
                 )
                 preview = build_receptor_import_preview(scan, options)
@@ -553,8 +585,7 @@ class ReceptorImportPanel(QWidget):
         self.table.setRowCount(len(self._file_paths))
         for row_index, path in enumerate(self._file_paths):
             self._set_item(row_index, 0, Path(path).name)
-            for column in (4, 5, 6):
-                self._set_item(row_index, column, "...")
+            self._set_item(row_index, 6, "...")
 
     def _ensure_row_widgets(self, row_index: int) -> None:
         if self.table.cellWidget(row_index, 1) is not None:
@@ -564,8 +595,9 @@ class ReceptorImportPanel(QWidget):
         unit_combo.currentIndexChanged.connect(self.refresh_preview)
         self.table.setCellWidget(row_index, 1, unit_combo)
         # Chains (col 2) is a per-row multi-select; Ligands (col 3) picks which cocrystal
-        # ligands become references (drop artifacts).
-        for column in (2, 3):
+        # ligands become references (drop artifacts); Metals (col 4) and Waters (col 5, the
+        # structural ones) which stay in the receptor.
+        for column in (2, 3, 4, 5):
             chips = ChipsSelect(self.table)
             chips.changed.connect(self.refresh_preview)
             chips.heightChanged.connect(lambda chips=chips: self._fit_row_of(chips))
@@ -702,8 +734,6 @@ class ReceptorImportPanel(QWidget):
             candidate_count += 1
         self._set_item(row_index, 0, Path(path).name)
         # Columns 1 (Unit), 2 (Chains), 3 (Ligands) are widgets, populated below when build_widgets.
-        self._set_item(row_index, 4, ", ".join(list(summary.get("metal_labels") or [])) or "0")
-        self._set_item(row_index, 5, str(summary.get("waters") or 0))
         self._set_item(row_index, 6, str(summary.get("status") or "Review"))
         if build_widgets:
             self._ensure_row_widgets(row_index)
@@ -751,6 +781,20 @@ class ReceptorImportPanel(QWidget):
                 ligand_chips.blockSignals(True)
                 ligand_chips.set_items(candidates, selected=selected)
                 ligand_chips.blockSignals(False)
+
+            # Metal chips: the metals on the kept chains; one taken off is stripped from the receptor.
+            metal_chips = self.table.cellWidget(row_index, 4)
+            if isinstance(metal_chips, ChipsSelect):
+                captured = state.get("selected_metals")
+                metal_chips.blockSignals(True)
+                metal_chips.set_items(list((preview.get("workflow") or {}).get("metal_candidates") or []), selected=captured)
+                metal_chips.blockSignals(False)
+            water_chips = self.table.cellWidget(row_index, 5)
+            if isinstance(water_chips, ChipsSelect):
+                water_chips.blockSignals(True)
+                water_chips.set_items(list((preview.get("workflow") or {}).get("water_candidates") or []),
+                                      selected=state.get("selected_waters"))
+                water_chips.blockSignals(False)
 
             ligand_combo = self._ligand_widget(row_index)
             if ligand_combo is not None:

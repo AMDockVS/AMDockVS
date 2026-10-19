@@ -35,6 +35,7 @@ def hetero_codes(kind: str) -> frozenset[str]:
 
 _WATER_CODES = _HETERO_CODES["water"]
 _COORDINATION_METAL_CODES = _HETERO_CODES["coordination_metal"]
+COORDINATION_METAL_CODES = tuple(_COORDINATION_METAL_CODES)  # what the import UI offers as metals
 _ION_CODES = _HETERO_CODES["ion"]
 _ADDITIVE_CODES = _HETERO_CODES["additive"]
 _COFACTOR_CODES = _HETERO_CODES["cofactor"]
@@ -62,6 +63,12 @@ class ReceptorImportOptions:
     selected_assembly: str = ""
     # Cocrystal ligand selectors to keep as references; None = all candidates (drop artifact copies).
     selected_reference_ligands: tuple[str, ...] | None = None
+    # Metal selectors to keep in the structure; None = all. A removed metal is stripped and spawns no site.
+    selected_metals: tuple[str, ...] | None = None
+    # Metal residue names that center a Grid Box; None = every coordinated metal.
+    grid_box_metals: tuple[str, ...] | None = None
+    # Structural water selectors to keep; None = all. Non-structural ones follow remove_non_structural_waters.
+    selected_waters: tuple[str, ...] | None = None
 
 
 def preview_receptor_import(file_path: str | Path, options: ReceptorImportOptions) -> dict[str, Any]:
@@ -112,6 +119,7 @@ def build_receptor_import_maps(
                         "remove_cofactors": bool(base_options.remove_cofactors),
                         "remove_altloc": bool(base_options.remove_altloc),
                         "binding_site_box_size": float(base_options.binding_site_box_size),
+                        "grid_box_metals": _as_list(base_options.grid_box_metals),
                     }
                 },
                 "workflow": {
@@ -132,6 +140,8 @@ def build_receptor_import_maps(
             selected_chain_ids=tuple(state.get("selected_chain_ids") or ()),
             selected_assembly=str(state.get("selected_assembly", "")),
             selected_reference_ligands=None if refs is None else tuple(refs),
+            selected_metals=None if state.get("selected_metals") is None else tuple(state["selected_metals"]),
+            selected_waters=None if state.get("selected_waters") is None else tuple(state["selected_waters"]),
         )
         preview = build_receptor_import_preview(scan, options)
         extra_data_patch_by_file[path] = {
@@ -176,9 +186,19 @@ def build_receptor_import_preview(scan: dict[str, Any], options: ReceptorImportO
     missing_atoms = int(scan.get("missing_atoms") or 0)
     atom_count = int(scan.get("atom_count") or 0)
 
+    metal_candidates = [component["selector"] for component in components if component["component_class"] == "metal"]
+    if options.selected_metals is not None:  # the metals the user took off this receptor go here
+        kept_metals = set(options.selected_metals)
+        components = [comp for comp in components if comp["component_class"] != "metal" or comp["selector"] in kept_metals]
+
+    water_candidates = [comp["selector"] for comp in components if comp["component_class"] == "water" and comp.get("is_structural")]
+    kept_waters = None if options.selected_waters is None else set(options.selected_waters)
     for component in components:
         if component["component_class"] == "water":
-            component["is_selected"] = bool(component.get("is_structural")) if options.remove_non_structural_waters else True
+            if component.get("is_structural"):
+                component["is_selected"] = kept_waters is None or component["selector"] in kept_waters
+            else:
+                component["is_selected"] = not options.remove_non_structural_waters
 
     # Reference-ligand selection: which cocrystals to keep (None = all). Artifact copies get
     # dropped here, so they neither become references nor spawn a binding site.
@@ -194,12 +214,15 @@ def build_receptor_import_preview(scan: dict[str, Any], options: ReceptorImportO
             components,
             box_size=options.binding_site_box_size,
             reference_ligands=reference_ligands,
+            metal_codes=options.grid_box_metals,
         )
         if options.create_binding_sites_from_components
         else []
     )
     workflow = _build_workflow_payload(components, options)
     workflow["reference_ligands"] = list(reference_ligands)
+    workflow["metal_candidates"] = metal_candidates
+    workflow["water_candidates"] = water_candidates
     status, messages = _build_status(
         atom_count=atom_count,
         missing_residues=missing_residues,
@@ -227,6 +250,9 @@ def build_receptor_import_preview(scan: dict[str, Any], options: ReceptorImportO
             "selected_chain_ids": selected_chain_ids,
             "selected_assembly": chosen_assembly,
             "selected_reference_ligands": None if options.selected_reference_ligands is None else list(options.selected_reference_ligands),
+            "selected_metals": _as_list(options.selected_metals),
+            "selected_waters": _as_list(options.selected_waters),
+            "grid_box_metals": _as_list(options.grid_box_metals),
         },
         "assembly": {
             "mode": "biological" if chosen_assembly else "complete",
@@ -890,9 +916,19 @@ def _components_to_remove(scan: dict[str, Any], options: ReceptorImportOptions, 
             if selector_parts is not None:
                 removable.append(selector_parts)
             continue
-        if component_class == "water" and options.remove_non_structural_waters:
+        if component_class == "metal" and options.selected_metals is not None and selector not in options.selected_metals:
             selector_parts = _parse_selector(selector)
-            if selector_parts is not None and not bool(component.get("is_structural")):
+            if selector_parts is not None:
+                removable.append(selector_parts)
+            continue
+        if component_class == "water":
+            structural = bool(component.get("is_structural"))
+            dropped = (
+                options.remove_non_structural_waters if not structural
+                else options.selected_waters is not None and selector not in options.selected_waters
+            )
+            selector_parts = _parse_selector(selector)
+            if dropped and selector_parts is not None:
                 removable.append(selector_parts)
             continue
         if component_class == "cofactor" and options.remove_cofactors:
@@ -900,6 +936,10 @@ def _components_to_remove(scan: dict[str, Any], options: ReceptorImportOptions, 
             if selector_parts is not None:
                 removable.append(selector_parts)
     return removable
+
+
+def _as_list(values) -> list[str] | None:
+    return None if values is None else [str(value) for value in values]
 
 
 def _parse_selector(selector: str) -> tuple[str, str, str, str] | None:
@@ -990,6 +1030,7 @@ def _distance(a: tuple[float, float, float], b: tuple[float, float, float]) -> f
 
 
 __all__ = [
+    "COORDINATION_METAL_CODES",
     "ReceptorImportOptions",
     "build_receptor_import_maps",
     "build_receptor_import_preview",

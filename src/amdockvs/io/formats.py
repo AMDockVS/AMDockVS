@@ -219,6 +219,9 @@ def _read_pdbqt(path: Path, *, sanitize: bool, remove_hs: bool, index: int, resn
                 conformer = Chem.Conformer(mol.GetConformers()[min(max(0, int(index)), mol.GetNumConformers() - 1)])
                 mol.RemoveAllConformers()
                 mol.AddConformer(conformer, assignId=True)
+                from amdockvs.docking.preparation.meeko import carbon_as_boron
+
+                carbon_as_boron(mol)
                 return Chem.RemoveHs(mol) if remove_hs else mol
         except Exception:  # noqa: BLE001 - fall through to the type-based path
             pass

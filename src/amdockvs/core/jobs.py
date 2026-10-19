@@ -56,8 +56,9 @@ def _percent(value: float) -> None:
 
 
 def _run_chunk(payload: dict, run: Callable[..., Any]) -> Any:
-    """One payload in a worker. `progress_cb` takes a percentage."""
-    return run(payload, _percent) if _takes(run) >= 2 else run(payload)
+    """One payload in a worker. `progress_cb` takes a percentage. A `ms_flow.chain` takes `params`
+    second, not a callback: its steps report for themselves."""
+    return run(payload, _percent) if _takes(run) >= 2 and not hasattr(run, "steps") else run(payload)
 
 
 class _Relative:

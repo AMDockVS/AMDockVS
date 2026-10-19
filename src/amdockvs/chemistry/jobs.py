@@ -53,6 +53,14 @@ CHEMISTRY_GRAPH_OUTPUT = graph_sink(
             "validate_model": False,
         },
         {"name": "molecule_models", "model": MoleculeModel, "validate_model": False},
+        {
+            "name": "molecule_failures",
+            "model": MoleculeRecord,
+            "columns": ["id", "excluded", "exclusion_reason", "updated_at"],
+            "write_mode": "upsert",
+            "conflict_keys": ["id"],
+            "validate_model": False,
+        },
     ),
 )
 

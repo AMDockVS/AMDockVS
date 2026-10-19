@@ -4,48 +4,44 @@ No SQL and no job declaration here: a worker loads this module and nothing of `j
 """
 from __future__ import annotations
 
+import pickle
+import subprocess
+import sys
+from pathlib import Path
 from typing import Any
 
-from ms_flow.payloads import scratch_file
+from ms_flow.engine import launched
 
 from amdockvs.core.rows import interaction_rows
-from amdockvs.docking.results.interactions import collect_interaction_rows
+
+
+def detect_interactions(work: list[tuple[bytes, bytes, str]]) -> list[list[dict] | None]:
+    """The interactions of each (pose, receptor, receptor_format), found by one interpreter started
+    for the batch (`interactions._main`): ms_contactmap and RDKit never load where the task runs,
+    so a task that only waits for it stays on a thread. None for a pose that could not be read.
+    ponytail: ~0.4 s to start the interpreter, once per chunk, not per pose."""
+    if not work:
+        return []
+    program = subprocess.Popen([sys.executable, "-m", "amdockvs.docking.results.interactions"],
+                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    launched(program)
+    out, err = program.communicate(pickle.dumps(work))
+    if program.returncode:
+        raise RuntimeError(f"Interaction detection exited with {program.returncode}: "
+                           f"{err.decode('utf-8', 'replace')[-2000:]}")
+    return pickle.loads(out)
 
 
 def interactions_of_poses(payload: dict):
+    """Stored poses, each with the bytes of its pose and the file of its receptor."""
+    rows = [row for row in payload.get("rows") or () if row.get("pose") is not None and row.get("receptor_path")]
+    receptors = {str(row["receptor_path"]): Path(str(row["receptor_path"])) for row in rows}
+    data = {path: (file.read_bytes(), file.suffix.lstrip(".") or "pdb") for path, file in receptors.items()}
+    found = detect_interactions([(row["pose"], *data[str(row["receptor_path"])]) for row in rows])
     rows_out: list[dict[str, Any]] = []
-    method = str(payload.get("method") or "ms_contactmap")
-    for row in list(payload.get("rows") or []):
-        result_id = int(row.get("id") or 0)
-        if result_id <= 0:
-            continue
-        pose = row.get("pose")
-        interactions = []
-        if pose is not None:
-            with scratch_file(pose, ".sdf") as pose_path:
-                interactions = collect_interaction_rows(
-                    pose_path=pose_path, receptor_path=str(row.get("receptor_path") or "")
-                )
-        if interactions:
-            rows_out.extend(interaction_rows(result_id, interactions))
-        else:
-            rows_out.extend(
-                interaction_rows(
-                    result_id,
-                    [
-                        {
-                            "interaction_type": "none",
-                            "residue": "",
-                            "residue_index": 0,
-                            "distance": None,
-                            "geometry": {
-                                "method": method,
-                                "interaction_count": 0,
-                            },
-                        }
-                    ],
-                )
-            )
+    for row, interactions in zip(rows, found):
+        if interactions is not None:
+            rows_out.extend(interaction_rows(row["receptor_payload_id"], row["pose_payload_id"], interactions))
     return rows_out
 
 

@@ -372,6 +372,7 @@ def test_amdock_ui_domain_views_show_docking_summaries(tmp_path, monkeypatch):
             assert button.popupMode() == QToolButton.MenuButtonPopup
             assert [a.text() for a in button.menu().actions()] == ["Save to workflow…"]
             assert not button.menu().actions()[0].isEnabled()  # workflows can't chain jobs yet
+            assert button.minimumHeight() >= 44 and button.font().bold()  # each step's big CTA
 
         # The auxiliary prep table follows the step's table.
         docking_view.stepper.set_current_index(2)
@@ -392,6 +393,17 @@ def test_amdock_ui_domain_views_show_docking_summaries(tmp_path, monkeypatch):
         assert not docking_view.run_button.isEnabled()  # receptors still going
         docking_view.receptor_prep_jobs.on_finished("job-x", "failed")
         assert docking_view.run_button.isEnabled() and warnings  # failed prep: nothing launched
+
+        # A finished preparation lists the molecules the engine couldn't prepare (now excluded).
+        from amdockvs.ui.tools.docking import preparation_panel
+
+        monkeypatch.setattr(preparation_panel, "run_async", lambda fn, on_result, *a, **k: on_result(fn()))
+        monkeypatch.setattr(docking_view.runtime.molecules, "excluded_since", lambda since: [
+            (1454, "LIG_1454", "Docking preparation (ad4): Gasteiger charges are NaN")])
+        docking_view._follow_prep(docking_view.ligand_prep_jobs, {"vina": "job-z"})
+        docking_view.ligand_prep_jobs.on_finished("job-z", "completed")
+        assert docking_view.failures_dialog.windowTitle() == "Ligand preparation: 1 molecules failed"
+        docking_view.failures_dialog.close()
 
         # Reopened while a docking runs: the first snapshot re-attaches it to Preview (with Cancel).
         from types import SimpleNamespace
@@ -425,8 +437,8 @@ def test_amdock_ui_domain_views_show_docking_summaries(tmp_path, monkeypatch):
         assert not timer.isActive()
 
         # 2D interaction diagram: its own dock under PyMOL, driven by the same pose selection.
-        # It only draws the saved JSON (C6); "Build diagram" belongs to Selected Result, which
-        # owns the pose and lists the interactions of that same pass.
+        # It draws the saved JSON or builds it (test_diagram_dock); "Build diagram" stays in
+        # Selected Result to rebuild it.
         assert window.dockWidgetArea(window.diagram_dock) == Qt.RightDockWidgetArea
         hit = runtime.docking.top_hits(limit=1)[0]
         window.load_hit_in_pymol(hit, 1)
@@ -434,6 +446,17 @@ def test_amdock_ui_domain_views_show_docking_summaries(tmp_path, monkeypatch):
         assert not hasattr(window.diagram_dock, "render_button")
         hits_page = results_view.current_page()
         assert hits_page.build_diagram_btn.text() == "Build diagram"
+        # Interactions are a table: picking a row hands that contact to PyMOL.
+        from amdockvs.ui.catalog.results import _table_contact
+
+        picked = []
+        monkeypatch.setattr(window.viewer, "show_interaction", lambda hit, contact: picked.append(contact))
+        hits_page._selected_hit = hit
+        hits_page._show_interactions([_table_contact({"interaction_type": "hydrophobic", "residue": "LYS273:A",
+                                                      "distance": 3.6, "geometry": {}})])
+        assert hits_page.interactions_table.rowCount() == 1
+        hits_page.interactions_table.selectRow(0)
+        assert [c.residue_key for c in picked] == ["A:273:LYS"]
 
         # PyMOL for a docking pose: the receptor is loaded once and only the pose is swapped,
         # but a wiped scene (switching tabs runs cmd.delete("all")) must bring it back instead
@@ -711,13 +734,15 @@ def test_ui_is_locked_until_a_project_is_open(tmp_path, monkeypatch):
         window.show()
         app.processEvents()
 
-        assert not window.views.catalog_toolbar.isEnabled()
+        assert not window.views.catalog_toolbar.isVisible()
+        assert not window._status_bar.isVisible()
         assert not window.diagram_dock.isEnabled()
         assert not any(action.isEnabled() for action in window._project_actions)
         assert window.central_widget.isEnabled()  # the welcome screen stays clickable
 
         window._set_project_ui_enabled(True)
-        assert window.views.catalog_toolbar.isEnabled()
+        assert window.views.catalog_toolbar.isVisible() and window.views.catalog_toolbar.isEnabled()
+        assert window._status_bar.isVisible()
         assert window.diagram_dock.isEnabled()
         assert all(action.isEnabled() for action in window._project_actions)
     finally:

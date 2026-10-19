@@ -26,6 +26,10 @@ from ms_components.ms_table import (
 from amdockvs.ui.view_ids import LIGANDS_VIEW_ID
 
 
+def _yes_no(value) -> str:
+    return "Yes" if value else "No"
+
+
 def _ligand_table_config(*, runtime) -> TableConfig:
     return TableConfig(
         model_class=MoleculeRecord,
@@ -53,6 +57,18 @@ def _ligand_table_config(*, runtime) -> TableConfig:
             ColumnDef("source", label="Source", width=360, sortable=True),
             ColumnDef("input_format", label="Format", width=90, sortable=True, filterable=True,
                       kind=ColumnKind.CHOICE, choices=choices_from_class(FileFormat)),
+            # ponytail: flags as INTEGER so the numeric filter (= 0 / = 1) works on SQLite booleans;
+            # a real boolean kind in ms_table if Yes/No checkboxes are wanted in the filter.
+            ColumnDef("has_3d", label="3D", width=60, sortable=True, filterable=True,
+                      kind=ColumnKind.INTEGER, formatter=_yes_no),
+            ColumnDef("has_hs", label="Explicit H", width=80, sortable=True, filterable=True, visible=False,
+                      kind=ColumnKind.INTEGER, formatter=_yes_no),
+            ColumnDef("is_minimized", label="Minimized", width=80, sortable=True, filterable=True, visible=False,
+                      kind=ColumnKind.INTEGER, formatter=_yes_no),
+            ColumnDef("conformer_count", label="Conformers", width=90, sortable=True, filterable=True,
+                      visible=False, align=AlignHint.RIGHT, kind=ColumnKind.INTEGER),
+            ColumnDef("exclusion_reason", label="Excluded because", width=300, sortable=True, filterable=True,
+                      visible=False),
             ColumnDef("current_payload_id", label="Current Payload", width=130, sortable=True, visible=False),
             ColumnDef("stored_payload_id", label="Stored Payload", width=130, sortable=True, visible=False),
         ],

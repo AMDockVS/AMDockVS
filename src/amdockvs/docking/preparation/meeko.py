@@ -47,6 +47,59 @@ def rigid_ring_ligand(path: Path, work_dir: Path) -> Path:
     return out
 
 
+# AutoDock and Vina have no boron type. As EasyDock does, a boron docks as a carbon; the carbon
+# carries isotope BORON_MARK + the boron's formal charge so the pose can turn it back unambiguously
+# (Meeko keeps isotopes in its REMARK SMILES).
+BORON_MARK = 500
+
+
+def boron_as_carbon(mol):
+    """`mol` with every boron a marked carbon (same bonds and explicit Hs); unchanged without boron."""
+    from rdkit import Chem
+
+    if not any(atom.GetAtomicNum() == 5 for atom in mol.GetAtoms()):
+        return mol
+    mol = Chem.Mol(mol)
+    for atom in mol.GetAtoms():
+        if atom.GetAtomicNum() == 5:
+            atom.SetIsotope(BORON_MARK + atom.GetFormalCharge())
+            atom.SetAtomicNum(6)
+            atom.SetFormalCharge(0)
+            atom.SetNoImplicit(True)  # a 3-bonded boron must not become a CH
+    Chem.SanitizeMol(mol)
+    return mol
+
+
+def carbon_as_boron(mol):
+    """Undo `boron_as_carbon` on a pose rebuilt by Meeko (in place; returns `mol`)."""
+    for atom in mol.GetAtoms():
+        if atom.GetAtomicNum() == 6 and BORON_MARK - 4 <= atom.GetIsotope() <= BORON_MARK + 4:
+            atom.SetFormalCharge(atom.GetIsotope() - BORON_MARK)
+            atom.SetAtomicNum(5)
+            atom.SetIsotope(0)
+    mol.UpdatePropertyCache(strict=False)
+    return mol
+
+
+def boron_in_sd(sd_string: str) -> str:
+    """The SD text Meeko wrote from a pose, its marked carbons back to boron."""
+    if "M  ISO" not in sd_string:
+        return sd_string
+    from io import StringIO
+
+    from rdkit import Chem
+
+    supplier = Chem.SDMolSupplier()
+    supplier.SetData(sd_string, sanitize=False, removeHs=False)
+    out = StringIO()
+    writer = Chem.SDWriter(out)
+    for mol in supplier:
+        if mol is not None:
+            writer.write(carbon_as_boron(mol))
+    writer.close()
+    return out.getvalue()
+
+
 def _ligand_has_3d(mol) -> bool:
     if mol is None or mol.GetNumConformers() == 0:
         return False
@@ -85,7 +138,7 @@ def prepare_ligand_vina_pdbqt_from_mol(mol) -> ToolResult:
     except ImportError as exc:
         raise RuntimeError("Python package 'meeko' is not available in the current environment.") from exc
 
-    prepared_mol = _prepare_ligand_3d_with_hs(mol)
+    prepared_mol = boron_as_carbon(_prepare_ligand_3d_with_hs(mol))
     mk_prep = MoleculePreparation()
     molsetups = mk_prep.prepare(prepared_mol)
     if not molsetups:

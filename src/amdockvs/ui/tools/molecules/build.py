@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import shutil
+from datetime import datetime
 
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -22,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 from amdockvs.core.user_env import is_remembered, remember_env_var, shell_profile
 from amdockvs.ui.common.async_query import run_async
+from amdockvs.ui.common.failures import show_failures
 from amdockvs.ui.common.job_follower import JobFollower
 from amdockvs.ui.common.widgets import RunDestinationCombo, gate_workflow_save
 from amdockvs.core.vocab import MoleculeType
@@ -215,6 +217,9 @@ class MoleculeBuildWidget(QWidget):
         self.run_build_ligands_button = build_bar.add_action(QPushButton("Run", small))
         self.run_build_ligands_button.clicked.connect(self._run_build_ligands)
         self.ligand_jobs = JobFollower(self, build_bar, noun="Build")
+        self.ligand_jobs.finished.connect(self._report_ligand_failures)
+        self._ligand_run_started = None
+        self.failures_dialog = None
         for section in (
             self.ligand_protonation_section,
             self.ligand_3d_section,
@@ -304,7 +309,15 @@ class MoleculeBuildWidget(QWidget):
         self._sync_pkasso_options()
         self._sync_small_molecule_protonation_options()
         self._ready = True
+        self._activate_after_check: str | None = None
+        from amdockvs.ui.shell.settings_tools import tool_events
+        tool_events.installed.connect(self._on_tool_installed)
         self.refresh()
+
+    def _on_tool_installed(self, tool_id: str) -> None:
+        if tool_id in ("openbabel", "pkasso"):
+            self._activate_after_check = tool_id
+            self._refresh_protonation_tools()
 
     @staticmethod
     def _structure_combo(parent: QWidget) -> QComboBox:
@@ -519,6 +532,10 @@ class MoleculeBuildWidget(QWidget):
             openbabel=bool(openbabel.installed),
             pkasso=bool(pkasso.installed),
         )
+        method, self._activate_after_check = self._activate_after_check, None
+        if method and self._protonation_tool_ready.get(method):
+            self.ligand_protonation_method.setCurrentIndex(self.ligand_protonation_method.findData(method))
+            self.ligand_protonation_section.setChecked(True)
         self._sync_small_molecule_protonation_options()
 
     def _show_protonation_tool_error(self, title: str, exc: Exception) -> None:
@@ -735,8 +752,19 @@ class MoleculeBuildWidget(QWidget):
         except Exception as exc:  # noqa: BLE001 - shown to the user, nothing was submitted
             QMessageBox.critical(self, "Build Small Molecules", str(exc))
             return
+        # Failures are excluded with updated_at = now (a second earlier covers clock rounding).
+        self._ligand_run_started = datetime.now().replace(microsecond=0)
         # No "submitted" popup: the action bar carries the run, the shell toast announces it.
         self.ligand_jobs.follow([("Building", job_id)], unit="shards" if cfg["ligands"] is None else "batches")
+
+    def _report_ligand_failures(self, _status: str) -> None:
+        since = self._ligand_run_started
+        if since is None:
+            return
+        run_async(lambda: self.runtime.molecules.excluded_since(since), self._show_failures)
+
+    def _show_failures(self, rows: list[tuple[int, str, str]]) -> None:
+        self.failures_dialog = show_failures(self, "Build", rows) or self.failures_dialog
 
     def _save_build_ligands(self) -> None:
         self._save_chem_to_workflow(

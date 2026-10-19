@@ -50,7 +50,6 @@ class DockingSubmissionService:
                     run_id=request.run_id,
                     protocol_metadata=protocol.to_mapping(),
                     engine_config=config,
-                    compute_diagram=request.compute_diagram,
                 )
         else:
             if request.ligand_scope is None or request.receptor_scope is None:
@@ -81,13 +80,14 @@ class DockingSubmissionService:
                     run_id=request.run_id,
                     protocol_metadata=protocol.to_mapping(),
                     engine_config=config,
-                    compute_diagram=request.compute_diagram,
+                    compute_interactions=request.compute_interactions,
                 )
         interaction_job_id = ""
-        if request.compute_interactions and job_ids:
+        # A docking run finds them in its own chunks; a redock's poses get the job afterwards.
+        if request.compute_interactions and request.run_kind == "redocking" and job_ids:
             interaction_job_id = self.runtime.docking.compute_interactions(
                 run_id=request.run_id,
-                pose_rank=1,
+                pose_rank=None,
                 executor_name=request.executor_name,
                 depends_on=list(job_ids.values()),
             )

@@ -147,7 +147,8 @@ def transform_ligand_rows(
         if result is None or isinstance(result, Exception):
             failed_rows.append({
                 "entity_id": ligand_id,
-                "error": str(result) if result is not None else "No structure was produced.",
+                "error": f"{getattr(result, 'step', 'load')}: {result}" if result is not None
+                else "No structure was produced.",
             })
             continue
         try:
@@ -198,6 +199,7 @@ def transform_ligand_rows(
         "updates": updates,
         "failure_count": len(failed_rows),
         "failure_samples": failed_rows[:10],
+        "failures": failed_rows,
         "processed_count": len(row_list),
         "updated_count": len(updates),
     }

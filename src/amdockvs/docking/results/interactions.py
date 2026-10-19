@@ -39,23 +39,18 @@ def _json_safe(value: Any) -> Any:
     return str(value)
 
 
-def collect_interaction_rows(
-    *,
-    pose_path: str | Path,
-    receptor_path: str | Path,
-) -> list[dict]:
-    """Protein-ligand interactions for one pose, from ms_contactmap's native detector.
+def collect_interaction_rows(*, pose: bytes, receptor: bytes, receptor_format: str = "pdbqt") -> list[dict]:
+    """Protein-ligand interactions for one pose (its SDF record) in its receptor (the bytes of a
+    `receptor_format` file), from ms_contactmap's native detector.
 
     Single provider by design: ms_contactmap is ours, so a second detector would only
     add a vocabulary to reconcile and a licence to inherit. The diagram viewer builds
     the very same :class:`~ms_contactmap.Diagram`, so the table and the drawing can
     never disagree about what was detected.
     """
-    from amdockvs.docking.results.diagram import build_pose_diagram
+    from ms_contactmap import build_pose_diagram
 
-    diagram = build_pose_diagram(pose_path=pose_path, receptor_path=receptor_path)
-    if diagram is None:
-        return []
+    diagram = build_pose_diagram(receptor, pose, compute_exposure=False, receptor_format=receptor_format)
     residues = {residue.key: residue.ref for residue in diagram.residues}
     rows: list[dict[str, Any]] = []
     for interaction in diagram.interactions:
@@ -75,6 +70,8 @@ def collect_interaction_rows(
                     "provider_interaction": str(interaction.kind),
                     "provider_payload": _json_safe(
                         {
+                            "residue_key": interaction.residue_key,
+                            "ligand_atoms": list(interaction.ligand_atoms),  # what PyMOL draws from
                             "ligand_is_donor": interaction.ligand_is_donor,
                             "protein_atom": interaction.protein_atom,
                             "angle": interaction.angle,
@@ -92,6 +89,27 @@ def collect_interaction_rows(
             str(row["residue"]),
         ),
     )
+
+
+def _main() -> None:
+    """A batch in an interpreter of its own, so the task that starts it stays on a thread: a pickled
+    list of (pose, receptor, receptor_format) on stdin, the interactions of each on stdout (None
+    for a pose that could not be read)."""
+    import pickle
+    import sys
+
+    found = []
+    for pose, receptor, receptor_format in pickle.load(sys.stdin.buffer):
+        try:
+            found.append(collect_interaction_rows(pose=pose, receptor=receptor, receptor_format=receptor_format))
+        except Exception as error:  # one unreadable pose does not cost the batch
+            print(f"interactions: {error}", file=sys.stderr)
+            found.append(None)
+    pickle.dump(found, sys.stdout.buffer)
+
+
+if __name__ == "__main__":
+    _main()
 
 
 __all__ = ["collect_interaction_rows"]

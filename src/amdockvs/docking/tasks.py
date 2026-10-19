@@ -9,11 +9,14 @@ from __future__ import annotations
 from contextlib import ExitStack, suppress
 from pathlib import Path
 
-from ms_flow.payloads import scratch_file
+from ms_flow.engine import chain, report, task
+from ms_flow.payloads import Payload, scratch_file
 
 from amdockvs.core.constants import SERIES_POSES
 from amdockvs.core.paths import get_default_project_root
 from amdockvs.core.payloads import structure_payload
+from amdockvs.core.rows import interaction_rows
+from amdockvs.docking.results.tasks import detect_interactions
 from amdockvs.docking.engines.registry import run_docking_chunk
 
 
@@ -79,3 +82,34 @@ def dock_pairs(payload: dict, progress_cb=None):
     # skip_existing will dock it again — the campaign is capped anyway; add a "screened"
     # marker table if resuming a capped run matters.
     return [row for row in rows if row.get("score") is not None and float(row["score"]) <= float(threshold)]
+
+
+# The steps of a docking chunk, each named after the table its rows go to (`DockingJobSpec.output_spec`).
+# ponytail: `thread=True` is what the chain declares; the job decides per submit (`_waits_for_program`).
+@task(thread=True)
+def docking_results(payload: dict):
+    return dock_pairs(payload, lambda percent: report(float(percent) / 100.0))
+
+
+@task(thread=True)
+def interaction_results(payload: dict, previous: dict):
+    """The interactions of the poses just docked, when the chunk asks for them: the pose payload
+    the docking row stores, in the receptor file the pair docked into."""
+    if not payload.get("interactions"):
+        return []
+    files = {pair.get("receptor_payload_id"): Path(str(pair.get("receptor_path"))) for pair in payload.get("pairs") or ()}
+    # ponytail: `.data` is the raw record: a Payload is only compressed when pickled, after the chain.
+    poses = [row for row in previous.get("docking_results") or ()
+             if isinstance(row.get("pose_payload_id"), Payload) and row["metrics"].get("receptor_payload_id") in files]
+    receptors = {key: (files[key].read_bytes(), files[key].suffix.lstrip(".") or "pdbqt")
+                 for key in {row["metrics"]["receptor_payload_id"] for row in poses}}
+    found = detect_interactions([(row["pose_payload_id"].data, *receptors[row["metrics"]["receptor_payload_id"]])
+                                 for row in poses])
+    rows = []
+    for row, interactions in zip(poses, found):
+        if interactions is not None:  # the same Payload object: the sink stores it once, one id for both rows
+            rows.extend(interaction_rows(row["metrics"]["receptor_payload_id"], row["pose_payload_id"], interactions))
+    return rows
+
+
+dock_with_interactions = chain(docking_results, interaction_results)

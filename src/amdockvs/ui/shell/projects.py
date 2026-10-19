@@ -22,6 +22,7 @@ class ApplicationWidget(QWidget):
     """
 
     project_requested = Signal(str)
+    active_project_delete_requested = Signal(str)
     projects_closed = Signal()
     exit_requested = Signal()
     settings_saved = Signal()
@@ -38,20 +39,16 @@ class ApplicationWidget(QWidget):
         if self._projects_widget is None:
             self._projects_widget = ProjectsWidget(runtime=self.runtime, parent=self.parentWidget())
             self._projects_widget.project_requested.connect(self.project_requested.emit)
+            self._projects_widget.project_browser.active_project_delete_requested.connect(
+                self.active_project_delete_requested.emit)
             self._projects_widget.closed.connect(self._on_projects_widget_closed)
             self._projects_widget.destroyed.connect(self._on_projects_widget_destroyed)
+        context = getattr(self.runtime, "active_context", None)
+        self._projects_widget.project_browser.active_project_id = str(context.id) if context is not None else None
         self._projects_widget.refresh()
         self._projects_widget.show()
         self._projects_widget.raise_()
         self._projects_widget.activateWindow()
-
-    def launch_project(self, project_id: str):
-        if self._projects_widget is None:
-            self._projects_widget = ProjectsWidget(runtime=self.runtime, parent=self.parentWidget())
-            self._projects_widget.project_requested.connect(self.project_requested.emit)
-            self._projects_widget.closed.connect(self._on_projects_widget_closed)
-            self._projects_widget.destroyed.connect(self._on_projects_widget_destroyed)
-        return self._projects_widget.launch_project(project_id)
 
     def open_settings(self, *, node: str | None = None) -> None:
         if self._settings_dialog is None:
@@ -153,9 +150,6 @@ class ProjectsWidget(QDialog):
     def _on_project_requested(self, project_id: str) -> None:
         self.hide()
         self.project_requested.emit(project_id)
-
-    def launch_project(self, project_id: str):
-        return self._owned_backend.launch_project(project_id)
 
     def closeEvent(self, event):
         try:

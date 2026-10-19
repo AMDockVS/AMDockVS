@@ -7,18 +7,29 @@ from pathlib import Path
 
 import shiboken6
 from PySide6.QtCore import QEvent, QObject, QSize, Qt, Signal
-from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QFrame, QLabel, QTableWidget, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtGui import QAction, QIcon
+from PySide6.QtWidgets import QLabel, QTableWidget, QToolBar, QVBoxLayout, QWidget
 
 from amdockvs.ui.resources.icons import icon
 
 
-def icon_button(parent, icon_name: str, tooltip: str) -> QToolButton:
-    """The add/remove toolbar buttons shared by both import dialogs."""
-    button = QToolButton(parent)
-    button.setIcon(icon(icon_name))
-    button.setToolTip(tooltip)
-    return button
+def side_toolbar(parent) -> QToolBar:
+    """The add/remove toolbar on the left of both importers' file tables: icon over a short label.
+
+    ponytail: fixed icon+text; follow View > Toolbars (view_coordinator) if it should switch too.
+    """
+    bar = QToolBar(parent)
+    bar.setOrientation(Qt.Vertical)
+    bar.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+    bar.setIconSize(QSize(20, 20))
+    return bar
+
+
+def tool_action(bar: QToolBar, icon_name: str, text: str, tooltip: str, slot) -> QAction:
+    action = bar.addAction(icon(icon_name), text)
+    action.setToolTip(tooltip)
+    action.triggered.connect(slot)
+    return action
 
 
 def drop_hint(what: str) -> str:
@@ -38,14 +49,6 @@ def write_user_input(text: str, suffix: str) -> str:
     with os.fdopen(fd, "w") as handle:
         handle.write(text.strip() + "\n")
     return str(Path(path).resolve())
-
-
-def toolbar_separator(parent) -> QFrame:
-    """The '|' between the add buttons and remove in the import toolbars."""
-    line = QFrame(parent)
-    line.setFrameShape(QFrame.HLine)
-    line.setFrameShadow(QFrame.Sunken)
-    return line
 
 
 class TablePlaceholder(QObject):

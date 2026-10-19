@@ -586,6 +586,45 @@ def test_amdock_runtime_prepare_and_dock_with_stored_grid(tmp_path, monkeypatch)
 
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
+def test_a_ligand_the_engine_cannot_prepare_is_excluded_and_docking_runs_without_it(tmp_path, monkeypatch):
+    _require_docking_stack()
+    _patch_fake_home(monkeypatch, tmp_path)
+    from datetime import datetime
+
+    runtime = AMDockVSRuntime()
+    try:
+        runtime.create_project(name="dock_fail", folder=tmp_path / "dock_fail", description="prep failure")
+        ligands_file = tmp_path / "dock_ligands.smi"
+        receptor_file = tmp_path / "dock_receptor.pdb"
+        _make_smiles_file(ligands_file, count=2)
+        with ligands_file.open("a", encoding="utf-8") as handle:
+            handle.write("OC[PH](CO)(CO)CO BAD_P5\n")  # P(V) with an H: Meeko's charges come out NaN
+        _make_receptor_pdb(receptor_file)
+        _wait_completed(runtime, [
+            *runtime.loader.load_ligands([ligands_file], batch_size=4, executor_name="thread"),
+            *runtime.loader.load_receptors([receptor_file], batch_size=1, executor_name="thread"),
+        ])
+        receptor = next(runtime.molecules.stream(_role_scope(runtime, "receptor", limit=1)))
+        runtime.docking.set_grid(receptor_id=int(receptor.id or 0), center=(12.0, 13.0, 10.0), size=(20.0, 20.0, 20.0))
+        receptor_set = runtime.molecules.create_set(_role_scope(runtime, "receptor"), name="rs", kind="snapshot")
+        _wait_completed(runtime, [runtime.chemistry.generate_3d_ligands(batch_size=4, executor_name="thread")])
+
+        started = datetime.now()
+        _wait_completed(runtime, [
+            runtime.docking.prepare_ligands(batch_size=4, executor_name="thread"),
+            runtime.docking.prepare_receptors(batch_size=1, executor_name="thread"),
+        ])
+        [(_, name, reason)] = runtime.molecules.excluded_since(started)
+        assert name == "BAD_P5" and reason.startswith("Docking preparation (ad4):")
+
+        docking_job = runtime.docking.run(receptor_set=receptor_set, batch_size=4, executor_name="thread")
+        assert runtime.wait_for_jobs([docking_job], timeout_s=120)[docking_job].status == "completed"
+        assert len(runtime.docking.list_results()) == 2
+    finally:
+        runtime.shutdown()
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 def test_amdock_runtime_exposes_domain_queries_for_receptors_and_docking_results(tmp_path, monkeypatch):
     _require_docking_stack()
     _patch_fake_home(monkeypatch, tmp_path)

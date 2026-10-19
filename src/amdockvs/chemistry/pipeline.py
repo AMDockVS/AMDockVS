@@ -123,6 +123,10 @@ def run_pipeline(mols: Iterable[Slot], steps: Sequence[tuple[str, dict]]) -> lis
         if step is None:
             raise ValueError(f"Unsupported ligand chemistry operation: {name}")
         batch = step(batch, **dict(params or {}))
+        for slot in batch:
+            # The step a molecule failed at, for the reason it is excluded with.
+            if isinstance(slot, Exception) and not hasattr(slot, "step"):
+                slot.step = name
     return batch
 
 

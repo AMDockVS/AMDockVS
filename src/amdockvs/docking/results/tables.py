@@ -7,7 +7,7 @@ widgets stay free of SQLAlchemy (see test_ui_api_boundary), and they import
 """
 from __future__ import annotations
 
-from sqlalchemy import Float, cast, distinct, exists, func, or_, select
+from sqlalchemy import Float, case, cast, distinct, exists, func, or_, select
 from sqlalchemy.orm import aliased
 
 from ms_components.ms_table.table_config import (
@@ -145,6 +145,12 @@ def _pose_count_expr():
     )
 
 
+def _progress_tooltip(row: dict) -> str:
+    ligands = int(row.get("ligands") or 0)
+    docked = round(float(row.get("progress") or 0.0) * ligands)
+    return f"{docked:,} of {ligands:,} ligands docked, {max(ligands - docked, 0):,} pending"
+
+
 def results_receptor_config() -> TableConfig:
     return TableConfig(
         model_class=MoleculeRecord,
@@ -152,11 +158,9 @@ def results_receptor_config() -> TableConfig:
             ColumnDef("name", label="Receptor", width=120),
             ColumnDef("ligands", label="Ligands", kind=ColumnKind.INTEGER, align=AlignHint.RIGHT,
                       expr=_LIGANDS, width=75, sortable=False),
-            ColumnDef("docked", label="Docked", kind=ColumnKind.INTEGER, align=AlignHint.RIGHT,
-                      expr=_DOCKED, width=70, sortable=False),
-            ColumnDef("pending", label="Pending", kind=ColumnKind.INTEGER, align=AlignHint.RIGHT,
-                      expr=_LIGANDS - _DOCKED, width=75, sortable=False,
-                      formatter=lambda value: "" if int(value or 0) <= 0 else f"{int(value):,}"),
+            ColumnDef("progress", label="Docked", kind=ColumnKind.PROGRESS,
+                      expr=case((_LIGANDS > 0, cast(_DOCKED, Float) / _LIGANDS), else_=0.0),
+                      width=140, sortable=False, filterable=False, tooltip=_progress_tooltip),
             ColumnDef("scored", label="Scored", visible=False, kind=ColumnKind.INTEGER,
                       align=AlignHint.RIGHT, expr=_RECEPTOR_DONE, width=65, sortable=False),
             # A receptor a run scheduled belongs here from the moment it is scheduled: in a

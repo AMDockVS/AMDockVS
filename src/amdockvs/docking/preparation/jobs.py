@@ -7,7 +7,7 @@ from typing import Any, Iterator, Mapping
 from pydantic import BaseModel, Field
 
 from ms_flow.query import QuerySpec
-from ms_flow.sinks import table_sink
+from ms_flow.sinks import graph_sink, table_sink
 from amdockvs.core.jobs import JobSpec
 from amdockvs.docking.preparation.tasks import prepare_entities, prepare_ligand_shards
 
@@ -20,14 +20,30 @@ from amdockvs.docking.repository import (
     molecule_scope_spec,
 )
 from amdockvs.docking.preparation.shards import PREPARED_DIR
-from amdockvs.models import EngineState, ShardEngineState
+from amdockvs.models import EngineState, MoleculeRecord, ShardEngineState
 from amdockvs.molecules.storage import ShardStore, shard_scope_spec
 
 
-ENGINE_STATE_UPSERT = table_sink(
-    model=EngineState,
-    write_mode="upsert",
-    conflict_keys=("molecule_id", "role_type", "engine"),
+# A molecule the engine can't prepare is excluded with the reason (docking skips it, Filter's
+# "Excluded" scope lists it and brings it back) instead of blocking the whole docking.
+ENGINE_STATE_UPSERT = graph_sink(
+    nodes=(
+        {
+            "name": "engines",
+            "model": EngineState,
+            "write_mode": "upsert",
+            "conflict_keys": ["molecule_id", "role_type", "engine"],
+            "validate_model": False,
+        },
+        {
+            "name": "molecule_failures",
+            "model": MoleculeRecord,
+            "columns": ["id", "excluded", "exclusion_reason", "updated_at"],
+            "write_mode": "upsert",
+            "conflict_keys": ["id"],
+            "validate_model": False,
+        },
+    ),
 )
 
 

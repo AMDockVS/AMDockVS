@@ -140,3 +140,28 @@ def test_opening_a_project_checks_its_storage_off_the_gui_thread_and_reports_to_
         if window is not None:
             window.close()
         runtime.shutdown()
+
+
+def test_an_unhandled_gui_exception_lands_in_the_log_with_its_traceback():
+    import sys
+
+    from PySide6.QtWidgets import QApplication
+
+    from amdockvs.ui.shell.job_feedback import JobFeedbackController
+    from amdockvs.ui.shell.notifications import ERROR
+
+    QApplication.instance() or QApplication([])
+    posted = []
+    fake = type("Fake", (), {"post_notification": lambda self, *a, **k: posted.append((a, k))})()
+    saved = sys.excepthook
+    try:
+        JobFeedbackController._catch_unhandled_exceptions(fake)
+        try:
+            raise ValueError("bad cell")
+        except ValueError:
+            sys.excepthook(*sys.exc_info())
+    finally:
+        sys.excepthook = saved
+    (title, text, level), kwargs = posted[0]
+    assert title == "Unexpected error: ValueError" and text == "bad cell" and level == ERROR
+    assert "raise ValueError" in kwargs["details"]

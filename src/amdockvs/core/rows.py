@@ -48,11 +48,14 @@ def shard_engine_state_row(*, shard_id: int, engine: str, files: dict | None = N
     }
 
 
-def interaction_rows(docking_result_id: int, interactions: list[dict]) -> list[dict[str, Any]]:
+def interaction_rows(receptor_payload_id: Any, pose_payload_id: Any, interactions: list[dict]) -> list[dict[str, Any]]:
+    """The rows of one pose in its receptor. No interactions is one "none" row: the pose was looked at."""
     now = datetime.now()
+    interactions = interactions or [{"interaction_type": "none", "residue": "", "geometry": {"method": "ms_contactmap"}}]
     return [
         {
-            "docking_result_id": docking_result_id,
+            "receptor_payload_id": receptor_payload_id,
+            "pose_payload_id": pose_payload_id,
             "interaction_type": i["interaction_type"],
             "residue": i["residue"],
             "residue_index": i.get("residue_index", 0),

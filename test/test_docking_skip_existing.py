@@ -149,3 +149,18 @@ def test_receptor_major_needs_a_re_iterable_ligand_source():
         pass
     else:
         raise AssertionError("a plain iterator must be rejected")
+
+
+def test_receptors_dock_in_id_order_like_every_table_lists_them(tmp_path):
+    store = _project(tmp_path)
+    with store.get_session() as session:  # the file order says the other way round
+        for receptor_id, source in ((1, "/home/u/Downloads/a.pdb"), (2, "/home/u/Documents/b.pdb")):
+            row = session.get(MoleculeRecord, receptor_id)
+            row.source = source
+            session.add(row)
+        session.commit()
+    feed = iter_docking_batches(project_db=store, output_dir=tmp_path / "out", batch_size=8,
+                                engine=ENGINE, box_center=(0.0, 0.0, 0.0), box_size=(12.0, 12.0, 12.0),
+                                skip_existing=False)
+    assert {int(pair["receptor_id"]) for pair in next(feed)["pairs"]} == {1}
+    store.dispose()

@@ -2,21 +2,17 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, QRect, QSize, QTimer, Qt, Signal
+from PySide6.QtCore import QRect, QSize, Qt
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
     QComboBox,
-    QFrame,
     QHBoxLayout,
-    QLabel,
-    QLayout,
     QMenu,
     QSizePolicy,
     QStyle,
     QStyleOptionComboBox,
     QStylePainter,
     QToolButton,
-    QVBoxLayout,
     QWidget,
 )
 
@@ -102,59 +98,6 @@ class RunDestinationCombo(QComboBox):
         return str(self.currentData() or DEFAULT_LOCAL_CPU_EXECUTOR)
 
 
-class FlowLayout(QLayout):
-    """Left-to-right layout that wraps onto new lines (Qt's flow-layout example, trimmed)."""
-
-    def __init__(self, parent=None, spacing: int = 3):
-        super().__init__(parent)
-        self._items = []
-        self.setContentsMargins(0, 0, 0, 0)
-        self.setSpacing(spacing)
-
-    def addItem(self, item) -> None:
-        self._items.append(item)
-
-    def count(self) -> int:
-        return len(self._items)
-
-    def itemAt(self, index: int):
-        return self._items[index] if 0 <= index < len(self._items) else None
-
-    def takeAt(self, index: int):
-        return self._items.pop(index) if 0 <= index < len(self._items) else None
-
-    def hasHeightForWidth(self) -> bool:
-        return True
-
-    def heightForWidth(self, width: int) -> int:
-        return self._do_layout(QRect(0, 0, width, 0), apply=False)
-
-    def setGeometry(self, rect) -> None:
-        super().setGeometry(rect)
-        self._do_layout(rect, apply=True)
-
-    def sizeHint(self) -> QSize:
-        return self.minimumSize()
-
-    def minimumSize(self) -> QSize:
-        size = QSize()
-        for item in self._items:
-            size = size.expandedTo(item.minimumSize())
-        return size
-
-    def _do_layout(self, rect, *, apply: bool) -> int:
-        x, y, line_height = rect.x(), rect.y(), 0
-        for item in self._items:
-            hint = item.sizeHint()
-            if x > rect.x() and x + hint.width() > rect.right() + 1:
-                x, y, line_height = rect.x(), y + line_height + self.spacing(), 0
-            if apply:
-                item.setGeometry(QRect(QPoint(x, y), hint))
-            x += hint.width() + self.spacing()
-            line_height = max(line_height, hint.height())
-        return y + line_height - rect.y()
-
-
 class WrapCombo(QComboBox):
     """Combo whose closed face word-wraps its text over two lines ("Biological assembly 1")."""
 
@@ -185,122 +128,4 @@ class WrapCombo(QComboBox):
         )
 
 
-class ChipsSelect(QWidget):
-    """Generic chips + combo multi-select (same shape as ms_table's Order/Filter bars): the combo
-    offers the not-yet-picked items, each pick becomes a removable chip. Used for both the chain
-    selection and the reference-ligand selection. Chips wrap onto new lines; ``heightChanged``
-    asks the table to fit the row.
-    """
-
-    changed = Signal()
-    heightChanged = Signal()
-
-    # Rounded pill chips; palette() roles so they follow the active theme.
-    _STYLE = """
-        QFrame[chip_objet="true"] {
-            border: 1px solid palette(mid); border-radius: 9px; background: palette(button);
-        }
-        QFrame[chip_objet="true"] QLabel { border: none; background: transparent; }
-        QFrame[chip_objet="true"] QToolButton { border: none; background: transparent; padding: 0; }
-        QFrame[chip_objet="true"] QToolButton:hover { color: palette(highlight); }
-    """
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setStyleSheet(self._STYLE)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(6)
-        self._chips = QWidget(self)
-        self._chips_layout = FlowLayout(self._chips, spacing=4)
-        layout.addWidget(self._chips, 1)
-        self._combo = QComboBox(self)
-        self._combo.setFixedWidth(46)
-        self._combo.currentIndexChanged.connect(self._on_add)
-        layout.addWidget(self._combo, 0, Qt.AlignmentFlag.AlignTop)
-        self._options: list[str] = []
-        self._selected: list[str] = []
-        self._last_height = 0
-
-    def sizeHint(self) -> QSize:
-        # The table sizes rows from the cell widget's sizeHint, so report the wrapped height.
-        # The combo sits below the chips (vertical layout), so the chips get the full inner width.
-        margins = self.layout().contentsMargins()
-        chips_width = max(1, self.width() - margins.left() - margins.right())
-        height = self._chips_layout.heightForWidth(chips_width)
-        if not self._combo.isHidden():
-            height += self.layout().spacing() + self._combo.sizeHint().height()
-        return QSize(super().sizeHint().width(), height + margins.top() + margins.bottom())
-
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self._check_height()
-
-    def _check_height(self) -> None:
-        height = self.sizeHint().height()
-        if height != self._last_height:
-            self._last_height = height
-            self.heightChanged.emit()
-
-    def set_items(self, items, *, selected=None) -> None:
-        self._options = [str(item) for item in items]
-        if selected is None:
-            self._selected = list(self._options)
-        else:
-            self._selected = [str(item) for item in selected if str(item) in self._options]
-        self._rebuild()
-
-    def selected_items(self) -> list[str]:
-        return list(self._selected)
-
-    def _rebuild(self) -> None:
-        while self._chips_layout.count():
-            widget = self._chips_layout.takeAt(0).widget()
-            if widget is not None:
-                widget.deleteLater()
-        for item in self._selected:
-            self._chips_layout.addWidget(self._make_chip(item))
-        # New chips only get a size once Qt shows them on the next event-loop pass.
-        QTimer.singleShot(0, self, self._check_height)
-        self._combo.blockSignals(True)
-        self._combo.clear()
-        self._combo.addItem("＋", None)
-        for option in self._options:
-            if option not in self._selected:
-                self._combo.addItem(option, option)
-        self._combo.setCurrentIndex(0)
-        # Nothing left to add -> no combo, so a fully-picked row isn't taller than its chips.
-        self._combo.setHidden(self._combo.count() == 1)
-        self._combo.blockSignals(False)
-
-    def _make_chip(self, item: str) -> QFrame:
-        chip = QFrame(self)
-        chip.setProperty("chip_objet", True)
-        row = QHBoxLayout(chip)
-        row.setContentsMargins(8, 1, 4, 1)
-        row.setSpacing(2)
-        row.addWidget(QLabel(item, chip))
-        remove = QToolButton(chip)
-        remove.setText("×")
-        remove.setAutoRaise(True)
-        remove.setMaximumSize(20, 20)
-        remove.clicked.connect(lambda: self._remove(item))
-        row.addWidget(remove)
-        return chip
-
-    def _on_add(self, index: int) -> None:
-        item = self._combo.itemData(index)
-        if item is None or item in self._selected:
-            return
-        self._selected.append(item)
-        self._rebuild()
-        self.changed.emit()
-
-    def _remove(self, item: str) -> None:
-        if item in self._selected:
-            self._selected.remove(item)
-            self._rebuild()
-            self.changed.emit()
-
-
-__all__ = ["ChipsSelect", "FlowLayout", "right_aligned", "RunDestinationCombo", "split_button", "WrapCombo"]
+__all__ = ["right_aligned", "RunDestinationCombo", "split_button", "WrapCombo"]

@@ -86,3 +86,22 @@ def test_a_redocked_complex_keeps_its_own_camera_not_the_last_complex_view(monke
                                     receptor_payload_id=1), 1)
     # Every complex shares the object names, so a remembered view is another complex's camera.
     assert scenes and scenes[-1]["restore_view"] is False
+
+
+def test_a_receptor_row_brings_its_active_site_box_with_it(monkeypatch):
+    from amdockvs import AMDockVSRuntime  # noqa: F401 - pydantic before PySide
+    from amdockvs.ui.viewers import molecular_viewer
+
+    monkeypatch.setattr(molecular_viewer, "load_structure", lambda cmd, data, name: cmd.objects.append(name))
+    monkeypatch.setattr(molecular_viewer, "set_pymol_scene_context", lambda *a, **k: None)
+    focused = []
+    grid = SimpleNamespace(focus_binding_site=lambda molecule, **k: focused.append(k["site_id"]))
+    cmd = _Cmd()
+    cmd.get_viewport = lambda: (400, 300)
+    viewer = molecular_viewer.MolecularViewerController(SimpleNamespace(
+        pymol_dock=SimpleNamespace(cmd=cmd, show=lambda: None), grid_dock=grid))
+    viewer._read = lambda wanted, then: then({k: b"x" for k, v in wanted.items() if v})
+    receptor = SimpleNamespace(id=4, is_receptor=True, is_ligand=False, active_binding_site_id=9)
+    monkeypatch.setattr(molecular_viewer, "molecule_payload_id", lambda m: 5)
+    viewer.show_molecule(receptor, "current")
+    assert focused == [9]

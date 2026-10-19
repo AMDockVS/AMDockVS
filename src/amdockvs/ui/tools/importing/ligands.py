@@ -33,8 +33,8 @@ from amdockvs.ui.common.drop_area import (
     USER_INPUT_SOURCE,
     TablePlaceholder,
     drop_hint,
-    icon_button,
-    toolbar_separator,
+    side_toolbar,
+    tool_action,
     write_user_input,
 )
 from amdockvs.io.formats import QT_FILE_FILTER as _LIGAND_FILTER
@@ -188,26 +188,21 @@ class LigandImportDialog(QDialog):
         self.resize(760, 580)
         root = QVBoxLayout(self)
 
-        # --- top: file table + vertical icon toolbar ---
+        # --- top: vertical add/remove toolbar + file table ---
         top = QHBoxLayout()
         self.table = FileDropTable(self)
         top.addWidget(self.table, 1)
 
-        toolbar = QVBoxLayout()
         self._source_labels: dict[str, str] = {}  # temp carrier path → real origin ("user input")
-        self.add_button = icon_button(self, "file-plus.svg", "Add files")
-        self.add_text_button = icon_button(self, "text-input.svg", "Add SMILES (one per line, optional name)")
-        self.remove_button = icon_button(self, "shredder.svg", "Remove selected files")
-        self.add_button.clicked.connect(self._on_add)
-        self.add_text_button.clicked.connect(self._on_add_text)
+        toolbar = side_toolbar(self)
+        self.add_action = tool_action(toolbar, "file-plus.svg", "Add files", "Add ligand files", self._on_add)
+        self.add_text_action = tool_action(
+            toolbar, "text-input.svg", "Add SMILES", "Add SMILES (one per line, optional name)", self._on_add_text
+        )
+        toolbar.addSeparator()
+        self.remove_action = tool_action(toolbar, "shredder.svg", "Remove", "Remove the selected files", self.table.remove_selected)
         self.table.placeholder.clicked.connect(self._on_add)
-        self.remove_button.clicked.connect(self.table.remove_selected)
-        toolbar.addWidget(self.add_button)
-        toolbar.addWidget(self.add_text_button)
-        toolbar.addWidget(toolbar_separator(self))
-        toolbar.addWidget(self.remove_button)
-        toolbar.addStretch(1)
-        top.addLayout(toolbar)
+        top.insertWidget(0, toolbar)
         root.addLayout(top, 1)
 
         # --- where the library lands ---

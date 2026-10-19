@@ -179,6 +179,28 @@ class MolecularViewerController:
         except Exception:
             return
 
+    def show_diagram_residue(self, hit: DockingHitSummary, key: str, diagram) -> None:
+        """A residue picked in the 2D diagram: sticks, zoom and its contacts drawn in 3D."""
+        from amdockvs.ui.viewers.interactions_3d import show_residue_interactions
+
+        self._on_pose(hit, lambda cmd, receptor_obj: show_residue_interactions(
+            cmd, receptor_obj=receptor_obj, ligand_obj="amdock_result_pose", key=key, diagram=diagram))
+
+    def show_interaction(self, hit: DockingHitSummary, contact) -> None:
+        """One contact picked in Selected Result's interaction table, drawn in its type's colour."""
+        from amdockvs.ui.viewers.interactions_3d import show_interaction
+
+        self._on_pose(hit, lambda cmd, receptor_obj: show_interaction(
+            cmd, receptor_obj=receptor_obj, ligand_obj="amdock_result_pose", contact=contact))
+
+    def _on_pose(self, hit: DockingHitSummary, draw) -> None:
+        cmd = getattr(self.w.pymol_dock, "cmd", None)
+        receptor_obj = f"receptor_{hit.receptor_id}"
+        if cmd is None or not self._holds(cmd, receptor_obj) or not self._holds(cmd, "amdock_result_pose"):
+            return  # ponytail: docked poses only; a redocking hit loads under other names
+        with contextlib.suppress(Exception):
+            draw(cmd, receptor_obj)
+
     def sync_to_active_view(self, view_id: str | None) -> None:
         """PyMOL follows the active tab: a structural view shows its first row; any other
         view (or an empty table) clears PyMOL so it never keeps showing a stale molecule."""
@@ -237,6 +259,7 @@ class MolecularViewerController:
                         cmd.zoom(receptor_obj, 3)
                 else:
                     cmd.delete(ligand_obj)  # keep the receptor; replace only the pose
+                    cmd.delete("amdock_interactions")  # the previous pose's 3D contacts
                 if "pose" in found:
                     load_structure(cmd, found["pose"], ligand_obj)  # each pose is its own payload: one state
                     try:
@@ -493,6 +516,10 @@ class MolecularViewerController:
             except Exception:
                 _log.exception("PyMOL could not show %s", object_name)
                 return
+            # delete("all") above wiped the box: a receptor brings its active site back with it.
+            active_id = int(getattr(molecule, "active_binding_site_id", 0) or 0)
+            if bool(getattr(molecule, "is_receptor", False)) and active_id and getattr(self.w, "grid_dock", None):
+                self.w.grid_dock.focus_binding_site(molecule, site_id=active_id, ensure_selected=True)
             if then is not None:
                 then(molecule)
 

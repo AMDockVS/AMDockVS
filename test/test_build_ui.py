@@ -321,3 +321,72 @@ def test_molecules_structure_source_lives_and_dies_with_tool_scope(tmp_path, mon
             widget.close()
         runtime.shutdown()
         app.processEvents()
+
+
+def test_a_finished_build_lists_the_molecules_it_excluded(build_widget, monkeypatch):
+    from PySide6.QtWidgets import QTreeWidget
+
+    from amdockvs.ui.tools.molecules import build as build_module
+
+    monkeypatch.setattr(build_module, "run_async", lambda fn, on_result, *a, **k: on_result(fn()))
+    asked = []
+    build_widget.runtime.molecules.excluded_since = lambda since: asked.append(since) or [
+        (7, "ZINC7", "generate_3d: RDKit could not generate a 3D conformer."),
+        (8, "ZINC8", "standardize: Explicit valence for atom # 3 N, 4, is greater than permitted"),
+        (9, "ZINC9", "generate_3d: RDKit could not generate a 3D conformer."),
+        (10, "ZINC10", "standardize: Explicit valence for atom # 12 N, 4, is greater than permitted"),
+    ]
+    build_widget._protonation_tool_ready["dimorphite"] = True
+    build_widget._sync_build_button()
+
+    build_widget.run_build_ligands_button.click()
+    build_widget.ligand_jobs.on_finished("pipeline-job", "completed")
+
+    assert asked and asked[0] <= __import__("datetime").datetime.now()
+    tree = build_widget.failures_dialog.findChild(QTreeWidget)
+    groups = [tree.topLevelItem(i) for i in range(tree.topLevelItemCount())]
+    assert len(groups) == 2  # four failures, two causes: atom numbers don't split a cause
+    assert groups[0].childCount() == groups[1].childCount() == 2
+    first = groups[0].child(0) if "3D" in groups[0].text(0) else groups[1].child(0)
+    assert [first.text(c) for c in range(3)] == ["ZINC7", "7", "generate_3d: RDKit could not generate a 3D conformer."]
+
+def test_a_protonation_tool_installed_from_settings_becomes_the_method_in_use(build_widget, monkeypatch):
+    from amdockvs.ui.shell.settings_tools import ExternalToolsPage, tool_events
+    from amdockvs.ui.tools.molecules import build as build_module
+
+    installed = set()
+    build_widget.runtime.chemistry.small_molecule_protonation_tool_status = (
+        lambda name: SimpleNamespace(installed=name in installed, message="")
+    )
+    monkeypatch.setattr(build_module, "run_async", lambda job, done, **_kw: done(job()))
+    build_widget._refresh_protonation_tools()
+    assert build_widget.ligand_protonation_method.currentData() == "dimorphite"
+
+    # The Settings page announces what turned up between two checks, and only that.
+    page = SimpleNamespace(_rows={}, install_all_button=SimpleNamespace(setEnabled=lambda _on: None))
+    announced = []
+    tool_events.installed.connect(announced.append)
+    statuses = lambda: [SimpleNamespace(tool_id=t, installed=t in installed) for t in ("openbabel", "pkasso")]
+    ExternalToolsPage._apply(page, statuses())  # first look: nothing is "new"
+    installed.add("openbabel")
+    ExternalToolsPage._apply(page, statuses())
+    tool_events.installed.disconnect(announced.append)
+
+    assert announced == ["openbabel"]
+    assert build_widget.ligand_protonation_method.currentData() == "openbabel"
+    assert build_widget.ligand_protonation_section.isChecked()
+
+
+def test_a_mass_failure_lists_a_few_molecules_per_cause_and_counts_the_rest(build_widget):
+    from PySide6.QtWidgets import QTreeWidget
+
+    from amdockvs.ui.common.failures import PER_CAUSE, show_failures
+    from ms_components.tool_panel import format_count
+
+    rows = [(i, f"Z{i}", f"generate_3d: embedding failed after {i} tries") for i in range(1, 2001)]
+    dialog = show_failures(build_widget, "Build", rows)
+    tree = dialog.findChild(QTreeWidget)
+    [cause] = [tree.topLevelItem(i) for i in range(tree.topLevelItemCount())]  # numbers don't split it
+    assert cause.childCount() == PER_CAUSE + 1
+    assert cause.child(PER_CAUSE).text(0) == f"… and {format_count(2000 - PER_CAUSE)} more"
+    dialog.close()

@@ -4,10 +4,12 @@ indicators and the incremental refresh of the open views while a run is insertin
 from __future__ import annotations
 
 import re
+import sys
 import time
+import traceback
 
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtCore import QThread, Qt, QTimer
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from amdockvs.ui.shell.notifications import (
     ERROR,
@@ -19,6 +21,7 @@ from amdockvs.ui.shell.notifications import (
     NotificationLog,
 )
 from amdockvs.ui.common.async_query import run_async
+from amdockvs.ui.view_ids import MOLECULES_VIEW_ID
 from amdockvs.ui.resources.icons import icon as load_icon
 
 
@@ -72,11 +75,34 @@ class JobFeedbackController:
         self.notification_log = NotificationLog(self.notifications, parent=self.w)
         self.notification_log.setWindowFlags(Qt.Popup)  # closes on click-away
         self.notification_log.cleared.connect(self.notifications.clear)
+        self._catch_unhandled_exceptions()
         return self.notification_bell
 
-    def post_notification(self, title: str, text: str = "", level: str = INFO) -> None:
-        """Record something worth remembering. Unread count clears when the log is opened."""
-        note = Notification(title=str(title), text=str(text), level=str(level))
+    def _catch_unhandled_exceptions(self) -> None:
+        """An exception in a slot used to reach stderr only: post it, traceback under details."""
+        # The newest window takes over: a closed one's hook is unwrapped, not chained.
+        previous = getattr(sys.excepthook, "amdock_previous", sys.excepthook)
+
+        def hook(kind, value, tb) -> None:
+            previous(kind, value, tb)
+            app = QApplication.instance()
+            # ponytail: GUI thread only; a worker thread's exception still goes to stderr alone.
+            if app is None or QThread.currentThread() != app.thread():
+                return
+            try:
+                self.post_notification(f"Unexpected error: {kind.__name__}", str(value), ERROR,
+                                       details="".join(traceback.format_exception(kind, value, tb)))
+            except RuntimeError:  # the window is gone (closed, or a test's)
+                pass
+
+        hook.amdock_previous = previous
+        sys.excepthook = hook
+
+    def post_notification(self, title: str, text: str = "", level: str = INFO, *, details: str = "",
+                          open=None) -> None:
+        """Record something worth remembering. Unread count clears when the log is opened. With
+        `open`, a double-click on the entry calls it instead of showing the text in a dialog."""
+        note = Notification(title=str(title), text=str(text), level=str(level), details=str(details), open=open)
         self.notifications.append(note)
         del self.notifications[:-MAX_ENTRIES]
         self.notification_log.append(note)
@@ -93,20 +119,27 @@ class JobFeedbackController:
         """A fast check of the project's volumes; only a problem reaches the log, and it never blocks the window."""
         def done(note) -> None:
             if note[0] != INFO:
-                self.post_notification(note[1], note[2], note[0])
+                self.post_notification(note[1], note[2], note[0], open=self.w._show_project_summary)
 
         run_async(self.w.runtime.check_storage, done,
-                  on_error=lambda exc: self.post_notification("Storage check failed", str(exc), ERROR))
+                  on_error=lambda exc: self.post_notification("Storage check failed", str(exc), ERROR,
+                                                                open=self.w._show_project_summary))
 
     def _compact_storage(self) -> None:
-        """When the last job ends, compact the volumes that are mostly dead bytes."""
+        """When the last job ends, release the structures no row uses and compact the volumes that
+        are mostly dead bytes."""
         def done(stats) -> None:
             if stats and stats["moved"]:
-                self.post_notification("Project storage compacted", f"{stats['moved']} structures moved, "
-                                       f"{stats['read_mb'] - stats['written_mb']:.0f} MB freed.")
+                self.post_notification("Project storage compacted", f"{stats['released']} unused structures released, "
+                                       f"{stats['moved']} moved, {stats['read_mb'] - stats['written_mb']:.0f} MB freed.",
+                                       open=self.w._show_project_summary)
+            elif stats and stats["released"]:
+                self.post_notification("Project storage tidied", f"{stats['released']} unused structures released.",
+                                       open=self.w._show_project_summary)
 
         run_async(self.w.runtime.compact_storage_if_due, done,
-                  on_error=lambda exc: self.post_notification("Storage compaction failed", str(exc), WARNING))
+                  on_error=lambda exc: self.post_notification("Storage compaction failed", str(exc), WARNING,
+                                                                open=self.w._show_project_summary))
 
     def open_notifications(self) -> None:
         self.notification_log.popup_at(self.notification_bell)
@@ -145,7 +178,8 @@ class JobFeedbackController:
     def on_job_submitted_notice(self, job_name: str, _job_id: str) -> None:
         label = re.sub(r"^amdockvs[_ ]|[_ ]job$", "", str(job_name)).replace("_", " ").strip() or "Job"
         self.post_notification(
-            f"{label.capitalize()} started.", "Running in the background — follow it in the Jobs monitor."
+            f"{label.capitalize()} started.", "Running in the background — double-click to open the Jobs monitor.",
+            open=self.w.open_jobs_monitor,
         )
         # Show its progress bar now instead of waiting for the monitor's idle poll.
         self.w.monitor_bridge.request_refresh()
@@ -236,12 +270,6 @@ class JobFeedbackController:
                 f"{count} ligand(s) do not have 3D conformers.\n"
                 "Generate 3D coordinates before running ligand preparation."
             )
-        docking_missing_match = re.search(r"missing_counts=({.*})", text)
-        if docking_missing_match:
-            return (
-                "Docking requirements are not satisfied.\n"
-                f"{docking_missing_match.group(1)}"
-            )
         if "Traceback (most recent call last)" in text:
             # ponytail: the last line is the exception and the first line of what it says; an
             # error that says more in several lines has the rest under "Show Details".
@@ -293,7 +321,8 @@ class JobFeedbackController:
                 sorted(self._persisted_seen_failure_jobs),
             )
         # Modal on purpose: "your 8h run failed" cannot wait in a list the user may never open.
-        self.post_notification("Jobs failed", message.replace("\n\n", " · "), ERROR)
+        self.post_notification("Jobs failed", message.replace("\n\n", " · "), ERROR, details="\n\n".join(details),
+                               open=self.w.open_jobs_monitor)
         box = QMessageBox(QMessageBox.Icon.Warning, "Jobs Failed", message, QMessageBox.StandardButton.Ok, self.w)
         if details:  # whole, behind "Show Details": a traceback cut short tells nobody anything
             box.setDetailedText("\n\n".join(details))
@@ -337,7 +366,8 @@ class JobFeedbackController:
         message = summarize(tally)
         self.w.statusBar().showMessage(message, 8000)
         skipped = sum(int(v or 0) for k, v in tally.items() if k != IMPORTED)
-        self.post_notification("Import summary", message, WARNING if skipped else INFO)
+        self.post_notification("Import summary", message, WARNING if skipped else INFO,
+                               open=lambda: self.w.open_or_focus_view(MOLECULES_VIEW_ID))
 
     # -- incremental view refresh while a run inserts rows -------------------------
 

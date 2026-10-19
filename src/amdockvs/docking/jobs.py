@@ -11,10 +11,10 @@ from typing import Any, Iterator, Mapping
 
 from pydantic import BaseModel, Field
 
-from ms_flow.sinks import table_sink
+from ms_flow.sinks import graph_sink, table_sink
 from ms_flow.specs import InputSource
 from amdockvs.core.jobs import JobSpec
-from amdockvs.docking.tasks import dock_pairs
+from amdockvs.docking.tasks import dock_pairs, dock_with_interactions
 
 from amdockvs.core.configuration import DEFAULT_DOCKING_BATCH_SIZE, DEFAULT_LIGAND_BATCH_SIZE
 from amdockvs.core.payloads import payload_store
@@ -53,7 +53,7 @@ from amdockvs.docking.results.repository import (
 )
 from amdockvs.docking.protocols import DockingProtocolMetadata
 from ms_flow.query import db_count
-from amdockvs.models import DockingResultRecord
+from amdockvs.models import DockingResultRecord, InteractionsResult
 
 
 def _transport_docking_chunk(chunk: dict[str, Any]) -> dict[str, Any]:
@@ -214,6 +214,7 @@ class DockingJobParams(BaseModel):
     # everything, which is what a `vs` run wants.
     hit_threshold: float | None = None
     hit_cap: int = Field(default=0, ge=0)
+    interactions: bool = False  # each chunk also finds its poses' interactions (`interaction_results`)
 
 
 class RedockingJobParams(BaseModel):
@@ -300,7 +301,6 @@ def iter_docking_batches(
             "flex_payload_id",
             "grid_engine_payload",
         ),
-        order=("source", "source_index"),
     )
     receptors = [with_input_files(project_db, row, inputs_dir(project_db)) for row in receptor_rows]
     if not receptors:
@@ -666,7 +666,9 @@ class DockingJobSpec(JobSpec):
     params_model = DockingJobParams
     executor = "compute"
     supported_executors = AMDOCKVS_OFFLOADABLE_EXECUTORS
-    output_spec = table_sink(model=DockingResultRecord, write_mode="bulk")
+    # One node per step of `dock_with_interactions`; a pose in both is stored once.
+    output_spec = graph_sink(nodes=({"name": "docking_results", "model": DockingResultRecord},
+                                    {"name": "interaction_results", "model": InteractionsResult}))
     # Batch result rows per flush: flush_every=1 with the sink's >=1 MiB payload budget triggers
     # the framework's "small costly flushes" guardrail. Result rows are tiny and docking is slow
     # per pair, so 25 stays timely while avoiding the tiny-flush amplification.
@@ -675,7 +677,7 @@ class DockingJobSpec(JobSpec):
     required = ()
     produces = ()
 
-    run_chunk = staticmethod(dock_pairs)
+    run_chunk = dock_with_interactions
     finalize = staticmethod(_supersede)
 
     @staticmethod
@@ -701,6 +703,7 @@ class DockingJobSpec(JobSpec):
                     break
             if parsed.hit_threshold is not None:
                 chunk["hit_threshold"] = float(parsed.hit_threshold)
+            chunk["interactions"] = parsed.interactions
             yield _transport_docking_chunk(chunk)
 
 

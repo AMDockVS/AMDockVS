@@ -36,6 +36,13 @@ def test_storage_panel_reads_checks_and_compacts_off_the_gui_thread(tmp_path, mo
         assert not buttons["Compact"].isEnabled()  # one job at a time
         wait("Healthy")
         assert buttons["Compact"].isEnabled()
+        assert "1 leftover" in text.text()  # the seeded structure no row points to
+        buttons["Repair"].click()
+        deadline = time.monotonic() + 10
+        while not buttons["Repair"].isEnabled() and time.monotonic() < deadline:
+            app.processEvents()
+            time.sleep(0.01)
+        assert text.text().endswith("Healthy")
         buttons["Compact"].click()
         assert "volume(s)" in wait("volume(s)")
     finally:

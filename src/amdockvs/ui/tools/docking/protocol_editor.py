@@ -86,6 +86,8 @@ class ProtocolEditorWidget:
         self._sync_protocol_ui()
         self.program_list.currentRowChanged.connect(lambda _row: self._sync_variant_buttons())
         self._check_programs()
+        from amdockvs.ui.shell.settings_tools import tool_events
+        tool_events.installed.connect(self._check_programs)
         return panel
 
     def _build_protocols_box(self, box) -> None:
@@ -641,6 +643,7 @@ class ProtocolEditorWidget:
         run_async(lambda: missing_programs(self.runtime), self._apply_missing_programs, on_error=lambda _exc: None)
 
     def _apply_missing_programs(self, missing: dict[str, str]) -> None:
+        previous = getattr(self, "_missing_programs", None) or {}
         self._missing_programs = dict(missing)
         greyed = self.palette().brush(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text)
         for index, spec in enumerate(list_docking_programs()):
@@ -654,6 +657,12 @@ class ProtocolEditorWidget:
         self.program_list.setFixedWidth(self.program_list.sizeHintForColumn(0) + 32)
         self._sync_variant_buttons()
         self._refresh_program_availability()
+        # Just installed (missing on the last check, there now): the user wants to run it.
+        for key in set(previous) - set(self._missing_programs):
+            check = self._program_checks.get(key)
+            if check is not None and check.isEnabled():
+                check.setChecked(True)
+                self._select_program(key)
 
     def _sync_variant_buttons(self) -> None:
         # Redocking: a variant of a program that cannot run is not one to add to the set.

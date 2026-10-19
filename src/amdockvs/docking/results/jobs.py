@@ -59,7 +59,7 @@ def _with_receptor_files(project_db, rows: list[dict[str, Any]]) -> list[dict[st
         payload_id = (row.get("metrics") or {}).get("receptor_payload_id") or own.get(int(row["receptor_molecule_id"]))
         if payload_id and payload_id not in files:
             files[payload_id] = worker_file(payload_file(project_db, payload_id), cache=True)
-        row["receptor_path"] = files.get(payload_id, "")
+        row["receptor_path"], row["receptor_payload_id"] = files.get(payload_id, ""), payload_id
     return rows
 
 
@@ -72,10 +72,10 @@ def _interaction_result_rows(project_db, params: InteractionJobParams) -> list[d
         score_lte=params.score_lte,
         pose_rank=params.pose_rank,
     )
-    result_ids = [int(row.get("id") or 0) for row in rows if int(row.get("id") or 0) > 0]
-    if params.replace_existing and result_ids:
+    poses = [int(row["pose_payload_id"]) for row in rows if row.get("pose_payload_id")]
+    if params.replace_existing and poses:
         with project_db.get_session() as session:
-            session.exec(delete(InteractionsResult).where(InteractionsResult.docking_result_id.in_(result_ids)))
+            session.exec(delete(InteractionsResult).where(InteractionsResult.pose_payload_id.in_(poses)))
             session.commit()
     return _with_receptor_files(project_db, rows)
 

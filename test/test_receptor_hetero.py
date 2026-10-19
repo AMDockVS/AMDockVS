@@ -34,3 +34,10 @@ def test_waters_and_cofactors_ride_along_when_asked():
 
     assert _resnames(_without_resnames(_BLOCK, both)) == ["ASP", "ZN", "HOH", "HEM"]
     assert _resnames(_without_resnames(_BLOCK, waters_only)) == ["ASP", "ZN", "HOH"]
+
+
+def test_a_metal_meeko_cannot_type_is_left_out_even_when_keeping_everything():
+    excluded = receptor_excluded_resnames(keep_waters=True, keep_cofactors=True)
+    block = _BLOCK.replace("END", "HETATM    5 CD    CD A 701     -20.000 -20.000 -10.000  1.00 20.00          CD\nEND")
+
+    assert _resnames(_without_resnames(block, excluded)) == ["ASP", "ZN", "HOH", "HEM"]

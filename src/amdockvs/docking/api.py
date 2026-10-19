@@ -4,7 +4,7 @@ import contextlib
 from dataclasses import dataclass
 from itertools import batched, islice
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 from uuid import uuid4
 
 from sqlalchemy import exists, or_
@@ -125,6 +125,30 @@ def _engine_fields(resolved: dict[str, Any], knobs: dict[str, Any]) -> dict[str,
     """The flat engine fields of a job: the validated config wins, the call's own knobs fill in
     what the program's config model does not know."""
     return {name: cast(resolved.get(name, knobs[name])) for name, cast in _ENGINE_FIELDS.items()}
+
+
+def _requirements_message(program: str, check: Mapping[str, Any]) -> str:
+    """What blocks a docking run, in words: how many of what, and which ids (a sample)."""
+    counts, missing = dict(check.get("counts") or {}), dict(check.get("missing") or {})
+    lines = []
+    if not counts.get("ligands_total"):
+        lines.append("no ligands in the scope")
+    if not counts.get("receptors_total"):
+        lines.append("no receptors in the scope")
+    # `missing` holds capped samples, so the real numbers come from `counts`.
+    for count, total, what, sample in (
+        ("ligands_missing", "ligands_total", "ligands are not prepared", "ligands_prepared"),
+        ("receptors_missing", "receptors_total", "receptors are not prepared", "receptors_prepared"),
+        ("receptor_grids_missing", "receptors_total", "receptors have no grid box", "receptor_binding_sites"),
+    ):
+        if counts.get(count):
+            ids = ", ".join(str(i) for i in missing.get(sample) or [])
+            more = ", …" if counts[count] > len(missing.get(sample) or []) else ""
+            lines.append(f"{counts[count]} of {counts[total]} {what} (ids {ids}{more})")
+    return (
+        f"Docking with {program} can't start: " + "; ".join(lines) + ". "
+        "Prepare them (the Prep Status tab shows why one failed) or exclude them, and run again."
+    )
 
 
 @dataclass
@@ -978,8 +1002,7 @@ class DockingAPI:
             depends_on: list[str] | None = None,
             check_required: bool = True,
             skip_existing: bool = True,
-            compute_diagram: bool = False,
-            diagram_format: str = "png",
+            compute_interactions: bool = False,
             hit_threshold: float | None = None,
             hit_cap: int = 0,
             hit_mode: str = HIT_MODE_THRESHOLD,
@@ -989,6 +1012,7 @@ class DockingAPI:
 
         ``hit_threshold``/``hit_cap`` are optional for materialized rows and mandatory for a
         sharded library, where returning every scored molecule would defeat the storage model.
+        ``compute_interactions`` finds each pose's interactions in the chunk that docked it.
         """
         if ligands is not None:
             if ligand_set is not None:
@@ -1016,10 +1040,10 @@ class DockingAPI:
                 raise ValueError(
                     "docking.run over a sharded library requires hit_threshold and hit_cap."
                 )
-            if compute_diagram:
+            if compute_interactions:
                 raise ValueError(
-                    "compute_diagram is not available during sharded docking; compute diagrams "
-                    "after hits have been materialized."
+                    "compute_interactions is not available during sharded docking; compute "
+                    "interactions after hits have been materialized."
                 )
             return self.run_shards(
                 program=program,
@@ -1073,14 +1097,7 @@ class DockingAPI:
             receptor_set=receptor_set if is_molecule_scope(receptor_set) else receptor_set_ref,
         )
         if check_required and not bool(requirement_check.get("ready")):
-            missing = dict(requirement_check.get("missing") or {})
-            counts = dict(requirement_check.get("counts") or {})
-            required_jobs = dict(requirement_check.get("required_jobs") or {})
-            # `missing` holds capped samples, so the real numbers come from `counts`.
-            raise RuntimeError(
-                f"docking.run requirements are not satisfied for docking.{program_spec.key}. "
-                f"counts={counts}; missing_sample={missing}; required_jobs={required_jobs}"
-            )
+            raise RuntimeError(_requirements_message(program_spec.key, requirement_check))
         run_counts = dict(requirement_check.get("counts") or {})
         # The docking feed pairs every prepared ligand with every prepared receptor
         # (receptors without a grid still emit a failed-pair chunk), batched by batch_size.
@@ -1133,6 +1150,7 @@ class DockingAPI:
             skip_existing=skip_existing,
             hit_threshold=hit_threshold,
             hit_cap=max(0, int(hit_cap)),
+            interactions=bool(compute_interactions),
         )
         job_id = self.runtime.submit_job(
             docking_job,
@@ -1146,10 +1164,6 @@ class DockingAPI:
             # Declare the real chunk total so progress = processed/total (not processed/emitted).
             total_chunks=total_chunks,
         )
-        if compute_diagram:
-            # A pose's diagram is keyed by its payload id, which exists once the result is stored.
-            self.compute_diagrams(run_id=params.run_id, pose_rank=None, fmt=diagram_format,
-                                  depends_on=[job_id])
         return job_id
 
     def redock(
@@ -1180,8 +1194,6 @@ class DockingAPI:
             depends_on: list[str] | None = None,
             check_required: bool = True,
             skip_existing: bool = True,
-            compute_diagram: bool = False,
-            diagram_format: str = "png",
     ) -> str:
         self.runtime._require_active_project()
         program_spec = self.get_program_spec(program)
@@ -1294,10 +1306,6 @@ class DockingAPI:
             cpu_required=program_spec.resource_requirements(resolved_engine_config)["cpu_required"],
             total_chunks=total_chunks,
         )
-        if compute_diagram:
-            # A pose's diagram is keyed by its payload id, which exists once the result is stored.
-            self.compute_diagrams(run_id=params.run_id, pose_rank=None, fmt=diagram_format,
-                                  depends_on=[job_id])
         return job_id
 
     def list_results(self, *, limit: int = 5000, offset: int = 0):

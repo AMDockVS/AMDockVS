@@ -433,7 +433,6 @@ def receptor_targets(project_db, parsed: DockShardsJobParams, output_dir: Path) 
             "id", "name", "stored_payload_id", "current_payload_id", "metadata_json",
             "prepared_payload_id", "flex_payload_id", "grid_engine_payload",
         ),
-        order=("source", "source_index"),
     )
     targets: list[dict[str, Any]] = []
     for row in rows:

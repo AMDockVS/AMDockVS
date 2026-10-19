@@ -148,7 +148,8 @@ def test_submission_service_dispatches_only_through_runtime_docking():
     result = DockingSubmissionService(runtime).submit(request, ready_receptor_ids=(10,))
 
     assert result.job_ids == {f"1:Vina:{protocol.hash[:8]}": "job-1"}
-    assert result.interaction_job_id == "interactions-1"
+    assert result.interaction_job_id == ""  # found inside the docking chunks
+    assert runtime.docking.run_calls[0]["compute_interactions"] is True
     assert result.receptor_ids == (10,)
     assert runtime.docking.run_calls[0]["ligand_set"][1] == {
         "prepared": True,
@@ -192,6 +193,7 @@ def test_a_program_that_is_not_installed_stays_listed_and_cannot_be_run(monkeypa
     assert "QuickVina 2" in rows()
     assert studio._program_checks["qvina"].isEnabled()
     assert studio._program_notices["qvina"][1].isHidden()
+    assert "qvina" in ticked() and studio._current_program_key() == "qvina"  # and left active
 
 
 def test_redocking_readiness_counts_distinct_receptors_and_keeps_picked_pairs_whole():

@@ -10,6 +10,25 @@ from amdockvs.ui.resources.icons import icon as load_icon
 from ms_components.ms_dockwidget.widget import Region
 
 
+class _CurrentPageStack(QStackedWidget):
+    """A QStackedWidget sizes to its largest page: Diversity's 728 px kept Build from shrinking.
+
+    Only the page on show counts, so each tool can be narrowed to its own minimum.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.currentChanged.connect(self.updateGeometry)
+
+    def sizeHint(self):
+        page = self.currentWidget()
+        return page.sizeHint() if page is not None else super().sizeHint()
+
+    def minimumSizeHint(self):
+        page = self.currentWidget()
+        return page.minimumSizeHint() if page is not None else super().minimumSizeHint()
+
+
 class ToolCoordinator:
     def __init__(self, window):
         self.w = window
@@ -18,7 +37,7 @@ class ToolCoordinator:
         # one is found on the step and with the settings it was left with. The stack is the
         # dock's only widget; a hidden page still gets hideEvent/showEvent, which is what the
         # tools use to release and re-take the catalog tables they borrow.
-        self.stack = QStackedWidget()
+        self.stack = _CurrentPageStack()
         self.widgets: dict[str, QWidget] = {}
         self.action_buttons: dict[str, object] = {}
 

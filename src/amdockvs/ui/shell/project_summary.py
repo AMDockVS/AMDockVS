@@ -44,8 +44,9 @@ def _count_box(label: str, value: Optional[int]) -> QFrame:
 
 
 def _storage_section(dlg: QDialog, runtime) -> QVBoxLayout:
-    """Size and dead bytes of the structure volumes, with Check (reads every structure) and
-    Compact (reclaims the dead bytes). All of it runs off the GUI thread."""
+    """Size and dead bytes of the structure volumes, with Check (reads every structure), Repair
+    (clears the leftovers a check finds) and Compact (reclaims the dead bytes). All of it runs off
+    the GUI thread."""
     store = payload_store(runtime)
     layout = QVBoxLayout()
     layout.addWidget(QLabel("Structure storage"))
@@ -53,8 +54,10 @@ def _storage_section(dlg: QDialog, runtime) -> QVBoxLayout:
     text.setStyleSheet("color:palette(mid);")
     layout.addWidget(text)
     row = QHBoxLayout()
-    check, compact = QPushButton("Check"), QPushButton("Compact")
-    for button in (check, compact):
+    check, repair, compact = QPushButton("Check"), QPushButton("Repair"), QPushButton("Compact")
+    repair.setToolTip("Delete structures no row points to any more, empty volumes and orphan files. Not while jobs run.")
+    buttons = (check, repair, compact)
+    for button in buttons:
         row.addWidget(button)
     row.addStretch(1)
     layout.addLayout(row)
@@ -63,27 +66,32 @@ def _storage_section(dlg: QDialog, runtime) -> QVBoxLayout:
 
     def run(work, note: str) -> None:
         text.setText(note)
-        check.setEnabled(False)
-        compact.setEnabled(False)
+        for button in buttons:
+            button.setEnabled(False)
         run_async(work, show, on_error=fail)
 
     def show(stats) -> None:
         if open_[0]:
             text.setText(stats.summary())
-            check.setEnabled(True)
-            compact.setEnabled(True)
+            for button in buttons:
+                button.setEnabled(True)
 
     def fail(exc) -> None:
         if open_[0]:
             text.setText(f"Storage error: {exc}")
-            check.setEnabled(True)
-            compact.setEnabled(True)
+            for button in buttons:
+                button.setEnabled(True)
 
     def compacted() -> object:
         compact_storage(store)
         return storage_stats(store)
 
+    def repaired() -> object:
+        runtime.repair_storage()
+        return storage_stats(store)
+
     check.clicked.connect(lambda: run(lambda: storage_stats(store, full=True), "Checking every structure…"))
+    repair.clicked.connect(lambda: run(repaired, "Repairing…"))
     compact.clicked.connect(lambda: run(compacted, "Compacting…"))
     run(lambda: storage_stats(store), "Reading…")
     return layout

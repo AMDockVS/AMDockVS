@@ -77,9 +77,26 @@ def test_a_ligand_is_prepared_from_its_bytes_and_a_pdbqt_is_not_copied():
         {"id": 2, "structure": b"REMARK\n", "structure_kind": "pdbqt", "structure_payload_id": 20},
         {"id": 3, "structure": None, "structure_kind": "", "structure_payload_id": None},
     ]
-    states = {row["molecule_id"]: row for row in prepare_entities({"entity_kind": "ligand", "rows": rows})}
+    out = prepare_entities({"entity_kind": "ligand", "rows": rows})
+    states = {row["molecule_id"]: row for row in out["engines"]}
 
     assert states[1]["is_ready"] and states[1]["prepared_payload_id"].kind == "pdbqt"
     assert b"ROOT" in states[1]["prepared_payload_id"].data
     assert states[2]["prepared_payload_id"] == 20  # already the engine's format: the same payload
     assert not states[3]["is_ready"] and "no structure" in states[3]["files"]["error"]
+    # the one that failed is excluded with the engine and the error, so docking runs without it
+    [failed] = out["molecule_failures"]
+    assert failed["id"] == 3 and failed["excluded"]
+    assert failed["exclusion_reason"].startswith("Docking preparation (ad4):") and "no structure" in failed["exclusion_reason"]
+
+
+def test_a_blocked_docking_says_how_many_of_what_and_which():
+    from amdockvs.docking.api import _requirements_message
+
+    message = _requirements_message("qvina", {
+        "counts": {"ligands_total": 4083, "ligands_missing": 3, "receptors_total": 1, "receptors_missing": 0,
+                   "receptor_grids_missing": 0},
+        "missing": {"ligands_prepared": [1454, 1518, 3320], "receptors_prepared": [], "receptor_binding_sites": []},
+    })
+    assert message.startswith("Docking with qvina can't start: 3 of 4083 ligands are not prepared (ids 1454, 1518, 3320)")
+    assert "receptor" not in message.split(".")[0]

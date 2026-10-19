@@ -121,3 +121,45 @@ def test_grid_box_receptor_row_exposes_legend(grid_box_widget):
     assert "Unsaved working box" in tooltip
     assert "Colored name" in tooltip
     assert "Active docking site" in tooltip
+
+
+def test_grid_box_actions_fit_one_row_and_save_without_a_site_saves_as_new(grid_box_widget, monkeypatch):
+    """New ▾, Save ▾ and Set Active replace the old eight buttons; the variants live in the menus."""
+    widget = grid_box_widget
+    assert [a.text() for a in widget.new_button.menu().actions()] == [
+        "From active site", "From ligand", "From selection…"]
+    assert [a.text() for a in widget.save_button.menu().actions()] == ["Save as new…"]
+    saved_as_new = []
+    monkeypatch.setattr(widget, "_save_new_site", lambda: saved_as_new.append(True))
+    widget.site_tree.clearSelection()
+    widget.site_tree.setCurrentItem(None)
+    widget._working.source_site_id = None
+    assert widget.save_button.isEnabled()
+    widget.save_button.click()
+    assert saved_as_new == [True]
+
+
+def test_set_active_is_off_for_the_site_that_is_already_active(grid_box_widget):
+    widget = grid_box_widget
+    item = lambda site_id: next(widget.site_tree.topLevelItem(r) for r in range(widget.site_tree.topLevelItemCount())
+                                if widget.site_tree.topLevelItem(r).data(0, Qt.UserRole) == ("site", site_id))
+    widget.site_tree.setCurrentItem(item(2))  # the active one
+    assert not widget.activate_button.isEnabled()
+    widget.site_tree.setCurrentItem(item(1))
+    assert widget.activate_button.isEnabled()
+
+
+def test_a_new_working_box_can_be_discarded_back_to_the_active_site(grid_box_widget):
+    from PySide6.QtTest import QTest
+
+    widget = grid_box_widget
+    rows = lambda: [widget.site_tree.topLevelItem(r).data(0, Qt.UserRole) for r in range(widget.site_tree.topLevelItemCount())]
+    widget._new_working_box()
+    assert ("working", None) in rows()
+    widget.show()
+    widget.activateWindow()
+    widget.site_tree.setFocus()
+    QTest.qWaitForWindowActive(widget)
+    QTest.keyClick(widget.site_tree, Qt.Key.Key_Delete)
+    assert ("working", None) not in rows() and not widget._working.dirty
+    assert (widget.cx.value(), widget.cy.value(), widget.cz.value()) == (4.0, 5.0, 6.0)  # the active site again

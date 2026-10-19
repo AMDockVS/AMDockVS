@@ -31,9 +31,9 @@ classifiers = [
 dependencies = [
     # MolSuite stack
     "ms_env>=0.2.0",
-    "ms_flow>=0.3.0",
-    "ms_components>=0.2.0",
-    "ms_contactmap>=0.2.0",
+    "ms_flow>=0.4.0",
+    "ms_components>=0.3.0",
+    "ms_contactmap>=0.3.0",
     # Chemistry / structure
     "rdkit>=2025.3.5",
     # 2.1 is the first release whose metadata allows rdkit 2026.x; older ones downgrade it.

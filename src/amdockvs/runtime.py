@@ -14,6 +14,7 @@ from amdockvs.core.constants import (
     AMDOCKVS_SCOPE_ID,
     RESOURCE_DOCKING_RESULTS,
     RESOURCE_QSAR_MODELS,
+    TABLE_INTERACTION_RESULTS,
     TABLE_MOLECULES,
 )
 from amdockvs.manifest import AMDOCKVS_PROJECT_RESOURCES
@@ -323,6 +324,7 @@ class AMDockVSRuntime(AppRuntime):
                 "This version stores them inside the project and cannot open it: import its "
                 "molecules into a new project."
             )
+        self._rekey_interactions()
         # Built once per project: a feed asks the runtime where the ligands are, it does not ask
         # the mode — there is no mode to ask.
         self._ligand_store = DbStore(self.workspace.project_db)
@@ -331,6 +333,21 @@ class AMDockVSRuntime(AppRuntime):
             if hasattr(configuration, "set_project_root"):
                 configuration.set_project_root(context.path)
         self._migrate_legacy_app_settings(self.amdock_configuration)
+
+    def _rekey_interactions(self) -> None:
+        """`interaction_results` keyed by docking result (before 2026-10) is dropped and made again
+        keyed by structures: rows computed from poses, computed again when asked for."""
+        from amdockvs.models import InteractionsResult
+
+        db = self.workspace.project_db
+        with db.get_session() as session:
+            conn = session.connection()
+            columns = conn.exec_driver_sql(f"PRAGMA table_info({TABLE_INTERACTION_RESULTS});").fetchall()
+            if "docking_result_id" not in {str(row[1]) for row in columns}:
+                return
+            conn.exec_driver_sql(f"DROP TABLE {TABLE_INTERACTION_RESULTS}")
+            session.commit()
+        InteractionsResult.__table__.create(db.engine)
 
     def close_project(self):
         super().close_project()
@@ -347,12 +364,21 @@ class AMDockVSRuntime(AppRuntime):
         return check_storage(self.workspace.project_db)
 
     def compact_storage_if_due(self) -> dict | None:
-        """Compact the payload volumes that are mostly dead bytes once no job is active; the stats,
-        or None when nothing was due."""
+        """Once no job is active, release the structures no row uses and compact the payload volumes
+        that are mostly dead bytes; the stats, or None when nothing was due."""
         from amdockvs.project.storage import compact_if_idle
 
         self._require_active_project()
         return compact_if_idle(
+            self.workspace.project_db, busy=bool(self.list_jobs(statuses=NON_TERMINAL_JOB_STATUSES))
+        )
+
+    def repair_storage(self):
+        """Clear the payload volumes' leftovers (see `check_storage`); refused while a job is active."""
+        from amdockvs.project.storage import repair_if_idle
+
+        self._require_active_project()
+        return repair_if_idle(
             self.workspace.project_db, busy=bool(self.list_jobs(statuses=NON_TERMINAL_JOB_STATUSES))
         )
 
