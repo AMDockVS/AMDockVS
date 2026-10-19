@@ -516,6 +516,10 @@ class MolecularViewerController:
             except Exception:
                 _log.exception("PyMOL could not show %s", object_name)
                 return
+            # delete("all") above wiped the box: a receptor brings its active site back with it.
+            active_id = int(getattr(molecule, "active_binding_site_id", 0) or 0)
+            if bool(getattr(molecule, "is_receptor", False)) and active_id and getattr(self.w, "grid_dock", None):
+                self.w.grid_dock.focus_binding_site(molecule, site_id=active_id, ensure_selected=True)
             if then is not None:
                 then(molecule)
 
