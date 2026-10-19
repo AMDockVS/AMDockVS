@@ -31,7 +31,7 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QToolButton,
     QVBoxLayout,
-    QWidget,
+    QWidget, QHeaderView,
 )
 
 from amdockvs.docking.results.tables import (
@@ -329,7 +329,7 @@ class DockingResultsWidget(QWidget):
         # Interactions and the 2D diagram are one pass over the same pose, and the pose is what
         # this panel owns (C6) -- so the button is here, not in the diagram dock, which stays a
         # pure renderer of the saved JSON.
-        self.interactions_box = QGroupBox("Interactions", box)
+        self.interactions_box = QGroupBox("Interactions", results_container)
         interactions_layout = QVBoxLayout(self.interactions_box)
         header = QHBoxLayout()
         self.interactions_status = QLabel("Select a pose to load interactions.", self.interactions_box)
@@ -351,13 +351,15 @@ class DockingResultsWidget(QWidget):
         self.interactions_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.interactions_table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.interactions_table.verticalHeader().setVisible(False)
-        self.interactions_table.horizontalHeader().setStretchLastSection(True)
+        # self.interactions_table.horizontalHeader().(True)
+        hheader = self.interactions_table.horizontalHeader()
+        for col in range(self.interactions_table.columnCount()):
+            hheader.setSectionResizeMode(col, QHeaderView.ResizeMode.Stretch)
+
         self.interactions_table.setMinimumHeight(90)
-        self.interactions_table.setMaximumHeight(180)
         self.interactions_table.itemSelectionChanged.connect(self._on_interaction_picked)
         interactions_layout.addWidget(self.interactions_table)
         layout.addWidget(self.interactions_box, 1)
-        # layout.addStretch(1)
         return results_container
 
     def _build_analytics_panel(self, parent: QWidget) -> QWidget:
@@ -970,7 +972,6 @@ class DockingResultsWidget(QWidget):
             table.setItem(index, 0, kind)
             table.setItem(index, 1, QTableWidgetItem(row.residue))
             table.setItem(index, 2, QTableWidgetItem(fmt_float(row.distance)))
-        table.resizeColumnsToContents()
         summary = ", ".join(f"{key}: {value}" for key, value in sorted(counts.items()))
         self.interactions_status.setText(f"{len(rows)} interaction(s): {summary}")
 
