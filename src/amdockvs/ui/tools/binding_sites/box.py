@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from PySide6.QtCore import Qt, Signal, QSize
-from PySide6.QtGui import QColor, QBrush, QIcon, QPainter, QPixmap
+from PySide6.QtGui import QColor, QBrush, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -161,6 +161,11 @@ class GridBoxSettingDockWidget(QWidget):
         self.site_tree.itemSelectionChanged.connect(self._on_tree_selection_changed)
         self.site_tree.currentItemChanged.connect(self._on_current_item_changed)
         self.site_tree.setMinimumHeight(60)
+        # The unsaved working box goes away with Delete or the row's context menu.
+        self.site_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.site_tree.customContextMenuRequested.connect(self._show_tree_menu)
+        discard = QShortcut(QKeySequence.StandardKey.Delete, self.site_tree, self._discard_working_box)
+        discard.setContext(Qt.ShortcutContext.WidgetShortcut)
         layout.addWidget(self.site_tree, 1)
 
         self.show_working_box = QCheckBox("Show working box", self)
@@ -738,6 +743,28 @@ class GridBoxSettingDockWidget(QWidget):
         if select_if_created:
             self.site_tree.setCurrentItem(working_item)
             working_item.setSelected(True)
+
+    def _show_tree_menu(self, pos) -> None:
+        item = self.site_tree.itemAt(pos)
+        if item is None or item.data(0, Qt.UserRole) != ("working", None):
+            return
+        menu = QMenu(self.site_tree)
+        menu.addAction("Discard working box", self._discard_working_box)
+        menu.exec(self.site_tree.viewport().mapToGlobal(pos))
+
+    def _discard_working_box(self) -> None:
+        """Drop the unsaved box and go back to the active site, as if it had never been made."""
+        if not self._working.dirty:
+            return
+        self._working = GridBoxState()
+        self._remove_working_item()
+        active_id = int(getattr(self._current_molecule, "active_binding_site_id", 0) or 0)
+        if active_id:
+            self.focus_binding_site(self._current_molecule, site_id=active_id, ensure_selected=True)
+        else:
+            self._sync_editor_from_working()
+            self._sync_enabled_state()
+            self._refresh_preview(force=True)
 
     def _remove_working_item(self) -> None:
         for row in range(self.site_tree.topLevelItemCount() - 1, -1, -1):

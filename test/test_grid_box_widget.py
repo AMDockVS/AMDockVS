@@ -147,3 +147,19 @@ def test_set_active_is_off_for_the_site_that_is_already_active(grid_box_widget):
     assert not widget.activate_button.isEnabled()
     widget.site_tree.setCurrentItem(item(1))
     assert widget.activate_button.isEnabled()
+
+
+def test_a_new_working_box_can_be_discarded_back_to_the_active_site(grid_box_widget):
+    from PySide6.QtTest import QTest
+
+    widget = grid_box_widget
+    rows = lambda: [widget.site_tree.topLevelItem(r).data(0, Qt.UserRole) for r in range(widget.site_tree.topLevelItemCount())]
+    widget._new_working_box()
+    assert ("working", None) in rows()
+    widget.show()
+    widget.activateWindow()
+    widget.site_tree.setFocus()
+    QTest.qWaitForWindowActive(widget)
+    QTest.keyClick(widget.site_tree, Qt.Key.Key_Delete)
+    assert ("working", None) not in rows() and not widget._working.dirty
+    assert (widget.cx.value(), widget.cy.value(), widget.cz.value()) == (4.0, 5.0, 6.0)  # the active site again
