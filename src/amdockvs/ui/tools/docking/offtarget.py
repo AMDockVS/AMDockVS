@@ -14,7 +14,6 @@ the difference); off-target columns use each receptor's best pose.
 from __future__ import annotations
 
 import logging
-from typing import Callable
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
@@ -32,13 +31,13 @@ from PySide6.QtWidgets import (
 )
 
 from amdockvs.core.payloads import payload_store
-from amdockvs.project.summaries import DockingHitSummary
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.tools.pymol_ribbon import (
     apply_ligand_atom_coloring,
     apply_receptor_atom_coloring,
     fetch_structures,
     load_structure,
+    replace_comparison_structure,
     set_pymol_scene_context,
 )
 from amdockvs.ui.view_ids import OFFTARGET_VIEW_ID
@@ -54,13 +53,14 @@ _METRICS = (("Affinity (kcal/mol)", "score"), ("Ligand efficiency", "ligand_effi
 class OffTargetResultsWidget(QWidget):
     data_refreshed = Signal(bool)
 
-    def __init__(self, *, runtime, load_hit_in_pymol: Callable[[DockingHitSummary, int], None] | None = None, parent=None):
+    def __init__(self, *, runtime, parent=None):
         super().__init__(parent)
         self.runtime = runtime
-        self._load_hit_in_pymol = load_hit_in_pymol
         self._receptors: list[tuple[int, str]] = []  # (id, name), best-score first
         self._columns: list[tuple[int, str]] = []     # reference first, then off-targets
         self._row_state: dict[int, dict] = {}
+        self._grid_ligand_id: int | None = None
+        self._grid_request = 0
         self._token = 0
         self._data_signature = None
 
@@ -315,9 +315,30 @@ class OffTargetResultsWidget(QWidget):
             self.difference_table.setItem(r, col, item)
 
     # --- interaction ----------------------------------------------------------
+    def hideEvent(self, event) -> None:
+        if not event.spontaneous():
+            self._grid_request += 1
+            cmd, dock = self._pymol()
+            context = getattr(dock, "scene_context", None)
+            if self._grid_ligand_id is not None and context is not None and context.is_comparison:
+                dock.set_scene_context("generic")
+            self._grid_ligand_id = None
+        super().hideEvent(event)
+
     def _on_pose_changed(self, r: int, receptor_id: int) -> None:
         self._render_difference_row(r)
-        self._load_pose(r, receptor_id, self._selected_pose(r, receptor_id))
+        pose = self._selected_pose(r, receptor_id)
+        cmd, dock = self._pymol()
+        if pose is None or cmd is None:
+            return
+        context = getattr(dock, "scene_context", None)
+        objects = cmd.get_names("objects")
+        if (context is not None and context.is_comparison
+                and self._grid_ligand_id == self._row_state[r]["ligand_id"]
+                and f"rec_{receptor_id}" in objects and f"lig_{receptor_id}" in objects):
+            self._replace_grid_pose(dock, r, receptor_id, pose)
+        else:
+            self._show_ligand_grid(r)
 
     def _on_selector_clicked(self, row: int, col: int) -> None:
         # Clicking the ligand name shows every receptor + its selected pose in a PyMOL grid.
@@ -336,33 +357,47 @@ class OffTargetResultsWidget(QWidget):
         if cmd is None:
             return
         ref_id = self._columns[0][0]
-        poses = {rid: self._selected_pose(r, rid) for rid, _name in self._columns}
         wanted = {}
-        for rid, pose in poses.items():
+        complex_names = {}
+        ligand_id = self._row_state[r]["ligand_id"]
+        ligand_name = self._row_state[r]["ligand_name"]
+        for rid, receptor_name in self._columns:
+            pose = self._selected_pose(r, rid)
             if pose is not None and pose.get("receptor_payload_id") and pose.get("pose_payload_id"):
                 wanted[f"rec_{rid}"] = int(pose["receptor_payload_id"])
                 wanted[f"lig_{rid}"] = int(pose["pose_payload_id"])
+                complex_names[rid] = f"{receptor_name}-{ligand_name}[P{pose.get('pose_rank') or 1}]"
         store = payload_store(self.runtime)
+        self._grid_request += 1
+        request = self._grid_request
+
+        def draw(found: dict) -> None:
+            if request == self._grid_request:
+                self._draw_ligand_grid(cmd, dock, ref_id, found, complex_names, ligand_id)
+
         run_async(
             lambda: fetch_structures(store, wanted) if wanted else {},
-            lambda found: self._draw_ligand_grid(cmd, dock, ref_id, found),
+            draw,
             lambda error: _log.warning("Could not read the poses for the PyMOL grid: %s", error),
         )
 
-    def _draw_ligand_grid(self, cmd, dock, ref_id: int, found: dict) -> None:
+    def _draw_ligand_grid(
+        self, cmd, dock, ref_id: int, found: dict, complex_names: dict[int, str], ligand_id: int,
+    ) -> None:
         try:
             dock.show()
             cmd.delete("all")
-            cmd.set("grid_mode", 1)
             ref_receptor_obj = None
             loaded_receptor_objs: list[str] = []
             loaded_ligand_objs: list[str] = []
+            grid_labels = {}
             slot = 0
-            for rid, _name in self._columns:
+            for rid, complex_name in complex_names.items():
                 rec_obj, lig_obj = f"rec_{rid}", f"lig_{rid}"
-                if rec_obj not in found:
+                if rec_obj not in found or lig_obj not in found:
                     continue
                 slot += 1
+                grid_labels[slot] = complex_name
                 load_structure(cmd, found[rec_obj], rec_obj)
                 load_structure(cmd, found[lig_obj], lig_obj)
                 loaded_receptor_objs.append(rec_obj)
@@ -379,7 +414,7 @@ class OffTargetResultsWidget(QWidget):
                 if rid == ref_id:
                     ref_receptor_obj = rec_obj
             if self.align_check.isChecked() and ref_receptor_obj is not None:
-                for rid, _name in self._columns:
+                for rid in complex_names:
                     if rid == ref_id:
                         continue
                     rec_obj, lig_obj = f"rec_{rid}", f"lig_{rid}"
@@ -391,40 +426,46 @@ class OffTargetResultsWidget(QWidget):
             cmd.zoom("all")
             set_pymol_scene_context(
                 dock,
-                "offtarget",
+                "comparison",
                 target="all",
                 selections={
                     "receptor": " or ".join(loaded_receptor_objs),
                     "ligand": " or ".join(loaded_ligand_objs),
                 },
                 default_preset="amdockvs.complex",
+                grid_labels=grid_labels,
             )
+            self._grid_ligand_id = ligand_id
         except Exception:
             return
 
-    def _load_pose(self, r: int, receptor_id: int, pose: dict | None) -> None:
-        if self._load_hit_in_pymol is None or pose is None:
+    def _replace_grid_pose(self, dock, r: int, receptor_id: int, pose: dict) -> None:
+        payload_id = pose.get("pose_payload_id")
+        if not payload_id:
             return
-        # leaving grid mode on would tile a single pose into one slot — turn it off first
-        cmd, _dock = self._pymol()
-        if cmd is not None:
-            try:
-                cmd.set("grid_mode", 0)
-            except Exception:
-                pass
-        hit = DockingHitSummary(
-            result_id=0,
-            ligand_id=self._row_state[r]["ligand_id"],
-            ligand_name=self._row_state[r]["ligand_name"],
-            receptor_id=int(receptor_id),
-            receptor_name=dict(self._columns).get(receptor_id, ""),
-            score=float(pose.get("score") or 0.0),
-            pose_payload_id=pose.get("pose_payload_id"),
-            ligand_payload_id=pose.get("ligand_payload_id"),
-            receptor_payload_id=pose.get("receptor_payload_id"),
-        ).of_project(self.runtime)
-        self._load_hit_in_pymol(hit, int(pose.get("pose_rank") or 1))
+        ligand_id = self._row_state[r]["ligand_id"]
+        receptor_name = dict(self._columns)[receptor_id]
+        title = f"{receptor_name}-{self._row_state[r]['ligand_name']}[P{pose.get('pose_rank') or 1}]"
+        rec_obj, lig_obj = f"rec_{receptor_id}", f"lig_{receptor_id}"
+        store = payload_store(self.runtime)
 
+        def draw(found: dict) -> None:
+            if self._grid_ligand_id != ligand_id or self._row_state.get(r, {}).get("ligand_id") != ligand_id:
+                return
+            selected = self._selected_pose(r, receptor_id)
+            context = dock.scene_context
+            if (selected is None or selected.get("pose_payload_id") != payload_id
+                    or selected.get("pose_rank") != pose.get("pose_rank")
+                    or not context.is_comparison):
+                return
+            if lig_obj in found:
+                replace_comparison_structure(dock, found[lig_obj], lig_obj, reference=rec_obj, label=title)
+
+        run_async(
+            lambda: fetch_structures(store, {lig_obj: int(payload_id)}),
+            draw,
+            lambda error: _log.warning("Could not read the replacement pose for the PyMOL grid: %s", error),
+        )
 
 def register_offtarget_workspace(window) -> None:
     window.register_main_view(
@@ -432,7 +473,6 @@ def register_offtarget_workspace(window) -> None:
         "Off-target",
         lambda: OffTargetResultsWidget(
             runtime=window.runtime,
-            load_hit_in_pymol=getattr(window, "load_hit_in_pymol", None),
             parent=window.central_widget,
         ),
     )

@@ -238,6 +238,7 @@ class ResultsPivotWidget(QWidget):
         # picked and never for a project that only ever looks at hits.
         if key == _OFFTARGET:
             from amdockvs.ui.tools.docking.offtarget import OffTargetResultsWidget as cls
+            return cls(runtime=self.runtime, parent=self.stack)
         elif key == _REDOCKING:
             from amdockvs.ui.tools.docking.redocking import RedockingWidget as cls
         else:
