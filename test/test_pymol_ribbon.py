@@ -207,6 +207,7 @@ def test_pymol_scene_context_and_binding_site_preset():
                     "centers": "pocket_centers",
                 },
                 "default_preset": "amdockvs.binding_points",
+                "grid_labels": None,
             },
         )
 

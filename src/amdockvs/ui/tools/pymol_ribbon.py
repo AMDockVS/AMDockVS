@@ -9,21 +9,10 @@ from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import QFileDialog, QMessageBox
 
 from amdockvs.ui.resources.icons import icon as load_icon
-from ms_components.ms_pymol import PymolPresetSpec, PymolSceneContext
+from ms_components.ms_pymol import COMPARISON_COLORS, PymolPresetSpec, PymolSceneContext
 
 RECEPTOR_CARBON_COLOR = "slate"
-LIGAND_CARBON_COLORS = (
-    "orange",
-    "tv_green",
-    "cyan",
-    "magenta",
-    "yellow",
-    "salmon",
-    "violet",
-    "lime",
-    "deepteal",
-    "hotpink",
-)
+LIGAND_CARBON_COLORS = COMPARISON_COLORS
 HETEROATOM_COLORS = {
     "O": "red",
     "N": "blue",
@@ -72,7 +61,7 @@ PYMOL_EXTRA_PRESETS = (
 
 # Contexts where a docking box / pocket is defined and shown — the surface presets apply here.
 _SURFACE_PRESET_CONTEXTS = frozenset(
-    {"receptor", "complex", "binding_site", "docking_pose", "redocking", "offtarget"}
+    {"receptor", "complex", "binding_site", "docking_pose", "redocking", "offtarget", "comparison"}
 )
 
 
@@ -92,6 +81,12 @@ def load_structure(cmd, structure: tuple, name: str) -> None:
     """Put a stored structure `(bytes, kind)` on the PyMOL canvas straight from its bytes."""
     data, kind = structure
     cmd.load_raw(data, _PYMOL_FORMATS.get(kind, kind), name)
+
+
+def replace_comparison_structure(dock, structure: tuple, name: str, *, reference: str, label: str) -> bool:
+    data, kind = structure
+    return dock.replace_comparison_object(name, data, _PYMOL_FORMATS.get(kind, kind),
+                                          reference=reference, label=label)
 
 
 def _pymol_cmd(window):
@@ -216,6 +211,7 @@ def set_pymol_scene_context(
     selections: dict[str, str] | None = None,
     default_preset: str = "",
     restore_view: bool = True,
+    grid_labels: dict[int, str] | None = None,
 ) -> None:
     """`restore_view=False` keeps the camera the caller just set (an oriented catalog row);
     the molecule's remembered style still applies."""
@@ -226,6 +222,7 @@ def set_pymol_scene_context(
             target=target,
             selections=selections,
             default_preset=default_preset,
+            grid_labels=grid_labels,
         )
     _apply_scene_memory(dock, kind, target, selections, restore_view=restore_view)
 
@@ -437,7 +434,7 @@ def install_amdock_pymol_presets(window) -> None:
             key="amdockvs.complex",
             label="AMDock · Protein–ligand",
             callback=_amdock_complex_preset,
-            contexts=frozenset({"complex", "docking_pose", "redocking", "offtarget"}),
+            contexts=frozenset({"complex", "docking_pose", "redocking", "offtarget", "comparison"}),
             tooltip="Protein cartoon with ligand or docking pose as sticks.",
         ),
         PymolPresetSpec(
