@@ -21,6 +21,13 @@ Start the GUI:
 amdockvs
 ```
 
+Before opening the interface, AMDockVS checks desktop OpenGL and legacy shader
+support in a separate process. It keeps Qt's native platform when compatible.
+On Linux, it automatically selects `xcb` only if the native check fails and an
+X11 display passes the check. An explicit `QT_QPA_PLATFORM` is respected;
+Windows and macOS keep their native backends. Headless runs with
+`QT_QPA_PLATFORM=offscreen` or `AMDOCK_DISABLE_PYMOL=1` skip this check.
+
 ### Optional extras
 
 ```bash
