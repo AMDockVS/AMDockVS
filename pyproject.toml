@@ -32,7 +32,7 @@ dependencies = [
     # MolSuite stack
     "ms_env>=0.2.0",
     "ms_flow>=0.4.0",
-    "ms_components>=0.3.0",
+    "ms_components>=0.3.1",
     "ms_contactmap>=0.3.0",
     # Chemistry / structure
     "rdkit>=2025.3.5",
