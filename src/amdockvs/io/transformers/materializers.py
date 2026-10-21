@@ -12,6 +12,7 @@ from typing import Any, Callable
 from uuid import uuid4
 
 from amdockvs.chemistry.state import molecule_state_metadata
+from amdockvs.io._common import normalize_kind
 from amdockvs.io.parsers import count_import_records, read_record_span
 from amdockvs.io.payloads import ImportBatchPayload, MultithreadedSDFImportPayload
 from amdockvs.core.vocab import (
@@ -70,7 +71,9 @@ def materialize_import_batch(
     else:
         records = batch.records if batch.records else batch.entries
     tally: dict[str, int] = {}
-    if batch.input_format == FileFormat.SDF:
+    # A ligand mol2 is a library parsed record by record; a receptor mol2 is one structure.
+    mol2_library = batch.input_format == FileFormat.MOL2 and normalize_kind(batch.kind) in {"ligand", "molecule"}
+    if batch.input_format == FileFormat.SDF or mol2_library:
         rows = list(_materialize_sdf_rows(batch=batch, entries=records, progress_cb=progress_cb, tally=tally))
     elif batch.input_format == FileFormat.SMILES:
         rows = list(_materialize_smiles_rows(batch=batch, entries=records, progress_cb=progress_cb, tally=tally))

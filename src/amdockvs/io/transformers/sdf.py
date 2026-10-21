@@ -5,6 +5,7 @@ import io
 from typing import Any, Callable, Iterable
 
 from amdockvs.chemistry.state import molecule_state_metadata
+from amdockvs.io.formats import mol_from_mol2_block
 from amdockvs.io.payloads import ImportBatchPayload
 from amdockvs.core.vocab import FileFormat, MoleculeType
 from amdockvs.io.import_stats import FILTERED_PREFILTER, IMPORTED, UNREADABLE, bump
@@ -39,8 +40,11 @@ def _materialize_sdf_rows(
         source_index = int(entry.get("source_index") or 0)
         raw = entry.get("raw")
         if raw is not None:
-            # Worker-side parse of the raw SDF record (the feed only sliced text).
-            mol = next(iter(Chem.ForwardSDMolSupplier(io.BytesIO(str(raw).encode()), sanitize=True, removeHs=False)), None)
+            # Worker-side parse of the raw SDF/mol2 record (the feed only sliced text).
+            if batch.input_format == FileFormat.MOL2:
+                mol = mol_from_mol2_block(str(raw))
+            else:
+                mol = next(iter(Chem.ForwardSDMolSupplier(io.BytesIO(str(raw).encode()), sanitize=True, removeHs=False)), None)
             if mol is None:
                 bump(tally, UNREADABLE)
                 _progress_update(progress_cb, index, total_entries)

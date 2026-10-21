@@ -119,6 +119,12 @@ def read_mols(path: str | Path, *, sanitize: bool = True, remove_hs: bool = Fals
             if mol is not None:
                 yield mol
         return
+    if normalized_suffix(source) == ".mol2":
+        for block in _mol2_blocks(source):
+            mol = mol_from_mol2_block(block, sanitize=sanitize, remove_hs=remove_hs)
+            if mol is not None:
+                yield mol
+        return
     mol = read_mol(source, sanitize=sanitize, remove_hs=remove_hs)
     if mol is not None:
         yield mol
@@ -144,9 +150,43 @@ def _read_mol_block(path: Path, *, sanitize: bool, remove_hs: bool, index: int, 
 
 
 def _read_mol2(path: Path, *, sanitize: bool, remove_hs: bool, index: int, resname: str):
+    for position, block in enumerate(_mol2_blocks(path)):
+        if position == max(0, int(index)):
+            return mol_from_mol2_block(block, sanitize=sanitize, remove_hs=remove_hs)
+    return None
+
+
+def _mol2_blocks(path: Path) -> Iterator[str]:
+    from amdockvs.io.parsers.readers import _split_mol2_spans
+
+    with path.open("rb") as handle:
+        for raw, _start, _end in _split_mol2_spans(handle):
+            yield raw.decode("utf-8", errors="ignore")
+
+
+def mol_from_mol2_block(block: str, *, sanitize: bool = True, remove_hs: bool = False) -> Any | None:
+    """One mol2 record -> an RDKit Mol, or None.
+
+    The `########## Key: value` lines DOCK writes above each pose become molecule properties
+    (scores travel like SDF tags), and its `Name:` wins over the MOLECULE line, which DOCK pads
+    with the protonation state (`308      none`).
+    """
     from rdkit import Chem
 
-    return Chem.MolFromMol2File(str(path), sanitize=sanitize, removeHs=remove_hs)
+    mol = Chem.MolFromMol2Block(block, sanitize=sanitize, removeHs=remove_hs)
+    if mol is None:
+        return None
+    name = mol.GetProp("_Name").strip() if mol.HasProp("_Name") else ""
+    for line in block.splitlines():
+        key, sep, value = line.lstrip("#").partition(":")
+        if not line.startswith("#") or not sep or not key.strip() or not value.strip():
+            continue
+        if key.strip() == "Name":
+            name = value.strip()
+        else:
+            mol.SetProp(key.strip(), value.strip())
+    mol.SetProp("_Name", name)
+    return mol
 
 
 def _read_smi(path: Path, *, sanitize: bool, remove_hs: bool, index: int, resname: str):

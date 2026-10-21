@@ -78,3 +78,39 @@ def test_chunk_payloads_carry_the_span_and_not_the_library(tmp_path):
     assert chunks[0]["span_offset"] == 0
     assert chunks[-1]["span_end"] == len(SDF)
     assert [chunk["span_first_index"] for chunk in chunks] == [0, 10, 20]
+
+
+def _mol2_pose(name, x):
+    # DOCK-style: the score header sits above the MOLECULE line it belongs to.
+    return (
+        f"##########                 Name:   {name}\n"
+        f"##########         Total Energy:   -{x}.5\n\n"
+        f"@<TRIPOS>MOLECULE\n   {name}      none\n    2     1     0     0     0\nSMALL\nUSER_CHARGES\n\n\n"
+        "@<TRIPOS>ATOM\n"
+        f"      1 C1      {x}.0000    0.0000    0.0000 C.3       1 LIG     0.0000\n"
+        f"      2 O1      {x}.4000    0.0000    0.0000 O.3       1 LIG     0.0000\n"
+        "@<TRIPOS>BOND\n     1    1    2 1\n\n"
+    )
+
+
+MOL2 = "".join(_mol2_pose(f"lig{i}", i) for i in range(1, 6))
+
+
+def test_mol2_spans_keep_each_dock_header_with_its_own_molecule(tmp_path):
+    from amdockvs.io.formats import read_mol, read_mols
+    from amdockvs.io.parsers import count_import_records
+
+    path = _write(tmp_path, "poses.mol2", MOL2)
+    expected, rebuilt = _round_trip(path, "ligand")
+    assert rebuilt == expected
+    assert "".join(row["raw"] for row in expected) == MOL2
+    assert count_import_records(path) == 5
+    mols = list(read_mols(path))
+    assert [m.GetProp("_Name") for m in mols] == [f"lig{i}" for i in range(1, 6)]
+    assert [m.GetProp("Total Energy") for m in mols] == [f"-{i}.5" for i in range(1, 6)]
+    assert read_mol(path, index=2).GetProp("_Name") == "lig3"
+    # A receptor mol2 is still one structure, not a library.
+    receptor_chunks = list(
+        stream_import_payload_batches(kind="receptor", file_path=path, storage_dir=tmp_path / "s", batch_size=2)
+    )
+    assert len(receptor_chunks) == 1 and receptor_chunks[0]["span_count"] == 0
