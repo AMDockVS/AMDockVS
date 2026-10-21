@@ -79,6 +79,7 @@ def test_docking_sends_one_whole_shard_per_receptor(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(shard_jobs, "completed_shard_targets", lambda *a, **k: set())
     monkeypatch.setattr(shard_jobs, "count_docking_results", lambda *a, **k: 0)
+    monkeypatch.setattr(shard_jobs, "docking_run_id", lambda *a, **k: 1)
     monkeypatch.setattr(shard_jobs, "receptor_targets", lambda *a, **k: [
         {"receptor_id": r, "receptor_name": f"r{r}", "receptor_path": str(tmp_path / f"r{r}.pdbqt"),
          "box_center": [0.0, 0.0, 0.0], "box_size": [20.0, 20.0, 20.0], "spacing": 0.375}
@@ -92,6 +93,7 @@ def test_docking_sends_one_whole_shard_per_receptor(tmp_path, monkeypatch):
     # Every receptor sees the whole shard exactly once, so this many chunks close it out.
     assert {chunk["chunks_total"] for chunk in chunks} == {2}
     assert sorted(chunk["receptor_id"] for chunk in chunks) == [7, 7, 7, 8, 8, 8]
+    assert {chunk["docking_run_id"] for chunk in chunks} == {1}  # one run row, made before any chunk
     # No slice bounds travel any more: the shard is the slice.
     assert not any("start" in chunk or "count" in chunk for chunk in chunks)
 
@@ -118,6 +120,7 @@ def test_off_target_scope_uses_only_reference_top_n_records(tmp_path, monkeypatc
     monkeypatch.setattr(shard_jobs, "get_default_project_root", lambda: tmp_path)
     monkeypatch.setattr(shard_jobs, "completed_shard_targets", lambda *a, **k: set())
     monkeypatch.setattr(shard_jobs, "plan_targets", lambda *a, **k: None)
+    monkeypatch.setattr(shard_jobs, "docking_run_id", lambda *a, **k: 1)
     monkeypatch.setattr(shard_jobs, "select_hit_refs", lambda *a, **k: [
         {"_shard_id": 1, "ligand_id": 3},
         {"_shard_id": 3, "ligand_id": 200},

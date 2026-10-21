@@ -65,10 +65,9 @@ class DockingSubmissionService:
                     if program.requires_ligand_preparation
                     else request.ligand_scope
                 )
-                job_ids[protocol_job_key(protocol, index)] = self.runtime.docking.run(
+                common = dict(
                     program=protocol.program,
                     ligand_set=ligand_scope,
-                    receptor_set=request.receptor_scope,
                     batch_size=request.batch_size,
                     exhaustiveness=int(config.get("exhaustiveness") or 8),
                     num_modes=int(config.get("num_modes") or 9),
@@ -81,6 +80,29 @@ class DockingSubmissionService:
                     protocol_metadata=protocol.to_mapping(),
                     engine_config=config,
                     compute_interactions=request.compute_interactions,
+                )
+                key = protocol_job_key(protocol, index)
+                reference_id = request.offtarget_reference_id
+                if reference_id is None or len(ready_receptor_ids) < 2:
+                    job_ids[key] = self.runtime.docking.run(receptor_set=request.receptor_scope, **common)
+                    continue
+                if not int(request.offtarget_top_n):
+                    raise ValueError("Off-target docking needs a Top-N greater than zero.")
+                reference_job = self.runtime.docking.run(
+                    receptor_set=self.runtime.molecules.filter(
+                        request.receptor_scope, filters={"id": int(reference_id)}
+                    ),
+                    **common,
+                )
+                job_ids[f"{key}:reference"] = reference_job
+                # The feed drops the reference receptor and reads its Top-N when the job starts.
+                job_ids[f"{key}:off-target"] = self.runtime.docking.run(
+                    receptor_set=request.receptor_scope,
+                    depends_on=[reference_job],
+                    selected_from_receptor_id=int(reference_id),
+                    selected_top_n=int(request.offtarget_top_n),
+                    selected_max_score=request.offtarget_max_score,
+                    **common,
                 )
         interaction_job_id = ""
         # A docking run finds them in its own chunks; a redock's poses get the job afterwards.

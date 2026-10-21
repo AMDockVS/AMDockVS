@@ -45,28 +45,17 @@ def grid_scene(monkeypatch):
         widget = offtarget.OffTargetResultsWidget(runtime=object())
         monkeypatch.setattr(widget, "_pymol", lambda: (cmd, dock))
         widget._columns = [(1, "4UWF"), (2, "4UWH"), (3, "4UWG")]
-        widget._row_state = {0: {
-            "ligand_id": 741,
-            "ligand_name": "4543",
-            "poses_by_receptor": {
-                rid: [{
-                    "pose_rank": rank,
-                    "score": -10.0,
-                    "receptor_payload_id": rid,
-                    "pose_payload_id": rid * 10 + rank,
-                } for rank in (1, 2)]
-                for rid, name in widget._columns
-            },
-        }}
-        widget.selector_table.setColumnCount(4)
-        widget.selector_table.setRowCount(1)
-        widget.difference_table.setColumnCount(3)
-        widget.difference_table.setRowCount(1)
-        widget._render_row(0)
-        combo = widget.selector_table.cellWidget(0, 2)
-        combo.blockSignals(True)
-        combo.setCurrentIndex(1)
-        combo.blockSignals(False)
+        widget._names[741] = "4543"
+        widget._poses[741] = {
+            rid: [{
+                "pose_rank": rank,
+                "score": -10.0,
+                "receptor_payload_id": rid,
+                "pose_payload_id": rid * 10 + rank,
+            } for rank in (1, 2)]
+            for rid, name in widget._columns
+        }
+        widget._overrides[(741, 2)] = 2
         yield widget, cmd, dock, pending
         widget.close()
         bar.close()
@@ -81,7 +70,7 @@ def _label(cmd, slot):
 
 def test_offtarget_passes_receptor_ligand_and_selected_pose_names_to_pymol(grid_scene):
     widget, cmd, dock, pending = grid_scene
-    widget._show_ligand_grid(0)
+    widget._show_ligand_grid(741)
     work, done = pending.pop()
     done(work())
 
@@ -94,7 +83,7 @@ def test_offtarget_passes_receptor_ligand_and_selected_pose_names_to_pymol(grid_
 @pytest.mark.parametrize("missing", ["rec_2", "lig_2"])
 def test_offtarget_label_slots_follow_only_the_complexes_actually_loaded(grid_scene, missing):
     widget, cmd, dock, pending = grid_scene
-    widget._show_ligand_grid(0)
+    widget._show_ligand_grid(741)
     work, done = pending.pop()
     found = work()
     del found[missing]
@@ -108,13 +97,10 @@ def test_offtarget_label_slots_follow_only_the_complexes_actually_loaded(grid_sc
 
 def test_offtarget_names_keep_the_pose_snapshot_used_to_read_the_structures(grid_scene):
     widget, cmd, dock, pending = grid_scene
-    widget._show_ligand_grid(0)
+    widget._show_ligand_grid(741)
     work, done = pending.pop()
-    widget._row_state[0]["ligand_name"] = "2895"
-    combo = widget.selector_table.cellWidget(0, 2)
-    combo.blockSignals(True)
-    combo.setCurrentIndex(0)
-    combo.blockSignals(False)
+    widget._names[741] = "2895"
+    widget._overrides.pop((741, 2))
     widget._columns.reverse()
     done(work())
 
@@ -125,7 +111,7 @@ def test_offtarget_names_keep_the_pose_snapshot_used_to_read_the_structures(grid
 
 def test_leaving_offtarget_for_a_nonstructural_view_notifies_pymol(grid_scene):
     widget, cmd, dock, pending = grid_scene
-    widget._show_ligand_grid(0)
+    widget._show_ligand_grid(741)
     work, done = pending.pop()
     done(work())
     viewer = MolecularViewerController(SimpleNamespace(
@@ -142,7 +128,7 @@ def test_leaving_offtarget_for_a_nonstructural_view_notifies_pymol(grid_scene):
 @pytest.mark.parametrize("layout", ["grid", "overlay"])
 def test_changing_pose_replaces_only_its_ligand_and_keeps_the_grid_camera(grid_scene, monkeypatch, receptor_id, layout):
     widget, cmd, dock, pending = grid_scene
-    widget._show_ligand_grid(0)
+    widget._show_ligand_grid(741)
     work, done = pending.pop()
     done(work())
     dock.set_comparison_layout(layout)
@@ -159,7 +145,7 @@ def test_changing_pose_replaces_only_its_ligand_and_keeps_the_grid_camera(grid_s
                         lambda data, fmt, name: (loaded.append(name), original_load(data, fmt, name))[1])
 
     index = 0 if receptor_id == 2 else 1
-    widget.selector_table.cellWidget(0, receptor_id).setCurrentIndex(index)
+    widget._select_pose(741, receptor_id, index + 1)
     work, done = pending.pop()
     found = work()
     assert set(found) == {f"lig_{receptor_id}"}
@@ -184,12 +170,12 @@ def test_changing_pose_replaces_only_its_ligand_and_keeps_the_grid_camera(grid_s
 
 def test_replacement_pose_inherits_the_displayed_receptor_alignment(grid_scene):
     widget, cmd, dock, pending = grid_scene
-    widget._show_ligand_grid(0)
+    widget._show_ligand_grid(741)
     work, done = pending.pop()
     done(work())
     cmd.translate([5, 6, 7], object="rec_2", camera=0)
     matrix = cmd.get_object_matrix("rec_2")
-    widget.selector_table.cellWidget(0, 2).setCurrentIndex(0)
+    widget._select_pose(741, 2, 1)
     work, done = pending.pop()
     done(work())
 
@@ -201,15 +187,14 @@ def test_replacement_pose_inherits_the_displayed_receptor_alignment(grid_scene):
 def test_a_slow_old_pose_read_cannot_overwrite_the_latest_selection(grid_scene, shared_payload):
     widget, cmd, dock, pending = grid_scene
     if shared_payload:
-        poses = widget._row_state[0]["poses_by_receptor"][1]
+        poses = widget._poses[741][1]
         poses[1]["pose_payload_id"] = poses[0]["pose_payload_id"]
-    widget._show_ligand_grid(0)
+    widget._show_ligand_grid(741)
     work, done = pending.pop()
     done(work())
-    combo = widget.selector_table.cellWidget(0, 1)
-    combo.setCurrentIndex(1)
+    widget._select_pose(741, 1, 2)
     older_work, older_done = pending.pop()
-    combo.setCurrentIndex(0)
+    widget._select_pose(741, 1, 1)
     latest_work, latest_done = pending.pop()
     latest_done(latest_work())
     older_done(older_work())
@@ -221,12 +206,12 @@ def test_a_slow_old_pose_read_cannot_overwrite_the_latest_selection(grid_scene, 
 
 def test_pose_reads_for_different_panels_do_not_cancel_each_other(grid_scene):
     widget, cmd, dock, pending = grid_scene
-    widget._show_ligand_grid(0)
+    widget._show_ligand_grid(741)
     work, done = pending.pop()
     done(work())
-    widget.selector_table.cellWidget(0, 1).setCurrentIndex(1)
+    widget._select_pose(741, 1, 2)
     first_work, first_done = pending.pop()
-    widget.selector_table.cellWidget(0, 2).setCurrentIndex(0)
+    widget._select_pose(741, 2, 1)
     second_work, second_done = pending.pop()
     second_done(second_work())
     first_done(first_work())
@@ -240,10 +225,10 @@ def test_pose_reads_for_different_panels_do_not_cancel_each_other(grid_scene):
 
 def test_a_pending_pose_update_does_not_reopen_the_grid_after_leaving(grid_scene):
     widget, cmd, dock, pending = grid_scene
-    widget._show_ligand_grid(0)
+    widget._show_ligand_grid(741)
     work, done = pending.pop()
     done(work())
-    widget.selector_table.cellWidget(0, 1).setCurrentIndex(1)
+    widget._select_pose(741, 1, 2)
     work, done = pending.pop()
     viewer = MolecularViewerController(SimpleNamespace(
         pymol_dock=dock,
@@ -258,11 +243,11 @@ def test_a_pending_pose_update_does_not_reopen_the_grid_after_leaving(grid_scene
 
 def test_a_missing_replacement_payload_keeps_the_displayed_pose(grid_scene):
     widget, cmd, dock, pending = grid_scene
-    widget._show_ligand_grid(0)
+    widget._show_ligand_grid(741)
     work, done = pending.pop()
     done(work())
     position = cmd.get_coords("lig_1").copy()
-    widget.selector_table.cellWidget(0, 1).setCurrentIndex(1)
+    widget._select_pose(741, 1, 2)
     work, done = pending.pop()
     done({})
 
@@ -273,7 +258,7 @@ def test_a_missing_replacement_payload_keeps_the_displayed_pose(grid_scene):
 
 def test_selecting_a_pose_without_a_comparison_opens_one_instead_of_a_single_pose(grid_scene):
     widget, cmd, dock, pending = grid_scene
-    widget.selector_table.cellWidget(0, 1).setCurrentIndex(1)
+    widget._select_pose(741, 1, 2)
     work, done = pending.pop()
     done(work())
 
@@ -285,9 +270,9 @@ def test_selecting_a_pose_without_a_comparison_opens_one_instead_of_a_single_pos
 
 def test_a_slow_initial_comparison_cannot_overwrite_a_newer_pose_selection(grid_scene):
     widget, cmd, dock, pending = grid_scene
-    widget._show_ligand_grid(0)
+    widget._show_ligand_grid(741)
     older_work, older_done = pending.pop()
-    widget.selector_table.cellWidget(0, 1).setCurrentIndex(1)
+    widget._select_pose(741, 1, 2)
     work, done = pending.pop()
     done(work())
     older_done(older_work())
@@ -298,10 +283,10 @@ def test_a_slow_initial_comparison_cannot_overwrite_a_newer_pose_selection(grid_
 def test_hiding_offtarget_cancels_pending_comparisons_and_disables_its_mode(grid_scene):
     widget, cmd, dock, pending = grid_scene
     widget.show()
-    widget._show_ligand_grid(0)
+    widget._show_ligand_grid(741)
     work, done = pending.pop()
     done(work())
-    widget._show_ligand_grid(0)
+    widget._show_ligand_grid(741)
     work, done = pending.pop()
     widget.hide()
     done(work())

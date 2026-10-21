@@ -18,6 +18,7 @@ from amdockvs.models.docking import (
     BindingSite,
     ConsensusScore,
     DockingResult,
+    DockingRun,
     EngineState,
     InteractionsResult,
 )
@@ -74,6 +75,7 @@ __all__ = [
     "LigandActivity",
     "DockingResultRecord",
     "DockingResult",
+    "DockingRun",
     "ConsensusScore",
     "QSARModelRecord",
     "QSARModel",

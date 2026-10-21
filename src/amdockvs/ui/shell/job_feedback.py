@@ -330,8 +330,8 @@ class JobFeedbackController:
 
     def on_job_finished(self, job_id: str, status: str) -> None:
         self.w.views.refresh_open_views_once()
-        # A shard import turns the project into a campaign; the badge reads that off the data.
-        self.w.views.sync_mode_badge()
+        # A shard import brings the Shards button; the toolbar reads that off the data.
+        self.w.views.sync_catalog_availability()
         self.w.diagram_dock.reload()  # a diagram job may have just cached the selected pose's model
         self._report_import_summary()
         normalized_job_id = str(job_id or "").strip()

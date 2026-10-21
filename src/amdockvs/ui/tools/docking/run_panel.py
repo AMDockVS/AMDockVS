@@ -91,8 +91,8 @@ class RunPanel:
         self.offtarget_reference_combo.addItem("None — dock the full library against every receptor", None)
         self.offtarget_reference_combo.setToolTip(
             "With a reference, dock the full library against it first, then dock only its "
-            "Top-N ligands against the other receptors. Available when at least two receptors "
-            "are ready and ranked Top-N selection is active."
+            "selected ligands (Top-N, or every one at or below the threshold) against the other "
+            "receptors. Available when at least two receptors are ready."
         )
         self.offtarget_reference_combo.currentIndexChanged.connect(self._sync_hit_cap_label)
         self.offtarget_reference_combo.currentIndexChanged.connect(lambda _index: self._check_requirements())
@@ -469,18 +469,13 @@ class RunPanel:
             receptors = self.readiness_service.receptors(
                 self._resolve_receptor_scope(inp["sel_rec"]), program=inp["program"]
             )
-            ready_receptors = []
-            for receptor_id in receptors.ready_ids:
-                getter = getattr(self.runtime.molecules, "get", None)
-                receptor = getter(int(receptor_id)) if callable(getter) else None
-                ready_receptors.append((int(receptor_id), "" if receptor is None else str(receptor.name)))
             return {
                 "mode": "sharded",
                 "ligands": {"total": counts["shards"], "ready": counts["prepared"], "failed": 0},
                 "receptors": receptors.as_mapping(),
                 "records": counts["prepared_records"],
                 "ready_receptor_ids": list(receptors.ready_ids),
-                "ready_receptors": ready_receptors,
+                "ready_receptors": self._receptor_names(receptors.ready_ids),
                 "offtarget_reference_id": inp.get("offtarget_reference_id"),
                 "ready": bool(counts["prepared"] and receptors.ready_ids),
             }
@@ -492,13 +487,24 @@ class RunPanel:
             DockingProtocol(program=str(program), label=str(program), hash=str(hash_value))
             for program, hash_value in (inp.get("protocols") or ())
         )
-        return self.readiness_service.evaluate(
+        result = self.readiness_service.evaluate(
             ligand_scope=ligand_scope,
             receptor_scope=receptor_scope,
             protocols=protocols,
             program=inp["program"],
             skip_existing=bool(inp.get("skip_existing")),
         ).as_mapping()
+        result["ready_receptors"] = self._receptor_names(result.get("ready_receptor_ids") or ())
+        result["offtarget_reference_id"] = inp.get("offtarget_reference_id")
+        return result
+
+    def _receptor_names(self, receptor_ids) -> list[tuple[int, str]]:
+        getter = getattr(self.runtime.molecules, "get", None)
+        names = []
+        for receptor_id in receptor_ids:
+            receptor = getter(int(receptor_id)) if callable(getter) else None
+            names.append((int(receptor_id), "" if receptor is None else str(receptor.name)))
+        return names
 
     def _check_requirements(self) -> None:
         # Automatic + off-thread. Triggered on entering the step, whenever a run-scope combo
@@ -527,12 +533,13 @@ class RunPanel:
             self.check_status_label.setText(result["error"])
             return
         lig, rec = result["ligands"], result["receptors"]
-        self._set_sharded_run_mode(result.get("mode") == "sharded")
-        if result.get("mode") == "sharded":
+        if result.get("mode") != "redocking":
             self._set_offtarget_receptors([
                 (int(receptor_id), str(name))
                 for receptor_id, name in (result.get("ready_receptors") or ())
             ])
+        self._set_sharded_run_mode(result.get("mode") == "sharded", docking=result.get("mode") != "redocking")
+        if result.get("mode") == "sharded":
             records = int(result.get("records") or 0)
             self.req_ligands_count.setText(
                 f"{lig['ready']} / {lig['total']} shard(s) prepared · {records} molecule(s)"
@@ -587,8 +594,15 @@ class RunPanel:
         self.req_receptors_count.setText(f"{rec['ready']} / {rec['total']} prepared")
         pairs = dict(result.get("pairs") or {})
         total_pairs = int(pairs.get("total") or 0)
+        receptors = max(0, int(rec.get("ready") or 0))
         if not total_pairs:
             self._pairs_text("No dockings in scope")
+        elif result.get("offtarget_reference_id") is not None and receptors > 1:
+            ligands = int(lig.get("ready") or 0)
+            self._pairs_text(
+                f"{ligands} reference + up to {min(int(self._docking_cap()), ligands) * (receptors - 1)} "
+                f"off-target docking(s)"
+            )
         else:
             done = int(pairs.get("already") or 0)
             text = f"{int(pairs.get('to_run') or 0)} of {total_pairs} docking(s) to run"
@@ -689,6 +703,10 @@ class RunPanel:
         """Unattended-run ceiling on hits (settings > shards > hit_cap)."""
         return int(app_config(getattr(self, "runtime", None)).shards.hit_cap)
 
+    def _docking_cap(self) -> int:
+        ranked = str(self.hit_mode_combo.currentData() or "") == HIT_MODE_TOP_N
+        return int(self.hit_cap.value()) if ranked else self._hit_ceiling()
+
     def _docking_params(self) -> tuple[dict, dict]:
         inp = self._requirement_inputs()
         protocols = self._selected_protocols()
@@ -698,11 +716,7 @@ class RunPanel:
             "protocols": protocols,
             "batch_size": int(self.batch_size.value()),
             "hit_threshold": float(self.hit_threshold.value()),
-            "hit_cap": (
-                int(self.hit_cap.value())
-                if str(self.hit_mode_combo.currentData() or "") == HIT_MODE_TOP_N
-                else self._hit_ceiling()
-            ),
+            "hit_cap": self._docking_cap(),
             "hit_mode": str(self.hit_mode_combo.currentData() or HIT_MODE_TOP_N),
             "offtarget_reference_id": (
                 int(self.offtarget_reference_combo.currentData())
@@ -823,11 +837,11 @@ class RunPanel:
         everything under the cutoff, and capping *that* would silently drop hits it already
         found. So each mode enables its own number and leaves the other one out of the way.
         """
+        sharded = getattr(self, "_sharded", False)
         ranked = str(self.hit_mode_combo.currentData() or "") == HIT_MODE_TOP_N
-        if not ranked and self.offtarget_reference_combo.currentData() is not None:
-            self.offtarget_reference_combo.blockSignals(True)
-            self.offtarget_reference_combo.setCurrentIndex(0)
-            self.offtarget_reference_combo.blockSignals(False)
+        reference_id = self.offtarget_reference_combo.currentData()
+        # Rows keep everything they dock: the selection only filters the off-target funnel.
+        selecting = sharded or reference_id is not None
         # The disabled field still shows what the run will use: ranked has no cutoff, so it
         # reads 0 (anything that bound at all), and the by-threshold value is kept for the way back.
         if ranked and self.hit_threshold.value() != RANKED_PREFILTER_SCORE:
@@ -835,13 +849,13 @@ class RunPanel:
             self.hit_threshold.setValue(RANKED_PREFILTER_SCORE)
         elif not ranked and self.hit_threshold.value() == RANKED_PREFILTER_SCORE:
             self.hit_threshold.setValue(float(getattr(self, "_last_threshold", -8.0)))
-        self.hit_cap.setEnabled(ranked)
-        self.hit_cap_label.setEnabled(ranked)
-        self.hit_threshold.setEnabled(not ranked)
-        self.hit_threshold_label.setEnabled(not ranked)
-        reference_id = self.offtarget_reference_combo.currentData()
+        self.hit_cap.setEnabled(ranked and selecting)
+        self.hit_cap_label.setEnabled(self.hit_cap.isEnabled())
+        self.hit_threshold.setEnabled(not ranked and selecting)
+        self.hit_threshold_label.setEnabled(self.hit_threshold.isEnabled())
+        self.hit_mode_combo.setEnabled(selecting)
         self.hit_cap_label.setText(
-            "Reference Top-N" if ranked and reference_id is not None
+            "Reference Top-N" if ranked and (reference_id is not None or not sharded)
             else "Keep best per receptor" if ranked
             else f"Ceiling ({self._hit_ceiling():,} hits)"
         )
@@ -853,7 +867,7 @@ class RunPanel:
             f"still stops at {self._hit_ceiling():,} hits so a generous receptor cannot write the "
             f"whole library into the project unattended."
         )
-        self.offtarget_reference_combo.setEnabled(ranked and len(self._ready_receptor_options) > 1)
+        self.offtarget_reference_combo.setEnabled(len(self._ready_receptor_options) > 1)
 
     def _set_offtarget_receptors(self, receptors: list[tuple[int, str]]) -> None:
         """Refresh the small selector without losing the user's still-valid choice."""
@@ -874,10 +888,14 @@ class RunPanel:
         self.offtarget_reference_combo.blockSignals(False)
         self._sync_hit_cap_label()
 
-    def _set_sharded_run_mode(self, sharded: bool) -> None:
-        self.hits_box.setVisible(sharded)
-        if not sharded and self.offtarget_reference_combo.currentIndex() != 0:
+    def _set_sharded_run_mode(self, sharded: bool, *, docking: bool = True) -> None:
+        # Rows keep everything they dock, so the selection only applies to them through the
+        # off-target funnel, and only once there is a second receptor to funnel into.
+        self._sharded = sharded
+        self.hits_box.setVisible(sharded or (docking and len(self._ready_receptor_options) > 1))
+        if not docking and self.offtarget_reference_combo.currentIndex() != 0:
             self.offtarget_reference_combo.setCurrentIndex(0)
+        self._sync_hit_cap_label()
         self.batch_size_label.setVisible(not sharded)
         self.batch_size.setVisible(not sharded)
 
@@ -986,6 +1004,9 @@ class RunPanel:
                 return {"warning": f"No {' or '.join(missing)} in scope — nothing to dock."}
             ligand_scope = self._resolve_ligand_scope(params["sel_lig"], run_kind=params.get("run_kind", "docking"))
             receptor_scope = self._resolve_receptor_scope(list(ready_receptor_ids))
+        reference_id = params.get("offtarget_reference_id") if params.get("run_kind") != "redocking" else None
+        if reference_id is not None and int(reference_id) not in ready_receptor_ids:
+            return {"warning": "The selected off-target reference receptor is no longer ready."}
         request = DockingRunRequest(
             run_kind=str(params.get("run_kind") or "docking"),
             ligand_scope=ligand_scope,
@@ -997,6 +1018,11 @@ class RunPanel:
             run_id=str(params["run_id"]),
             compute_interactions=bool(params.get("compute_interactions")),
             complex_ids=complex_ids,
+            offtarget_reference_id=None if reference_id is None else int(reference_id),
+            # The same selection as a sharded run: ranked sends 0 (bound at all) and N,
+            # by-threshold the cutoff and the ceiling.
+            offtarget_top_n=int(params.get("hit_cap") or 0),
+            offtarget_max_score=float(params["hit_threshold"]),
         )
         try:
             submission = self.submission_service.submit(

@@ -13,7 +13,7 @@ engine, so that slot is free) — no new param threading. The GPU token cost per
 is declared at submit time in docking/api.py.
 
 score = minimizedAffinity (kcal/mol, same sign/units as Vina) so existing
-sorting/stats/LE keep working; the CNN values live in metrics.
+sorting/stats/LE keep working; the CNN values live in `extra`.
 ponytail: per-pair gnina calls (reloads receptor+CNN each pair). Batch same-receptor
 ligands via a multi-model SDF input if the reload time ever dominates.
 """
@@ -23,10 +23,9 @@ import glob
 import os
 import shutil
 from contextlib import suppress
-from datetime import datetime
 from pathlib import Path
 
-from amdockvs.docking.results.metrics import docking_metrics, pose_file_stem
+from amdockvs.docking.results.metrics import docking_row, pose_file_stem
 from amdockvs.docking.results.rmsd import pose_rmsd_detail
 from amdockvs.core.paths import get_default_project_root
 from amdockvs.core.worker_io import run_program
@@ -183,26 +182,14 @@ def run_gnina_docking_rows(payload: dict) -> list[dict]:
     exhaustiveness = int(payload.get("exhaustiveness") or 8)
     cpu = int(payload.get("vina_cpu") or 1)
     seed = int(payload.get("seed") or 0)
-    run_id = str(payload.get("run_id") or "")
     protocol_payload = dict(payload.get("protocol_metadata") or {})
     project_root = get_default_project_root()
 
     rows: list[dict] = []
     for pair in pairs:
-        complex_id = int(pair.get("complex_id") or 0) or None
         run_kind = str(pair.get("run_kind") or "screening")
-        ligand_id = int(pair.get("ligand_id") or 0)
-        receptor_id = int(pair.get("receptor_id") or 0)
         ligand_path = Path(str(pair.get("ligand_path") or "")).expanduser().resolve()
         receptor_path = Path(str(pair.get("receptor_path") or "")).expanduser().resolve()
-        ligand_logical = str(pair.get("ligand_path_logical") or ligand_path)
-        receptor_logical = str(pair.get("receptor_path_logical") or receptor_path)
-        reference_ligand_logical = str(
-            pair.get("reference_ligand_path_logical") or pair.get("reference_ligand_path") or ""
-        )
-        reference_receptor_logical = str(
-            pair.get("reference_receptor_path_logical") or pair.get("reference_receptor_path") or ""
-        )
         num_modes = int(pair.get("num_modes") or 9)
         center = [float(v) for v in (pair.get("box_center") or default_center)]
         size = [float(v) for v in (pair.get("box_size") or default_size)]
@@ -236,98 +223,32 @@ def run_gnina_docking_rows(payload: dict) -> list[dict]:
             if not poses:
                 raise RuntimeError(f"gnina produced no parseable poses in {output_sdf}")
         except Exception as exc:
-            rows.append(
-                {
-                    "receptor_molecule_id": receptor_id,
-                    "ligand_molecule_id": ligand_id,
-                    "engine": "gnina",
-                    "pose_rank": 1,
-                    "score": None,
-                    "score_type": "gnina_score",
-                    "pose_path": "",
-                    "rmsd_vs_reference": None,
-                    "metrics": {
-                        "status": "failed",
-                        "engine": "gnina",
-                        "error": str(exc),
-                        "run_kind": run_kind,
-                        "complex_id": complex_id,
-                        "ligand_path": ligand_logical,
-                        "receptor_path": receptor_logical,
-                        "cnn_scoring": cnn_scoring,
-                        "reference_ligand_path": reference_ligand_logical,
-                        "protocol": protocol_payload,
-                    },
-                    "created_at": datetime.now(),
-                }
-            )
+            rows.append(docking_row(pair, score_type="gnina_score", error=str(exc)))
             continue
 
         pose_text = str(output_sdf)
         if project_root is not None:
             with suppress(Exception):
                 pose_text = str(output_sdf.relative_to(project_root))
-        ligand_source_path = _resolve_optional(pair.get("ligand_source_path"), project_root)
         heavy_atoms = _heavy_atoms(ligand_path)
         for rank, pose in enumerate(poses, start=1):
             score = pose.get("minimizedAffinity")
             if score is None:
                 continue
-            rmsd_detail = (
-                pose_rmsd_detail(
+            rows.append(docking_row(
+                pair,
+                score_type="gnina_score",
+                pose_rank=rank,
+                score=float(score),
+                pose_path=pose_text,
+                rmsd=pose_rmsd_detail(
                     reference_ligand_path=pair.get("reference_ligand_path"),
                     pose_path=output_sdf,
                     pose_rank=rank,
-                )
-                if run_kind == "redocking"
-                else None
-            )
-            metrics = docking_metrics(
-                score=float(score),
-                ligand_source_path=ligand_source_path,
-                heavy_atoms_fallback=heavy_atoms,
-                descriptors=pair.get("ligand_descriptors"),
-            )
-            rows.append(
-                {
-                    "receptor_molecule_id": receptor_id,
-                    "ligand_molecule_id": ligand_id,
-                    "engine": "gnina",
-                    "pose_rank": rank,
-                    "score": float(score),
-                    "score_type": "gnina_score",
-                    "pose_path": pose_text,
-                    "rmsd_vs_reference": None if rmsd_detail is None else rmsd_detail[0],
-                    "metrics": {
-                        "engine": "gnina",
-                        "run_kind": run_kind,
-                        "complex_id": complex_id,
-                        "ligand_id": ligand_id,
-                        "receptor_id": receptor_id,
-                        "ligand_path": ligand_logical,
-                        "ligand_source_path": str(
-                            pair.get("ligand_source_path_logical") or pair.get("ligand_source_path") or ""
-                        ),
-                        "receptor_path": receptor_logical,
-                        "reference_ligand_path": reference_ligand_logical,
-                        "reference_receptor_path": reference_receptor_logical,
-                        "selected_pose_path": pose_text,
-                        "cnn_scoring": cnn_scoring,
-                        "grid": {"box_center": center, "box_size": size},
-                        "minimizedAffinity": float(score),
-                        "CNNscore": pose.get("CNNscore"),
-                        "CNNaffinity": pose.get("CNNaffinity"),
-                        "CNN_VS": pose.get("CNN_VS"),
-                        "rmsd_method": "" if rmsd_detail is None else rmsd_detail[1],
-                        **metrics,
-                        "is_selected": rank == 1,
-                        "run_id": run_id,
-                        "generated_at": datetime.now().isoformat(),
-                        "protocol": protocol_payload,
-                    },
-                    "created_at": datetime.now(),
-                }
-            )
+                ) if run_kind == "redocking" else None,
+                extra={key: pose.get(key) for key in ("CNNscore", "CNNaffinity", "CNN_VS")},
+                heavy_atoms=heavy_atoms,
+            ))
     return rows
 
 

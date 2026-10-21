@@ -31,10 +31,12 @@ from amdockvs.docking.pairs import (
 )
 from amdockvs.docking.preparation.state import grid_from_row
 from amdockvs.docking.methods import excludes
-from amdockvs.screening.campaign import plan_targets
+from amdockvs.core.vocab import TargetState
+from amdockvs.screening.campaign import finish_run, plan_targets, stop_run
 from amdockvs.docking.repository import (
     count_entity_rows,
     docked_ligands_spec,
+    top_ligands_spec,
     entity_ids,
     inputs_dir,
     iter_entity_rows,
@@ -48,12 +50,24 @@ from amdockvs.docking.repository import (
 )
 from amdockvs.docking.results.repository import (
     count_docking_results,
+    docking_run_id,
     supersede_results,
     existing_result_pairs,
 )
 from amdockvs.docking.protocols import DockingProtocolMetadata
 from ms_flow.query import db_count
 from amdockvs.models import DockingResultRecord, InteractionsResult
+
+
+def _with_docking_run(chunks: Iterator[dict], project_db, run_kind: str) -> Iterator[dict]:
+    """Each chunk names the `docking_runs` row its results point to, created with the first one."""
+    run = None
+    for chunk in chunks:
+        if run is None:
+            run = docking_run_id(project_db, run_id=chunk.get("run_id") or "", engine=chunk["engine"],
+                                 run_kind=run_kind, protocol=dict(chunk.get("protocol_metadata") or {}))
+        chunk["docking_run_id"] = run
+        yield chunk
 
 
 def _transport_docking_chunk(chunk: dict[str, Any]) -> dict[str, Any]:
@@ -215,6 +229,10 @@ class DockingJobParams(BaseModel):
     hit_threshold: float | None = None
     hit_cap: int = Field(default=0, ge=0)
     interactions: bool = False  # each chunk also finds its poses' interactions (`interaction_results`)
+    # Off-target funnel: dock the other receptors only against this receptor's Top-N.
+    selected_from_receptor_id: int | None = Field(default=None, ge=1)
+    selected_top_n: int | None = Field(default=None, ge=1)
+    selected_max_score: float | None = None
 
 
 class RedockingJobParams(BaseModel):
@@ -278,6 +296,9 @@ def iter_docking_batches(
     requires_ligand_preparation: bool = True,
     requires_receptor_preparation: bool = True,
     requires_binding_site: bool = True,
+    selected_from_receptor_id: int | None = None,
+    selected_top_n: int | None = None,
+    selected_max_score: float | None = None,
 ) -> Iterator[dict]:
     prep_engine = str(preparation_engine or engine)
     normalized_ligand_filters = dict(ligand_filters or {})
@@ -302,6 +323,8 @@ def iter_docking_batches(
             "grid_engine_payload",
         ),
     )
+    if selected_from_receptor_id:
+        receptor_rows = [row for row in receptor_rows if int(row.get("id") or 0) != int(selected_from_receptor_id)]
     receptors = [with_input_files(project_db, row, inputs_dir(project_db)) for row in receptor_rows]
     if not receptors:
         return
@@ -315,18 +338,28 @@ def iter_docking_batches(
         else DockingProtocolMetadata.from_mapping(protocol_metadata).as_metrics_payload()
     )
     protocol_hash = str(protocol_payload.get("hash") or "").strip()
+    # Resolved here, when the feed starts: the dependent job waits for the target's run.
+    selection = (
+        {"id__in_subquery": top_ligands_spec(
+            receptor_id=int(selected_from_receptor_id), engine=engine,
+            top_n=int(selected_top_n or 1), protocol_hash=protocol_hash or None, max_score=selected_max_score,
+            ligand_scope=molecule_scope_spec(entity_kind="ligand", engine=prep_engine, set_id=ligand_set_id,
+                                             filters=normalized_ligand_filters, order=()),
+        )}
+        if selected_from_receptor_id else {}
+    )
     if run_id:
         # The plan lists every receptor of the run before its first result lands (the feed
         # docks receptor by receptor), so Results shows them all with the full ligand count.
-        # ponytail: only the plan — Docked still counts `docking_results` rows, and the rows
-        # stay SCHEDULED (nothing reads that state for row-mode runs yet).
+        # ponytail: only the plan and its end state (`_supersede`) — Docked still counts
+        # `docking_results` rows; the state only colors the Docked bar.
         plan_targets(
             project_db,
             run_id=run_id,
             receptors=[{"receptor_id": row.get("id")} for row in receptors],
             ligands_total=count_entity_rows(
                 project_db, entity_kind="ligand", engine=prep_engine,
-                set_id=ligand_set_id, filters=normalized_ligand_filters,
+                set_id=ligand_set_id, filters=normalized_ligand_filters, extra_filters=selection,
             ),
             engine=engine,
         )
@@ -337,16 +370,14 @@ def iter_docking_batches(
         The skip used to be a set of every (receptor, ligand) pair already computed, held in
         memory for the whole job. Now the database answers it: `id NOT IN (docked for R)`.
         """
-        extra_filters = None
+        extra_filters = dict(selection)
         if skip_existing:
-            extra_filters = {
-                "id__not_in_subquery": docked_ligands_spec(
-                    receptor_id=int(receptor_id),
-                    engine=engine,
-                    run_kind="screening",
-                    protocol_hash=protocol_hash or None,
-                )
-            }
+            extra_filters["id__not_in_subquery"] = docked_ligands_spec(
+                receptor_id=int(receptor_id),
+                engine=engine,
+                run_kind="screening",
+                protocol_hash=protocol_hash or None,
+            )
         return with_input_bytes(project_db, iter_entity_rows(
             project_db,
             entity_kind="ligand",
@@ -631,6 +662,9 @@ class DockingPairsInput(InputSource):
             requires_ligand_preparation=bool(params_map.get("requires_ligand_preparation", True)),
             requires_receptor_preparation=bool(params_map.get("requires_receptor_preparation", True)),
             requires_binding_site=bool(params_map.get("requires_binding_site", True)),
+            selected_from_receptor_id=params_map.get("selected_from_receptor_id"),
+            selected_top_n=params_map.get("selected_top_n"),
+            selected_max_score=params_map.get("selected_max_score"),
         )
 
 
@@ -651,10 +685,21 @@ def _waits_for_program(params: dict) -> bool:
 
 def _supersede(params: dict, config: dict) -> None:
     """When a forced re-dock ends, however it ends: what it stored replaces the older rows of the
-    same pairs. A pair it did not get to (canceled, failed) keeps the result it had."""
+    same pairs. A pair it did not get to (canceled, failed) keeps the result it had.
+
+    Any run with a plan also leaves its end state there, so Results shows a stopped run."""
     project_db = config.get("project_db")
-    if project_db is not None and not params.get("skip_existing", True):
-        supersede_results(project_db, run_id=str(params.get("run_id") or ""))
+    if project_db is None:
+        return
+    run_id = str(params.get("run_id") or "")
+    if not params.get("skip_existing", True):
+        supersede_results(project_db, run_id=run_id)
+    if run_id:
+        status = config.get("terminal_status")
+        if status in (TargetState.FAILED, TargetState.CANCELED):
+            stop_run(project_db, run_id=run_id, state=status)
+        elif status == "completed":
+            finish_run(project_db, run_id=run_id)
 
 
 class DockingJobSpec(JobSpec):
@@ -687,10 +732,10 @@ class DockingJobSpec(JobSpec):
         enriched_params = dict(params)
         enriched_params["output_dir"] = str(output_dir)
         project_db = (config or {}).get("project_db")
-        for chunk in DockingPairsInput(batch_size=parsed.batch_size, item_key="pairs").iter_chunks(
+        for chunk in _with_docking_run(DockingPairsInput(batch_size=parsed.batch_size, item_key="pairs").iter_chunks(
             params=enriched_params,
             config=config or {},
-        ):
+        ), project_db, "screening"):
             # The cap half of the gate: the feed stops handing out work once the run has
             # written its quota. ponytail: checked between chunks against the committed rows,
             # so chunks already in flight can overshoot by their own row count — it bounds the
@@ -740,7 +785,7 @@ class RedockingJobSpec(JobSpec):
         if project_db is None:
             raise ValueError("RedockingJobSpec requires project_db in config.")
         output_dir = resolve_docking_output_dir(params, config)
-        for chunk in iter_redocking_batches(
+        for chunk in _with_docking_run(iter_redocking_batches(
             project_db=project_db,
             output_dir=output_dir,
             batch_size=parsed.batch_size,
@@ -766,7 +811,7 @@ class RedockingJobSpec(JobSpec):
             engine_config=parsed.engine_config,
             skip_existing=parsed.skip_existing,
             requires_binding_site=parsed.requires_binding_site,
-        ):
+        ), project_db, "redocking"):
             yield _transport_docking_chunk(chunk)
 
 

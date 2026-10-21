@@ -20,6 +20,7 @@ from amdockvs.core.constants import (
     RESOURCE_DOCKING_RESULTS,
     TABLE_COMPLEXES,
     TABLE_DOCKING_RESULTS,
+    TABLE_DOCKING_RUNS,
     TABLE_MOLECULES,
 )
 from amdockvs.core.payloads import molecule_payload_id, payload_store
@@ -230,17 +231,50 @@ def docked_ligands_spec(
     protocol_hash: str | None = None,
 ) -> QuerySpec:
     """Ligands already docked against this receptor — the "already computed" guard."""
+    return QuerySpec(table=TABLE_DOCKING_RESULTS, fields=("ligand_molecule_id",), filters={
+        "receptor_molecule_id": int(receptor_id),
+        "docking_run_id__in_subquery": _runs_spec(engine, run_kind, protocol_hash),
+    })
+
+
+def _runs_spec(engine: str, run_kind: str | None, protocol_hash: str | None) -> QuerySpec:
+    runs: dict[str, Any] = {"engine": str(engine).strip().lower()}
+    if str(run_kind or "").strip():
+        runs["run_kind"] = str(run_kind).strip()
+    if str(protocol_hash or "").strip():
+        runs["protocol_hash"] = str(protocol_hash).strip()
+    return QuerySpec(table=TABLE_DOCKING_RUNS, fields=("id",), filters=runs)
+
+
+def top_ligands_spec(
+    *,
+    receptor_id: int,
+    engine: str,
+    top_n: int,
+    protocol_hash: str | None = None,
+    ligand_scope: QuerySpec | None = None,
+    max_score: float | None = None,
+) -> QuerySpec:
+    """The receptor's `top_n` best-scored ligands (pose 1) — the off-target funnel's input.
+
+    `max_score` keeps only those at or below it (by-threshold selection; `top_n` is then the ceiling).
+
+    Every screening run of the protocol counts, not only the latest: with skip_existing the
+    target's earlier results live in older runs. `ligand_scope` ranks inside the current
+    ligand scope, so a narrowed scope still yields N ligands, not N minus the ones outside it.
+    """
     filters: dict[str, Any] = {
         "receptor_molecule_id": int(receptor_id),
-        "engine": str(engine).strip().lower(),
+        "pose_rank": 1,
+        "score__is_not_null": True,
+        "docking_run_id__in_subquery": _runs_spec(engine, "screening", protocol_hash),
     }
-    kind = str(run_kind or "").strip()
-    if kind:
-        filters["metrics->run_kind"] = kind
-    proto = str(protocol_hash or "").strip()
-    if proto:
-        filters["metrics->protocol->hash"] = proto
-    return QuerySpec(table=TABLE_DOCKING_RESULTS, fields=("ligand_molecule_id",), filters=filters)
+    if ligand_scope is not None:
+        filters["ligand_molecule_id__in_subquery"] = ligand_scope
+    if max_score is not None:
+        filters["score__lte"] = float(max_score)
+    return QuerySpec(table=TABLE_DOCKING_RESULTS, fields=("ligand_molecule_id",), filters=filters,
+                     order=("score",), limit=int(top_n))
 
 
 def molecule_scope_spec(
@@ -335,6 +369,7 @@ def count_entity_rows(
     engine: str = "ad4",
     set_id: int | None = None,
     filters: Mapping[str, Any] | None = None,
+    extra_filters: Mapping[str, Any] | None = None,
 ) -> int:
     """How many rows match the scope — one COUNT(*), nothing materialized."""
     return db_count(
@@ -344,6 +379,7 @@ def count_entity_rows(
             engine=engine,
             set_id=set_id,
             filters=filters,
+            extra_filters=extra_filters,
             order=(),
         ),
     )

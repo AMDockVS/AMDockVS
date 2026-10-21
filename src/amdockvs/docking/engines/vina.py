@@ -15,7 +15,7 @@ from typing import Callable
 
 from ms_flow.engine import launched
 
-from amdockvs.docking.results.metrics import docking_metrics, pose_file_stem
+from amdockvs.docking.results.metrics import docking_row, pose_file_stem
 from amdockvs.docking.results.rmsd import pose_rmsd_detail
 from amdockvs.core.paths import get_default_project_root
 from amdockvs.docking.engines.autogrid import map_prefix as _ad4_map_prefix
@@ -150,20 +150,10 @@ def _ligand_efficiency(score: float, heavy_atoms: int) -> float | None:
     return round(float(score) / heavy_atoms, 4) if heavy_atoms > 0 else None
 
 
-def _resolve_optional_path(value: object, project_root: Path | None = None) -> Path | None:
-    text = str(value or "").strip()
-    if not text:
-        return None
-    path = Path(text).expanduser()
-    if not path.is_absolute() and project_root is not None:
-        path = project_root / path
-    return path.resolve()
-
-
 def count_heavy_atoms(path: Path) -> int:
     """Heavy-atom count from any ligand file. PDBQT via AD types (no RDKit needed),
     everything else (SDF/MOL/PDB) via RDKit. 0 if unreadable. Used to backfill LE for
-    results docked before LE was stored in metrics."""
+    results without an LE."""
     if path.suffix.lower() == ".pdbqt":
         return _count_heavy_atoms_pdbqt(path)  # column scan: no RDKit, no bond perception
     from amdockvs.io.formats import read_mol
@@ -428,7 +418,7 @@ def run_vina_docking_rows(
                 "error": invalid_reason,
             }
             failures.append(failure)
-            failed_row = _failed_docking_row(failure, protocol_payload=protocol_payload, engine=engine)
+            failed_row = docking_row(pair, score_type="vina_score", error=invalid_reason)
             if collect_rows:
                 rows.append(failed_row)
             if pair_callback is not None:
@@ -522,33 +512,6 @@ def run_vina_docking_rows(
                 sdf_path=output_sdf_path,
                 only_cluster_leads=False,
             )
-            score = float(energies_list[0][0]) if energies_list else 0.0
-            payload_json = {
-                "engine": engine,
-                "backend": normalized_backend,
-                "complex_id": complex_id,
-                "run_kind": run_kind,
-                "scoring_function": str(scoring_function),
-                "exhaustiveness": int(pair.get("exhaustiveness") or 8),
-                "num_modes": int(pair.get("num_modes") or 9),
-                "ligand_id": ligand_id,
-                "receptor_id": receptor_id,
-                "ligand_path": ligand_path_logical,
-                "ligand_source_path": str(
-                    pair.get("ligand_source_path_logical") or pair.get("ligand_source_path") or ""
-                ),
-                "receptor_path": receptor_path_logical,
-                "reference_ligand_path": reference_ligand_logical,
-                "reference_receptor_path": reference_receptor_logical,
-                "selected_pose_path": str(output_sdf_path),
-                "selected_pose_pdbqt_path": str(output_pdbqt_path),
-                "selected_affinity": float(score),
-                "grid": grid_payload,
-                "energies": energies_list,
-                "generated_at": datetime.now().isoformat(),
-                "run_id": str(run_id or ""),
-                "protocol": protocol_payload,
-            }
         except Exception as exc:
             failure = {
                 "complex_id": complex_id,
@@ -563,7 +526,7 @@ def run_vina_docking_rows(
                 "grid": grid_payload,
             }
             failures.append(failure)
-            failed_row = _failed_docking_row(failure, protocol_payload=protocol_payload, engine=engine)
+            failed_row = docking_row(pair, score_type="vina_score", error=str(exc))
             if collect_rows:
                 rows.append(failed_row)
             if pair_callback is not None:
@@ -576,46 +539,22 @@ def run_vina_docking_rows(
         heavy_atoms = 0
         with suppress(Exception):
             heavy_atoms = _count_heavy_atoms_pdbqt(ligand_path)
-        ligand_source_path = _resolve_optional_path(pair.get("ligand_source_path"), project_root)
         pair_rows: list[dict] = []
         for index, energy_row in enumerate(energies_list, start=1):
-            pose_score = float(energy_row[0]) if len(energy_row) else 0.0
             rmsd_detail = pose_rmsd_detail(
                 reference_ligand_path=pair.get("reference_ligand_path"),
                 pose_path=output_sdf_path,
                 pose_rank=index,
             ) if str(run_kind or "") == "redocking" else None
-            rmsd_vs_reference = None if rmsd_detail is None else rmsd_detail[0]
-            rmsd_method = "" if rmsd_detail is None else rmsd_detail[1]
-            metrics = docking_metrics(
-                score=pose_score,
-                ligand_source_path=ligand_source_path,
-                heavy_atoms_fallback=heavy_atoms,
-                descriptors=pair.get("ligand_descriptors"),
-            )
-            pair_rows.append(
-                {
-                    "receptor_molecule_id": receptor_id,
-                    "ligand_molecule_id": ligand_id,
-                    "engine": engine,
-                    "pose_rank": index,
-                    "score": pose_score,
-                    "score_type": "vina_score",
-                    "pose_path": pose_path_text,
-                    "rmsd_vs_reference": rmsd_vs_reference,
-                    "metrics": {
-                        **payload_json,
-                        "pose_index": index - 1,
-                        "energy": [float(value) for value in energy_row],
-                        "reference_ligand_path": reference_ligand_logical,
-                        "reference_receptor_path": reference_receptor_logical,
-                        "rmsd_method": rmsd_method,
-                        **metrics,
-                        "is_selected": index == 1,
-                    },
-                    "created_at": datetime.now(),
-                }
-            )
+            pair_rows.append(docking_row(
+                pair,
+                score_type="vina_score",
+                pose_rank=index,
+                score=float(energy_row[0]) if len(energy_row) else 0.0,
+                pose_path=pose_path_text,
+                rmsd=rmsd_detail,
+                heavy_atoms=heavy_atoms,
+            ))
         success_count += 1
         if collect_rows:
             rows.extend(pair_rows)
@@ -643,32 +582,6 @@ def run_vina_docking_rows(
             encoding="utf-8",
         )
     return rows
-
-
-def _failed_docking_row(failure: dict, *, protocol_payload: dict, engine: str = "vina") -> dict:
-    """One failed pair in the same shape as a successful rank-1 result."""
-    return {
-        "receptor_molecule_id": int(failure.get("receptor_id") or 0),
-        "ligand_molecule_id": int(failure.get("ligand_id") or 0),
-        "engine": engine,
-        "pose_rank": 1,
-        "score": None,
-        "score_type": "vina_score",
-        "pose_path": "",
-        "rmsd_vs_reference": None,
-        "metrics": {
-            "status": "failed",
-            "error": str(failure.get("error") or ""),
-            "run_kind": str(failure.get("run_kind") or "screening"),
-            "complex_id": failure.get("complex_id"),
-            "ligand_path": str(failure.get("ligand_path") or ""),
-            "receptor_path": str(failure.get("receptor_path") or ""),
-            "reference_ligand_path": str(failure.get("reference_ligand_path") or ""),
-            "reference_receptor_path": str(failure.get("reference_receptor_path") or ""),
-            "protocol": protocol_payload,
-        },
-        "created_at": datetime.now(),
-    }
 
 
 # ---------------------------------------------------------------------------

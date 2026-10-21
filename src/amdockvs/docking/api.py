@@ -284,7 +284,6 @@ class DockingAPI:
             return delete_docking_results(project_db, result_ids)
         from sqlalchemy.orm import aliased
 
-        from amdockvs.docking.results.tables import _protocol_hash, _run_id
         from amdockvs.models import DockingResultRecord
 
         seed = aliased(DockingResultRecord)
@@ -292,8 +291,7 @@ class DockingAPI:
             seed.id.in_([int(i) for i in result_ids]),
             seed.receptor_molecule_id == DockingResultRecord.receptor_molecule_id,
             seed.ligand_molecule_id == DockingResultRecord.ligand_molecule_id,
-            _protocol_hash(seed) == _protocol_hash(),
-            _run_id(seed) == _run_id(),
+            seed.docking_run_id == DockingResultRecord.docking_run_id,
         ))
 
     @staticmethod
@@ -1007,13 +1005,22 @@ class DockingAPI:
             hit_cap: int = 0,
             hit_mode: str = HIT_MODE_THRESHOLD,
             payload: str = PAYLOAD_LIGHT,
+            selected_from_receptor_id: int | None = None,
+            selected_top_n: int | None = None,
+            selected_max_score: float | None = None,
     ) -> str:
         """Run docking over the active library, selecting its row or shard adapter.
 
         ``hit_threshold``/``hit_cap`` are optional for materialized rows and mandatory for a
         sharded library, where returning every scored molecule would defeat the storage model.
         ``compute_interactions`` finds each pose's interactions in the chunk that docked it.
+        An off-target stage sets ``selected_from_receptor_id``/``selected_top_n``: the other
+        receptors dock only that receptor's Top-N ligands, read when the job starts — so it
+        `depends_on` the target's job. Over rows, ``selected_max_score`` keeps only those at
+        or below it (a sharded library uses ``hit_threshold`` for that).
         """
+        if selected_top_n is not None and selected_from_receptor_id is None:
+            raise ValueError("selected_top_n requires selected_from_receptor_id.")
         if ligands is not None:
             if ligand_set is not None:
                 raise ValueError("Pass either ligands or ligand_set, not both.")
@@ -1063,7 +1070,11 @@ class DockingAPI:
                 skip_existing=skip_existing,
                 payload=payload,
                 check_required=check_required,
+                selected_from_receptor_id=selected_from_receptor_id,
+                selected_top_n=selected_top_n,
             )
+        if selected_from_receptor_id is not None and not selected_top_n:
+            raise ValueError("An off-target stage over ligand rows requires selected_top_n.")
         if hit_cap and hit_threshold is None:
             raise ValueError(
                 "docking.run needs hit_threshold when hit_cap is set: the threshold is the "
@@ -1125,8 +1136,11 @@ class DockingAPI:
             requires_ligand_preparation=program_spec.requires_ligand_preparation,
             requires_receptor_preparation=program_spec.requires_receptor_preparation,
         )
+        # The Top-N does not exist yet when an off-target stage is submitted: declare nothing
+        # (a floor of 0) rather than a count that could over-declare and never complete.
         total_chunks = (
-            -(-pending_pairs // resolved_batch_size) if pending_pairs > 0 else 0
+            -(-pending_pairs // resolved_batch_size)
+            if pending_pairs > 0 and selected_from_receptor_id is None else 0
         )
         params = DockingJobParams(
             output_dir=self._output_dir(output_dir),
@@ -1151,6 +1165,9 @@ class DockingAPI:
             hit_threshold=hit_threshold,
             hit_cap=max(0, int(hit_cap)),
             interactions=bool(compute_interactions),
+            selected_from_receptor_id=selected_from_receptor_id,
+            selected_top_n=selected_top_n,
+            selected_max_score=selected_max_score,
         )
         job_id = self.runtime.submit_job(
             docking_job,
@@ -1506,12 +1523,16 @@ class DockingAPI:
             *,
             receptor_ids: list[int] | None = None,
             ligand_ids: list[int] | None = None,
+            protocol_hash: str | None = None,
             limit: int = 50000,
     ):
         return results_repo.list_offtarget_rows(
             self._project_db(),
-            receptor_ids=receptor_ids, ligand_ids=ligand_ids, limit=limit
+            receptor_ids=receptor_ids, ligand_ids=ligand_ids, protocol_hash=protocol_hash, limit=limit
         )
+
+    def max_pose_rank(self, *, receptor_ids: list[int]) -> int:
+        return results_repo.max_pose_rank(self._project_db(), receptor_ids=receptor_ids)
 
 
 __all__ = ["DockingAPI"]

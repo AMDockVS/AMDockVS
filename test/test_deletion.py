@@ -12,6 +12,7 @@ from amdockvs.project.deletion import clear_derived, delete_complexes, delete_mo
 from amdockvs.models import (
     ComplexRecord,
     DockingResultRecord,
+    DockingRun,
     EngineState,
     FingerprintRecord,
     LigandActivity,
@@ -38,8 +39,9 @@ def _seed():
         s.add(MoleculeRecord(id=1, name="rec", is_receptor=True))
         s.add(MoleculeRecord(id=2, name="lig", is_ligand=True))
         s.add(ComplexRecord(id=1, receptor_molecule_id=1, ligand_molecule_id=2, purpose="screening"))
+        s.add(DockingRun(id=1, engine="vina"))
         for rank in (1, 2):
-            s.add(DockingResultRecord(receptor_molecule_id=1, ligand_molecule_id=2, engine="vina", pose_rank=rank))
+            s.add(DockingResultRecord(receptor_molecule_id=1, ligand_molecule_id=2, docking_run_id=1, pose_rank=rank))
         s.commit()
     return _FakeDB(engine)
 
@@ -129,7 +131,9 @@ def test_a_payload_a_result_still_holds_survives_the_molecule(tmp_path):
     db, stored, _ = _project(tmp_path)
     with db.get_session() as s:
         pose = s.get(MoleculeRecord, 3).current_payload_id
-        s.add(DockingResultRecord(receptor_molecule_id=4, ligand_molecule_id=4, engine="vina", pose_payload_id=pose))
+        s.add(DockingRun(id=1, engine="vina"))
+        s.flush()
+        s.add(DockingResultRecord(receptor_molecule_id=4, ligand_molecule_id=4, docking_run_id=1, pose_payload_id=pose))
         s.commit()
     delete_molecules(db, [3])
     assert "alone" in stored()   # the other molecule's result still shows it
@@ -143,17 +147,19 @@ def test_deleting_a_ligand_row_takes_its_run_poses_only():
     engine = create_engine("sqlite://")
     SQLModel.metadata.create_all(engine)
     with Session(engine) as s:
-        for ligand, run, rank in ((2, "r1", 1), (2, "r1", 2), (2, "r2", 1), (3, "r1", 1)):
-            s.add(DockingResultRecord(receptor_molecule_id=1, ligand_molecule_id=ligand, engine="vina",
-                                      pose_rank=rank, metrics={"run_id": run, "protocol": {"hash": "h"}}))
+        s.add_all([DockingRun(id=1, run_id="r1", engine="vina", protocol_hash="h"),
+                   DockingRun(id=2, run_id="r2", engine="vina", protocol_hash="h")])
+        for ligand, run, rank in ((2, 1, 1), (2, 1, 2), (2, 2, 1), (3, 1, 1)):
+            s.add(DockingResultRecord(receptor_molecule_id=1, ligand_molecule_id=ligand, docking_run_id=run,
+                                      pose_rank=rank))
         s.commit()
     api = DockingAPI.__new__(DockingAPI)
     api.runtime = SimpleNamespace(_require_active_project=lambda: None,
                                   workspace=SimpleNamespace(project_db=_FakeDB(engine)))
     assert api.delete_results([1], with_siblings=True) == 2
     with Session(engine) as s:
-        left = {(r.ligand_molecule_id, r.metrics["run_id"]) for r in s.exec(select(DockingResultRecord))}
-    assert left == {(2, "r2"), (3, "r1")}
+        left = {(r.ligand_molecule_id, r.docking_run_id) for r in s.exec(select(DockingResultRecord))}
+    assert left == {(2, 2), (3, 1)}
 
 
 if __name__ == "__main__":
