@@ -40,6 +40,9 @@ def count_import_records(file_path: str | Path, *, approx: bool = False) -> int:
                     count += 1
                     trailing = False
         return count + (1 if trailing else 0)
+    if suffix == ".mol2":
+        with source_path.open("rb") as handle:
+            return max(1, sum(1 for line in handle if line.startswith(_MOL2_RECORD)))
     if suffix in {".smi", ".smiles", ".txt", ".csv", ".tsv"}:
         has_header, _delimiter, _smiles_col, _name_col = _sniff_smiles_table(source_path)
         data_lines = 0
@@ -133,6 +136,9 @@ def iter_raw_records(
 
     if suffix == ".sdf":
         return FileFormat.SDF, {}, _iter_raw_from_spans(source_path, FileFormat.SDF, skip_header=False)
+    if normalized_kind in {"ligand", "molecule"} and suffix == ".mol2":
+        # A receptor mol2 is one structure; a ligand mol2 is a library (DOCK poses, ZINC sets).
+        return FileFormat.MOL2, {}, _iter_raw_from_spans(source_path, FileFormat.MOL2, skip_header=False)
     if normalized_kind in {"ligand", "molecule"} and suffix in {".smi", ".smiles", ".txt", ".csv", ".tsv"}:
         has_header, delimiter, smiles_col, name_col = _sniff_smiles_table(source_path)
         header_names = _smiles_header_names(source_path, delimiter) if has_header else []
@@ -184,6 +190,40 @@ def _split_sdf_spans(lines: Iterator[bytes]) -> Iterator[tuple[bytes, int, int]]
             yield blob, start, pos
 
 
+_MOL2_RECORD = b"@<TRIPOS>MOLECULE"
+
+
+def _split_mol2_spans(lines: Iterator[bytes]) -> Iterator[tuple[bytes, int, int]]:
+    """(record bytes, start offset, end offset) for every molecule in a multi-molecule mol2.
+
+    A record opens at `@<TRIPOS>MOLECULE`, but the comment block right above it (DOCK writes its
+    `########## Name: / Total Energy:` scores there) belongs to the molecule below, not above.
+    """
+    buffer: list[bytes] = []
+    start = 0
+    pos = 0
+    seen_molecule = False
+    trailing = 0  # bytes of the comment/blank run at the end of the buffer
+    trailing_lines = 0
+    for line in lines:
+        if line.startswith(_MOL2_RECORD) and seen_molecule:
+            head = buffer[: len(buffer) - trailing_lines]
+            yield b"".join(head), start, pos - trailing
+            buffer = buffer[len(head):]
+            start = pos - trailing
+        if line.startswith(_MOL2_RECORD):
+            seen_molecule = True
+        buffer.append(line)
+        pos += len(line)
+        if not line.strip() or line.startswith(b"#"):
+            trailing += len(line)
+            trailing_lines += 1
+        else:
+            trailing = trailing_lines = 0
+    if seen_molecule:
+        yield b"".join(buffer), start, pos
+
+
 def _split_smiles_spans(lines: Iterator[bytes], *, skip_header: bool) -> Iterator[tuple[bytes, int, int]]:
     pos = 0
     header_skipped = not skip_header
@@ -202,12 +242,14 @@ def _split_smiles_spans(lines: Iterator[bytes], *, skip_header: bool) -> Iterato
 def _spans_for(input_format: str, lines: Iterator[bytes], *, skip_header: bool) -> Iterator[tuple[bytes, int, int]]:
     if input_format == FileFormat.SDF:
         return _split_sdf_spans(lines)
+    if input_format == FileFormat.MOL2:
+        return _split_mol2_spans(lines)
     if input_format == FileFormat.SMILES:
         return _split_smiles_spans(lines, skip_header=skip_header)
     raise ValueError(f"Record spans are not defined for input format '{input_format}'.")
 
 
-SPAN_FORMATS = (FileFormat.SDF, FileFormat.SMILES)
+SPAN_FORMATS = (FileFormat.SDF, FileFormat.MOL2, FileFormat.SMILES)
 
 
 def iter_record_spans(
@@ -225,7 +267,8 @@ def iter_record_spans(
     iterator is returned, which for them is a single record.
     """
     input_format, parse_config, fallback = iter_raw_records(kind=kind, file_path=file_path)
-    if input_format not in SPAN_FORMATS:
+    receptor_mol2 = input_format == FileFormat.MOL2 and normalize_kind(kind) not in {"ligand", "molecule"}
+    if input_format not in SPAN_FORMATS or receptor_mol2:
         return input_format, parse_config, fallback
 
     source_path = Path(file_path).expanduser().resolve()

@@ -56,6 +56,10 @@ def mol_from_record(raw: str, input_format: str):
     if input_format == FileFormat.SDF:
         supplier = Chem.ForwardSDMolSupplier(io.BytesIO(str(raw).encode()), sanitize=True, removeHs=False)
         return next(iter(supplier), None)
+    if input_format == FileFormat.MOL2:
+        from amdockvs.io.formats import mol_from_mol2_block
+
+        return mol_from_mol2_block(raw)
     if input_format == FileFormat.SMILES:
         tokens = str(raw).strip().split(maxsplit=1)
         if not tokens:
@@ -89,6 +93,17 @@ def smiles_record(raw: str, parse_config: dict[str, Any]) -> str:
     return f"{smiles} {name}".strip()
 
 
+def _sdf_record(mol) -> str:
+    from rdkit import Chem
+
+    if mol is None:
+        return ""
+    buffer = io.StringIO()
+    with Chem.SDWriter(buffer) as writer:
+        writer.write(mol)
+    return buffer.getvalue()
+
+
 def filter_ligand_span(payload: dict[str, Any]) -> list[dict[str, Any]]:
     """One span of a source file -> the records that survive the prefilter.
 
@@ -109,6 +124,11 @@ def filter_ligand_span(payload: dict[str, Any]) -> list[dict[str, Any]]:
         raw = str(record.get("raw") or "")
         if batch.input_format == FileFormat.SMILES:
             raw = smiles_record(raw, dict(batch.parse_config or {}))
+        if batch.input_format == FileFormat.MOL2:
+            # Shards hold SDF or SMILES only: a mol2 record is stored as the SDF it parses to.
+            raw = _sdf_record(mol_from_record(raw, FileFormat.MOL2))
+            if not raw:
+                continue
         if passes is not None:
             mol = mol_from_record(raw, batch.input_format)
             if mol is None or not passes(cull_mol(mol, batch)):
@@ -117,7 +137,7 @@ def filter_ligand_span(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         {
             "source": str(batch.file_path),
-            "input_format": batch.input_format,
+            "input_format": FileFormat.SDF if batch.input_format == FileFormat.MOL2 else batch.input_format,
             "records": records,
         }
     ]
