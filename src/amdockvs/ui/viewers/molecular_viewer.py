@@ -215,6 +215,7 @@ class MolecularViewerController:
         if cmd is not None:
             try:
                 cmd.delete("all")
+                set_pymol_scene_context(self.w.pymol_dock, "generic")
             except Exception:
                 pass
 
