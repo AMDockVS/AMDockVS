@@ -14,6 +14,7 @@ the difference); off-target columns use each receptor's best pose.
 from __future__ import annotations
 
 import logging
+from math import isfinite
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
@@ -29,6 +30,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from pyqtgraph import ColorMap
 
 from amdockvs.core.payloads import payload_store
 from amdockvs.ui.common.async_query import run_async
@@ -48,6 +50,10 @@ LIGAND_CAP = 200
 RECEPTOR_CAP = 10
 
 _METRICS = (("Affinity (kcal/mol)", "score"), ("Ligand efficiency", "ligand_efficiency"))
+_DIFFERENCE_PALETTES = (
+    ("Blue – white – red", ("#2166ac", "#ffffff", "#b2182b")),
+    ("Purple – white – orange", ("#762a83", "#ffffff", "#e66101")),
+)
 
 
 class OffTargetResultsWidget(QWidget):
@@ -87,6 +93,28 @@ class OffTargetResultsWidget(QWidget):
         controls.addWidget(self.align_check)
         outer.addLayout(controls)
 
+        colors = QHBoxLayout()
+        colors.addWidget(QLabel("Difference colors:", self))
+        self.palette_combo = QComboBox(self)
+        for label, stops in _DIFFERENCE_PALETTES:
+            self.palette_combo.addItem(label, stops)
+        colors.addWidget(self.palette_combo)
+        legend = QVBoxLayout()
+        self.color_scale = QLabel(self)
+        self.color_scale.setAlignment(Qt.AlignCenter)
+        self.color_scale.setMinimumWidth(280)
+        self.color_scale.setToolTip(
+            "Difference = reference − off-target. Negative values favor the reference. "
+            "Colors saturate below −5 and above +5; values keep their actual magnitude."
+        )
+        self.color_bar = QLabel(self)
+        self.color_bar.setFixedHeight(10)
+        legend.addWidget(self.color_bar)
+        legend.addWidget(self.color_scale)
+        colors.addLayout(legend)
+        colors.addStretch()
+        outer.addLayout(colors)
+
         self.note = QLabel("Click a ligand's name to show all receptors + poses in a PyMOL grid.", self)
         self.note.setWordWrap(True)
         outer.addWidget(self.note)
@@ -100,6 +128,9 @@ class OffTargetResultsWidget(QWidget):
         splitter.setSizes([700, 500])
         outer.addWidget(splitter, 1)
 
+        self.palette_combo.currentIndexChanged.connect(self._update_difference_palette)
+        self.metric_combo.currentIndexChanged.connect(self._update_difference_palette)
+        self._update_difference_palette()
         self.refresh()
 
     # --- construction helpers -------------------------------------------------
@@ -301,17 +332,34 @@ class OffTargetResultsWidget(QWidget):
                 return poses[idx]
         return poses[0]
 
+    def _update_difference_palette(self) -> None:
+        stops = self.palette_combo.currentData()
+        self._difference_colormap = ColorMap([0.0, 0.5, 1.0], [QColor(c) for c in stops])
+        unit = "kcal/mol" if self._metric_key() == "score" else "kcal/mol/heavy atom"
+        self.color_scale.setText(f"−5                 0                 +5 {unit}")
+        self.color_bar.setStyleSheet(
+            "QLabel { background: "
+            f"qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {stops[0]}, "
+            f"stop:0.5 {stops[1]}, stop:1 {stops[2]}); }}"
+        )
+        for r in self._row_state:
+            self._render_difference_row(r)
+
     def _render_difference_row(self, r: int) -> None:
         ref_val = self._value(self._selected_pose(r, self._columns[0][0]))
         for col, (rid, _name) in enumerate(self._columns[1:], start=1):
             rec_val = self._value(self._selected_pose(r, rid))
-            if ref_val is None or rec_val is None:
+            diff = None if ref_val is None or rec_val is None else ref_val - rec_val
+            if diff is None or not isfinite(diff):
                 item = QTableWidgetItem("—")
             else:
-                diff = ref_val - rec_val
                 item = QTableWidgetItem(f"{diff:+.2f}")
-                # negative diff = reference binds more strongly -> selective (green); positive = off-target binds better (red)
-                item.setForeground(QColor("#3fbf73") if diff < 0 else QColor("#d9776c"))
+                background = self._difference_colormap.mapToQColor(max(0.0, min(1.0, (diff + 5) / 10)))
+                item.setBackground(background)
+                channels = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+                            for c in background.getRgbF()[:3]]
+                luminance = sum(c * w for c, w in zip(channels, (0.2126, 0.7152, 0.0722)))
+                item.setForeground(QColor("black" if luminance > 0.179 else "white"))
             self.difference_table.setItem(r, col, item)
 
     # --- interaction ----------------------------------------------------------
