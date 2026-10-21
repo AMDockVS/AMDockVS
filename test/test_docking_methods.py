@@ -148,11 +148,11 @@ def test_zinc_method_docks_into_a_zinc_site(tmp_path, c_numeric_locale):
         scoring_function=scoring, seed=1, method=method, vina_cpu=8)
 
     rows = dock("zinc", "ad4")
-    assert rows[0]["score"] is not None and rows[0]["score"] < -9, rows[0]["metrics"].get("error")
+    assert rows[0]["score"] is not None and rows[0]["score"] < -9, rows[0]["error"]
     assert any(line.split()[-1] == "TZ" for path in (tmp_path / "zinc").rglob("*_TZ.pdbqt")
                for line in path.read_text().splitlines() if line.startswith(("ATOM", "HETATM")))
     refused = dock("standard", "ad4")[0]  # the same site with plain AD4 maps: that pair fails, nothing docks
-    assert refused["score"] is None and "zinc" in refused["metrics"]["error"]
+    assert refused["score"] is None and "zinc" in refused["error"]
     with pytest.raises(ValueError):
         dock("zinc", "vina")  # AutoDock4Zn has no Vina-scoring form
 

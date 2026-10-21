@@ -73,4 +73,4 @@ def test_qvina_docks_a_ligand_with_an_open_ring(tmp_path):
             "seed": 1,
         }
     )
-    assert rows[0]["score"] is not None and rows[0]["score"] < 0, rows[0]["metrics"].get("error")
+    assert rows[0]["score"] is not None and rows[0]["score"] < 0, rows[0]["error"]

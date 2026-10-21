@@ -30,6 +30,8 @@ class _CurrentPageStack(QStackedWidget):
 
 
 class ToolCoordinator:
+    SECTION_REGIONS = {"top": Region.LEFT_TOP, "middle": Region.LEFT_BOTTOM, "bottom": Region.BOTTOM_LEFT}
+
     def __init__(self, window):
         self.w = window
         self.active_tool: str | None = None
@@ -91,7 +93,7 @@ class ToolCoordinator:
         for tool in TOOLS:
             self.action_buttons[tool.view_id] = self.w.dock_manager.add_action_button(
                 tool.action_id,
-                region=Region.LEFT_BOTTOM,
+                region=self.SECTION_REGIONS[tool.section],
                 order=tool.order,
                 title=tool.title,
                 icon=load_icon(tool.icon),

@@ -218,7 +218,7 @@ def test_the_run_panel_chains_reference_then_off_target_jobs():
 
 
 def _scored(score, index):
-    return {"score": score, "source_index": index, "metrics": {"selected_pose_path": ""}}
+    return {"score": score, "source_index": index}
 
 
 def test_ranked_mode_keeps_the_best_n_of_everything_and_writes_only_at_the_end():
@@ -259,15 +259,10 @@ def test_docking_streams_each_ligand_into_a_result_shard_and_removes_loose_poses
             callback([{
                 "receptor_molecule_id": 7,
                 "ligand_molecule_id": ligand_id,
-                "engine": "vina",
                 "pose_rank": 1,
                 "score": score,
                 "score_type": "vina_score",
-                "pose_path": str(sdf),
-                "metrics": {
-                    "selected_pose_path": str(sdf),
-                    "selected_pose_pdbqt_path": str(pdbqt),
-                },
+                "pose_path": str(sdf),  # Vina's PDBQT is its sibling
             }])
         return []
 
@@ -316,10 +311,8 @@ def test_result_shard_cleanup_is_not_tied_to_sdf(tmp_path):
     row = {
         "ligand_molecule_id": 3,
         "receptor_molecule_id": 7,
-        "engine": "adgpu",
         "score": -8.5,
         "pose_path": str(pose),
-        "metrics": {},
     }
 
     payload = shard_tasks.result_row(row, smiles="CCO")
@@ -615,11 +608,9 @@ def test_interrupted_top_n_is_recovered_from_completed_result_shards(tmp_path):
                     payload = {
                         "ligand_id": ligand_id,
                         "receptor_id": receptor_id,
-                        "engine": "vina",
                         "score": score,
                         "score_type": "vina_score",
                         "smiles": "CCO",
-                        "metrics": {"run_id": "interrupted", "protocol": protocol},
                         "pose_text": f"ligand-{ligand_id}\n$$$$\n",
                         "pose_suffix": ".sdf",
                     }

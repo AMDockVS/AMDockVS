@@ -53,7 +53,7 @@ def test_gnina_docks_1iep(tmp_path):
     )
     assert rows, "gnina produced no rows"
     best = rows[0]
-    assert best["engine"] == "gnina"
+    assert "engine" not in best  # the engine is the run's (docking_runs), not each row's
     assert best["score_type"] == "gnina_score"
     assert isinstance(best["score"], float)  # minimizedAffinity, kcal/mol
-    assert isinstance(best["metrics"]["CNNaffinity"], float)  # CNN ran on GPU
+    assert isinstance(best["extra"]["CNNaffinity"], float)  # CNN ran on GPU

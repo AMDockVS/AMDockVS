@@ -25,12 +25,8 @@ HIT_MODE_TOP_N = "top_n"
 
 
 def _pose_files(row: dict) -> list[str]:
-    metrics = dict(row.get("metrics") or {})
-    return [
-        str(row.get("pose_path") or ""),
-        str(metrics.get("selected_pose_path") or ""),
-        str(metrics.get("selected_pose_pdbqt_path") or ""),
-    ]
+    pose = str(row.get("pose_path") or "")
+    return [pose, str(Path(pose).with_suffix(".pdbqt"))] if pose else []  # Vina's own output too
 
 
 def _discard_poses(rows: list[dict]) -> None:
@@ -47,25 +43,20 @@ def _discard_poses(rows: list[dict]) -> None:
                     path.unlink(missing_ok=True)
 
 
-def _hit_row(row: dict, *, smiles: str, source: str, shard_index: int) -> dict[str, Any]:
-    """A docking result row turned into what `ingest_hits` promotes: a molecule; its pose is added
-    by the caller as a payload."""
+def _hit_row(row: dict, *, smiles: str, source: str, docking_run_id: int | None) -> dict[str, Any]:
+    """A docking result row turned into what `ingest_hits` promotes: a molecule and its result
+    columns (its `ligand_molecule_id` is the shard record until then); its pose is added by the
+    caller as a payload."""
     ligand_id = int(row.get("ligand_molecule_id") or 0)
-    metrics = {**dict(row.get("metrics") or {}), "shard_source": source, "shard_index": shard_index,
-               "shard_record_id": ligand_id}
     return {
+        **{key: value for key, value in row.items() if key != "pose_path"},
+        "docking_run_id": docking_run_id,
         "name": f"{Path(source).stem or 'library'}:{ligand_id}",
         "source": source,
         # The shard record id *is* the identity of a library molecule: the shard's
         # `source_indices` metadata is what maps it back to a line in the original file.
         "source_index": ligand_id,
         "smiles": smiles,
-        "engine": str(row.get("engine") or ""),
-        "score": row.get("score"),
-        "score_type": str(row.get("score_type") or ""),
-        "pose_rank": int(row.get("pose_rank") or 1),
-        "receptor_molecule_id": int(row.get("receptor_molecule_id") or 0),
-        "metrics": metrics,
     }
 
 
@@ -178,7 +169,7 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
                     pair_rows[0],
                 )
                 ligand_id = int(row.get("ligand_molecule_id") or 0)
-                stored = result_row(row, smiles=smiles.get(ligand_id, ""))
+                stored = result_row(row, smiles=smiles.get(ligand_id, ""), engine=str(payload.get("engine") or ""))
                 writer.add(stored)
                 is_hit = (
                     row.get("score") is not None
@@ -198,7 +189,7 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
                             row,
                             smiles=smiles.get(ligand_id, ""),
                             source=source,
-                            shard_index=shard_index,
+                            docking_run_id=payload.get("docking_run_id"),
                         )
                         # Compressed when pickled, so in the worker: the parent only appends it.
                         hit["pose"] = structure_payload(stored["pose_text"], stored["pose_suffix"], SERIES_POSES)

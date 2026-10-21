@@ -20,7 +20,7 @@ import amdockvs.ui.catalog  # noqa: F401 - imported first, it is what breaks the
 
 from amdockvs.ui.tools.docking.results_pivot import ResultsPivotWidget, _freshness_text_and_delay
 from amdockvs.ui.catalog.results import DockingResultsWidget
-from amdockvs.models import DockingResultRecord, MoleculeRecord, ScreeningTarget
+from amdockvs.models import DockingResultRecord, DockingRun, MoleculeRecord, ScreeningTarget
 from ms_components.ms_table import SmartTableView
 
 
@@ -202,13 +202,14 @@ def test_hits_results_always_select_a_concrete_receptor():
     db = _Db()
     with db.get_session() as session:
         session.add_all([
+            DockingRun(id=1, engine="vina", protocol_hash="p", protocol_label="Vina"),
             MoleculeRecord(id=41, name="4UWH", is_receptor=True),
             MoleculeRecord(id=42, name="4UWK", is_receptor=True),
             MoleculeRecord(id=101, name="Ligand", is_ligand=True),
             DockingResultRecord(id=11, receptor_molecule_id=41, ligand_molecule_id=101,
-                                engine="vina", pose_rank=1, score=-8.0),
+                                docking_run_id=1, pose_rank=1, score=-8.0),
             DockingResultRecord(id=12, receptor_molecule_id=42, ligand_molecule_id=101,
-                                engine="vina", pose_rank=1, score=-7.0),
+                                docking_run_id=1, pose_rank=1, score=-7.0),
         ])
         session.commit()
     docking = SimpleNamespace(result_protocols=lambda **_kwargs: [], hit=lambda **_kwargs: None)
@@ -243,14 +244,14 @@ def test_running_job_refresh_reaches_the_active_results_page():
 def test_live_hits_refreshes_receptor_aggregates_and_only_the_ligand_count():
     QApplication.instance() or QApplication(["amdockvs-live-counts-test"])
     db = _Db()
-    protocol = {"run_kind": "screening", "protocol": {"hash": "p", "label": "Vina"}}
     with db.get_session() as session:
         session.add_all([
+            DockingRun(id=1, engine="vina", protocol_hash="p", protocol_label="Vina"),
             MoleculeRecord(id=41, name="4UWH", is_receptor=True),
             MoleculeRecord(id=101, name="A", is_ligand=True),
             MoleculeRecord(id=202, name="B", is_ligand=True),
             DockingResultRecord(id=11, receptor_molecule_id=41, ligand_molecule_id=101,
-                                engine="vina", pose_rank=1, score=-8.0, metrics=protocol),
+                                docking_run_id=1, pose_rank=1, score=-8.0),
         ])
         session.commit()
     widget = DockingResultsWidget(runtime=SimpleNamespace(
@@ -271,14 +272,14 @@ def test_live_hits_refreshes_receptor_aggregates_and_only_the_ligand_count():
     with db.get_session() as session:
         session.add(DockingResultRecord(
             id=22, receptor_molecule_id=41, ligand_molecule_id=202,
-            engine="vina", pose_rank=1, score=-7.0, metrics=protocol,
+            docking_run_id=1, pose_rank=1, score=-7.0,
         ))
         session.commit()
 
     assert widget.refresh_counts() is True
     receptor = widget.receptor_table._model.get_row_data(0)
     # No campaign plan for this receptor, so the counters fall back to the results themselves.
-    assert receptor["ligands"] == 2 and receptor["progress"] == 1.0
+    assert receptor["ligands"] == 2 and receptor["progress"] == 2
     assert widget.ligand_table.record_total == 2
     assert "2 records" in widget.ligand_table._result_count_label.text()
     assert widget.ligand_table._model.loaded_count == 1
@@ -289,6 +290,7 @@ def test_live_campaign_progress_patches_cells_without_resetting_or_losing_select
     db = _Db()
     with db.get_session() as session:
         session.add_all([
+            DockingRun(id=1, engine="vina", protocol_hash="p", protocol_label="Vina"),
             MoleculeRecord(id=41, name="4UWH", is_receptor=True),
             ScreeningTarget(run_id="r1", receptor_molecule_id=41, receptor_name="4UWH",
                             ligands_total=1000, ligands_done=0),
@@ -312,7 +314,7 @@ def test_live_campaign_progress_patches_cells_without_resetting_or_losing_select
     assert widget.refresh_counts() is True
 
     row = widget.receptor_table._model.get_row_data(0)
-    assert row["progress"] == pytest.approx(0.037)
+    assert row["progress"] == 37
     from PySide6.QtCore import Qt
     model = widget.receptor_table._model
     tip = model.data(model.index(0, [c.field for c in model._visible_cols].index("progress")), Qt.ToolTipRole)
@@ -386,7 +388,7 @@ def test_a_scheduled_receptor_is_listed_before_it_has_any_result():
     widget.receptor_table.refresh()
     row = widget.receptor_table._model.get_row_data(0)
     assert row["name"] == "4UWF" and row["ligands"] == 11950
-    assert row["progress"] == pytest.approx(27 / 11950)
+    assert row["progress"] == 27
 
 
 def test_a_row_mode_plan_counts_docked_from_its_results():
@@ -395,10 +397,11 @@ def test_a_row_mode_plan_counts_docked_from_its_results():
     db = _Db()
     with db.get_session() as session:
         session.add_all([
+            DockingRun(id=1, engine="vina", protocol_hash="p", protocol_label="Vina"),
             MoleculeRecord(id=8, name="4UWG", is_receptor=True),
             ScreeningTarget(run_id="r2", receptor_molecule_id=8, ligands_total=901),
             *[DockingResultRecord(receptor_molecule_id=8, ligand_molecule_id=100 + i,
-                                  engine="vina", pose_rank=1, score=-7.0) for i in range(3)],
+                                  docking_run_id=1, pose_rank=1, score=-7.0) for i in range(3)],
         ])
         session.commit()
     widget = DockingResultsWidget(runtime=SimpleNamespace(
@@ -407,21 +410,21 @@ def test_a_row_mode_plan_counts_docked_from_its_results():
     ))
     widget.receptor_table.refresh()
     row = widget.receptor_table._model.get_row_data(0)
-    assert row["ligands"] == 901 and row["progress"] == pytest.approx(3 / 901)
+    assert row["ligands"] == 901 and row["progress"] == 3
 
 def test_live_ligand_reload_keeps_the_selected_ligand_context():
     QApplication.instance() or QApplication(["amdockvs-live-results-test"])
     db = _Db()
-    protocol = {"run_kind": "screening", "protocol": {"hash": "p", "label": "Vina"}}
     with db.get_session() as session:
         session.add_all([
+            DockingRun(id=1, engine="vina", protocol_hash="p", protocol_label="Vina"),
             MoleculeRecord(id=41, name="4UWH", is_receptor=True),
             MoleculeRecord(id=101, name="A", is_ligand=True),
             MoleculeRecord(id=202, name="B", is_ligand=True),
             DockingResultRecord(id=11, receptor_molecule_id=41, ligand_molecule_id=101,
-                                engine="vina", pose_rank=1, score=-8.0, metrics=protocol),
+                                docking_run_id=1, pose_rank=1, score=-8.0),
             DockingResultRecord(id=22, receptor_molecule_id=41, ligand_molecule_id=202,
-                                engine="vina", pose_rank=1, score=-7.0, metrics=protocol),
+                                docking_run_id=1, pose_rank=1, score=-7.0),
         ])
         session.commit()
     widget = DockingResultsWidget(runtime=SimpleNamespace(

@@ -198,6 +198,7 @@ class DockingHitSummary(BaseModel):
     sei: Optional[float] = None
     status: str = ""
     error: str = ""
+    pose_rank: int = 1
     pose_payload_id: Optional[int] = None
     ligand_payload_id: Optional[int] = None
     receptor_payload_id: Optional[int] = None
@@ -205,7 +206,6 @@ class DockingHitSummary(BaseModel):
     reference_receptor_payload_id: Optional[int] = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
     _project: Any = PrivateAttr(default=None)
 
     def of_project(self, project: Any) -> "DockingHitSummary":

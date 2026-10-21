@@ -122,7 +122,7 @@ def test_adgpu_docks_1iep(tmp_path):
     assert 1 <= len(rows) <= 3
     best = rows[0]
     assert (best["engine"], best["score_type"]) == ("adgpu", "ad4_score")
-    assert best["score"] < -8.0, best["metrics"].get("error")  # imatinib in ABL: about -10.7 kcal/mol
+    assert best["score"] < -8.0, best["error"]  # imatinib in ABL: about -10.7 kcal/mol
     assert [row["score"] for row in rows] == sorted(row["score"] for row in rows)
     poses = (tmp_path / "out" / "1__2.adgpu.sdf").read_text()
     assert poses.count("$$$$") == len(rows)

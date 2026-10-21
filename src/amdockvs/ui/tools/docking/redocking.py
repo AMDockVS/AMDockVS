@@ -206,10 +206,7 @@ class RedockingWidget(QWidget):
 
     @staticmethod
     def _pose_rank(hit: DockingHitSummary) -> int:
-        try:
-            return int(hit.metadata.get("pose_index", 0)) + 1
-        except (TypeError, ValueError):
-            return 1
+        return int(hit.pose_rank or 1)
 
     @staticmethod
     def _fmt(value: float | None, decimals: int = 2) -> str:
@@ -271,7 +268,7 @@ class RedockingWidget(QWidget):
                 self._pose_rank(hit),
                 float(hit.score),
                 repr(hit.rmsd_vs_reference),
-                str(hit.updated_at or ""),
+                str(hit.created_at or ""),
             )
             for hit in rows
         ))

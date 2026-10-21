@@ -7,7 +7,10 @@ from ms_components.ms_table import (
     AlignHint,
     ColumnDef,
     ColumnKind,
+    FilterOperator,
+    FilterSpec,
     TableConfig,
+    ToolbarAction,
     TableLoadMode,
     choices_from_class,
 )
@@ -53,6 +56,18 @@ class ComplexPairsWidget(BoundTableWidget):
         )
         if self.table is not None:
             self.table.row_clicked.connect(self._load_pair_in_pymol)
+
+    _RECEPTORS_SCOPE = "receptors"
+
+    def show_for_receptors(self, receptor_ids, *, label: str) -> None:
+        """Only the pairs of these receptors, until "Show all" (Receptors → Show Complexes)."""
+        self.push_scope(
+            self._RECEPTORS_SCOPE,
+            filters=[FilterSpec("receptor_molecule_id", FilterOperator.IN, sorted({int(i) for i in receptor_ids}))],
+            actions=[ToolbarAction(label="Show all", on_click=lambda _objs=None: self.pop_scope(self._RECEPTORS_SCOPE),
+                                   tooltip=f"Showing the complexes of {label}. Click to see every pair.")],
+            empty_message=f"No complexes for {label}",
+        )
 
     def _load_object_in_pymol(self, obj) -> None:
         self._load_pair_in_pymol(obj)

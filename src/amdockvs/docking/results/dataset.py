@@ -17,6 +17,7 @@ import pyarrow.parquet as pq
 from ms_flow.core.data.shard import Shard
 
 from amdockvs.core.paths import get_default_project_root
+from amdockvs.docking.results.metrics import SCORE_METRICS
 from amdockvs.core.vocab import TargetState
 
 RESULT_DATASET_FORMAT = "amdock-docking-results-parquet-v1"
@@ -78,29 +79,17 @@ def local_pose_path(value: object) -> Path | None:
     return candidate if candidate is not None and candidate.is_file() else None
 
 
-def result_row(row: Mapping[str, Any], *, smiles: str) -> dict[str, Any]:
-    metrics = dict(row.get("metrics") or {})
-    pose_path = next(
-        (
-            path
-            for value in (
-                metrics.get("selected_pose_path"),
-                row.get("pose_path"),
-                metrics.get("selected_pose_pdbqt_path"),
-            )
-            if (path := local_pose_path(value)) is not None
-        ),
-        None,
-    )
-    metrics["selected_pose_path"] = ""
-    metrics["selected_pose_pdbqt_path"] = ""
+def result_row(row: Mapping[str, Any], *, smiles: str, engine: str = "") -> dict[str, Any]:
+    """One engine row as a parquet row; `metrics_json` holds the result columns past the score."""
+    pose_path = local_pose_path(row.get("pose_path"))
+    metrics = {key: row.get(key) for key in (*SCORE_METRICS, "rmsd_vs_reference", "error", "extra")}
     return {
         "ligand_id": int(row.get("ligand_molecule_id") or 0),
         "receptor_id": int(row.get("receptor_molecule_id") or 0),
         "score": None if row.get("score") is None else float(row["score"]),
         "score_type": str(row.get("score_type") or ""),
-        "status": str(metrics.get("status") or "done"),
-        "engine": str(row.get("engine") or ""),
+        "status": "failed" if row.get("error") else "done",
+        "engine": str(engine),
         "has_pose": pose_path is not None,
         "smiles": str(smiles or ""),
         "metrics_json": json.dumps(metrics, ensure_ascii=True, default=str),
@@ -268,6 +257,7 @@ def select_hit_refs(
     """Rank using only lightweight columns and return shard/record identities."""
     from sqlmodel import select
 
+    from amdockvs.docking.results.repository import docking_run_id
     from amdockvs.models import ScreeningShard
     from amdockvs.screening.materialize import TopNGate
 
@@ -322,6 +312,7 @@ def select_hits(
     """Rank projected score columns, then load poses only for the selected rows."""
     from sqlmodel import select
 
+    from amdockvs.docking.results.repository import docking_run_id
     from amdockvs.models import ScreeningShard
 
     selected = select_hit_refs(
@@ -361,6 +352,14 @@ def select_hits(
         for path, keys in keys_by_path.items()
     }
 
+    # The run the parent created before the first shard (get-or-create, so a recovery finds it too).
+    runs = {
+        engine: docking_run_id(project_db, run_id=run_id, engine=engine, run_kind="screening", protocol={
+            **dict(metadata.get("protocol") or {}), "hash": protocol_hash})
+        for path, metadata in metadata_by_path.items()
+        for engine in {str(receipt_by_path[path].engine)} if path in receipt_by_path
+    }
+
     hits: list[dict[str, Any]] = []
     for row in selected:
         path = Path(row["_result_shard"])
@@ -371,29 +370,18 @@ def select_hits(
         if payload is None or receipt is None or source_shard is None:
             continue
         pose_text, pose_suffix = _pose(payload)
-        protocol = dict(metadata_by_path.get(path, {}).get("protocol") or {})
-        protocol.setdefault("hash", str(protocol_hash))
-        metrics_raw = payload.get("metrics_json", payload.get("metrics") or {})
-        metrics = json.loads(metrics_raw) if isinstance(metrics_raw, str) else dict(metrics_raw)
-        metrics.update({
-            "run_id": str(run_id),
-            "protocol": protocol,
-            "shard_source": str(source_shard.source),
-            "shard_index": int(source_shard.shard_index),
-            "shard_record_id": int(payload.get("ligand_id") or 0),
-        })
         ligand_id = int(payload.get("ligand_id") or 0)
         hits.append({
+            **json.loads(payload.get("metrics_json") or "{}"),
+            "docking_run_id": runs[str(receipt.engine)],
             "name": f"{Path(source_shard.source).stem or 'library'}:{ligand_id}",
             "source": str(source_shard.source),
             "source_index": ligand_id,
             "smiles": str(payload.get("smiles") or ""),
-            "engine": str(payload.get("engine") or receipt.engine),
             "score": float(payload["score"]),
             "score_type": str(payload.get("score_type") or ""),
             "pose_rank": 1,
             "receptor_molecule_id": int(payload.get("receptor_id") or receipt.receptor_molecule_id),
-            "metrics": metrics,
             "_pose_text": pose_text,
             "_pose_suffix": pose_suffix,
             "_result_shard": str(path),

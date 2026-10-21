@@ -42,18 +42,21 @@ class ToolEntry:
     view_id: str
     icon: str
     order: int
+    # Section of the left bar: "top" | "middle" | "bottom". The bar draws its own separator
+    # between top and middle and a stretch before bottom. Multi-step studios (a run built over
+    # several steps) take top and middle, one each, so a line splits them; single-shot tools
+    # are pinned to the bottom.
+    section: str = "bottom"
 
 
-# Order 1 is the (hidden) tools-dock button, so tools start at 2; they share LEFT_BOTTOM,
-# which puts an automatic separator between them and the panel toggles (Workflow -1 /
-# Details 0, LEFT_TOP).
+# Order runs within each section; the (hidden) tools-dock button also lives in "middle".
 TOOLS: tuple[ToolEntry, ...] = (
-    ToolEntry("tool_filter", "Filter", FILTER_ID, "filter.svg", 2),
-    ToolEntry("tool_diversity", "Diversity", SELECTION_VIEW_ID, "diversity.svg", 3),
-    ToolEntry("tool_build", "Build", BUILD_ID, "build.svg", 4),
-    ToolEntry("tool_pockets", "Pocket Detection", POCKET_DETECTION_VIEW_ID, "binding_site.svg", 5),
-    ToolEntry("tool_docking", "Docking Studio", DOCKING_VIEW_ID, "target.svg", 6),
-    ToolEntry("tool_qsar", "Build Model", QSAR_BUILD_VIEW_ID, "qsar.svg", 7),
+    ToolEntry("tool_docking", "Docking Studio", DOCKING_VIEW_ID, "target.svg", 1, section="top"),
+    ToolEntry("tool_qsar", "QSAR Build", QSAR_BUILD_VIEW_ID, "qsar.svg", 2, section="middle"),
+    ToolEntry("tool_build", "Build", BUILD_ID, "build.svg", 3),
+    ToolEntry("tool_pockets", "Pocket Detection", POCKET_DETECTION_VIEW_ID, "binding_site.svg", 4),
+    ToolEntry("tool_filter", "Filter", FILTER_ID, "filter.svg", 5),
+    ToolEntry("tool_diversity", "Diversity", SELECTION_VIEW_ID, "diversity.svg", 6),
 )
 
 TOOL_VIEW_IDS = frozenset(entry.view_id for entry in TOOLS)
@@ -61,13 +64,10 @@ TOOL_VIEW_IDS = frozenset(entry.view_id for entry in TOOLS)
 # Catalog reference tables live in a top toolbar of checkable actions (checked = tab open),
 # separated from the left tool buttons so "pick a table" doesn't collide with "pick a tool".
 CATALOG_TABLES = (
-    ("Molecules", MOLECULES_VIEW_ID, "catalog.svg"),
     ("Receptors", RECEPTOR_VIEW_ID, "receptor.svg"),
     ("Ligands", LIGANDS_VIEW_ID, "ligands.svg"),
-    ("Shards", SHARDS_VIEW_ID, "cloud.svg"),
-    ("Binding Sites", BINDING_SITES_VIEW_ID, "binding_site.svg"),
-    ("Complexes", COMPLEX_PAIRS_VIEW_ID, "complexes.svg"),
-    ("Activity", LIGAND_ACTIVITY_VIEW_ID, "activity.svg"),
+    ("Molecules", MOLECULES_VIEW_ID, "catalog.svg"),
+    # ("Binding Sites", BINDING_SITES_VIEW_ID, "binding_site.svg"),
 )
 
 # Result views: once the data exists in the project it outlives the tool that produced it,
@@ -82,10 +82,20 @@ STANDING_DATA_VIEWS = (
         ("Clusters", CLUSTERS_VIEW_ID, "diversity.svg"),  # what Diversity runs produced
     ),
     (
+        ("Activity", LIGAND_ACTIVITY_VIEW_ID, "activity.svg"),
         ("Model Analysis", QSAR_MODELS_VIEW_ID, "models.svg"),
         ("Predictions", PREDICTIONS_VIEW_ID, "predictions.svg"),
     ),
 )
+
+# Contextual views, like Office's contextual ribbon tabs: the last group of the bar, shown
+# only when they apply. Shards appears once the project holds shards and stays (closing its
+# tab only unchecks it); an EPHEMERAL one appears while its tab is open and leaves with it.
+CONTEXTUAL_VIEWS = (
+    ("Shards", SHARDS_VIEW_ID, "cloud.svg"),
+    ("Complexes", COMPLEX_PAIRS_VIEW_ID, "complexes.svg"),
+)
+EPHEMERAL_VIEW_IDS = frozenset({COMPLEX_PAIRS_VIEW_ID})
 
 # Views opened to look at something and then abandoned. They share one tab slot, so they
 # stop accumulating in the tab bar.
@@ -124,7 +134,8 @@ if __name__ == "__main__":  # every table entry must name a view that a registra
     for target in REGISTRARS:
         module_name, _, attr = target.partition(":")
         assert callable(getattr(import_module(module_name), attr)), target
-    listed = {view_id for _, view_id, _ in CATALOG_TABLES}
+    listed = {view_id for _, view_id, _ in (*CATALOG_TABLES, *CONTEXTUAL_VIEWS)}
+    assert EPHEMERAL_VIEW_IDS <= {v for _, v, _ in CONTEXTUAL_VIEWS}, "ephemeral = contextual"
     listed |= {view_id for group in STANDING_DATA_VIEWS for _, view_id, _ in group}
     assert not (listed & TOOL_VIEW_IDS), "a tool cannot also be a toolbar data view"
     assert PREVIEW_VIEW_IDS <= listed, "a preview view must be reachable from a toolbar"

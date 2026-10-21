@@ -53,7 +53,7 @@ except Exception:  # pragma: no cover - optional UI dependency
 
 
 #: Fields the results view can filter on, as (key, label). The key is what SQL understands:
-#: "score" is the column, the rest are JSON metrics of the same row.
+#: every key is a column of `docking_results`.
 _RESULT_FILTER_FIELDS = (
     ("score", "Score"),
     ("ligand_efficiency", "LE"),
@@ -498,9 +498,13 @@ class DockingResultsWidget(QWidget):
         if self._select_id(self.receptor_table, self._selected_receptor_id, notify=False):
             return
         objects = self._loaded_objects(self.receptor_table)
-        if objects:
+        if objects and self._selected_receptor_id is None:
+            # Only when nothing is chosen: a chosen receptor outside the window (scrolled away)
+            # stays chosen, it is not swapped for the first row the window happens to hold.
             self._select_id(self.receptor_table, int(objects[0].id or 0), notify=False)
             self._on_receptor_selection_changed([objects[0]])
+            return
+        if objects:
             return
         self._selected_receptor_id = None
         self._selected_ligand_id = None
@@ -508,11 +512,7 @@ class DockingResultsWidget(QWidget):
 
     @staticmethod
     def _pose_rank(hit: DockingHitSummary) -> int:
-        # The pose's state index in the output SDF; metadata.pose_index is 0-based.
-        try:
-            return int(hit.metadata.get("pose_index", 0)) + 1
-        except (TypeError, ValueError):
-            return 1
+        return int(hit.pose_rank or 1)
 
     def _reload_protocols(self, *, auto_select: bool, preserve_view: bool = False) -> None:
         # Cheap DISTINCT query drives the combo; then the scoped ligand fetch runs. Kept off the
@@ -599,7 +599,9 @@ class DockingResultsWidget(QWidget):
             self.data_refreshed.emit(old_signature is not None and signature != old_signature)
         if self._select_ligand_id(self._selected_ligand_id, notify=False):
             return
-        if self._auto_select_ligand and rows:
+        if self._auto_select_ligand and rows and self._selected_ligand_id is None:
+            # Once per refresh: a scroll that loads another window is not a new list to pick from.
+            self._auto_select_ligand = False
             self._select_ligand_id(int(rows[0].ligand_molecule_id or 0), notify=False)
             self._on_ligand_selection_changed([rows[0]])
             return
@@ -642,14 +644,6 @@ class DockingResultsWidget(QWidget):
         self._show_detail(None)
         self._reload_protocols(auto_select=True)
 
-    @staticmethod
-    def _raw_protocol_hash(result) -> str:
-        return str(((getattr(result, "metrics", {}) or {}).get("protocol") or {}).get("hash") or "")
-
-    @staticmethod
-    def _raw_run_id(result) -> str:
-        return str((getattr(result, "metrics", {}) or {}).get("run_id") or "")
-
     def _on_ligand_selection_changed(self, objects: list) -> None:
         if not objects:
             if not self._ligand_refreshing:
@@ -663,12 +657,9 @@ class DockingResultsWidget(QWidget):
             FilterSpec("ligand_molecule_id", FilterOperator.EQ, ligand_id or -1),
             FilterSpec("run_kind", FilterOperator.NEQ, "redocking"),
         ]
-        protocol_hash = self._raw_protocol_hash(result)
-        if protocol_hash:
-            filters.append(FilterSpec("protocol_hash", FilterOperator.EQ, protocol_hash))
-        run_id = self._raw_run_id(result)
-        if run_id:
-            filters.append(FilterSpec("run_id", FilterOperator.EQ, run_id))
+        run = int(getattr(result, "docking_run_id", 0) or 0)
+        if run:
+            filters.append(FilterSpec("docking_run_id", FilterOperator.EQ, run))
         self._auto_select_pose = True
         self.pose_table.set_filters(filters)
 
@@ -737,7 +728,7 @@ class DockingResultsWidget(QWidget):
         patches = {
             receptor_id: {
                 "ligands": values["ligands"],
-                "progress": values["docked"] / values["ligands"] if values["ligands"] else 0.0,
+                "progress": values["docked"],
             }
             for receptor_id, values in progress.items()
         }
@@ -817,7 +808,7 @@ class DockingResultsWidget(QWidget):
             "ligand_payload_id": hit.ligand_payload_id,
             "receptor_payload_id": hit.receptor_payload_id,
             "pose_payload_id": hit.pose_payload_id,
-            "updated_at": None if hit.updated_at is None else str(hit.updated_at),
+            "created_at": None if hit.created_at is None else str(hit.created_at),
             "metadata": hit.metadata,
             "metrics": {
                 "LE": hit.ligand_efficiency,

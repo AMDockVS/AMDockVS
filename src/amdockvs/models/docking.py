@@ -10,6 +10,7 @@ from amdockvs.core.constants import (
     TABLE_BINDING_SITES,
     TABLE_CONSENSUS_SCORES,
     TABLE_DOCKING_RESULTS,
+    TABLE_DOCKING_RUNS,
     TABLE_ENGINES,
     TABLE_MOLECULES,
     TABLE_INTERACTION_RESULTS,
@@ -123,80 +124,92 @@ class EngineState(SQLModel, table=True):
 # DockingResult
 # ---------------------------------------------------------------------------
 
+class DockingRun(SQLModel, table=True):
+    """What every pose of one docking job shares: the engine, the run kind and the protocol.
+
+    One row per (submit run_id, engine, run kind, protocol): a submit with two protocols starts two jobs
+    under the same run_id. The job's parent creates it before the first chunk (`docking_run_id`)
+    and each result row points to it, so none of this repeats per pose.
+    """
+
+    __tablename__ = TABLE_DOCKING_RUNS
+    __table_args__ = (UniqueConstraint("run_id", "engine", "run_kind", "protocol_hash"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    run_id: str = Field(default="")             # the submit's id; "" for runs submitted without one
+    engine: str = Field(default="")             # "vina" | "qvina" | "gnina" | "adgpu" | ...
+    run_kind: str = Field(default="screening")  # "screening" | "redocking"
+    protocol_hash: str = Field(default="", index=True)
+    protocol_label: str = Field(default="")
+    protocol: dict = Field(default_factory=dict, sa_type=JSON)  # the whole protocol: program, config
+    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
+
+
 class DockingResult(SQLModel, table=True):
     """
-    One row per (receptor molecule, ligand molecule, engine, pose).
-    A single docking run produces N poses — each is a separate row.
+    One row per pose of a (receptor, ligand) pair in a docking run (`docking_run_id`).
 
-    pose_rank=1 is the best pose. Downstream analysis (interactions, consensus)
-    references individual rows by id.
-
-    rmsd_vs_reference is populated only for redocking experiments
-    (set purpose='redocking') after comparing against the complex's reference ligand.
+    pose_rank=1 is the best pose. A failed pair is one row with score NULL and `error`.
+    rmsd_vs_reference is filled in a redocking, against the complex's reference ligand.
+    The ligand's own properties (MW, cLogP...) are in `molecules`; what derives from the score
+    is stored as columns so the results view sorts and filters on them.
     """
 
     __tablename__ = TABLE_DOCKING_RESULTS
     __table_args__ = (
-        Index("idx_dr_receptor_molecule",  "receptor_molecule_id"),
-        Index("idx_dr_ligand_molecule",    "ligand_molecule_id"),
-        Index("idx_dr_engine",    "engine"),
-        Index(
-            "idx_dr_rank",
-            "receptor_molecule_id",
-            "ligand_molecule_id",
-            "engine",
-            "pose_rank",
-        ),
+        Index("idx_dr_pair", "receptor_molecule_id", "ligand_molecule_id", "docking_run_id", "pose_rank"),
     )
 
     id: int | None    = Field(default=None, primary_key=True)
-    receptor_molecule_id: int  = Field(foreign_key=f"{TABLE_MOLECULES}.id", index=True)
+    docking_run_id: int = Field(foreign_key=f"{TABLE_DOCKING_RUNS}.id", index=True)
+    receptor_molecule_id: int  = Field(foreign_key=f"{TABLE_MOLECULES}.id")  # idx_dr_pair leads with it
     ligand_molecule_id: int    = Field(foreign_key=f"{TABLE_MOLECULES}.id", index=True)
-    engine: str       = Field()          # "vina" | "adgpu" | "diffdock" | ...
+    complex_id: int | None     = Field(default=None)  # the complex a redocking pair comes from
     pose_rank: int    = Field(default=1) # 1 = best pose
 
-    # Scoring
     score: float | None       = Field(default=None)   # binding energy kcal/mol
     score_type: str           = Field(default="")     # "vina_score" | "ad4_score" | ...
-
-    # Pose (SDF) as a payload of the "poses" series
-    pose_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
-
-    # Redocking validation — populated by post-processing step
     rmsd_vs_reference: float | None = Field(default=None)
 
-    # Additional engine-specific metrics stored as JSON
-    # Vina:      {"gauss1": ..., "gauss2": ..., "repulsion": ..., ...}
-    # adgpu:     {"intermolecular": ..., "internal": ..., ...}
-    # DiffDock:  {"confidence": ...}
-    metrics: dict = Field(default_factory=dict, sa_type=JSON)
+    # Pose (SDF) as a payload of the "poses" series; the poses of a pair share one needle.
+    pose_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
+    # The receptor structure the pose was docked into. ponytail: no FK, a re-prepared receptor may drop it.
+    receptor_payload_id: int | None = Field(default=None)
 
-    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
+    # From the score and the ligand (`docking_metrics`); Ki is 10^-pKi.
+    ligand_efficiency: float | None = Field(default=None)
+    predicted_pki: float | None = Field(default=None)
+    lle: float | None = Field(default=None)
+    bei: float | None = Field(default=None)
+    sei: float | None = Field(default=None)
+    fit_quality: float | None = Field(default=None)
+
+    error: str | None = Field(default=None)  # only on a failed pair
+    # What only one engine reports: gnina's CNN values, AutoDock-GPU's energy terms, the RMSD method.
+    extra: dict | None = Field(default=None, sa_type=JSON)
 
     @classmethod
     def build_row(
         cls,
         *,
+        docking_run_id: int,
         receptor_molecule_id: int,
         ligand_molecule_id: int,
-        engine: str,
         pose_rank: int = 1,
         score: float | None = None,
         score_type: str = "",
         pose_payload_id: int | None = None,
-        metrics: dict | None = None,
+        **columns: Any,
     ) -> dict[str, Any]:
         return {
+            "docking_run_id": docking_run_id,
             "receptor_molecule_id": receptor_molecule_id,
-            "ligand_molecule_id":   ligand_molecule_id,
-            "engine":             engine,
-            "pose_rank":          pose_rank,
-            "score":              score,
-            "score_type":         score_type,
-            "pose_payload_id":    pose_payload_id,
-            "rmsd_vs_reference":  None,
-            "metrics":            metrics or {},
-            "created_at":         datetime.now(),
+            "ligand_molecule_id": ligand_molecule_id,
+            "pose_rank": pose_rank,
+            "score": score,
+            "score_type": score_type,
+            "pose_payload_id": pose_payload_id,
+            **{key: value for key, value in columns.items() if key in cls.model_fields},
         }
 
 
@@ -257,7 +270,7 @@ class InteractionsResult(SQLModel, table=True):
     )
 
     id: int | None           = Field(default=None, primary_key=True)
-    receptor_payload_id: int = Field()  # ponytail: no FK, like docking_results.metrics: a re-prepared receptor may drop it
+    receptor_payload_id: int = Field()  # ponytail: no FK, like docking_results: a re-prepared receptor may drop it
     pose_payload_id: int     = Field(foreign_key=f"{TABLE_PAYLOADS}.id")
 
     interaction_type: str  = Field()

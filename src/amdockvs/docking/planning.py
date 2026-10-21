@@ -67,6 +67,11 @@ class DockingRunRequest:
     run_id: str = ""
     compute_interactions: bool = False
     complex_ids: tuple[int, ...] = ()
+    # Off-target funnel: dock the whole ligand scope against this receptor, then the other
+    # receptors only against its `offtarget_top_n` best ligands.
+    offtarget_reference_id: int | None = None
+    offtarget_top_n: int = 0
+    offtarget_max_score: float | None = None  # by-threshold selection; top_n is then the ceiling
 
 
 @dataclass(frozen=True)

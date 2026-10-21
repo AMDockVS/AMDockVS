@@ -29,8 +29,8 @@ PAYLOAD_FULL = "full"
 # (recomputes everything else). Descriptors, conformers and prepared files are ~60 bytes of
 # identity away from being regenerated locally, so they only travel in `full`.
 LIGHT_FIELDS = (
-    "name", "source", "source_index", "smiles", "engine", "score", "score_type",
-    "pose", "pose_rank", "receptor_molecule_id", "metrics",
+    "name", "source", "source_index", "smiles", "docking_run_id", "score", "score_type",
+    "pose", "pose_rank", "receptor_molecule_id", "extra",
 )
 
 # Descriptor columns a `full` payload may carry straight into the molecule row.
@@ -220,43 +220,26 @@ def ingest_hits(
                 if reuse_existing:
                     molecules_by_source[source_key] = molecule
             molecule_id = int(molecule.id or 0)
-            result_row = DockingResult.build_row(
-                receptor_molecule_id=int(hit.get("receptor_molecule_id") or 0),
-                ligand_molecule_id=molecule_id,
-                engine=str(hit.get("engine") or ""),
-                pose_rank=int(hit.get("pose_rank") or 1),
-                score=None if hit.get("score") is None else float(hit["score"]),
-                score_type=str(hit.get("score_type") or ""),
-                metrics=dict(hit.get("metrics") or {}),
-            )
-            result_row.pop("pose_path", None)
-            result_row["pose_payload_id"] = pose_id
+            # The hit carries the result columns; its ligand is the molecule it just became.
+            result_row = DockingResult.build_row(**{
+                **hit, "ligand_molecule_id": molecule_id, "pose_payload_id": pose_id,
+                "receptor_molecule_id": int(hit.get("receptor_molecule_id") or 0),
+                "pose_rank": int(hit.get("pose_rank") or 1),
+            })
             docking_result = None
             if reuse_existing:
-                wanted_metrics = dict(result_row.get("metrics") or {})
-                wanted_run = str(wanted_metrics.get("run_id") or "")
-                wanted_protocol = str(dict(wanted_metrics.get("protocol") or {}).get("hash") or "")
-                candidates = session.exec(select(DockingResult).where(
+                docking_result = session.exec(select(DockingResult).where(
+                    DockingResult.docking_run_id == result_row["docking_run_id"],
                     DockingResult.receptor_molecule_id == result_row["receptor_molecule_id"],
                     DockingResult.ligand_molecule_id == molecule_id,
-                    DockingResult.engine == result_row["engine"],
                     DockingResult.pose_rank == result_row["pose_rank"],
-                )).all()
-                docking_result = next((
-                    row for row in candidates
-                    if str(dict(row.metrics or {}).get("run_id") or "") == wanted_run
-                    and str(dict(dict(row.metrics or {}).get("protocol") or {}).get("hash") or "")
-                    == wanted_protocol
-                ), None)
+                )).first()
             if docking_result is None:
                 docking_result = DockingResult(**result_row)
             else:
                 if docking_result.pose_payload_id not in (None, pose_id):
                     replaced.append(int(docking_result.pose_payload_id))
-                docking_result.score = result_row["score"]
-                docking_result.score_type = result_row["score_type"]
-                docking_result.pose_payload_id = pose_id
-                docking_result.metrics = result_row["metrics"]
+                docking_result.sqlmodel_update(result_row)
             session.add(docking_result)
             if payload == PAYLOAD_FULL:
                 models = list(hit.get("models") or ())

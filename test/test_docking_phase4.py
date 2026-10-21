@@ -225,3 +225,25 @@ def test_redocking_readiness_counts_distinct_receptors_and_keeps_picked_pairs_wh
     assert (picked["ligands"]["ready"], picked["ligands"]["total"]) == (1, 2)
     assert (picked["receptors"]["ready"], picked["receptors"]["total"]) == (1, 2)
     assert picked["ready_complex_ids"] == [2]
+
+
+def test_an_offtarget_reference_chains_a_top_n_stage_after_the_target():
+    runtime = SimpleNamespace(molecules=_SubmissionMolecules(), docking=_SubmissionDocking())
+    protocol = DockingProtocol.from_mapping({"program": "vina", "label": "Vina", "config": {}})
+    request = DockingRunRequest(
+        run_kind="docking",
+        ligand_scope=MoleculeScope(filters={"is_ligand": True}),
+        receptor_scope=MoleculeScope(filters={"is_receptor": True}),
+        protocols=(protocol,),
+        offtarget_reference_id=10,
+        offtarget_top_n=50,
+    )
+    result = DockingSubmissionService(runtime).submit(request, ready_receptor_ids=(10, 11))
+
+    target, off = runtime.docking.run_calls
+    key = f"1:Vina:{protocol.hash[:8]}"
+    assert result.job_ids == {f"{key}:reference": "job-1", f"{key}:off-target": "job-2"}
+    assert target["receptor_set"] == (request.receptor_scope, {"id": 10})
+    assert "selected_from_receptor_id" not in target
+    assert off["receptor_set"] == request.receptor_scope
+    assert (off["depends_on"], off["selected_from_receptor_id"], off["selected_top_n"]) == (["job-1"], 10, 50)

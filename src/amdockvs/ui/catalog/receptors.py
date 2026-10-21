@@ -19,7 +19,7 @@ from ms_components.ms_table import (
     ToolbarAction,
     choices_from_class,
 )
-from amdockvs.ui.view_ids import RECEPTOR_VIEW_ID
+from amdockvs.ui.view_ids import COMPLEX_PAIRS_VIEW_ID, RECEPTOR_VIEW_ID
 
 
 def _receptor_table_config(runtime) -> TableConfig:
@@ -51,11 +51,17 @@ def _receptor_table_config(runtime) -> TableConfig:
         allow_row_resize=True,
         multi_select=True,
         embedded_controls=True,  # Columns/Export · stretch · Reload/Settings
-        context_menu_actions={"Create Receptor Set…": lambda objs: _create_receptor_set(runtime, objs)},
+        context_menu_actions={
+            "Show Complexes": lambda objs: show_receptor_complexes(QApplication.activeWindow(), objs),
+            "Create Receptor Set…": lambda objs: _create_receptor_set(runtime, objs),
+        },
         toolbar_left=[
             # ponytail: activeWindow() is the main window at click time (no modal open then).
             ToolbarAction(label="Import…",
                           on_click=lambda objs: import_receptors_from_file(QApplication.activeWindow())),
+            ToolbarAction(label="Show Complexes",
+                          tooltip="Open the Complexes table with the selected receptors' pairs.",
+                          on_click=lambda objs: show_receptor_complexes(QApplication.activeWindow(), objs)),
             # ToolbarAction(label="Create Set…",
             #               on_click=lambda objs: _create_receptor_set(runtime, objs)),
         ],
@@ -109,6 +115,15 @@ def import_receptors_from_file(window) -> None:
     from amdockvs.ui.tools.importing import open_import_view
 
     open_import_view(window, kind="receptor")
+
+
+def show_receptor_complexes(window, receptors) -> None:
+    """Complexes is contextual: opening it here is what puts its button on the top bar."""
+    ids = [int(r.id) for r in receptors if getattr(r, "id", None)]
+    view = window.open_or_focus_view(COMPLEX_PAIRS_VIEW_ID)
+    if ids and view is not None:
+        label = receptors[0].name if len(ids) == 1 else f"{len(ids)} receptors"
+        view.show_for_receptors(ids, label=label or f"receptor {ids[0]}")
 
 
 def _create_receptor_set(runtime, objects) -> None:
