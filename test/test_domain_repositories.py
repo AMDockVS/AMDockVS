@@ -1,8 +1,6 @@
 """queries.py dissolved: the result queries live in docking/repository.py and the table
 statistics in molecules/repository.py, aggregating in SQL instead of reading the table.
 """
-from datetime import datetime
-
 from ms_flow.core.database.project import ProjectStore
 from payload_seed import seed_payload
 from sqlmodel import select
@@ -29,14 +27,14 @@ def _project(tmp_path):
         for lig in ligands:
             session.add(lig)
         session.commit()
+        run = repository.docking_run_id(store, run_id="", engine=ENGINE, run_kind="screening",
+                                        protocol={"hash": "h1", "label": "Vina"})
         for rank in (1, 2):
             for lig, score in zip(ligands[:2], (-9.5, -7.0)):
                 session.add(DockingResult(
-                    receptor_molecule_id=rec.id, ligand_molecule_id=lig.id, engine=ENGINE,
+                    receptor_molecule_id=rec.id, ligand_molecule_id=lig.id, docking_run_id=run,
                     pose_rank=rank, score=score - rank,
                     pose_payload_id=seed_payload(store, f"pose {lig.id} {rank}", "pdbqt"),
-                    metrics={"run_kind": "screening", "protocol": {"hash": "h1", "label": "Vina"}},
-                    created_at=datetime.now(),
                 ))
         session.commit()
     return store
@@ -67,22 +65,22 @@ def test_docking_result_queries_survive_the_move(tmp_path):
         other = MoleculeRecord(name="rec_2", is_receptor=True)
         session.add(other)
         session.commit()
+        screening, redocking = (repository.docking_run_id(store, run_id="", engine=ENGINE, run_kind=kind, protocol={})
+                                for kind in ("screening", "redocking"))
         session.add_all([
             DockingResult(
                 receptor_molecule_id=other.id,
                 ligand_molecule_id=ligand.id,
-                engine=ENGINE,
+                docking_run_id=screening,
                 pose_rank=1,
                 score=-8.0,
-                metrics={"run_kind": "screening"},
             ),
             DockingResult(
                 receptor_molecule_id=other.id,
                 ligand_molecule_id=ligand.id,
-                engine=ENGINE,
+                docking_run_id=redocking,
                 pose_rank=2,
                 score=-7.0,
-                metrics={"run_kind": "redocking"},
             ),
         ])
         session.commit()

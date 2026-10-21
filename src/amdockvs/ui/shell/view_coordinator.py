@@ -8,28 +8,22 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QLabel, QSizePolicy, QWidget
+from PySide6.QtWidgets import QSizePolicy, QToolButton, QWidget
 
 from amdockvs.ui.registry import (
     CATALOG_TABLES,
+    CONTEXTUAL_VIEWS,
+    EPHEMERAL_VIEW_IDS,
     PREVIEW_VIEW_IDS,
     STANDING_DATA_VIEWS,
     TOOL_VIEW_IDS,
 )
 from amdockvs.ui.resources.icons import icon as load_icon
-from amdockvs.core.vocab import PROJECT_MODE_BADGES, PROJECT_MODE_LABELS, PROJECT_MODES, ProjectMode
 from ms_components.ms_dockwidget.widget import Region
 from amdockvs.ui.view_ids import LIGANDS_VIEW_ID, SHARDS_VIEW_ID, WORKFLOW_VIEW_ID
 
 
 class ViewCoordinator:
-    # Palette roles, not hex: theming lives in ms_components. The colour is the only thing
-    # that changes with the mode — `vs` reads as plain text, `htpvs` gets the accent.
-    MODE_BADGE_CSS = (
-        "QLabel#mode_badge {{ margin: 0 6px; padding: 2px 8px; font-weight: 600;"
-        " border: 1px solid palette(mid); border-radius: 4px; color: {colour}; }}"
-    )
-
     # View > Toolbars. key -> (menu label, Qt style, icon px, font px, side-toolbar width).
     # Applies to every toolbar: the top catalog bar and the left/right dock toolbars.
     TOOLBAR_BUTTON_STYLES = {
@@ -38,13 +32,15 @@ class ViewCoordinator:
         "text": ("Text Only", Qt.ToolButtonTextOnly, 20, 12, 110),
     }
     TOOLBAR_STYLE_KEY = "ui/toolbar_button_style"
+    GROUP_GAP_PX = 10  # padding on each side of the `|` between view groups
 
     def __init__(self, window):
         self.w = window
         self.catalog_actions: dict[str, QAction] = {}
         self.catalog_toolbar = None
+        self.contextual_chrome: tuple[QAction, ...] = ()  # gap + end separator of that group
         self.workflow_action_button = None
-        self.mode_badge = None
+        self.logo = None
 
     # -- central tabs --------------------------------------------------------------
 
@@ -82,7 +78,8 @@ class ViewCoordinator:
         whether the view's central tab is open (synced both ways); clicking the current
         view closes it, any other click opens/focuses it. The pressed state is the cue.
 
-        Sections: catalog tables | standing result views | auxiliary-panel toggle."""
+        Sections: catalog tables | standing result views | contextual views | auxiliary-panel
+        toggle. Groups sit apart behind a wide gap; the plain `|` is for the bar's chrome."""
         from PySide6.QtWidgets import QToolBar
 
         self.catalog_actions = {}  # view_id -> checkable QAction
@@ -91,16 +88,20 @@ class ViewCoordinator:
         bar.setMovable(False)
         self.w.addToolBar(Qt.TopToolBarArea, bar)
         self.catalog_toolbar = bar
-        # Which storage contract the project runs under, first thing on the bar: in `htpvs`
-        # the catalog tables next to it do not hold the library, so the two belong together.
-        self.mode_badge = QLabel(bar)
-        self.mode_badge.setObjectName("mode_badge")
-        bar.addWidget(self.mode_badge)
+        self.logo = self._make_logo(bar)
+        bar.addWidget(self.logo)
         bar.addSeparator()
-        for entries in (CATALOG_TABLES, *STANDING_DATA_VIEWS):
+        for index, entries in enumerate((CATALOG_TABLES, *STANDING_DATA_VIEWS)):
+            if index:
+                self._add_group_gap(bar)
             for entry in entries:
                 self._add_data_action(bar, *entry)
-            bar.addSeparator()
+        gap = self._add_group_gap(bar)
+        for entry in CONTEXTUAL_VIEWS:
+            self._add_data_action(bar, *entry)
+        self.contextual_chrome = (*gap, bar.addSeparator())
+        for view_id in EPHEMERAL_VIEW_IDS:  # only there while its tab is
+            self.catalog_actions[view_id].setVisible(self.catalog_actions[view_id].isChecked())
         # The auxiliary-zone toggle is not a table: it floats right, past a stretch, so the
         # catalog actions never push it around.
         spacer = QWidget(bar)
@@ -118,34 +119,37 @@ class ViewCoordinator:
         self.executors_action = bar.addAction(load_icon("cloud.svg"), "Executors")
         self.executors_action.setToolTip("Who runs the jobs: start and stop the executors.")
         self.executors_action.triggered.connect(self.w.open_executors_panel)
-        # After the actions exist, not before: the badge and the bar say the same thing.
-        self.sync_mode_badge()
+        self.sync_catalog_availability()
         # Every toolbar button now exists (docks + actions + these), so one pass styles them all.
         self.set_toolbar_button_style(self.saved_toolbar_button_style())
 
-    def sync_mode_badge(self) -> None:
-        """Show where this project's screening library lives; nothing to show with no project.
+    @staticmethod
+    def _make_logo(bar) -> QToolButton:
+        """Branding only: a button for the themed icon (a pixmap would freeze on theme change),
+        made inert so it never hovers or takes a click."""
+        from importlib.resources import files
+        from PySide6.QtGui import QPalette
 
-        Derived, not declared: it flips to HTP-VS when the project holds shards, which is why
-        it is refreshed after every finished job and not only on open.
-        """
-        if self.mode_badge is None:
-            return
-        mode = getattr(self.w.runtime, "mode", "") if self.w._has_active_project() else ""
-        index = PROJECT_MODES.index(mode) if mode in PROJECT_MODES else -1
-        self.mode_badge.setVisible(index >= 0)
-        self.sync_catalog_availability()
-        if index < 0:
-            return
-        accent = "palette(highlight)" if mode == ProjectMode.HTPVS else "palette(text)"
-        self.mode_badge.setStyleSheet(self.MODE_BADGE_CSS.format(colour=accent))
-        self.mode_badge.setText(PROJECT_MODE_BADGES[index])
-        self.mode_badge.setToolTip(
-            f"Screening library: {PROJECT_MODE_LABELS[index]} — set by how the ligands were imported"
-        )
+        from amdockvs.ui.resources.icons.themed import themed_icon
+
+        role = QPalette.ColorRole
+        # Palette colours, like the central backdrop's logo, so it sits in any theme.
+        logo = QToolButton(bar)
+        logo.setObjectName("toolbar_logo")
+        logo.setIcon(themed_icon(str(files("amdockvs.ui.resources.icons") / "logo.svg"),
+                                 role.WindowText, {"themeAccent": role.Highlight}))
+        logo.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        logo.setAutoRaise(True)
+        logo.setFocusPolicy(Qt.NoFocus)
+        logo.setAttribute(Qt.WA_TransparentForMouseEvents)
+        logo.setToolTip("AMDockVS")
+        return logo
 
     def sync_catalog_availability(self) -> None:
         """Which catalog tables this project has anything to say with.
+
+        Refreshed on project open and after every finished job: a shard import is what
+        brings the Shards button.
 
         Never a rename: a table always means the same thing. Shards only exist in a project
         whose library was imported sharded, so its button is absent everywhere else. Ligands
@@ -162,6 +166,26 @@ class ViewCoordinator:
                 self.w.central_widget.close_view(SHARDS_VIEW_ID)
         if ligands_action is not None:
             ligands_action.setEnabled(bool(ligand_rows) or not sharded)
+        self._sync_contextual_chrome()
+
+    def _sync_contextual_chrome(self) -> None:
+        """The contextual group's gap and separator go when none of its views is shown."""
+        shown = any(
+            action.isVisible()
+            for _, view_id, _ in CONTEXTUAL_VIEWS
+            if (action := self.catalog_actions.get(view_id)) is not None
+        )
+        for action in self.contextual_chrome:
+            action.setVisible(shown)
+
+    def _add_group_gap(self, bar) -> tuple[QAction, QAction, QAction]:
+        """A wider separator: padding, the native `|`, padding."""
+        def pad():
+            widget = QWidget(bar)
+            widget.setFixedWidth(self.GROUP_GAP_PX)
+            return bar.addWidget(widget)
+
+        return pad(), bar.addSeparator(), pad()
 
     def _library_shape(self) -> tuple[bool, int]:
         """`(library is sharded, how many ligand rows exist)` — two small indexed counts.
@@ -198,6 +222,8 @@ class ViewCoordinator:
         font_css = f"font-size: {font_px}px;" if font_px else ""
         self.catalog_toolbar.setToolButtonStyle(style)
         self.catalog_toolbar.setIconSize(QSize(icon_px, icon_px))
+        if self.logo is not None:  # a bar widget, not an action: it does not follow the bar
+            self.logo.setIconSize(QSize(icon_px, icon_px))
         self.catalog_toolbar.setStyleSheet(f"QToolButton {{ {font_css} padding: 2px 4px; }}")
         if self.w.dock_manager is not None:
             try:
@@ -225,6 +251,9 @@ class ViewCoordinator:
         action.blockSignals(True)
         action.setChecked(bool(is_open))
         action.blockSignals(False)
+        if view_id in EPHEMERAL_VIEW_IDS:
+            action.setVisible(bool(is_open))
+            self._sync_contextual_chrome()
 
     # -- workflow quick access -----------------------------------------------------
 

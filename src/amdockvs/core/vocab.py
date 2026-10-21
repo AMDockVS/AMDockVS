@@ -16,7 +16,6 @@ checkbox table filters.
 
 from __future__ import annotations
 
-
 class MoleculeType:
     SMALL_MOLECULE = "small_molecule"
     PROTEIN = "protein"
@@ -27,7 +26,6 @@ class MoleculeType:
     # Note: workflows.py also handles "macrocycle"/"antibody"/"antigen" as
     # *workflow matching* vocabulary, not as types persisted here
     # (macrocycle collapses to small_molecule before touching the DB).
-
 
 class FileFormat:
     # Values exactly as the importer writes them (io/parsers/readers.py):
@@ -43,7 +41,6 @@ class FileFormat:
     FASTA = "fasta"
     UNKNOWN = "unknown"
 
-
 class BindingSiteSource:
     MANUAL = "manual"
     LIGAND = "ligand"    # centre of mass of a reference ligand
@@ -51,18 +48,15 @@ class BindingSiteSource:
     P2RANK = "p2rank"    # P2Rank pocket (rank in source_ref)
     PDB = "pdb"          # site annotation from the PDB
 
-
 class ComplexPurpose:
     REDOCKING = "redocking"
     RESCORING = "rescoring"
     REFERENCE = "reference"
 
-
 class MoleculeUsageClass:
     GENERAL = "general"
     REFERENCE = "reference"
     DERIVED = "derived"
-
 
 class ReprType:
     SMILES_CANONICAL = "smiles_canonical"
@@ -72,7 +66,6 @@ class ReprType:
     SEQUENCE_AA = "sequence_aa"
     SEQUENCE_NT = "sequence_nt"
     HELM = "helm"
-
 
 class ModelSource:
     IMPORTED = "imported"  # loaded as-is from the source file
@@ -84,7 +77,6 @@ class ModelSource:
     PROTONATED = "protonated"  # hydrogens added at a pH
     MINIMIZED = "minimized"  # energy-minimized structure
 
-
 class SetPurpose:
     QSAR = "qsar"
     REDOCKING = "redocking"
@@ -93,7 +85,6 @@ class SetPurpose:
     ENRICHMENT = "enrichment"
     GRID_REF = "grid_reference"
     CUSTOM = "custom"
-
 
 class FingerprintType:
     ECFP4 = "ecfp4"
@@ -106,13 +97,11 @@ class FingerprintType:
     TORSION = "topological_torsion"
     ATOMPAIR = "atom_pair"
 
-
 class SimilarityMethod:
     TANIMOTO = "tanimoto"
     DICE = "dice"
     COSINE = "cosine"
     TVERSKY = "tversky"
-
 
 class ClusteringMethod:
     BITBIRCH_LEAN = "bitbirch_lean"
@@ -120,7 +109,6 @@ class ClusteringMethod:
     KMEANS = "kmeans"
     HIERARCHICAL = "hierarchical"
     DBSCAN = "dbscan"
-
 
 class ProjectMode:
     """Where a project's ligands live. Fixed when the project is created.
@@ -132,7 +120,6 @@ class ProjectMode:
 
     VS = "vs"          # ligands materialized as rows; the whole catalog UI applies
     HTPVS = "htpvs"    # ligands live in shards; only promoted hits ever become rows
-
 
 class ShardState:
     """Lifecycle of the current chemical shard representation.
@@ -152,7 +139,6 @@ class ShardState:
     # as a value; nothing writes it any more.
     DONE = "done"
 
-
 class DispatchState:
     """What happened to a source file handed to a cluster. Lives as long as the campaign."""
 
@@ -160,7 +146,6 @@ class DispatchState:
     RUNNING = "running"
     RETURNED = "returned"
     FAILED = "failed"
-
 
 class TargetState:
     """A receptor inside one campaign: scheduled before anything is docked against it."""
@@ -170,16 +155,6 @@ class TargetState:
     DONE = "done"
     CANCELED = "canceled"
     FAILED = "failed"
-
-
-# Not a class attribute: `choices_from_class()` reads every attribute of a vocabulary class
-# as a value, and a tuple is not one.
-PROJECT_MODES = (ProjectMode.VS, ProjectMode.HTPVS)
-# What a human reads, positionally over PROJECT_MODES: the New Project combo and the toolbar
-# badge say the same thing. The badge is short because it sits in a toolbar.
-PROJECT_MODE_LABELS = ("Virtual screening", "High-throughput screening")
-PROJECT_MODE_BADGES = ("VS", "HTP-VS")
-
 
 __all__ = [
     "MoleculeType",
@@ -197,8 +172,4 @@ __all__ = [
     "ShardState",
     "DispatchState",
     "TargetState",
-    "PROJECT_MODES",
-    "PROJECT_MODE_LABELS",
-    "PROJECT_MODE_BADGES",
-    "PROJECT_MODES",
 ]

@@ -1,14 +1,12 @@
 """A forced re-dock replaces a result only once it has another one for the same docking, and a result
 that goes takes what was computed from it."""
-from datetime import datetime
-
 from ms_flow.core.database.project import ProjectStore
 from payload_seed import seed_payload
 from sqlmodel import select
 
 from amdockvs.core.constants import SERIES_POSES
 from amdockvs.core.payloads import PAYLOAD_CACHE
-from amdockvs.docking.results.repository import supersede_results
+from amdockvs.docking.results.repository import docking_run_id, supersede_results
 from amdockvs.models.docking import DockingResult, InteractionsResult
 from amdockvs.project.deletion import delete_docking_results
 from amdockvs.models.molecules import MoleculeRecord
@@ -27,9 +25,9 @@ def test_only_the_pairs_docked_again_lose_their_older_rows(tmp_path):
         again, untouched = ligands[0].id, ligands[1].id
 
         def result(ligand, run, name, *, engine="vina", kind="screening", protocol="h"):
-            return DockingResult(receptor_molecule_id=receptor.id, ligand_molecule_id=ligand, engine=engine,
-                                 pose_payload_id=pose[name], created_at=datetime.now(),
-                                 metrics={"run_id": run, "run_kind": kind, "protocol": {"hash": protocol}})
+            ran = docking_run_id(store, run_id=run, engine=engine, run_kind=kind, protocol={"hash": protocol})
+            return DockingResult(receptor_molecule_id=receptor.id, ligand_molecule_id=ligand, docking_run_id=ran,
+                                 pose_payload_id=pose[name])
 
         session.add_all([
             result(again, "old", "old_a"), result(again, "old", "old_b"),  # the two poses the new run replaces

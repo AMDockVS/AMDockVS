@@ -36,7 +36,7 @@ from amdockvs.core.payloads import structure_payload
 from amdockvs.docking.engines.programs import chunk_resources
 from amdockvs.docking.protocols import DockingProtocolMetadata
 from amdockvs.docking.repository import inputs_dir, list_entity_rows, resolve_docking_output_dir, with_input_files
-from amdockvs.docking.results.repository import count_docking_results
+from amdockvs.docking.results.repository import count_docking_results, docking_run_id, runs_where
 from amdockvs.docking.results.dataset import (
     RESULT_DATASET_FORMAT,
     completed_result_receipts,
@@ -110,8 +110,7 @@ def _project_path(project_root: str | Path, value: str) -> Path:
 def _materialized_count(project_db, *, run_id: str, protocol_hash: str) -> int:
     with project_db.get_session() as session:
         statement = select(func.count()).select_from(DockingResultRecord).where(
-            DockingResultRecord.metrics["run_id"].as_string() == str(run_id),
-            DockingResultRecord.metrics["protocol"]["hash"].as_string() == str(protocol_hash),
+            DockingResultRecord.docking_run_id.in_(runs_where(run_id=str(run_id), protocol_hash=str(protocol_hash))),
         )
         return int(session.exec(statement).one())
 
@@ -584,6 +583,10 @@ class DockShardsJobSpec(JobSpec):
                 engine=parsed.engine,
             )
         emitted = False
+        run = docking_run_id(
+            project_db, run_id=parsed.run_id, engine=parsed.engine, run_kind="screening",
+            protocol=parsed.protocol_metadata.as_metrics_payload(),
+        ) if targets and prepared_rows else None
         for row in prepared_rows:
             shard = {
                 "shard_id": int(row.get("id") or 0),
@@ -631,6 +634,7 @@ class DockShardsJobSpec(JobSpec):
                     "energy_range": parsed.energy_range,
                     "min_rmsd": parsed.min_rmsd,
                     "run_id": parsed.run_id,
+                    "docking_run_id": run,
                     "protocol_metadata": parsed.protocol_metadata.as_metrics_payload(),
                     "engine_config": dict(parsed.engine_config),
                     **chunk_resources(parsed.engine, parsed.engine_config),

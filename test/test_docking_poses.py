@@ -27,18 +27,20 @@ def test_each_row_keeps_the_pose_of_its_rank_and_no_file_survives(monkeypatch, t
             for rank in (1, 2):
                 rows.append({"receptor_molecule_id": pair["receptor_id"], "ligand_molecule_id": pair["ligand_id"],
                              "pose_rank": rank, "score": -7.0 + rank, "pose_path": str(sdf),
-                             "metrics": {"pose_index": rank - 1, "receptor_path": pair["receptor_path"]}})
+                             "extra": {"pose_index": rank - 1}})
         return rows
 
     docking_registry.register_dock_runner("test_poses", runner, replace=True)
     pair = {"ligand_id": 3, "receptor_id": 9, "ligand": b"REMARK ligand\n", "receptor_path": "/r/9.pdbqt",
             "receptor_payload_id": 41}
-    rows = dock_pairs({"engine": "test_poses", "pairs": [pair], "output_dir": str(tmp_path)})
+    rows = dock_pairs({"engine": "test_poses", "pairs": [pair], "output_dir": str(tmp_path), "docking_run_id": 5})
 
     assert seen == {3: b"REMARK ligand\n"}  # the program got a file holding the ligand's bytes
     assert [row["pose_payload_id"].data.decode().split("\n")[0] for row in rows] == ["pose1", "pose2"]
-    assert {row["pose_payload_id"].series for row in rows} == {"poses"}
-    assert all(row["metrics"] == {"pose_index": row["pose_rank"] - 1, "receptor_payload_id": 41} for row in rows)
+    assert {row["pose_payload_id"].group.series for row in rows} == {"poses"}
+    assert rows[0]["pose_payload_id"].group is rows[1]["pose_payload_id"].group  # one needle per pair
+    assert all(row["extra"] == {"pose_index": row["pose_rank"] - 1} for row in rows)
+    assert {(row["docking_run_id"], row["receptor_payload_id"]) for row in rows} == {(5, 41)}
     assert "pose_path" not in rows[0]
     assert list(tmp_path.iterdir()) == []  # the SDF and Vina's PDBQT went with the chunk
 
@@ -49,7 +51,7 @@ def test_the_interaction_job_reads_the_pose_bytes_and_the_receptor_it_was_docked
 
     from amdockvs.core.constants import SERIES_POSES
     from amdockvs.docking.results.jobs import InteractionJobSpec
-    from amdockvs.models.docking import DockingResult
+    from amdockvs.models.docking import DockingResult, DockingRun
     from amdockvs.models.molecules import MoleculeRecord
 
     store = ProjectStore.open_at(tmp_path / "project.db")
@@ -61,8 +63,10 @@ def test_the_interaction_job_reads_the_pose_bytes_and_the_receptor_it_was_docked
         ligand = MoleculeRecord(name="l", is_ligand=True)
         session.add_all([receptor, ligand])
         session.commit()
-        session.add(DockingResult(receptor_molecule_id=receptor.id, ligand_molecule_id=ligand.id, engine="vina",
-                                  score=-8.0, pose_payload_id=pose, metrics={"receptor_payload_id": docked}))
+        session.add(DockingRun(id=1, engine="vina"))
+        session.flush()
+        session.add(DockingResult(receptor_molecule_id=receptor.id, ligand_molecule_id=ligand.id, docking_run_id=1,
+                                  score=-8.0, pose_payload_id=pose, receptor_payload_id=docked))
         session.commit()
 
     (chunk,) = InteractionJobSpec.build_chunks({}, {"project_db": store})
@@ -112,12 +116,17 @@ def test_vina_docks_with_the_ligand_as_bytes_and_the_receptor_carried(where, tmp
         job = engine.submit(where, dock_pairs, [chunk], on_results=got.extend)
         assert engine.wait(job, 300).status == "completed"
     ((_key, rows),) = got
-    assert rows and all((row["score"] or 0) < -4 for row in rows), rows[0]["metrics"]
-    import zstandard  # the pose crossed a process: pickling compressed it in the worker
-    sdf = lambda pose: zstandard.ZstdDecompressor().decompress(pose.data, max_output_size=pose.raw_length)
+    assert rows and all((row["score"] or 0) < -4 for row in rows), rows[0]["error"]
+    import zstandard  # the poses crossed a process: pickling compressed their group in the worker
+
+    def sdf(part):
+        whole, sizes = part.group.packed()
+        raw = zstandard.ZstdDecompressor().decompress(whole.data, max_output_size=whole.raw_length)
+        start = sum(sizes[:part.index])
+        return raw[start:start + sizes[part.index]]
     poses = [Chem.MolFromMolBlock(sdf(row["pose_payload_id"]).decode()) for row in rows]
     assert all(pose is not None and pose.GetNumAtoms() > 10 for pose in poses)
-    assert {row["metrics"]["receptor_payload_id"] for row in rows} == {7}
+    assert {row["receptor_payload_id"] for row in rows} == {7}
     assert not list((tmp_path / "out").rglob("*.*"))  # the poses went as bytes
 
 
@@ -130,6 +139,7 @@ def test_a_chunk_finds_the_interactions_of_its_poses_and_stores_each_pose_once(t
 
     from amdockvs.docking.jobs import DockingJobSpec
     from amdockvs.docking.tasks import dock_with_interactions
+    from amdockvs.models.docking import DockingRun
     from amdockvs.models.molecules import MoleculeRecord
 
     data = Path(__file__).resolve().parent / "data"
@@ -139,7 +149,8 @@ def test_a_chunk_finds_the_interactions_of_its_poses_and_stores_each_pose_once(t
             "receptor_path": str(receptor), "receptor_payload_id": 7, "exhaustiveness": 1, "num_modes": 2,
             "box_center": [18.0, 134.0, -1.0], "box_size": [15.0, 11.25, 18.75], "spacing": 0.375}
     chunk = {"engine": "vina", "pairs": [pair], "output_dir": str(tmp_path / "out"), "scoring_function": "vina",
-             "vina_backend": "python", "vina_cpu": 1, "seed": 1, "energy_range": 3.0, "min_rmsd": 1.0}
+             "vina_backend": "python", "vina_cpu": 1, "seed": 1, "energy_range": 3.0, "min_rmsd": 1.0,
+             "docking_run_id": 1}
 
     assert dock_with_interactions(chunk)["interaction_results"] == []  # not asked for
     out = dock_with_interactions({**chunk, "interactions": True})
@@ -151,7 +162,8 @@ def test_a_chunk_finds_the_interactions_of_its_poses_and_stores_each_pose_once(t
 
     store = ProjectStore.open_at(tmp_path / "project.db")
     with store.get_session() as session:
-        session.add_all([MoleculeRecord(id=1, name="r", is_receptor=True), MoleculeRecord(id=2, name="l", is_ligand=True)])
+        session.add_all([MoleculeRecord(id=1, name="r", is_receptor=True), MoleculeRecord(id=2, name="l", is_ligand=True),
+                         DockingRun(id=1, engine="vina")])
         session.commit()
     writer(DockingJobSpec.output_spec, store).write([out])
     with store.get_session() as session:

@@ -28,8 +28,9 @@ from amdockvs.ui.tools.binding_sites.detection import (
 )
 from amdockvs.ui.catalog.molecules import MoleculeWidget
 from amdockvs.ui.catalog.ligands import LigandWidget, _create_ligand_set
-from amdockvs.ui.registry import STANDING_DATA_VIEWS, TOOL_VIEW_IDS
+from amdockvs.ui.registry import STANDING_DATA_VIEWS, TOOL_VIEW_IDS, TOOLS
 from amdockvs.ui.view_ids import (
+    COMPLEX_PAIRS_VIEW_ID,
     BUILD_ID,
     COMPLEXES_VIEW_ID,
     DOCKING_VIEW_ID,
@@ -131,8 +132,9 @@ def test_amdock_ui_opens_molecule_view_for_active_project(tmp_path, monkeypatch)
     try:
         runtime.create_project(name="ui_project", folder=tmp_path / "project", description="ui test")
         window = AMDockVSMainWindow(runtime=runtime)
-        # The mode badge is the first thing on the top data toolbar (see ViewCoordinator).
-        assert window.views.mode_badge.text() == "VS"
+        # The logo opens the top data toolbar; it is branding, never a click target.
+        assert window.views.catalog_toolbar.actions()[0].defaultWidget() is window.views.logo
+        assert window.views.logo.testAttribute(Qt.WA_TransparentForMouseEvents)
         window.show()
         app.processEvents()
 
@@ -167,8 +169,6 @@ def test_amdock_ui_jobs_dialog_is_one_window_and_the_indicator_steps_aside(tmp_p
     try:
         runtime.create_project(name="ui_project", folder=tmp_path / "project", description="ui test")
         window = AMDockVSMainWindow(runtime=runtime)
-        # The mode badge is the first thing on the top data toolbar (see ViewCoordinator).
-        assert window.views.mode_badge.text() == "VS"
         window.show()
         app.processEvents()
 
@@ -213,6 +213,12 @@ def test_amdock_ui_toolbar_actions_track_open_views(tmp_path, monkeypatch):
         # tools are checkable buttons in the left bar (checked == mounted in the panel).
         # Ligands/Receptors open by default; Molecules and Docking Studio start closed.
         assert set(window.tools.action_buttons) >= {DOCKING_VIEW_ID}
+        # Multi-step studios up top, split by the bar's separator; the rest pinned to the bottom.
+        bar = window.dock_manager.left_toolbar
+        sections = {"top": bar._top_widget, "middle": bar._middle_widget, "bottom": bar._bottom_widget}
+        for tool in TOOLS:
+            assert sections[tool.section].isAncestorOf(window.tools.action_buttons[tool.view_id]), tool.title
+        assert not bar._separator.isHidden()
         assert set(window.views.catalog_actions) >= {MOLECULES_VIEW_ID, LIGANDS_VIEW_ID}
         assert window.views.catalog_actions[LIGANDS_VIEW_ID].isChecked()
         assert not window.views.catalog_actions[MOLECULES_VIEW_ID].isChecked()
@@ -248,6 +254,19 @@ def test_amdock_ui_toolbar_actions_track_open_views(tmp_path, monkeypatch):
         app.processEvents()
         assert not window.views.catalog_actions[MOLECULES_VIEW_ID].isChecked()
         assert window.views.catalog_actions[LIGANDS_VIEW_ID].isChecked()
+
+        # Complexes is contextual and ephemeral: Receptors → Show Complexes brings its button,
+        # closing the tab takes it away again.
+        from amdockvs.ui.catalog.receptors import show_receptor_complexes
+
+        complexes = window.views.catalog_actions[COMPLEX_PAIRS_VIEW_ID]
+        assert not complexes.isVisible()
+        show_receptor_complexes(window, [SimpleNamespace(id=1, name="rec")])
+        app.processEvents()
+        assert complexes.isVisible() and complexes.isChecked()
+        window.views.on_catalog_clicked(COMPLEX_PAIRS_VIEW_ID)  # current tab: the click closes it
+        app.processEvents()
+        assert not complexes.isVisible()
     finally:
         if window is not None:
             window.close()
@@ -442,7 +461,8 @@ def test_amdock_ui_domain_views_show_docking_summaries(tmp_path, monkeypatch):
         assert window.dockWidgetArea(window.diagram_dock) == Qt.RightDockWidgetArea
         hit = runtime.docking.top_hits(limit=1)[0]
         window.load_hit_in_pymol(hit, 1)
-        assert hit.ligand_name in window.diagram_dock.status.text()
+        # A click computes nothing: the dock asks for Build diagram instead.
+        assert "Build diagram" in window.diagram_dock.placeholder.text()
         assert not hasattr(window.diagram_dock, "render_button")
         hits_page = results_view.current_page()
         assert hits_page.build_diagram_btn.text() == "Build diagram"
@@ -571,8 +591,6 @@ def test_tool_buttons_are_flat_and_keep_result_views_available(tmp_path, monkeyp
     try:
         runtime.create_project(name="ui_project", folder=tmp_path / "project", description="ui test")
         window = AMDockVSMainWindow(runtime=runtime)
-        # The mode badge is the first thing on the top data toolbar (see ViewCoordinator).
-        assert window.views.mode_badge.text() == "VS"
         window.show()
         app.processEvents()
 

@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from amdockvs.core.constants import SERIES_POSES
 from amdockvs.core.payloads import payload_store, read_structure, structure_payload
+from amdockvs.docking.results.repository import docking_run_id
 from amdockvs.screening.materialize import HitGate, ingest_hits
 from amdockvs.models import DockingResult, MoleculeModel, MoleculeRecord
 from amdockvs.molecules.storage import ShardStore
@@ -23,6 +24,8 @@ from amdockvs.runtime import AMDockVSRuntime
 def project(tmp_path):
     rt = AMDockVSRuntime()
     rt.create_project(name="hits", folder=tmp_path)
+    assert docking_run_id(rt.workspace.project_db, run_id="run-1", engine="vina", run_kind="screening",
+                          protocol={}) == 1  # the run every `hit_rows` row points to
     yield rt
     rt.close_project()
 
@@ -34,13 +37,12 @@ def hit_rows(count, *, score=-9.0, receptor_id=1):
             "smiles": "CCO",
             "source": "/data/library.smi",
             "source_index": index,
-            "engine": "vina",
+            "docking_run_id": 1,
             "score": score,
             "score_type": "vina_score",
             "pose": structure_payload(f"pose {index}\n", "pdbqt", SERIES_POSES),
             "pose_rank": 1,
             "receptor_molecule_id": receptor_id,
-            "metrics": {"run_id": "run-1"},
             # Only a `full` payload keeps these.
             "logp": 1.23,
             "heavy_atom_count": 3,

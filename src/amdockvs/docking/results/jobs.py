@@ -51,12 +51,12 @@ def _with_receptor_files(project_db, rows: list[dict[str, Any]]) -> list[dict[st
     """Each row with `receptor_path`, the structure its pose was docked into (else the receptor's
     own), written once to the project's payload cache: every pose of a receptor shares it."""
     missing = {int(row["receptor_molecule_id"]) for row in rows
-               if not (row.get("metrics") or {}).get("receptor_payload_id")}
+               if not row.get("receptor_payload_id")}
     with project_db.get_session() as session:
         own = {rid: molecule_payload_id(session.get(MoleculeRecord, rid)) for rid in missing}
     files: dict[int, Any] = {}
     for row in rows:
-        payload_id = (row.get("metrics") or {}).get("receptor_payload_id") or own.get(int(row["receptor_molecule_id"]))
+        payload_id = row.get("receptor_payload_id") or own.get(int(row["receptor_molecule_id"]))
         if payload_id and payload_id not in files:
             files[payload_id] = worker_file(payload_file(project_db, payload_id), cache=True)
         row["receptor_path"], row["receptor_payload_id"] = files.get(payload_id, ""), payload_id

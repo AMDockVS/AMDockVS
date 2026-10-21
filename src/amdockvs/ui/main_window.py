@@ -598,11 +598,11 @@ class AMDockVSMainWindow(QMainWindow):
         if active_context is None:
             self.setWindowTitle("AMDockVS")
             self._status_bar.project_indicator.set_project(None)
-            self.views.sync_mode_badge()
+            self.views.sync_catalog_availability()
             return
         self.setWindowTitle(f"AMDockVS - {active_context.name}")
         self._status_bar.project_indicator.set_project(active_context.name)
-        self.views.sync_mode_badge()
+        self.views.sync_catalog_availability()
 
     def _on_application_project_requested(self, project_id: str) -> None:
         if self._app_widget is not None:
@@ -660,7 +660,6 @@ class AMDockVSMainWindow(QMainWindow):
 
 
 if __name__ == '__main__':
-    app = QApplication(sys.argv)
-    window = AMDockVSMainWindow(runtime=AMDockVSRuntime())
-    window.showMaximized()
-    sys.exit(app.exec())
+    from amdockvs.app import main
+
+    sys.exit(main())
