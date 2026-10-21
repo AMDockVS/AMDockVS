@@ -660,7 +660,6 @@ class AMDockVSMainWindow(QMainWindow):
 
 
 if __name__ == '__main__':
-    app = QApplication(sys.argv)
-    window = AMDockVSMainWindow(runtime=AMDockVSRuntime())
-    window.showMaximized()
-    sys.exit(app.exec())
+    from amdockvs.app import main
+
+    sys.exit(main())

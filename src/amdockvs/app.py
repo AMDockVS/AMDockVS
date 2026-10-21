@@ -131,6 +131,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     qt_app = QApplication.instance()
     owns_app = qt_app is None
     if qt_app is None:
+        if (
+            os.environ.get("QT_QPA_PLATFORM", "").strip().lower() != "offscreen"
+            and os.environ.get("AMDOCK_DISABLE_PYMOL", "").strip().lower() not in {"1", "true", "yes", "on"}
+        ):
+            from ms_components.opengl import prepare_pymol_opengl
+
+            try:
+                prepare_pymol_opengl()
+            except RuntimeError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
         # PyMOL is rendered by a QOpenGLWidget. Moving a dock between this main
         # window and a native top-level window otherwise destroys that widget's
         # OpenGL context while PyMOL still owns resources created in it. The next
