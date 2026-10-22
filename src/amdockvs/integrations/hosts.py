@@ -27,9 +27,10 @@ def host_recipes(host: Host, runtime=None) -> list[Recipe]:
         app_recipe("amdockvs", _PACKAGES, _IMPORTS, prefix=f"{home}/env", tools_home=f"{home}/tools",
                    cache=amdock_home() / "cache" / "wheels")
     ]
+    platform = host.platform()
     for tool in MANAGED_TOOLS:
         if tool.recipe is not None and tool.status(runtime).installed:
-            recipes.append(tool_spec(tool.tool_id).recipe(f"{home}/tools"))
+            recipes.append(tool_spec(tool.tool_id).recipe(f"{home}/tools", platform=platform))
     return recipes
 
 

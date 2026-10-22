@@ -18,6 +18,13 @@ from amdockvs.core.worker_io import run_program
 # the missing-binary error names the tool instead of a machine-specific path.
 AUTOGRID4 = os.environ.get("AMDOCK_AUTOGRID4") or shutil.which("autogrid4") or "autogrid4"
 
+# conda-forge builds autogrid4 for Linux and macOS only. Without one, nothing that scores with
+# its maps runs: Vina's ad4, AutoDock-GPU and the AutoDock4Zn method. "" where it can be had.
+AUTOGRID_UNAVAILABLE = (
+    "autogrid4 has no Windows build: AutoDock4 maps cannot be made on Windows."
+    if sys.platform == "win32" and not shutil.which(AUTOGRID4) else ""
+)
+
 # AutoDock4Zn, vendored from AutoDock Vina (see zinc/NOTICE). The pair terms are the ones the
 # Vina docs give for autogrid4 >= 4.2.7; older AMDock copies carry pre-4.2.7 epsilons.
 ZINC_DIR = Path(__file__).with_name("zinc")

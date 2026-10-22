@@ -18,6 +18,7 @@ from typing import Callable
 from ms_env import READY, Recipe, Step, StepFailed, locate, recipe_steps, remove
 
 from amdockvs.docking.engines.adgpu import adgpu_recipe
+from amdockvs.core.constants import vina_recipe
 from amdockvs.core.paths import tools_home
 from amdockvs.docking.engines.qvina import qvina_recipe
 from amdockvs.integrations.envs import (
@@ -44,6 +45,7 @@ class ToolStatus:
     message: str
     location: Path | None = None
     size_bytes: int = 0
+    available: bool = True  # False: no build of it for this platform, nothing to install
 
 
 @dataclass(frozen=True)
@@ -127,7 +129,7 @@ def _protonation_steps(name: str) -> Callable[[object], list[Step]]:
     return steps
 
 
-# --- Docking binaries installed from a recipe (QuickVina 2, AutoDock-GPU) ---
+# --- Docking binaries installed from a recipe (Vina, QuickVina 2, AutoDock-GPU) ---
 
 def _recipe_tool(name: str, recipe_for) -> ManagedTool:
     info = tool_spec(name).info
@@ -136,16 +138,20 @@ def _recipe_tool(name: str, recipe_for) -> ManagedTool:
         recipe = recipe_for(runtime)
         state, executable = locate(recipe)
         prefix = Path(recipe.prefix)
+        unavailable = state != READY and bool(recipe.unsupported)
         return ToolStatus(
             tool_id=name,
             installed=state == READY,
             message=(
                 f"{info['label']} is ready ({executable})."
                 if state == READY
+                else f"{info['label']} is not available on this platform ({recipe.unsupported})."
+                if unavailable
                 else f"{info['label']} is not installed."
             ),
             location=prefix if prefix.is_dir() else None,
             size_bytes=_directory_size(prefix),
+            available=not unavailable,
         )
 
     return ManagedTool(
@@ -190,6 +196,7 @@ MANAGED_TOOLS: tuple[ManagedTool, ...] = (
         location=lambda runtime: managed_prefix(runtime, "pkasso"),
         recipe=lambda runtime: protonation_recipe(runtime, "pkasso"),
     ),
+    _recipe_tool("vina", vina_recipe),
     _recipe_tool("qvina", qvina_recipe),
     _recipe_tool("adgpu", adgpu_recipe),
     _recipe_tool("ketcher", lambda runtime: tool_spec("ketcher").recipe(str(tools_home(runtime)))),

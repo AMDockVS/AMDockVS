@@ -30,7 +30,7 @@ classifiers = [
 
 dependencies = [
     # MolSuite stack
-    "ms_env>=0.2.0",
+    "ms_env>=0.3.0",
     "ms_flow>=0.4.1",
     "ms_components>=0.3.2",
     "ms_contactmap>=0.3.1",
@@ -40,7 +40,7 @@ dependencies = [
     "dimorphite-dl>=2.1.0,<3",
     "meeko>=0.7.1",
     # PyPI has vina wheels only for Linux x86-64, CPython <= 3.12; elsewhere pip would compile it
-    # (Boost + SWIG) and fail. There the engine runs the official binary (PATH or Settings).
+    # (Boost + SWIG) and fail. There the engine runs the official binary (Settings > External tools).
     "vina>=1.2.7; sys_platform == 'linux' and platform_machine == 'x86_64' and python_version < '3.13'",
     # Non-pip runtime tool: ad4 scoring needs the autogrid4 binary on PATH (or $AMDOCK_AUTOGRID4).
     #   conda install -c conda-forge autogrid
