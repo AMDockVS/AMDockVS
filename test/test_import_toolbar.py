@@ -13,7 +13,7 @@ def test_receptor_import_toolbar_shows_icon_and_text():
     panel = ReceptorImportPanel(show_file_controls=True)
     (bar,) = panel.findChildren(QToolBar)
     assert bar.orientation() == Qt.Vertical and bar.toolButtonStyle() == Qt.ToolButtonTextUnderIcon
-    assert [a.text() for a in bar.actions() if not a.isSeparator()] == ["Add files", "Add folder", "Add sequence", "Remove"]
+    assert [a.text() for a in bar.actions() if not a.isSeparator()] == ["Add files", "Add folder", "Add sequence", "Download", "Remove"]
     assert panel.add_files_action.isEnabled() and not panel.remove_files_action.isEnabled()  # nothing to remove yet
 
 

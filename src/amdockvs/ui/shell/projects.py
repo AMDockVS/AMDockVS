@@ -53,6 +53,7 @@ class ApplicationWidget(QWidget):
     def open_settings(self, *, node: str | None = None) -> None:
         if self._settings_dialog is None:
             from amdockvs.ui.resources.icons import icon
+            from amdockvs.ui.shell.settings_downloads import DownloadsPage
             from amdockvs.ui.shell.settings_tools import ExternalToolsPage
 
             self._settings_dialog = AppSettingsDialog(
@@ -65,6 +66,7 @@ class ApplicationWidget(QWidget):
                 ExternalToolsPage(self.runtime, parent=self._settings_dialog),
                 "External tools",
             )
+            self._settings_dialog.panel.add_page(DownloadsPage(self.runtime, parent=self._settings_dialog), "Downloads")
             # The machines that run jobs and who runs them there; started from the bar, not here.
             for table in ("hosts", "executors"):
                 self._settings_dialog.panel.add_page(

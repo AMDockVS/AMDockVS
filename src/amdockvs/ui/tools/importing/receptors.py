@@ -33,6 +33,7 @@ from PySide6.QtWidgets import QDialog, QDialogButtonBox
 from ms_components.tool_panel import PROGRESS_NAME
 
 from amdockvs.core.configuration import app_config
+from amdockvs.io.downloads import discard_temporary
 from amdockvs.io.formats import QT_FILE_FILTER
 from amdockvs.io.receptor_preview import (
     COORDINATION_METAL_CODES,
@@ -56,6 +57,7 @@ from amdockvs.models.molecules import MoleculeType
 from amdockvs.ui.common.widgets import WrapCombo
 from ms_components.chips import ChipsSelect
 from amdockvs.ui.tools.importing.common import land_on_view, nudge_monitor
+from amdockvs.ui.tools.importing.download import download_into, file_label, file_tip
 
 
 RECEPTOR_PREVIEW_MAX_FILES = 50
@@ -113,6 +115,7 @@ class ReceptorImportPanel(QWidget):
         self._ready = False
         self._file_paths = [str(Path(path).expanduser().resolve()) for path in (file_paths or [])]
         self._source_labels: dict[str, str] = {}  # temp carrier path → real origin ("user input")
+        self.downloaded: set[str] = set()  # the host deletes the temporary ones it does not import
         self._enable_preview = len(self._file_paths) <= RECEPTOR_PREVIEW_MAX_FILES
         self._previews_by_path: dict[str, dict] = {}
         self._scan_cache_by_path: dict[str, dict] = {}
@@ -232,6 +235,9 @@ class ReceptorImportPanel(QWidget):
             self.add_text_action = tool_action(
                 toolbar, "text-input.svg", "Add sequence", "Add a sequence (FASTA or a bare sequence)", self._on_add_text
             )
+            self.download_action = tool_action(
+                toolbar, "cloud.svg", "Download", "Download from RCSB PDB, AlphaFold DB, ESM Atlas or UniProt", self._on_download
+            )
             toolbar.addSeparator()
             self.remove_files_action = tool_action(
                 toolbar, "shredder.svg", "Remove", "Remove the selected files", self._on_remove_selected_files
@@ -331,6 +337,7 @@ class ReceptorImportPanel(QWidget):
         self.add_files_action.setEnabled(can_edit)
         self.add_folder_action.setEnabled(can_edit)
         self.add_text_action.setEnabled(can_edit)
+        self.download_action.setEnabled(can_edit)
         self.remove_files_action.setEnabled(can_edit and self.table.rowCount() > 0)
 
     def _on_add_files(self) -> None:
@@ -359,6 +366,16 @@ class ReceptorImportPanel(QWidget):
         path = write_user_input(fasta, ".fasta")
         self._source_labels[path] = USER_INPUT_SOURCE
         self._add_paths([path])
+
+    def _on_download(self) -> None:
+        download_into(self, "receptor", self._add_downloaded, self._runtime)
+
+    def _add_downloaded(self, files: list[tuple[str, str]]) -> None:
+        self.downloaded.update(path for path, _label in files)
+        if not self._can_edit_files():
+            return
+        self._source_labels.update(files)
+        self._add_paths([path for path, _label in files])
 
     def _add_paths(self, paths) -> None:
         resolved = expand_folders(paths or [])
@@ -595,7 +612,7 @@ class ReceptorImportPanel(QWidget):
         # (_ensure_row_widgets), so thousands of files don't stall before the first row shows.
         self.table.setRowCount(len(self._file_paths))
         for row_index, path in enumerate(self._file_paths):
-            self._set_item(row_index, 0, Path(path).name)
+            self._set_item(row_index, 0, file_label(path, Path(path).name), tip=file_tip(path))
             self._set_item(row_index, 6, "...")
 
     def _ensure_row_widgets(self, row_index: int) -> None:
@@ -722,8 +739,10 @@ class ReceptorImportPanel(QWidget):
         self._emit_ready(True)
         self._sync_file_controls()
 
-    def _set_item(self, row: int, column: int, value: str) -> None:
+    def _set_item(self, row: int, column: int, value: str, tip: str = "") -> None:
         item = QTableWidgetItem(value)
+        if tip:
+            item.setToolTip(tip)
         item.setFlags(item.flags() & ~Qt.ItemIsEditable)
         self.table.setItem(row, column, item)
 
@@ -743,7 +762,7 @@ class ReceptorImportPanel(QWidget):
             review_count += 1
         if list((preview.get("workflow") or {}).get("ligand_candidates") or []):
             candidate_count += 1
-        self._set_item(row_index, 0, Path(path).name)
+        self._set_item(row_index, 0, file_label(path, Path(path).name), tip=file_tip(path))
         # Columns 1 (Unit), 2 (Chains), 3 (Ligands) are widgets, populated below when build_widgets.
         self._set_item(row_index, 6, str(summary.get("status") or "Review"))
         if build_widgets:
@@ -862,6 +881,12 @@ class ReceptorImportDialog(QDialog):
         self.panel.ready_changed.connect(self.import_button.setEnabled)
         self.import_button.setEnabled(self.panel.is_ready())
 
+    def done(self, result: int) -> None:
+        # Temporary downloads that will not be imported: on cancel all, on accept the removed ones.
+        imported = set(self.panel.file_paths) if result == QDialog.Accepted else set()
+        discard_temporary(self.panel.downloaded - imported)
+        super().done(result)
+
     def workflow_submit(self):
         """(submit, name) capturing the receptor import (+ any dimer ligand-role files) as a deferred
         job, or None if empty. Runs when the workflow runs."""
@@ -874,7 +899,10 @@ class ReceptorImportDialog(QDialog):
 
         def submit(rt):
             job_ids: list = []
-            res = rt.loader.load_receptors(files, **import_request)
+            # A temporary download both jobs read is the ligand job's to delete.
+            shared = set(ligand_role_files)
+            res = rt.loader.load_receptors(
+                files, **import_request, temporary_files=[path for path in files if path not in shared])
             job_ids.extend(res if isinstance(res, (list, tuple)) else [res])
             # Dimer case: flagged receptors also enter the general screening set as biopolymer ligands.
             if ligand_role_files:

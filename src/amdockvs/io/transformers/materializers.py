@@ -82,8 +82,8 @@ def materialize_import_batch(
     else:
         rows = list(_materialize_structure_rows(batch=batch, entries=records, progress_cb=progress_cb, tally=tally))
     if batch.source_label:  # the file was only a carrier (pasted text, a download): name the real origin
-        for row in rows:
-            row["source"] = batch.source_label
+        for row in rows:  # refs stay on the file: complexes name their receptor by its path
+            row["source_file"], row["source"] = row.get("source"), batch.source_label
     write_import_stats(batch.storage_dir, tally)
     return rows
 
@@ -234,7 +234,7 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
     for row in rows:
         source = str(row.get("source") or "")
         source_index = int(row.get("source_index") or 0)
-        molecule_ref = f"molecule::{source}::{source_index}"
+        molecule_ref = f"molecule::{row.get('source_file') or source}::{source_index}"
         current_model_index: int | None = None
         role = str(row.get("primary_role") or "").strip().lower()
         metadata_map = metadata_map_from_row(row)
