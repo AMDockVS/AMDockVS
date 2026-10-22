@@ -46,6 +46,7 @@ from amdockvs.ui.common.drop_area import (
     TablePlaceholder,
     drop_hint,
     side_toolbar,
+    size_import_dialog,
     tool_action,
     write_user_input,
 )
@@ -832,7 +833,7 @@ class ReceptorImportDialog(QDialog):
         self.deferred_submit = None
         self.deferred_name = ""
         self.setWindowTitle("Import Receptors")
-        self.resize(1140, 640)
+        size_import_dialog(self)
         root = QVBoxLayout(self)
         self.panel = ReceptorImportPanel(runtime=runtime, show_file_controls=True, parent=self)
         root.addWidget(self.panel, 1)

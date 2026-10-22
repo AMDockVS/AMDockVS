@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, Qt, Signal
+from PySide6.QtCore import QAbstractTableModel, QEvent, QModelIndex, Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -18,8 +18,8 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QLabel,
     QMessageBox,
-    QTableWidget,
-    QTableWidgetItem,
+    QStyledItemDelegate,
+    QTableView,
     QTabWidget,
     QVBoxLayout,
 )
@@ -34,10 +34,14 @@ from amdockvs.ui.common.drop_area import (
     TablePlaceholder,
     drop_hint,
     side_toolbar,
+    size_import_dialog,
     tool_action,
     write_user_input,
 )
 from amdockvs.io.formats import QT_FILE_FILTER as _LIGAND_FILTER
+
+# The dialog's own patterns ("*.sdf ...") decide what a folder contributes, so both routes agree.
+_LIGAND_SUFFIXES = frozenset(p[1:] for p in _LIGAND_FILTER.split("(", 1)[1].split(")", 1)[0].split())
 from amdockvs.ui.view_ids import LIGANDS_VIEW_ID, SHARDS_VIEW_ID
 from amdockvs.ui.tools.importing.common import land_on_view, nudge_monitor
 from amdockvs.ui.tools.importing.ligand_forms import (
@@ -58,94 +62,170 @@ _TYPE_CHOICES = (
 )
 
 
-class FileDropTable(QTableWidget):
-    """Drag-and-drop file list with Name / Type / Format / Path / As Reference columns, a per-row
-    type combo and a per-row reference mark."""
+_TYPE_LABELS = {value: label for label, value in _TYPE_CHOICES}
+_REFERENCE_TIP = (
+    "Curated set (cocrystals, measured actives): imported as rows, never shards, and the "
+    "only files the Activity tab reads measurements from."
+)
 
-    rows_changed = Signal()
-    _COLUMNS = ("Name", "Type", "Format", "Path", "As Reference")
+
+class _FileRowsModel(QAbstractTableModel):
+    """The dropped files as plain rows [path, kind, reference]; the view paints only what it shows."""
+
+    COLUMNS = ("Name", "Type", "Format", "Path", "As Reference")
+    TYPE, REFERENCE = 1, 4
 
     def __init__(self, parent=None):
-        super().__init__(0, len(self._COLUMNS), parent)
-        self.setHorizontalHeaderLabels(list(self._COLUMNS))
+        super().__init__(parent)
+        self.entries: list[list] = []
+
+    def rowCount(self, parent=QModelIndex()) -> int:
+        return 0 if parent.isValid() else len(self.entries)
+
+    def columnCount(self, parent=QModelIndex()) -> int:
+        return 0 if parent.isValid() else len(self.COLUMNS)
+
+    def headerData(self, section, orientation, role=Qt.DisplayRole):
+        if orientation == Qt.Horizontal and role == Qt.DisplayRole:
+            return self.COLUMNS[section]
+        return None
+
+    def data(self, index, role=Qt.DisplayRole):
+        path, kind, reference = self.entries[index.row()]
+        column = index.column()
+        if role == Qt.CheckStateRole and column == self.REFERENCE:
+            return Qt.Checked if reference else Qt.Unchecked
+        if role == Qt.EditRole and column == self.TYPE:
+            return kind
+        if role == Qt.DisplayRole:
+            return (Path(path).stem, f"{_TYPE_LABELS[kind]} ▾", (Path(path).suffix[1:] or "?").upper(), path, None)[column]
+        if role == Qt.ToolTipRole:
+            return _REFERENCE_TIP if column == self.REFERENCE else path
+        return None
+
+    def flags(self, index):
+        flags = super().flags(index)
+        if index.column() == self.TYPE:
+            return flags | Qt.ItemIsEditable
+        if index.column() == self.REFERENCE:
+            return flags | Qt.ItemIsUserCheckable
+        return flags
+
+    def setData(self, index, value, role=Qt.EditRole) -> bool:
+        entry = self.entries[index.row()]
+        if index.column() == self.TYPE and role == Qt.EditRole and value in _TYPE_LABELS:
+            entry[1] = value
+        elif index.column() == self.REFERENCE and role == Qt.CheckStateRole:
+            entry[2] = Qt.CheckState(value) == Qt.Checked
+        else:
+            return False
+        self.dataChanged.emit(index, index, [role])
+        return True
+
+    def append(self, paths: list[str]) -> None:
+        start = len(self.entries)
+        self.beginInsertRows(QModelIndex(), start, start + len(paths) - 1)
+        self.entries.extend([path, MoleculeType.SMALL_MOLECULE, False] for path in paths)
+        self.endInsertRows()
+
+    def remove(self, rows: set[int]) -> None:
+        self.beginResetModel()
+        self.entries = [entry for row, entry in enumerate(self.entries) if row not in rows]
+        self.endResetModel()
+
+
+class _TypeDelegate(QStyledItemDelegate):
+    """The Type combo exists only while a cell is being edited, never one per row."""
+
+    def createEditor(self, parent, option, index):
+        combo = QComboBox(parent)
+        for label, value in _TYPE_CHOICES:
+            combo.addItem(label, value)
+        def commit(_index: int) -> None:
+            self.commitData.emit(combo)
+            self.closeEditor.emit(combo)
+
+        combo.activated.connect(commit)
+        return combo
+
+    def setEditorData(self, editor, index) -> None:
+        editor.setCurrentIndex(editor.findData(index.data(Qt.EditRole)))
+        editor.showPopup()
+
+    def setModelData(self, editor, model, index) -> None:
+        model.setData(index, editor.currentData(), Qt.EditRole)
+
+
+class _ReferenceDelegate(QStyledItemDelegate):
+    """A click anywhere in the As Reference cell toggles it, not only on the small indicator."""
+
+    def editorEvent(self, event, model, option, index) -> bool:
+        if event.type() in (QEvent.MouseButtonPress, QEvent.MouseButtonDblClick):
+            return True  # the release toggles; swallowing these keeps one click = one toggle
+        if event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+            checked = index.data(Qt.CheckStateRole) == Qt.Checked
+            return model.setData(index, Qt.Unchecked if checked else Qt.Checked, Qt.CheckStateRole)
+        return super().editorEvent(event, model, option, index)
+
+
+class FileDropTable(QTableView):
+    """Drag-and-drop file list with Name / Type / Format / Path / As Reference columns, a per-row
+    type (edited through a combo) and a per-row reference mark."""
+
+    rows_changed = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setModel(_FileRowsModel(self))
+        self.setItemDelegateForColumn(_FileRowsModel.TYPE, _TypeDelegate(self))
+        self.setItemDelegateForColumn(_FileRowsModel.REFERENCE, _ReferenceDelegate(self))
+        self.setEditTriggers(QAbstractItemView.EditKeyPressed)
+        self.clicked.connect(lambda index: index.column() == _FileRowsModel.TYPE and self.edit(index))
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.verticalHeader().setVisible(False)
         header = self.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.Stretch)
-        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        # ponytail: content-sized columns measure every row on each insert; Interactive keeps the
+        # widths fixed (the user can still drag them), which is what lets 10k files load at once.
+        for column, mode in enumerate((QHeaderView.Stretch, QHeaderView.Interactive, QHeaderView.Interactive,
+                                       QHeaderView.Stretch, QHeaderView.Interactive)):
+            header.setSectionResizeMode(column, mode)
+        self.setColumnWidth(_FileRowsModel.TYPE, 130)
+        self.setColumnWidth(2, 70)
+        self.setColumnWidth(_FileRowsModel.REFERENCE, 100)
         self.setAcceptDrops(True)
         self.placeholder = TablePlaceholder(self, drop_hint("ligand"))
+        self.model().dataChanged.connect(self.rows_changed)
 
     # ---- rows ----
-    def _paths(self) -> set[str]:
-        return {self.item(row, 3).text() for row in range(self.rowCount())}
-
     def add_files(self, paths) -> None:
-        existing = self._paths()
-        added = False
-        for path in paths:
-            resolved = str(Path(path).expanduser().resolve())
-            if resolved in existing:
-                continue
-            existing.add(resolved)
-            self._append_row(resolved)
-            added = True
-        if added:
+        existing = {entry[0] for entry in self.model().entries}
+        new: list[str] = []
+        for path in map(Path, paths):
+            path = path.expanduser()
+            # A folder (picked or dropped) brings in every ligand file below it.
+            files = sorted(p for p in path.rglob("*") if p.suffix.lower() in _LIGAND_SUFFIXES) if path.is_dir() else [path]
+            for file in files:
+                resolved = str(file.resolve())
+                if resolved not in existing:
+                    existing.add(resolved)
+                    new.append(resolved)
+        if new:
+            self.model().append(new)
             self.rows_changed.emit()
 
-    def _append_row(self, path: str) -> None:
-        row = self.rowCount()
-        self.insertRow(row)
-        p = Path(path)
-        name_item = QTableWidgetItem(p.stem)
-        name_item.setToolTip(path)
-        name_item.setFlags(name_item.flags() & ~Qt.ItemIsEditable)
-        self.setItem(row, 0, name_item)
-
-        type_combo = QComboBox(self)
-        for label, value in _TYPE_CHOICES:
-            type_combo.addItem(label, value)
-        type_combo.currentIndexChanged.connect(self.rows_changed)
-        self.setCellWidget(row, 1, type_combo)
-
-        fmt_item = QTableWidgetItem((p.suffix[1:] or "?").upper())
-        fmt_item.setFlags(fmt_item.flags() & ~Qt.ItemIsEditable)
-        self.setItem(row, 2, fmt_item)
-
-        path_item = QTableWidgetItem(path)
-        path_item.setFlags(path_item.flags() & ~Qt.ItemIsEditable)
-        self.setItem(row, 3, path_item)
-
-        as_reference = QCheckBox(self)
-        as_reference.setToolTip(
-            "Curated set (cocrystals, measured actives): imported as rows, never shards, and the "
-            "only files the Activity tab reads measurements from."
-        )
-        as_reference.toggled.connect(self.rows_changed)
-        self.setCellWidget(row, 4, as_reference)
-
     def remove_selected(self) -> None:
-        rows = sorted({index.row() for index in self.selectedIndexes()}, reverse=True)
-        for row in rows:
-            self.removeRow(row)
+        rows = {index.row() for index in self.selectionModel().selectedRows()}
         if rows:
+            self.model().remove(rows)
             self.rows_changed.emit()
 
     def rows(self) -> list[tuple[str, str]]:
         """[(path, molecule_kind)] for each row."""
-        out: list[tuple[str, str]] = []
-        for row in range(self.rowCount()):
-            path = self.item(row, 3).text()
-            kind = self.cellWidget(row, 1).currentData()
-            out.append((path, kind))
-        return out
+        return [(path, kind) for path, kind, _reference in self.model().entries]
 
     def reference_paths(self) -> set[str]:
         """Paths ticked 'As Reference'."""
-        return {self.item(row, 3).text() for row in range(self.rowCount()) if self.cellWidget(row, 4).isChecked()}
+        return {path for path, _kind, reference in self.model().entries if reference}
 
     def has_small_molecule(self) -> bool:
         return any(kind == MoleculeType.SMALL_MOLECULE for _, kind in self.rows())
@@ -185,7 +265,7 @@ class LigandImportDialog(QDialog):
         self._target_sharded = False
         self._project_sharded = False
         self.setWindowTitle("Import Ligands")
-        self.resize(760, 580)
+        size_import_dialog(self)
         root = QVBoxLayout(self)
 
         # --- top: vertical add/remove toolbar + file table ---
@@ -196,6 +276,9 @@ class LigandImportDialog(QDialog):
         self._source_labels: dict[str, str] = {}  # temp carrier path → real origin ("user input")
         toolbar = side_toolbar(self)
         self.add_action = tool_action(toolbar, "file-plus.svg", "Add files", "Add ligand files", self._on_add)
+        self.add_folder_action = tool_action(
+            toolbar, "folder-plus.svg", "Add folder", "Add every ligand file in a folder (and its subfolders)", self._on_add_folder
+        )
         self.add_text_action = tool_action(
             toolbar, "text-input.svg", "Add SMILES", "Add SMILES (one per line, optional name)", self._on_add_text
         )
@@ -290,6 +373,11 @@ class LigandImportDialog(QDialog):
         paths, _ = QFileDialog.getOpenFileNames(self, "Add ligand files", "", _LIGAND_FILTER)
         if paths:
             self.table.add_files(paths)
+
+    def _on_add_folder(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Add ligand folder")
+        if folder:
+            self.table.add_files([folder])
 
     def _on_add_text(self) -> None:
         """Typed SMILES become a .smi file; the molecules' source says "user input"."""
