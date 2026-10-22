@@ -871,6 +871,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#amdockvs.io.api.LoaderAPI.download" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;download
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#amdockvs.io.api.LoaderAPI.shard_ligands" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2226,6 +2237,17 @@
   
     <nav class="md-nav" aria-label="LoaderAPI">
       <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#amdockvs.io.api.LoaderAPI.download" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;download
+      </span>
+    </span>
+  </a>
+  
+</li>
         
           <li class="md-nav__item">
   <a href="#amdockvs.io.api.LoaderAPI.shard_ligands" class="md-nav__link">
@@ -5498,6 +5520,14 @@ imported compound, stay.</p>
       </thead>
       <tbody>
             <tr class="doc-section-item">
+              <td><code><a class="autorefs autorefs-internal" title="            download (amdockvs.io.api.LoaderAPI.download)" href="./#amdockvs.io.api.LoaderAPI.download">download</a></code></td>
+              <td>
+                <div class="doc-md-description">
+                  <p>Fetch <code>ids</code> from a download <code>source</code> (a key of <code>amdockvs.io.downloads.SOURCES</code>).</p>
+                </div>
+              </td>
+            </tr>
+            <tr class="doc-section-item">
               <td><code><a class="autorefs autorefs-internal" title="            shard_ligands (amdockvs.io.api.LoaderAPI.shard_ligands)" href="./#amdockvs.io.api.LoaderAPI.shard_ligands">shard_ligands</a></code></td>
               <td>
                 <div class="doc-md-description">
@@ -5527,12 +5557,55 @@ imported compound, stay.</p>
 <div class="doc doc-object doc-function">
 
 
+<h3 id="amdockvs.io.api.LoaderAPI.download" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">download</span>
+
+
+<a href="#amdockvs.io.api.LoaderAPI.download" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">download</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="n">ids</span><span class="p">:</span> <span class="n"><span title="typing.Iterable">Iterable</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">],</span> <span class="o">*</span><span class="p">,</span> <span class="n">keep</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">progress</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">cancel</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Fetch <code>ids</code> from a download <code>source</code> (a key of <code>amdockvs.io.downloads.SOURCES</code>).
+<code>keep=False</code> puts them in the project's temporary downloads: the import that reads them
+deletes them once it has completed. Returns an <code>Outcome</code> (files, failures).</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/amdockvs/io/api.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">82</span>
+<span class="normal">83</span>
+<span class="normal">84</span>
+<span class="normal">85</span>
+<span class="normal">86</span>
+<span class="normal">87</span>
+<span class="normal">88</span>
+<span class="normal">89</span>
+<span class="normal">90</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">download</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">source</span><span class="p">,</span> <span class="n">ids</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="o">*</span><span class="p">,</span> <span class="n">keep</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">progress</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">cancel</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""Fetch ``ids`` from a download ``source`` (a key of ``amdockvs.io.downloads.SOURCES``).</span>
+<span class="sd">    ``keep=False`` puts them in the project's temporary downloads: the import that reads them</span>
+<span class="sd">    deletes them once it has completed. Returns an ``Outcome`` (files, failures)."""</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">amdockvs.io</span><span class="w"> </span><span class="kn">import</span> <span class="n">downloads</span>
+
+    <span class="n">source</span> <span class="o">=</span> <span class="n">downloads</span><span class="o">.</span><span class="n">SOURCES</span><span class="p">[</span><span class="n">source</span><span class="p">]</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="k">else</span> <span class="n">source</span>
+    <span class="n">folder</span> <span class="o">=</span> <span class="kc">None</span> <span class="k">if</span> <span class="n">keep</span> <span class="k">else</span> <span class="n">downloads</span><span class="o">.</span><span class="n">temporary_folder</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="o">.</span><span class="n">get_project_paths</span><span class="p">()[</span><span class="s2">"project_root"</span><span class="p">],</span> <span class="n">source</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">downloads</span><span class="o">.</span><span class="n">download</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="nb">list</span><span class="p">(</span><span class="n">ids</span><span class="p">),</span> <span class="n">folder</span><span class="o">=</span><span class="n">folder</span><span class="p">,</span> <span class="n">progress</span><span class="o">=</span><span class="n">progress</span><span class="p">,</span> <span class="n">cancel</span><span class="o">=</span><span class="n">cancel</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h3 id="amdockvs.io.api.LoaderAPI.shard_ligands" class="doc doc-heading">
 <code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">shard_ligands</span>
 
 
 <a href="#amdockvs.io.api.LoaderAPI.shard_ligands" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">shard_ligands</span><span class="p">(</span><span class="n">files</span><span class="p">:</span> <span class="n"><span title="typing.Iterable">Iterable</span></span><span class="p">[</span><span class="n"><span title="amdockvs.core.normalize.PathLike">PathLike</span></span><span class="p">],</span> <span class="o">*</span><span class="p">,</span> <span class="n">shard_size</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">executor_name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">=</span> <span class="s1">'compute'</span><span class="p">,</span> <span class="n">depends_on</span><span class="p">:</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">molecule_kind</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">=</span> <span class="s1">'small_molecule'</span><span class="p">,</span> <span class="n">prefilter</span><span class="p">:</span> <span class="n"><span title="typing.Mapping">Mapping</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">]</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">shard_ligands</span><span class="p">(</span><span class="n">files</span><span class="p">:</span> <span class="n"><span title="typing.Iterable">Iterable</span></span><span class="p">[</span><span class="n"><span title="amdockvs.core.normalize.PathLike">PathLike</span></span><span class="p">],</span> <span class="o">*</span><span class="p">,</span> <span class="n">shard_size</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">executor_name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">=</span> <span class="s1">'compute'</span><span class="p">,</span> <span class="n">depends_on</span><span class="p">:</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">molecule_kind</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">=</span> <span class="s1">'small_molecule'</span><span class="p">,</span> <span class="n">prefilter</span><span class="p">:</span> <span class="n"><span title="typing.Mapping">Mapping</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">temporary_files</span><span class="p">:</span> <span class="n"><span title="typing.Iterable">Iterable</span></span><span class="p">[</span><span class="n"><span title="amdockvs.core.normalize.PathLike">PathLike</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="list">list</span></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">]</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -5545,30 +5618,7 @@ registers a <code>screening_shards</code> row instead of parsing molecules into 
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/io/api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">158</span>
-<span class="normal">159</span>
-<span class="normal">160</span>
-<span class="normal">161</span>
-<span class="normal">162</span>
-<span class="normal">163</span>
-<span class="normal">164</span>
-<span class="normal">165</span>
-<span class="normal">166</span>
-<span class="normal">167</span>
-<span class="normal">168</span>
-<span class="normal">169</span>
-<span class="normal">170</span>
-<span class="normal">171</span>
-<span class="normal">172</span>
-<span class="normal">173</span>
-<span class="normal">174</span>
-<span class="normal">175</span>
-<span class="normal">176</span>
-<span class="normal">177</span>
-<span class="normal">178</span>
-<span class="normal">179</span>
-<span class="normal">180</span>
-<span class="normal">181</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">181</span>
 <span class="normal">182</span>
 <span class="normal">183</span>
 <span class="normal">184</span>
@@ -5597,7 +5647,32 @@ registers a <code>screening_shards</code> row instead of parsing molecules into 
 <span class="normal">207</span>
 <span class="normal">208</span>
 <span class="normal">209</span>
-<span class="normal">210</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">shard_ligands</span><span class="p">(</span>
+<span class="normal">210</span>
+<span class="normal">211</span>
+<span class="normal">212</span>
+<span class="normal">213</span>
+<span class="normal">214</span>
+<span class="normal">215</span>
+<span class="normal">216</span>
+<span class="normal">217</span>
+<span class="normal">218</span>
+<span class="normal">219</span>
+<span class="normal">220</span>
+<span class="normal">221</span>
+<span class="normal">222</span>
+<span class="normal">223</span>
+<span class="normal">224</span>
+<span class="normal">225</span>
+<span class="normal">226</span>
+<span class="normal">227</span>
+<span class="normal">228</span>
+<span class="normal">229</span>
+<span class="normal">230</span>
+<span class="normal">231</span>
+<span class="normal">232</span>
+<span class="normal">233</span>
+<span class="normal">234</span>
+<span class="normal">235</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">shard_ligands</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="n">files</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">PathLike</span><span class="p">],</span>
     <span class="o">*</span><span class="p">,</span>
@@ -5606,6 +5681,7 @@ registers a <code>screening_shards</code> row instead of parsing molecules into 
     <span class="n">depends_on</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">molecule_kind</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"small_molecule"</span><span class="p">,</span>
     <span class="n">prefilter</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">temporary_files</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="n">PathLike</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">"""The `htpvs` import: split the library into shards, materialize nothing.</span>
 
@@ -5625,6 +5701,7 @@ registers a <code>screening_shards</code> row instead of parsing molecules into 
     <span class="n">records</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">min</span><span class="p">(</span><span class="n">records</span><span class="p">,</span> <span class="n">MAX_SHARD_RECORDS</span><span class="p">))</span>
     <span class="n">params</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
         <span class="s2">"file_paths"</span><span class="p">:</span> <span class="p">[</span><span class="nb">str</span><span class="p">(</span><span class="n">file_path</span><span class="p">)</span> <span class="k">for</span> <span class="n">file_path</span> <span class="ow">in</span> <span class="n">normalized_files</span><span class="p">],</span>
+        <span class="o">**</span><span class="bp">self</span><span class="o">.</span><span class="n">_temporary</span><span class="p">(</span><span class="n">normalized_files</span><span class="p">,</span> <span class="n">temporary_files</span><span class="p">),</span>
         <span class="s2">"batch_size"</span><span class="p">:</span> <span class="n">records</span><span class="p">,</span>
         <span class="s2">"molecule_kind"</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">molecule_kind</span> <span class="ow">or</span> <span class="s2">"small_molecule"</span><span class="p">),</span>
     <span class="p">}</span>
