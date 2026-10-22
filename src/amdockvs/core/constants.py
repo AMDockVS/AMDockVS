@@ -87,10 +87,9 @@ def vina_command(runtime=None) -> str:
     configured = str(app_config(runtime).docking.vina.path or "").strip()
     if configured:
         return str(Path(configured).expanduser())
-    sibling = Path(sys.executable).expanduser().resolve().parent / "vina"
-    if sibling.exists():
-        return str(sibling)
-    return shutil.which("vina") or "vina"
+    # which() adds .exe on Windows, so `vina.exe` beside the interpreter counts too.
+    return shutil.which("vina", path=str(Path(sys.executable).expanduser().resolve().parent)) \
+        or shutil.which("vina") or "vina"
 
 
 def vina_backend(runtime=None) -> str:

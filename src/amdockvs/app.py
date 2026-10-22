@@ -55,16 +55,20 @@ def _delete_project(runtime: AMDockVSRuntime, project_id: str) -> None:
         backend.shutdown()
 
 
-FREEZE_LOG = "/tmp/amdock_stacks.log"
+def freeze_log() -> Path:
+    from amdockvs.core.home import amdock_home
+
+    return amdock_home() / "logs" / "freeze_stacks.log"
 
 
 def install_freeze_watchdog(qt_app, *, stall_seconds: float = 10.0):
-    """Dump every thread's Python stack to :data:`FREEZE_LOG` while the GUI thread is stuck.
+    """Dump every thread's Python stack to :func:`freeze_log` while the GUI thread is stuck.
 
     A frozen window can't be inspected from outside here (``ptrace_scope=1`` blocks py-spy
     and gdb), so the app reports itself: a 500 ms timer pats a heartbeat, and a plain
     daemon thread dumps the stacks whenever that heartbeat goes stale. ``kill -USR1 <pid>``
-    forces a dump too. Returns the timer -- Qt drops timers that nobody holds.
+    forces a dump too (POSIX only: Windows has neither SIGUSR1 nor ``faulthandler.register``).
+    Returns the timer -- Qt drops timers that nobody holds.
     """
     import faulthandler
     import signal
@@ -73,8 +77,11 @@ def install_freeze_watchdog(qt_app, *, stall_seconds: float = 10.0):
 
     from PySide6.QtCore import QTimer
 
-    log = open(FREEZE_LOG, "a", buffering=1)  # noqa: SIM115 - lives as long as the app
-    faulthandler.register(signal.SIGUSR1, file=log, all_threads=True)
+    path = freeze_log()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    log = open(path, "a", buffering=1)  # noqa: SIM115 - lives as long as the app
+    if hasattr(faulthandler, "register"):
+        faulthandler.register(signal.SIGUSR1, file=log, all_threads=True)
     beat = [time.monotonic()]
     timer = QTimer(qt_app)
     timer.setInterval(500)
