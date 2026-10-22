@@ -3,6 +3,7 @@ from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QStatusBar, QWidget
 
 from ms_components.ms_monitor.job_cards import GlowBar
+from ms_components.theme import color
 
 
 class JobsStatusIndicator(QWidget):
@@ -52,7 +53,7 @@ class JobsStatusIndicator(QWidget):
     def _render(self) -> None:
         if self._attention:
             self.setVisible(True)
-            self._label.setStyleSheet("font-size:11px; color:#e05561;")
+            self._label.setStyleSheet(f"font-size:11px; color:{color('red').name()};")
             self._label.setText("⚠ Job failed — click to view")
             self._bar.setVisible(False)
             return

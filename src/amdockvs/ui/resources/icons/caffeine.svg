@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -20 510 500">
+    <defs>
+        <pattern id="mh-c-site-molecule" width="7" height="7" patternUnits="userSpaceOnUse">
+            <path d="M3.5 1v5M1 3.5h5" style="stroke:currentColor;stroke-width:1.4"/>
+        </pattern>
+        <pattern id="mh-n-site-molecule" width="6" height="6" patternUnits="userSpaceOnUse">
+            <path d="M3 .8v4.4M.8 3h4.4" style="stroke:#b5abfc;stroke-width:1.5"/>
+        </pattern>
+        <pattern id="mh-o-site-molecule" width="6" height="6" patternUnits="userSpaceOnUse">
+            <circle cx="3" cy="3" r="1.4" style="fill:#d2cefd"/>
+        </pattern>
+        <mask id="mh-mc-site-molecule" maskUnits="userSpaceOnUse" x="-40" y="-60" width="600" height="580">
+            <g style="fill:none;stroke:#fff;stroke-linecap:round">
+                <path d="M133.4 180L133.4 280M133.4 280L220 330M220 330L306.6 280M306.6 180L220 130M220 130L133.4 180M306.6 180L401.7 149.1M401.7 149.1L460.5 230M401.7 310.9L306.6 280M133.4 180L46.8 130M220 330L220 430M401.7 149.1L432.6 54"
+                      style="stroke-width:20"/>
+                <path d="M209 130L209 30M231 130L231 30M138.9 289.5L52.3 339.5M127.9 270.5L41.3 320.5M295.6 180L295.6 280M317.6 180L317.6 280M469.4 236.5L410.6 317.4M451.6 223.5L392.8 304.4"
+                      style="stroke-width:11"/>
+            </g>
+            <g style="fill:#fff">
+                <circle cx="220" cy="130" r="26"/>
+                <circle cx="306.6" cy="180" r="26"/>
+                <circle cx="306.6" cy="280" r="26"/>
+                <circle cx="133.4" cy="280" r="26"/>
+                <circle cx="460.5" cy="230" r="26"/>
+                <circle cx="46.8" cy="130" r="23"/>
+                <circle cx="220" cy="430" r="23"/>
+                <circle cx="432.6" cy="54" r="23"/>
+            </g>
+            <g style="fill:#000">
+                <circle cx="133.4" cy="180" r="32"/>
+                <circle cx="220" cy="330" r="32"/>
+                <circle cx="401.7" cy="149.1" r="32"/>
+                <circle cx="401.7" cy="310.9" r="32"/>
+                <circle cx="220" cy="30" r="34"/>
+                <circle cx="46.8" cy="330" r="34"/>
+            </g>
+        </mask>
+        <mask id="mh-mn-site-molecule" maskUnits="userSpaceOnUse" x="-40" y="-60" width="600" height="580">
+            <g style="fill:#fff">
+                <circle cx="133.4" cy="180" r="32"/>
+                <circle cx="220" cy="330" r="32"/>
+                <circle cx="401.7" cy="149.1" r="32"/>
+                <circle cx="401.7" cy="310.9" r="32"/>
+            </g>
+        </mask>
+        <mask id="mh-mo-site-molecule" maskUnits="userSpaceOnUse" x="-40" y="-60" width="600" height="580">
+            <g style="fill:#fff">
+                <circle cx="220" cy="30" r="34"/>
+                <circle cx="46.8" cy="330" r="34"/>
+            </g>
+        </mask>
+    </defs>
+    <rect x="-40" y="-60" width="600" height="580" fill="url(#mh-c-site-molecule)" mask="url(#mh-mc-site-molecule)"/>
+    <rect x="-40" y="-60" width="600" height="580" fill="url(#mh-n-site-molecule)" mask="url(#mh-mn-site-molecule)"/>
+    <rect x="-40" y="-60" width="600" height="580" fill="url(#mh-o-site-molecule)" mask="url(#mh-mo-site-molecule)"/>
+    <g style="fill:none;stroke:currentColor;stroke-width:1.2">
+        <circle cx="133.4" cy="180" r="38"/>
+        <circle cx="220" cy="330" r="38"/>
+        <circle cx="401.7" cy="149.1" r="38"/>
+        <circle cx="401.7" cy="310.9" r="38"/>
+        <circle cx="220" cy="30" r="40" style="stroke-dasharray:2 5"/>
+        <circle cx="46.8" cy="330" r="40" style="stroke-dasharray:2 5"/>
+    </g>
+</svg>

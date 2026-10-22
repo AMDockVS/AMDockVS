@@ -430,7 +430,7 @@ class LigandImportDialog(QDialog):
         self.shard_box.setStyleSheet(
             f"QFrame#shardBox {{ border: 1px solid {border}; border-radius: 4px; }}"
         )
-        self.shard_hint.setStyleSheet(f"color: {accent};" if checked else "color: palette(mid);")
+        self.shard_hint.setStyleSheet(f"color: {accent};" if checked else "color: palette(placeholder-text);")
 
     def _set_shard_hint(self, text: str) -> None:
         # Hidden while empty: a blank word-wrapped label still reserves a line inside the frame.

@@ -94,11 +94,11 @@ class TablePlaceholder(QObject):
         self._icon.setAlignment(Qt.AlignCenter)
         label = QLabel(text, self._widget)
         label.setAlignment(Qt.AlignCenter)
-        label.setStyleSheet("color: palette(mid); font-size: 22px;")
+        label.setStyleSheet("color: palette(placeholder-text); font-size: 22px;")
         layout.addWidget(self._icon)
         layout.addWidget(label)
         self._paint_icon()
-        # Mode.Disabled gives the dimmed ink that matches the hint's palette(mid) text.
+        # Mode.Disabled gives a dimmed ink, one step below the hint text.
         # The themed icon resolves its color when the pixmap is made, so re-make it on a
         # theme switch. A child widget gets PaletteChange, not ApplicationPaletteChange.
         self._widget.installEventFilter(self)

@@ -37,7 +37,7 @@ def _count_box(label: str, value: Optional[int]) -> QFrame:
     num.setStyleSheet("font-size:18px; font-weight:600;")
     cap = QLabel(label)
     cap.setAlignment(Qt.AlignCenter)
-    cap.setStyleSheet("color:palette(mid); font-size:11px;")
+    cap.setStyleSheet("color:palette(placeholder-text); font-size:11px;")
     lay.addWidget(num)
     lay.addWidget(cap)
     return box
@@ -51,7 +51,7 @@ def _storage_section(dlg: QDialog, runtime) -> QVBoxLayout:
     layout = QVBoxLayout()
     layout.addWidget(QLabel("Structure storage"))
     text = QLabel("Reading…")
-    text.setStyleSheet("color:palette(mid);")
+    text.setStyleSheet("color:palette(placeholder-text);")
     layout.addWidget(text)
     row = QHBoxLayout()
     check, repair, compact = QPushButton("Check"), QPushButton("Repair"), QPushButton("Compact")
@@ -123,7 +123,7 @@ def show_project_summary(window) -> None:
     if summary is not None and getattr(summary, "description", ""):
         desc = QLabel(summary.description)
         desc.setWordWrap(True)
-        desc.setStyleSheet("color:palette(mid);")
+        desc.setStyleSheet("color:palette(placeholder-text);")
         root.addWidget(desc)
 
     meta = QFormLayout()

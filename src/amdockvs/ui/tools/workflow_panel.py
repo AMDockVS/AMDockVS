@@ -19,7 +19,7 @@ from __future__ import annotations
 import math
 
 from PySide6.QtCore import QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QAction, QBrush, QColor, QCursor, QFont, QIcon, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QAction, QBrush, QColor, QCursor, QFont, QIcon, QPainter, QPainterPath, QPalette, QPen
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -247,7 +247,7 @@ class WorkflowGraphView(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         if not self.runner.steps:
-            painter.setPen(QPen(QColor("#9ca3af")))
+            painter.setPen(QPen(self.palette().color(QPalette.ColorRole.PlaceholderText)))
             hint = "Press Edit and add a step, or open a workflow from the library"
             painter.drawText(self.rect(), Qt.AlignCenter, hint)
             return
@@ -256,7 +256,7 @@ class WorkflowGraphView(QWidget):
         steps_by_id = {s.step_id: s for s in self.runner.steps}
 
         # edges first (under the nodes)
-        painter.setPen(QPen(QColor("#7c8aa0"), 1.8))
+        painter.setPen(QPen(self.palette().color(QPalette.ColorRole.Shadow), 1.8))
         if self._snake_order is not None:
             self._paint_snake_edges(painter, self._snake_order)
         else:

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QSizePolicy, QToolButton, QWidget
+from PySide6.QtWidgets import QPushButton, QSizePolicy, QWidget
 
 from amdockvs.ui.registry import (
     CATALOG_TABLES,
@@ -24,12 +24,12 @@ from amdockvs.ui.view_ids import LIGANDS_VIEW_ID, SHARDS_VIEW_ID, WORKFLOW_VIEW_
 
 
 class ViewCoordinator:
-    # View > Toolbars. key -> (menu label, Qt style, icon px, font px, side-toolbar width).
-    # Applies to every toolbar: the top catalog bar and the left/right dock toolbars.
+    # View > Toolbars. key -> (menu label, Qt style, icon px, font px, side-toolbar width,
+    # logo px). Applies to every toolbar: the top catalog bar and the left/right dock toolbars.
+    # The logo's box spans the side toolbar's width, so its frame stands in for a separator.
     TOOLBAR_BUTTON_STYLES = {
-        "icons": ("Icons Only", Qt.ToolButtonIconOnly, 24, None, 32),
-        "icon_text": ("Icon + Text", Qt.ToolButtonTextUnderIcon, 20, 9, 64),
-        "text": ("Text Only", Qt.ToolButtonTextOnly, 20, 12, 110),
+        "icons": ("Icons Only", Qt.ToolButtonIconOnly, 24, None, 41, 29),
+        "icon_text": ("Icon + Text", Qt.ToolButtonTextUnderIcon, 20, 9, 64, 40),
     }
     TOOLBAR_STYLE_KEY = "ui/toolbar_button_style"
     GROUP_GAP_PX = 10  # padding on each side of the `|` between view groups
@@ -90,7 +90,9 @@ class ViewCoordinator:
         self.catalog_toolbar = bar
         self.logo = self._make_logo(bar)
         bar.addWidget(self.logo)
-        bar.addSeparator()
+        gap = QWidget(bar)  # the first table button keeps off the logo's box
+        gap.setFixedWidth(self.LOGO_GAP_PX)
+        bar.addWidget(gap)
         for index, entries in enumerate((CATALOG_TABLES, *STANDING_DATA_VIEWS)):
             if index:
                 self._add_group_gap(bar)
@@ -123,8 +125,10 @@ class ViewCoordinator:
         # Every toolbar button now exists (docks + actions + these), so one pass styles them all.
         self.set_toolbar_button_style(self.saved_toolbar_button_style())
 
+    LOGO_GAP_PX = 6  # between the logo's box and the first table button
+
     @staticmethod
-    def _make_logo(bar) -> QToolButton:
+    def _make_logo(bar) -> QPushButton:
         """Branding only: a button for the themed icon (a pixmap would freeze on theme change),
         made inert so it never hovers or takes a click."""
         from importlib.resources import files
@@ -133,16 +137,20 @@ class ViewCoordinator:
         from amdockvs.ui.resources.icons.themed import themed_icon
 
         role = QPalette.ColorRole
-        # Palette colours, like the central backdrop's logo, so it sits in any theme.
-        logo = QToolButton(bar)
+        # The "A" follows the theme's text colour; the molecule keeps the SVG's teal.
+        # Not a QToolButton: inside a QToolBar one paints at the bar's icon size, not its own.
+        logo = QPushButton(bar)
         logo.setObjectName("toolbar_logo")
-        logo.setIcon(themed_icon(str(files("amdockvs.ui.resources.icons") / "logo.svg"),
-                                 role.WindowText, {"themeAccent": role.Highlight}))
-        logo.setToolButtonStyle(Qt.ToolButtonIconOnly)
-        logo.setAutoRaise(True)
+        logo.setIcon(themed_icon(str(files("amdockvs.ui.resources.icons") / "logo.svg"), role.WindowText))
         logo.setFocusPolicy(Qt.NoFocus)
         logo.setAttribute(Qt.WA_TransparentForMouseEvents)
         logo.setToolTip("AMDockVS")
+        # A framed box, like the old VS/HTPVS badge: reads as branding, not as a button.
+        logo.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        logo.setStyleSheet(
+            "QPushButton#toolbar_logo { border: 1px solid palette(mid); border-radius: 4px;"
+            " background: transparent; padding: 1px; }"
+        )
         return logo
 
     def sync_catalog_availability(self) -> None:
@@ -216,14 +224,16 @@ class ViewCoordinator:
     def set_toolbar_button_style(self, key: str) -> None:
         from PySide6.QtCore import QSize
 
-        _, style, icon_px, font_px, width = self.TOOLBAR_BUTTON_STYLES.get(
+        _, style, icon_px, font_px, width, logo_px = self.TOOLBAR_BUTTON_STYLES.get(
             key, self.TOOLBAR_BUTTON_STYLES["icon_text"]
         )
         font_css = f"font-size: {font_px}px;" if font_px else ""
         self.catalog_toolbar.setToolButtonStyle(style)
         self.catalog_toolbar.setIconSize(QSize(icon_px, icon_px))
         if self.logo is not None:  # a bar widget, not an action: it does not follow the bar
-            self.logo.setIconSize(QSize(icon_px, icon_px))
+            self.logo.setIconSize(QSize(logo_px, logo_px))
+            # Ends on the side toolbar's edge: the bar's own left margin comes off.
+            self.logo.setFixedWidth(width - self.catalog_toolbar.layout().contentsMargins().left())
         self.catalog_toolbar.setStyleSheet(f"QToolButton {{ {font_css} padding: 2px 4px; }}")
         if self.w.dock_manager is not None:
             try:

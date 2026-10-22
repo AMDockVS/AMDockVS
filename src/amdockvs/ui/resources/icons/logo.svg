@@ -36,7 +36,8 @@
      id="title1">AMDockVS</title>
   <style
      id="style1">
-    .mark { fill: #323550; }
+    svg { color: #323550; }
+    .mark { fill: currentColor; } /* the app swaps in its text colour; teal stays */
     .bond { fill: none; stroke: #23cda7; stroke-linecap: round; }
     .atom { fill: #23cda7; stroke: #23cda7; }
     .core { fill: #23cda7; }
