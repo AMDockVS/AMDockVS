@@ -45,6 +45,7 @@ from amdockvs.ui.common.drop_area import (
     USER_INPUT_SOURCE,
     TablePlaceholder,
     drop_hint,
+    expand_folders,
     side_toolbar,
     size_import_dialog,
     tool_action,
@@ -225,6 +226,9 @@ class ReceptorImportPanel(QWidget):
             self._placeholder.clicked.connect(self._on_add_files)
             toolbar = side_toolbar(self)
             self.add_files_action = tool_action(toolbar, "file-plus.svg", "Add files", "Add receptor files", self._on_add_files)
+            self.add_folder_action = tool_action(
+                toolbar, "folder-plus.svg", "Add folder", "Add every receptor file in a folder (and its subfolders)", self._on_add_folder
+            )
             self.add_text_action = tool_action(
                 toolbar, "text-input.svg", "Add sequence", "Add a sequence (FASTA or a bare sequence)", self._on_add_text
             )
@@ -325,6 +329,7 @@ class ReceptorImportPanel(QWidget):
             return
         can_edit = self._scan_complete or not self._file_paths
         self.add_files_action.setEnabled(can_edit)
+        self.add_folder_action.setEnabled(can_edit)
         self.add_text_action.setEnabled(can_edit)
         self.remove_files_action.setEnabled(can_edit and self.table.rowCount() > 0)
 
@@ -336,6 +341,11 @@ class ReceptorImportPanel(QWidget):
             QT_FILE_FILTER,
         )
         self._add_paths(paths)
+
+    def _on_add_folder(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Add Receptor Folder")
+        if folder:
+            self._add_paths([folder])
 
     def _on_add_text(self) -> None:
         """Typed FASTA (or a bare sequence): one protein without 3D per record."""
@@ -351,7 +361,7 @@ class ReceptorImportPanel(QWidget):
         self._add_paths([path])
 
     def _add_paths(self, paths) -> None:
-        resolved = [str(Path(p).expanduser().resolve()) for p in (paths or []) if p]
+        resolved = expand_folders(paths or [])
         if resolved:
             self.set_files(list(dict.fromkeys(self._file_paths + resolved)))
 

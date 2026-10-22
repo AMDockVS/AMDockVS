@@ -10,7 +10,20 @@ from PySide6.QtCore import QEvent, QObject, QSize, Qt, Signal
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import QLabel, QTableWidget, QToolBar, QVBoxLayout, QWidget
 
+from amdockvs.io.formats import QT_FILE_FILTER
 from amdockvs.ui.resources.icons import icon
+
+# The file dialog's own patterns ("*.sdf ...") decide what a folder contributes, so both routes agree.
+_IMPORT_SUFFIXES = frozenset(p[1:] for p in QT_FILE_FILTER.split("(", 1)[1].split(")", 1)[0].split())
+
+
+def expand_folders(paths) -> list[str]:
+    """Resolved file paths; a folder (picked or dropped) brings in every molecule file below it."""
+    files: list[str] = []
+    for path in (Path(p).expanduser() for p in paths if p):
+        found = sorted(f for f in path.rglob("*") if f.suffix.lower() in _IMPORT_SUFFIXES) if path.is_dir() else [path]
+        files.extend(str(f.resolve()) for f in found)
+    return files
 
 
 def side_toolbar(parent) -> QToolBar:

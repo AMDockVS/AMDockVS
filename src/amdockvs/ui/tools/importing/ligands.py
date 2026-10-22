@@ -33,15 +33,13 @@ from amdockvs.ui.common.drop_area import (
     USER_INPUT_SOURCE,
     TablePlaceholder,
     drop_hint,
+    expand_folders,
     side_toolbar,
     size_import_dialog,
     tool_action,
     write_user_input,
 )
 from amdockvs.io.formats import QT_FILE_FILTER as _LIGAND_FILTER
-
-# The dialog's own patterns ("*.sdf ...") decide what a folder contributes, so both routes agree.
-_LIGAND_SUFFIXES = frozenset(p[1:] for p in _LIGAND_FILTER.split("(", 1)[1].split(")", 1)[0].split())
 from amdockvs.ui.view_ids import LIGANDS_VIEW_ID, SHARDS_VIEW_ID
 from amdockvs.ui.tools.importing.common import land_on_view, nudge_monitor
 from amdockvs.ui.tools.importing.ligand_forms import (
@@ -200,15 +198,10 @@ class FileDropTable(QTableView):
     def add_files(self, paths) -> None:
         existing = {entry[0] for entry in self.model().entries}
         new: list[str] = []
-        for path in map(Path, paths):
-            path = path.expanduser()
-            # A folder (picked or dropped) brings in every ligand file below it.
-            files = sorted(p for p in path.rglob("*") if p.suffix.lower() in _LIGAND_SUFFIXES) if path.is_dir() else [path]
-            for file in files:
-                resolved = str(file.resolve())
-                if resolved not in existing:
-                    existing.add(resolved)
-                    new.append(resolved)
+        for resolved in expand_folders(paths):
+            if resolved not in existing:
+                existing.add(resolved)
+                new.append(resolved)
         if new:
             self.model().append(new)
             self.rows_changed.emit()
