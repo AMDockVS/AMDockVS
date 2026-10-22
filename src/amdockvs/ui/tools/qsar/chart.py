@@ -357,9 +357,9 @@ class Glowing2DDockWidget(MSDockWidget):
 
     LEGEND = (
         "<b>Per-atom contribution to the model's prediction.</b><br>"
-        "<span style='color:#2a9d2a'>● green</span> = atom raises the predicted value "
+        "<span style='color:#2a9d2a'>●</span> green = atom raises the predicted value "
         "(e.g. more potent) &nbsp;·&nbsp; "
-        "<span style='color:#c0392b'>● red</span> = atom lowers it &nbsp;·&nbsp; "
+        "<span style='color:#c0392b'>●</span> red = atom lowers it &nbsp;·&nbsp; "
         "stronger color = bigger effect. This is what the model learned, not measured truth."
     )
 

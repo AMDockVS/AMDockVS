@@ -25,7 +25,8 @@ from PySide6.QtWidgets import (
     QWidget, )
 
 from amdockvs.docking.engines.programs import (
-    GNINA_PROGRAM, QVINA_PROGRAM, VINA_PROGRAM, list_docking_programs, missing_programs)
+    GNINA_PROGRAM, QVINA_PROGRAM, VINA_PROGRAM, list_docking_programs, missing_programs, unavailable_programs)
+from amdockvs.docking.engines.autogrid import AUTOGRID_UNAVAILABLE
 from amdockvs.docking.methods import METHODS, get_method
 from amdockvs.integrations.registry import MANAGED_TOOLS
 from amdockvs.ui.common.async_query import run_async
@@ -136,6 +137,10 @@ class ProtocolEditorWidget:
         self.method_combo.setToolTip(
             "Zinc metalloprotein: AutoDock4Zn maps, run by Vina (ad4 scoring) or AutoDock-GPU, and only "
             "receptors with a zinc atom in the box. Standard leaves those receptors out.")
+        if AUTOGRID_UNAVAILABLE:  # AutoDock4Zn is autogrid4 maps, nothing else
+            zinc = self.method_combo.model().item(self.method_combo.findData("zinc"))
+            zinc.setEnabled(False)
+            zinc.setToolTip(AUTOGRID_UNAVAILABLE)
         self.receptor_type_combo = QComboBox(box)
         self.receptor_type_combo.addItem("Protein", MoleculeType.PROTEIN)
         self.receptor_type_combo.setToolTip(
@@ -649,7 +654,8 @@ class ProtocolEditorWidget:
         for index, spec in enumerate(list_docking_programs()):
             reason = self._missing_programs.get(spec.key, "")
             item = self.program_list.item(index)
-            item.setText(f"{spec.label} — not installed" if reason else spec.label)
+            why = "not available" if spec.key in unavailable_programs() else "not installed"
+            item.setText(f"{spec.label} — {why}" if reason else spec.label)
             item.setData(Qt.ItemDataRole.ForegroundRole, greyed if reason else None)
             form, notice, label = self._program_notices[spec.key]
             label.setText(reason)
@@ -690,7 +696,8 @@ class ProtocolEditorWidget:
             return
         method = get_method(self._method())
         model = combo.model()
-        allowed = [row for row in range(combo.count()) if method.allows(VINA_PROGRAM.key, combo.itemText(row))]
+        allowed = [row for row in range(combo.count()) if method.allows(VINA_PROGRAM.key, combo.itemText(row))
+                   and not (AUTOGRID_UNAVAILABLE and combo.itemText(row) == "ad4")]  # ad4 scores on autogrid4 maps
         for row in range(combo.count()):
             model.item(row).setEnabled(row in allowed)
         if allowed and combo.currentIndex() not in allowed:

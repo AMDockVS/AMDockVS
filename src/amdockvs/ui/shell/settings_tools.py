@@ -81,7 +81,7 @@ class _ToolRow(QFrame):
         size = _human_size(status.size_bytes)
         detail = f"{status.message} ({size} on disk)" if size else status.message
         self.status_label.setText(detail if status.installed else f"{detail} · {self.tool.footprint}")
-        self.install_button.setEnabled(not status.installed)
+        self.install_button.setEnabled(status.available and not status.installed)
         self.remove_button.setEnabled(status.location is not None)
 
 
@@ -147,7 +147,7 @@ class ExternalToolsPage(QWidget):
             row = self._rows.get(status.tool_id)
             if row is not None:
                 row.apply(status)
-        self.install_all_button.setEnabled(any(not status.installed for status in statuses))
+        self.install_all_button.setEnabled(any(status.available and not status.installed for status in statuses))
 
     def _apply_error(self, exc: Exception) -> None:
         for row in self._rows.values():

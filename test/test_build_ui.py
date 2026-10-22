@@ -366,7 +366,7 @@ def test_a_protonation_tool_installed_from_settings_becomes_the_method_in_use(bu
     page = SimpleNamespace(_rows={}, install_all_button=SimpleNamespace(setEnabled=lambda _on: None))
     announced = []
     tool_events.installed.connect(announced.append)
-    statuses = lambda: [SimpleNamespace(tool_id=t, installed=t in installed) for t in ("openbabel", "pkasso")]
+    statuses = lambda: [SimpleNamespace(tool_id=t, installed=t in installed, available=True) for t in ("openbabel", "pkasso")]
     ExternalToolsPage._apply(page, statuses())  # first look: nothing is "new"
     installed.add("openbabel")
     ExternalToolsPage._apply(page, statuses())

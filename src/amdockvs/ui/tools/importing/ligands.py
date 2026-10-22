@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 from ms_components.theme import color
 
+from amdockvs.io.downloads import discard_temporary
 from amdockvs.io.jobs import SHARD_SUGGEST_RECORDS
 from amdockvs.io.parsers.readers import count_import_records
 from amdockvs.models.molecules import MoleculeType
@@ -42,6 +43,7 @@ from amdockvs.ui.common.drop_area import (
 from amdockvs.io.formats import QT_FILE_FILTER as _LIGAND_FILTER
 from amdockvs.ui.view_ids import LIGANDS_VIEW_ID, SHARDS_VIEW_ID
 from amdockvs.ui.tools.importing.common import land_on_view, nudge_monitor
+from amdockvs.ui.tools.importing.download import download_into, file_label, file_tip
 from amdockvs.ui.tools.importing.ligand_forms import (
     ImportActivityForm,
     ImportFilterCriteriaForm,
@@ -96,9 +98,10 @@ class _FileRowsModel(QAbstractTableModel):
         if role == Qt.EditRole and column == self.TYPE:
             return kind
         if role == Qt.DisplayRole:
-            return (Path(path).stem, f"{_TYPE_LABELS[kind]} ▾", (Path(path).suffix[1:] or "?").upper(), path, None)[column]
+            name = file_label(path, Path(path).stem)
+            return (name, f"{_TYPE_LABELS[kind]} ▾", (Path(path).suffix[1:] or "?").upper(), path, None)[column]
         if role == Qt.ToolTipRole:
-            return _REFERENCE_TIP if column == self.REFERENCE else path
+            return _REFERENCE_TIP if column == self.REFERENCE else file_tip(path)
         return None
 
     def flags(self, index):
@@ -267,6 +270,7 @@ class LigandImportDialog(QDialog):
         top.addWidget(self.table, 1)
 
         self._source_labels: dict[str, str] = {}  # temp carrier path → real origin ("user input")
+        self._downloaded: set[str] = set()  # temporary ones not imported are deleted in done()
         toolbar = side_toolbar(self)
         self.add_action = tool_action(toolbar, "file-plus.svg", "Add files", "Add ligand files", self._on_add)
         self.add_folder_action = tool_action(
@@ -274,6 +278,9 @@ class LigandImportDialog(QDialog):
         )
         self.add_text_action = tool_action(
             toolbar, "text-input.svg", "Add SMILES", "Add SMILES (one per line, optional name)", self._on_add_text
+        )
+        self.download_action = tool_action(
+            toolbar, "cloud.svg", "Download", "Download from PubChem, ChEMBL, eMolecules, ZINC22 or a vendor link", self._on_download
         )
         toolbar.addSeparator()
         self.remove_action = tool_action(toolbar, "shredder.svg", "Remove", "Remove the selected files", self.table.remove_selected)
@@ -383,6 +390,14 @@ class LigandImportDialog(QDialog):
         self._source_labels[path] = USER_INPUT_SOURCE
         self.table.add_files([path])
 
+    def _on_download(self) -> None:
+        download_into(self, "ligand", self._add_downloaded, self.runtime)
+
+    def _add_downloaded(self, files: list[tuple[str, str]]) -> None:
+        self._downloaded.update(path for path, _label in files)
+        self._source_labels.update(files)
+        self.table.add_files([path for path, _label in files])
+
     def _lock_shard_choice_to_project(self) -> None:
         """A project that already has a screening library cannot get a second one."""
         try:
@@ -415,7 +430,7 @@ class LigandImportDialog(QDialog):
         self.shard_box.setStyleSheet(
             f"QFrame#shardBox {{ border: 1px solid {border}; border-radius: 4px; }}"
         )
-        self.shard_hint.setStyleSheet(f"color: {accent};" if checked else "color: palette(mid);")
+        self.shard_hint.setStyleSheet(f"color: {accent};" if checked else "color: palette(placeholder-text);")
 
     def _set_shard_hint(self, text: str) -> None:
         # Hidden while empty: a blank word-wrapped label still reserves a line inside the frame.
@@ -563,6 +578,12 @@ class LigandImportDialog(QDialog):
             self.accept()
         else:
             self._do_import()
+
+    def done(self, result: int) -> None:
+        # Temporary downloads that will not be imported: on cancel all, on accept the removed ones.
+        imported = {path for path, _kind in self.table.rows()} if result == QDialog.Accepted else set()
+        discard_temporary(self._downloaded - imported)
+        super().done(result)
 
     def _do_import(self) -> None:
         payload = self.workflow_submit()

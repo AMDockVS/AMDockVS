@@ -289,6 +289,13 @@ def list_docking_programs() -> tuple[DockingProgramSpec, ...]:
     return tuple(_PROGRAMS.values())
 
 
+def unavailable_programs() -> dict[str, str]:
+    """The programs this platform cannot run whatever is installed, each with why."""
+    from .autogrid import AUTOGRID_UNAVAILABLE
+
+    return {ADGPU_PROGRAM.key: f"AutoDock-GPU is not available: {AUTOGRID_UNAVAILABLE}"} if AUTOGRID_UNAVAILABLE else {}
+
+
 def missing_programs(runtime=None) -> dict[str, str]:
     """The programs that cannot run on this machine, each with what its worker would say.
 
@@ -300,8 +307,10 @@ def missing_programs(runtime=None) -> dict[str, str]:
     from .gnina import gnina_binary
     from .qvina import qvina_command
 
-    missing: dict[str, str] = {}
+    missing = unavailable_programs()
     for key, find in (("qvina", qvina_command), ("adgpu", adgpu_command), ("gnina", lambda _runtime: gnina_binary())):
+        if key in missing:
+            continue
         try:
             find(runtime)
         except RuntimeError as exc:

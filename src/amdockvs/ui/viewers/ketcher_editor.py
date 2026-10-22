@@ -126,7 +126,8 @@ def edit_molecule(parent, runtime, objects, *, done: Callable[[int], None]) -> N
     def opened(found) -> None:
         from ms_env import READY
 
-        (state, folder), molblock, dependents = found
+        (state, index), molblock, dependents = found
+        folder = Path(index).parent
         if state != READY:
             answer = QMessageBox.question(
                 parent, "Edit", "The molecule editor (Ketcher) is not installed.\n\nOpen Settings > External tools to install it?"

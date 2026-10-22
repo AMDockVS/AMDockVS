@@ -76,8 +76,19 @@ STATUS_FLAG_RO5_VIOLATION = 1 << 1
 DEFAULT_LOCAL_CPU_EXECUTOR = "compute"
 
 
+def vina_recipe(runtime=None):
+    """The official Vina binary, installed from Settings > External tools (see tools/vina.toml).
+    One beside this interpreter (a conda `vina`) counts as installed too."""
+    from amdockvs.core.paths import tools_home
+    from amdockvs.integrations.envs import tool_spec
+
+    beside = shutil.which("vina", path=str(Path(sys.executable).expanduser().resolve().parent))
+    return tool_spec("vina").recipe(str(tools_home(runtime)), extra_paths=[beside] if beside else [])
+
+
 def vina_command(runtime=None) -> str:
-    """The vina executable: the configured path, else a sibling of this interpreter, else PATH.
+    """The vina executable: the configured path, else a sibling of this interpreter, else the
+    managed install, else PATH.
 
     Resolved on demand rather than frozen at import, so pointing Settings at another build
     takes effect without restarting.
@@ -88,8 +99,9 @@ def vina_command(runtime=None) -> str:
     if configured:
         return str(Path(configured).expanduser())
     # which() adds .exe on Windows, so `vina.exe` beside the interpreter counts too.
+    managed = Path(vina_recipe(runtime).candidates[-1])
     return shutil.which("vina", path=str(Path(sys.executable).expanduser().resolve().parent)) \
-        or shutil.which("vina") or "vina"
+        or shutil.which(managed.name, path=str(managed.parent)) or shutil.which("vina") or "vina"
 
 
 def vina_backend(runtime=None) -> str:

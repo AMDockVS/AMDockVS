@@ -8,7 +8,7 @@ version = "0.6.1"
 prefix = "{tools_home}/protonation/{name}/{version}"
 
 [locate]
-paths = ["{prefix}/bin/python"]
+paths = ["{python}"]
 check = ["{exe}", "-c", "import pkasso"]
 
 [env]

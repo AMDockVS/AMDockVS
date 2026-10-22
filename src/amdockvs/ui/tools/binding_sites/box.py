@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget, QTabWidget,
 )
+from ms_components.theme import contrast_ratio
 
 from amdockvs.core.configuration import app_config
 from amdockvs.models import BindingSite, MoleculeRecord
@@ -434,7 +435,8 @@ class GridBoxSettingDockWidget(QWidget):
     def _apply_name_color(item: QTreeWidgetItem, color: QColor) -> None:
         item.setData(1, SITE_COLOR_ROLE, color.name())
         item.setBackground(1, QBrush(color))
-        item.setForeground(1, QBrush(QColor("#202124")))
+        ink = max((QColor("#202124"), QColor("#ffffff")), key=lambda c: contrast_ratio(c, color))
+        item.setForeground(1, QBrush(ink))  # whichever reads better on the site color
 
     def active_box_geometry(self) -> tuple[tuple[float, float, float], tuple[float, float, float]] | None:
         """(center, size) of the receptor's active binding-site box, or None if unset — used to

@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="870 50 660 780">
+    <defs>
+        <pattern id="hx-f-site-protein" width="9" height="9" patternUnits="userSpaceOnUse">
+            <path d="M4.5 1.5v6M1.5 4.5h6" style="stroke:currentColor;stroke-width:1.6"/>
+        </pattern>
+        <pattern id="hx-b-site-protein" width="9" height="9" patternUnits="userSpaceOnUse">
+            <path d="M4.5 2.5v4M2.5 4.5h4" style="stroke:currentColor;stroke-width:1.2"/>
+        </pattern>
+        <mask id="hx-mf-site-protein" maskUnits="userSpaceOnUse" x="0" y="0" width="1600" height="900">
+            <g style="fill:none;stroke:#fff;stroke-linecap:round;stroke-linejoin:round">
+                <path d="M1000 700C1060 600 1170 430 1240 150M1060 740C1130 640 1230 470 1300 250M1130 760C1200 660 1290 520 1340 330M950 610C1000 520 1090 390 1150 210"
+                      style="stroke-width:40;stroke-linecap:butt"/>
+                <path d="M1240 150C1260 90 1200 60 1180 110C1160 160 1220 180 1190 230M1150 210C1120 160 1060 170 1070 220C1080 270 1030 300 1030 330M1370 520C1430 500 1450 560 1410 590C1380 620 1420 650 1460 640M1280 680C1300 740 1250 780 1210 760C1180 740 1150 790 1130 760M1000 700C960 740 900 720 910 680C920 640 880 620 950 610M1030 330C980 300 960 360 1000 420M1300 250C1350 230 1390 270 1360 300C1340 320 1380 350 1340 330M1060 740C1040 790 1090 810 1120 790"
+                      style="stroke-width:10"/>
+            </g>
+        </mask>
+        <mask id="hx-mb-site-protein" maskUnits="userSpaceOnUse" x="0" y="0" width="1600" height="900">
+            <g style="fill:none;stroke-linecap:butt">
+                <path d="M1030 330C1120 420 1230 520 1330 610M1000 420C1090 500 1190 590 1280 680M1080 260C1170 340 1270 430 1370 520"
+                      style="stroke:#fff;stroke-width:34"/>
+                <path d="M1000 700C1060 600 1170 430 1240 150M1060 740C1130 640 1230 470 1300 250M1130 760C1200 660 1290 520 1340 330M950 610C1000 520 1090 390 1150 210"
+                      style="stroke:#000;stroke-width:52"/>
+            </g>
+        </mask>
+    </defs>
+    <rect width="1600" height="900" fill="url(#hx-b-site-protein)" mask="url(#hx-mb-site-protein)"/>
+    <rect width="1600" height="900" fill="url(#hx-f-site-protein)" mask="url(#hx-mf-site-protein)"/>
+    <path d="M1150 200L1162 240L1152 280L1166 320L1156 360L1172 395L1150 412M1172 395L1192 414"
+          style="fill:none;stroke:#9184d9;stroke-width:6;stroke-linecap:round;stroke-linejoin:round"/>
+    <circle cx="1150" cy="200" r="6" style="fill:#d2cefd"/>
+    <path d="M975 180h10M980 175v10M1035 250h10M1040 245v10M1065 240h10M1070 235v10M1005 300h10M1010 295v10M935 380h10M940 375v10M1325 190h10M1330 185v10M1435 260h10M1440 255v10M1495 300h10M1500 295v10M1365 290h10M1370 285v10M1395 430h10M1400 425v10M1435 455h10M1440 450v10M1485 570h10M1490 565v10M1495 630h10M1500 625v10M1455 660h10M1460 655v10M985 640h10M990 635v10M975 670h10M980 665v10M1115 720h10M1120 715v10M1225 790h10M1230 785v10M1345 780h10M1350 775v10M1255 640h10M1260 635v10M1295 560h10M1300 555v10M1085 480h10M1090 475v10M1195 160h10M1200 155v10"
+          style="fill:none;stroke:#b5abfc;stroke-width:2"/>
+</svg>

@@ -1,0 +1,24 @@
+# Installed and looked up by ms_env (format documented there).
+[tool]
+name = "vina"
+label = "AutoDock Vina"
+purpose = "The Vina program, for where its Python package has no build (Windows, macOS, ARM Linux)."
+footprint = "~5 MB (one official release binary)"
+version = "1.2.7"
+prefix = "{tools_home}/docking/{name}/{version}"
+
+[locate]
+paths = ["{prefix}/vina"]
+commands = ["vina"]
+check = ["{exe}", "--version"]
+
+# The official release binaries; the checksums pin them.
+[[install]]
+name = "download AutoDock Vina 1.2.7"
+to = "{prefix}/vina"
+timeout = 300
+download.linux-64 = { url = "https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.7/vina_1.2.7_linux_x86_64", sha256 = "f31f774f723bba7bbe6e9d1c47577020eea9a8da16424284c043d22593570644" }
+download.linux-aarch64 = { url = "https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.7/vina_1.2.7_linux_aarch64", sha256 = "d30c18a7d5f6f8ea9146e1cbc0aa7ade0bbb105b54ece08b4e5a7fa53edb6c62" }
+download.osx-64 = { url = "https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.7/vina_1.2.7_mac_x86_64", sha256 = "9f44ccbb163223613283a75d0be53235d9e63f4da08292cb7196144f9838b7f9" }
+download.osx-arm64 = { url = "https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.7/vina_1.2.7_mac_aarch64", sha256 = "823c2bbacf26d72183861322345f0a89736aca66c8e81054c66f93af5ad623f1" }
+download.win-64 = { url = "https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.7/vina_1.2.7_win.exe", sha256 = "e0c4b2715e0c1a74f6e92d0f3be0328ac97542eafbc111e6b1efad897a73cce5" }

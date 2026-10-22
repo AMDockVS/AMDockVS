@@ -161,6 +161,16 @@ class LoadFileParams(BaseModel):
     extra_data_patch_by_file: dict[str, dict[str, Any]] = Field(default_factory=dict)
     binding_site_specs_by_file: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
     source_labels: dict[str, str] = Field(default_factory=dict)
+    # Downloads the user did not keep: deleted once the job has completed (kept for a resume).
+    temporary_files: list[Path] = Field(default_factory=list)
+
+
+def drop_temporary_files(params: dict, config: dict) -> None:
+    from amdockvs.io.downloads import delete_files, temporary_root
+
+    files, context = dict(params).get("temporary_files"), config.get("project_context")
+    if files and context is not None and config.get("terminal_status") == "completed":
+        delete_files(files, temporary_root(context.path))
 
 
 class LoadMultithreadedSDFParams(BaseModel):
@@ -273,6 +283,7 @@ SHARD_SUGGEST_RECORDS = int(os.environ.get("AMDOCK_SHARD_SUGGEST_RECORDS") or DE
 @job(
     task=materialize_import_rows,
     name="amdock_load_molecules_file_job",
+    finalize=drop_temporary_files,
     params_model=LoadFileParams,
     executor="compute",
     supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
@@ -288,6 +299,7 @@ def load_molecules_file_job(params: dict, config: dict | None = None) -> Iterato
 @job(
     task=materialize_import_rows,
     name="amdock_load_ligands_file_job",
+    finalize=drop_temporary_files,
     params_model=LoadFileParams,
     executor="compute",
     supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
@@ -310,6 +322,7 @@ def load_ligands_file_job(params: dict, config: dict | None = None) -> Iterator[
 @job(
     task=materialize_import_rows,
     name="amdock_load_receptors_file_job",
+    finalize=drop_temporary_files,
     params_model=LoadFileParams,
     executor="compute",
     supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
@@ -372,6 +385,7 @@ class ShardLigandsParams(LoadFileParams):
 @job(
     task=filter_ligand_span_task,
     name="amdock_shard_ligands_job",
+    finalize=drop_temporary_files,
     params_model=ShardLigandsParams,
     executor="compute",
     supported_executors=AMDOCKVS_LOCAL_EXECUTORS,

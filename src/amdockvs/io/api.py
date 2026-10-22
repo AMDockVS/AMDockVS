@@ -70,6 +70,25 @@ class LoaderAPI:
             **kwargs,
         )
 
+    def _temporary(self, files, temporary_files) -> dict[str, list[str]]:
+        """The inputs this job deletes once completed: ``temporary_files`` (all temporary inputs
+        when None) — only ever files under the project's temporary downloads. Absent when none."""
+        from amdockvs.io.downloads import is_temporary, temporary_in
+
+        candidates = [path for path in (files if temporary_files is None else temporary_files) if is_temporary(path)]
+        found = temporary_in(candidates, self.runtime.get_project_paths()["project_root"]) if candidates else []
+        return {"temporary_files": found} if found else {}
+
+    def download(self, source, ids: Iterable[str], *, keep: bool = True, progress=None, cancel=None):
+        """Fetch ``ids`` from a download ``source`` (a key of ``amdockvs.io.downloads.SOURCES``).
+        ``keep=False`` puts them in the project's temporary downloads: the import that reads them
+        deletes them once it has completed. Returns an ``Outcome`` (files, failures)."""
+        from amdockvs.io import downloads
+
+        source = downloads.SOURCES[source] if isinstance(source, str) else source
+        folder = None if keep else downloads.temporary_folder(self.runtime.get_project_paths()["project_root"], source)
+        return downloads.download(source, list(ids), folder=folder, progress=progress, cancel=cancel)
+
     def load_molecules(
         self,
         files: Iterable[PathLike],
@@ -82,6 +101,7 @@ class LoaderAPI:
         primary_context: str = "general",
         molecule_kind: str = "unknown",
         prefilter: Mapping[str, Any] | None = None,
+        temporary_files: Iterable[PathLike] | None = None,
     ) -> list[str]:
         normalized_files = normalize_files(files, label="molecule files")
         if not normalized_files:
@@ -90,6 +110,7 @@ class LoaderAPI:
         # One job streams all files (like receptors): N files no longer means N jobs.
         params = {
             "file_paths": [str(file_path) for file_path in normalized_files],
+            **self._temporary(normalized_files, temporary_files),
             "batch_size": max(1, int(batch_size)),
             "storage_resource": RESOURCE_IMPORT_STATS,
             "primary_role": str(primary_role or ""),
@@ -122,6 +143,7 @@ class LoaderAPI:
         molecule_kind: str = "small_molecule",
         prefilter: Mapping[str, Any] | None = None,
         source_labels: Mapping[str, str] | None = None,
+        temporary_files: Iterable[PathLike] | None = None,
     ) -> list[str]:
         normalized_files = normalize_files(files, label="ligand files")
         if not normalized_files:
@@ -134,6 +156,7 @@ class LoaderAPI:
         # One job streams all files (like receptors): N files no longer means N jobs.
         params = {
             "file_paths": [str(file_path) for file_path in normalized_files],
+            **self._temporary(normalized_files, temporary_files),
             "batch_size": max(1, int(batch_size)),
             "storage_resource": RESOURCE_IMPORT_STATS,
             "primary_role": "ligand",
@@ -164,6 +187,7 @@ class LoaderAPI:
         depends_on: list[str] | None = None,
         molecule_kind: str = "small_molecule",
         prefilter: Mapping[str, Any] | None = None,
+        temporary_files: Iterable[PathLike] | None = None,
     ) -> list[str]:
         """The `htpvs` import: split the library into shards, materialize nothing.
 
@@ -183,6 +207,7 @@ class LoaderAPI:
         records = max(1, min(records, MAX_SHARD_RECORDS))
         params: dict[str, Any] = {
             "file_paths": [str(file_path) for file_path in normalized_files],
+            **self._temporary(normalized_files, temporary_files),
             "batch_size": records,
             "molecule_kind": str(molecule_kind or "small_molecule"),
         }
@@ -258,6 +283,7 @@ class LoaderAPI:
         extra_data_patch_by_file: Mapping[str, Mapping[str, Any]] | None = None,
         binding_site_specs_by_file: Mapping[str, list[Mapping[str, Any]]] | None = None,
         source_labels: Mapping[str, str] | None = None,
+        temporary_files: Iterable[PathLike] | None = None,
     ) -> list[str]:
         normalized_files = normalize_files(files, label="receptor files")
         if not normalized_files:
@@ -303,6 +329,7 @@ class LoaderAPI:
         }
         params = {
             "file_paths": [str(file_path) for file_path in normalized_files],
+            **self._temporary(normalized_files, temporary_files),
             "batch_size": max(1, int(batch_size)),
             "storage_resource": RESOURCE_IMPORT_STATS,
             "primary_role": "receptor",

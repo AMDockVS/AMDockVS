@@ -97,8 +97,9 @@ def _ligand_table_config(*, runtime) -> TableConfig:
             #               on_click=lambda objs: _create_ligand_set(runtime, objs)),
         ],
         empty_message="No ligands loaded in the active project",
+        empty_backdrop=icon("caffeine.svg"),
         empty_action=ToolbarAction(
-            label="Import Ligands…", icon=icon("file-plus.svg"),
+            label="Import Ligands…",
             on_click=lambda objs: import_ligands_from_file(QApplication.activeWindow()),
         ),
     )

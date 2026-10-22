@@ -1,7 +1,8 @@
+from importlib.resources import files
 from typing import Callable
 
-from PySide6.QtCore import QRect, Qt, Signal
-from PySide6.QtGui import QPainter, QPalette
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
     QLabel,
     QProxyStyle,
@@ -14,29 +15,9 @@ from PySide6.QtWidgets import (
     QWidget, QSplitter,
 )
 
+from ms_components.backdrop import Backdrop
 
-class _WelcomePage(QWidget):
-    """The no-project page: its content over a faint, theme-tinted logo."""
-
-    _LOGO_OPACITY = 0.06
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        from importlib.resources import files
-        from amdockvs.ui.resources.icons.themed import themed_icon
-
-        role = QPalette.ColorRole
-        # Both logo colors from the palette (not the brand teal), so it sits in any theme.
-        self._logo = themed_icon(str(files("amdockvs.ui.resources.icons") / "logo.svg"),
-                                 role.WindowText, {"themeAccent": role.Highlight})
-
-    def paintEvent(self, event):
-        side = int(min(self.width(), self.height()) * 0.8)
-        painter = QPainter(self)
-        painter.setOpacity(self._LOGO_OPACITY)
-        self._logo.paint(painter, QRect((self.width() - side) // 2, (self.height() - side) // 2, side, side))
-        painter.end()
-        super().paintEvent(event)
+from amdockvs.ui.resources.icons.themed import themed_icon
 
 
 class _PreviewTabStyle(QProxyStyle):
@@ -100,7 +81,9 @@ class MainContentWidget(QStackedWidget):
         self.setCurrentWidget(self.welcome)
 
     def _build_welcome(self) -> QWidget:
-        page = _WelcomePage(self)
+        # Its content over a faint logo whose "A" follows the theme.
+        logo = themed_icon(str(files("amdockvs.ui.resources.icons") / "logo.svg"), QPalette.ColorRole.WindowText)
+        page = Backdrop(logo, self)
         layout = QVBoxLayout(page)
         layout.setAlignment(Qt.AlignCenter)
         layout.setSpacing(12)

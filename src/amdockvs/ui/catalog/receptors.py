@@ -66,8 +66,9 @@ def _receptor_table_config(runtime) -> TableConfig:
             #               on_click=lambda objs: _create_receptor_set(runtime, objs)),
         ],
         empty_message="No receptors loaded in the active project",
+        empty_backdrop=icon("protein.svg"),
         empty_action=ToolbarAction(
-            label="Import Receptors…", icon=icon("file-plus.svg"),
+            label="Import Receptors…",
             on_click=lambda objs: import_receptors_from_file(QApplication.activeWindow()),
         ),
     )
