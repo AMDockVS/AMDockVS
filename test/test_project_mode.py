@@ -100,9 +100,8 @@ def test_the_import_dialog_routes_the_library_to_the_chosen_store(runtime, tmp_p
 
     dialog = LigandImportDialog(runtime=runtime, defer=True)
     dialog.table.add_files([str(library), str(receptor)])
-    dialog.table.cellWidget(1, 1).setCurrentIndex(  # second row is the receptor
-        dialog.table.cellWidget(1, 1).findData(MoleculeType.PROTEIN)
-    )
+    model = dialog.table.model()
+    model.setData(model.index(1, 1), MoleculeType.PROTEIN)  # second row is the receptor
     dialog.shard_checkbox.setChecked(True)
 
     calls: list[tuple[str, str]] = []
@@ -173,6 +172,7 @@ def test_activities_only_come_with_the_reference_mark(runtime, tmp_path):
     a marked file is always rows (reference) carrying the activities while the rest of the
     same import still shards without them."""
     pytest.importorskip("PySide6")
+    from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QApplication
 
     from amdockvs.ui.tools.importing import LigandImportDialog
@@ -187,7 +187,8 @@ def test_activities_only_come_with_the_reference_mark(runtime, tmp_path):
     index = dialog.tabs.indexOf(dialog.activity_form)
     assert not dialog.tabs.isTabEnabled(index)
 
-    dialog.table.cellWidget(1, 4).setChecked(True)  # actives.csv: As Reference
+    model = dialog.table.model()
+    model.setData(model.index(1, 4), Qt.Checked, Qt.CheckStateRole)  # actives.csv: As Reference
     assert dialog.tabs.isTabEnabled(index) and dialog.tabs.currentWidget() is dialog.activity_form
     chips = dialog.activity_form._chips
     assert chips and not any(chip.isChecked() for chip in chips.values())

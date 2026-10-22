@@ -25,10 +25,19 @@ def side_toolbar(parent) -> QToolBar:
     return bar
 
 
+def size_import_dialog(dialog: QWidget) -> None:
+    """Both importers open at the same size, capped at 90 % of the screen so a laptop still fits;
+    the layout's own minimum still wins below that."""
+    screen = dialog.screen().availableGeometry()
+    dialog.resize(min(1140, int(screen.width() * 0.9)), min(720, int(screen.height() * 0.9)))
+
+
 def tool_action(bar: QToolBar, icon_name: str, text: str, tooltip: str, slot) -> QAction:
     action = bar.addAction(icon(icon_name), text)
     action.setToolTip(tooltip)
     action.triggered.connect(slot)
+    # Never fold actions behind the overflow chevron: the dialog grows to fit them instead.
+    bar.setMinimumHeight(bar.sizeHint().height())
     return action
 
 
