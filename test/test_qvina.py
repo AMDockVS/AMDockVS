@@ -97,7 +97,7 @@ def test_qvina_docks_1iep(tmp_path):
     )
     assert 1 <= len(rows) <= 3
     best = rows[0]
-    assert (best["engine"], best["score_type"]) == ("qvina", "vina_score")
+    assert best["score_type"] == "vina_score"  # the engine is stored once per run, in docking_runs
     assert best["score"] < -8.0, best["error"]  # imatinib in ABL: about -11 kcal/mol
     assert (tmp_path / "out" / "1__2.dock.sdf").stat().st_size > 0  # Meeko read the poses back
 
