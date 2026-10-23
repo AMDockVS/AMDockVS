@@ -22,6 +22,7 @@ from amdockvs.core.constants import (
     AMDOCKVS_LOCAL_EXECUTORS,
     AMDOCKVS_PROCESS_EXECUTORS,
     RESOURCE_IMPORT_STATS,
+    TABLE_MOLECULES,
 )
 from ms_flow.core.data.shard import MAX_RECORDS as MAX_SHARD_RECORDS
 
@@ -44,6 +45,7 @@ from amdockvs.models import (
     MoleculeRepresentation,
     MoleculeSourceProperty,
 )
+from amdockvs.models.molecules import drop_deferred_indexes, ensure_molecule_indexes
 
 
 IMPORT_GRAPH_OUTPUT = graph_sink(
@@ -173,6 +175,27 @@ def drop_temporary_files(params: dict, config: dict) -> None:
         delete_files(files, temporary_root(context.path))
 
 
+def finish_row_import(params: dict, config: dict) -> None:
+    """Whatever the job ended as: the indexes a bulk import dropped come back here."""
+    try:
+        drop_temporary_files(params, config)
+    finally:
+        if config.get("project_db") is not None:
+            ensure_molecule_indexes(config["project_db"].engine)
+
+
+def defer_molecule_indexes(file_paths, config: Mapping[str, Any] | None) -> None:
+    """Drop the deferred indexes when the import at least doubles `molecules`: building them
+    once at the end beats keeping them live. A small import into a big table keeps them."""
+    db = (config or {}).get("project_db")
+    if db is None:
+        return
+    with db.engine.connect() as conn:
+        rows = conn.exec_driver_sql(f"SELECT coalesce(max(id), 0) FROM {TABLE_MOLECULES}").scalar()
+    if sum(count_import_records(path, approx=True) for path in file_paths) >= rows:
+        drop_deferred_indexes(db.engine)
+
+
 class LoadMultithreadedSDFParams(BaseModel):
     file_paths: list[Path] = Field(min_length=1)
     storage_dir: Path | None = None
@@ -225,6 +248,7 @@ class FileInput(InputSource):
             file_paths.append(parsed.file_path)
         if not file_paths:
             raise ValueError("Missing required parameter: file_path or file_paths")
+        defer_molecule_indexes(file_paths, config)
         patch_by_file = {
             str(Path(path).expanduser().resolve()): dict(value or {})
             for path, value in dict(parsed.extra_data_patch_by_file or {}).items()
@@ -283,7 +307,7 @@ SHARD_SUGGEST_RECORDS = int(os.environ.get("AMDOCK_SHARD_SUGGEST_RECORDS") or DE
 @job(
     task=materialize_import_rows,
     name="amdock_load_molecules_file_job",
-    finalize=drop_temporary_files,
+    finalize=finish_row_import,
     params_model=LoadFileParams,
     executor="compute",
     supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
@@ -299,7 +323,7 @@ def load_molecules_file_job(params: dict, config: dict | None = None) -> Iterato
 @job(
     task=materialize_import_rows,
     name="amdock_load_ligands_file_job",
-    finalize=drop_temporary_files,
+    finalize=finish_row_import,
     params_model=LoadFileParams,
     executor="compute",
     supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
@@ -322,7 +346,7 @@ def load_ligands_file_job(params: dict, config: dict | None = None) -> Iterator[
 @job(
     task=materialize_import_rows,
     name="amdock_load_receptors_file_job",
-    finalize=drop_temporary_files,
+    finalize=finish_row_import,
     params_model=LoadFileParams,
     executor="compute",
     supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
@@ -345,6 +369,7 @@ def load_receptors_file_job(params: dict, config: dict | None = None) -> Iterato
 @job(
     task=materialize_multithreaded_sdf_rows,
     name="amdock_load_ligands_multithreaded_sdf_job",
+    finalize=finish_row_import,
     params_model=LoadMultithreadedSDFParams,
     executor="compute",
     supported_executors=AMDOCKVS_PROCESS_EXECUTORS,
@@ -358,6 +383,7 @@ def load_ligands_multithreaded_sdf_job(params: dict, config: dict | None = None)
     parsed = LoadMultithreadedSDFParams.model_validate(dict(params or {}))
     params_map = parsed.model_dump(mode="python")
     storage_dir = _resolve_storage_dir(kind="ligand", params=params_map, config=config or {})
+    defer_molecule_indexes(parsed.file_paths, config)
     for file_path in parsed.file_paths:
         resolved_file = Path(file_path).expanduser().resolve()
         if resolved_file.suffix.lower() != ".sdf":

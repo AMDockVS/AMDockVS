@@ -25,6 +25,7 @@ from amdockvs.core.configuration import (
     create_contact_map_configuration,
 )
 import amdockvs.models  # noqa: F401  # Ensure SQLModel metadata is registered before project DB setup.
+from amdockvs.models.molecules import ensure_molecule_indexes
 from amdockvs.core.jobs import STATUS as JOB_STATUS
 from amdockvs.core.jobs import configs as job_configs
 from amdockvs.core.paths import set_default_project_root
@@ -325,6 +326,9 @@ class AMDockVSRuntime(AppRuntime):
                 "molecules into a new project."
             )
         self._rekey_interactions()
+        # ponytail: a no-op unless an import died before building them; then it blocks the open for
+        # as long as the build takes (~seconds per million rows). Run it off-thread if that bites.
+        ensure_molecule_indexes(self.workspace.project_db.engine)
         # Built once per project: a feed asks the runtime where the ligands are, it does not ask
         # the mode — there is no mode to ask.
         self._ligand_store = DbStore(self.workspace.project_db)

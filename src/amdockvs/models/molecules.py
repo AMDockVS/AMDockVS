@@ -67,8 +67,8 @@ class MoleculeRecord(TimestampedRecord, table=True):
     """
 
     __tablename__ = TABLE_MOLECULES
+    # The rest of its indexes are DEFERRED_INDEXES: built after a bulk import, not during it.
     __table_args__ = (
-        Index("idx_mol_active", "id", sqlite_where=text("excluded=0 AND in_set=0")),
         Index("idx_mol_excluded", "id", sqlite_where=text("excluded=1")),
         Index("idx_mol_in_set", "id", sqlite_where=text("in_set=1")),
     )
@@ -76,7 +76,7 @@ class MoleculeRecord(TimestampedRecord, table=True):
     id: int | None = Field(default=None, primary_key=True)
 
     # Identity (immutable after ingestion)
-    name: str = Field(default="", index=True)
+    name: str = Field(default="")
     molecule_type: str = Field(default=MoleculeType.UNKNOWN)
     source: str = Field(default="")  # absolute path — lives outside project
     source_index: int = Field(default=0)
@@ -93,15 +93,15 @@ class MoleculeRecord(TimestampedRecord, table=True):
     # Payloads (ms_flow volumes): the bytes live in volumes/, the format is the payload's kind.
     # stored → the input as imported, only when it differs from the current form (D11)
     # current → the working structure (selected model/conformer, protonated, 3D...)
-    stored_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
-    current_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
+    stored_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id")
+    current_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id")
     current_model_index: int | None = Field(default=None)
     # properties → the import batch's SDF tags (parquet, shared by the batch), read by source_index
-    properties_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
+    properties_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id")
 
     # Identity of the current structure (small molecules): finds duplicates and activities.
     # Canonical isomeric SMILES without explicit Hs — charged atoms keep theirs in brackets.
-    inchikey: str | None = Field(default=None, index=True)
+    inchikey: str | None = Field(default=None)
     canonical_smiles: str | None = Field(default=None)
 
     # Basic chemical properties
@@ -131,10 +131,10 @@ class MoleculeRecord(TimestampedRecord, table=True):
     has_activity: bool = Field(default=False)  # mirror of ligand_activities rows
 
     # Global status
-    excluded: bool = Field(default=False, index=True)
+    excluded: bool = Field(default=False)
     exclusion_reason: str = Field(default="")
     in_set: bool = Field(default=False)
-    usage_class: str = Field(default=MoleculeUsageClass.GENERAL, index=True)
+    usage_class: str = Field(default=MoleculeUsageClass.GENERAL)
 
     primary_context: str = Field(default="")
     extra_data: dict = Field(default_factory=dict, sa_type=JSON)
@@ -150,6 +150,40 @@ class MoleculeRecord(TimestampedRecord, table=True):
         return _coerce_string_list(value)
 
     build_row = staticmethod(molecule_row)
+
+
+# Indexes of `molecules` that a bulk import builds once at its end: kept live, a random key
+# (a name) turns its appends into random page writes, and the rate falls with the table size.
+# Created by `ensure_molecule_indexes` when an import ends and when a project opens, so a
+# project whose import died gets them back. A usage_class index is not partial: SQLite only
+# uses a partial index whose WHERE terms the query repeats, and `usage_class = 'reference'`
+# does not repeat `usage_class != 'general'`.
+DEFERRED_INDEXES = {
+    "ix_molecules_name": f"{TABLE_MOLECULES} (name)",
+    "ix_molecules_usage_class": f"{TABLE_MOLECULES} (usage_class)",
+    "idx_mol_active": f"{TABLE_MOLECULES} (id) WHERE excluded=0 AND in_set=0",
+    # PayloadStore.release/delete look a payload's referrers up by these.
+    "ix_molecules_stored_payload_id": f"{TABLE_MOLECULES} (stored_payload_id)",
+    "ix_molecules_current_payload_id": f"{TABLE_MOLECULES} (current_payload_id)",
+    "ix_molecules_properties_payload_id": f"{TABLE_MOLECULES} (properties_payload_id)",
+}
+# No query uses them: no lookup by InChIKey, and `excluded` is covered by the partial indexes.
+RETIRED_INDEXES = ("ix_molecules_inchikey", "ix_molecules_excluded")
+
+
+def ensure_molecule_indexes(engine) -> None:
+    """Build the deferred indexes that are missing and drop the retired ones (older projects)."""
+    with engine.begin() as conn:
+        for name in RETIRED_INDEXES:
+            conn.exec_driver_sql(f"DROP INDEX IF EXISTS {name}")
+        for name, target in DEFERRED_INDEXES.items():
+            conn.exec_driver_sql(f"CREATE INDEX IF NOT EXISTS {name} ON {target}")
+
+
+def drop_deferred_indexes(engine) -> None:
+    with engine.begin() as conn:
+        for name in DEFERRED_INDEXES:
+            conn.exec_driver_sql(f"DROP INDEX IF EXISTS {name}")
 
 
 # ---------------------------------------------------------------------------
