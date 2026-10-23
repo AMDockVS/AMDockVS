@@ -63,11 +63,18 @@ def per_million(samples: list) -> list[float]:
     return out
 
 
-def indexes(db: Path) -> list[str]:
-    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+def final_state(db: Path) -> tuple[int, list[str]]:
+    """(rows, molecules index names); a DuckDB project.db is read with duckdb."""
+    if db.open("rb").read(16).startswith(b"SQLite format 3"):
+        con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        index_sql = "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='molecules' ORDER BY name"
+    else:
+        import duckdb
+        con = duckdb.connect(str(db), read_only=True)
+        index_sql = "SELECT index_name FROM duckdb_indexes() WHERE table_name='molecules' ORDER BY 1"
     try:
-        return [r[0] for r in con.execute(
-            "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='molecules' ORDER BY name")]
+        rows = con.execute("SELECT count(*) FROM molecules").fetchone()[0]
+        return rows, [r[0] for r in con.execute(index_sql).fetchall()]
     finally:
         con.close()
 
@@ -109,9 +116,7 @@ def main() -> int:
         thread.join()
         parent = psutil.Process().cpu_times()
         rt.close_project()
-    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-    rows = con.execute("SELECT count(*) FROM molecules").fetchone()[0]
-    con.close()
+    rows, molecule_indexes = final_state(db)
     last_growth = next((t for (t, n), (_, prev) in zip(reversed(samples), reversed(samples[:-1])) if n > prev), wall)
     head = subprocess.run(["git", "-C", str(Path(amdockvs.__file__).parents[2]), "rev-parse", "--short", "HEAD"],
                           capture_output=True, text=True).stdout.strip()
@@ -123,7 +128,7 @@ def main() -> int:
         "children_cpu_s": round(sum(children_cpu.values()), 1),
         "project_db_mb": round(db.stat().st_size / 1e6, 1),
         "volumes_mb": tree_mb(project / "volumes") if (project / "volumes").exists() else 0,
-        "molecule_indexes": indexes(db),
+        "molecule_indexes": molecule_indexes,
     }
     print(json.dumps(result), flush=True)
     out = REPO / "test" / "benchmarks" / "results" / f"import_scale_{date.today()}.jsonl"
