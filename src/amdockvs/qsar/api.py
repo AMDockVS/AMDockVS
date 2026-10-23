@@ -26,7 +26,7 @@ from amdockvs.models import (
 )
 from amdockvs.models.descriptors import FingerprintType
 from amdockvs.qsar.activities import ActivitiesMixin
-from amdockvs.qsar.jobs import DescriptorJobParams, calculate_molecule_descriptors_job
+from amdockvs.qsar.jobs import DescriptorJobParams, calculate_molecule_alerts_job, calculate_molecule_descriptors_job
 from amdockvs.qsar.modeling import (
     DEFAULT_QSAR_FEATURES,
     FittedModel,
@@ -179,11 +179,13 @@ class QSARAPI(ActivitiesMixin):
         compute_fingerprints: bool = False,
         fp_radius: int = 2,
         fp_nbits: int = 2048,
+        alerts: bool = False,
     ) -> str:
         """Submit the descriptor job. only_missing=True skips ligands that already have
         descriptors computed (MoleculeRecord.mw populated). With compute_fingerprints=True it
         also stores a Morgan fingerprint per ligand, and only_missing then means "lacks that
-        fingerprint" so FPs can be added to already-described ligands."""
+        fingerprint" so FPs can be added to already-described ligands. With alerts=True it is
+        the alerts job instead: PAINS and identity keys, which a library import leaves out."""
         self.runtime._require_active_project()
         molecule_set_ref = (
             None
@@ -204,9 +206,10 @@ class QSARAPI(ActivitiesMixin):
             compute_fingerprints=bool(compute_fingerprints),
             fp_radius=int(fp_radius),
             fp_nbits=int(fp_nbits),
+            alerts=bool(alerts),
         )
         return self.runtime.submit_job(
-            calculate_molecule_descriptors_job,
+            calculate_molecule_alerts_job if alerts else calculate_molecule_descriptors_job,
             params=params.model_dump(mode="python"),
             executor_name=executor_name,
             depends_on=depends_on,

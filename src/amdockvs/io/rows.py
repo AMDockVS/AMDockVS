@@ -21,8 +21,8 @@ from amdockvs.chemistry.state import molecule_state_metadata
 from amdockvs.io.import_stats import FILTERED_PROPERTY, NO_VALID_FRAGMENT
 from amdockvs.io.payloads import ImportPrefilterPolicy
 from amdockvs.core.rows import sanitize_molecule_extra_data
-from amdockvs.core.vocab import MoleculeType
-from amdockvs.molecules.fragments import largest_ligand_fragment, ligand_fragments
+from amdockvs.core.vocab import MoleculeType, MoleculeUsageClass
+from amdockvs.molecules.fragments import largest_ligand_fragment, ligand_fragments, single_ligand_component
 
 # Descriptor columns of a small molecule, computed on the structure it keeps.
 FRAGMENT_PROPERTY_FIELDS = (
@@ -70,10 +70,10 @@ def active_small_molecule_criteria(prefilter: ImportPrefilterPolicy | None, mole
     return prefilter.to_criteria()
 
 
-def small_molecule_filter_values(mol, *, molecule_kind: str):
+def small_molecule_filter_values(mol, *, molecule_kind: str, pains: bool = True):
     if str(molecule_kind or "").strip().lower() != MoleculeType.SMALL_MOLECULE:
         return None
-    return evaluate_small_molecule_filter_values(mol)
+    return evaluate_small_molecule_filter_values(mol, pains=pains)
 
 
 def htp_mol_filter(prefilter: ImportPrefilterPolicy | None, molecule_kind: str):
@@ -127,44 +127,64 @@ def evaluate_ligand_mol(
     the fragment that will be stored and *before* the property gate, because the criteria have to
     judge the molecule that actually gets stored.
     """
-    analysis = ligand_fragments(mol)
-    if analysis is None or not analysis[0]["selected_fragment_index"]:
-        return None, NO_VALID_FRAGMENT
-    fragmentation, fragment_mols = analysis
     resolved_metadata = dict(metadata or {})
-    resolved_metadata["fragmentation"] = fragmentation
+    if single_ligand_component(mol):
+        # Nothing to choose and nothing worth listing: the parsed (sanitized) mol is what's kept.
+        kept_mol = mol
+    else:
+        analysis = ligand_fragments(mol)
+        if analysis is None or not analysis[0]["selected_fragment_index"]:
+            return None, NO_VALID_FRAGMENT
+        fragmentation, fragment_mols = analysis
+        resolved_metadata["fragmentation"] = fragmentation
+        kept_mol = fragment_mols[fragmentation["selected_fragment_index"]]
 
-    kept_mol = prep_ligand_mol(fragment_mols[fragmentation["selected_fragment_index"]], prefilter)
+    kept_mol = prep_ligand_mol(kept_mol, prefilter)
     report = None
     if criteria is not None:
-        report = small_molecule_filter_values(kept_mol, molecule_kind=molecule_kind)
+        report = small_molecule_filter_values(kept_mol, molecule_kind=molecule_kind, pains=criteria.needs_pains())
         if report is not None and not report.passes(criteria):
             return None, FILTERED_PROPERTY
     return LigandDecision(kept_mol=kept_mol, metadata=resolved_metadata, filter_values=report), None
 
 
-def structure_fields(mol, values=None) -> dict[str, Any]:
-    """The molecule columns that describe a small molecule's current structure."""
-    values = values or evaluate_small_molecule_filter_values(mol)
+def structure_fields(mol, values=None, *, full: bool = True) -> dict[str, Any]:
+    """The molecule columns that describe a small molecule's current structure.
+
+    Without `full` the PAINS alerts and the identity keys (canonical SMILES, InChIKey) stay None:
+    they are ~80 % of the chemistry, and the descriptor job computes them when asked
+    (`alerts=True`). PAINS already in `values` (an import filter asked for them) are kept.
+    """
+    values = values or evaluate_small_molecule_filter_values(mol, pains=full)
+    if full and values.pains_matches is None:
+        values = evaluate_small_molecule_filter_values(mol)
     state = dict(molecule_state_metadata(mol).get("state") or {})
     return {
         "n_atoms": int(mol.GetNumAtoms() or 0),
         **{key: values.descriptors.get(key) for key in FRAGMENT_PROPERTY_FIELDS},
-        "pains_matches": list(values.pains_matches or []),
+        "pains_matches": None if values.pains_matches is None else list(values.pains_matches),
         "ro5_violations": list(values.ro5_violations or []),
         "has_3d": bool(state.get("has_3d")),
         "has_hs": bool(state.get("has_hs")),
         "conformer_count": int(state.get("conformer_count") or 0),
-        "canonical_smiles": canonical_smiles(mol) or None,
-        "inchikey": inchikey(mol) or None,
+        **(identity_fields(mol) if full else {"canonical_smiles": None, "inchikey": None}),
     }
 
 
+def identity_fields(mol) -> dict[str, Any]:
+    return {"canonical_smiles": canonical_smiles(mol) or None, "inchikey": inchikey(mol) or None}
+
+
 def ligand_row_fields(row: dict[str, Any], decision: LigandDecision) -> dict[str, Any]:
-    """Dumps the decision onto the row. Mutates and returns `row`, as the original code did."""
+    """Dumps the decision onto the row. Mutates and returns `row`, as the original code did.
+
+    A library (`general`) row gets the cheap fields only; a curated one (reference, activity)
+    gets everything, since it is few and its identity is what activities match on.
+    """
     import json
 
-    row.update(structure_fields(decision.kept_mol, decision.filter_values))
+    full = str(row.get("usage_class") or MoleculeUsageClass.GENERAL) != MoleculeUsageClass.GENERAL
+    row.update(structure_fields(decision.kept_mol, decision.filter_values, full=full))
     row["extra_data"] = decision.metadata
     row["metadata_json"] = json.dumps(decision.metadata, ensure_ascii=True)
     return row
@@ -177,6 +197,7 @@ __all__ = [
     "cull_mol",
     "evaluate_ligand_mol",
     "htp_mol_filter",
+    "identity_fields",
     "ligand_row_fields",
     "metadata_map_from_row",
     "prep_ligand_mol",

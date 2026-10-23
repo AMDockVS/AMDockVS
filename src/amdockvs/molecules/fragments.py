@@ -47,6 +47,14 @@ def _component_role(mol) -> str:
     return "fragment"
 
 
+def single_ligand_component(mol) -> bool:
+    """One component that `ligand_fragments` would keep as is: no ion, metal or lone proton.
+    Index-only, so most of a library skips the split, the re-sanitization and the SMILES."""
+    from rdkit import Chem
+
+    return len(Chem.GetMolFrags(mol)) == 1 and _component_role(mol) == "fragment"
+
+
 def largest_ligand_fragment(mol):
     """The fragment import keeps (see `ligand_fragments`); the input mol itself when it has a
     single fragment or none worth keeping."""
@@ -173,5 +181,6 @@ __all__ = [
     "fragment_entries_from_metadata",
     "fragments_of",
     "largest_ligand_fragment",
+    "single_ligand_component",
     "ligand_fragments",
 ]

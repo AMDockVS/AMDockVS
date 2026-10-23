@@ -30,7 +30,10 @@ def test_a_salt_is_split_and_nothing_is_written(tmp_path):
     fragmentation = row["extra_data"]["fragmentation"]
     assert [c["smiles"] for c in fragmentation["components"]] == ["CCO", "[Na+]"]
     assert fragmentation["selected_fragment_index"] == 1
-    assert row["canonical_smiles"] == "CCO" and row["inchikey"] == "LFQSCWFLJHTTHZ-UHFFFAOYSA-N"
+    assert row["canonical_smiles"] is None and row["pains_matches"] is None  # a library row: slim
+    curated = ligand_row_fields({"usage_class": "reference"}, decision)
+    assert curated["canonical_smiles"] == "CCO" and curated["inchikey"] == "LFQSCWFLJHTTHZ-UHFFFAOYSA-N"
+    assert curated["pains_matches"] == []
 
 
 def test_a_molecule_without_any_valid_fragment_is_rejected_with_a_reason(tmp_path):

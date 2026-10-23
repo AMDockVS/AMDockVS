@@ -467,11 +467,9 @@ class MoleculeFilterWidget(QWidget):
             f"Scanned {counts['scanned']} molecule(s). Matched {matched}. {outcome}"
         )
         if skipped:
-            # Skipped = no computed descriptors → not evaluable. Surface it, don't bury it as "no match".
-            text += (
-                f"\n⚠ {skipped} molecule(s) have no computed properties and were skipped "
-                f"(compute descriptors at import to include them)."
-            )
+            # Skipped = not evaluable (no descriptors, or PAINS never computed). Surface it, don't
+            # bury it as "no match".
+            text += f"\n⚠ {skipped} molecule(s) lack a computed property this filter needs and were skipped."
         if counts["evaluable"] == 0 and counts["scanned"]:
             text += "\n⚠ Nothing was evaluable in this scope — no valid result."
         self.summary_label.setText(text)
@@ -509,6 +507,8 @@ class MoleculeFilterWidget(QWidget):
     def _on_counts(self, plan: dict[str, Any], counts: dict[str, int]) -> None:
         self.apply_filter_button.setEnabled(True)
         self._update_summary(plan["action"], counts)
+        if counts["skipped"] and plan["criteria"].needs_pains() and self._offer_pains(plan, counts["skipped"]):
+            return
         if counts["evaluable"] == 0:
             QMessageBox.information(self, "Apply Molecule Filter", "No evaluable molecules were found in the selected scope.")
             return
@@ -539,6 +539,21 @@ class MoleculeFilterWidget(QWidget):
             compact=True,
         )
 
+    def _offer_pains(self, plan: dict[str, Any], skipped: int) -> bool:
+        """A library import leaves PAINS uncomputed. True when the job that computes it was started."""
+        answer = QMessageBox.question(
+            self,
+            "Apply Molecule Filter",
+            f"{skipped} molecule(s) in this scope may have no PAINS computed yet.\n\n"
+            "Compute it now? Apply the filter again when the job ends.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes,
+        )
+        if answer != QMessageBox.Yes:
+            return False
+        self.runtime.qsar.compute_descriptors(molecule_set=plan["scope"], only_missing=True, alerts=True)
+        return True
+
     def _on_applied(self, plan: dict[str, Any], counts: dict[str, int], result) -> None:
         self.apply_filter_button.setEnabled(True)
         action = plan["action"]
@@ -550,7 +565,7 @@ class MoleculeFilterWidget(QWidget):
             message = (
                 f"Re-activated {activated} molecule(s)." if action == "recover"
                 else f"Excluded {excluded} molecule(s) that failed the filter."
-            ) + f"\nSkipped {counts['skipped']} without computed properties."
+            ) + f"\nSkipped {counts['skipped']} without the computed properties it needs."
         QMessageBox.information(self, "Apply Molecule Filter", message)
         self.refresh()
 

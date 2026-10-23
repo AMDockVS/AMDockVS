@@ -64,7 +64,6 @@ def _materialize_smiles_rows(
             _progress_update(progress_cb, index, total_entries)
             continue
         mol.SetProp("_Name", name)
-        resolved_mol_block = mol_block or Chem.MolToMolBlock(mol)
         row = _build_row(
             source_file=batch.file_path,
             source_index=source_index,
@@ -74,7 +73,7 @@ def _materialize_smiles_rows(
             # The original is the SMILES itself; the 3D-less block below is only the current form.
             stored=structure_payload(smiles, "smi", series_for(batch.primary_role or batch.kind)),
             current=None,
-            metadata={**molecule_state_metadata(mol), "smiles": smiles},
+            metadata=molecule_state_metadata(mol),  # the SMILES is the stored payload already
             molecule_kind=batch.molecule_kind,
             primary_role=batch.primary_role,
             primary_context=batch.primary_context,
@@ -94,7 +93,8 @@ def _materialize_smiles_rows(
                 _progress_update(progress_cb, index, total_entries)
                 continue
         else:
-            share_current(row, structure_payload(resolved_mol_block, "sdf", series_for(batch.primary_role or batch.kind)))
+            share_current(row, structure_payload(mol_block or Chem.MolToMolBlock(mol), "sdf",
+                                                 series_for(batch.primary_role or batch.kind)))
         bump(tally, IMPORTED)
         yield row
         yield from _split_fragment_rows(

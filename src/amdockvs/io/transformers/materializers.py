@@ -280,7 +280,7 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
             "heavy_atom_count": row.get("heavy_atom_count"),
             "formal_charge": row.get("formal_charge"),
             "fraction_csp3": row.get("fraction_csp3"),
-            "pains_matches": list(row.get("pains_matches") or []),
+            "pains_matches": None if row.get("pains_matches") is None else list(row["pains_matches"]),
             "ro5_violations": list(row.get("ro5_violations") or []),
             "conformer_count": int(row.get("conformer_count") or 0),
             "has_3d": bool(row.get("has_3d")),

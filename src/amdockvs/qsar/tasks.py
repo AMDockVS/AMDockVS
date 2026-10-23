@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from amdockvs.chemistry.descriptors import calculate_descriptor_rows
+from amdockvs.chemistry.descriptors import calculate_alert_rows, calculate_descriptor_rows
 from amdockvs.core.constants import AMDOCKVS_OFFLOADABLE_EXECUTORS
 from amdockvs.core.jobs import task
 
@@ -33,6 +33,19 @@ def calculate_descriptor_batch(payload: dict):
     # engine-side sink to persist. It does not open a DB connection.
     rows = calculate_descriptor_rows(list(payload.get("items") or []), fingerprint=payload.get("fp"))
     return _descriptor_graph_payload(rows)
+
+
+_ALERT_COLUMNS = ("pains_matches", "canonical_smiles", "inchikey")
+
+
+@task(
+    name="amdock_calculate_alerts_batch",
+    description="Calculate PAINS alerts and identity keys for one ligand batch.",
+    executor="compute",
+    supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
+)
+def calculate_alerts_batch(payload: dict):
+    return {"molecules": calculate_alert_rows(list(payload.get("items") or []))}
 
 
 def _descriptor_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:

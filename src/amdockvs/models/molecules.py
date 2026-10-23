@@ -119,7 +119,8 @@ class MoleculeRecord(TimestampedRecord, table=True):
     heavy_atom_count: int | None = Field(default=None)
     formal_charge: int | None = Field(default=None)
     fraction_csp3: float | None = Field(default=None)
-    pains_matches: list[str] = Field(default_factory=list, sa_type=JSON)
+    # None (JSON null) = not computed: a library import leaves it to the descriptor job.
+    pains_matches: list[str] | None = Field(default_factory=list, sa_type=JSON)
     ro5_violations: list[str] = Field(default_factory=list, sa_type=JSON)
     conformer_count: int = Field(default=0)
 
@@ -144,10 +145,15 @@ class MoleculeRecord(TimestampedRecord, table=True):
     def _coerce_extra_data(cls, value: Any) -> dict[str, Any]:
         return sanitize_molecule_extra_data(value)
 
-    @field_validator("pains_matches", "ro5_violations", mode="before")
+    @field_validator("ro5_violations", mode="before")
     @classmethod
     def _coerce_string_lists(cls, value: Any) -> list[str]:
         return _coerce_string_list(value)
+
+    @field_validator("pains_matches", mode="before")
+    @classmethod
+    def _coerce_pains(cls, value: Any) -> list[str] | None:
+        return None if value is None or value == "null" else _coerce_string_list(value)
 
     build_row = staticmethod(molecule_row)
 
