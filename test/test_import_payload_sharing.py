@@ -109,3 +109,10 @@ def test_persisted_equal_forms_share_one_id(tmp_path):
         assert molecule.stored_payload_id == molecule.current_payload_id
     finally:
         ProjectStore.clear_cached_stores()
+
+
+def test_an_import_chunk_goes_by_its_file_and_records():
+    from amdockvs.io.jobs import import_label
+
+    assert import_label({"file_path": "/x/lib.smi", "span_first_index": 2000, "span_count": 1000}) == "lib.smi 2000-2999"
+    assert import_label({"file_path": "/x/lib.sdf"}) == "lib.sdf"

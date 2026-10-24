@@ -196,6 +196,14 @@ def defer_molecule_indexes(file_paths, config: Mapping[str, Any] | None) -> None
         drop_deferred_indexes(db.engine)
 
 
+def import_label(payload: dict) -> str:
+    """What an import chunk goes by in the monitor: `lib.smi 2000-2999`."""
+    first = int(payload.get("span_first_index") or 0)
+    count = int(payload.get("span_count") or 0) or len(payload.get("records") or payload.get("entries") or ())
+    name = Path(str(payload.get("file_path") or "")).name
+    return f"{name} {first}-{first + count - 1}" if count else name  # a whole-file chunk is the file
+
+
 class LoadMultithreadedSDFParams(BaseModel):
     file_paths: list[Path] = Field(min_length=1)
     storage_dir: Path | None = None
@@ -313,6 +321,7 @@ SHARD_SUGGEST_RECORDS = int(os.environ.get("AMDOCK_SHARD_SUGGEST_RECORDS") or DE
     supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
     # feed_mode="durable_feed",
     output_spec=IMPORT_GRAPH_OUTPUT,
+    task_label=import_label,
     output_flush_every=DEFAULT_OUTPUT_FLUSH_EVERY,
     store_results=False,
 )
@@ -329,6 +338,7 @@ def load_molecules_file_job(params: dict, config: dict | None = None) -> Iterato
     supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
     # feed_mode="durable_feed",
     output_spec=IMPORT_GRAPH_OUTPUT,
+    task_label=import_label,
     output_flush_every=DEFAULT_OUTPUT_FLUSH_EVERY,
     store_results=False,
 )
@@ -352,6 +362,7 @@ def load_ligands_file_job(params: dict, config: dict | None = None) -> Iterator[
     supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
     # feed_mode="durable_feed",
     output_spec=IMPORT_GRAPH_OUTPUT,
+    task_label=import_label,
     output_flush_every=DEFAULT_OUTPUT_FLUSH_EVERY,
     store_results=False,
 )
@@ -376,6 +387,7 @@ def load_receptors_file_job(params: dict, config: dict | None = None) -> Iterato
     cpu_required=4,
     # feed_mode="durable_feed",
     output_spec=IMPORT_GRAPH_OUTPUT,
+    task_label=import_label,
     output_flush_every=DEFAULT_OUTPUT_FLUSH_EVERY,
     store_results=False,
 )
