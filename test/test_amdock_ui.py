@@ -659,6 +659,14 @@ def test_tool_buttons_are_flat_and_keep_result_views_available(tmp_path, monkeyp
         assert chip.isVisible() and chip.text() == "Ligands: 1 selected ✕"
         assert not window._status_bar.selection_indicators["receptor"].isVisible()
         studio.stepper.set_current_index(1)
+        assert studio._unprepared_clause("ligand") is None  # nothing ready yet: no anti-join
+        from amdockvs.models import EngineState, MoleculeRecord
+        with runtime.workspace.project_db.get_session() as session:
+            ready = MoleculeRecord(name="ready", is_ligand=True)
+            session.add(ready)
+            session.flush()
+            session.add(EngineState(molecule_id=ready.id, role_type="ligand", engine="ad4", is_ready=True))
+            session.commit()
         assert studio._unprepared_clause("ligand") is not None
         chip.clicked.emit()
         assert window.selection.get("ligand") is None and not chip.isVisible()

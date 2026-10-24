@@ -180,12 +180,13 @@ class RunPanel:
             "sel_rec": self._selected_receptor_ids,
             "focused": self._focused_receptor_id,
             "prep_engines": self._selected_prep_engines(),
+            "force_prep": bool(getattr(self, "force_prepare_ligands", None) and self.force_prepare_ligands.isChecked()),
             "programs_chosen": bool(self._selected_protocols()),
         }
         sig = (
             step, inputs["program"], inputs["run_kind"], inputs["sharded"], inputs["receptor_type"], inputs["ligand_type"],
             tuple(inputs["sel_lig"]), tuple(inputs["sel_rec"]),
-            inputs["focused"], inputs["programs_chosen"], tuple(inputs["prep_engines"]),
+            inputs["focused"], inputs["programs_chosen"], tuple(inputs["prep_engines"]), inputs["force_prep"],
         )
         if not force and sig == self._last_refresh_sig:
             return
@@ -235,25 +236,23 @@ class RunPanel:
             lig_scope = self._resolve_ligand_scope(
                 inp["sel_lig"], run_kind=inp.get("run_kind", "docking")
             )
-            data["ligands_total"] = self.runtime.molecules.count(lig_scope)
-            # One count per preparation family (K is the number of distinct engines, today 1):
-            # each family reconciles against itself, so no cross-engine aggregate is needed.
-            by_engine = {
-                engine: self.runtime.molecules.count(
-                    self.runtime.molecules.filter(
-                        lig_scope, filters={"prepared": True, "prepared_engine_key": engine}
-                    )
-                )
-                for engine in inp["prep_engines"]
-            }
+            # One summary per family of the selected programs (K is today 1); Force re-prepare
+            # redoes them all, so it needs no prepared/failed count at all.
+            if inp.get("force_prep") or not inp["prep_engines"]:
+                summaries = {}
+                data["ligands_total"] = self.runtime.molecules.count(lig_scope)
+            else:
+                summaries = {
+                    engine: self.runtime.docking.preparation_summary(lig_scope, role_type="ligand", engine=engine)
+                    for engine in inp["prep_engines"]
+                }
+                data["ligands_total"] = next(iter(summaries.values()))["total"]
+            by_engine = {engine: summary["ready"] for engine, summary in summaries.items()}
             data["ligands_prepared_by_engine"] = by_engine
             # For the step badge only: a molecule is "done" when every selected family has it,
             # and min() is that count exactly when the prepared sets nest (the normal case).
             data["ligands_prepared"] = min(by_engine.values()) if by_engine else 0
-            data["ligands_failed"] = sum(
-                self._count_failed_preparations(lig_scope, role_type="ligand", engine=engine)
-                for engine in inp["prep_engines"]
-            )
+            data["ligands_failed"] = sum(summary["failed"] for summary in summaries.values())
             return data
 
         if step == 3:  # Preview & Run — NO automatic scan at all; verification is explicit.

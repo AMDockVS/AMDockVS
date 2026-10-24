@@ -10,6 +10,7 @@ from uuid import uuid4
 from sqlalchemy import exists, or_
 from sqlmodel import select
 from ms_flow.payloads import scratch_file
+from ms_flow.query import db_count
 from ms_flow.selection import Selection
 
 import amdockvs.docking.results.repository as results_repo
@@ -89,7 +90,7 @@ from amdockvs.core.payloads import molecule_payload_id, read_structure
 from amdockvs.io.formats import as_pdb
 from amdockvs.molecules.api import ensure_molecule_set_ref
 from amdockvs.models import BindingSite, EngineState, MoleculeRecord
-from amdockvs.project.sets import ComplexSetRef, MoleculeSetRef
+from amdockvs.project.sets import ComplexSetRef, MoleculeSetRef, prepared_molecules_spec
 from amdockvs.workflows.rules import apply_workflow_filters
 
 
@@ -232,15 +233,20 @@ class DockingAPI:
         normalized_engine = str(engine or "ad4").strip().lower()
         if normalized_role not in {"ligand", "receptor"}:
             raise ValueError("role_type must be 'ligand' or 'receptor'.")
-        # Three COUNTs in the db; a preparation's state is a subquery of the scope (failed = a
-        # state row that is not ready), so no id of a million-ligand scope reaches Python.
+        # Count each side alone first: a family with no state row of that kind anywhere needs
+        # no join with the scope (the common case before the first preparation).
         molecules = self.runtime.molecules
-
-        def count(**filters) -> int:
-            return molecules.count(molecules.filter(scope, filters=filters) if filters else scope)
-
+        project_db = self.runtime.workspace.project_db
         flags = {"is_ligand" if normalized_role == "ligand" else "is_receptor": True, "prepared_engine_key": normalized_engine}
-        return {"total": count(), "ready": count(prepared=True, **flags), "failed": count(prepared=False, **flags)}
+
+        def in_scope(ready: bool) -> int:
+            states = prepared_molecules_spec(role_type=normalized_role, engine=normalized_engine, is_ready=ready)
+            if not db_count(project_db, states):
+                return 0
+            return molecules.count(molecules.filter(scope, filters={**flags, "prepared": ready}))
+
+        total = molecules.count(scope)
+        return {"total": total, "ready": in_scope(True) if total else 0, "failed": in_scope(False) if total else 0}
 
     def unprepared_molecules_clause(self, *, role_type: str, engines: list[str] | tuple[str, ...]):
         """Opaque SmartTable clause selecting molecules not ready for every engine family."""
@@ -250,10 +256,17 @@ class DockingAPI:
             raise ValueError("role_type must be 'ligand' or 'receptor'.")
         normalized_engines = tuple(
             dict.fromkeys(str(value or "").strip().lower() for value in engines if str(value or "").strip()))
+        project_db = self.runtime.workspace.project_db
+        if any(
+            not db_count(project_db, prepared_molecules_spec(role_type=role, engine=engine))
+            for engine in normalized_engines
+        ):
+            return None  # a family nothing is ready for leaves every row in: no anti-join to run
+        # NOT IN, not a correlated NOT EXISTS: DuckDB (1 thread, 1 GB) hash-joins the whole
+        # table for the latter (4 s and GBs of spill for one page); SQLite is faster with it too.
         missing = [
-            ~exists(
-                select(EngineState.id).where(
-                    EngineState.molecule_id == MoleculeRecord.id,
+            MoleculeRecord.id.not_in(
+                select(EngineState.molecule_id).where(
                     EngineState.role_type == role,
                     EngineState.engine == engine,
                     EngineState.is_ready.is_(True),

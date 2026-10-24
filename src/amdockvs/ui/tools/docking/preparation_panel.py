@@ -264,6 +264,7 @@ class PreparationPanel:
         self.force_prepare_ligands = QCheckBox("Force re-prepare", page)
         # The Ligands table shows exactly what this step will process, so it follows this box.
         self.force_prepare_ligands.toggled.connect(lambda _=False: self._sync_ligand_table_filter())
+        self.force_prepare_ligands.toggled.connect(lambda _=False: self._dispatch_refresh())  # counts follow it too
         form.addRow(self.force_prepare_ligands)
         return self._in_scroll(page)
 

@@ -209,6 +209,7 @@ class DockingStudioWidget(
         counts too, not only under Run. `_check_requirements` self-gates on the step, so this is free while the user is anywhere else; off screen
         showEvent does the catching up."""
         if self.isVisible():
+            self._sync_ligand_table_filter()  # the first ready ligand turns the "left" filter on
             self._dispatch_refresh(force=True)  # the prepared counts of the step on screen
             self._check_requirements()
 
