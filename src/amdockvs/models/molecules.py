@@ -164,10 +164,20 @@ class MoleculeRecord(TimestampedRecord, table=True):
 # project whose import died gets them back. A usage_class index is not partial: SQLite only
 # uses a partial index whose WHERE terms the query repeats, and `usage_class = 'reference'`
 # does not repeat `usage_class != 'general'`.
+#
+# With no table stats SQLite takes the index matching the most `=` terms, then the one that
+# needs no sort. So a page (ORDER BY id) of any role filter walks ix_molecules_usage_class in
+# id order and stops at the page; a ligand count matches all four terms of
+# idx_mol_role_scope and reads only that index (~8x fewer pages than the table); a receptor
+# query takes idx_mol_receptor (or idx_mol_receptor_id), which ties with usage_class and holds
+# only the receptors — without it, finding a handful of receptors walks millions of ligands.
 DEFERRED_INDEXES = {
     "ix_molecules_name": f"{TABLE_MOLECULES} (name)",
     "ix_molecules_usage_class": f"{TABLE_MOLECULES} (usage_class)",
     "idx_mol_active": f"{TABLE_MOLECULES} (id) WHERE excluded=0 AND in_set=0",
+    "idx_mol_role_scope": f"{TABLE_MOLECULES} (usage_class, is_ligand, excluded, molecule_type)",
+    "idx_mol_receptor": f"{TABLE_MOLECULES} (usage_class) WHERE is_receptor=1",
+    "idx_mol_receptor_id": f"{TABLE_MOLECULES} (id) WHERE is_receptor=1",  # no usage_class term
     # PayloadStore.release/delete look a payload's referrers up by these.
     "ix_molecules_stored_payload_id": f"{TABLE_MOLECULES} (stored_payload_id)",
     "ix_molecules_current_payload_id": f"{TABLE_MOLECULES} (current_payload_id)",

@@ -411,17 +411,17 @@ class MoleculeAPI:
         set_id = int(source.id if isinstance(source, MoleculeSetRef) else source)
         return db_count(project_db, molecule_set_spec(set_id))
 
-    def library_shape(self) -> tuple[bool, int]:
-        """`(the library is sharded, how many ligand rows exist)` — two small indexed counts.
+    def library_shape(self) -> tuple[bool, bool]:
+        """`(the library is sharded, any ligand row exists)` — two one-row lookups.
 
         What the catalog bar needs to know and the only thing it needs the db for: Shards is
         there when there are shards, Ligands lights up when there is any ligand row at all.
         """
-        from amdockvs.molecules.storage import has_shards, ligand_row_count
+        from amdockvs.molecules.storage import has_ligand_rows, has_shards
 
         self.runtime._require_active_project()
         project_db = self.runtime.workspace.project_db
-        return bool(has_shards(project_db)), int(ligand_row_count(project_db))
+        return bool(has_shards(project_db)), has_ligand_rows(project_db)
 
     def shard_counts(self, *, engine: str = "ad4") -> dict[str, int]:
         """Inventory of the sharded library: shards, molecules in them, and how many are prepared.

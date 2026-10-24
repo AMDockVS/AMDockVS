@@ -402,17 +402,18 @@ def general_ligand_count(project_db) -> int:
     )
 
 
-def ligand_row_count(project_db) -> int:
-    """Every ligand that is a row here — screening, reference or promoted hit.
+def has_ligand_rows(project_db) -> bool:
+    """Is any ligand a row here — screening, reference or promoted hit?
 
     Wider than `general_ligand_count` on purpose: this answers "is the Ligands table worth
-    opening", and a project whose only ligands are reference cocrystals still is.
+    opening", and a project whose only ligands are reference cocrystals still is. One row
+    answers it: counting them all is a scan of millions.
     """
     return db_count(
         project_db,
         QuerySpec(table=TABLE_MOLECULES, fields=("id",),
-                  filters={"is_ligand": True, "excluded": False}),
-    )
+                  filters={"is_ligand": True, "excluded": False}, limit=1),
+    ) > 0
 
 
 def check_library_target(project_db, *, target: str) -> None:
@@ -460,7 +461,7 @@ __all__ = [
     "check_library_target",
     "general_ligand_count",
     "has_shards",
-    "ligand_row_count",
+    "has_ligand_rows",
     "library_kind",
     "iter_prepared_shards",
     "prepared_shard_record_count",

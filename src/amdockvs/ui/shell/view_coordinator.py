@@ -211,7 +211,7 @@ class ViewCoordinator:
         return pad(), bar.addSeparator(), pad()
 
     def _library_shape(self) -> tuple[bool, int]:
-        """`(library is sharded, how many ligand rows exist)` — two small indexed counts.
+        """`(library is sharded, any ligand row exists)` — two one-row lookups.
 
         ponytail: read on every badge sync (project open + end of each job) rather than cached;
         both flip exactly when a job finishes, which is when this runs.

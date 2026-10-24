@@ -295,7 +295,7 @@ class DockingStudioWidget(
         # GUI-thread only: the embedded tables load via their own (paged) models, and the
         # prep-target lists are cheap. Every counting/requirement query is pushed off-thread
         # by _dispatch_refresh so this never blocks, regardless of molecule-set size.
-        self._sync_ligand_source_choice()  # two small indexed counts: the choice follows the data
+        self._sync_ligand_source_choice()  # two one-row lookups: the choice follows the data
         self._sync_ligand_table_filter()
         self._sync_receptor_table_filter()
         self._refresh_prep_targets()
