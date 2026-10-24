@@ -104,13 +104,13 @@ def prep_ligand_mol(mol, prefilter: ImportPrefilterPolicy | None):
 
     from amdockvs.chemistry.standardization import prepare_import_structure
 
-    prepped, _changed = prepare_import_structure(
+    prepped, changed = prepare_import_structure(
         mol,
         add_hs=bool(prefilter.add_hs),
         gen_3d=bool(prefilter.gen_3d),
         canonical_tautomer=bool(prefilter.canonical_tautomer),
     )
-    return prepped
+    return prepped if changed else mol  # the same object tells the row its stored form still holds
 
 
 def evaluate_ligand_mol(

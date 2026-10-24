@@ -119,7 +119,13 @@ def _finalize_ligand_row_from_mol(
     if decision is None:
         return None, reason
 
-    share_current(row, structure_payload(Chem.MolToMolBlock(decision.kept_mol), "sdf"))
+    stored, kept = row.get("stored_payload_id"), decision.kept_mol
+    if stored is not None and stored.kind == "smi" and not kept.GetNumConformers():
+        # No coordinates to keep: a SMILES says all a block would (D6); the stored one when unchanged.
+        row["current_payload_id"] = stored if kept is mol else structure_payload(
+            Chem.MolToSmiles(kept), "smi", stored.series)
+    else:
+        share_current(row, structure_payload(Chem.MolToMolBlock(kept), "sdf"))
     return ligand_row_fields(row, decision), None
 
 def _progress_update(progress_cb: Callable[[float], None] | None, completed: int, total: int) -> None:

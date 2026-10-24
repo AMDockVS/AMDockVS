@@ -60,7 +60,15 @@ def test_a_smiles_import_keeps_the_smiles_as_the_original(tmp_path):
     batch["input_config"] = {}
     row = materialize_import_batch(batch)[0]
     assert row["stored_payload_id"].kind == "smi" and row["stored_payload_id"].data == b"CCO"
-    assert row["current_payload_id"].kind == "sdf"
+    assert row["current_payload_id"] is row["stored_payload_id"]  # D6: no coordinates, no second form
+
+
+def test_a_culled_smiles_keeps_its_current_form_as_smiles(tmp_path):
+    batch = _batch(tmp_path, "l.smi", "smiles", [{"source_index": 0, "raw": "CCO.[Na+] salt"}])
+    batch["input_config"] = {}
+    row = materialize_import_batch(batch)[0]
+    assert row["stored_payload_id"].data == b"CCO.[Na+]"
+    assert row["current_payload_id"].kind == "smi" and row["current_payload_id"].data == b"CCO"
 
 
 def test_a_receptor_import_lands_in_the_receptors_and_references_series(tmp_path):

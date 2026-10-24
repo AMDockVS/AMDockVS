@@ -70,7 +70,7 @@ def _materialize_smiles_rows(
             name=name,
             n_atoms=mol.GetNumAtoms(),
             input_format="smiles",
-            # The original is the SMILES itself; the 3D-less block below is only the current form.
+            # The original is the SMILES itself; current stays it until something adds coordinates.
             stored=structure_payload(smiles, "smi", series_for(batch.primary_role or batch.kind)),
             current=None,
             metadata=molecule_state_metadata(mol),  # the SMILES is the stored payload already
@@ -93,8 +93,10 @@ def _materialize_smiles_rows(
                 _progress_update(progress_cb, index, total_entries)
                 continue
         else:
-            share_current(row, structure_payload(mol_block or Chem.MolToMolBlock(mol), "sdf",
-                                                 series_for(batch.primary_role or batch.kind)))
+            if mol_block:
+                share_current(row, structure_payload(mol_block, "sdf", series_for(batch.primary_role or batch.kind)))
+            else:
+                row["current_payload_id"] = row["stored_payload_id"]  # no coordinates: the SMILES is it (D6)
         bump(tally, IMPORTED)
         yield row
         yield from _split_fragment_rows(

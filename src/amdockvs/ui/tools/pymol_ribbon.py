@@ -77,16 +77,24 @@ def fetch_structures(store, ids: dict) -> dict:
     return {name: (found[payload_id], kinds.get(payload_id, "")) for name, payload_id in ids.items()}
 
 
+def _pymol_input(structure: tuple) -> tuple:
+    """(data, PyMOL format). PyMOL reads no SMILES: a SMILES-only molecule shows as its 2D block."""
+    data, kind = structure
+    if kind == "smi":
+        from rdkit import Chem
+
+        text = data.decode() if isinstance(data, bytes) else str(data)
+        return Chem.MolToMolBlock(Chem.MolFromSmiles(text.split()[0])), "mol"
+    return data, _PYMOL_FORMATS.get(kind, kind)
+
+
 def load_structure(cmd, structure: tuple, name: str) -> None:
     """Put a stored structure `(bytes, kind)` on the PyMOL canvas straight from its bytes."""
-    data, kind = structure
-    cmd.load_raw(data, _PYMOL_FORMATS.get(kind, kind), name)
+    cmd.load_raw(*_pymol_input(structure), name)
 
 
 def replace_comparison_structure(dock, structure: tuple, name: str, *, reference: str, label: str) -> bool:
-    data, kind = structure
-    return dock.replace_comparison_object(name, data, _PYMOL_FORMATS.get(kind, kind),
-                                          reference=reference, label=label)
+    return dock.replace_comparison_object(name, *_pymol_input(structure), reference=reference, label=label)
 
 
 def _pymol_cmd(window):
