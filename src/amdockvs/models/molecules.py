@@ -186,6 +186,13 @@ def ensure_molecule_indexes(engine) -> None:
             conn.exec_driver_sql(f"CREATE INDEX IF NOT EXISTS {name} ON {target}")
 
 
+def molecule_indexes_ready(engine) -> bool:
+    """False while an import's deferred indexes are dropped or still building (uncommitted)."""
+    from sqlalchemy import inspect
+
+    return DEFERRED_INDEXES.keys() <= {ix["name"] for ix in inspect(engine).get_indexes(TABLE_MOLECULES)}
+
+
 def drop_deferred_indexes(engine) -> None:
     with engine.begin() as conn:
         for name in DEFERRED_INDEXES:

@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from ms_flow.payloads import HEADER, PayloadStore, Report
 
 from amdockvs.core.payloads import payload_store
+from amdockvs.models.molecules import molecule_indexes_ready
 
 # Share of a sealed volume's bytes that no row covers before copying the rest is worth it.
 MIN_DEAD = 0.5
@@ -85,19 +86,23 @@ def check_storage(project_db) -> tuple[str, str, str]:
 def repair_if_idle(project_db, *, busy: bool) -> Report:
     """Clear what `check` calls leftovers (unreferenced structures, empty volumes, orphan files); the
     new check. Never while a job runs: a structure it just wrote has no row pointing to it yet."""
-    if busy:
+    store = payload_store(project_db)
+    if busy or not molecule_indexes_ready(store.engine):
         raise RuntimeError("Jobs are running; repair once they end.")
-    return payload_store(project_db).repair()
+    return store.repair()
 
 
 def compact_if_idle(project_db, *, busy: bool, min_dead: float = MIN_DEAD) -> dict | None:
     """Once no job runs: release what no row points to any more (a structure a job replaced, an
     emptied volume, an orphan file), then compact the volumes that are `min_dead` dead or more.
     Returns the stats (`released` structures plus what `compact` reports), or None when there was
-    nothing to do. Merging small volumes is left to the explicit button: it would run after every job."""
-    if busy:
-        return None
+    nothing to do. Merging small volumes is left to the explicit button: it would run after every job.
+
+    An import's job is terminal before its finalizer rebuilds the deferred `molecules` indexes; a
+    check planned without them scans the table once per payload (hours at millions of rows)."""
     store = payload_store(project_db)
+    if busy or not molecule_indexes_ready(store.engine):
+        return None
     report = store.check()
     released = len(report.unreferenced)
     if released or report.empty or report.orphans:
