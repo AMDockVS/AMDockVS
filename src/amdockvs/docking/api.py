@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import contextlib
 from dataclasses import dataclass
-from itertools import batched, islice
+from itertools import islice
 from pathlib import Path
 from typing import Any, Mapping
 from uuid import uuid4
@@ -232,22 +232,15 @@ class DockingAPI:
         normalized_engine = str(engine or "ad4").strip().lower()
         if normalized_role not in {"ligand", "receptor"}:
             raise ValueError("role_type must be 'ligand' or 'receptor'.")
-        # Counted over the id stream in bound-parameter-sized chunks: a scope of a million ligands
-        # produces three integers here, not a million-element list.
-        ids = (int(value) for value in self.runtime.molecules.stream_ids(scope) if int(value) > 0)
-        total = ready = failed = 0
-        with self.runtime.workspace.project_db.get_session() as session:
-            for chunk in batched(ids, 900):  # stay well under SQLite's bound-parameter limit
-                total += len(chunk)
-                rows = session.exec(
-                    select(EngineState.is_ready)
-                    .where(EngineState.molecule_id.in_(chunk))
-                    .where(EngineState.role_type == normalized_role)
-                    .where(EngineState.engine == normalized_engine)
-                ).all()
-                ready += sum(1 for value in rows if bool(value))
-                failed += sum(1 for value in rows if not bool(value))
-        return {"total": total, "ready": ready, "failed": failed}
+        # Three COUNTs in the db; a preparation's state is a subquery of the scope (failed = a
+        # state row that is not ready), so no id of a million-ligand scope reaches Python.
+        molecules = self.runtime.molecules
+
+        def count(**filters) -> int:
+            return molecules.count(molecules.filter(scope, filters=filters) if filters else scope)
+
+        flags = {"is_ligand" if normalized_role == "ligand" else "is_receptor": True, "prepared_engine_key": normalized_engine}
+        return {"total": count(), "ready": count(prepared=True, **flags), "failed": count(prepared=False, **flags)}
 
     def unprepared_molecules_clause(self, *, role_type: str, engines: list[str] | tuple[str, ...]):
         """Opaque SmartTable clause selecting molecules not ready for every engine family."""
