@@ -45,7 +45,7 @@ from amdockvs.models import (
     MoleculeRepresentation,
     MoleculeSourceProperty,
 )
-from amdockvs.models.molecules import drop_deferred_indexes, ensure_molecule_indexes
+from amdockvs.models.molecules import DEFERRED_INDEXES, ensure_molecule_indexes
 
 
 IMPORT_GRAPH_OUTPUT = graph_sink(
@@ -181,19 +181,16 @@ def finish_row_import(params: dict, config: dict) -> None:
         drop_temporary_files(params, config)
     finally:
         if config.get("project_db") is not None:
-            ensure_molecule_indexes(config["project_db"].engine)
+            ensure_molecule_indexes(config["project_db"])
 
 
 def defer_molecule_indexes(file_paths, config: Mapping[str, Any] | None) -> None:
     """Drop the deferred indexes when the import at least doubles `molecules`: building them
     once at the end beats keeping them live. A small import into a big table keeps them."""
     db = (config or {}).get("project_db")
-    if db is None:
-        return
-    with db.engine.connect() as conn:
-        rows = conn.exec_driver_sql(f"SELECT coalesce(max(id), 0) FROM {TABLE_MOLECULES}").scalar()
-    if sum(count_import_records(path, approx=True) for path in file_paths) >= rows:
-        drop_deferred_indexes(db.engine)
+    if db is not None:
+        incoming = sum(count_import_records(path, approx=True) for path in file_paths)
+        db.defer_indexes(TABLE_MOLECULES, DEFERRED_INDEXES, incoming)
 
 
 def import_label(payload: dict) -> str:

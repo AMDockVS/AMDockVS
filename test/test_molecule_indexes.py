@@ -28,7 +28,7 @@ def test_import_and_open_build_the_deferred_indexes(tmp_path, monkeypatch):
         assert set(DEFERRED_INDEXES) <= _indexes(rt)
         assert not _indexes(rt) & set(RETIRED_INDEXES)
 
-        drop_deferred_indexes(rt.workspace.project_db.engine)  # an import that died halfway
+        drop_deferred_indexes(rt.workspace.project_db)  # an import that died halfway
         rt.close_project()
         rt.open_project(project.id)
         assert set(DEFERRED_INDEXES) <= _indexes(rt)
@@ -46,7 +46,7 @@ def test_role_scopes_never_scan_the_table(tmp_path, monkeypatch):
     try:
         engine = rt.workspace.project_db.engine
         from amdockvs.models.molecules import ensure_molecule_indexes
-        ensure_molecule_indexes(engine)
+        ensure_molecule_indexes(rt.workspace.project_db)
         scope = "molecule_type = ? AND usage_class = ? AND excluded = ?"
         plans = [
             (f"SELECT COUNT(*) FROM molecules WHERE is_receptor = ? AND {scope}",

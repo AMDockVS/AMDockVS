@@ -87,7 +87,7 @@ def repair_if_idle(project_db, *, busy: bool) -> Report:
     """Clear what `check` calls leftovers (unreferenced structures, empty volumes, orphan files); the
     new check. Never while a job runs: a structure it just wrote has no row pointing to it yet."""
     store = payload_store(project_db)
-    if busy or not molecule_indexes_ready(store.engine):
+    if busy or not molecule_indexes_ready(project_db):
         raise RuntimeError("Jobs are running; repair once they end.")
     return store.repair()
 
@@ -101,7 +101,7 @@ def compact_if_idle(project_db, *, busy: bool, min_dead: float = MIN_DEAD) -> di
     An import's job is terminal before its finalizer rebuilds the deferred `molecules` indexes; a
     check planned without them scans the table once per payload (hours at millions of rows)."""
     store = payload_store(project_db)
-    if busy or not molecule_indexes_ready(store.engine):
+    if busy or not molecule_indexes_ready(project_db):
         return None
     report = store.check()
     released = len(report.unreferenced)

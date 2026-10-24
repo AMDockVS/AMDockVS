@@ -18,7 +18,7 @@ from amdockvs.project.storage import check_storage, compact_if_idle, compact_sto
 def _project(tmp_path, monkeypatch):
     monkeypatch.setattr(flow_payloads, "VOLUME_SIZE", 1 << 10)  # three of these structures per volume
     store = ProjectStore.open_at(tmp_path / "project.db")
-    ensure_molecule_indexes(store.engine)  # what opening the project does
+    ensure_molecule_indexes(store)  # what opening the project does
     with store.get_session() as session:
         for i in range(12):
             pid = seed_payload(store, Random(i).randbytes(300))  # incompressible: sizes stay as written
@@ -102,9 +102,9 @@ def test_storage_stats_count_the_volumes_and_the_dead_bytes(tmp_path):
 
 def test_storage_upkeep_waits_for_the_deferred_indexes(tmp_path, monkeypatch):
     store = _project(tmp_path, monkeypatch)
-    drop_deferred_indexes(store.engine)  # an import ended; its finalizer has not rebuilt them yet
+    drop_deferred_indexes(store)  # an import ended; its finalizer has not rebuilt them yet
     assert compact_if_idle(store, busy=False) is None
     with pytest.raises(RuntimeError):
         repair_if_idle(store, busy=False)
-    ensure_molecule_indexes(store.engine)
+    ensure_molecule_indexes(store)
     assert repair_if_idle(store, busy=False).clean

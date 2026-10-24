@@ -160,8 +160,8 @@ class MoleculeRecord(TimestampedRecord, table=True):
 
 # Indexes of `molecules` that a bulk import builds once at its end: kept live, a random key
 # (a name) turns its appends into random page writes, and the rate falls with the table size.
-# Created by `ensure_molecule_indexes` when an import ends and when a project opens, so a
-# project whose import died gets them back. A usage_class index is not partial: SQLite only
+# ms_flow builds them (`ProjectStore.ensure_indexes`) when an import ends and when a project
+# opens, so a project whose import died gets them back. A usage_class index is not partial: SQLite only
 # uses a partial index whose WHERE terms the query repeats, and `usage_class = 'reference'`
 # does not repeat `usage_class != 'general'`.
 #
@@ -172,41 +172,39 @@ class MoleculeRecord(TimestampedRecord, table=True):
 # query takes idx_mol_receptor (or idx_mol_receptor_id), which ties with usage_class and holds
 # only the receptors — without it, finding a handful of receptors walks millions of ligands.
 DEFERRED_INDEXES = {
-    "ix_molecules_name": f"{TABLE_MOLECULES} (name)",
-    "ix_molecules_usage_class": f"{TABLE_MOLECULES} (usage_class)",
-    "idx_mol_active": f"{TABLE_MOLECULES} (id) WHERE excluded=0 AND in_set=0",
-    "idx_mol_role_scope": f"{TABLE_MOLECULES} (usage_class, is_ligand, excluded, molecule_type)",
-    "idx_mol_receptor": f"{TABLE_MOLECULES} (usage_class) WHERE is_receptor=1",
-    "idx_mol_receptor_id": f"{TABLE_MOLECULES} (id) WHERE is_receptor=1",  # no usage_class term
+    "ix_molecules_name": "(name)",
+    "ix_molecules_usage_class": "(usage_class)",
+    "idx_mol_active": "(id) WHERE excluded=0 AND in_set=0",
+    "idx_mol_role_scope": "(usage_class, is_ligand, excluded, molecule_type)",
+    "idx_mol_receptor": "(usage_class) WHERE is_receptor=1",
+    "idx_mol_receptor_id": "(id) WHERE is_receptor=1",  # no usage_class term
     # PayloadStore.release/delete look a payload's referrers up by these.
-    "ix_molecules_stored_payload_id": f"{TABLE_MOLECULES} (stored_payload_id)",
-    "ix_molecules_current_payload_id": f"{TABLE_MOLECULES} (current_payload_id)",
-    "ix_molecules_properties_payload_id": f"{TABLE_MOLECULES} (properties_payload_id)",
+    "ix_molecules_stored_payload_id": "(stored_payload_id)",
+    "ix_molecules_current_payload_id": "(current_payload_id)",
+    "ix_molecules_properties_payload_id": "(properties_payload_id)",
 }
 # No query uses them: no lookup by InChIKey, and `excluded` is covered by the partial indexes.
 RETIRED_INDEXES = ("ix_molecules_inchikey", "ix_molecules_excluded")
 
 
-def ensure_molecule_indexes(engine) -> None:
+def ensure_molecule_indexes(project) -> None:
     """Build the deferred indexes that are missing and drop the retired ones (older projects)."""
-    with engine.begin() as conn:
-        for name in RETIRED_INDEXES:
-            conn.exec_driver_sql(f"DROP INDEX IF EXISTS {name}")
-        for name, target in DEFERRED_INDEXES.items():
-            conn.exec_driver_sql(f"CREATE INDEX IF NOT EXISTS {name} ON {target}")
+    _store(project).ensure_indexes(TABLE_MOLECULES, DEFERRED_INDEXES, retired=RETIRED_INDEXES)
 
 
-def molecule_indexes_ready(engine) -> bool:
+def molecule_indexes_ready(project) -> bool:
     """False while an import's deferred indexes are dropped or still building (uncommitted)."""
-    from sqlalchemy import inspect
-
-    return DEFERRED_INDEXES.keys() <= {ix["name"] for ix in inspect(engine).get_indexes(TABLE_MOLECULES)}
+    return _store(project).indexes_ready(TABLE_MOLECULES, DEFERRED_INDEXES)
 
 
-def drop_deferred_indexes(engine) -> None:
-    with engine.begin() as conn:
-        for name in DEFERRED_INDEXES:
-            conn.exec_driver_sql(f"DROP INDEX IF EXISTS {name}")
+def drop_deferred_indexes(project) -> None:
+    _store(project).drop_indexes(DEFERRED_INDEXES)
+
+
+def _store(project):
+    from ms_flow.core.database import resolve_project_store
+
+    return resolve_project_store(project)
 
 
 # ---------------------------------------------------------------------------

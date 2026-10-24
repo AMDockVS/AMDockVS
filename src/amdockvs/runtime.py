@@ -328,7 +328,7 @@ class AMDockVSRuntime(AppRuntime):
         self._rekey_interactions()
         # ponytail: a no-op unless an import died before building them; then it blocks the open for
         # as long as the build takes (~seconds per million rows). Run it off-thread if that bites.
-        ensure_molecule_indexes(self.workspace.project_db.engine)
+        ensure_molecule_indexes(self.workspace.project_db)
         # Built once per project: a feed asks the runtime where the ligands are, it does not ask
         # the mode — there is no mode to ask.
         self._ligand_store = DbStore(self.workspace.project_db)
