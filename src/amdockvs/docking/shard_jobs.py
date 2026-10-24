@@ -38,7 +38,6 @@ from amdockvs.docking.protocols import DockingProtocolMetadata
 from amdockvs.docking.repository import inputs_dir, list_entity_rows, resolve_docking_output_dir, with_input_files
 from amdockvs.docking.results.repository import count_docking_results, docking_run_id, runs_where
 from amdockvs.docking.results.dataset import (
-    RESULT_DATASET_FORMAT,
     completed_result_receipts,
     result_fragment_path,
     result_metadata,
@@ -78,7 +77,6 @@ HIT_SAFETY_CAP = DEFAULT_HIT_SAFETY_CAP
 # never set a cutoff for.
 RANKED_PREFILTER_SCORE = 0.0
 
-RESULT_SHARD_FORMAT = RESULT_DATASET_FORMAT
 
 
 def result_shard_path(output_dir: str | Path, payload: dict, shard: dict) -> Path:
@@ -654,7 +652,6 @@ dock_shards_job = DockShardsJobSpec.to_job_definition()
 __all__ = [
     "DockShardsJobParams",
     "DockShardsJobSpec",
-    "RESULT_SHARD_FORMAT",
     "SCREENING_SUBDIR",
     "ShardHitWriter",
     "dock_shards_job",

@@ -16,7 +16,7 @@ from amdockvs.core.vocab import TargetState
 def _project_with_shard(tmp_path):
     runtime = AMDockVSRuntime()
     runtime.create_project(name="unified-backend", folder=tmp_path)
-    source = tmp_path / "raw.mshard"
+    source = tmp_path / "raw.parquet"
     source.write_bytes(b"raw")
     with runtime.workspace.project_db.get_session() as session:
         shard = ScreeningShard(
@@ -35,7 +35,7 @@ def _project_with_shard(tmp_path):
 
 def test_engine_artifact_does_not_replace_the_chemical_shard(tmp_path):
     runtime, shard, source = _project_with_shard(tmp_path)
-    prepared = tmp_path / "prepared_ad4" / "raw.mshard"
+    prepared = tmp_path / "prepared_ad4" / "raw.parquet"
     prepared.parent.mkdir()
     prepared.write_bytes(b"pdbqt")
     try:
@@ -98,7 +98,7 @@ def test_shard_completion_is_scoped_to_run_engine_and_protocol(tmp_path):
             protocol_hash="p1",
             scored=100,
             hits=3,
-            result_path="results/docking/screening/run-a/results.mshard",
+            result_path="results/docking/screening/run-a/results.parquet",
         )
         assert completed_shard_targets(db, run_id="run-a", engine="vina", protocol_hash="p1") == {
             (int(shard.id), 10)
@@ -120,7 +120,7 @@ def test_shard_completion_is_scoped_to_run_engine_and_protocol(tmp_path):
         with db.get_session() as session:
             receipt = session.exec(select(ScreeningShardRun)).one()
             assert receipt.state == TargetState.DONE
-            assert receipt.result_path.endswith("results.mshard")
+            assert receipt.result_path.endswith("results.parquet")
             # Replaying the same pair is idempotent.
             assert (receipt.ligands_scored, receipt.hits) == (100, 3)
     finally:

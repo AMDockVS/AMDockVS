@@ -345,7 +345,7 @@ __all__ = ["CatalogDetailsView"]
 
 
 def _shard_header(path: Path) -> dict:
-    """What the `.mshard` itself declares. Opening it is a header read, not a library walk."""
+    """What the shard file itself declares. Opening it is a header read, not a library walk."""
     if not path.is_file():
         return {"error": "shard file not found"}
     try:

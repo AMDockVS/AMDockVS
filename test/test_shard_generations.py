@@ -38,7 +38,7 @@ def _populate(project_db, generation_id, directory, *, count=3, tag="g"):
     paths = []
     with project_db.get_session() as session:
         for index in range(count):
-            path = directory / f"{tag}_{index:05d}.mshard"
+            path = directory / f"{tag}_{index:05d}.parquet"
             path.write_bytes(b"shard")
             paths.append(path)
             session.add(
@@ -86,7 +86,7 @@ def test_a_failed_rewrite_leaves_the_library_alone(project, tmp_path):
     second = create_generation(project_db, step="protonate", shard_dir=root)
     writer = ShardGenerationWriter(project_db=project_db, generation_id=second)
     writer.handle("chunk-0", [{
-        "source": "lib.smi", "shard_index": 0, "path": str(tmp_path / "p_00000.mshard"),
+        "source": "lib.smi", "shard_index": 0, "path": str(tmp_path / "p_00000.parquet"),
         "input_format": "smi", "n_records": 998, "state": ShardState.READY,
     }])
     writer.on_error("chunk-1", "boom")

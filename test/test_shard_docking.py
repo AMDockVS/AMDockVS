@@ -2,8 +2,6 @@
 
 The two pieces with arithmetic in them. Everything else (Vina, the gate) is already covered.
 """
-import gzip
-import json
 import sys
 from pathlib import Path
 
@@ -43,7 +41,7 @@ def _pdbqt_shard(path: Path, count: int = 5) -> Path:
 
 
 def test_a_slice_comes_out_as_files_with_the_record_ids_and_their_smiles(tmp_path):
-    shard = _pdbqt_shard(tmp_path / "shard_0.mshard")
+    shard = _pdbqt_shard(tmp_path / "shard_0.parquet")
     ligands = extract_ligands(shard, tmp_path / "staging", start=2, count=2)
     assert [ligand["id"] for ligand in ligands] == [2, 3]
     assert [Path(ligand["path"]).name for ligand in ligands] == ["2.pdbqt", "3.pdbqt"]
@@ -53,7 +51,7 @@ def test_a_slice_comes_out_as_files_with_the_record_ids_and_their_smiles(tmp_pat
 
 
 def test_selected_record_ids_extract_only_the_reference_top_n(tmp_path):
-    shard = _pdbqt_shard(tmp_path / "shard_0.mshard")
+    shard = _pdbqt_shard(tmp_path / "shard_0.parquet")
     ligands = extract_ligands(shard, tmp_path / "selected", record_ids=[1, 4])
     assert [ligand["id"] for ligand in ligands] == [1, 4]
     assert sorted(path.name for path in (tmp_path / "selected").iterdir()) == ["1.pdbqt", "4.pdbqt"]
@@ -67,13 +65,13 @@ def test_a_wrapped_smiles_remark_is_joined_and_the_idx_remark_ignored():
 def test_the_header_tallies_the_reasons_and_the_log_beside_the_shard_holds_every_id(tmp_path):
     failures = [(1, "a"), (2, "b"), (3, "a")]
     assert failure_report(failures) == {"n_failed": 3, "reasons": {"a": 2, "b": 1}}
-    shard = tmp_path / "shard_0.mshard"
+    shard = tmp_path / "shard_0.parquet"
     log = write_failure_log(shard, failures)
-    assert log.name == "shard_0.mshard.failures.jsonl"
+    assert log.name == "shard_0.parquet.failures.jsonl"
     assert read_failure_log(shard) == [
         {"id": 1, "reason": "a"}, {"id": 2, "reason": "b"}, {"id": 3, "reason": "a"}
     ]
-    assert write_failure_log(tmp_path / "clean.mshard", []) is None
+    assert write_failure_log(tmp_path / "clean.parquet", []) is None
 
 
 class _Recorder:
@@ -243,7 +241,7 @@ def test_the_streaming_gate_still_writes_as_it_goes():
 
 
 def test_docking_streams_each_ligand_into_a_result_shard_and_removes_loose_poses(tmp_path, monkeypatch):
-    prepared = _pdbqt_shard(tmp_path / "prepared.mshard", count=2)
+    prepared = _pdbqt_shard(tmp_path / "prepared.parquet", count=2)
     output = tmp_path / "results" / "docking" / "screening"
     progress = []
 
@@ -354,7 +352,7 @@ def test_select_hits_projects_scores_then_loads_only_selected_poses(tmp_path, mo
         project_db = runtime.workspace.project_db
         with project_db.get_session() as session:
             receptor = MoleculeRecord(name="R", molecule_type="protein", is_receptor=True)
-            source_shard = ScreeningShard(source="lib.smi", shard_index=0, path="lib.mshard", n_records=3)
+            source_shard = ScreeningShard(source="lib.smi", shard_index=0, path="lib.parquet", n_records=3)
             session.add(receptor)
             session.add(source_shard)
             session.commit()
@@ -424,7 +422,7 @@ def test_top_n_writes_nothing_until_the_campaign_closes(tmp_path):
         with project_db.get_session() as session:
             receptor = MoleculeRecord(name="R", molecule_type="protein", is_receptor=True)
             source_shard = ScreeningShard(
-                source="lib.smi", shard_index=0, path="lib.mshard", n_records=3
+                source="lib.smi", shard_index=0, path="lib.parquet", n_records=3
             )
             session.add(receptor)
             session.add(source_shard)
@@ -506,7 +504,7 @@ def test_general_top_n_is_ranked_per_receptor_and_deduplicates_ligands(tmp_path)
                 for name in ("reference", "off-target")
             ]
             source_shard = ScreeningShard(
-                source="library.smi", shard_index=0, path="library.mshard", n_records=2
+                source="library.smi", shard_index=0, path="library.parquet", n_records=2
             )
             session.add_all([*receptors, source_shard])
             session.commit()
@@ -571,7 +569,7 @@ def test_interrupted_top_n_is_recovered_from_completed_result_shards(tmp_path):
             session.add(receptor)
             session.flush()
             source_shards = [
-                ScreeningShard(source="library.smi", shard_index=index, path=f"input-{index}.mshard", n_records=2)
+                ScreeningShard(source="library.smi", shard_index=index, path=f"input-{index}.parquet", n_records=2)
                 for index in range(2)
             ]
             session.add_all(source_shards)
@@ -586,18 +584,11 @@ def test_interrupted_top_n_is_recovered_from_completed_result_shards(tmp_path):
 
         protocol = {"program": "vina", "label": "Vina", "hash": "proto-recover"}
         for shard_index, scores in enumerate(((-7.0, -10.0), (-9.0, -8.0))):
-            result_path = tmp_path / "results" / f"result-{shard_index}.mshard"
+            result_path = tmp_path / "results" / f"result-{shard_index}.parquet"
             result_path.parent.mkdir(parents=True, exist_ok=True)
-            with ShardWriter(
+            with shard_tasks.ResultFragmentWriter(
                 result_path,
-                dataset_id=None,
-                shard_id=shard_index,
-                base_id=shard_index * 2,
-                kind=PayloadKind.GENERIC_BYTES,
-                serializer=Serializer.RAW,
-                slot_count=2,
                 metadata={
-                    "record_format": shard_jobs.RESULT_SHARD_FORMAT,
                     "run_id": "interrupted",
                     "protocol": protocol,
                     "selection": {"mode": "top_n", "cap": 2, "threshold": 0.0},
@@ -605,16 +596,18 @@ def test_interrupted_top_n_is_recovered_from_completed_result_shards(tmp_path):
             ) as writer:
                 for offset, score in enumerate(scores):
                     ligand_id = shard_index * 2 + offset
-                    payload = {
+                    writer.add({
                         "ligand_id": ligand_id,
                         "receptor_id": receptor_id,
                         "score": score,
                         "score_type": "vina_score",
+                        "status": "done",
+                        "engine": "vina",
                         "smiles": "CCO",
+                        "metrics_json": "{}",
                         "pose_text": f"ligand-{ligand_id}\n$$$$\n",
                         "pose_suffix": ".sdf",
-                    }
-                    writer.add(ligand_id, gzip.compress(json.dumps(payload).encode()))
+                    })
             with project_db.get_session() as session:
                 session.add(ScreeningShardRun(
                     run_id="interrupted",

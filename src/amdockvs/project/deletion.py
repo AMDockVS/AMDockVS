@@ -5,7 +5,7 @@ project never keeps orphaned children. Editing one drops what was computed from 
 (`clear_derived`): what stays is what describes the compound, not the drawing. A docking result
 never goes alone either: `delete_results_where` takes what was computed from it, poses included.
 Bytes leave with `release` once the rows are gone: it only deletes the payloads no row references
-any more, so one that is still shared (a hit's pose, an unedited import) stays. A `.mshard` is never
+any more, so one that is still shared (a hit's pose, an unedited import) stays. A library shard is never
 deleted: one holds many molecules.
 Each delete runs in its own session and suppresses "no such table" (some tables — e.g.
 docking_results — are created lazily on first use)."""

@@ -66,7 +66,7 @@ foreign key references any more. No code deletes molecule, pose or prepared file
 ## Still files (D4)
 
 Per-run or regenerable data stays on disk: autogrid maps (a per-receptor cache),
-the clustering parquet, QSAR models, `.mshard` shards and `ShardEngineState.files`,
+the clustering parquet, QSAR models, Parquet library shards and `ShardEngineState.files`,
 exports, and pose-diagram images (a cache keyed by docking result id, drawn again
 on demand). `core/worker_io.py` (`worker_file`, `worker_path_fields`) is for these.
 

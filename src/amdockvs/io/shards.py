@@ -31,7 +31,7 @@ from amdockvs.io.payloads import ImportBatchPayload
 from amdockvs.io.rows import cull_mol, htp_mol_filter
 from amdockvs.core.vocab import FileFormat, ShardState
 
-SHARD_SUFFIX = ".mshard"
+SHARD_SUFFIX = ".parquet"
 
 # What the container stamps in the header so a reader knows how to parse a record's bytes.
 _PAYLOAD_KIND = {

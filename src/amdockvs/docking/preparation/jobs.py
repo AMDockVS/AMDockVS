@@ -233,7 +233,7 @@ class PrepareLigandShardsJobParams(BaseModel):
 
 
 class PrepareLigandShardsJobSpec(JobSpec):
-    """Whole shards per chunk: molecules in, PDBQT text out, both inside `.mshard` containers."""
+    """Whole shards per chunk: molecules in, PDBQT text out, both inside shard containers."""
 
     name = "amdock_prepare_ligand_shards_job"
     task_name = "amdock_prepare_ligand_shards_task"

@@ -29,8 +29,8 @@ def _smiles_shard(path: Path, smiles=("CCO", "c1ccccc1O")) -> Path:
 
 
 def test_a_smiles_shard_comes_out_as_pdbqt_at_the_same_ids(tmp_path):
-    out = tmp_path / "prepared" / "shard_0.mshard"
-    stats = prepare_ligand_shard(_smiles_shard(tmp_path / "shard_0.mshard"), out)
+    out = tmp_path / "prepared" / "shard_0.parquet"
+    stats = prepare_ligand_shard(_smiles_shard(tmp_path / "shard_0.parquet"), out)
     assert stats == {"n_input": 2, "n_records": 2, "n_failed": 0, "failures": {}}
     with Shard.open(out) as shard:
         assert shard.kind == PayloadKind.PDBQT
@@ -42,9 +42,9 @@ def test_a_smiles_shard_comes_out_as_pdbqt_at_the_same_ids(tmp_path):
 
 
 def test_re_preparing_reads_the_molecules_again_not_the_pdbqt(tmp_path):
-    first = tmp_path / "prepared" / "shard_0.mshard"
-    prepare_ligand_shard(_smiles_shard(tmp_path / "shard_0.mshard"), first)
-    stats = prepare_ligand_shard(first, tmp_path / "again" / "shard_0.mshard")
+    first = tmp_path / "prepared" / "shard_0.parquet"
+    prepare_ligand_shard(_smiles_shard(tmp_path / "shard_0.parquet"), first)
+    stats = prepare_ligand_shard(first, tmp_path / "again" / "shard_0.parquet")
     assert stats["n_records"] == 2
 
 
