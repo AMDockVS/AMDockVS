@@ -1,3 +1,4 @@
+from amdockvs.models.codes import CodeRecord, ensure_codes
 from amdockvs.models.clustering import SimilarityResult, ClusteringResult, ClusteringRun
 from amdockvs.models.complexes import ComplexRecord
 from amdockvs.models.descriptors import (
@@ -42,6 +43,8 @@ QSARModelRecord = QSARModel
 QSARPredictionRecord = QSARPrediction
 
 __all__ = [
+    "CodeRecord",
+    "ensure_codes",
     "MoleculeRecord",
     "MoleculeRepresentation",
     "MoleculeModel",

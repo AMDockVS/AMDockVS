@@ -6,6 +6,8 @@ from datetime import datetime
 from sqlalchemy import DateTime, JSON, UniqueConstraint, Index
 from sqlmodel import SQLModel, Field
 
+from amdockvs.models.codes import code_field
+
 from amdockvs.core.constants import (
     TABLE_LIGAND_ACTIVITIES,
     TABLE_MOLECULES,
@@ -37,7 +39,7 @@ class LigandActivity(SQLModel, table=True):
     value: float
     unit: str           = Field(default="")   # nM, uM, ...
     activity_type: str  = Field(default="")   # IC50, Ki, Kd, pIC50, ...
-    kind: str           = Field(default="continuous")  # "continuous" | "categorical" — picks the model task
+    kind: str           = code_field("activity_kind", "continuous")  # picks the model task
     description: str    = Field(default="")
     source: str         = Field(default="")   # reference, assay id, etc.
 
@@ -88,9 +90,9 @@ class QSARModel(SQLModel, table=True):
 
     id: int | None    = Field(default=None, primary_key=True)
     name: str         = Field(index=True)
-    algorithm: str    = Field(default="")   # "rf" | "xgb" | "dnn" | "svr" | ...
+    algorithm: str    = code_field("qsar_algorithm")
     target: str       = Field(default="")   # "IC50" | "Ki" | "pIC50" | ...
-    feature_type: str = Field(default="")
+    feature_type: str = code_field("feature_type")
     source: str       = Field(default="trained")  # "trained" | "external"
 
     model_path: str   = Field(default="")   # serialized model file (relative)
