@@ -64,8 +64,6 @@ def _build_row(
         "source_file": str(source_file.resolve()),  # graph refs only; the batch says the source
         "molecule_kind": str(built.get("molecule_type") or molecule_kind or "unknown"),
         "primary_role": str(primary_role or ""),
-        "smiles": str(metadata_map.get("smiles") or ""),
-        "sequence_1d": str(metadata_map.get("sequence_1d") or ""),
         "status_flags": 0,
         "metadata_json": json.dumps(metadata_map, ensure_ascii=True),
         "source_properties": [],

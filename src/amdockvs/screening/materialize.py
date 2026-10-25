@@ -19,8 +19,8 @@ from typing import Any, Iterable, Mapping
 from sqlmodel import select
 
 from amdockvs.core.payloads import payload_store
-from amdockvs.models import DockingResult, MoleculeModel, MoleculeRecord
-from amdockvs.core.vocab import ModelSource, MoleculeType
+from amdockvs.models import DockingResult, MoleculeModel, MoleculeRecord, MoleculeRepresentation
+from amdockvs.core.vocab import ModelSource, MoleculeType, ReprType
 
 PAYLOAD_LIGHT = "light"
 PAYLOAD_FULL = "full"
@@ -156,7 +156,6 @@ def _molecule_row(hit: Mapping[str, Any], *, payload: str, structure_id: int | N
         # The pose is the only 3D a light hit carries, so it is also its structure: one payload
         # that the molecule and its docking result both hold.
         "stored_payload_id": structure_id,
-        "extra_data": {"smiles": str(hit.get("smiles") or "")},
     }
     if payload == PAYLOAD_FULL:
         row.update({key: hit[key] for key in DESCRIPTOR_FIELDS if hit.get(key) is not None})
@@ -213,6 +212,9 @@ def ingest_hits(
                 molecule = MoleculeRecord(**_molecule_row(hit, payload=payload, structure_id=pose_id))
                 session.add(molecule)
                 session.flush()  # need the id for the result row
+                if hit.get("smiles"):  # Meeko's, from the PDBQT: the hit's only 2D
+                    session.add(MoleculeRepresentation(molecule_id=int(molecule.id), repr_type=ReprType.SMILES_ISOMERIC,
+                                                       value=str(hit["smiles"])))
                 if reuse_existing:
                     molecules_by_source[source_key] = molecule
             molecule_id = int(molecule.id or 0)

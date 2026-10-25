@@ -53,13 +53,7 @@ class LigandDecision:
 
 
 def metadata_map_from_row(row: dict[str, Any]) -> dict[str, Any]:
-    metadata = sanitize_molecule_extra_data(row.get("extra_data"))
-
-    for key in ("smiles", "sequence_1d"):
-        value = row.get(key)
-        if value not in (None, ""):
-            metadata[key] = value
-    return metadata
+    return sanitize_molecule_extra_data(row.get("extra_data"))
 
 
 def active_small_molecule_criteria(prefilter: ImportPrefilterPolicy | None, molecule_kind: str):

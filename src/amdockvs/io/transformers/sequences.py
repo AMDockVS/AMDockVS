@@ -35,7 +35,7 @@ def _materialize_fasta_rows(
             import_batch_id=batch.import_batch_id,
             stored=None,
             current=None,
-            metadata={"sequence_1d": sequence, "state": dict(_STATE)},
+            metadata={"state": dict(_STATE)},
             molecule_kind=batch.molecule_kind or MoleculeType.PROTEIN,
             primary_role=batch.primary_role or batch.kind,
             primary_context=batch.primary_context,
