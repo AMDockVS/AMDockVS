@@ -4,7 +4,6 @@ No SQL and no job declaration here: a worker loads this module and nothing of `j
 """
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -28,7 +27,6 @@ def _chemistry_graph_payload(
     A molecule that failed is marked excluded with the step and error as the reason: later
     steps skip it, and Filter's "Excluded" scope lists it and brings it back.
     """
-    now = datetime.now()
     molecules: list[dict[str, Any]] = []
     molecule_models: list[dict[str, Any]] = []
     for update in updates:
@@ -38,7 +36,6 @@ def _chemistry_graph_payload(
         mol_row: dict[str, Any] = {
             "id": entity_id,
             "extra_data": dict(update.get("extra_data") or {}),
-            "updated_at": now,
         }
         state = dict(update.get("state") or {})
         for key in ("has_3d", "has_hs", "is_minimized", "conformer_count"):
@@ -53,7 +50,7 @@ def _chemistry_graph_payload(
         for model_row in list(update.get("model_rows") or []):
             molecule_models.append(dict(model_row))
     failed = [
-        {"id": int(f["entity_id"]), "excluded": True, "exclusion_reason": str(f.get("error") or ""), "updated_at": now}
+        {"id": int(f["entity_id"]), "excluded": True, "exclusion_reason": str(f.get("error") or "")}
         for f in failures
         if int(f.get("entity_id") or 0) > 0
     ]
@@ -141,7 +138,6 @@ def receptor_prediction_task(payload: dict, progress_cb=None):
             "has_hs": False,
             "is_minimized": False,
             "conformer_count": 1,
-            "updated_at": datetime.now(),
         }],
         "molecule_models": [
             molecule_model_row(
@@ -178,5 +174,4 @@ def shard_chemistry_task(payload: dict, progress_cb=None) -> list[dict]:
         # chemistry step (whose feed is `state=pending`) find an empty library.
         "state": ShardState.PENDING,
         "error": "" if not stats["n_failed"] else f"{stats['n_failed']} of {stats['n_input']} molecules failed",
-        "updated_at": datetime.now(),
     }]

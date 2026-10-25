@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 from sqlmodel import select
 
 from amdockvs.io.jobs import IMPORT_GRAPH_OUTPUT
@@ -18,8 +16,6 @@ def _row(source: str, index: int, role: str, **extra) -> dict:
         "primary_role": role,
         "molecule_kind": "protein" if role == "receptor" else "small_molecule",
         "input_format": "pdb",
-        "created_at": datetime.now(timezone.utc),
-        "updated_at": datetime.now(timezone.utc),
     }
     row.update(extra)
     return row

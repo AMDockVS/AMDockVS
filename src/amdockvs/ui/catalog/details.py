@@ -220,8 +220,6 @@ class CatalogDetailsView(QWidget):
                 "Path": str(path),
                 "Size": f"{path.stat().st_size:,} bytes" if path.is_file() else "missing",
                 "Dispatch": getattr(shard, "dispatch_id", None),
-                "Created": getattr(shard, "created_at", None),
-                "Updated": getattr(shard, "updated_at", None),
             },
         )
         error = str(getattr(shard, "error", "") or "")

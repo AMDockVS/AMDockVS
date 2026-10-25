@@ -7,7 +7,6 @@ whether they are prepared, which payloads they dock with. Result queries live in
 from __future__ import annotations
 
 import json
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping
 
@@ -552,7 +551,6 @@ def update_receptor_metadata_json(project_db, *, receptor_id: int, metadata_json
             receptor.extra_data = json.loads(str(metadata_json or "{}"))
         except json.JSONDecodeError:
             receptor.extra_data = {}
-        receptor.updated_at = datetime.now()
         session.add(receptor)
         session.commit()
 
@@ -594,7 +592,6 @@ def persist_receptor_grid(
         session.add(site)
         session.flush()
         receptor.active_binding_site_id = int(site.id or 0) or None
-        receptor.updated_at = datetime.now()
         session.add(receptor)
         session.commit()
 

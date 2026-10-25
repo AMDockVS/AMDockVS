@@ -3,7 +3,6 @@ from __future__ import annotations
 import importlib.util
 import os
 import shutil
-from datetime import datetime
 
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -747,13 +746,14 @@ class MoleculeBuildWidget(QWidget):
 
     def _run_build_ligands(self) -> None:
         cfg = self._cfg_build_ligands()
+        # Failures are the molecules this run excluded: the ones excluded after, but not before.
+        excluded_before = self.runtime.molecules.excluded_ids()
         try:
             job_id = self.runtime.chemistry.run_ligand_pipeline(**cfg)
         except Exception as exc:  # noqa: BLE001 - shown to the user, nothing was submitted
             QMessageBox.critical(self, "Build Small Molecules", str(exc))
             return
-        # Failures are excluded with updated_at = now (a second earlier covers clock rounding).
-        self._ligand_run_started = datetime.now().replace(microsecond=0)
+        self._ligand_run_started = excluded_before
         # No "submitted" popup: the action bar carries the run, the shell toast announces it.
         self.ligand_jobs.follow([("Building", job_id)], unit="shards" if cfg["ligands"] is None else "batches")
 

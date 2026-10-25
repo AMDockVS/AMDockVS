@@ -24,7 +24,6 @@ data. `io/api.py` is where it is enforced, at import.
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator, Mapping, Protocol
 
@@ -286,7 +285,6 @@ def set_shard_state(project_db, *, source: str, shard_index: int, state: str) ->
         if row is None:
             return
         row.state = str(state)
-        row.updated_at = datetime.now()
         session.add(row)
         session.commit()
 

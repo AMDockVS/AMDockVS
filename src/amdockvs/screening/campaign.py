@@ -9,7 +9,6 @@ the run is submitted and the counters move once per returned chunk, both in the 
 from __future__ import annotations
 
 import json
-from datetime import datetime
 from typing import Any, Iterable, Mapping
 
 from sqlmodel import select
@@ -43,7 +42,6 @@ def plan_targets(
             existing.engine = str(engine or existing.engine)
             existing.ligands_total = int(ligands_total)
             existing.state = TargetState.SCHEDULED
-            existing.updated_at = datetime.now()
             session.add(existing)
         session.commit()
     return len(rows)
@@ -64,7 +62,6 @@ def advance_target(project_db, *, run_id: str, receptor_id: int, scored: int, hi
         row.ligands_done += max(0, int(scored))
         row.hits += max(0, int(hits))
         row.state = TargetState.RUNNING
-        row.updated_at = datetime.now()
         session.add(row)
         session.commit()
 
@@ -74,7 +71,6 @@ def finish_run(project_db, *, run_id: str) -> None:
     with project_db.get_session() as session:
         for row in session.exec(select(ScreeningTarget).where(ScreeningTarget.run_id == str(run_id))).all():
             row.state = TargetState.DONE
-            row.updated_at = datetime.now()
             session.add(row)
         session.commit()
 
@@ -87,7 +83,6 @@ def stop_run(project_db, *, run_id: str, state: str) -> None:
         for row in session.exec(select(ScreeningTarget).where(ScreeningTarget.run_id == str(run_id))).all():
             if row.state not in (TargetState.DONE, TargetState.FAILED, TargetState.CANCELED):
                 row.state = state
-                row.updated_at = datetime.now()
                 session.add(row)
         session.commit()
 
@@ -128,7 +123,6 @@ def advance_shard_run(
         row.hits = max(0, int(hits))
         row.result_path = str(result_path or "")
         row.state = TargetState.DONE
-        row.updated_at = datetime.now()
         session.add(row)
         session.commit()
         return True
@@ -179,7 +173,6 @@ def list_targets(project_db, *, run_id: str | None = None, active_only: bool = F
                 "pending": max(0, int(row.ligands_total) - int(row.ligands_done)),
                 "hits": row.hits,
                 "state": row.state,
-                "updated_at": row.updated_at,
             }
             for row in rows
         ]

@@ -1,5 +1,4 @@
 from amdockvs.models.clustering import SimilarityResult, ClusteringResult, ClusteringRun
-from amdockvs.models.base import TimestampedRecord
 from amdockvs.models.complexes import ComplexRecord
 from amdockvs.models.descriptors import (
     DescriptorBlockRecord,
@@ -82,5 +81,4 @@ __all__ = [
     "QSARPredictionRecord",
     "QSARPrediction",
     "InteractionsResult",
-    "TimestampedRecord",
 ]

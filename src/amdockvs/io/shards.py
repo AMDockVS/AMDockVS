@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import io
 from dataclasses import replace
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -234,7 +233,6 @@ class ShardQueueWriter:
     ) -> None:
         from amdockvs.models import ScreeningShard
 
-        now = datetime.now()
         with self._project_db.get_session() as session:
             session.add(
                 ScreeningShard(
@@ -245,8 +243,6 @@ class ShardQueueWriter:
                     input_format=input_format,
                     n_records=n_records,
                     state=ShardState.PENDING,
-                    created_at=now,
-                    updated_at=now,
                 )
             )
             session.commit()
@@ -286,7 +282,6 @@ class ShardGenerationWriter:
         rows = [dict(row) for row in (result or [])]
         if not rows:
             return
-        now = datetime.now()
         with self._project_db.get_session() as session:
             for row in rows:
                 session.add(
@@ -299,8 +294,6 @@ class ShardGenerationWriter:
                         n_records=int(row.get("n_records") or 0),
                         state=str(row.get("state") or ShardState.READY),
                         error=str(row.get("error") or ""),
-                        created_at=now,
-                        updated_at=now,
                     )
                 )
             session.commit()

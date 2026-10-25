@@ -567,7 +567,7 @@ def list_interactions(project_db, *, result_id: int) -> list[dict[str, Any]]:
     rows = db_rows(
         project_db,
         query=(
-            "SELECT interaction_type, residue, residue_index, distance, geometry, created_at "
+            "SELECT interaction_type, residue, residue_index, distance, geometry "
             f"FROM {TABLE_INTERACTION_RESULTS} "
             f"WHERE pose_payload_id = (SELECT pose_payload_id FROM {TABLE_DOCKING_RESULTS} WHERE id = {int(result_id)}) "
             "ORDER BY interaction_type ASC, residue_index ASC, distance ASC"
@@ -580,7 +580,6 @@ def list_interactions(project_db, *, result_id: int) -> list[dict[str, Any]]:
             "residue_index": int(row.get("residue_index") or 0),
             "distance": _float_or_none(row.get("distance")),
             "geometry": _decode_metadata(row.get("geometry")),
-            "created_at": row.get("created_at"),
         }
         for row in rows
     ]

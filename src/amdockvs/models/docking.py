@@ -58,7 +58,6 @@ class BindingSite(SQLModel, table=True):
 
     extra_data: dict | None = Field(default=None, sa_type=JSON)
 
-    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
     @property
     def is_defined(self) -> bool:
@@ -114,8 +113,6 @@ class EngineState(SQLModel, table=True):
     files: dict = Field(default_factory=dict, sa_type=JSON)
     is_ready: bool = Field(default=False, index=True)
 
-    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
-    updated_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
     build_row = staticmethod(engine_state_row)
 
@@ -283,6 +280,5 @@ class InteractionsResult(SQLModel, table=True):
     # pi_stacking:   {"angle": ..., "offset": ...}
     geometry: dict = Field(default_factory=dict, sa_type=JSON)
 
-    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
     build_rows = staticmethod(interaction_rows)

@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
 from typing import Any, Mapping
 
-from sqlalchemy import Column, Computed, DateTime, Index, Integer, JSON, UniqueConstraint, text
+from sqlalchemy import Column, Computed, Index, Integer, JSON, UniqueConstraint, text
 from pydantic import field_validator
 from sqlmodel import SQLModel, Field
 
@@ -17,7 +16,6 @@ from amdockvs.core.constants import (
     TABLE_PAYLOADS,
 )
 from amdockvs.core.rows import molecule_model_row, molecule_row, sanitize_molecule_extra_data
-from .base import TimestampedRecord
 
 # Domain vocabulary centralised in amdockvs.core.vocab. Re-exported here so existing
 # imports keep working (`from amdockvs.models.molecules import MoleculeType`).
@@ -53,7 +51,7 @@ def _coerce_string_list(value: Any) -> list[str]:
 # MoleculeRecord
 # ---------------------------------------------------------------------------
 
-class MoleculeRecord(TimestampedRecord, table=True):
+class MoleculeRecord(SQLModel, table=True):
     """
     Central registry. One row per molecule regardless of role.
 
@@ -324,6 +322,5 @@ class MoleculeModel(SQLModel, table=True):
     # Per-model quality data (e.g. ESMFold plddt_mean/ptm); ESMFold's PAE matrix as a payload.
     metrics: dict = Field(default_factory=dict, sa_type=JSON)
     pae_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
-    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
     build_row = staticmethod(molecule_model_row)

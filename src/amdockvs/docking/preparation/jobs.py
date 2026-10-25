@@ -38,7 +38,7 @@ ENGINE_STATE_UPSERT = graph_sink(
         {
             "name": "molecule_failures",
             "model": MoleculeRecord,
-            "columns": ["id", "excluded", "exclusion_reason", "updated_at"],
+            "columns": ["id", "excluded", "exclusion_reason"],
             "write_mode": "upsert",
             "conflict_keys": ["id"],
             "validate_model": False,

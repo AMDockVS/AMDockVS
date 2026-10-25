@@ -7,7 +7,6 @@ no matter whether it came from an SDF, a SMILES line or a PDB. The format module
 from __future__ import annotations
 
 import json
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
@@ -38,7 +37,6 @@ def _build_row(
     primary_context: str,
     usage_class: str = "",
 ) -> dict[str, Any]:
-    now = datetime.now()
     # ponytail: usage_class is derived from the context unless the caller states one. Only the
     # `general` context is the screening library; anything imported into a named context
     # (reference, cocrystal, activity) is curated, and `general_ligand_count` must not see it.
@@ -60,7 +58,6 @@ def _build_row(
         current_payload_id=current,
         current_model_index=None,
         extra_data=metadata_map,
-        created_at=now,
         primary_context=str(primary_context or ""),
         usage_class=resolved_usage,
     )

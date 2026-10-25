@@ -119,7 +119,7 @@ def recoverable_ranked_runs(project_db, *, project_root: str | Path) -> list[dic
         receipts = session.exec(
             select(ScreeningShardRun)
             .where(ScreeningShardRun.state == TargetState.DONE, ScreeningShardRun.result_path != "")
-            .order_by(ScreeningShardRun.updated_at.desc())
+            .order_by(ScreeningShardRun.id.desc())
         ).all()
         target_states: dict[str, set[str]] = {}
         for target in session.exec(select(ScreeningTarget)).all():
@@ -159,9 +159,9 @@ def recoverable_ranked_runs(project_db, *, project_root: str | Path) -> list[dic
             "threshold": float(selection.get("threshold", RANKED_PREFILTER_SCORE)),
             "shards": sum(path.is_file() for path in paths),
             "scored": sum(max(0, int(row.ligands_scored or 0)) for row in rows),
-            "updated_at": max(row.updated_at for row in rows),
+            "last_receipt_id": max(int(row.id) for row in rows),
         })
-    return sorted(candidates, key=lambda row: row["updated_at"], reverse=True)
+    return sorted(candidates, key=lambda row: row["last_receipt_id"], reverse=True)
 
 
 def recover_ranked_hits(

@@ -417,6 +417,7 @@ def test_amdock_ui_domain_views_show_docking_summaries(tmp_path, monkeypatch):
         from amdockvs.ui.tools.docking import preparation_panel
 
         monkeypatch.setattr(preparation_panel, "run_async", lambda fn, on_result, *a, **k: on_result(fn()))
+        monkeypatch.setattr(docking_view.runtime.molecules, "excluded_ids", lambda: set())
         monkeypatch.setattr(docking_view.runtime.molecules, "excluded_since", lambda since: [
             (1454, "LIG_1454", "Docking preparation (ad4): Gasteiger charges are NaN")])
         docking_view._follow_prep(docking_view.ligand_prep_jobs, {"vina": "job-z"})
