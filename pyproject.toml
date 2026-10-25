@@ -31,8 +31,8 @@ classifiers = [
 dependencies = [
     # MolSuite stack
     "ms_env>=0.3.0",
-    "ms_flow>=0.4.1",
-    "ms_components>=0.3.3",
+    "ms_flow>=0.5.0",
+    "ms_components>=0.3.4",
     "ms_contactmap>=0.3.1",
     # Chemistry / structure
     "rdkit>=2025.3.5",
