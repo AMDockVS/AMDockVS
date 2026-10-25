@@ -2,6 +2,7 @@ import sys
 import time
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -96,7 +97,15 @@ def _role_count(runtime: AMDockVSRuntime, role: str) -> int:
     return runtime.molecules.count(_role_scope(runtime, role))
 
 
+def _fake_batches(monkeypatch):
+    monkeypatch.setattr(loader_api_module, "register_batches", lambda _db, files, **_kw: {
+        str(Path(f).resolve()): 1 for f in files})
+    monkeypatch.setattr(loader_api_module, "stamp_job", lambda *_a: None)
+
+
 class _FakeLoaderRuntime:
+    workspace = SimpleNamespace(project_db=None)
+
     def __init__(self):
         self.required_calls = 0
         self.submit_job_calls = 0
@@ -177,6 +186,7 @@ def test_loader_api_dispatches_jobs_via_jobdefinition_helpers(monkeypatch, tmp_p
     ligands_file.write_text("CCO LIG_0001\n", encoding="utf-8")
 
     monkeypatch.setattr(loader_api_module, "load_molecules_file_job", fake_job)
+    _fake_batches(monkeypatch)
 
     job_ids = api.load_molecules(
         [ligands_file],
@@ -202,6 +212,7 @@ def test_loader_api_dispatches_jobs_via_jobdefinition_helpers(monkeypatch, tmp_p
                 "primary_role": "ligand",
                 "primary_context": "screening",
                 "molecule_kind": "small_molecule",
+                "import_batch_ids": {str(ligands_file.resolve()): 1},
             },
             "kwargs": {
                 "executor_name": "thread",
@@ -222,6 +233,7 @@ def test_load_receptors_headless_resolves_box_size(monkeypatch, tmp_path):
     _make_receptor_pdb(receptor)
     fake_job = _FakeLoaderJob()
     monkeypatch.setattr(loader_api_module, "load_receptors_file_job", fake_job)
+    _fake_batches(monkeypatch)
     api = LoaderAPI(_FakeLoaderRuntime())  # no amdock_configuration -> app_config uses packaged default
 
     api.load_receptors([receptor], binding_site_box_size=24.0, build_specs=False)
@@ -589,7 +601,6 @@ def test_amdock_runtime_prepare_and_dock_with_stored_grid(tmp_path, monkeypatch)
 def test_a_ligand_the_engine_cannot_prepare_is_excluded_and_docking_runs_without_it(tmp_path, monkeypatch):
     _require_docking_stack()
     _patch_fake_home(monkeypatch, tmp_path)
-    from datetime import datetime
 
     runtime = AMDockVSRuntime()
     try:
@@ -609,7 +620,7 @@ def test_a_ligand_the_engine_cannot_prepare_is_excluded_and_docking_runs_without
         receptor_set = runtime.molecules.create_set(_role_scope(runtime, "receptor"), name="rs", kind="snapshot")
         _wait_completed(runtime, [runtime.chemistry.generate_3d_ligands(batch_size=4, executor_name="thread")])
 
-        started = datetime.now()
+        started = runtime.molecules.excluded_ids()
         _wait_completed(runtime, [
             runtime.docking.prepare_ligands(batch_size=4, executor_name="thread"),
             runtime.docking.prepare_receptors(batch_size=1, executor_name="thread"),
@@ -708,12 +719,15 @@ def test_amdock_runtime_exposes_domain_queries_for_receptors_and_docking_results
         assert runtime.docking.count_docked_pairs(protocol_hash="not-a-hash") == 0
         assert receptor_summaries[0].expected_ligands == 6  # nothing missing here
 
-        # Protocol identity: only the scientific keys count. Reporting more poses, swapping the
-        # vina binding or changing the thread count is the same protocol -- otherwise the
-        # skip-existing guard (it filters by protocol.hash) would re-dock everything.
+        # Protocol identity: the search and output settings count. Swapping the vina binding or
+        # changing the thread count is the same protocol -- otherwise the skip-existing guard
+        # (it filters by protocol.hash) would re-dock everything.
         base = {"scoring_function": "vina", "exhaustiveness": 8, "num_modes": 9, "vina_backend": "binary"}
-        same = dict(base, num_modes=20, vina_backend="python", vina_cpu=4)
+        same = dict(base, vina_backend="python", vina_cpu=4)
         assert protocol_hash(program="vina", config=base) == protocol_hash(program="vina", config=same)
+        assert protocol_hash(program="vina", config=base) != protocol_hash(
+            program="vina", config=dict(base, num_modes=20)
+        )
         assert protocol_hash(program="vina", config=base) != protocol_hash(
             program="vina", config=dict(base, exhaustiveness=16)
         )

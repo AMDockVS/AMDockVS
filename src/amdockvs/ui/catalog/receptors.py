@@ -5,9 +5,9 @@ from datetime import datetime
 from PySide6.QtWidgets import QApplication, QInputDialog, QMessageBox
 
 from amdockvs.models import MoleculeRecord
-from amdockvs.ui.catalog.common import BoundTableWidget
+from amdockvs.ui.catalog.common import BoundTableWidget, batch_columns
 from amdockvs.ui.resources.icons import icon
-from amdockvs.core.vocab import FileFormat, MoleculeUsageClass
+from amdockvs.core.vocab import MoleculeUsageClass
 from ms_components.ms_table import (
     AlignHint,
     ColumnDef,
@@ -31,9 +31,7 @@ def _receptor_table_config(runtime) -> TableConfig:
             ColumnDef("name", label="Name", width=220, sortable=True, filterable=True),
             ColumnDef("usage_class", label="Usage", width=110, sortable=True, filterable=True, visible=False,
                       kind=ColumnKind.CHOICE, choices=choices_from_class(MoleculeUsageClass)),
-            ColumnDef("source", label="Source", width=360, sortable=True),
-            ColumnDef("input_format", label="Format", width=90, sortable=True, filterable=True,
-                      kind=ColumnKind.CHOICE, choices=choices_from_class(FileFormat)),
+            *batch_columns(MoleculeRecord),
             ColumnDef("current_payload_id", label="Current Payload", width=130, sortable=True, visible=False),
             ColumnDef("stored_payload_id", label="Stored Payload", width=130, sortable=True, visible=False),
         ],

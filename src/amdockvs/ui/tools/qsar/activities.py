@@ -51,11 +51,13 @@ def pick_ligands(parent, runtime) -> list[tuple[int, str]]:
         ligands.append(mol)
         if len(ligands) >= LIGAND_PICK_CAP:
             break
+    # ponytail: every activity row read; they are curated (thousands), not the library.
+    with_activity = {int(a.molecule_id) for a in runtime.qsar.list_activities()}
     table.setRowCount(len(ligands))
     for r, mol in enumerate(ligands):
         table.setItem(r, 0, QTableWidgetItem(str(mol.id)))
         table.setItem(r, 1, QTableWidgetItem(str(mol.name or "")))
-        table.setItem(r, 2, QTableWidgetItem("yes" if getattr(mol, "has_activity", False) else ""))
+        table.setItem(r, 2, QTableWidgetItem("yes" if int(mol.id or 0) in with_activity else ""))
     if len(ligands) >= LIGAND_PICK_CAP:
         caption = QLabel(f"Showing the first {LIGAND_PICK_CAP} ligands. Narrow the project's "
                          "ligand set (or import activities from a file) to reach the rest.", dlg)

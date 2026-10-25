@@ -14,7 +14,7 @@ so it copies, backs up and syncs like a small one.
 | `executor.db` | The job journal. An interrupted job resumes from it. |
 | `config.toml` | Project settings. |
 | `logs/` | The project log. |
-| `shards/` | HTPVS ligand libraries (`.mshard`). |
+| `shards/` | HTPVS ligand libraries (Parquet shards). |
 | `docking/` | Result fragments of sharded campaigns, and the docking programs' working files. |
 | `models/` | QSAR models. |
 | `pockets/` | P2Rank outputs; the viewer draws pocket points from them. |

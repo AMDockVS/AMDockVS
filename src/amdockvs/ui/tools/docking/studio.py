@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 )
 from ms_components.ms_stepper import Orientation, QStepper
 from amdockvs.ui.tools.binding_sites.flexible_residues import FlexibleResiduesPanel
-from amdockvs.ui.tools.docking.preparation_panel import EngineStatePrepView, PreparationPanel
+from amdockvs.ui.tools.docking.preparation_panel import PrepStatusView, PreparationPanel
 from amdockvs.ui.tools.docking.protocol_editor import ProtocolEditorWidget
 from amdockvs.ui.tools.docking.run_panel import RunPanel
 from amdockvs.ui.tools.docking.scope_panel import ScopePanel
@@ -209,6 +209,7 @@ class DockingStudioWidget(
         counts too, not only under Run. `_check_requirements` self-gates on the step, so this is free while the user is anywhere else; off screen
         showEvent does the catching up."""
         if self.isVisible():
+            self._sync_ligand_table_filter()  # the first ready ligand turns the "left" filter on
             self._dispatch_refresh(force=True)  # the prepared counts of the step on screen
             self._check_requirements()
 
@@ -294,7 +295,7 @@ class DockingStudioWidget(
         # GUI-thread only: the embedded tables load via their own (paged) models, and the
         # prep-target lists are cheap. Every counting/requirement query is pushed off-thread
         # by _dispatch_refresh so this never blocks, regardless of molecule-set size.
-        self._sync_ligand_source_choice()  # two small indexed counts: the choice follows the data
+        self._sync_ligand_source_choice()  # two one-row lookups: the choice follows the data
         self._sync_ligand_table_filter()
         self._sync_receptor_table_filter()
         self._refresh_prep_targets()
@@ -325,7 +326,7 @@ def register_docking_workspace(window) -> None:
     window.register_main_view(
         PREP_STATUS_VIEW_ID,
         "Prep Status",
-        lambda: EngineStatePrepView(runtime=window.runtime, parent=window.central_widget),
+        lambda: PrepStatusView(runtime=window.runtime, parent=window.central_widget),
     )
 
 

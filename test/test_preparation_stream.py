@@ -78,12 +78,12 @@ def test_a_ligand_is_prepared_from_its_bytes_and_a_pdbqt_is_not_copied():
         {"id": 3, "structure": None, "structure_kind": "", "structure_payload_id": None},
     ]
     out = prepare_entities({"entity_kind": "ligand", "rows": rows})
-    states = {row["molecule_id"]: row for row in out["engines"]}
+    states = {row["molecule_id"]: row for row in out["ligand_preps"]}
 
-    assert states[1]["is_ready"] and states[1]["prepared_payload_id"].kind == "pdbqt"
-    assert b"ROOT" in states[1]["prepared_payload_id"].data
-    assert states[2]["prepared_payload_id"] == 20  # already the engine's format: the same payload
-    assert not states[3]["is_ready"] and "no structure" in states[3]["files"]["error"]
+    assert states[1]["error"] is None and states[1]["payload_id"].kind == "pdbqt"
+    assert b"ROOT" in states[1]["payload_id"].data
+    assert states[2]["payload_id"] == 20  # already the engine's format: the same payload
+    assert states[3]["payload_id"] is None and "no structure" in states[3]["error"]
     # the one that failed is excluded with the engine and the error, so docking runs without it
     [failed] = out["molecule_failures"]
     assert failed["id"] == 3 and failed["excluded"]

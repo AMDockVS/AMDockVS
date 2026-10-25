@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 
 from amdockvs.chemistry.structures import mol_from_bytes
 
@@ -75,6 +74,26 @@ def calculate_rdkit2d_descriptors(mol) -> dict[str, float]:
     return out
 
 
+def calculate_alert_rows(items: list[dict]) -> list[dict]:
+    """PAINS alerts and identity keys per item: what a library import leaves for later.
+    An unreadable structure is left out, so its row keeps saying "not computed"."""
+    from amdockvs.chemistry.filtering import molecule_pains_matches
+    from amdockvs.chemistry.structures import mol_from_bytes
+
+    rows: list[dict] = []
+    for item in items:
+        mol = mol_from_bytes(item.get("structure"), item.get("structure_kind")) if item.get("structure") else None
+        if mol is None:
+            continue
+        rows.append({
+            "id": int(item["molecule_id"]),
+            "pains_matches": list(molecule_pains_matches(mol)),
+            "canonical_smiles": canonical_smiles(mol) or None,
+            "inchikey": inchikey(mol) or None,
+        })
+    return rows
+
+
 def calculate_descriptor_rows(items: list[dict], *, fingerprint: dict | None = None) -> list[dict]:
     """Compute physchem descriptors per item. When ``fingerprint`` ({"radius","nbits"}) is given,
     also attach a Morgan fingerprint as ``row["fp_binary"]`` (the bitstring as ascii bytes — a
@@ -102,7 +121,6 @@ def calculate_descriptor_rows(items: list[dict], *, fingerprint: dict | None = N
             "status": "completed",
             "error": "",
             "metadata_json": "{}",
-            "created_at": datetime.now(),
         }
         try:
             if not item.get("structure"):
@@ -128,6 +146,7 @@ def calculate_descriptor_rows(items: list[dict], *, fingerprint: dict | None = N
 
 
 __all__ = [
+    "calculate_alert_rows",
     "calculate_basic_descriptors",
     "calculate_descriptor_rows",
     "calculate_rdkit2d_descriptors",

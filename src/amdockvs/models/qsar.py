@@ -6,6 +6,8 @@ from datetime import datetime
 from sqlalchemy import DateTime, JSON, UniqueConstraint, Index
 from sqlmodel import SQLModel, Field
 
+from amdockvs.models.codes import code_field
+
 from amdockvs.core.constants import (
     TABLE_LIGAND_ACTIVITIES,
     TABLE_MOLECULES,
@@ -25,7 +27,7 @@ class LigandActivity(SQLModel, table=True):
         2. ID-based:    existing molecule_id + value
         3. Manual:      UI entry per molecule
 
-    has_activity on MoleculeRecord mirrors existence of rows here.
+    A molecule has an activity when it has a row here (`has_activity` filters with a subquery).
     That flag is maintained by the repository layer, not application callers.
     """
 
@@ -37,11 +39,10 @@ class LigandActivity(SQLModel, table=True):
     value: float
     unit: str           = Field(default="")   # nM, uM, ...
     activity_type: str  = Field(default="")   # IC50, Ki, Kd, pIC50, ...
-    kind: str           = Field(default="continuous")  # "continuous" | "categorical" — picks the model task
+    kind: str           = code_field("activity_kind", "continuous")  # picks the model task
     description: str    = Field(default="")
     source: str         = Field(default="")   # reference, assay id, etc.
 
-    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
     @classmethod
     def build_row(
@@ -63,7 +64,6 @@ class LigandActivity(SQLModel, table=True):
             "kind":          kind,
             "description":   description,
             "source":        source,
-            "created_at":    datetime.now(),
         }
 
 
@@ -90,9 +90,9 @@ class QSARModel(SQLModel, table=True):
 
     id: int | None    = Field(default=None, primary_key=True)
     name: str         = Field(index=True)
-    algorithm: str    = Field(default="")   # "rf" | "xgb" | "dnn" | "svr" | ...
+    algorithm: str    = code_field("qsar_algorithm")
     target: str       = Field(default="")   # "IC50" | "Ki" | "pIC50" | ...
-    feature_type: str = Field(default="")
+    feature_type: str = code_field("feature_type")
     source: str       = Field(default="trained")  # "trained" | "external"
 
     model_path: str   = Field(default="")   # serialized model file (relative)
@@ -128,7 +128,6 @@ class QSARPrediction(SQLModel, table=True):
     value: float
     confidence: float | None = Field(default=None)
 
-    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
     @classmethod
     def build_rows(
@@ -136,14 +135,12 @@ class QSARPrediction(SQLModel, table=True):
         model_id: int,
         predictions: list[dict],  # [{"molecule_id": int, "value": float, "confidence": float|None}]
     ) -> list[dict[str, Any]]:
-        now = datetime.now()
         return [
             {
                 "molecule_id": p["molecule_id"],
                 "model_id":    model_id,
                 "value":       p["value"],
                 "confidence":  p.get("confidence"),
-                "created_at":  now,
             }
             for p in predictions
         ]

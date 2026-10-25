@@ -408,9 +408,9 @@ class DockingResultsWidget(QWidget):
         # scoring units, so mixing them in one receptor>ligand>pose tree is apples-to-oranges.
         # Default lands on the first concrete protocol; "All (mixed)" is an explicit opt-in.
         self.protocol_combo = QComboBox(box)
-        self.protocol_combo.setToolTip("Restrict results to one docking program/protocol (scores aren't comparable across programs).")
+        self.protocol_combo.setToolTip("Restrict results to one docking program (scores aren't comparable across programs).")
         self.protocol_combo.currentIndexChanged.connect(self._on_protocol_changed)
-        top.addWidget(QLabel("Protocol", box))
+        top.addWidget(QLabel("Program", box))
         top.addWidget(self.protocol_combo)
         # A failed pair still writes a row (score NULL) so the failure is visible; this hides
         # those rows. It is a state filter, not a metric, hence a checkbox and not a chip.
@@ -514,7 +514,9 @@ class DockingResultsWidget(QWidget):
     def _pose_rank(hit: DockingHitSummary) -> int:
         return int(hit.pose_rank or 1)
 
-    def _reload_protocols(self, *, auto_select: bool, preserve_view: bool = False) -> None:
+    def _reload_protocols(
+        self, *, auto_select: bool, preserve_view: bool = False, protocols_only: bool = False,
+    ) -> None:
         # Cheap DISTINCT query drives the combo; then the scoped ligand fetch runs. Kept off the
         # GUI thread so a project with many results never blocks on it.
         receptor_id = self._selected_receptor_id
@@ -522,8 +524,8 @@ class DockingResultsWidget(QWidget):
         token = self._protocol_token
         run_async(
             lambda: self.runtime.docking.result_protocols(receptor_id=receptor_id),
-            lambda protocols: self._apply_protocols(protocols, auto_select, preserve_view, token),
-            on_error=lambda _exc: self._apply_protocols([], auto_select, preserve_view, token),
+            lambda protocols: self._apply_protocols(protocols, auto_select, preserve_view, token, protocols_only),
+            on_error=lambda _exc: None if protocols_only else self._apply_protocols([], auto_select, preserve_view, token),
         )
 
     def _apply_protocols(
@@ -532,11 +534,14 @@ class DockingResultsWidget(QWidget):
         auto_select: bool,
         preserve_view: bool = False,
         token: int | None = None,
+        protocols_only: bool = False,
     ) -> None:
         if token is not None and token != self._protocol_token:
             return
         old_protocol = str(self.protocol_combo.currentData() or "")
         self._populate_protocol_combo(list(protocols or []))
+        if protocols_only and str(self.protocol_combo.currentData() or "") == old_protocol:
+            return
         if preserve_view and str(self.protocol_combo.currentData() or "") == old_protocol:
             self._ligand_refreshing = True
             try:
@@ -551,10 +556,10 @@ class DockingResultsWidget(QWidget):
         current = str(combo.currentData() or "") if combo.count() else None
         combo.blockSignals(True)
         combo.clear()
-        combo.addItem("All protocols (mixed)", "")
+        combo.addItem("All programs (mixed)", "")
         for phash, label in protocols:
             combo.addItem(label, phash)
-        idx = combo.findData(current) if current else -1
+        idx = combo.findData(current) if current is not None else -1
         if idx < 0:
             idx = 1 if combo.count() > 1 else 0  # default to first concrete protocol, not mixed
         combo.setCurrentIndex(idx)
@@ -714,6 +719,8 @@ class DockingResultsWidget(QWidget):
         return bool(force or self.ligand_table._model.loaded_count >= capacity)
 
     def refresh_counts(self) -> bool:
+        if self._selected_receptor_id is not None:
+            self._reload_protocols(auto_select=False, protocols_only=True)
         if not self._active_shard_job_ids:
             # Row-mode docking has no campaign target counters; keep its existing SQL refresh.
             self._receptor_refreshing = True
@@ -761,8 +768,7 @@ class DockingResultsWidget(QWidget):
         finally:
             self._receptor_refreshing = False
         if self._selected_receptor_id is not None:
-            # Protocols are the scientific scope. Re-query them once on a manual/final refresh,
-            # not on every monitor tick, then preserve the table window when the scope is equal.
+            # Manual/final refresh also reloads the table window while keeping its scope.
             self._reload_protocols(auto_select=False, preserve_view=True)
 
     refresh_results_view = refresh_view

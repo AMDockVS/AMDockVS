@@ -99,9 +99,10 @@ def test_a_receptor_row_brings_its_active_site_box_with_it(monkeypatch):
     cmd = _Cmd()
     cmd.get_viewport = lambda: (400, 300)
     viewer = molecular_viewer.MolecularViewerController(SimpleNamespace(
-        pymol_dock=SimpleNamespace(cmd=cmd, show=lambda: None), grid_dock=grid))
+        pymol_dock=SimpleNamespace(cmd=cmd, show=lambda: None), grid_dock=grid,
+        runtime=SimpleNamespace(binding_sites=SimpleNamespace(active_site_id=lambda molecule_id: 9))))
     viewer._read = lambda wanted, then: then({k: b"x" for k, v in wanted.items() if v})
-    receptor = SimpleNamespace(id=4, is_receptor=True, is_ligand=False, active_binding_site_id=9)
+    receptor = SimpleNamespace(id=4, is_receptor=True, is_ligand=False)
     monkeypatch.setattr(molecular_viewer, "molecule_payload_id", lambda m: 5)
     viewer.show_molecule(receptor, "current")
     assert focused == [9]

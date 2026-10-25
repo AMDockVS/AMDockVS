@@ -6,7 +6,7 @@ from typing import Any, Callable, Iterable
 from amdockvs.io.import_stats import IMPORTED, UNREADABLE, bump
 from amdockvs.io.payloads import ImportBatchPayload
 from amdockvs.io.transformers.rows import _build_row, _progress_update
-from amdockvs.core.vocab import FileFormat, MoleculeType
+from amdockvs.core.vocab import MoleculeType
 
 _STATE = {"has_3d": False, "has_hs": False, "is_minimized": False, "conformer_count": 0}
 
@@ -32,10 +32,10 @@ def _materialize_fasta_rows(
             source_index=source_index,
             name=str(entry.get("name") or f"{batch.file_path.stem}_{source_index}"),
             n_atoms=0,
-            input_format=FileFormat.FASTA,
+            import_batch_id=batch.import_batch_id,
             stored=None,
             current=None,
-            metadata={"sequence_1d": sequence, "state": dict(_STATE)},
+            metadata={"state": dict(_STATE)},
             molecule_kind=batch.molecule_kind or MoleculeType.PROTEIN,
             primary_role=batch.primary_role or batch.kind,
             primary_context=batch.primary_context,

@@ -7,7 +7,6 @@ no matter whether it came from an SDF, a SMILES line or a PDB. The format module
 from __future__ import annotations
 
 import json
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
@@ -29,7 +28,7 @@ def _build_row(
     source_index: int,
     name: str,
     n_atoms: int,
-    input_format: str,
+    import_batch_id: int | None,
     stored: Payload | None,
     current: Payload | None,
     metadata: dict[str, Any],
@@ -38,7 +37,6 @@ def _build_row(
     primary_context: str,
     usage_class: str = "",
 ) -> dict[str, Any]:
-    now = datetime.now()
     # ponytail: usage_class is derived from the context unless the caller states one. Only the
     # `general` context is the screening library; anything imported into a named context
     # (reference, cocrystal, activity) is curated, and `general_ligand_count` must not see it.
@@ -55,21 +53,17 @@ def _build_row(
         name=str(name or f"{source_file.stem}_{int(source_index)}"),
         molecule_type=str(molecule_kind or "unknown"),
         n_atoms=max(0, int(n_atoms)),
-        input_format=str(input_format or ""),
+        import_batch_id=import_batch_id,
         stored_payload_id=stored,
         current_payload_id=current,
-        current_model_index=None,
         extra_data=metadata_map,
-        created_at=now,
-        primary_context=str(primary_context or ""),
         usage_class=resolved_usage,
     )
     return {
         **built,
+        "source_file": str(source_file.resolve()),  # graph refs only; the batch says the source
         "molecule_kind": str(built.get("molecule_type") or molecule_kind or "unknown"),
         "primary_role": str(primary_role or ""),
-        "smiles": str(metadata_map.get("smiles") or ""),
-        "sequence_1d": str(metadata_map.get("sequence_1d") or ""),
         "status_flags": 0,
         "metadata_json": json.dumps(metadata_map, ensure_ascii=True),
         "source_properties": [],
@@ -83,14 +77,10 @@ def _build_row(
     }
 
 def share_current(row: dict[str, Any], current: Payload) -> None:
-    """Set the row's current form, reusing the stored payload when it is the same bytes (D11).
-
-    The same `Payload` object in both columns is what makes the sink store one blob and give
-    both columns one id; a copy would store the structure twice.
-    """
+    """Set the row's current form; NULL when it is the stored bytes (`molecule_payload_id`)."""
     stored = row.get("stored_payload_id")
     same = stored is not None and stored.kind == current.kind and stored.data == current.data
-    row["current_payload_id"] = stored if same else current
+    row["current_payload_id"] = None if same else current
 
 
 def _finalize_ligand_row_from_mol(
@@ -119,7 +109,13 @@ def _finalize_ligand_row_from_mol(
     if decision is None:
         return None, reason
 
-    share_current(row, structure_payload(Chem.MolToMolBlock(decision.kept_mol), "sdf"))
+    stored, kept = row.get("stored_payload_id"), decision.kept_mol
+    if stored is not None and stored.kind == "smi" and not kept.GetNumConformers():
+        # No coordinates to keep: a SMILES says all a block would (D6); the stored one when unchanged.
+        row["current_payload_id"] = None if kept is mol else structure_payload(
+            Chem.MolToSmiles(kept), "smi", stored.series)
+    else:
+        share_current(row, structure_payload(Chem.MolToMolBlock(kept), "sdf"))
     return ligand_row_fields(row, decision), None
 
 def _progress_update(progress_cb: Callable[[float], None] | None, completed: int, total: int) -> None:
@@ -134,7 +130,6 @@ def _split_fragment_rows(
     name: str,
     mol,
     parent_key: str,
-    input_format: str,
     criteria,
     source_properties: Any,
     tally: dict[str, int],
@@ -157,7 +152,7 @@ def _split_fragment_rows(
             source_index=source_index,
             name=f"{name} [{variant}]",
             n_atoms=fragment.GetNumAtoms(),
-            input_format=input_format,
+            import_batch_id=batch.import_batch_id,
             stored=structure_payload(Chem.MolToMolBlock(fragment), "sdf"),
             current=None,
             # Points back at the sibling that kept the record: same source index, and the
@@ -213,7 +208,6 @@ def _apply_sdf_activity(row: dict[str, Any], prefilter) -> None:
         specs = multi(source_properties)
         if specs:
             row["activity_specs"] = specs
-            row["has_activity"] = True
         return
     # older prefilter without the multi-column builder
     if row.get("activity_spec"):
@@ -224,7 +218,6 @@ def _apply_sdf_activity(row: dict[str, Any], prefilter) -> None:
     spec = builder(source_properties)
     if spec is not None:
         row["activity_spec"] = spec
-        row["has_activity"] = True
 
 def _maybe_parse_activity_spec(activity_text: str, *, source_file: Path, import_mode: str) -> dict[str, Any] | None:
     text = str(activity_text or "").strip()

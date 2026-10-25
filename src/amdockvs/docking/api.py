@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import contextlib
 from dataclasses import dataclass
-from itertools import batched, islice
+from itertools import islice
 from pathlib import Path
 from typing import Any, Mapping
 from uuid import uuid4
@@ -10,6 +10,7 @@ from uuid import uuid4
 from sqlalchemy import exists, or_
 from sqlmodel import select
 from ms_flow.payloads import scratch_file
+from ms_flow.query import db_count
 from ms_flow.selection import Selection
 
 import amdockvs.docking.results.repository as results_repo
@@ -63,8 +64,8 @@ from amdockvs.docking.results.jobs import (
     interactions_job,
 )
 from amdockvs.docking.protocols import DockingProtocolMetadata
+from amdockvs.docking.rerun import check_protocol_conflict, clear_previous_docking, resolved_protocol
 from amdockvs.docking.shard_jobs import (
-    HIT_MODE_THRESHOLD,
     DockShardsJobParams,
     dock_shards_job,
     recover_ranked_hits,
@@ -88,8 +89,8 @@ from amdockvs.docking.residues import residues_in_box
 from amdockvs.core.payloads import molecule_payload_id, read_structure
 from amdockvs.io.formats import as_pdb
 from amdockvs.molecules.api import ensure_molecule_set_ref
-from amdockvs.models import BindingSite, EngineState, MoleculeRecord
-from amdockvs.project.sets import ComplexSetRef, MoleculeSetRef
+from amdockvs.models import BindingSite, MoleculeRecord, ReceptorPrep, prep_table
+from amdockvs.project.sets import ComplexSetRef, MoleculeSetRef, prepared_molecules_spec
 from amdockvs.workflows.rules import apply_workflow_filters
 
 
@@ -98,11 +99,13 @@ def _validated_engine_config(
     overrides: dict[str, Any] | None,
     **legacy,
 ) -> dict[str, Any]:
-    values = (
-        {**legacy, **dict(overrides or {})}
-        if program.config_model is DockingEngineConfig
-        else dict(overrides or {})
-    )
+    values = {}
+    for key, value in legacy.items():
+        field = program.config_model.model_fields.get(key)
+        shared = DockingEngineConfig.model_fields.get(key)
+        if field is not None and (shared is None or field.default == shared.default or value != shared.default):
+            values[key] = value
+    values.update(overrides or {})
     return program.validate_config(values)
 
 
@@ -161,6 +164,22 @@ class DockingAPI:
 
     def list_programs(self) -> tuple[DockingProgramSpec, ...]:
         return list_docking_programs()
+
+    def check_protocol(
+        self, *, program: str, engine_config: dict, protocol_metadata: dict | None = None,
+        replace_existing: bool = False,
+    ) -> dict:
+        """Check the program's current configuration without deleting or submitting anything."""
+        if not isinstance(replace_existing, bool):
+            raise ValueError("replace_existing must be a boolean.")
+        project_db = self._project_db()
+        spec = self.get_program_spec(program)
+        protocol = resolved_protocol(spec, spec.validate_config(engine_config), protocol_metadata)
+        check_protocol_conflict(
+            project_db, program=spec, protocol=protocol,
+            replace_existing=replace_existing,
+        )
+        return protocol
 
     def live_campaign_progress(
         self,
@@ -232,22 +251,20 @@ class DockingAPI:
         normalized_engine = str(engine or "ad4").strip().lower()
         if normalized_role not in {"ligand", "receptor"}:
             raise ValueError("role_type must be 'ligand' or 'receptor'.")
-        # Counted over the id stream in bound-parameter-sized chunks: a scope of a million ligands
-        # produces three integers here, not a million-element list.
-        ids = (int(value) for value in self.runtime.molecules.stream_ids(scope) if int(value) > 0)
-        total = ready = failed = 0
-        with self.runtime.workspace.project_db.get_session() as session:
-            for chunk in batched(ids, 900):  # stay well under SQLite's bound-parameter limit
-                total += len(chunk)
-                rows = session.exec(
-                    select(EngineState.is_ready)
-                    .where(EngineState.molecule_id.in_(chunk))
-                    .where(EngineState.role_type == normalized_role)
-                    .where(EngineState.engine == normalized_engine)
-                ).all()
-                ready += sum(1 for value in rows if bool(value))
-                failed += sum(1 for value in rows if not bool(value))
-        return {"total": total, "ready": ready, "failed": failed}
+        # Count each side alone first: a family with no state row of that kind anywhere needs
+        # no join with the scope (the common case before the first preparation).
+        molecules = self.runtime.molecules
+        project_db = self.runtime.workspace.project_db
+        flags = {"is_ligand" if normalized_role == "ligand" else "is_receptor": True, "prepared_engine_key": normalized_engine}
+
+        def in_scope(ready: bool) -> int:
+            states = prepared_molecules_spec(role_type=normalized_role, engine=normalized_engine, is_ready=ready)
+            if not db_count(project_db, states):
+                return 0
+            return molecules.count(molecules.filter(scope, filters={**flags, "prepared": ready}))
+
+        total = molecules.count(scope)
+        return {"total": total, "ready": in_scope(True) if total else 0, "failed": in_scope(False) if total else 0}
 
     def unprepared_molecules_clause(self, *, role_type: str, engines: list[str] | tuple[str, ...]):
         """Opaque SmartTable clause selecting molecules not ready for every engine family."""
@@ -257,14 +274,18 @@ class DockingAPI:
             raise ValueError("role_type must be 'ligand' or 'receptor'.")
         normalized_engines = tuple(
             dict.fromkeys(str(value or "").strip().lower() for value in engines if str(value or "").strip()))
+        project_db = self.runtime.workspace.project_db
+        if any(
+            not db_count(project_db, prepared_molecules_spec(role_type=role, engine=engine))
+            for engine in normalized_engines
+        ):
+            return None  # a family nothing is ready for leaves every row in: no anti-join to run
+        # NOT IN, not a correlated NOT EXISTS: DuckDB (1 thread, 1 GB) hash-joins the whole
+        # table for the latter (4 s and GBs of spill for one page); SQLite is faster with it too.
+        model, molecule_column, payload_column = prep_table(role)
         missing = [
-            ~exists(
-                select(EngineState.id).where(
-                    EngineState.molecule_id == MoleculeRecord.id,
-                    EngineState.role_type == role,
-                    EngineState.engine == engine,
-                    EngineState.is_ready.is_(True),
-                )
+            MoleculeRecord.id.not_in(
+                select(molecule_column).where(model.family == engine, payload_column.is_not(None))
             )
             for engine in normalized_engines
         ]
@@ -504,7 +525,6 @@ class DockingAPI:
             receptor_set: MoleculeSetRef | MoleculeScope | int | None = None,
             hit_threshold: float,
             hit_cap: int,
-            hit_mode: str = HIT_MODE_THRESHOLD,
             output_dir: PathLike | None = None,
             exhaustiveness: int = 8,
             num_modes: int = 9,
@@ -528,11 +548,13 @@ class DockingAPI:
             check_required: bool = True,
             selected_from_receptor_id: int | None = None,
             selected_top_n: int | None = None,
+            replace_existing: bool = False,
     ) -> str:
         """`run` for a sharded library: the campaign, with the gate that makes it end.
 
-        No ligand scope — the library is the inventory of prepared shards. `hit_threshold` and
-        `hit_cap` are required, not defaulted: a campaign without them writes back everything it
+        No ligand scope — the library is the inventory of prepared shards. When the run ends, the
+        best `hit_cap` ligands per receptor that pass the `hit_threshold` prefilter become rows;
+        both are required, not defaulted: a campaign without them writes back everything it
         scored, which is the failure mode `htpvs` exists to prevent. A dependent off-target
         stage sets `selected_from_receptor_id`; its deferred chunker reads that receptor's
         durable Top-N and extracts only those records from the source shards.
@@ -540,11 +562,8 @@ class DockingAPI:
         self.runtime._require_active_project()
         if selected_top_n is not None and selected_from_receptor_id is None:
             raise ValueError("selected_top_n requires selected_from_receptor_id.")
-        if selected_from_receptor_id is not None:
-            if str(hit_mode) != "top_n":
-                raise ValueError("Off-target selection requires hit_mode='top_n'.")
-            if not str(run_id or "").strip():
-                raise ValueError("Off-target selection requires the reference run_id.")
+        if selected_from_receptor_id is not None and not str(run_id or "").strip():
+            raise ValueError("Off-target selection requires the reference run_id.")
         if (box_center is None) ^ (box_size is None):
             raise ValueError("docking.run requires both box_center and box_size when either one is provided.")
         program_spec = self.get_program_spec(program)
@@ -563,6 +582,15 @@ class DockingAPI:
             min_rmsd=min_rmsd,
         )
         resolved_engine_config = _validated_engine_config(program_spec, engine_config, **knobs)
+        protocol_metadata = self.check_protocol(
+            program=program_spec.key, engine_config=resolved_engine_config,
+            protocol_metadata=protocol_metadata, replace_existing=replace_existing,
+        )
+        reset_results = replace_existing and check_protocol_conflict(
+            self.runtime.workspace.project_db, program=program_spec, protocol=protocol_metadata, replace_existing=True,
+        )
+        if reset_results and selected_from_receptor_id is not None:
+            raise ValueError("Changing docking configuration requires rerunning the reference stage before off-target docking.")
         receptor_set_ref = self._set_ref(receptor_set, name="docking_receptor_input")
         receptor_scope = scope_payload(receptor_set) if is_molecule_scope(receptor_set) else {}
         receptor_filters = self._program_scope_filters(receptor_scope, role="receptor", program=program_spec)
@@ -580,12 +608,17 @@ class DockingAPI:
             engine_config=resolved_engine_config,
             hit_threshold=float(hit_threshold),
             hit_cap=int(hit_cap),
-            hit_mode=str(hit_mode),
             selected_from_receptor_id=selected_from_receptor_id,
             selected_top_n=(int(selected_top_n) if selected_top_n is not None else int(hit_cap)),
             skip_existing=skip_existing,
             check_required=check_required,
         )
+        if reset_results:
+            if check_required and not depends_on:
+                dock_shards_job.count_chunks(
+                    params.model_dump(mode="python"), config={"project_db": self.runtime.workspace.project_db},
+                )
+            clear_previous_docking(self.runtime.workspace.project_db, program=program_spec)
         return self.runtime.submit_job(
             dock_shards_job,
             params=params.model_dump(mode="python"),
@@ -598,7 +631,6 @@ class DockingAPI:
                 "project_db": self.runtime.workspace.project_db,
                 "hit_cap": int(hit_cap),
                 "hit_threshold": float(hit_threshold),
-                "hit_mode": str(hit_mode),
                 "run_id": params.run_id,
                 "engine": params.engine,
                 "protocol_hash": str(params.protocol_metadata.hash or ""),
@@ -724,7 +756,7 @@ class DockingAPI:
         with self.runtime.workspace.project_db.get_session() as session:
             rows = session.exec(
                 select(MoleculeRecord, BindingSite)
-                .join(BindingSite, BindingSite.id == MoleculeRecord.active_binding_site_id)
+                .join(BindingSite, (BindingSite.molecule_id == MoleculeRecord.id) & (BindingSite.is_active == True))  # noqa: E712
                 .where(MoleculeRecord.is_receptor == True)  # noqa: E712 - SQL expression
             ).all()
         misfits: list[int] = []
@@ -862,21 +894,23 @@ class DockingAPI:
         # Flexible residues belong to the receptor (what gets passed to prep), not to any
         # binding site — the box is only a candidate filter, not the owner of the selection.
         with self.runtime.workspace.project_db.get_session() as session:
-            receptor = session.get(MoleculeRecord, receptor_id)
-            if receptor is None:
-                return []
-            return [str(k) for k in (dict(receptor.extra_data or {}).get("flexible_residues") or [])]
+            prep = self._ad4_receptor_prep(session, receptor_id)
+            return [str(k) for k in (prep.flex_residues if prep else [])]
+
+    @staticmethod
+    def _ad4_receptor_prep(session, receptor_id: int):
+        # ponytail: flexible side chains are an ad4 (Vina family) concept; key by family if another engine docks flexibly.
+        return session.exec(select(ReceptorPrep).where(
+            ReceptorPrep.receptor_molecule_id == int(receptor_id), ReceptorPrep.family == "ad4")).first()
 
     def set_flexible_residues(self, *, receptor_id: int, residue_keys: list[str]) -> list[str]:
         keys = [str(k) for k in residue_keys]
         with self.runtime.workspace.project_db.get_session() as session:
-            receptor = session.get(MoleculeRecord, receptor_id)
-            if receptor is None:
+            if session.get(MoleculeRecord, receptor_id) is None:
                 raise ValueError(f"No receptor with id {receptor_id}.")
-            data = dict(receptor.extra_data or {})
-            data["flexible_residues"] = keys
-            receptor.extra_data = data
-            session.add(receptor)
+            prep = self._ad4_receptor_prep(session, receptor_id) or ReceptorPrep(receptor_molecule_id=receptor_id)
+            prep.flex_residues = keys
+            session.add(prep)
             session.commit()
         return keys
 
@@ -1003,11 +1037,11 @@ class DockingAPI:
             compute_interactions: bool = False,
             hit_threshold: float | None = None,
             hit_cap: int = 0,
-            hit_mode: str = HIT_MODE_THRESHOLD,
             payload: str = PAYLOAD_LIGHT,
             selected_from_receptor_id: int | None = None,
             selected_top_n: int | None = None,
             selected_max_score: float | None = None,
+            replace_existing: bool = False,
     ) -> str:
         """Run docking over the active library, selecting its row or shard adapter.
 
@@ -1057,7 +1091,6 @@ class DockingAPI:
                 receptor_set=receptor_set,
                 hit_threshold=float(hit_threshold),
                 hit_cap=int(hit_cap),
-                hit_mode=hit_mode,
                 output_dir=output_dir,
                 box_center=box_center,
                 box_size=box_size,
@@ -1072,6 +1105,7 @@ class DockingAPI:
                 check_required=check_required,
                 selected_from_receptor_id=selected_from_receptor_id,
                 selected_top_n=selected_top_n,
+                replace_existing=replace_existing,
             )
         if selected_from_receptor_id is not None and not selected_top_n:
             raise ValueError("An off-target stage over ligand rows requires selected_top_n.")
@@ -1082,6 +1116,15 @@ class DockingAPI:
             )
         program_spec = self.get_program_spec(program)
         resolved_engine_config = _validated_engine_config(program_spec, engine_config, **knobs)
+        protocol_metadata = self.check_protocol(
+            program=program_spec.key, engine_config=resolved_engine_config,
+            protocol_metadata=protocol_metadata, replace_existing=replace_existing,
+        )
+        reset_results = replace_existing and check_protocol_conflict(
+            self.runtime.workspace.project_db, program=program_spec, protocol=protocol_metadata, replace_existing=True,
+        )
+        if reset_results and selected_from_receptor_id is not None:
+            raise ValueError("Changing docking configuration requires rerunning the reference stage before off-target docking.")
         resolved_batch_size = max(1, int(batch_size or app_config(self.runtime).docking.batch_size))
         ligand_set_ref = self._set_ref(ligand_set, name="docking_ligand_input")
         receptor_set_ref = self._set_ref(receptor_set, name="docking_receptor_input")
@@ -1132,7 +1175,7 @@ class DockingAPI:
             ligand_filters=ligand_filters,
             receptor_filters=receptor_filters,
             protocol_metadata=protocol_metadata,
-            skip_existing=skip_existing,
+            skip_existing=False if reset_results else skip_existing,
             requires_ligand_preparation=program_spec.requires_ligand_preparation,
             requires_receptor_preparation=program_spec.requires_receptor_preparation,
         )
@@ -1169,6 +1212,8 @@ class DockingAPI:
             selected_top_n=selected_top_n,
             selected_max_score=selected_max_score,
         )
+        if reset_results:
+            clear_previous_docking(self.runtime.workspace.project_db, program=program_spec)
         job_id = self.runtime.submit_job(
             docking_job,
             params=params.model_dump(mode="python"),

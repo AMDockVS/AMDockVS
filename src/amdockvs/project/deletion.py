@@ -5,7 +5,7 @@ project never keeps orphaned children. Editing one drops what was computed from 
 (`clear_derived`): what stays is what describes the compound, not the drawing. A docking result
 never goes alone either: `delete_results_where` takes what was computed from it, poses included.
 Bytes leave with `release` once the rows are gone: it only deletes the payloads no row references
-any more, so one that is still shared (a hit's pose, an unedited import) stays. A `.mshard` is never
+any more, so one that is still shared (a hit's pose, an unedited import) stays. A library shard is never
 deleted: one holds many molecules.
 Each delete runs in its own session and suppresses "no such table" (some tables — e.g.
 docking_results — are created lazily on first use)."""
@@ -26,20 +26,19 @@ from amdockvs.models import (
     BindingSite,
     ClusteringResult,
     ComplexRecord,
-    ConsensusScore,
     DescriptorBlockRecord,
     DescriptorVectorRecord,
     DockingResultRecord,
-    EngineState,
     FingerprintRecord,
     InteractionsResult,
+    LigandPrep,
     LigandActivity,
     MoleculeModel,
     MoleculeRecord,
     MoleculeRepresentation,
     MoleculeSetMember,
-    MoleculeSourceProperty,
     QSARPrediction,
+    ReceptorPrep,
     SimilarityResult,
 )
 
@@ -125,8 +124,6 @@ def delete_binding_sites(project_db, binding_site_ids: Iterable[int]) -> int:
     ids = _ids(binding_site_ids)
     if not ids:
         return 0
-    _safe_update(project_db, MoleculeRecord, MoleculeRecord.active_binding_site_id.in_(ids),
-                 {"active_binding_site_id": None})
     _safe_update(project_db, ComplexRecord, ComplexRecord.binding_site_id.in_(ids),
                  {"binding_site_id": None})
     return _safe_delete(project_db, BindingSite, BindingSite.id.in_(ids))
@@ -140,10 +137,11 @@ def _owned_payloads(project_db, ids: set[int], *, structure: bool) -> set[int]:
     def collect(*columns, where) -> None:
         with suppress(*OperationalError), project_db.get_session() as session:
             for row in session.exec(select(*columns).where(where)).all():
-                held.update(row)
+                held.update(row if len(columns) > 1 else (row,))  # one column selects scalars
 
-    collect(MoleculeModel.payload_id, MoleculeModel.pae_payload_id, where=MoleculeModel.molecule_id.in_(ids))
-    collect(EngineState.prepared_payload_id, EngineState.flex_payload_id, where=EngineState.molecule_id.in_(ids))
+    collect(MoleculeModel.payload_id, MoleculeModel.data_payload_id, where=MoleculeModel.molecule_id.in_(ids))
+    collect(LigandPrep.payload_id, where=LigandPrep.molecule_id.in_(ids))
+    collect(ReceptorPrep.rigid_payload_id, ReceptorPrep.flex_payload_id, where=ReceptorPrep.receptor_molecule_id.in_(ids))
     if structure:
         collect(MoleculeRecord.stored_payload_id, MoleculeRecord.current_payload_id,
                 MoleculeRecord.properties_payload_id, where=MoleculeRecord.id.in_(ids))
@@ -154,9 +152,9 @@ def _owned_payloads(project_db, ids: set[int], *, structure: bool) -> set[int]:
 
 def clear_derived(project_db, molecule_ids: Iterable[int]) -> int:
     """Drop what was computed from the molecules' structure, before a new one replaces it: models
-    (conformers), engine preparations, descriptors, fingerprints, docking results, consensus,
+    (conformers), engine preparations, descriptors, fingerprints, docking results,
     similarity hits, QSAR predictions and cluster memberships, payloads included. What describes the
-    compound — activities, source properties, sets, complexes, binding sites — stays.
+    compound — activities, sets, complexes, binding sites — stays.
 
     The structure payloads themselves stay: the caller points the row at the new one first, then
     releases the old one. Returns the docking results deleted."""
@@ -164,14 +162,12 @@ def clear_derived(project_db, molecule_ids: Iterable[int]) -> int:
     if not ids:
         return 0
     owned = _owned_payloads(project_db, ids, structure=False)
-    for model in (DescriptorVectorRecord, DescriptorBlockRecord, FingerprintRecord, EngineState,
+    _safe_delete(project_db, ReceptorPrep, ReceptorPrep.receptor_molecule_id.in_(ids))
+    for model in (DescriptorVectorRecord, DescriptorBlockRecord, FingerprintRecord, LigandPrep,
                   MoleculeModel, QSARPrediction, ClusteringResult, MoleculeRepresentation):
         _safe_delete(project_db, model, model.molecule_id.in_(ids))
-    for model, left, right in (
-        (ConsensusScore, ConsensusScore.receptor_molecule_id, ConsensusScore.ligand_molecule_id),
-        (SimilarityResult, SimilarityResult.query_id, SimilarityResult.target_id),
-    ):
-        _safe_delete(project_db, model, or_(left.in_(ids), right.in_(ids)))
+    _safe_delete(project_db, SimilarityResult,
+                 or_(SimilarityResult.query_id.in_(ids), SimilarityResult.target_id.in_(ids)))
     results = delete_results_where(
         project_db,
         or_(
@@ -192,7 +188,7 @@ def delete_molecules(project_db, molecule_ids: Iterable[int]) -> int:
     structures = _owned_payloads(project_db, ids, structure=True)
     clear_derived(project_db, ids)
     # Children before parents: project databases enforce foreign keys.
-    for model in (LigandActivity, MoleculeSourceProperty, MoleculeSetMember):
+    for model in (LigandActivity, MoleculeSetMember):
         _safe_delete(project_db, model, model.molecule_id.in_(ids))
     _safe_delete(
         project_db,

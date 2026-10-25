@@ -26,7 +26,6 @@ from amdockvs.molecules.api import ensure_molecule_set_ref
 from amdockvs.molecules.storage import create_generation, has_shards
 from amdockvs.project.sets import MoleculeSetRef
 from amdockvs.project.summaries import JobStatus
-from amdockvs.core.vocab import ShardState
 from amdockvs.molecules.scopes import MoleculeScope, is_molecule_scope, scope_payload
 from amdockvs.integrations.envs import (
     ProtonationToolStatus,
@@ -161,7 +160,6 @@ class ChemistryAPI:
         executor_name: str = DEFAULT_LOCAL_CPU_EXECUTOR,
         depends_on: list[str] | None = None,
         wait: bool = False,
-        shard_state: str = ShardState.PENDING,
     ) -> str | JobStatus:
         """Run several chemistry steps in one pass over the active screening library.
 
@@ -189,7 +187,6 @@ class ChemistryAPI:
             if has_shards(self.runtime.workspace.project_db):
                 return self.run_shard_pipeline(
                     normalized,
-                    state=shard_state,
                     executor_name=executor_name,
                     depends_on=depends_on,
                     wait=wait,
@@ -209,7 +206,6 @@ class ChemistryAPI:
         self,
         steps: Sequence[str | tuple[str, dict[str, Any]]],
         *,
-        state: str = ShardState.PENDING,
         params: dict[str, Any] | None = None,
         executor_name: str = DEFAULT_LOCAL_CPU_EXECUTOR,
         depends_on: list[str] | None = None,
@@ -249,7 +245,6 @@ class ChemistryAPI:
             params=ShardChemistryJobParams(
                 operation=[[name, step_params] for name, step_params in normalized],
                 params=dict(params or {}),
-                state=state,
                 generation_id=generation_id,
                 output_dir=str(shards_root / f"gen_{generation_id:04d}_{label}"),
             ).model_dump(mode="python"),

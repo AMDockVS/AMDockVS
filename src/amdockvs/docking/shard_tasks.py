@@ -17,10 +17,9 @@ from amdockvs.docking.engines.registry import run_docking_chunk
 from amdockvs.docking.preparation.shards import extract_ligands
 from amdockvs.docking.results.dataset import ResultFragmentWriter, local_pose_path, result_fragment_path, result_row
 
-# How the cap is spent. `threshold`: the first `cap` ligands that beat the threshold, written as
-# they come back — the campaign can stop early. `top_n`: the best `cap` of everything scored,
-# written when the run ends — no early stop, and nothing to look at until then.
-HIT_MODE_THRESHOLD = "threshold"
+# How the cap is spent: the best `cap` of everything scored per receptor, picked from the result
+# fragments when the run ends. Only an off-target stage, already narrowed to a ranking, streams
+# its hits back as they come.
 HIT_MODE_TOP_N = "top_n"
 
 
@@ -43,7 +42,7 @@ def _discard_poses(rows: list[dict]) -> None:
                     path.unlink(missing_ok=True)
 
 
-def _hit_row(row: dict, *, smiles: str, source: str, docking_run_id: int | None) -> dict[str, Any]:
+def _hit_row(row: dict, *, smiles: str, shard: dict, docking_run_id: int | None) -> dict[str, Any]:
     """A docking result row turned into what `ingest_hits` promotes: a molecule and its result
     columns (its `ligand_molecule_id` is the shard record until then); its pose is added by the
     caller as a payload."""
@@ -51,8 +50,8 @@ def _hit_row(row: dict, *, smiles: str, source: str, docking_run_id: int | None)
     return {
         **{key: value for key, value in row.items() if key != "pose_path"},
         "docking_run_id": docking_run_id,
-        "name": f"{Path(source).stem or 'library'}:{ligand_id}",
-        "source": source,
+        "name": f"{shard.get('library') or 'library'}:{ligand_id}",
+        "import_batch_id": shard.get("import_batch_id"),
         # The shard record id *is* the identity of a library molecule: the shard's
         # `source_indices` metadata is what maps it back to a line in the original file.
         "source_index": ligand_id,
@@ -84,11 +83,9 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
     own engine call — the ligand ids inside a shard start at 0, so two shards in one call
     would write over each other's poses.
     """
-    source = str(shard.get("source") or "")
     shard_index = int(shard.get("shard_index") or 0)
     envelope = {
         "shard_id": int(shard.get("shard_id") or 0),
-        "source": source,
         "shard_index": shard_index,
         "chunks_total": int(payload.get("chunks_total") or 1),
         "receptor_id": int(payload.get("receptor_id") or 0),
@@ -145,12 +142,12 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
                 "shard_id": header["shard_id"],
                 "base_id": header["base_id"],
                 "slot_count": header["slot_count"],
-                "source_shard": source,
+                "import_batch_id": shard.get("import_batch_id"),
                 "run_id": str(payload.get("run_id") or ""),
                 "protocol": dict(payload.get("protocol_metadata") or {}),
                 "receptor_id": envelope["receptor_id"],
                 "selection": {
-                    "mode": str(payload.get("hit_mode") or HIT_MODE_THRESHOLD),
+                    "mode": HIT_MODE_TOP_N,
                     "cap": int(payload.get("hit_cap") or 0),
                     "threshold": threshold,
                     **(
@@ -181,14 +178,11 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
                 )
                 if is_hit:
                     hits_found += 1
-                    if (
-                        str(payload.get("hit_mode") or HIT_MODE_THRESHOLD) != HIT_MODE_TOP_N
-                        or payload.get("selected_from_receptor_id")
-                    ):
+                    if payload.get("selected_from_receptor_id"):
                         hit = _hit_row(
                             row,
                             smiles=smiles.get(ligand_id, ""),
-                            source=source,
+                            shard=shard,
                             docking_run_id=payload.get("docking_run_id"),
                         )
                         # Compressed when pickled, so in the worker: the parent only appends it.

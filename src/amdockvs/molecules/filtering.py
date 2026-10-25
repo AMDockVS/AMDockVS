@@ -30,6 +30,8 @@ from amdockvs.project.sets import molecule_set_spec
 # "Has computed descriptors" proxy: the importer sets n_atoms>0 only when it computed properties, so
 # molecules imported without descriptors (n_atoms 0) are not evaluable — same skip the Python path did.
 EVALUABLE = M.n_atoms > 0
+# PAINS is computed on demand: a library import leaves it JSON null until the descriptor job runs.
+PAINS_KNOWN = func.json_type(M.pains_matches) == "array"
 
 _NUMERIC_OPS = {
     OP.LT: lambda c, v: c < v,
@@ -59,11 +61,11 @@ def criteria_conditions(criteria: SmallMoleculeFilterCriteria) -> list:
     conds: list[Any] = []
     for rule in criteria.rules:
         if rule.field in (F.PAINS_MATCHES, F.RO5_VIOLATIONS):
-            col = M.pains_matches if rule.field == F.PAINS_MATCHES else M.ro5_violations
+            count = _json_len(M.pains_matches) if rule.field == F.PAINS_MATCHES else M.ro5_violations
             if rule.operator == OP.IS_EMPTY:
-                conds.append(_json_len(col) == 0)
+                conds.append(count == 0)
             elif rule.operator == OP.HAS_ANY:
-                conds.append(_json_len(col) > 0)
+                conds.append(count > 0)
             continue
         col = getattr(M, rule.field, None)
         make = _NUMERIC_OPS.get(rule.operator)
@@ -71,6 +73,11 @@ def criteria_conditions(criteria: SmallMoleculeFilterCriteria) -> list:
             continue
         conds.append(make(func.coalesce(col, 0), rule.value))
     return conds
+
+
+def evaluable(criteria: SmallMoleculeFilterCriteria) -> list:
+    """Rows the criteria can judge; the rest are counted as skipped, never as failing."""
+    return [EVALUABLE, PAINS_KNOWN] if criteria.needs_pains() else [EVALUABLE]
 
 
 def scope_conditions(project_db, scope) -> list:
@@ -94,17 +101,17 @@ def _count(session, conds) -> int:
 
 
 def counts(project_db, scope_conds: list, criteria: SmallMoleculeFilterCriteria) -> dict[str, int]:
-    crit = criteria_conditions(criteria)
+    crit, judged = criteria_conditions(criteria), evaluable(criteria)
     with project_db.get_session() as session:
         scanned = _count(session, scope_conds)
-        evaluable = _count(session, [*scope_conds, EVALUABLE])
-        matched = _count(session, [*scope_conds, EVALUABLE, *crit])
+        n_evaluable = _count(session, [*scope_conds, *judged])
+        matched = _count(session, [*scope_conds, *judged, *crit])
     return {
         "scanned": scanned,
-        "evaluable": evaluable,
+        "evaluable": n_evaluable,
         "matched": matched,
-        "skipped": scanned - evaluable,
-        "nonmatched": evaluable - matched,
+        "skipped": scanned - n_evaluable,
+        "nonmatched": n_evaluable - matched,
     }
 
 
@@ -119,18 +126,18 @@ def apply_state(
 ) -> tuple[int, int]:
     """One UPDATE per requested direction. Enrich excludes the evaluable rows that fail; Recover
     re-includes the evaluable rows that pass. Never both — the caller picks one."""
-    crit = criteria_conditions(criteria)
+    crit, judged = criteria_conditions(criteria), evaluable(criteria)
     fail = not_(and_(*crit)) if crit else false()  # at least one rule fails; no rules → nothing fails
     activated = excluded = 0
     with project_db.get_session() as session:
         if activate_matches:
             result = session.exec(
-                sql_update(M).where(*scope_conds, EVALUABLE, *crit).values(excluded=False, exclusion_reason="")
+                sql_update(M).where(*scope_conds, *judged, *crit).values(excluded=False, exclusion_reason="")
             )
             activated = int(getattr(result, "rowcount", 0) or 0)
         if exclude_nonmatches:
             result = session.exec(
-                sql_update(M).where(*scope_conds, EVALUABLE, fail).values(excluded=True, exclusion_reason=str(reason or ""))
+                sql_update(M).where(*scope_conds, *judged, fail).values(excluded=True, exclusion_reason=str(reason or ""))
             )
             excluded = int(getattr(result, "rowcount", 0) or 0)
         session.commit()
@@ -140,12 +147,14 @@ def apply_state(
 def matched_ids(project_db, scope_conds: list, criteria: SmallMoleculeFilterCriteria) -> list[int]:
     crit = criteria_conditions(criteria)
     with project_db.get_session() as session:
-        rows = session.exec(select(M.id).where(*scope_conds, EVALUABLE, *crit)).all()
+        rows = session.exec(select(M.id).where(*scope_conds, *evaluable(criteria), *crit)).all()
     return [int(r) for r in rows if r is not None]
 
 
 __all__ = [
     "EVALUABLE",
+    "PAINS_KNOWN",
+    "evaluable",
     "criteria_conditions",
     "scope_conditions",
     "counts",

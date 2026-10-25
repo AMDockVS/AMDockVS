@@ -11,8 +11,8 @@ from amdockvs.docking.jobs import count_pending_docking_pairs, iter_docking_batc
 from amdockvs.docking.protocols import DockingProtocolMetadata
 from amdockvs.docking.pairs import iter_docking_batches_from_rows
 from amdockvs.docking.results.repository import docking_run_id
-from amdockvs.models.docking import DockingResult, EngineState
-from amdockvs.models.molecules import MoleculeRecord
+from amdockvs.models.docking import DockingResult, LigandPrep, ReceptorPrep
+from amdockvs.models.molecules import ImportBatch, MoleculeRecord
 
 from payload_seed import seed_payload
 
@@ -44,9 +44,8 @@ def _project(tmp_path):
             ligands.append(lig)
         session.commit()
 
-        for role, rows in (("receptor", receptors), ("ligand", ligands)):
-            for row in rows:
-                session.add(EngineState(molecule_id=row.id, role_type=role, engine=ENGINE, is_ready=True))
+        session.add_all(ReceptorPrep(receptor_molecule_id=row.id, rigid_payload_id=receptor_pid) for row in receptors)
+        session.add_all(LigandPrep(molecule_id=row.id, payload_id=ligand_pid) for row in ligands)
         # Already docked: the first N_DOCKED ligands against the first receptor.
         run = docking_run_id(store, run_id="", engine=ENGINE, run_kind="screening", protocol={"hash": proto})
         for lig in ligands[:N_DOCKED]:
@@ -79,7 +78,7 @@ def _counted(store, *, skip_existing):
     return count_pending_docking_pairs(
         project_db=store,
         engine=ENGINE,
-        preparation_engine=ENGINE,
+        preparation_engine="ad4",
         ligand_set_id=None,
         receptor_set_id=None,
         ligand_filters=None,
@@ -169,10 +168,13 @@ def test_receptor_major_needs_a_re_iterable_ligand_source():
 
 def test_receptors_dock_in_id_order_like_every_table_lists_them(tmp_path):
     store = _project(tmp_path)
-    with store.get_session() as session:  # the file order says the other way round
-        for receptor_id, source in ((1, "/home/u/Downloads/a.pdb"), (2, "/home/u/Documents/b.pdb")):
+    with store.get_session() as session:  # the import order says the other way round
+        batches = [ImportBatch(source=f"/home/u/{name}.pdb", quick_hash=name) for name in ("b", "a")]
+        session.add_all(batches)
+        session.flush()
+        for receptor_id, batch in ((1, batches[1]), (2, batches[0])):
             row = session.get(MoleculeRecord, receptor_id)
-            row.source = source
+            row.import_batch_id = batch.id
             session.add(row)
         session.commit()
     feed = iter_docking_batches(project_db=store, output_dir=tmp_path / "out", batch_size=8,

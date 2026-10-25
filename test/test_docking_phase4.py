@@ -112,6 +112,9 @@ class _SubmissionMolecules:
 
 
 class _SubmissionDocking:
+    def check_protocol(self, **_kwargs):
+        pass
+
     def __init__(self):
         self.run_calls = []
         self.interaction_calls = []

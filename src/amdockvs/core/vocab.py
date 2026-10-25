@@ -1,12 +1,11 @@
 """
 vocab.py
 ────────
-Domain vocabulary: bounded values that populate text columns in the DB.
+Domain vocabulary: bounded values of the categorical columns in the DB.
 
 They are constant classes (not Enum) on purpose — the values travel as plain
-`str`, so adding/renaming a value requires no SQLAlchemy type migration and
-does not break when loading rows with legacy values. See the discussion in the
-model.
+`str`. The DB stores each one as its integer in `CODES` (see the end of the
+module), so a value is added by appending it there, never renamed.
 
 Leaf module: it imports NOTHING from amdockvs (neither ORM nor constants). Any
 layer —models, io, workflows, docking, UI, ms_table— can import it cheaply.
@@ -40,6 +39,12 @@ class FileFormat:
     SMILES = "smiles"
     FASTA = "fasta"
     UNKNOWN = "unknown"
+
+class ImportKind:
+    """Where an import batch put its records: `molecules` rows or `.mshard` shards."""
+
+    ROWS = "rows"
+    SHARDS = "shards"
 
 class BindingSiteSource:
     MANUAL = "manual"
@@ -85,6 +90,9 @@ class SetPurpose:
     ENRICHMENT = "enrichment"
     GRID_REF = "grid_reference"
     CUSTOM = "custom"
+    SNAPSHOT = "snapshot"  # a saved selection (create_set default)
+    FILTER = "filter"  # a set saved from the Filter tool
+    MANUAL = "manual"  # molecules.create_set default
 
 class FingerprintType:
     ECFP4 = "ecfp4"
@@ -104,6 +112,7 @@ class SimilarityMethod:
     TVERSKY = "tversky"
 
 class ClusteringMethod:
+    BITBIRCH = "bitbirch"
     BITBIRCH_LEAN = "bitbirch_lean"
     BUTINA = "butina"
     KMEANS = "kmeans"
@@ -120,24 +129,6 @@ class ProjectMode:
 
     VS = "vs"          # ligands materialized as rows; the whole catalog UI applies
     HTPVS = "htpvs"    # ligands live in shards; only promoted hits ever become rows
-
-class ShardState:
-    """Lifecycle of the current chemical shard representation.
-
-    Preparation readiness and docking progress now live in engine/campaign-scoped tables.
-    ``prepared``, ``docking`` and ``docked`` remain readable for legacy projects only.
-    """
-
-    PENDING = "pending"      # imported, nothing run over it yet
-    RUNNING = "running"
-    READY = "ready"          # chemistry pipeline done
-    PREPARED = "prepared"    # ligands rewritten as PDBQT: dockable
-    DOCKING = "docking"      # handed to a run, results not all back
-    DOCKED = "docked"
-    FAILED = "failed"
-    # ponytail: rows written before the lifecycle existed say "done". Kept so they still read
-    # as a value; nothing writes it any more.
-    DONE = "done"
 
 class DispatchState:
     """What happened to a source file handed to a cluster. Lives as long as the campaign."""
@@ -156,9 +147,65 @@ class TargetState:
     CANCELED = "canceled"
     FAILED = "failed"
 
+class RunKind:
+    DOCKING = "docking"
+    SCREENING = "screening"
+    REDOCKING = "redocking"
+
+class ActivityKind:
+    """Picks the QSAR task: regression or classification."""
+
+    CONTINUOUS = "continuous"
+    CATEGORICAL = "categorical"
+
+
+def _domain(base: int, *names: str) -> dict[str, int]:
+    return {name: base + offset for offset, name in enumerate(names, 1)}
+
+
+# Categorical columns store `codes.id`, not text; `models.codes.CodeType` converts both ways, so
+# Python only ever sees the names. Append-only: every project db holds these ids, so a value is
+# never renumbered, reused or removed; a new one goes at the end of its domain. A value missing
+# here can't be written — CodeType raises naming the domain.
+CODES: dict[str, dict[str, int]] = {
+    "molecule_type": _domain(100, "small_molecule", "protein", "peptide", "nucleotide", "polymer", "unknown"),
+    "usage_class": _domain(200, "general", "reference", "derived"),
+    "model_source": _domain(
+        300, "imported", "rdkit", "esmfold", "etkdg", "nmr", "fixed", "protonated", "minimized"
+    ),
+    "repr_type": _domain(
+        400, "smiles_canonical", "smiles_isomeric", "inchi", "inchikey", "sequence_aa", "sequence_nt", "helm"
+    ),
+    "binding_site_source": _domain(500, "manual", "ligand", "fpocket", "p2rank", "pdb"),
+    "engine": _domain(600, "vina", "qvina", "gnina", "adgpu"),
+    "run_kind": _domain(700, "docking", "screening", "redocking"),
+    "score_type": _domain(800, "vina_score", "ad4_score", "gnina_score"),
+    "activity_kind": _domain(900, "continuous", "categorical"),
+    "complex_purpose": _domain(1000, "redocking", "rescoring", "reference"),
+    "run_state": _domain(1100, "scheduled", "running", "done", "canceled", "failed"),
+    "dispatch_state": _domain(1200, "uploaded", "running", "returned", "failed"),
+    "clustering_method": _domain(1300, "bitbirch", "bitbirch_lean", "butina", "kmeans", "hierarchical", "dbscan"),
+    "qsar_algorithm": _domain(
+        1400, "baseline", "linear_regression", "ridge", "lasso", "random_forest", "gradient_boosting",
+        "svr", "knn", "logistic_regression", "svc",
+    ),
+    "feature_type": _domain(1500, "descriptors_2d"),
+    "set_purpose": _domain(
+        1600, "qsar", "redocking", "rescoring", "substructure", "enrichment", "grid_reference", "custom",
+        "snapshot", "filter", "manual",
+    ),
+    "file_format": _domain(1700, "pdb", "sdf", "mol2", "cif", "pdbqt", "pqr", "smiles", "fasta", "unknown"),
+    "import_kind": _domain(1800, "rows", "shards"),
+    "prep_family": _domain(1900, "ad4"),
+}
+
 __all__ = [
+    "CODES",
+    "RunKind",
+    "ActivityKind",
     "MoleculeType",
     "FileFormat",
+    "ImportKind",
     "BindingSiteSource",
     "ComplexPurpose",
     "MoleculeUsageClass",
@@ -169,7 +216,6 @@ __all__ = [
     "SimilarityMethod",
     "ClusteringMethod",
     "ProjectMode",
-    "ShardState",
     "DispatchState",
     "TargetState",
 ]

@@ -31,6 +31,9 @@ class _FakeMolecules:
     def library_shape(self):
         return self.shape
 
+    def excluded_ids(self):
+        return set()
+
     def select(self, *, molecule_type):
         selection = SimpleNamespace(molecule_type=molecule_type, filters={})
         self.selections.append(selection)
@@ -330,6 +333,7 @@ def test_a_finished_build_lists_the_molecules_it_excluded(build_widget, monkeypa
 
     monkeypatch.setattr(build_module, "run_async", lambda fn, on_result, *a, **k: on_result(fn()))
     asked = []
+    build_widget.runtime.molecules.excluded_ids = lambda: {3}
     build_widget.runtime.molecules.excluded_since = lambda since: asked.append(since) or [
         (7, "ZINC7", "generate_3d: RDKit could not generate a 3D conformer."),
         (8, "ZINC8", "standardize: Explicit valence for atom # 3 N, 4, is greater than permitted"),
@@ -342,7 +346,7 @@ def test_a_finished_build_lists_the_molecules_it_excluded(build_widget, monkeypa
     build_widget.run_build_ligands_button.click()
     build_widget.ligand_jobs.on_finished("pipeline-job", "completed")
 
-    assert asked and asked[0] <= __import__("datetime").datetime.now()
+    assert asked == [{3}]  # the ids excluded before the run
     tree = build_widget.failures_dialog.findChild(QTreeWidget)
     groups = [tree.topLevelItem(i) for i in range(tree.topLevelItemCount())]
     assert len(groups) == 2  # four failures, two causes: atom numbers don't split a cause

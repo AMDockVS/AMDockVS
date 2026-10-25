@@ -29,6 +29,14 @@ class DockingSubmissionService:
     ) -> DockingSubmission:
         if not request.protocols:
             raise ValueError("Select at least one compatible docking software first.")
+        if request.run_kind != "redocking":
+            if len({get_docking_program(protocol.program).key for protocol in request.protocols}) != len(request.protocols):
+                raise ValueError("Docking accepts one configuration per program; use redocking to compare protocols.")
+            for protocol in request.protocols:
+                self.runtime.docking.check_protocol(
+                    program=protocol.program, engine_config=dict(protocol.config),
+                    protocol_metadata=protocol.to_mapping(), replace_existing=request.replace_existing,
+                )
         job_ids: dict[str, str] = {}
         if request.run_kind == "redocking":
             if not request.complex_ids:
@@ -80,6 +88,7 @@ class DockingSubmissionService:
                     protocol_metadata=protocol.to_mapping(),
                     engine_config=config,
                     compute_interactions=request.compute_interactions,
+                    replace_existing=request.replace_existing,
                 )
                 key = protocol_job_key(protocol, index)
                 reference_id = request.offtarget_reference_id
@@ -102,7 +111,7 @@ class DockingSubmissionService:
                     selected_from_receptor_id=int(reference_id),
                     selected_top_n=int(request.offtarget_top_n),
                     selected_max_score=request.offtarget_max_score,
-                    **common,
+                    **{**common, "replace_existing": False},
                 )
         interaction_job_id = ""
         # A docking run finds them in its own chunks; a redock's poses get the job afterwards.

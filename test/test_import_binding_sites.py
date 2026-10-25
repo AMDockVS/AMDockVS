@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 from sqlmodel import select
 
 from amdockvs.io.jobs import IMPORT_GRAPH_OUTPUT
@@ -12,14 +10,12 @@ from ms_flow.core.database import ProjectStore
 
 def _row(source: str, index: int, role: str, **extra) -> dict:
     row = {
-        "source": source,
+        "source_file": source,
         "source_index": index,
         "name": f"{source}-{index}",
         "primary_role": role,
         "molecule_kind": "protein" if role == "receptor" else "small_molecule",
         "input_format": "pdb",
-        "created_at": datetime.now(timezone.utc),
-        "updated_at": datetime.now(timezone.utc),
     }
     row.update(extra)
     return row
@@ -74,7 +70,7 @@ def test_import_wires_active_site_and_complex_site_through_the_deferred_relation
             complex_record = session.exec(select(ComplexRecord)).one()
 
         assert set(sites) == {"site-a", "site-b", "site-c", "ligand-own-site"}
-        assert receptor_record.active_binding_site_id == sites["site-b"].id
+        assert [name for name, site in sites.items() if site.is_active] == ["site-b"]
         assert sites["site-b"].molecule_id == receptor_record.id
         # Position 1 of the receptor, not that of the ligand carrying the complex_spec.
         assert complex_record.binding_site_id == sites["site-b"].id

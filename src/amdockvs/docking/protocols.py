@@ -42,12 +42,9 @@ class DockingProtocolMetadata(BaseModel):
         return self.model_dump(mode="python", by_alias=True)
 
 
-#: Config keys that make a *different protocol*. Everything else the UI puts in `config` is
-#: execution detail -- how many poses to report (`num_modes`), which vina binding
-#: (`vina_backend`), how many threads (`vina_cpu`) -- and it stays in the stored config for
-#: audit, but it must not fork the protocol: hashing it split the Results filter and defeated
-#: the skip-existing guard on changes that cannot move a single pose.
+#: Search and output settings distinguish results; CPU/backend settings remain execution details.
 IDENTITY_KEYS = ("scoring_function", "exhaustiveness")
+RESULT_KEYS = ("num_modes", "seed", "energy_range", "min_rmsd", "spacing")
 
 
 def protocol_identity(config: Mapping[str, Any] | None, *, program: str = "") -> dict[str, Any]:
@@ -58,7 +55,7 @@ def protocol_identity(config: Mapping[str, Any] | None, *, program: str = "") ->
         from amdockvs.docking.engines.programs import get_docking_program
 
         keys = get_docking_program(program).protocol_identity_keys
-    identity = {key: payload[key] for key in keys if key in payload}
+    identity = {key: payload[key] for key in (*keys, *RESULT_KEYS) if key in payload}
     # Standard is what every protocol was before methods existed: leaving it out keeps their hashes.
     if str(payload.get("method") or "standard") != "standard":
         identity["method"] = str(payload["method"])

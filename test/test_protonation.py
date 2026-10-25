@@ -61,7 +61,6 @@ def test_protonation_returns_a_new_payload_and_leaves_the_input_alone():
             "id": 3,
             "structure": source,
             "structure_kind": "sdf",
-            "current_model_index": None,
             "extra_data": {},
             "has_3d": False,
         }],
@@ -90,7 +89,6 @@ def test_pkasso_gpu_is_requested_once_per_database_batch(tmp_path, monkeypatch):
     # The feed reads through `iter_ligand_rows` (scope_spec + db_pages); what this test checks is
     # the chunking and the per-chunk GPU flag, so the source is swapped out, not the database.
     monkeypatch.setattr("amdockvs.chemistry.jobs.iter_ligand_rows", _rows)
-    monkeypatch.setattr("amdockvs.chemistry.jobs.max_model_index_by_molecule_ids", lambda _db, _ids: {})
     params = LigandChemistryJobParams(
         operation="protonate",
         batch_size=2,

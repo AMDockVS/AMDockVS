@@ -84,7 +84,7 @@ def test_a_labelled_temporary_receptor_with_a_ligand_imports_and_its_file_goes(t
         assert status.status == "completed", status.error
         with runtime.workspace.project_db.get_session() as session:
             sql = session.connection().exec_driver_sql
-            assert {row[0] for row in sql("SELECT source FROM molecules").fetchall()} == {"RCSB PDB:1ABC"}
+            assert {row[0] for row in sql("SELECT b.source FROM molecules m JOIN import_batches b ON b.id = m.import_batch_id").fetchall()} == {"RCSB PDB:1ABC"}
             assert sql("SELECT COUNT(*) FROM complexes").scalar() >= 1
         assert not receptor.exists()
     finally:

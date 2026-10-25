@@ -7,7 +7,7 @@ from sqlmodel import select
 
 from amdockvs.docking.results import repository
 from amdockvs.models.docking import DockingResult
-from amdockvs.models.molecules import MoleculeRecord
+from amdockvs.models.molecules import ImportBatch, MoleculeRecord
 from amdockvs.molecules.repository import ligand_table_stats, receptor_table_stats
 
 ENGINE = "vina"
@@ -16,11 +16,15 @@ ENGINE = "vina"
 def _project(tmp_path):
     store = ProjectStore.open_at(tmp_path / "project.db")
     with store.get_session() as session:
-        rec = MoleculeRecord(name="rec", is_receptor=True, source="/data/rec.pdb", n_atoms=100,
-                             input_format="pdb", has_3d=True)
+        rec_file = ImportBatch(source="/data/rec.pdb", quick_hash="r", format="pdb")
+        lib_file = ImportBatch(source="/data/libs.sdf", quick_hash="l", format="sdf")
+        session.add_all([rec_file, lib_file])
+        session.flush()
+        rec = MoleculeRecord(name="rec", is_receptor=True, import_batch_id=rec_file.id, n_atoms=100,
+                             has_3d=True)
         ligands = [
-            MoleculeRecord(name=f"lig_{i}", is_ligand=True, source="/data/libs.sdf", source_index=i,
-                           n_atoms=10 + i, input_format="sdf", excluded=(i == 2))
+            MoleculeRecord(name=f"lig_{i}", is_ligand=True, import_batch_id=lib_file.id, source_index=i,
+                           n_atoms=10 + i, excluded=(i == 2))
             for i in range(3)
         ]
         session.add(rec)
@@ -99,6 +103,7 @@ def test_table_stats_aggregate_in_sql(tmp_path):
     assert dict((item.value, item.count) for item in ligands.by_status) == {"active": 2, "excluded": 1}
     assert ligands.by_input_format[0].value == "sdf"
     assert ligands.by_source_file[0].count == 3 and ligands.by_source_file[0].max_source_index == 2
+    assert ligands.by_source_file[0].source_file.name == "libs.sdf"
     assert (ligands.atoms.min, ligands.atoms.max) == (10, 12) and ligands.atoms.avg == 11.0
 
     receptors = receptor_table_stats(store)

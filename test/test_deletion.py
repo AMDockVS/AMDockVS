@@ -13,7 +13,7 @@ from amdockvs.models import (
     ComplexRecord,
     DockingResultRecord,
     DockingRun,
-    EngineState,
+    LigandPrep,
     FingerprintRecord,
     LigandActivity,
     MoleculeModel,
@@ -38,7 +38,7 @@ def _seed():
     with Session(engine) as s:
         s.add(MoleculeRecord(id=1, name="rec", is_receptor=True))
         s.add(MoleculeRecord(id=2, name="lig", is_ligand=True))
-        s.add(ComplexRecord(id=1, receptor_molecule_id=1, ligand_molecule_id=2, purpose="screening"))
+        s.add(ComplexRecord(id=1, receptor_molecule_id=1, ligand_molecule_id=2, purpose="reference"))
         s.add(DockingRun(id=1, engine="vina"))
         for rank in (1, 2):
             s.add(DockingResultRecord(receptor_molecule_id=1, ligand_molecule_id=2, docking_run_id=1, pose_rank=rank))
@@ -86,8 +86,8 @@ def _project(tmp_path):
         s.add(MoleculeRecord(id=3, name="b", is_ligand=True, stored_payload_id=ids["shared"], current_payload_id=ids["alone"]))
         s.add(MoleculeRecord(id=4, name="c", is_ligand=True, stored_payload_id=ids["shared"], current_payload_id=ids["shared"]))
         s.commit()
-        s.add(MoleculeModel(molecule_id=2, model_index=1, payload_id=ids["model"], pae_payload_id=ids["pae"]))
-        s.add(EngineState(molecule_id=2, role_type="ligand", engine="vina", prepared_payload_id=ids["prepared"]))
+        s.add(MoleculeModel(molecule_id=2, payload_id=ids["model"], data_payload_id=ids["pae"]))
+        s.add(LigandPrep(molecule_id=2, payload_id=ids["prepared"]))
         s.add(FingerprintRecord(molecule_id=2, fp_type="morgan", fp_binary=b""))
         s.add(LigandActivity(molecule_id=2, activity_type="IC50", value=1.0))
         s.add(ComplexRecord(receptor_molecule_id=3, ligand_molecule_id=2, purpose="redocking",
@@ -108,7 +108,7 @@ def test_clear_derived_keeps_the_compound_and_its_structure(tmp_path):
     with db.get_session() as s:
         assert s.exec(select(MoleculeModel)).all() == []
         assert s.exec(select(FingerprintRecord)).all() == []
-        assert s.exec(select(EngineState)).all() == []
+        assert s.exec(select(LigandPrep)).all() == []
         assert len(s.exec(select(LigandActivity)).all()) == 1   # describes the compound: stays
     for kept in (stored(), cached()):
         assert not {"model", "pae", "prepared"} & kept          # what was computed from it went

@@ -1,4 +1,5 @@
 import os
+import time
 from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -144,6 +145,15 @@ def test_missing_or_nonfinite_values_have_no_color(matrix, db, score):
     assert background is None
 
 
+def _wait_for(done, timeout_s: float = 10.0) -> None:
+    """Process events until `done()`: the table counts its rows in the background."""
+    deadline = time.monotonic() + timeout_s
+    while not done() and time.monotonic() < deadline:
+        QApplication.processEvents()
+        time.sleep(0.01)
+    assert done()
+
+
 def test_every_ligand_is_reachable_but_only_a_window_is_read(monkeypatch, db):
     with db.get_session() as session:
         for ligand in range(1000, 2500):
@@ -153,7 +163,7 @@ def test_every_ligand_is_reachable_but_only_a_window_is_read(monkeypatch, db):
         session.commit()
     widget = _matrix(monkeypatch, db)
     try:
-        assert widget.table.record_total == 1501
+        _wait_for(lambda: widget.table.record_total == 1501)
         assert widget.table._model.loaded_count <= 200
         first = widget.table._model.get_row_data(0)
         assert first["ligand_name"] == "L2499"  # best target score first

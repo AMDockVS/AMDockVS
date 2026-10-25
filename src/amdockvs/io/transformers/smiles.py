@@ -64,17 +64,16 @@ def _materialize_smiles_rows(
             _progress_update(progress_cb, index, total_entries)
             continue
         mol.SetProp("_Name", name)
-        resolved_mol_block = mol_block or Chem.MolToMolBlock(mol)
         row = _build_row(
             source_file=batch.file_path,
             source_index=source_index,
             name=name,
             n_atoms=mol.GetNumAtoms(),
-            input_format="smiles",
-            # The original is the SMILES itself; the 3D-less block below is only the current form.
+            import_batch_id=batch.import_batch_id,
+            # The original is the SMILES itself; current stays it until something adds coordinates.
             stored=structure_payload(smiles, "smi", series_for(batch.primary_role or batch.kind)),
             current=None,
-            metadata={**molecule_state_metadata(mol), "smiles": smiles},
+            metadata=molecule_state_metadata(mol),  # the SMILES is the stored payload already
             molecule_kind=batch.molecule_kind,
             primary_role=batch.primary_role,
             primary_context=batch.primary_context,
@@ -94,13 +93,14 @@ def _materialize_smiles_rows(
                 _progress_update(progress_cb, index, total_entries)
                 continue
         else:
-            share_current(row, structure_payload(resolved_mol_block, "sdf", series_for(batch.primary_role or batch.kind)))
+            if mol_block:  # else no coordinates: the stored SMILES is it, current stays NULL (D6)
+                share_current(row, structure_payload(mol_block, "sdf", series_for(batch.primary_role or batch.kind)))
         bump(tally, IMPORTED)
         yield row
         yield from _split_fragment_rows(
             batch=batch, source_index=source_index, name=name, mol=mol,
             parent_key=molecule_storage_key(batch.primary_role or batch.kind, batch.file_path, source_index),
-            input_format="smiles", criteria=criteria,
+            criteria=criteria,
             source_properties=entry.get("source_properties"), tally=tally,
         )
         _progress_update(progress_cb, index, total_entries)

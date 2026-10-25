@@ -27,6 +27,7 @@ from amdockvs.binding_sites.p2rank import (
     ensure_p2rank,
     p2rank_status,
 )
+from amdockvs.binding_sites.repository import set_active as set_active_site_row
 from amdockvs.binding_sites.scopes import BindingSiteScope
 
 
@@ -381,8 +382,7 @@ class BindingSiteAPI:
             session.add(site)
             session.flush()
             if set_active:
-                molecule.active_binding_site_id = int(site.id or 0) or None
-                session.add(molecule)
+                set_active_site_row(session, int(molecule_id), int(site.id))
             session.commit()
             session.refresh(site)
             return site
@@ -430,9 +430,18 @@ class BindingSiteAPI:
                     raise ValueError(
                         f"Binding site {binding_site_id} does not belong to molecule {molecule_id}."
                     )
-            molecule.active_binding_site_id = None if binding_site_id is None else int(binding_site_id)
-            session.add(molecule)
+            set_active_site_row(session, int(molecule_id), binding_site_id)
             session.commit()
+
+    def active_site_id(self, molecule_id: int) -> int | None:
+        """The id of the molecule's active site, None without one."""
+        self.runtime._require_active_project()
+        with self.runtime.workspace.project_db.get_session() as session:
+            return session.exec(
+                select(BindingSite.id)
+                .where(BindingSite.molecule_id == int(molecule_id))
+                .where(BindingSite.is_active == True)  # noqa: E712 - SQL expression
+            ).first()
 
 
 __all__ = [

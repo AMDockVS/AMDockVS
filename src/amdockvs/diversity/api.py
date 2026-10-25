@@ -489,12 +489,12 @@ class DiversityAPI:
         """Persisted clustering runs, newest first: run id, method, cluster/centroid counts."""
         self.runtime._require_active_project()
         with self.runtime.workspace.project_db.get_session() as session:
-            rows = session.exec(select(ClusteringResult)).all()
+            rows = session.exec(select(ClusteringResult).order_by(ClusteringResult.id)).all()
         runs: dict[str, dict[str, Any]] = {}
         for row in rows:
             entry = runs.setdefault(
                 row.cluster_run_id,
-                {"cluster_run_id": row.cluster_run_id, "method": row.method, "created_at": row.created_at,
+                {"cluster_run_id": row.cluster_run_id, "method": row.method,
                  "n_molecules": 0, "n_clusters": set(), "n_centroids": 0},
             )
             entry["n_molecules"] += 1
@@ -505,7 +505,7 @@ class DiversityAPI:
         for entry in runs.values():
             entry["n_clusters"] = len(entry["n_clusters"])
             out.append(entry)
-        return sorted(out, key=lambda e: str(e.get("created_at") or ""), reverse=True)
+        return out[::-1]  # runs in order of their first row: newest first
 
     def get_run(self, cluster_run_id: str) -> list[dict[str, Any]]:
         self.runtime._require_active_project()

@@ -15,7 +15,8 @@ from typing import Any, Sequence
 from sqlmodel import select
 
 from amdockvs.core.normalize import PathLike
-from amdockvs.models import ActivityRecord, MoleculeRecord
+from amdockvs.core.vocab import ReprType
+from amdockvs.models import ActivityRecord, MoleculeRecord, MoleculeRepresentation
 
 # Concentration units -> molar factor, for pX = -log10(M) transforms.
 _UNIT_TO_MOLAR = {"m": 1.0, "mm": 1e-3, "um": 1e-6, "µm": 1e-6, "nm": 1e-9, "pm": 1e-12, "": 1.0}
@@ -50,8 +51,8 @@ def _structural_keys_from_mol(mol) -> tuple[str | None, str | None]:
 
 
 def _structural_keys_from_row(project_db, row) -> tuple[str | None, str | None]:
-    """(canonical_smiles, inchikey) from a ligand's stored structure, for molecules imported
-    before the molecule table carried them."""
+    """(canonical_smiles, inchikey) from a ligand's stored structure, for molecules with no
+    identity representations (a library import leaves them to the alerts job)."""
     from amdockvs.chemistry.structures import molecule_mol
 
     return _structural_keys_from_mol(molecule_mol(project_db, row, remove_hs=True))
@@ -100,8 +101,6 @@ class ActivitiesMixin:
                 source=str(source or ""),
             )
             session.add(record)
-            molecule.has_activity = True
-            session.add(molecule)
             session.commit()
             session.refresh(record)
             return record
@@ -116,13 +115,6 @@ class ActivitiesMixin:
             rows = session.exec(statement).all()
             for row in rows:
                 session.delete(row)
-            remaining = session.exec(
-                select(ActivityRecord).where(ActivityRecord.molecule_id == int(ligand_id))
-            ).first()
-            molecule = session.get(MoleculeRecord, int(ligand_id))
-            if molecule is not None:
-                molecule.has_activity = remaining is not None
-                session.add(molecule)
             session.commit()
             return len(rows)
 
@@ -171,12 +163,21 @@ class ActivitiesMixin:
             })
 
     def _structural_ligand_index(self, session) -> tuple[dict[str, int], dict[str, int]]:
-        """(inchikey->id, canonical_smiles->id) over all ligands, from the molecule table; a
-        molecule imported before it had those columns is read from its structure."""
+        """(inchikey->id, canonical_smiles->id) over all ligands, from their representations; a
+        molecule with neither is read from its structure."""
+        identity: dict[tuple[int, str], str] = {
+            (int(molecule_id), str(repr_type)): str(value)
+            for molecule_id, repr_type, value in session.exec(
+                select(MoleculeRepresentation.molecule_id, MoleculeRepresentation.repr_type,
+                       MoleculeRepresentation.value)
+                .where(MoleculeRepresentation.repr_type.in_((ReprType.INCHI_KEY, ReprType.SMILES_CANONICAL)))
+            )
+        }
         inchikey_to_id: dict[str, int] = {}
         smiles_to_id: dict[str, int] = {}
         for mol in session.exec(select(MoleculeRecord).where(MoleculeRecord.is_ligand.is_(True))):
-            canon, ikey = mol.canonical_smiles, mol.inchikey
+            canon = identity.get((int(mol.id), ReprType.SMILES_CANONICAL))
+            ikey = identity.get((int(mol.id), ReprType.INCHI_KEY))
             if not (canon or ikey):
                 canon, ikey = _structural_keys_from_row(self.runtime.workspace.project_db, mol)
             if ikey:
@@ -405,11 +406,6 @@ class ActivitiesMixin:
                     )
                 )
                 loaded += 1
-            for lid in touched:
-                molecule = session.get(MoleculeRecord, lid)
-                if molecule is not None:
-                    molecule.has_activity = True
-                    session.add(molecule)
             session.commit()
         return {
             "file": str(file_path),

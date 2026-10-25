@@ -145,10 +145,13 @@ class SmallMoleculeFilterCriteria:
     def is_active(self) -> bool:
         return bool(self.rules)
 
+    def needs_pains(self) -> bool:
+        return any(rule.field == SmallMoleculeFilterField.PAINS_MATCHES for rule in self.rules)
+
 
 @dataclass(frozen=True)
 class SmallMoleculeFilterValues:
-    pains_matches: tuple[str, ...]
+    pains_matches: tuple[str, ...] | None  # None: not computed (it is the costly part)
     ro5_violations: tuple[str, ...]
     descriptors: dict[str, float | int | None]
     n_atoms: int
@@ -182,8 +185,8 @@ def molecule_pains_matches(mol) -> tuple[str, ...]:
     over the cached RDKit FilterCatalog — reusable standalone for HTP pre-filtering."""
     if mol is None:
         return ()
-    catalog = _pains_catalog()
-    return tuple(entry.GetDescription() for entry in catalog.GetMatches(mol))
+    matches = _pains_catalog().GetMatches(mol)
+    return tuple(sorted({str(entry.GetDescription() or "").strip() for entry in matches} - {""}))
 
 
 def ro5_violations(descriptors: Mapping[str, float | int | None]) -> tuple[str, ...]:
@@ -298,17 +301,9 @@ def build_small_molecule_prefilter_rules(
     return tuple(rules)
 
 
-def evaluate_small_molecule_filter_values(mol) -> SmallMoleculeFilterValues:
-    matches = _pains_catalog().GetMatches(mol)
-    pains_matches = tuple(
-        sorted(
-            {
-                str(getattr(match, "GetDescription", lambda: "")() or "").strip()
-                for match in matches
-                if str(getattr(match, "GetDescription", lambda: "")() or "").strip()
-            }
-        )
-    )
+def evaluate_small_molecule_filter_values(mol, *, pains: bool = True) -> SmallMoleculeFilterValues:
+    """Descriptors, Ro5 and, with `pains`, the PAINS alerts: ~3/4 of the cost of the whole call."""
+    pains_matches = molecule_pains_matches(mol) if pains else None
     descriptors = calculate_basic_descriptors(mol)
     return SmallMoleculeFilterValues(
         pains_matches=pains_matches,
@@ -337,7 +332,6 @@ def annotate_row_with_small_molecule_filter_values(
     row["fraction_csp3"] = values.descriptors.get("fraction_csp3")
     row["n_atoms"] = int(values.n_atoms)
     row["pains_matches"] = list(values.pains_matches)
-    row["ro5_violations"] = list(values.ro5_violations)
     row["status_flags"] = int(row.get("status_flags") or 0) | int(values.status_flags)
     return row
 
@@ -349,7 +343,7 @@ def small_molecule_filter_values_from_record(record: Any) -> SmallMoleculeFilter
     }
     n_atoms = getattr(record, "n_atoms", 0)
     pains_matches = tuple(str(item) for item in (getattr(record, "pains_matches", None) or []))
-    ro5_violations = tuple(str(item) for item in (getattr(record, "ro5_violations", None) or []))
+    ro5_violations = _ro5_violations(descriptors)  # the column is a count; the names come from the descriptors
     if all(value in (None, "", 0) for value in descriptors.values()) and int(
             n_atoms or 0) <= 0 and not pains_matches and not ro5_violations:
         return None

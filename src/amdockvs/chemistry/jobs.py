@@ -18,7 +18,6 @@ from amdockvs.core.worker_io import worker_file, worker_output_dir
 from amdockvs.chemistry.repository import (
     iter_ligand_rows,
     iter_receptor_rows,
-    max_model_index_by_molecule_ids,
     scope_spec,
     sequences_by_molecule_ids,
 )
@@ -27,7 +26,6 @@ from amdockvs.chemistry.structures import with_structures
 from amdockvs.chemistry.tools.esmfold import FAST_MODEL
 from amdockvs.io.shards import shard_generation_writer
 from amdockvs.models import MoleculeModel, MoleculeRecord
-from amdockvs.core.vocab import ShardState
 
 
 # Chemistry operations update existing molecules (upsert by id) and may add new
@@ -45,8 +43,7 @@ CHEMISTRY_GRAPH_OUTPUT = graph_sink(
                 "is_minimized",
                 "conformer_count",
                 "current_payload_id",
-                "current_model_index",
-                "updated_at",
+               
             ],
             "write_mode": "upsert",
             "conflict_keys": ["id"],
@@ -56,7 +53,7 @@ CHEMISTRY_GRAPH_OUTPUT = graph_sink(
         {
             "name": "molecule_failures",
             "model": MoleculeRecord,
-            "columns": ["id", "excluded", "exclusion_reason", "updated_at"],
+            "columns": ["id", "excluded", "exclusion_reason"],
             "write_mode": "upsert",
             "conflict_keys": ["id"],
             "validate_model": False,
@@ -96,15 +93,10 @@ def _chemistry_batches(
     original = str(params.params.get("structure_source") or "current") == "original"
     for batch in batched(with_structures(project_db, rows, original=original), max(1, int(params.batch_size))):
         batch_rows = list(batch)
-        batch_ids = [int(row.get("id") or 0) for row in batch_rows if int(row.get("id") or 0) > 0]
-        max_index_map = max_model_index_by_molecule_ids(project_db, batch_ids)
         yield {
             "operation": params.operation,
             "params": dict(params.params or {}),
             "rows": batch_rows,
-            "next_model_index_by_entity": {
-                entity_id: int(max_index_map.get(entity_id, -1)) + 1 for entity_id in batch_ids
-            },
             **({"_gpu_required": 1} if gpu else {}),
         }
 
@@ -206,8 +198,8 @@ PREDICTION_GRAPH_OUTPUT = graph_sink(
             "name": "molecules",
             "model": MoleculeRecord,
             "columns": [
-                "id", "stored_payload_id", "current_payload_id", "current_model_index",
-                "has_3d", "has_hs", "is_minimized", "conformer_count", "updated_at",
+                "id", "stored_payload_id", "current_payload_id",
+                "has_3d", "has_hs", "is_minimized", "conformer_count",
             ],
             "write_mode": "upsert",
             "conflict_keys": ["id"],
@@ -218,7 +210,7 @@ PREDICTION_GRAPH_OUTPUT = graph_sink(
 )
 
 _PREDICTION_FIELDS = (
-    "id", "source", "source_index", "stored_payload_id", "current_payload_id", "current_model_index", "has_3d",
+    "id", "source_index", "stored_payload_id", "current_payload_id", "has_3d",
 )
 
 
@@ -252,7 +244,6 @@ def receptor_prediction_job(params: dict, config: dict | None = None) -> Iterato
         rows = [dict(row) for row in page if parsed.force or not bool(row.get("has_3d"))]
         ids = [int(row["id"]) for row in rows]
         sequences = sequences_by_molecule_ids(project_db, ids)
-        max_index = max_model_index_by_molecule_ids(project_db, ids)
         # A forced re-prediction of a structure without a stored sequence reads it from the structure.
         structures = {
             row["id"]: row for row in with_structures(project_db, [r for r in rows if not sequences.get(int(r["id"]))])
@@ -265,7 +256,6 @@ def receptor_prediction_job(params: dict, config: dict | None = None) -> Iterato
                 "sequence": sequences.get(receptor_id, ""),
                 "structure": known.get("structure"),
                 "structure_kind": known.get("structure_kind"),
-                "model_index": max_index[receptor_id] + 1 if receptor_id in max_index else 0,
                 "model": parsed.model,
             }
 
@@ -275,11 +265,6 @@ class ShardChemistryJobParams(BaseModel):
 
     operation: str | list[Any]
     params: dict[str, Any] = Field(default_factory=dict)
-    # Which shards of the active generation to feed; `pending` is every shard of a library
-    # nothing has been run over yet, which is what a fresh generation is. Resume-after-crash
-    # is not what this does any more: a failed run's generation is discarded whole, so the
-    # retry reads the parent from the start.
-    state: str = ShardState.PENDING
     # The generation this run writes into, opened by the API before submitting. It is not the
     # active one until the job completes, which is what keeps a half-done rewrite invisible.
     generation_id: int = 0
@@ -314,14 +299,13 @@ def shard_chemistry_job(params: dict, config: dict | None = None) -> Iterator[di
         raise ValueError("shard_chemistry_job requires a generation to write into.")
     # One directory per generation, so forgetting a generation is deleting a directory.
     output_dir = worker_output_dir(parsed.output_dir)
-    for row in ShardStore(project_db).iter_rows(shard_scope_spec(state=parsed.state)):
+    for row in ShardStore(project_db).iter_rows(shard_scope_spec()):
         shard_path = Path(str(row.get("path") or ""))
         yield {
             "shard_path": worker_file(shard_path),
             "output_dir": output_dir,
-            "source": str(row.get("source") or ""),
+            "import_batch_id": row.get("import_batch_id"),
             "shard_index": int(row.get("shard_index") or 0),
-            "input_format": str(row.get("input_format") or ""),
             "steps": resolved_steps,
         }
 

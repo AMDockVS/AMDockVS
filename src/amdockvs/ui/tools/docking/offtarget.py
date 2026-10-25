@@ -223,7 +223,7 @@ class OffTargetResultsWidget(QWidget):
         # The groups wrap onto new lines, so a narrow Results pane stays usable.
         controls = QWidget(self)
         flow = FlowLayout(controls, spacing=6)
-        self._protocol_group = self._group(QLabel("Protocol:", self), self.protocol_combo)
+        self._protocol_group = self._group(QLabel("Program:", self), self.protocol_combo)
         self._protocol_group.setVisible(False)
         for group in (
             self._group(QLabel("Target receptor:", self), self.reference_combo),
@@ -370,6 +370,7 @@ class OffTargetResultsWidget(QWidget):
         )
         scroll = self.table.view.verticalScrollBar().value() if keep_scroll and self.table is not None else 0
         table = project_table(self.runtime, config, self)
+        table.view.horizontalHeader().setStretchLastSection(False)
         table.view.setItemDelegate(_CellDelegate(self, table.view))
         table.view.clicked.connect(self._on_cell_clicked)
         self._set_table(table)

@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from ms_flow.query import QuerySpec
 from ms_flow.sinks import graph_sink
 from amdockvs.core.jobs import job
-from amdockvs.qsar.tasks import _DESCRIPTOR_COLUMNS, calculate_descriptor_batch
+from amdockvs.qsar.tasks import _ALERT_COLUMNS, _DESCRIPTOR_COLUMNS, calculate_alerts_batch, calculate_descriptor_batch
 
 from amdockvs.chemistry.structures import with_structures
 from amdockvs.core.configuration import DEFAULT_LIGAND_BATCH_SIZE
@@ -21,7 +21,7 @@ from amdockvs.core.constants import (
     TABLE_MOLECULES,
 )
 from amdockvs.core.paths import set_default_project_root
-from amdockvs.models import FingerprintRecord, MoleculeRecord
+from amdockvs.models import FingerprintRecord, MoleculeRecord, MoleculeRepresentation
 from amdockvs.molecules.storage import as_store, store_from_config
 from amdockvs.models.descriptors import FingerprintType
 from amdockvs.project.sets import molecule_set_spec, prepared_molecules_spec
@@ -32,6 +32,8 @@ class DescriptorJobParams(BaseModel):
     molecule_set_id: int | None = Field(default=None, ge=1)
     molecule_filters: dict[str, Any] = Field(default_factory=dict)
     only_missing: bool = Field(default=False)
+    # The alerts job: "missing" = PAINS never computed (JSON null, what a library import leaves).
+    alerts: bool = Field(default=False)
     compute_fingerprints: bool = Field(default=False)
     fp_radius: int = Field(default=2, ge=1)
     fp_nbits: int = Field(default=2048, ge=64)
@@ -82,6 +84,8 @@ def scope_spec(params: DescriptorJobParams) -> QuerySpec:
             fields=("molecule_id",),
             filters={"fp_type": fp_type, "nbits": int(params.fp_nbits), "radius": int(params.fp_radius)},
         )
+    elif params.only_missing and params.alerts:
+        resolved["pains_matches"] = "null"
     elif params.only_missing:
         resolved["mw__is_null"] = True
 
@@ -92,9 +96,7 @@ def scope_spec(params: DescriptorJobParams) -> QuerySpec:
     molecule_type_in = filters.pop("molecule_type__in", None) or filters.pop("molecule_kind__in", None)
     if molecule_type_in:
         resolved["molecule_type__in"] = list(molecule_type_in)
-    primary_context = filters.pop("primary_context", None)
-    if primary_context is not None:
-        resolved["primary_context"] = primary_context
+    filters.pop("primary_context", None)
     filters.pop("primary_role", None)
     prepared_filter = filters.pop("prepared", None)
     prep_engine = str(filters.pop("prepared_engine_key", "") or "ad4").strip().lower()
@@ -144,4 +146,44 @@ def calculate_molecule_descriptors_job(params: dict, config: dict | None = None)
     project_db = config_map.get("project_db")
     if project_db is None:
         raise ValueError("calculate_molecule_descriptors_job requires project_db in config.")
+    yield from _iter_descriptor_batches(store_from_config(config_map), parsed)
+
+
+ALERTS_GRAPH_OUTPUT = graph_sink(
+    nodes=(
+        {
+            "name": "molecules",
+            "model": MoleculeRecord,
+            "columns": ["id", *_ALERT_COLUMNS],
+            "write_mode": "upsert",
+            "conflict_keys": ["id"],
+            "validate_model": False,
+        },
+        {
+            "name": "molecule_representations",
+            "model": MoleculeRepresentation,
+            "columns": ["molecule_id", "repr_type", "value"],
+            "pk_field": "molecule_id",
+            "write_mode": "upsert",
+            "conflict_keys": ["molecule_id", "repr_type"],
+            "validate_model": False,
+        },
+    ),
+)
+
+
+@job(
+    task=calculate_alerts_batch,
+    name="amdock_calculate_molecule_descriptor_alerts_job",
+    params_model=DescriptorJobParams,
+    executor="compute",
+    supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
+    output_spec=ALERTS_GRAPH_OUTPUT,
+)
+def calculate_molecule_alerts_job(params: dict, config: dict | None = None) -> Iterator[dict]:
+    """PAINS and identity keys on demand: a library import leaves them out (~80 % of its chemistry)."""
+    parsed = DescriptorJobParams(**{**params, "alerts": True, "compute_fingerprints": False})
+    config_map = dict(config or {})
+    if config_map.get("project_db") is None:
+        raise ValueError("calculate_molecule_alerts_job requires project_db in config.")
     yield from _iter_descriptor_batches(store_from_config(config_map), parsed)

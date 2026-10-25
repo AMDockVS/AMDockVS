@@ -1,9 +1,7 @@
 """ESMFold core without the network: FASTA parsing, request shape, response -> mmCIF round trip."""
 from __future__ import annotations
 
-import io
 
-import numpy as np
 import pytest
 
 from amdockvs.chemistry.tools.esmfold import (
@@ -53,7 +51,7 @@ def test_complex_response_gives_structure_bytes_with_plddt(tmp_path):
     }
     metrics, cif, pae = prediction_files(data, model="esmfold2-fast-2026-05")
     assert metrics["plddt_mean"] == 65.0 and metrics["ptm"] == 0.5
-    assert np.load(io.BytesIO(pae)).shape == (2, 2)
+    assert pae == [[0.0, 1.0], [1.0, 0.0]]
     (tmp_path / "model.cif").write_bytes(cif)  # the bytes are a real mmCIF
     assert sequence_from_structure(tmp_path / "model.cif") == "GA"
 

@@ -17,16 +17,18 @@ from sqlalchemy.orm import aliased
 from sqlmodel import select
 
 from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR, RESOURCE_QSAR_MODELS
+from amdockvs.core.vocab import ReprType
 from amdockvs.models import (
     ActivityRecord,
     FingerprintRecord,
     MoleculeRecord,
+    MoleculeRepresentation,
     QSARModelRecord,
     QSARPredictionRecord,
 )
 from amdockvs.models.descriptors import FingerprintType
 from amdockvs.qsar.activities import ActivitiesMixin
-from amdockvs.qsar.jobs import DescriptorJobParams, calculate_molecule_descriptors_job
+from amdockvs.qsar.jobs import DescriptorJobParams, calculate_molecule_alerts_job, calculate_molecule_descriptors_job
 from amdockvs.qsar.modeling import (
     DEFAULT_QSAR_FEATURES,
     FittedModel,
@@ -179,11 +181,13 @@ class QSARAPI(ActivitiesMixin):
         compute_fingerprints: bool = False,
         fp_radius: int = 2,
         fp_nbits: int = 2048,
+        alerts: bool = False,
     ) -> str:
         """Submit the descriptor job. only_missing=True skips ligands that already have
         descriptors computed (MoleculeRecord.mw populated). With compute_fingerprints=True it
         also stores a Morgan fingerprint per ligand, and only_missing then means "lacks that
-        fingerprint" so FPs can be added to already-described ligands."""
+        fingerprint" so FPs can be added to already-described ligands. With alerts=True it is
+        the alerts job instead: PAINS and identity keys, which a library import leaves out."""
         self.runtime._require_active_project()
         molecule_set_ref = (
             None
@@ -204,9 +208,10 @@ class QSARAPI(ActivitiesMixin):
             compute_fingerprints=bool(compute_fingerprints),
             fp_radius=int(fp_radius),
             fp_nbits=int(fp_nbits),
+            alerts=bool(alerts),
         )
         return self.runtime.submit_job(
-            calculate_molecule_descriptors_job,
+            calculate_molecule_alerts_job if alerts else calculate_molecule_descriptors_job,
             params=params.model_dump(mode="python"),
             executor_name=executor_name,
             depends_on=depends_on,
@@ -935,7 +940,12 @@ class QSARAPI(ActivitiesMixin):
         mol = molecule_mol(self.runtime.workspace.project_db, rec, remove_hs=True)
         if mol is not None:
             return mol
-        return Chem.MolFromSmiles(rec.canonical_smiles) if rec.canonical_smiles else None
+        smiles = session.exec(
+            select(MoleculeRepresentation.value)
+            .where(MoleculeRepresentation.molecule_id == rec.id)
+            .where(MoleculeRepresentation.repr_type == ReprType.SMILES_CANONICAL)
+        ).first()
+        return Chem.MolFromSmiles(smiles) if smiles else None
 
     def atom_contributions(self, *, model: QSARModelRef | int, ligand_id: int) -> dict[str, Any]:
         """Per-atom contribution to an ECFP4 model's prediction (StarDrop's "glowing molecule").

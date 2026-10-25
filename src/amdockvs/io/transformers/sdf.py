@@ -69,7 +69,7 @@ def _materialize_sdf_rows(
             source_index=source_index,
             name=name,
             n_atoms=mol.GetNumAtoms(),
-            input_format=FileFormat.SDF,
+            import_batch_id=batch.import_batch_id,
             stored=structure_payload(mol_block, "sdf", series_for(batch.primary_role or batch.kind)),
             current=None,
             metadata=molecule_state_metadata(mol),
@@ -98,7 +98,7 @@ def _materialize_sdf_rows(
         yield from _split_fragment_rows(
             batch=batch, source_index=source_index, name=name, mol=mol,
             parent_key=molecule_storage_key(batch.primary_role or batch.kind, batch.file_path, source_index),
-            input_format=FileFormat.SDF, criteria=criteria,
+            criteria=criteria,
             source_properties=entry.get("source_properties"), tally=tally,
         )
         _progress_update(progress_cb, index, total_entries)

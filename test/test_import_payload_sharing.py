@@ -44,7 +44,7 @@ def _sdf_row(tmp_path, smiles: str) -> dict:
 
 def test_an_input_equal_to_the_current_form_is_one_payload_object(tmp_path):
     row = _sdf_row(tmp_path, "CCO")
-    assert row["stored_payload_id"] is row["current_payload_id"]
+    assert row["current_payload_id"] is None  # NULL = the stored form
     models = build_import_graph_payload([row])["molecule_models"]
     assert models[0]["payload_id"] is row["stored_payload_id"]
 
@@ -60,7 +60,15 @@ def test_a_smiles_import_keeps_the_smiles_as_the_original(tmp_path):
     batch["input_config"] = {}
     row = materialize_import_batch(batch)[0]
     assert row["stored_payload_id"].kind == "smi" and row["stored_payload_id"].data == b"CCO"
-    assert row["current_payload_id"].kind == "sdf"
+    assert row["current_payload_id"] is None  # D6: no coordinates, no second form
+
+
+def test_a_culled_smiles_keeps_its_current_form_as_smiles(tmp_path):
+    batch = _batch(tmp_path, "l.smi", "smiles", [{"source_index": 0, "raw": "CCO.[Na+] salt"}])
+    batch["input_config"] = {}
+    row = materialize_import_batch(batch)[0]
+    assert row["stored_payload_id"].data == b"CCO.[Na+]"
+    assert row["current_payload_id"].kind == "smi" and row["current_payload_id"].data == b"CCO"
 
 
 def test_a_receptor_import_lands_in_the_receptors_and_references_series(tmp_path):
@@ -83,7 +91,7 @@ def test_a_receptor_import_lands_in_the_receptors_and_references_series(tmp_path
 
     assert receptor["stored_payload_id"].series == receptor["current_payload_id"].series == "receptors"
     assert receptor["stored_payload_id"].data == source.read_bytes()  # the input as-is
-    assert ligand["stored_payload_id"] is ligand["current_payload_id"]
+    assert ligand["current_payload_id"] is None
     assert ligand["stored_payload_id"].series == "molecules"
     spec = ligand["complex_spec"]
     assert spec["reference_receptor_payload_id"].series == spec["reference_ligand_payload_id"].series == "references"
@@ -91,13 +99,20 @@ def test_a_receptor_import_lands_in_the_receptors_and_references_series(tmp_path
     assert graph["complexes"][0]["reference_ligand_payload_id"] is spec["reference_ligand_payload_id"]
 
 
-def test_persisted_equal_forms_share_one_id(tmp_path):
+def test_persisted_equal_forms_store_no_current_id(tmp_path):
     graph = build_import_graph_payload([_sdf_row(tmp_path, "CCO")])
     store = ProjectStore.open_at(tmp_path / "project.db")
     try:
         store.persist_output_spec(IMPORT_GRAPH_OUTPUT, graph)
         with store.get_session() as session:
             molecule = session.exec(select(MoleculeRecord)).one()
-        assert molecule.stored_payload_id == molecule.current_payload_id
+        assert molecule.stored_payload_id is not None and molecule.current_payload_id is None
     finally:
         ProjectStore.clear_cached_stores()
+
+
+def test_an_import_chunk_goes_by_its_file_and_records():
+    from amdockvs.io.jobs import import_label
+
+    assert import_label({"file_path": "/x/lib.smi", "span_first_index": 2000, "span_count": 1000}) == "lib.smi 2000-2999"
+    assert import_label({"file_path": "/x/lib.sdf"}) == "lib.sdf"

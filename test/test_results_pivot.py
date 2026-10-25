@@ -5,6 +5,7 @@ disabled after its data arrives, or one that silently shows another pivot's tabl
 """
 from pathlib import Path
 import sys
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -241,6 +242,15 @@ def test_running_job_refresh_reaches_the_active_results_page():
     assert calls == ["availability", "hits"]
 
 
+def _wait_for(done, timeout_s: float = 10.0) -> None:
+    """Process events until `done()`: the table counts its rows in the background."""
+    deadline = time.monotonic() + timeout_s
+    while not done() and time.monotonic() < deadline:
+        QApplication.processEvents()
+        time.sleep(0.01)
+    assert done()
+
+
 def test_live_hits_refreshes_receptor_aggregates_and_only_the_ligand_count():
     QApplication.instance() or QApplication(["amdockvs-live-counts-test"])
     db = _Db()
@@ -280,9 +290,70 @@ def test_live_hits_refreshes_receptor_aggregates_and_only_the_ligand_count():
     receptor = widget.receptor_table._model.get_row_data(0)
     # No campaign plan for this receptor, so the counters fall back to the results themselves.
     assert receptor["ligands"] == 2 and receptor["progress"] == 2
-    assert widget.ligand_table.record_total == 2
+    assert widget.ligand_table._model.loaded_count == 1  # the loaded rows were not reloaded
+    _wait_for(lambda: widget.ligand_table.record_total == 2)
     assert "2 records" in widget.ligand_table._result_count_label.text()
-    assert widget.ligand_table._model.loaded_count == 1
+
+
+@pytest.mark.parametrize("sharded", [False, True])
+@pytest.mark.parametrize("selected_protocol", ["quick-8", ""])
+def test_live_protocols_include_resumed_docking_without_resetting_tables(
+    monkeypatch, sharded, selected_protocol,
+):
+    QApplication.instance() or QApplication(["amdockvs-live-protocols-test"])
+    monkeypatch.setattr(
+        "amdockvs.ui.catalog.results.run_async",
+        lambda fn, on_result, **_kwargs: on_result(fn()),
+    )
+    db = _Db()
+    with db.get_session() as session:
+        session.add_all([
+            DockingRun(id=1, engine="qvina", protocol_hash="quick-8",
+                       protocol_label="QuickVina2 | exh=8 (9 poses)"),
+            MoleculeRecord(id=41, name="Off-target", is_receptor=True),
+            MoleculeRecord(id=101, name="Ligand", is_ligand=True),
+            DockingResultRecord(id=11, receptor_molecule_id=41, ligand_molecule_id=101,
+                                docking_run_id=1, pose_rank=1, score=-8.0),
+        ])
+        session.commit()
+    protocols = [("quick-8", "QuickVina2 | exh=8 (9 poses)")]
+    widget = DockingResultsWidget(runtime=SimpleNamespace(
+        workspace=SimpleNamespace(project_db=db),
+        docking=SimpleNamespace(
+            result_protocols=lambda **_kwargs: list(protocols),
+            hit=lambda **_kwargs: None,
+            live_campaign_progress=lambda **_kwargs: {
+                41: {"ligands": 1, "docked": 1, "pending": 0},
+            },
+        ),
+    ))
+    widget.protocol_combo.setCurrentIndex(widget.protocol_combo.findData(selected_protocol))
+    if sharded:
+        widget.set_active_shard_jobs(["resumed-docking"])
+    with db.get_session() as session:
+        session.add(DockingRun(id=2, engine="qvina", protocol_hash="quick-1",
+                              protocol_label="QuickVina2 | exh=1 (3 poses)"))
+        session.commit()
+    widget.refresh_counts()
+    assert widget.protocol_combo.findData("quick-1") == -1
+
+    resets = []
+    widget.ligand_table._model.modelReset.connect(lambda: resets.append(True))
+    with db.get_session() as session:
+        session.add(DockingResultRecord(
+            id=22, receptor_molecule_id=41, ligand_molecule_id=101,
+            docking_run_id=2, pose_rank=1, score=-7.0,
+        ))
+        session.commit()
+
+    protocols.append(("quick-1", "QuickVina2 | exh=1 (3 poses)"))
+    widget.refresh_counts()
+
+    assert widget.protocol_combo.findData("quick-1") >= 0
+    assert widget.protocol_combo.currentData() == selected_protocol
+    assert widget._selected_receptor_id == 41
+    assert widget._selected_ligand_id == 101
+    assert resets == []
 
 
 def test_live_campaign_progress_patches_cells_without_resetting_or_losing_selection():
@@ -292,7 +363,7 @@ def test_live_campaign_progress_patches_cells_without_resetting_or_losing_select
         session.add_all([
             DockingRun(id=1, engine="vina", protocol_hash="p", protocol_label="Vina"),
             MoleculeRecord(id=41, name="4UWH", is_receptor=True),
-            ScreeningTarget(run_id="r1", receptor_molecule_id=41, receptor_name="4UWH",
+            ScreeningTarget(docking_run_id=1, receptor_molecule_id=41, receptor_name="4UWH",
                             ligands_total=1000, ligands_done=0),
         ])
         session.commit()
@@ -331,9 +402,10 @@ def test_dependent_offtarget_stage_adds_its_receptors_without_manual_refresh():
     }
     with db.get_session() as session:
         session.add_all([
+            DockingRun(id=1, engine="vina", protocol_hash="p", protocol_label="Vina"),
             MoleculeRecord(id=41, name="Reference", is_receptor=True),
             MoleculeRecord(id=42, name="Off-target", is_receptor=True),
-            ScreeningTarget(run_id="r1", receptor_molecule_id=41, receptor_name="Reference",
+            ScreeningTarget(docking_run_id=1, receptor_molecule_id=41, receptor_name="Reference",
                             ligands_total=1000, ligands_done=1000),
         ])
         session.commit()
@@ -353,7 +425,7 @@ def test_dependent_offtarget_stage_adds_its_receptors_without_manual_refresh():
 
     with db.get_session() as session:
         session.add(ScreeningTarget(
-            run_id="r1", receptor_molecule_id=42, receptor_name="Off-target",
+            docking_run_id=1, receptor_molecule_id=42, receptor_name="Off-target",
             ligands_total=100, ligands_done=0,
         ))
         session.commit()
@@ -376,8 +448,9 @@ def test_a_scheduled_receptor_is_listed_before_it_has_any_result():
     db = _Db()
     with db.get_session() as session:
         session.add_all([
+            DockingRun(id=1, engine="vina", protocol_hash="p", protocol_label="Vina"),
             MoleculeRecord(id=7, name="4UWF", is_receptor=True),
-            ScreeningTarget(run_id="r1", receptor_molecule_id=7, receptor_name="4UWF",
+            ScreeningTarget(docking_run_id=1, receptor_molecule_id=7, receptor_name="4UWF",
                             ligands_total=11950, ligands_done=27),
         ])
         session.commit()
@@ -399,7 +472,7 @@ def test_a_row_mode_plan_counts_docked_from_its_results():
         session.add_all([
             DockingRun(id=1, engine="vina", protocol_hash="p", protocol_label="Vina"),
             MoleculeRecord(id=8, name="4UWG", is_receptor=True),
-            ScreeningTarget(run_id="r2", receptor_molecule_id=8, ligands_total=901),
+            ScreeningTarget(docking_run_id=1, receptor_molecule_id=8, ligands_total=901),
             *[DockingResultRecord(receptor_molecule_id=8, ligand_molecule_id=100 + i,
                                   docking_run_id=1, pose_rank=1, score=-7.0) for i in range(3)],
         ])

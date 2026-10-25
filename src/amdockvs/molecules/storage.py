@@ -24,7 +24,6 @@ data. `io/api.py` is where it is enforced, at import.
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator, Mapping, Protocol
 
@@ -32,7 +31,7 @@ from ms_flow.query import QuerySpec, db_count, db_pages
 
 from amdockvs.core.constants import TABLE_MOLECULES, TABLE_SCREENING_SHARDS
 from amdockvs.screening.materialize import HitGate, PAYLOAD_LIGHT, ingest_hits
-from amdockvs.core.vocab import MoleculeType, MoleculeUsageClass, ProjectMode, ShardState
+from amdockvs.core.vocab import MoleculeType, MoleculeUsageClass, ProjectMode
 
 
 class LigandStore(Protocol):
@@ -67,7 +66,7 @@ class DbStore:
 
 
 SHARD_FIELDS = (
-    "id", "generation_id", "source", "shard_index", "path", "input_format", "n_records", "state"
+    "id", "generation_id", "import_batch_id", "shard_index", "path", "n_records"
 )
 
 
@@ -161,33 +160,9 @@ def activate_generation(project_db, generation_id: int) -> None:
             path.unlink(missing_ok=True)
 
 
-# Legacy values retained for callers opening projects created before preparation and campaign
-# state moved to their own tables. New docking code does not use this global lifecycle.
-DOCKABLE_STATES = (ShardState.PREPARED, ShardState.DONE, ShardState.DOCKING)
-
-
-def shard_scope_spec(
-    *,
-    state: str | None = ShardState.PENDING,
-    input_format: str | None = None,
-    states: tuple[str, ...] | None = None,
-) -> QuerySpec:
-    """The shards a run should touch. `state=None` is the whole inventory.
-
-    Filtering on `state != done` here is all the idempotency there is: a shard that finished
-    is not fed again, so a crashed run resumes by simply being started again.
-
-    ``input_format`` describes the current chemical representation. Engine readiness is queried
-    through ``ShardEngineState``; the format filter remains for inventory and legacy projects.
-    """
-    filters: dict[str, Any] = {}
-    if states is not None:
-        filters["state__in"] = list(states)
-    elif state is not None:
-        filters["state"] = state
-    if input_format is not None:
-        filters["input_format"] = input_format
-    return QuerySpec(table=TABLE_SCREENING_SHARDS, fields=SHARD_FIELDS, filters=filters, order=("id",))
+def shard_scope_spec() -> QuerySpec:
+    """Every shard; `ShardStore` pins it to the active generation."""
+    return QuerySpec(table=TABLE_SCREENING_SHARDS, fields=SHARD_FIELDS, order=("id",))
 
 
 class ShardStore:
@@ -267,28 +242,6 @@ class ShardStore:
         )
 
 
-def set_shard_state(project_db, *, source: str, shard_index: int, state: str) -> None:
-    """Move one shard along its lifecycle. The inventory row is the only place this is written."""
-    from sqlmodel import select
-
-    from amdockvs.models import ScreeningShard
-
-    generation_id = active_generation_id(project_db)
-    with project_db.get_session() as session:
-        query = select(ScreeningShard).where(
-            ScreeningShard.source == str(source), ScreeningShard.shard_index == int(shard_index)
-        )
-        # `(source, shard_index)` only addresses a shard within a generation — without this
-        # the parent's row is an equally good match and `.first()` picks whichever.
-        if generation_id is not None:
-            query = query.where(ScreeningShard.generation_id == generation_id)
-        row = session.exec(query).first()
-        if row is None:
-            return
-        row.state = str(state)
-        row.updated_at = datetime.now()
-        session.add(row)
-        session.commit()
 
 
 def as_store(source) -> LigandStore:
@@ -303,7 +256,7 @@ def as_store(source) -> LigandStore:
 
 def has_shards(project_db) -> bool:
     """Does this project hold a sharded screening library?"""
-    return db_count(project_db, shard_scope_spec(state=None)) > 0
+    return db_count(project_db, shard_scope_spec()) > 0
 
 
 def library_kind(project_db) -> str:
@@ -316,63 +269,53 @@ def library_kind(project_db) -> str:
     return ProjectMode.HTPVS if has_shards(project_db) else ProjectMode.VS
 
 
+# Beside the input, in a folder named after the family: a campaign's stages read as a chain of folders.
+PREPARED_DIR = "prepared_{engine}"
+
+
+def prepared_shard_path(shard_path: str | Path, family: str) -> Path:
+    """Where a shard's prepared twin lives: derived, so `shard_preps` stores no path."""
+    shard_path = Path(shard_path)
+    return shard_path.parent / PREPARED_DIR.format(engine=family) / shard_path.name
+
+
 def iter_prepared_shards(project_db, *, engine: str) -> Iterator[dict[str, Any]]:
-    """Prepared artifacts for one engine family, joined to their shard inventory.
+    """Prepared artifacts for one family, joined to their shard inventory.
 
-    The in-memory map contains only shard metadata, never library molecules. The legacy branch
-    keeps projects made before ``ShardEngineState`` readable until they are prepared again.
+    The in-memory map contains only shard metadata, never library molecules. A shard counts as
+    prepared when it has a ``shard_preps`` row and its file is still there.
     """
-    from pathlib import Path
-
     from sqlmodel import select
 
-    from amdockvs.models import ScreeningShard, ShardEngineState
+    from amdockvs.models import ScreeningShard, ShardPrep
 
-    normalized_engine = str(engine or "").strip().lower()
+    family = str(engine or "").strip().lower()
     generation_id = active_generation_id(project_db)
     with project_db.get_session() as session:
-        states = {
-            int(row.shard_id): row
-            for row in session.exec(
-                select(ShardEngineState).where(ShardEngineState.engine == normalized_engine)
-            ).all()
-        }
+        counts = dict(session.exec(
+            select(ShardPrep.shard_id, ShardPrep.n_records).where(ShardPrep.family == family)
+        ).all())
         # Scoped like every other shard read: the parent generation is still in the table and
         # its prepared artifacts are still on disk, but they are not the library any more.
         query = select(ScreeningShard).order_by(ScreeningShard.id)
         if generation_id is not None:
             query = query.where(ScreeningShard.generation_id == generation_id)
         shards = list(session.exec(query).all())
+    from amdockvs.io.batches import library_names
+
+    libraries = library_names(project_db)
     for shard in shards:
-        state = states.get(int(shard.id or 0))
-        if state is not None:
-            prepared_path = str(dict(state.files or {}).get("prepared") or "")
-            if state.is_ready and prepared_path and Path(prepared_path).is_file():
-                yield {
-                    "id": int(shard.id or 0),
-                    "source": shard.source,
-                    "shard_index": int(shard.shard_index),
-                    "path": shard.path,
-                    "prepared_path": prepared_path,
-                    "input_format": shard.input_format,
-                    "n_records": int(state.n_records),
-                    "state": shard.state,
-                }
-            continue
-        if (
-            normalized_engine == "ad4"
-            and str(shard.input_format or "").lower() == "pdbqt"
-            and Path(shard.path).is_file()
-        ):
+        n_records = counts.get(int(shard.id or 0))
+        prepared_path = prepared_shard_path(shard.path, family)
+        if n_records is not None and prepared_path.is_file():
             yield {
                 "id": int(shard.id or 0),
-                "source": shard.source,
+                "import_batch_id": shard.import_batch_id,
+                "library": libraries.get(shard.import_batch_id, "library"),
                 "shard_index": int(shard.shard_index),
                 "path": shard.path,
-                "prepared_path": shard.path,
-                "input_format": shard.input_format,
-                "n_records": int(shard.n_records),
-                "state": shard.state,
+                "prepared_path": str(prepared_path),
+                "n_records": int(n_records),
             }
 
 
@@ -402,37 +345,18 @@ def general_ligand_count(project_db) -> int:
     )
 
 
-def ligand_row_count(project_db) -> int:
-    """Every ligand that is a row here — screening, reference or promoted hit.
+def has_ligand_rows(project_db) -> bool:
+    """Is any ligand a row here — screening, reference or promoted hit?
 
     Wider than `general_ligand_count` on purpose: this answers "is the Ligands table worth
-    opening", and a project whose only ligands are reference cocrystals still is.
+    opening", and a project whose only ligands are reference cocrystals still is. One row
+    answers it: counting them all is a scan of millions.
     """
     return db_count(
         project_db,
         QuerySpec(table=TABLE_MOLECULES, fields=("id",),
-                  filters={"is_ligand": True, "excluded": False}),
-    )
-
-
-def check_library_target(project_db, *, target: str) -> None:
-    """Refuse an import that would give the project a second screening library.
-
-    This is the invariant, and it is enforced here rather than trusted: it is what lets every
-    scope name one store and never a union of two.
-    """
-    if target == LIBRARY_SHARDS and general_ligand_count(project_db):
-        raise ValueError(
-            "This project's screening library is already rows in the database. Sharding a "
-            "second library would leave the project with two, which no scope can name. Delete "
-            "the general ligands first, or shard into a new project."
-        )
-    if target == LIBRARY_ROWS and has_shards(project_db):
-        raise ValueError(
-            "This project's screening library is sharded on disk. Importing general ligands as "
-            "rows would leave the project with two libraries. Import them as shards, or bring "
-            "them in as reference ligands (primary_context='reference') if they are curated."
-        )
+                  filters={"is_ligand": True, "excluded": False}, limit=1),
+    ) > 0
 
 
 def store_from_config(config: Mapping[str, Any] | None) -> LigandStore:
@@ -446,7 +370,6 @@ def store_from_config(config: Mapping[str, Any] | None) -> LigandStore:
 
 
 __all__ = [
-    "DOCKABLE_STATES",
     "DbStore",
     "activate_generation",
     "active_generation_id",
@@ -457,14 +380,14 @@ __all__ = [
     "LIBRARY_ROWS",
     "LIBRARY_SHARDS",
     "as_store",
-    "check_library_target",
     "general_ligand_count",
     "has_shards",
-    "ligand_row_count",
+    "has_ligand_rows",
     "library_kind",
+    "PREPARED_DIR",
     "iter_prepared_shards",
+    "prepared_shard_path",
     "prepared_shard_record_count",
-    "set_shard_state",
     "shard_scope_spec",
     "store_from_config",
 ]

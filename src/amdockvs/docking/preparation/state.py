@@ -1,12 +1,11 @@
 """What a docking run reads of an entity's preparation: the input payload and the grid.
 
-The prepared PDBQT is `EngineState.prepared_payload_id`, hydrated onto the row as
+The prepared PDBQT is the `ligand_preps` / `receptor_preps` payload, hydrated onto the row as
 `prepared_payload_id`; the grid lives in a per-engine slot of the metadata JSON.
 """
 from __future__ import annotations
 
 import json
-from datetime import datetime
 from typing import Any, Iterable, Mapping
 
 from amdockvs.core.payloads import molecule_payload_id
@@ -67,7 +66,6 @@ def merge_grid_metadata(
         "center": [float(value) for value in center],
         "size": [float(value) for value in size],
         "spacing": float(spacing),
-        "created_at": datetime.now().isoformat(),
     }
     if extra:
         entry.update(dict(extra))

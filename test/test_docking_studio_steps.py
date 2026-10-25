@@ -2,6 +2,8 @@
 and the redocking pair rule."""
 from types import SimpleNamespace
 
+import pytest
+
 import amdockvs.runtime  # noqa: F401 - pydantic before PySide6 (see test_diagram_follows_results)
 from amdockvs.ui.tools.docking.preparation_panel import PreparationPanel
 from amdockvs.ui.tools.docking.run_panel import RunPanel
@@ -23,6 +25,34 @@ def test_a_step_is_done_or_not_never_failed_or_partial():
         step = _Step()
         RunPanel._mark_step(step, prepared, total)
         assert step.done is done
+
+
+@pytest.mark.parametrize("mode", ["docking", "sharded"])
+@pytest.mark.parametrize("cap,expected_offtarget", [(2, 4), (20, 10)])
+def test_offtarget_requirement_summary_uses_the_current_hit_cap(mode, cap, expected_offtarget):
+    panel = RunPanel()
+    panel._check_inflight = True
+    panel.hit_cap = SimpleNamespace(value=lambda: cap)
+    panel.req_ligands_count = SimpleNamespace(setText=lambda _text: None)
+    panel.req_receptors_count = SimpleNamespace(setText=lambda _text: None)
+    panel._set_offtarget_receptors = lambda _receptors: None
+    panel._set_sharded_run_mode = lambda *_args, **_kwargs: None
+    panel.step_run = _Step()
+    summaries, statuses = [], []
+    panel._pairs_text = summaries.append
+    panel.check_status_label = SimpleNamespace(setText=statuses.append)
+
+    panel._apply_check({
+        "mode": mode, "ready": True, "offtarget_reference_id": 1,
+        "ligands": {"ready": 5, "total": 5},
+        "receptors": {"ready": 3, "total": 3},
+        "records": 5, "pairs": {"total": 15},
+    })
+
+    assert summaries == [f"5 reference + up to {expected_offtarget} off-target docking(s)"]
+    assert panel._check_inflight is False
+    assert panel.step_run.done is True
+    assert statuses == ["Ready to run the campaign." if mode == "sharded" else "Ready to run."]
 
 
 def test_a_prepared_selection_leaves_the_step_table_empty():

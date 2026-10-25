@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -23,7 +22,7 @@ from ms_components.tool_panel import ToolPanel
 from amdockvs.ui.catalog.common import BoundTableWidget
 from amdockvs.docking.api import MissingLigand3DError
 from amdockvs.docking.engines.programs import list_docking_programs
-from amdockvs.models import EngineState
+from amdockvs.models import prep_table
 from ms_components.ms_table import (
     AlignHint,
     ColumnDef,
@@ -37,48 +36,36 @@ from ms_components.ms_table import (
 from amdockvs.ui.view_ids import BUILD_ID, LIGANDS_VIEW_ID, PREP_STATUS_VIEW_ID, RECEPTOR_VIEW_ID
 
 
-def _prep_error_message(files: object) -> str:
-    if not isinstance(files, dict):
-        return ""
-    return str(files.get("error") or "")
-
-
-def _engine_state_table_config(*, role_type: str) -> TableConfig:
-    """Per-(molecule, engine) preparation status — the long/key-value `engines` table.
-
-    `engine` and `is_ready` are real indexed columns, so they filter natively; no
-    virtual columns or pivot needed. One row per molecule per engine.
-    """
+def _prep_table_config(*, role_type: str) -> TableConfig:
+    """Per-(molecule, family) preparation status, from `ligand_preps` or `receptor_preps`."""
+    model, molecule_column, payload_column = prep_table(role_type)
     return TableConfig(
-        model_class=EngineState,
+        model_class=model,
         columns=[
-            ColumnDef("molecule_id", label="Molecule", width=90, sortable=False, filterable=True,
+            ColumnDef(molecule_column.key, label="Molecule", width=90, sortable=True, filterable=True,
                       align=AlignHint.RIGHT),
-            # Known engines derived from the program registry — no static list to fall out of sync.
-            ColumnDef("engine", label="Engine", width=120, sortable=True, filterable=True,
+            # Known families derived from the program registry — no static list to fall out of sync.
+            ColumnDef("family", label="Family", width=120, sortable=True, filterable=True,
                       kind=ColumnKind.CHOICE,
-                      choices=tuple(sorted({spec.docking_engine for spec in list_docking_programs()}))),
+                      choices=tuple(sorted({spec.preparation_engine for spec in list_docking_programs()}))),
             ColumnDef(
-                "is_ready",
+                payload_column.key,
                 label="Prepared",
                 width=90,
-                # sortable=True,
-                filterable=True,
+                filterable=False,
                 align=AlignHint.CENTER,
-                formatter=lambda value: "✓" if bool(value) else "✗",
+                formatter=lambda value: "✓" if value else "✗",
             ),
             ColumnDef(
-                "files",
+                "error",
                 label="Message",
                 width=360,
-                # sortable=False,
                 filterable=False,
-                formatter=lambda value: _prep_error_message(value) or "—",
-                tooltip=lambda row: row.get("files") if row.get("files") != "—" else None,
+                formatter=lambda value: str(value or "") or "—",
+                tooltip=lambda row: row.get("error") or None,
             ),
         ],
-        default_filters=[FilterSpec("role_type", FilterOperator.EQ, role_type, label="role")],
-        default_sort=[SortSpec("is_ready"), SortSpec("updated_at", descending=True)],
+        default_sort=[SortSpec(molecule_column.key, descending=True)],
         page_size=20,
         page_size_options=[10, 20, 50, 100],
         load_mode=TableLoadMode.INFINITE,
@@ -89,28 +76,37 @@ def _engine_state_table_config(*, role_type: str) -> TableConfig:
     )
 
 
-# Ligand and receptor prep status were two registered views over the same `engines` table,
-# one filter value apart. They are one view with a role selector instead.
-class EngineStatePrepView(BoundTableWidget):
-    """Prepared/not per (molecule, engine), from the `engines` table. The Docking Studio step
-    picks the role (`set_role`) — same table, same columns, one population at a time."""
+# One class per table: BoundTableWidget keys its saved column prefs by class.
+class _LigandPrepTable(BoundTableWidget):
+    pass
+
+
+class _ReceptorPrepTable(BoundTableWidget):
+    pass
+
+
+class PrepStatusView(QStackedWidget):
+    """Prepared/not per (molecule, family): one page per role, each over its own table. The
+    Docking Studio step picks the role (`set_role`); one population shows at a time."""
 
     def __init__(self, *, runtime, role_type: str = "ligand", parent=None):
-        super().__init__(
-            runtime=runtime,
-            config=_engine_state_table_config(role_type=role_type),
-            empty_text="Open or create a project to inspect preparation status.",
-            parent=parent,
-        )
-        self.role = role_type
+        super().__init__(parent)
+        self.pages = {
+            role: table(runtime=runtime, config=_prep_table_config(role_type=role),
+                        empty_text="Open or create a project to inspect preparation status.", parent=self)
+            for role, table in (("ligand", _LigandPrepTable), ("receptor", _ReceptorPrepTable))
+        }
+        for page in self.pages.values():
+            self.addWidget(page)
+        self.role = ""
+        self.set_role(role_type)
 
     def set_role(self, role: str) -> None:
-        if role == self.role or self._table is None:  # no active project: nothing to filter
-            return
         self.role = role
-        self.set_base_filter(
-            "role_type", FilterSpec("role_type", FilterOperator.EQ, role, label="role")
-        )
+        self.setCurrentWidget(self.pages[role])
+
+    def refresh(self) -> None:
+        self.currentWidget().refresh()
 
 
 def _spinbox(*, minimum: int, maximum: int, value: int) -> QSpinBox:
@@ -129,13 +125,13 @@ class PreparationPanel:
         # keeps the experiment combination (type + usage class) on it. Per-engine prep status
         # is its own tab (PREP_STATUS_VIEW_ID) — only the counts stay, on the action bar.
         panel = ToolPanel(self)
-        self._prep_started: dict[str, datetime] = {}  # follower noun -> when its run was submitted
+        self._prep_started: dict[str, set[int]] = {}  # follower noun -> the ids excluded before its run
         self.failures_dialog = None
 
         # Preparation area (image-3 design): a vertical target list on the left drives a
         # QStackedWidget of option pages — row 0 = General Options (force re-prepare), then
         # ONE page per preparation *family*, not per program: Vina,
-        # gnina and AutoDock-GPU all write a single EngineState row with engine="ad4", so
+        # gnina and AutoDock-GPU all write a single preparation row with family="ad4", so
         # listing them separately showed three targets for one job. Families not implied by
         # the Programs step are disabled in the list.
         prep_section = panel.add_section("Ligand preparation")
@@ -194,7 +190,7 @@ class PreparationPanel:
     def _prep_families(self, role: str = "ligand") -> dict[str, list]:
         """preparation_engine -> the programs that share it, for programs needing ligand prep.
 
-        The engine is what EngineState is keyed by, so it — not the program — is the unit of
+        The family is what preparation rows are keyed by, so it — not the program — is the unit of
         preparation, of status counting and of the "hide already prepared" filter.
         """
         families: dict[str, list] = {}
@@ -264,6 +260,7 @@ class PreparationPanel:
         self.force_prepare_ligands = QCheckBox("Force re-prepare", page)
         # The Ligands table shows exactly what this step will process, so it follows this box.
         self.force_prepare_ligands.toggled.connect(lambda _=False: self._sync_ligand_table_filter())
+        self.force_prepare_ligands.toggled.connect(lambda _=False: self._dispatch_refresh())  # counts follow it too
         form.addRow(self.force_prepare_ligands)
         return self._in_scroll(page)
 
@@ -674,8 +671,8 @@ class PreparationPanel:
         # ponytail: one entry per program; they run side by side, so "step i of n" only
         # means "job i". Fine while every selected program shares one prep family (K=1).
         if job_ids or before:
-            # What the engine can't prepare is excluded with updated_at = now (a second earlier covers rounding).
-            self._prep_started[follower.noun] = datetime.now().replace(microsecond=0)
+            # What the engine can't prepare gets excluded: the failures are the ids excluded since now.
+            self._prep_started[follower.noun] = self.runtime.molecules.excluded_ids()
             # The noun says ligand/receptor; the program is noise (families share one prep).
             follower.follow([*before, *((follower.noun, job_id) for job_id in job_ids.values())], unit=unit)
 

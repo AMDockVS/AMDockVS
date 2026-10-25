@@ -165,10 +165,8 @@ def test_prediction_plan_reuses_only_one_coherent_current_run(tmp_path):
 def test_parsed_rows_go_through_the_real_sink_unchanged(tmp_path):
     """What the parser returns is written AS-IS: there is no SQLModel on the path.
 
-    That is why `created_at` (NOT NULL, with `default_factory`) has to be set by `build_row` and
-    not by the model — the default_factory only runs when instantiating `BindingSite(...)`, which
-    the sink never does. This test writes through the same `output_spec` as the job, which is
-    where it blew up.
+    A model default_factory only runs when instantiating `BindingSite(...)`, which the sink never
+    does. This test writes through the same `output_spec` as the job.
     """
     from amdockvs.binding_sites.jobs import p2rank_prediction_job
 
@@ -187,7 +185,6 @@ def test_parsed_rows_go_through_the_real_sink_unchanged(tmp_path):
     with project_store.get_session() as session:
         stored = session.exec(select(BindingSite)).all()
     assert len(stored) == len(rows)
-    assert all(site.created_at is not None for site in stored)
     assert all(dict(site.extra_data or {}).get("run_id") == "run" for site in stored)
     ProjectStore.clear_cached_stores()
 
@@ -218,9 +215,8 @@ def test_a_second_run_is_added_next_to_the_first_and_leaves_the_active_site_alon
         old_prediction = session.exec(
             select(BindingSite).where(BindingSite.source == "p2rank")
         ).one()
-        receptor = session.get(MoleculeRecord, 7)
-        receptor.active_binding_site_id = old_prediction.id
-        session.add(receptor)
+        old_prediction.is_active = True
+        session.add(old_prediction)
         session.commit()
         old_prediction_id = int(old_prediction.id)
 
@@ -257,11 +253,10 @@ def test_a_second_run_is_added_next_to_the_first_and_leaves_the_active_site_alon
         sites = session.exec(
             select(BindingSite).where(BindingSite.molecule_id == 7).order_by(BindingSite.id)
         ).all()
-        receptor = session.get(MoleculeRecord, 7)
     assert [site.source for site in sites] == ["manual", "p2rank", "p2rank"]
     assert [dict(site.extra_data or {}).get("run_id") for site in sites[1:]] == ["old-run", "new-run"]
     # The active one is still the one the user chose, even if its run is no longer the latest.
-    assert receptor.active_binding_site_id == old_prediction_id
+    assert [site.id for site in sites if site.is_active] == [old_prediction_id]
     # And the files of the old run are not thrown away either.
     assert (output_root / "old-run" / "receptor_7").exists()
     ProjectStore.clear_cached_stores()

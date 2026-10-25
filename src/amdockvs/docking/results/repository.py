@@ -25,6 +25,7 @@ from amdockvs.core.constants import (
     TABLE_SCREENING_TARGETS,
 )
 from amdockvs.models import DockingResultRecord, DockingRun
+from amdockvs.models.codes import code_id, code_name_sql
 from amdockvs.docking.repository import project_db_path
 from amdockvs.docking.results.metrics import SCORE_METRICS
 from amdockvs.project.deletion import delete_results_where
@@ -43,6 +44,14 @@ def docking_run_id(project_db, *, run_id: str, engine: str, run_kind: str, proto
         found = session.exec(select(DockingRun.id).filter_by(**values)).one()
         session.commit()
         return int(found)
+
+
+def find_docking_run(project_db, *, run_id: str, engine: str, run_kind: str, protocol_hash: str) -> int | None:
+    """The `docking_runs` row a job created, or None when it never got to create one."""
+    values = {"run_id": str(run_id or ""), "engine": str(engine).strip().lower(),
+              "run_kind": str(run_kind or "screening"), "protocol_hash": str(protocol_hash or "")}
+    with project_db.get_session() as session:
+        return session.exec(select(DockingRun.id).filter_by(**values)).first()
 
 
 def runs_where(*, run_id: str | None = None, engine: str | None = None,
@@ -171,12 +180,12 @@ def _hit_select_sql(*, score_expr: str = "r.score", extra: str = "") -> str:
         f"{extra}"
         "r.id AS result_id, "
         "COALESCE(r.complex_id, c.id) AS complex_id, "
-        "dr.run_kind AS run_kind, "
+        f"{code_name_sql('dr.run_kind')} AS run_kind, "
         "r.ligand_molecule_id AS ligand_id, "
         "COALESCE(l.name, '') AS ligand_name, "
         "r.receptor_molecule_id AS receptor_id, "
         "COALESCE(rec.name, '') AS receptor_name, "
-        "dr.engine AS engine, "
+        f"{code_name_sql('dr.engine')} AS engine, "
         "dr.protocol_label AS protocol_label, "
         "dr.protocol_hash AS protocol_hash, "
         f"{score_expr} AS score, "
@@ -222,14 +231,10 @@ def _hit_filter_clauses(
         clauses.append(f"r.receptor_molecule_id = {int(receptor_id)}")
     if ligand_id is not None:
         clauses.append(f"r.ligand_molecule_id = {int(ligand_id)}")
-    if run_kind is not None:
-        normalized_run_kind = str(run_kind or "").strip().replace("'", "''")
-        if normalized_run_kind:
-            clauses.append(f"dr.run_kind = '{normalized_run_kind}'")
-    if exclude_run_kind is not None:
-        excluded_run_kind = str(exclude_run_kind or "").strip().replace("'", "''")
-        if excluded_run_kind:
-            clauses.append(f"dr.run_kind != '{excluded_run_kind}'")
+    if run_kind:
+        clauses.append(f"dr.run_kind = {code_id('run_kind', run_kind)}")
+    if exclude_run_kind:
+        clauses.append(f"dr.run_kind != {code_id('run_kind', exclude_run_kind)}")
     if protocol_hash is not None:
         normalized_hash = str(protocol_hash).replace("'", "''")
         clauses.append(f"dr.protocol_hash = '{normalized_hash}'")
@@ -473,13 +478,11 @@ def list_result_protocols(
     of_receptor = "" if receptor_id is None else f"AND r.receptor_molecule_id = {int(receptor_id)} "
     clauses = [f"EXISTS (SELECT 1 FROM {TABLE_DOCKING_RESULTS} r WHERE r.docking_run_id = dr.id {of_receptor})"]
     if exclude_run_kind:
-        excluded = str(exclude_run_kind).strip().replace("'", "''")
-        if excluded:
-            clauses.append(f"dr.run_kind != '{excluded}'")
+        clauses.append(f"dr.run_kind != {code_id('run_kind', exclude_run_kind)}")
     rows = db_rows(
         project_db,
         query=(
-            "SELECT DISTINCT dr.protocol_hash, dr.protocol_label, dr.engine "
+            f"SELECT DISTINCT dr.protocol_hash, dr.protocol_label, {code_name_sql('dr.engine')} AS engine "
             f"FROM {TABLE_DOCKING_RUNS} dr WHERE {' AND '.join(clauses)}"
         ),
     )
@@ -504,7 +507,7 @@ def list_offtarget_rows(
     clauses: list[str] = []
     if protocol_hash is not None:
         clauses.append(
-            f"r.docking_run_id IN (SELECT id FROM {TABLE_DOCKING_RUNS} WHERE run_kind != 'redocking' "
+            f"r.docking_run_id IN (SELECT id FROM {TABLE_DOCKING_RUNS} WHERE run_kind != {code_id('run_kind', 'redocking')} "
             f"AND protocol_hash = '{str(protocol_hash).replace(chr(39), chr(39) * 2)}')"
         )
     if receptor_ids:
@@ -567,7 +570,7 @@ def list_interactions(project_db, *, result_id: int) -> list[dict[str, Any]]:
     rows = db_rows(
         project_db,
         query=(
-            "SELECT interaction_type, residue, residue_index, distance, geometry, created_at "
+            "SELECT interaction_type, residue, residue_index, distance, geometry "
             f"FROM {TABLE_INTERACTION_RESULTS} "
             f"WHERE pose_payload_id = (SELECT pose_payload_id FROM {TABLE_DOCKING_RESULTS} WHERE id = {int(result_id)}) "
             "ORDER BY interaction_type ASC, residue_index ASC, distance ASC"
@@ -580,7 +583,6 @@ def list_interactions(project_db, *, result_id: int) -> list[dict[str, Any]]:
             "residue_index": int(row.get("residue_index") or 0),
             "distance": _float_or_none(row.get("distance")),
             "geometry": _decode_metadata(row.get("geometry")),
-            "created_at": row.get("created_at"),
         }
         for row in rows
     ]
@@ -651,12 +653,12 @@ def pivot_availability(project_db) -> dict[str, bool]:
         query=(
             "SELECT "
             f"(EXISTS(SELECT 1 FROM {TABLE_DOCKING_RESULTS} h JOIN {TABLE_DOCKING_RUNS} dr "
-            "ON dr.id = h.docking_run_id WHERE dr.run_kind != 'redocking' LIMIT 1) "
+            f"ON dr.id = h.docking_run_id WHERE dr.run_kind != {code_id('run_kind', 'redocking')} LIMIT 1) "
             # A campaign's receptors are on screen from the moment they are scheduled, so the
             # pivot has something to show long before the first result row exists.
             f"OR EXISTS(SELECT 1 FROM {TABLE_SCREENING_TARGETS} LIMIT 1)) AS hits, "
             f"EXISTS(SELECT 1 FROM {TABLE_DOCKING_RESULTS} rd JOIN {TABLE_DOCKING_RUNS} dr "
-            "ON dr.id = rd.docking_run_id WHERE dr.run_kind = 'redocking' LIMIT 1) AS redocked, "
+            f"ON dr.id = rd.docking_run_id WHERE dr.run_kind = {code_id('run_kind', 'redocking')} LIMIT 1) AS redocked, "
             # MIN/MAX of the indexed receptor column rejects the common one-receptor case in
             # O(log N). Only projects that really have several receptors pay for grouping by
             # ligand to prove that at least one ligand is shared by two of them.
@@ -689,11 +691,10 @@ def count_docked_pairs(
     the run's skip-existing guard materializes the pairs because it has to compare them
     one by one; a preview only needs the number."""
     runs = ["1=1"]  # the docking runs that count
-    normalized_engine = str(engine or "").strip().lower().replace("'", "''")
-    if normalized_engine:
-        runs.append(f"engine = '{normalized_engine}'")
+    if str(engine or "").strip():
+        runs.append(f"engine = {code_id('engine', str(engine).strip().lower())}")
     if run_kind:
-        runs.append("run_kind = '{}'".format(str(run_kind).strip().replace("'", "''")))
+        runs.append(f"run_kind = {code_id('run_kind', run_kind)}")
     if protocol_hash:
         runs.append("protocol_hash = '{}'".format(str(protocol_hash).replace("'", "''")))
     clauses = [f"docking_run_id IN (SELECT id FROM {TABLE_DOCKING_RUNS} WHERE {' AND '.join(runs)})"]
@@ -754,6 +755,7 @@ def list_receptor_result_summaries(project_db) -> list[ReceptorDockingSummary]:
 __all__ = [
     "count_docked_pairs",
     "docking_run_id",
+    "find_docking_run",
     "runs_where",
     "supersede_results",
     "docked_ligands_spec",

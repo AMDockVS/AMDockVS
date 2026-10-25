@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import io
 from dataclasses import replace
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -29,9 +28,9 @@ from ms_flow.core.data.shard import PayloadKind, Serializer, ShardWriter
 from amdockvs.io.parsers import iter_record_span
 from amdockvs.io.payloads import ImportBatchPayload
 from amdockvs.io.rows import cull_mol, htp_mol_filter
-from amdockvs.core.vocab import FileFormat, ShardState
+from amdockvs.core.vocab import FileFormat
 
-SHARD_SUFFIX = ".mshard"
+SHARD_SUFFIX = ".parquet"
 
 # What the container stamps in the header so a reader knows how to parse a record's bytes.
 _PAYLOAD_KIND = {
@@ -136,7 +135,7 @@ def filter_ligand_span(payload: dict[str, Any]) -> list[dict[str, Any]]:
         records.append((int(record["source_index"]), raw))
     return [
         {
-            "source": str(batch.file_path),
+            "import_batch_id": batch.import_batch_id,
             "input_format": FileFormat.SDF if batch.input_format == FileFormat.MOL2 else batch.input_format,
             "records": records,
         }
@@ -172,15 +171,15 @@ class ShardQueueWriter:
         # has a previous state worth being able to fall back to.
         self._generation_id = generation_id
         self._shard_size = max(1, int(shard_size))
-        # One bucket per (source, format): mixing two files in one shard would leave the
-        # `source` of its inventory row a lie.
-        self._pending: dict[tuple[str, str], list[tuple[int, str]]] = {}
+        # One bucket per (batch, format): mixing two files in one shard would leave the
+        # `import_batch_id` of its inventory row a lie.
+        self._pending: dict[tuple[int | None, str], list[tuple[int, str]]] = {}
         self._next_id = 0
         self._shard_index = 0
 
     def handle(self, chunk_id: str, result: Any) -> None:
         for group in list(result or []):
-            key = (str(group.get("source") or ""), str(group.get("input_format") or ""))
+            key = (group.get("import_batch_id"), str(group.get("input_format") or ""))
             bucket = self._pending.setdefault(key, [])
             bucket.extend((int(index), str(raw)) for index, raw in group.get("records") or [])
             while len(bucket) >= self._shard_size:
@@ -197,8 +196,8 @@ class ShardQueueWriter:
                 self._write_shard(key, bucket)
             self._pending.pop(key, None)
 
-    def _write_shard(self, key: tuple[str, str], records: list[tuple[int, str]]) -> None:
-        source, input_format = key
+    def _write_shard(self, key: tuple[int | None, str], records: list[tuple[int, str]]) -> None:
+        import_batch_id, input_format = key
         shard_index = self._shard_index
         base_id = self._next_id
         self._shard_index += 1
@@ -213,7 +212,7 @@ class ShardQueueWriter:
             serializer=Serializer.UTF8,
             slot_count=len(records),
             metadata={
-                "source": source,
+                "import_batch_id": import_batch_id,
                 "input_format": input_format,
                 # Dense ids, so this is the only place the source ordinal survives.
                 "source_indices": [index for index, _raw in records],
@@ -222,31 +221,20 @@ class ShardQueueWriter:
             for offset, (_index, raw) in enumerate(records):
                 writer.add(base_id + offset, raw.encode("utf-8"))
         self._insert_row(
-            source=source,
-            shard_index=shard_index,
-            path=path,
-            input_format=input_format,
-            n_records=len(records),
+            import_batch_id=import_batch_id, shard_index=shard_index, path=path, n_records=len(records)
         )
 
-    def _insert_row(
-        self, *, source: str, shard_index: int, path: Path, input_format: str, n_records: int
-    ) -> None:
+    def _insert_row(self, *, import_batch_id: int | None, shard_index: int, path: Path, n_records: int) -> None:
         from amdockvs.models import ScreeningShard
 
-        now = datetime.now()
         with self._project_db.get_session() as session:
             session.add(
                 ScreeningShard(
                     generation_id=self._generation_id,
-                    source=source,
+                    import_batch_id=import_batch_id,
                     shard_index=shard_index,
                     path=str(path),
-                    input_format=input_format,
                     n_records=n_records,
-                    state=ShardState.PENDING,
-                    created_at=now,
-                    updated_at=now,
                 )
             )
             session.commit()
@@ -286,21 +274,16 @@ class ShardGenerationWriter:
         rows = [dict(row) for row in (result or [])]
         if not rows:
             return
-        now = datetime.now()
         with self._project_db.get_session() as session:
             for row in rows:
                 session.add(
                     ScreeningShard(
                         generation_id=self._generation_id,
-                        source=str(row.get("source") or ""),
+                        import_batch_id=row.get("import_batch_id"),
                         shard_index=int(row.get("shard_index") or 0),
                         path=str(row.get("path") or ""),
-                        input_format=str(row.get("input_format") or ""),
                         n_records=int(row.get("n_records") or 0),
-                        state=str(row.get("state") or ShardState.READY),
                         error=str(row.get("error") or ""),
-                        created_at=now,
-                        updated_at=now,
                     )
                 )
             session.commit()
@@ -323,7 +306,7 @@ class ShardGenerationWriter:
         """
         from amdockvs.molecules.storage import ShardStore, activate_generation, shard_scope_spec
 
-        spec = shard_scope_spec(state=None)
+        spec = shard_scope_spec()
         store = ShardStore(self._project_db)
         written = store.record_count(replace(spec, filters={**spec.filters, "generation_id": self._generation_id}))
         if written <= 0:

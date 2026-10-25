@@ -16,8 +16,8 @@ from amdockvs.io.jobs import (
 from amdockvs.core.normalize import PathLike, group_files, normalize_files
 from amdockvs.core.configuration import app_config
 from amdockvs.core.constants import RESOURCE_IMPORT_STATS, RESOURCE_SHARDS
-from amdockvs.molecules.storage import LIBRARY_ROWS, LIBRARY_SHARDS, check_library_target
-from amdockvs.core.vocab import MoleculeType
+from amdockvs.core.vocab import ImportKind
+from amdockvs.io.batches import register_batches, stamp_job
 
 
 def import_max_inflight(runtime=None) -> int:
@@ -62,13 +62,30 @@ class LoaderAPI:
         **kwargs,
     ) -> str:
         self.runtime._require_active_project()
-        return job_def.submit_with_options(
+        job_id = job_def.submit_with_options(
             self.runtime,
             params=params,
             executor_name=executor_name,
             depends_on=depends_on,
             **kwargs,
         )
+        if params.get("import_batch_ids"):
+            stamp_job(self.runtime.workspace.project_db, params["import_batch_ids"].values(), job_id)
+        return job_id
+
+    def duplicate_imports(self, files) -> list[str]:
+        """The files (resolved paths) imported completely into this project before."""
+        from amdockvs.io.batches import duplicate_imports
+
+        self.runtime._require_active_project()
+        return duplicate_imports(self.runtime.workspace.project_db, files)
+
+    def _batches(self, files, *, force: bool, kind: str = ImportKind.ROWS, labels=None, **extra) -> dict:
+        """One import batch per file, registered before the job exists (the job carries the ids).
+        Raises `DuplicateImportError` for a file imported completely before, unless `force`."""
+        return {"import_batch_ids": register_batches(
+            self.runtime.workspace.project_db, files, kind=kind, labels=labels, extra=extra, force=force,
+        )}
 
     def _temporary(self, files, temporary_files) -> dict[str, list[str]]:
         """The inputs this job deletes once completed: ``temporary_files`` (all temporary inputs
@@ -102,6 +119,7 @@ class LoaderAPI:
         molecule_kind: str = "unknown",
         prefilter: Mapping[str, Any] | None = None,
         temporary_files: Iterable[PathLike] | None = None,
+        force: bool = False,
     ) -> list[str]:
         normalized_files = normalize_files(files, label="molecule files")
         if not normalized_files:
@@ -116,6 +134,8 @@ class LoaderAPI:
             "primary_role": str(primary_role or ""),
             "primary_context": str(primary_context or "general"),
             "molecule_kind": str(molecule_kind or "unknown"),
+            **self._batches(normalized_files, force=force, role=str(primary_role or ""),
+                            context=str(primary_context or "general")),
         }
         if effective_prefilter is not None:
             params["prefilter"] = effective_prefilter
@@ -144,14 +164,11 @@ class LoaderAPI:
         prefilter: Mapping[str, Any] | None = None,
         source_labels: Mapping[str, str] | None = None,
         temporary_files: Iterable[PathLike] | None = None,
+        force: bool = False,
     ) -> list[str]:
         normalized_files = normalize_files(files, label="ligand files")
         if not normalized_files:
             return []
-        # One screening library per project (see molecules/store.py). Curated ligands are not
-        # a library, so they are free to coexist with a sharded one.
-        if str(primary_context or "general") == "general" and str(molecule_kind) == MoleculeType.SMALL_MOLECULE:
-            check_library_target(self.runtime.workspace.project_db, target=LIBRARY_ROWS)
         effective_prefilter = None if not prefilter else dict(prefilter)
         # One job streams all files (like receptors): N files no longer means N jobs.
         params = {
@@ -162,7 +179,8 @@ class LoaderAPI:
             "primary_role": "ligand",
             "primary_context": str(primary_context or "general"),
             "molecule_kind": str(molecule_kind or "small_molecule"),
-            "source_labels": {str(Path(k).expanduser().resolve()): str(v) for k, v in dict(source_labels or {}).items()},
+            **self._batches(normalized_files, force=force, labels=source_labels, role="ligand",
+                            context=str(primary_context or "general")),
         }
         if effective_prefilter is not None:
             params["prefilter"] = effective_prefilter
@@ -188,6 +206,7 @@ class LoaderAPI:
         molecule_kind: str = "small_molecule",
         prefilter: Mapping[str, Any] | None = None,
         temporary_files: Iterable[PathLike] | None = None,
+        force: bool = False,
     ) -> list[str]:
         """The `htpvs` import: split the library into shards, materialize nothing.
 
@@ -198,7 +217,6 @@ class LoaderAPI:
         normalized_files = normalize_files(files, label="ligand files")
         if not normalized_files:
             return []
-        check_library_target(self.runtime.workspace.project_db, target=LIBRARY_SHARDS)
         records = (
             default_shard_size(runtime=self.runtime)
             if shard_size is None
@@ -210,6 +228,7 @@ class LoaderAPI:
             **self._temporary(normalized_files, temporary_files),
             "batch_size": records,
             "molecule_kind": str(molecule_kind or "small_molecule"),
+            **self._batches(normalized_files, force=force, kind=ImportKind.SHARDS, role="ligand"),
         }
         if prefilter:
             params["prefilter"] = dict(prefilter)
@@ -284,6 +303,7 @@ class LoaderAPI:
         binding_site_specs_by_file: Mapping[str, list[Mapping[str, Any]]] | None = None,
         source_labels: Mapping[str, str] | None = None,
         temporary_files: Iterable[PathLike] | None = None,
+        force: bool = False,
     ) -> list[str]:
         normalized_files = normalize_files(files, label="receptor files")
         if not normalized_files:
@@ -337,7 +357,8 @@ class LoaderAPI:
             "molecule_kind": str(molecule_kind or "protein"),
             "extra_data_patch_by_file": extra_data_patch_map,
             "binding_site_specs_by_file": binding_site_specs_map,
-            "source_labels": {str(Path(k).expanduser().resolve()): str(v) for k, v in dict(source_labels or {}).items()},
+            **self._batches(normalized_files, force=force, labels=source_labels, role="receptor",
+                            context=str(primary_context or "general")),
         }
         if effective_prefilter is not None:
             params["prefilter"] = effective_prefilter
@@ -362,6 +383,7 @@ class LoaderAPI:
         primary_context: str = "general",
         molecule_kind: str = "small_molecule",
         prefilter: Mapping[str, Any] | None = None,
+        force: bool = False,
     ) -> list[str]:
         normalized_files = normalize_files(files, label="files")
         invalid = [path for path in normalized_files if path.suffix.lower() != ".sdf"]
@@ -378,6 +400,7 @@ class LoaderAPI:
                 "primary_role": "ligand",
                 "primary_context": str(primary_context or "general"),
                 "molecule_kind": str(molecule_kind or "small_molecule"),
+                **self._batches(group, force=force, role="ligand", context=str(primary_context or "general")),
             }
             if effective_prefilter is not None:
                 params["prefilter"] = effective_prefilter

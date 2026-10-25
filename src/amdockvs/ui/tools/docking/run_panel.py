@@ -15,11 +15,6 @@ from PySide6.QtWidgets import (
 
 from amdockvs.core.configuration import app_config
 from amdockvs.docking.planning import protocol_job_key
-from amdockvs.docking.shard_jobs import (
-    HIT_MODE_THRESHOLD,
-    HIT_MODE_TOP_N,
-    RANKED_PREFILTER_SCORE,
-)
 from amdockvs.docking.engines.programs import get_docking_program
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.common.job_follower import JobFollower
@@ -71,22 +66,13 @@ class RunPanel:
         self.hit_threshold.setRange(-100.0, 0.0)
         self.hit_threshold.setDecimals(1)
         self.hit_threshold.setSingleStep(0.5)
-        self.hit_threshold.setValue(-8.0)
-        self.hit_cap = _spinbox(minimum=1, maximum=1000000, value=1000)
-        self.hit_mode_combo = QComboBox(self.hits_box)
-        self.hit_mode_combo.addItem("Best N of the whole run (ranked, written at the end)", HIT_MODE_TOP_N)
-        self.hit_mode_combo.addItem("First hits past the threshold (stops early)", HIT_MODE_THRESHOLD)
-        self.hit_mode_combo.setToolTip(
-            "Ranked keeps the best N of everything scored, but the run cannot stop early and no "
-            "result is visible until it finishes. Threshold writes hits as they come back."
-        )
-        # The same number means two things, so the label says which one: a stop condition in
-        # streaming mode, the size of the ranking in ranked mode.
+        self.hit_threshold.setValue(0.0)  # no prefilter: the Top-N decides
+        # Top-N only: a campaign keeps the best N per receptor, the threshold just prefilters.
+        self.hit_cap = _spinbox(minimum=1, maximum=10_000, value=1000)
         self.hit_cap_label = QLabel("", self.hits_box)
-        self.hit_threshold_label = QLabel("Keep at or below (kcal/mol)", self.hits_box)
+        self.hit_threshold_label = QLabel("Only at or below (kcal/mol)", self.hits_box)
         hits_layout.addRow(self.hit_threshold_label, self.hit_threshold)
         hits_layout.addRow(self.hit_cap_label, self.hit_cap)
-        hits_layout.addRow("Selection", self.hit_mode_combo)
         self.offtarget_reference_combo = QComboBox(self.hits_box)
         self.offtarget_reference_combo.addItem("None — dock the full library against every receptor", None)
         self.offtarget_reference_combo.setToolTip(
@@ -98,11 +84,10 @@ class RunPanel:
         self.offtarget_reference_combo.currentIndexChanged.connect(lambda _index: self._check_requirements())
         hits_layout.addRow("Off-target docking reference", self.offtarget_reference_combo)
         self._ready_receptor_options: list[tuple[int, str]] = []
-        self.hit_mode_combo.currentIndexChanged.connect(self._sync_hit_cap_label)
         self._sync_hit_cap_label()
         self.hits_box.setToolTip(
-            "Only poses scoring at or below the threshold become molecules and results; the rest "
-            "are scored and discarded. The cap ends the campaign once that many hits are in."
+            "The best N poses per receptor at or below the threshold become molecules and "
+            "results, written when the run ends; the rest are scored and discarded."
         )
         self.hits_box.setVisible(False)
         # Run options — program-specific settings (CPU per task, exhaustiveness…) live on
@@ -180,12 +165,13 @@ class RunPanel:
             "sel_rec": self._selected_receptor_ids,
             "focused": self._focused_receptor_id,
             "prep_engines": self._selected_prep_engines(),
+            "force_prep": bool(getattr(self, "force_prepare_ligands", None) and self.force_prepare_ligands.isChecked()),
             "programs_chosen": bool(self._selected_protocols()),
         }
         sig = (
             step, inputs["program"], inputs["run_kind"], inputs["sharded"], inputs["receptor_type"], inputs["ligand_type"],
             tuple(inputs["sel_lig"]), tuple(inputs["sel_rec"]),
-            inputs["focused"], inputs["programs_chosen"], tuple(inputs["prep_engines"]),
+            inputs["focused"], inputs["programs_chosen"], tuple(inputs["prep_engines"]), inputs["force_prep"],
         )
         if not force and sig == self._last_refresh_sig:
             return
@@ -235,25 +221,23 @@ class RunPanel:
             lig_scope = self._resolve_ligand_scope(
                 inp["sel_lig"], run_kind=inp.get("run_kind", "docking")
             )
-            data["ligands_total"] = self.runtime.molecules.count(lig_scope)
-            # One count per preparation family (K is the number of distinct engines, today 1):
-            # each family reconciles against itself, so no cross-engine aggregate is needed.
-            by_engine = {
-                engine: self.runtime.molecules.count(
-                    self.runtime.molecules.filter(
-                        lig_scope, filters={"prepared": True, "prepared_engine_key": engine}
-                    )
-                )
-                for engine in inp["prep_engines"]
-            }
+            # One summary per family of the selected programs (K is today 1); Force re-prepare
+            # redoes them all, so it needs no prepared/failed count at all.
+            if inp.get("force_prep") or not inp["prep_engines"]:
+                summaries = {}
+                data["ligands_total"] = self.runtime.molecules.count(lig_scope)
+            else:
+                summaries = {
+                    engine: self.runtime.docking.preparation_summary(lig_scope, role_type="ligand", engine=engine)
+                    for engine in inp["prep_engines"]
+                }
+                data["ligands_total"] = next(iter(summaries.values()))["total"]
+            by_engine = {engine: summary["ready"] for engine, summary in summaries.items()}
             data["ligands_prepared_by_engine"] = by_engine
             # For the step badge only: a molecule is "done" when every selected family has it,
             # and min() is that count exactly when the prepared sets nest (the normal case).
             data["ligands_prepared"] = min(by_engine.values()) if by_engine else 0
-            data["ligands_failed"] = sum(
-                self._count_failed_preparations(lig_scope, role_type="ligand", engine=engine)
-                for engine in inp["prep_engines"]
-            )
+            data["ligands_failed"] = sum(summary["failed"] for summary in summaries.values())
             return data
 
         if step == 3:  # Preview & Run — NO automatic scan at all; verification is explicit.
@@ -600,7 +584,7 @@ class RunPanel:
         elif result.get("offtarget_reference_id") is not None and receptors > 1:
             ligands = int(lig.get("ready") or 0)
             self._pairs_text(
-                f"{ligands} reference + up to {min(int(self._docking_cap()), ligands) * (receptors - 1)} "
+                f"{ligands} reference + up to {min(int(self.hit_cap.value()), ligands) * (receptors - 1)} "
                 f"off-target docking(s)"
             )
         else:
@@ -650,7 +634,7 @@ class RunPanel:
         run_async(
             lambda: self._check_docking_conflict(signature),
             lambda conflict: self._after_conflict_check(conflict, inp, params, signature),
-            on_error=self._on_docking_error,
+            on_error=lambda exc: self._on_docking_error(exc, inp=inp, params=params, signature=signature),
         )
 
     def _preparing(self) -> list:
@@ -699,14 +683,6 @@ class RunPanel:
         else:
             self._warn("Run Docking", f"Preparation {status}: the queued docking run was not launched.")
 
-    def _hit_ceiling(self) -> int:
-        """Unattended-run ceiling on hits (settings > shards > hit_cap)."""
-        return int(app_config(getattr(self, "runtime", None)).shards.hit_cap)
-
-    def _docking_cap(self) -> int:
-        ranked = str(self.hit_mode_combo.currentData() or "") == HIT_MODE_TOP_N
-        return int(self.hit_cap.value()) if ranked else self._hit_ceiling()
-
     def _docking_params(self) -> tuple[dict, dict]:
         inp = self._requirement_inputs()
         protocols = self._selected_protocols()
@@ -716,8 +692,7 @@ class RunPanel:
             "protocols": protocols,
             "batch_size": int(self.batch_size.value()),
             "hit_threshold": float(self.hit_threshold.value()),
-            "hit_cap": self._docking_cap(),
-            "hit_mode": str(self.hit_mode_combo.currentData() or HIT_MODE_TOP_N),
+            "hit_cap": int(self.hit_cap.value()),
             "offtarget_reference_id": (
                 int(self.offtarget_reference_combo.currentData())
                 if self.offtarget_reference_combo.currentData() is not None
@@ -827,45 +802,22 @@ class RunPanel:
         run_async(
             lambda: self._submit_docking(inp, params),
             lambda result: self._on_docking_submitted(result, signature),
-            on_error=self._on_docking_error,
+            on_error=lambda exc: self._on_docking_error(exc, inp=inp, params=params, signature=signature),
         )
 
     def _sync_hit_cap_label(self) -> None:
-        """One criterion at a time: the other number is not a second filter, it is the safety net.
-
-        Ranked keeps N and the threshold is only the coarse prefilter; by-threshold keeps
-        everything under the cutoff, and capping *that* would silently drop hits it already
-        found. So each mode enables its own number and leaves the other one out of the way.
-        """
         sharded = getattr(self, "_sharded", False)
-        ranked = str(self.hit_mode_combo.currentData() or "") == HIT_MODE_TOP_N
         reference_id = self.offtarget_reference_combo.currentData()
         # Rows keep everything they dock: the selection only filters the off-target funnel.
         selecting = sharded or reference_id is not None
-        # The disabled field still shows what the run will use: ranked has no cutoff, so it
-        # reads 0 (anything that bound at all), and the by-threshold value is kept for the way back.
-        if ranked and self.hit_threshold.value() != RANKED_PREFILTER_SCORE:
-            self._last_threshold = float(self.hit_threshold.value())
-            self.hit_threshold.setValue(RANKED_PREFILTER_SCORE)
-        elif not ranked and self.hit_threshold.value() == RANKED_PREFILTER_SCORE:
-            self.hit_threshold.setValue(float(getattr(self, "_last_threshold", -8.0)))
-        self.hit_cap.setEnabled(ranked and selecting)
-        self.hit_cap_label.setEnabled(self.hit_cap.isEnabled())
-        self.hit_threshold.setEnabled(not ranked and selecting)
-        self.hit_threshold_label.setEnabled(self.hit_threshold.isEnabled())
-        self.hit_mode_combo.setEnabled(selecting)
+        for widget in (self.hit_cap, self.hit_cap_label, self.hit_threshold, self.hit_threshold_label):
+            widget.setEnabled(selecting)
         self.hit_cap_label.setText(
-            "Reference Top-N" if ranked and (reference_id is not None or not sharded)
-            else "Keep best per receptor" if ranked
-            else f"Ceiling ({self._hit_ceiling():,} hits)"
+            "Reference Top-N" if reference_id is not None or not sharded else "Keep best per receptor"
         )
         self.hit_cap.setToolTip(
             "How many hits the run keeps per receptor; with an off-target reference, this is "
             "the reference Top-N propagated to every secondary receptor."
-            if ranked else
-            f"Not a criterion here — by-threshold keeps every ligand under the cutoff. The run "
-            f"still stops at {self._hit_ceiling():,} hits so a generous receptor cannot write the "
-            f"whole library into the project unattended."
         )
         self.offtarget_reference_combo.setEnabled(len(self._ready_receptor_options) > 1)
 
@@ -918,9 +870,12 @@ class RunPanel:
         reference_id = params.get("offtarget_reference_id")
         if reference_id is not None and int(reference_id) not in ready_receptor_ids:
             return {"warning": "The selected off-target reference receptor is no longer ready."}
-        if reference_id is not None and str(params.get("hit_mode")) != HIT_MODE_TOP_N:
-            return {"warning": "Off-target reference docking requires ranked Top-N selection."}
         receptor_scope = self._resolve_receptor_scope(list(ready_receptor_ids))
+        for protocol in protocols:
+            self.runtime.docking.check_protocol(
+                program=protocol.program, engine_config=dict(protocol.config),
+                protocol_metadata=protocol.to_mapping(), replace_existing=bool(params.get("replace_existing")),
+            )
         job_ids: dict[str, str] = {}
         for index, protocol in enumerate(protocols):
             config = dict(protocol.config)
@@ -931,7 +886,6 @@ class RunPanel:
                 "program": protocol.program,
                 "hit_threshold": float(params["hit_threshold"]),
                 "hit_cap": int(params["hit_cap"]),
-                "hit_mode": str(params.get("hit_mode") or HIT_MODE_THRESHOLD),
                 "exhaustiveness": int(config.get("exhaustiveness") or 8),
                 "num_modes": int(config.get("num_modes") or 9),
                 "scoring_function": str(config.get("scoring_function") or "vina"),
@@ -942,6 +896,7 @@ class RunPanel:
                 "run_id": protocol_run_id,
                 "protocol_metadata": protocol.to_mapping(),
                 "engine_config": config,
+                "replace_existing": bool(params.get("replace_existing")),
             }
             key = protocol_job_key(protocol, index)
             if reference_id is None or len(ready_receptor_ids) < 2:
@@ -962,7 +917,7 @@ class RunPanel:
                 depends_on=[reference_job],
                 selected_from_receptor_id=reference_id,
                 selected_top_n=int(params["hit_cap"]),
-                **common,
+                **{**common, "replace_existing": False},
             )
         return {
             "job_ids": job_ids,
@@ -1023,6 +978,7 @@ class RunPanel:
             # by-threshold the cutoff and the ceiling.
             offtarget_top_n=int(params.get("hit_cap") or 0),
             offtarget_max_score=float(params["hit_threshold"]),
+            replace_existing=bool(params.get("replace_existing")),
         )
         try:
             submission = self.submission_service.submit(
@@ -1075,9 +1031,28 @@ class RunPanel:
         if manager is not None:
             manager.toggle("tools", False)
 
-    def _on_docking_error(self, exc: Exception) -> None:
+    def _on_docking_error(self, exc: Exception, *, inp=None, params=None, signature="") -> None:
+        from amdockvs.docking.rerun import DockingProtocolConflictError
+
         self.run_button.setEnabled(True)
-        if isinstance(exc, ValueError):
+        if isinstance(exc, DockingProtocolConflictError) and inp is not None and params is not None:
+            dialog = QMessageBox(self)
+            dialog.setWindowTitle("Docking configuration changed")
+            dialog.setIcon(QMessageBox.Icon.Warning)
+            dialog.setText("Replace this program's previous docking results?")
+            dialog.setInformativeText(
+                "All previous docking results for this program in the project will be deleted, "
+                "including poses and derived analyses. Docking will start over with the new configuration.\n\n"
+                "Redocking results will be preserved. If the new run fails or is canceled, "
+                "the deleted results will not be restored."
+            )
+            dialog.setDetailedText(str(exc))
+            replace = dialog.addButton("Replace docking results", QMessageBox.ButtonRole.DestructiveRole)
+            dialog.setDefaultButton(dialog.addButton(QMessageBox.StandardButton.Cancel))
+            dialog.exec()
+            if dialog.clickedButton() == replace:
+                self._after_conflict_check(("", ""), inp, {**params, "replace_existing": True}, signature)
+        elif isinstance(exc, ValueError):
             self._warn("Run Docking", str(exc))
         else:
             self._error("Run Docking", exc)

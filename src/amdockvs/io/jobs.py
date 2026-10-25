@@ -22,6 +22,7 @@ from amdockvs.core.constants import (
     AMDOCKVS_LOCAL_EXECUTORS,
     AMDOCKVS_PROCESS_EXECUTORS,
     RESOURCE_IMPORT_STATS,
+    TABLE_MOLECULES,
 )
 from ms_flow.core.data.shard import MAX_RECORDS as MAX_SHARD_RECORDS
 
@@ -37,13 +38,14 @@ from amdockvs.core.worker_io import worker_output_dir
 from amdockvs.models import (
     BindingSite,
     ComplexRecord,
-    EngineState,
     LigandActivity,
+    LigandPrep,
     MoleculeModel,
     MoleculeRecord,
     MoleculeRepresentation,
-    MoleculeSourceProperty,
+    ReceptorPrep,
 )
+from amdockvs.models.molecules import DEFERRED_INDEXES, ensure_molecule_indexes
 
 
 IMPORT_GRAPH_OUTPUT = graph_sink(
@@ -54,21 +56,24 @@ IMPORT_GRAPH_OUTPUT = graph_sink(
             "model": MoleculeModel,
             "validate_model": False,
         },
-        {
-            "name": "molecule_source_properties",
-            "model": MoleculeSourceProperty,
-            "validate_model": False,
-        },
         {"name": "complexes", "model": ComplexRecord, "validate_model": False},
         {"name": "ligand_activities", "model": LigandActivity, "validate_model": False},
         {"name": "binding_sites", "model": BindingSite, "validate_model": False},
-        # A PDBQT import arrives already prepared: the file *is* the engine artifact.
-        {"name": "engine_states", "model": EngineState, "validate_model": False},
-        # Explicit columns: model-derived ones drop the pk, and this table's id is a caller-made text key.
+        # A PDBQT import arrives already prepared: the file *is* the ad4 artifact.
+        {"name": "receptor_preps", "model": ReceptorPrep, "validate_model": False},
+        {
+            "name": "ligand_preps",
+            "model": LigandPrep,
+            "columns": ("molecule_id", "family", "payload_id"),
+            "pk_field": "molecule_id",
+            "validate_model": False,
+        },
+        # Explicit columns: model-derived ones drop the pk, and this table's pk is (molecule_id, repr_type).
         {
             "name": "molecule_representations",
             "model": MoleculeRepresentation,
-            "columns": ("id", "molecule_id", "repr_type", "value"),
+            "columns": ("molecule_id", "repr_type", "value"),
+            "pk_field": "molecule_id",
             "validate_model": False,
         },
     ),
@@ -86,19 +91,19 @@ IMPORT_GRAPH_OUTPUT = graph_sink(
             "fk_field": "molecule_id",
         },
         {
-            "source_node": "molecule_source_properties",
-            "source_ref_field": "molecule_ref",
-            "target_node": "molecules",
-            "fk_field": "molecule_id",
-        },
-        {
             "source_node": "binding_sites",
             "source_ref_field": "molecule_ref",
             "target_node": "molecules",
             "fk_field": "molecule_id",
         },
         {
-            "source_node": "engine_states",
+            "source_node": "receptor_preps",
+            "source_ref_field": "molecule_ref",
+            "target_node": "molecules",
+            "fk_field": "receptor_molecule_id",
+        },
+        {
+            "source_node": "ligand_preps",
             "source_ref_field": "molecule_ref",
             "target_node": "molecules",
             "fk_field": "molecule_id",
@@ -108,15 +113,6 @@ IMPORT_GRAPH_OUTPUT = graph_sink(
             "source_ref_field": "binding_site_ref",
             "target_node": "binding_sites",
             "fk_field": "binding_site_id",
-        },
-        {
-            # Deferred: the receptor points at one of its own sites, which are inserted later
-            # (they need its molecule_id). The sink closes it with an UPDATE at end of commit.
-            "source_node": "molecules",
-            "source_ref_field": "active_binding_site_ref",
-            "target_node": "binding_sites",
-            "fk_field": "active_binding_site_id",
-            "deferred": True,
         },
         {
             "source_node": "complexes",
@@ -160,7 +156,8 @@ class LoadFileParams(BaseModel):
     binding_site_specs: list[dict[str, Any]] = Field(default_factory=list)
     extra_data_patch_by_file: dict[str, dict[str, Any]] = Field(default_factory=dict)
     binding_site_specs_by_file: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
-    source_labels: dict[str, str] = Field(default_factory=dict)
+    # resolved path → `import_batches.id`, written by `io.batches.register_batches` at submit.
+    import_batch_ids: dict[str, int] = Field(default_factory=dict)
     # Downloads the user did not keep: deleted once the job has completed (kept for a resume).
     temporary_files: list[Path] = Field(default_factory=list)
 
@@ -173,6 +170,44 @@ def drop_temporary_files(params: dict, config: dict) -> None:
         delete_files(files, temporary_root(context.path))
 
 
+def finish_import(params: dict, config: dict) -> None:
+    """Count what each batch wrote, then drop the downloads (the count reads them)."""
+    from amdockvs.io.batches import finish_batches
+
+    try:
+        if config.get("project_db") is not None:
+            finish_batches(config["project_db"], dict(params).get("import_batch_ids") or {},
+                           completed=config.get("terminal_status") == "completed")
+    finally:
+        drop_temporary_files(params, config)
+
+
+def finish_row_import(params: dict, config: dict) -> None:
+    """Whatever the job ended as: the indexes a bulk import dropped come back here."""
+    try:
+        finish_import(params, config)
+    finally:
+        if config.get("project_db") is not None:
+            ensure_molecule_indexes(config["project_db"])
+
+
+def defer_molecule_indexes(file_paths, config: Mapping[str, Any] | None) -> None:
+    """Drop the deferred indexes when the import at least doubles `molecules`: building them
+    once at the end beats keeping them live. A small import into a big table keeps them."""
+    db = (config or {}).get("project_db")
+    if db is not None:
+        incoming = sum(count_import_records(path, approx=True) for path in file_paths)
+        db.defer_indexes(TABLE_MOLECULES, DEFERRED_INDEXES, incoming)
+
+
+def import_label(payload: dict) -> str:
+    """What an import chunk goes by in the monitor: `lib.smi 2000-2999`."""
+    first = int(payload.get("span_first_index") or 0)
+    count = int(payload.get("span_count") or 0) or len(payload.get("records") or payload.get("entries") or ())
+    name = Path(str(payload.get("file_path") or "")).name
+    return f"{name} {first}-{first + count - 1}" if count else name  # a whole-file chunk is the file
+
+
 class LoadMultithreadedSDFParams(BaseModel):
     file_paths: list[Path] = Field(min_length=1)
     storage_dir: Path | None = None
@@ -182,6 +217,7 @@ class LoadMultithreadedSDFParams(BaseModel):
     primary_context: str = "general"
     molecule_kind: str = "small_molecule"
     prefilter: ImportPrefilterPolicy | None = None
+    import_batch_ids: dict[str, int] = Field(default_factory=dict)
 
 
 def _resolve_storage_dir(*, kind: str, params: Mapping[str, Any], config: Mapping[str, Any] | None) -> Path:
@@ -225,6 +261,7 @@ class FileInput(InputSource):
             file_paths.append(parsed.file_path)
         if not file_paths:
             raise ValueError("Missing required parameter: file_path or file_paths")
+        defer_molecule_indexes(file_paths, config)
         patch_by_file = {
             str(Path(path).expanduser().resolve()): dict(value or {})
             for path, value in dict(parsed.extra_data_patch_by_file or {}).items()
@@ -233,7 +270,6 @@ class FileInput(InputSource):
             str(Path(path).expanduser().resolve()): [dict(item) for item in list(value or [])]
             for path, value in dict(parsed.binding_site_specs_by_file or {}).items()
         }
-        labels = {str(Path(path).expanduser().resolve()): str(label) for path, label in parsed.source_labels.items()}
         for file_path in file_paths:
             resolved_file = Path(file_path).expanduser().resolve()
             for chunk in stream_import_payload_batches(
@@ -247,7 +283,7 @@ class FileInput(InputSource):
                 prefilter=parsed.prefilter,
                 extra_data_patch=patch_by_file.get(str(resolved_file), parsed.extra_data_patch),
                 binding_site_specs=binding_by_file.get(str(resolved_file), parsed.binding_site_specs),
-                source_label=labels.get(str(resolved_file), ""),
+                import_batch_id=parsed.import_batch_ids.get(str(resolved_file)),
                 chunk_bytes=self.chunk_bytes,
                 ramp=self.ramp,
             ):
@@ -283,12 +319,13 @@ SHARD_SUGGEST_RECORDS = int(os.environ.get("AMDOCK_SHARD_SUGGEST_RECORDS") or DE
 @job(
     task=materialize_import_rows,
     name="amdock_load_molecules_file_job",
-    finalize=drop_temporary_files,
+    finalize=finish_row_import,
     params_model=LoadFileParams,
     executor="compute",
     supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
     # feed_mode="durable_feed",
     output_spec=IMPORT_GRAPH_OUTPUT,
+    task_label=import_label,
     output_flush_every=DEFAULT_OUTPUT_FLUSH_EVERY,
     store_results=False,
 )
@@ -299,12 +336,13 @@ def load_molecules_file_job(params: dict, config: dict | None = None) -> Iterato
 @job(
     task=materialize_import_rows,
     name="amdock_load_ligands_file_job",
-    finalize=drop_temporary_files,
+    finalize=finish_row_import,
     params_model=LoadFileParams,
     executor="compute",
     supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
     # feed_mode="durable_feed",
     output_spec=IMPORT_GRAPH_OUTPUT,
+    task_label=import_label,
     output_flush_every=DEFAULT_OUTPUT_FLUSH_EVERY,
     store_results=False,
 )
@@ -322,12 +360,13 @@ def load_ligands_file_job(params: dict, config: dict | None = None) -> Iterator[
 @job(
     task=materialize_import_rows,
     name="amdock_load_receptors_file_job",
-    finalize=drop_temporary_files,
+    finalize=finish_row_import,
     params_model=LoadFileParams,
     executor="compute",
     supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
     # feed_mode="durable_feed",
     output_spec=IMPORT_GRAPH_OUTPUT,
+    task_label=import_label,
     output_flush_every=DEFAULT_OUTPUT_FLUSH_EVERY,
     store_results=False,
 )
@@ -345,12 +384,14 @@ def load_receptors_file_job(params: dict, config: dict | None = None) -> Iterato
 @job(
     task=materialize_multithreaded_sdf_rows,
     name="amdock_load_ligands_multithreaded_sdf_job",
+    finalize=finish_row_import,
     params_model=LoadMultithreadedSDFParams,
     executor="compute",
     supported_executors=AMDOCKVS_PROCESS_EXECUTORS,
     cpu_required=4,
     # feed_mode="durable_feed",
     output_spec=IMPORT_GRAPH_OUTPUT,
+    task_label=import_label,
     output_flush_every=DEFAULT_OUTPUT_FLUSH_EVERY,
     store_results=False,
 )
@@ -358,6 +399,7 @@ def load_ligands_multithreaded_sdf_job(params: dict, config: dict | None = None)
     parsed = LoadMultithreadedSDFParams.model_validate(dict(params or {}))
     params_map = parsed.model_dump(mode="python")
     storage_dir = _resolve_storage_dir(kind="ligand", params=params_map, config=config or {})
+    defer_molecule_indexes(parsed.file_paths, config)
     for file_path in parsed.file_paths:
         resolved_file = Path(file_path).expanduser().resolve()
         if resolved_file.suffix.lower() != ".sdf":
@@ -367,6 +409,7 @@ def load_ligands_multithreaded_sdf_job(params: dict, config: dict | None = None)
             file_path=resolved_file,
             storage_dir=storage_dir,
             num_threads=parsed.num_threads,
+            import_batch_id=parsed.import_batch_ids.get(str(resolved_file)),
             primary_role=str(parsed.primary_role or "ligand"),
             primary_context=str(parsed.primary_context or "general"),
             molecule_kind=str(parsed.molecule_kind or "small_molecule"),
@@ -385,7 +428,7 @@ class ShardLigandsParams(LoadFileParams):
 @job(
     task=filter_ligand_span_task,
     name="amdock_shard_ligands_job",
-    finalize=drop_temporary_files,
+    finalize=finish_import,
     params_model=ShardLigandsParams,
     executor="compute",
     supported_executors=AMDOCKVS_LOCAL_EXECUTORS,

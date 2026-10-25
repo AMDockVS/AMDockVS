@@ -7,11 +7,12 @@ from amdockvs.models import MoleculeRecord
 from amdockvs.ui.resources.icons import icon
 from amdockvs.ui.catalog.common import (
     BoundTableWidget,
+    batch_columns,
     PREVIEW_2D_COLUMN_FIELD,
     molecule_2d_preview_paint_for_runtime,
     molecule_2d_preview_tooltip,
 )
-from amdockvs.core.vocab import FileFormat, MoleculeUsageClass
+from amdockvs.core.vocab import MoleculeUsageClass
 from ms_components.ms_table import (
     AlignHint,
     ColumnDef,
@@ -54,9 +55,7 @@ def _ligand_table_config(*, runtime) -> TableConfig:
             ColumnDef("name", label="Name", width=220, sortable=True, filterable=True),
             ColumnDef("usage_class", label="Usage", width=110, sortable=True, filterable=True, visible=True,
                       kind=ColumnKind.CHOICE, choices=choices_from_class(MoleculeUsageClass)),
-            ColumnDef("source", label="Source", width=360, sortable=True),
-            ColumnDef("input_format", label="Format", width=90, sortable=True, filterable=True,
-                      kind=ColumnKind.CHOICE, choices=choices_from_class(FileFormat)),
+            *batch_columns(MoleculeRecord),
             # ponytail: flags as INTEGER so the numeric filter (= 0 / = 1) works on SQLite booleans;
             # a real boolean kind in ms_table if Yes/No checkboxes are wanted in the filter.
             ColumnDef("has_3d", label="3D", width=60, sortable=True, filterable=True,

@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any, Callable
-from uuid import uuid4
 
 from amdockvs.chemistry.state import molecule_state_metadata
 from amdockvs.io._common import normalize_kind
@@ -24,7 +23,9 @@ from amdockvs.core.vocab import (
     ReprType,
 )
 from amdockvs.io.import_stats import FILTERED_PREFILTER, IMPORTED, UNREADABLE, bump, write_import_stats
-from amdockvs.io.rows import active_small_molecule_criteria, cull_mol, htp_mol_filter, metadata_map_from_row
+from amdockvs.io.rows import (
+    active_small_molecule_criteria, cull_mol, htp_mol_filter, identity_representations, metadata_map_from_row,
+)
 from amdockvs.core.constants import SERIES_PROPERTIES
 from amdockvs.core.payloads import series_for, structure_payload
 from amdockvs.io.transformers.rows import (
@@ -81,9 +82,6 @@ def materialize_import_batch(
         rows = list(_materialize_fasta_rows(batch=batch, entries=records, progress_cb=progress_cb, tally=tally))
     else:
         rows = list(_materialize_structure_rows(batch=batch, entries=records, progress_cb=progress_cb, tally=tally))
-    if batch.source_label:  # the file was only a carrier (pasted text, a download): name the real origin
-        for row in rows:  # refs stay on the file: complexes name their receptor by its path
-            row["source_file"], row["source"] = row.get("source"), batch.source_label
     write_import_stats(batch.storage_dir, tally)
     return rows
 
@@ -139,7 +137,7 @@ def materialize_multithreaded_sdf_file(
             source_index=source_index,
             name=name,
             n_atoms=mol.GetNumHeavyAtoms(),
-            input_format=FileFormat.SDF,
+            import_batch_id=batch.import_batch_id,
             stored=structure_payload(mol_block, "sdf", series_for(batch.primary_role or batch.kind)),
             current=None,
             metadata={
@@ -184,8 +182,7 @@ def offload_source_properties(rows: list[dict[str, Any]]) -> Any:
     rows) and are almost never viewed and never used hot — persisting them into the
     project DB is what makes the single sqlite writer the import bottleneck.
 
-    Each row's source_properties are emptied (so build_import_graph_payload emits no
-    molecule_source_properties node) and every row holds the same Payload as
+    Each row's source_properties are emptied and every row holds the same Payload as
     properties_payload_id: the sink stores it once. Tags are read back by source_index
     (read_source_properties). Returns the Payload, or None if there were no properties.
     """
@@ -224,49 +221,37 @@ def _site_ref(molecule_ref: str, position: Any) -> str | None:
 def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     molecules: list[dict[str, Any]] = []
     molecule_models: list[dict[str, Any]] = []
-    molecule_source_properties: list[dict[str, Any]] = []
     complexes: list[dict[str, Any]] = []
     ligand_activities: list[dict[str, Any]] = []
     binding_sites: list[dict[str, Any]] = []
-    engine_states: list[dict[str, Any]] = []
+    preps: dict[str, list[dict[str, Any]]] = {"receptor": [], "ligand": []}
     molecule_representations: list[dict[str, Any]] = []
 
     for row in rows:
-        source = str(row.get("source") or "")
         source_index = int(row.get("source_index") or 0)
-        molecule_ref = f"molecule::{row.get('source_file') or source}::{source_index}"
-        current_model_index: int | None = None
+        molecule_ref = f"molecule::{row.get('source_file')}::{source_index}"
         role = str(row.get("primary_role") or "").strip().lower()
         metadata_map = metadata_map_from_row(row)
-        if bool(row.get("has_3d")) and row.get("current_payload_id") is not None:
-            current_model_index = 0
+        structure = row.get("current_payload_id") or row.get("stored_payload_id")
+        if bool(row.get("has_3d")) and structure is not None:
             molecule_models.append(
                 {
                     "molecule_ref": molecule_ref,
-                    "model_index": 0,
-                    "payload_id": row["current_payload_id"],
-                    "energy": None,
+                    "payload_id": structure,
                     "source": ModelSource.IMPORTED,
-                    "created_at": row.get("created_at"),
                 }
             )
         molecule_payload = {
             "name": str(row.get("name") or ""),
             "molecule_type": str(row.get("molecule_kind") or "unknown"),
-            "source": source,
+            "import_batch_id": row.get("import_batch_id"),
             "source_index": source_index,
-            "input_format": str(row.get("input_format") or ""),
             "is_receptor": role == "receptor",
             "is_ligand": role == "ligand",
-            "active_binding_site_id": None,
-            "active_binding_site_ref": _site_ref(molecule_ref, row.get("active_binding_site_position")),
             "stored_payload_id": row.get("stored_payload_id"),
             "current_payload_id": row.get("current_payload_id"),
             "properties_payload_id": row.get("properties_payload_id"),
-            "current_model_index": current_model_index,
             "n_atoms": int(row.get("n_atoms") or 0),
-            "inchikey": row.get("inchikey"),
-            "canonical_smiles": row.get("canonical_smiles"),
             "mw": row.get("mw"),
             "logp": row.get("logp"),
             "hbd": row.get("hbd"),
@@ -280,45 +265,24 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
             "heavy_atom_count": row.get("heavy_atom_count"),
             "formal_charge": row.get("formal_charge"),
             "fraction_csp3": row.get("fraction_csp3"),
-            "pains_matches": list(row.get("pains_matches") or []),
-            "ro5_violations": list(row.get("ro5_violations") or []),
+            "pains_matches": None if row.get("pains_matches") is None else list(row["pains_matches"]),
             "conformer_count": int(row.get("conformer_count") or 0),
             "has_3d": bool(row.get("has_3d")),
             "has_hs": bool(row.get("has_hs")),
             "is_minimized": bool(row.get("is_minimized")),
-            "has_activity": bool(row.get("has_activity")),
             "excluded": bool(row.get("excluded")),
             "exclusion_reason": str(row.get("exclusion_reason") or ""),
             "in_set": bool(row.get("in_set")),
             "usage_class": str(row.get("usage_class") or MoleculeUsageClass.GENERAL),
-            "primary_context": str(row.get("primary_context") or ""),
             "extra_data": metadata_map,
-            "created_at": row.get("created_at"),
-            "updated_at": row.get("updated_at"),
             "$ref": molecule_ref,
         }
         molecules.append(molecule_payload)
         if str(row.get("sequence_aa") or ""):
             molecule_representations.append(
-                {
-                    "id": uuid4().hex,
-                    "molecule_ref": molecule_ref,
-                    "repr_type": ReprType.SEQUENCE_AA,
-                    "value": str(row["sequence_aa"]),
-                }
+                {"molecule_ref": molecule_ref, "repr_type": ReprType.SEQUENCE_AA, "value": str(row["sequence_aa"])}
             )
-        for source_prop in list(row.get("source_properties") or []):
-            key = str(source_prop.get("key") or "").strip()
-            value_text = str(source_prop.get("value_text") or "").strip()
-            if not key or not value_text:
-                continue
-            molecule_source_properties.append(
-                {
-                    "molecule_ref": molecule_ref,
-                    "key": key,
-                    "value_text": value_text,
-                }
-            )
+        molecule_representations.extend(identity_representations(row, molecule_ref=molecule_ref))
         # One 'activity_spec' (single-endpoint / redocking-complex path) plus any 'activity_specs'
         # (multi-column import, e.g. Tox21's 12 assays) — each becomes its own ActivityRecord.
         activity_specs: list[dict[str, Any]] = []
@@ -343,7 +307,6 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
                     "kind": str(spec.get("kind") or "continuous"),
                     "description": str(spec.get("description") or ""),
                     "source": str(spec.get("source") or ""),
-                    "created_at": row.get("created_at"),
                 }
             )
         complex_spec = row.get("complex_spec") if isinstance(row.get("complex_spec"), dict) else {}
@@ -363,23 +326,14 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
                     "activity_ref": activity_ref,
                     "purpose": str(complex_spec.get("purpose") or "redocking"),
                     "metadata_json": json.dumps(dict(complex_spec.get("metadata") or {}), ensure_ascii=True),
-                    "created_at": row.get("created_at"),
-                    "updated_at": row.get("updated_at"),
                 }
             )
-        for engine_spec in list(row.get("engine_state_specs") or []):
-            engine_states.append(
-                {
-                    "molecule_ref": molecule_ref,
-                    "role_type": str(engine_spec.get("role_type") or role),
-                    "engine": str(engine_spec.get("engine") or "ad4"),
-                    "prepared_payload_id": engine_spec.get("prepared_payload_id"),
-                    "files": dict(engine_spec.get("files") or {}),
-                    "is_ready": bool(engine_spec.get("is_ready")),
-                    "created_at": row.get("created_at"),
-                    "updated_at": row.get("updated_at"),
-                }
-            )
+        for prep_spec in list(row.get("prep_specs") or []):
+            prep_role = "receptor" if str(prep_spec.get("role_type") or role) == "receptor" else "ligand"
+            payload_key = "rigid_payload_id" if prep_role == "receptor" else "payload_id"
+            preps[prep_role].append({"molecule_ref": molecule_ref, "family": str(prep_spec.get("family") or "ad4"),
+                                     payload_key: prep_spec.get("payload_id")})
+        active_position = row.get("active_binding_site_position")
         for position, site_spec in enumerate(list(row.get("binding_site_specs") or [])):
             center = tuple(site_spec.get("center") or (None, None, None))
             size = tuple(site_spec.get("size") or (None, None, None))
@@ -387,6 +341,7 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
                 {
                     "$ref": _site_ref(molecule_ref, position),
                     "molecule_ref": molecule_ref,
+                    "is_active": active_position is not None and int(active_position) == position,
                     "name": str(site_spec.get("name") or ""),
                     "source": str(site_spec.get("source") or BindingSiteSource.MANUAL),
                     "source_ref": str(site_spec.get("source_ref") or ""),
@@ -397,18 +352,17 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
                     "size_y": size[1],
                     "size_z": size[2],
                     "extra_data": dict(site_spec.get("extra_data") or {}),
-                    "created_at": row.get("created_at"),
                 }
             )
 
     return {
         "molecules": molecules,
         "molecule_models": molecule_models,
-        "molecule_source_properties": molecule_source_properties,
         "complexes": complexes,
         "ligand_activities": ligand_activities,
         "binding_sites": binding_sites,
-        "engine_states": engine_states,
+        "receptor_preps": preps["receptor"],
+        "ligand_preps": preps["ligand"],
         "molecule_representations": molecule_representations,
     }
 

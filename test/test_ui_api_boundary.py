@@ -45,7 +45,7 @@ def test_runtime_ui_queries_cover_details_sets_filters_and_preparation(tmp_path,
         SmallMoleculeFilterOperator,
         SmallMoleculeFilterRule,
     )
-    from amdockvs.models import BindingSite, ComplexRecord, EngineState, LigandActivity, MoleculeRecord
+    from amdockvs.models import BindingSite, ComplexRecord, LigandActivity, LigandPrep, MoleculeRecord
     from amdockvs.core.vocab import MoleculeType
 
     monkeypatch.setenv("HOME", str(tmp_path))
@@ -96,12 +96,7 @@ def test_runtime_ui_queries_cover_details_sets_filters_and_preparation(tmp_path,
                 ligand_molecule_id=ligand_ok_id,
                 activity_id=int(activity.id),
             )
-            failed_state = EngineState(
-                molecule_id=ligand_fail_id,
-                role_type="ligand",
-                engine="ad4",
-                is_ready=False,
-            )
+            failed_state = LigandPrep(molecule_id=ligand_fail_id, error="Meeko failed.")
             session.add(pair)
             session.add(failed_state)
             session.commit()

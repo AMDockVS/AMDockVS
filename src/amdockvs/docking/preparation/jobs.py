@@ -19,26 +19,37 @@ from amdockvs.docking.repository import (
     iter_entity_rows,
     molecule_scope_spec,
 )
-from amdockvs.docking.preparation.shards import PREPARED_DIR
-from amdockvs.models import EngineState, MoleculeRecord, ShardEngineState
-from amdockvs.molecules.storage import ShardStore, shard_scope_spec
+from amdockvs.models import LigandPrep, MoleculeRecord, ReceptorPrep, ShardPrep
+from amdockvs.molecules.storage import PREPARED_DIR, ShardStore, prepared_shard_path, shard_scope_spec
 
 
 # A molecule the engine can't prepare is excluded with the reason (docking skips it, Filter's
 # "Excluded" scope lists it and brings it back) instead of blocking the whole docking.
-ENGINE_STATE_UPSERT = graph_sink(
+PREP_UPSERT = graph_sink(
     nodes=(
         {
-            "name": "engines",
-            "model": EngineState,
+            "name": "ligand_preps",
+            "model": LigandPrep,
+            # Explicit columns: model-derived ones drop the pk, which here is (molecule_id, family).
+            "columns": ["molecule_id", "family", "payload_id", "error"],
+            "pk_field": "molecule_id",
             "write_mode": "upsert",
-            "conflict_keys": ["molecule_id", "role_type", "engine"],
+            "conflict_keys": ["molecule_id", "family"],
+            "validate_model": False,
+        },
+        {
+            "name": "receptor_preps",
+            "model": ReceptorPrep,
+            # Every column but `flex_residues`: the user's pick outlives a re-preparation.
+            "columns": ["receptor_molecule_id", "family", "rigid_payload_id", "flex_payload_id", "error"],
+            "write_mode": "upsert",
+            "conflict_keys": ["receptor_molecule_id", "family"],
             "validate_model": False,
         },
         {
             "name": "molecule_failures",
             "model": MoleculeRecord,
-            "columns": ["id", "excluded", "exclusion_reason", "updated_at"],
+            "columns": ["id", "excluded", "exclusion_reason"],
             "write_mode": "upsert",
             "conflict_keys": ["id"],
             "validate_model": False,
@@ -105,17 +116,19 @@ def _rows_for_preparation(
     return (row for row in rows if not row.get("prepared_payload_id"))
 
 
-def _attach_flexible_residues(project_db, rows: list[dict[str, Any]]) -> None:
-    from amdockvs.models import MoleculeRecord
+def _attach_flexible_residues(project_db, rows: list[dict[str, Any]], *, family: str) -> None:
+    from sqlmodel import select
 
+    ids = [int(row.get("id") or 0) for row in rows]
     with project_db.get_session() as session:
-        for row in rows:
-            rec = session.get(MoleculeRecord, int(row.get("id") or 0))
-            if rec is None:
-                continue
-            keys = list((dict(rec.extra_data or {}).get("flexible_residues") or []))
-            if keys:
-                row["flexible_residues"] = [str(k) for k in keys]
+        picks = dict(session.exec(
+            select(ReceptorPrep.receptor_molecule_id, ReceptorPrep.flex_residues)
+            .where(ReceptorPrep.receptor_molecule_id.in_(ids), ReceptorPrep.family == family)
+        ).all())
+    for row in rows:
+        keys = picks.get(int(row.get("id") or 0))
+        if keys:
+            row["flexible_residues"] = [str(k) for k in keys]
 
 
 def _with_structures(project_db, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -163,9 +176,8 @@ def _iter_preparation_batches(
     for batch in batched(rows_iter, batch_size):
         rows = list(batch)
         if entity_kind == "receptor":
-            # Flexible residues live on the receptor's extra_data; carry them into the worker payload
-            # (the row fields don't include extra_data). Receptors are few, so per-row lookup is fine.
-            _attach_flexible_residues(project_db, rows)
+            # Flexible residues live on the receptor's preparation row; carry them into the worker payload.
+            _attach_flexible_residues(project_db, rows, family=params.engine)
         emitted = True
         yield chunk(rows)
     if not emitted:
@@ -192,11 +204,11 @@ def _build_preparation_chunks(
 
 
 class _PrepareEntitiesJobSpec(JobSpec):
-    description = "Prepare ligands or receptors with a registered profile and persist EngineState rows."
+    description = "Prepare ligands or receptors with a registered profile and persist their preparation rows."
     params_model = PreparationJobParams
     executor = "compute"
     supported_executors = AMDOCKVS_OFFLOADABLE_EXECUTORS
-    output_spec = ENGINE_STATE_UPSERT
+    output_spec = PREP_UPSERT
     output_flush_every = DEFAULT_OUTPUT_FLUSH_EVERY
     store_results = False
 
@@ -233,7 +245,7 @@ class PrepareLigandShardsJobParams(BaseModel):
 
 
 class PrepareLigandShardsJobSpec(JobSpec):
-    """Whole shards per chunk: molecules in, PDBQT text out, both inside `.mshard` containers."""
+    """Whole shards per chunk: molecules in, PDBQT text out, both inside shard containers."""
 
     name = "amdock_prepare_ligand_shards_job"
     task_name = "amdock_prepare_ligand_shards_task"
@@ -242,7 +254,7 @@ class PrepareLigandShardsJobSpec(JobSpec):
     executor = "compute"
     supported_executors = AMDOCKVS_OFFLOADABLE_EXECUTORS
     output_spec = table_sink(
-        model=ShardEngineState, write_mode="upsert", conflict_keys=("shard_id", "engine")
+        model=ShardPrep, write_mode="upsert", conflict_keys=("shard_id", "family")
     )
     output_flush_every = DEFAULT_OUTPUT_FLUSH_EVERY
     store_results = False
@@ -260,27 +272,13 @@ class PrepareLigandShardsJobSpec(JobSpec):
         from sqlmodel import select
 
         with project_db.get_session() as session:
-            prepared_states = {
-                int(row.shard_id): row
-                for row in session.exec(
-                    select(ShardEngineState).where(ShardEngineState.engine == parsed.engine)
-                ).all()
-            }
+            prepared_ids = set(session.exec(select(ShardPrep.shard_id).where(ShardPrep.family == parsed.engine)).all())
 
         def pending() -> Iterator[dict[str, Any]]:
-            for row in ShardStore(project_db).iter_rows(shard_scope_spec(state=None)):
+            for row in ShardStore(project_db).iter_rows(shard_scope_spec()):
                 shard_path = Path(str(row.get("path") or ""))
                 shard_id = int(row.get("id") or 0)
-                state = prepared_states.get(shard_id)
-                prepared_path = str(dict(state.files or {}).get("prepared") or "") if state else ""
-                prepared = bool(state and state.is_ready and prepared_path and Path(prepared_path).is_file())
-                # Compatibility with projects prepared before engine artifacts had their own
-                # table. A forced preparation writes the new state and completes the migration.
-                prepared = prepared or (
-                    parsed.engine == "ad4"
-                    and str(row.get("input_format") or "").lower() == "pdbqt"
-                    and shard_path.is_file()
-                )
+                prepared = shard_id in prepared_ids and prepared_shard_path(shard_path, parsed.engine).is_file()
                 if prepared and not parsed.force:
                     continue
                 yield {
@@ -291,7 +289,7 @@ class PrepareLigandShardsJobSpec(JobSpec):
                     "output_dir": worker_output_dir(
                         shard_path.parent / PREPARED_DIR.format(engine=parsed.engine)
                     ),
-                    "source": str(row.get("source") or ""),
+                    "import_batch_id": row.get("import_batch_id"),
                     "shard_index": int(row.get("shard_index") or 0),
                 }
 

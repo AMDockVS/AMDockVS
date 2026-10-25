@@ -1,4 +1,4 @@
-"""A clicked shard shows its own row plus the `.mshard` header — metadata only, no records."""
+"""A clicked shard shows its own row plus the shard header — metadata only, no records."""
 from pathlib import Path
 from types import SimpleNamespace
 import sys
@@ -18,7 +18,7 @@ from amdockvs.ui.catalog.details import CatalogDetailsView, _shard_header
 
 
 def _written_shard(tmp_path: Path) -> Path:
-    path = tmp_path / "shard_0.mshard"
+    path = tmp_path / "shard_0.parquet"
     with ShardWriter(
         path,
         dataset_id="00000000-0000-0000-0000-0000000000ff",
@@ -50,7 +50,7 @@ def test_header_reports_what_the_file_holds(tmp_path):
 
 
 def test_a_missing_file_explains_itself_instead_of_raising(tmp_path):
-    assert "not found" in _shard_header(tmp_path / "gone.mshard")["error"]
+    assert "not found" in _shard_header(tmp_path / "gone.parquet")["error"]
 
 
 def test_details_show_the_row_and_the_header(tmp_path):

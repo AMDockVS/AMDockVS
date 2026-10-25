@@ -25,8 +25,7 @@ def _project(tmp_path):
     receptor = seed_payload(store, PDB, "pdb")
     with store.get_session() as session:
         session.add(MoleculeRecord(id=1, name="lig", is_ligand=True, molecule_type="small_molecule",
-                                   stored_payload_id=stored, current_payload_id=current,
-                                   canonical_smiles="", inchikey=""))
+                                   stored_payload_id=stored, current_payload_id=current))
         session.add(MoleculeRecord(id=2, name="no structure", is_ligand=True, molecule_type="small_molecule"))
         session.add(MoleculeRecord(id=3, name="rec", is_receptor=True, has_3d=True, stored_payload_id=receptor))
         session.commit()

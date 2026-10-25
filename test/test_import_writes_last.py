@@ -63,4 +63,4 @@ def test_fragments_are_listed_not_written_and_the_row_carries_its_payloads(tmp_p
     assert isinstance(row["stored_payload_id"], Payload) and row["stored_payload_id"].kind == "sdf"
     assert isinstance(row["current_payload_id"], Payload) and row["current_payload_id"].kind == "sdf"
     assert not list((tmp_path / "data").rglob("*.sdf"))
-    assert row["canonical_smiles"] and row["inchikey"]
+    assert row["canonical_smiles"] is None and row["inchikey"] is None  # a library row: identity on demand

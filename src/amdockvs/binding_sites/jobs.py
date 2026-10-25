@@ -108,7 +108,7 @@ def scope_spec(params: P2RankPredictionParams) -> QuerySpec:
         filters["id__in"] = [int(value) for value in params.receptor_ids]
     return QuerySpec(
         table=TABLE_MOLECULES,
-        fields=("id", "name", "stored_payload_id", "current_payload_id", "current_model_index", "extra_data"),
+        fields=("id", "name", "stored_payload_id", "current_payload_id", "extra_data"),
         filters=filters,
         order=("id",),
     )
@@ -123,12 +123,14 @@ def _profile_for(params: P2RankPredictionParams, receptor_id: int, *, predicted:
 
 
 def _is_predicted(project_db, receptor: dict) -> bool:
-    if receptor.get("current_model_index") is None:
+    structure = receptor.get("current_payload_id") or receptor.get("stored_payload_id")
+    if structure is None:
         return False
+    # The active model is the one holding the receptor's structure.
     spec = QuerySpec(
         table=TABLE_MOLECULE_MODELS,
         fields=("source",),
-        filters={"molecule_id": int(receptor["id"]), "model_index": int(receptor["current_model_index"])},
+        filters={"molecule_id": int(receptor["id"]), "payload_id": int(structure)},
     )
     return any(row.get("source") == ModelSource.ESMFOLD for row in db_pages(project_db, spec, page_size=1))
 

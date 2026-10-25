@@ -6,15 +6,12 @@ the selection of hits) imports SQL where it runs, not here.
 
 from __future__ import annotations
 
-import gzip
 import json
 from pathlib import Path
 from typing import Any, Mapping
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-
-from ms_flow.core.data.shard import Shard
 
 from amdockvs.core.paths import get_default_project_root
 from amdockvs.docking.results.metrics import SCORE_METRICS
@@ -139,12 +136,8 @@ def _project_path(project_root: str | Path, value: str) -> Path:
 
 
 def result_metadata(path: str | Path) -> dict[str, Any]:
-    resolved = Path(path)
-    if resolved.suffix.lower() == ".parquet":
-        raw = (pq.ParquetFile(resolved).schema_arrow.metadata or {}).get(b"amdock.metadata", b"{}")
-        return dict(json.loads(raw.decode("utf-8")))
-    with Shard.open(resolved) as shard:
-        return dict(shard.metadata or {})
+    raw = (pq.ParquetFile(Path(path)).schema_arrow.metadata or {}).get(b"amdock.metadata", b"{}")
+    return dict(json.loads(raw.decode("utf-8")))
 
 
 def completed_result_receipts(
@@ -155,13 +148,14 @@ def completed_result_receipts(
 ) -> list[ScreeningShardRun]:
     from sqlmodel import select
 
-    from amdockvs.models import ScreeningShardRun
+    from amdockvs.models import DockingRun, ScreeningShardRun
 
     with project_db.get_session() as session:
         return list(session.exec(
             select(ScreeningShardRun)
+            .join(DockingRun, DockingRun.id == ScreeningShardRun.docking_run_id)
             .where(
-                ScreeningShardRun.run_id == str(run_id),
+                DockingRun.run_id == str(run_id),
                 ScreeningShardRun.protocol_hash == str(protocol_hash),
                 ScreeningShardRun.state == TargetState.DONE,
                 ScreeningShardRun.result_path != "",
@@ -184,51 +178,21 @@ def _arrow_filters(filters: Mapping[str, Any]) -> list[tuple[str, str, Any]]:
     return result
 
 
-def _matches(row: Mapping[str, Any], filters: Mapping[str, Any]) -> bool:
-    for key, expected in filters.items():
-        if key == "receptor_id__in" and int(row.get("receptor_id") or 0) not in {int(v) for v in expected}:
-            return False
-        if key == "score__lte" and (row.get("score") is None or float(row["score"]) > float(expected)):
-            return False
-        if key == "score__gte" and (row.get("score") is None or float(row["score"]) < float(expected)):
-            return False
-        actual = row.get(key)
-        if key == "status" and actual in (None, ""):
-            actual = "done"
-        if key in {"receptor_id", "engine", "status"} and str(actual) != str(expected):
-            return False
-    return True
-
-
-def _legacy_payloads(path: Path) -> list[dict[str, Any]]:
-    with Shard.open(path) as shard:
-        return [json.loads(gzip.decompress(record.load())) for record in shard]
-
-
 def _summary_rows(path: Path, filters: Mapping[str, Any]) -> list[dict[str, Any]]:
-    if path.suffix.lower() == ".parquet":
-        return pq.read_table(
-            path,
-            columns=list(SUMMARY_COLUMNS),
-            filters=_arrow_filters(filters) or None,
-        ).to_pylist()
-    return [
-        {**row, "has_pose": bool(_pose(row)[0])}
-        for row in _legacy_payloads(path)
-        if _matches(row, filters)
-    ]
+    return pq.read_table(
+        path,
+        columns=list(SUMMARY_COLUMNS),
+        filters=_arrow_filters(filters) or None,
+    ).to_pylist()
 
 
 def _selected_payloads(path: Path, keys: set[tuple[int, int]]) -> dict[tuple[int, int], dict[str, Any]]:
     ligand_ids = sorted({key[0] for key in keys})
-    if path.suffix.lower() == ".parquet":
-        rows = pq.read_table(
-            path,
-            columns=list(FULL_COLUMNS),
-            filters=[("ligand_id", "in", ligand_ids)],
-        ).to_pylist()
-    else:
-        rows = _legacy_payloads(path)
+    rows = pq.read_table(
+        path,
+        columns=list(FULL_COLUMNS),
+        filters=[("ligand_id", "in", ligand_ids)],
+    ).to_pylist()
     return {
         (int(row.get("ligand_id") or 0), int(row.get("receptor_id") or 0)): row
         for row in rows
@@ -237,12 +201,10 @@ def _selected_payloads(path: Path, keys: set[tuple[int, int]]) -> dict[tuple[int
 
 
 def _pose(payload: Mapping[str, Any]) -> tuple[str, str]:
-    if "pose_text" in payload:
-        suffix = str(payload.get("pose_suffix") or ".pose").lower()
-        if not suffix.startswith(".") or not suffix[1:].isalnum():
-            suffix = ".pose"
-        return str(payload.get("pose_text") or ""), suffix
-    return str(payload.get("sdf") or ""), ".sdf"
+    suffix = str(payload.get("pose_suffix") or ".pose").lower()
+    if not suffix.startswith(".") or not suffix[1:].isalnum():
+        suffix = ".pose"
+    return str(payload.get("pose_text") or ""), suffix
 
 
 def select_hit_refs(
@@ -333,6 +295,9 @@ def select_hits(
                 ScreeningShard.id.in_([int(receipt.shard_id) for receipt in receipts])
             )).all()
         } if receipts else {}
+    from amdockvs.io.batches import library_names  # SQL: kept off the worker's import path
+
+    libraries = library_names(project_db) if shards else {}
     receipt_by_path = {
         _project_path(project_root, receipt.result_path): receipt
         for receipt in receipts
@@ -374,8 +339,8 @@ def select_hits(
         hits.append({
             **json.loads(payload.get("metrics_json") or "{}"),
             "docking_run_id": runs[str(receipt.engine)],
-            "name": f"{Path(source_shard.source).stem or 'library'}:{ligand_id}",
-            "source": str(source_shard.source),
+            "name": f"{libraries.get(source_shard.import_batch_id, 'library')}:{ligand_id}",
+            "import_batch_id": source_shard.import_batch_id,
             "source_index": ligand_id,
             "smiles": str(payload.get("smiles") or ""),
             "score": float(payload["score"]),

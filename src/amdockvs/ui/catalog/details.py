@@ -109,8 +109,8 @@ class CatalogDetailsView(QWidget):
                 "Receptor": bool(molecule.is_receptor),
                 "Excluded": bool(molecule.excluded),
                 "Has 3D": bool(molecule.has_3d),
-                "Has Activity": bool(molecule.has_activity),
-                "Active BS": getattr(molecule, "active_binding_site_id", None),
+                "Has Activity": bool(activities),
+                "Active BS": next((site.id for site in binding_sites if site.is_active), None),
             },
         )
         self._add_section(
@@ -118,7 +118,7 @@ class CatalogDetailsView(QWidget):
             {
                 "Stored payload": molecule.stored_payload_id,
                 "Current payload": molecule.current_payload_id,
-                "Source": molecule.source,
+                "Import batch": molecule.import_batch_id,
             },
         )
         self._current_model = details.current_model
@@ -126,8 +126,8 @@ class CatalogDetailsView(QWidget):
             model = details.current_model
             self._add_section(
                 "Model",
-                {"Index": model.model_index, "Source": model.source, "Payload": model.payload_id,
-                 **dict(model.metrics or {})},
+                {"Model": model.id, "Source": model.source, "Payload": model.payload_id,
+                 **dict(details.current_model_data or {})},
             )
         if binding_sites:
             section = QTreeWidgetItem(["Binding Sites", str(len(binding_sites))])
@@ -215,13 +215,10 @@ class CatalogDetailsView(QWidget):
                 "Index": getattr(shard, "shard_index", None),
                 "Records": getattr(shard, "n_records", None),
                 "State": getattr(shard, "state", None),
-                "Format": getattr(shard, "input_format", None),
-                "Source": getattr(shard, "source", None),
+                "Import batch": getattr(shard, "import_batch_id", None),
                 "Path": str(path),
                 "Size": f"{path.stat().st_size:,} bytes" if path.is_file() else "missing",
                 "Dispatch": getattr(shard, "dispatch_id", None),
-                "Created": getattr(shard, "created_at", None),
-                "Updated": getattr(shard, "updated_at", None),
             },
         )
         error = str(getattr(shard, "error", "") or "")
@@ -277,11 +274,9 @@ class CatalogDetailsView(QWidget):
                     if int(site.id or 0) == site_id:
                         return site
         if self._current_molecule is not None:
-            active_id = int(getattr(self._current_molecule, "active_binding_site_id", 0) or 0)
-            if active_id > 0:
-                for site in self._current_binding_sites:
-                    if int(site.id or 0) == active_id:
-                        return site
+            for site in self._current_binding_sites:
+                if site.is_active:
+                    return site
         return self._current_binding_sites[0] if self._current_binding_sites else None
 
     def _sync_actions(self) -> None:
@@ -345,7 +340,7 @@ __all__ = ["CatalogDetailsView"]
 
 
 def _shard_header(path: Path) -> dict:
-    """What the `.mshard` itself declares. Opening it is a header read, not a library walk."""
+    """What the shard file itself declares. Opening it is a header read, not a library walk."""
     if not path.is_file():
         return {"error": "shard file not found"}
     try:
