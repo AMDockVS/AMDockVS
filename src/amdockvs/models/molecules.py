@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any, Mapping
 
-from sqlalchemy import Column, Computed, Index, Integer, JSON, UniqueConstraint, text
+from sqlalchemy import Column, Computed, DateTime, Index, Integer, JSON, UniqueConstraint, text
 from pydantic import field_validator
 from sqlmodel import SQLModel, Field
 
@@ -11,6 +12,7 @@ from amdockvs.models.codes import code_field
 
 from amdockvs.core.constants import (
     TABLE_BINDING_SITES,
+    TABLE_IMPORT_BATCHES,
     TABLE_MOLECULE_MODELS,
     TABLE_MOLECULE_REPRESENTATIONS,
     TABLE_MOLECULE_SOURCE_PROPERTIES,
@@ -23,6 +25,7 @@ from amdockvs.core.rows import molecule_model_row, molecule_row, sanitize_molecu
 # imports keep working (`from amdockvs.models.molecules import MoleculeType`).
 from amdockvs.core.vocab import (
     FileFormat,
+    ImportKind,
     ModelSource,
     MoleculeType,
     MoleculeUsageClass,
@@ -47,6 +50,28 @@ def _coerce_string_list(value: Any) -> list[str]:
     if not isinstance(parsed, list):
         return []
     return [str(item) for item in parsed if str(item or "").strip()]
+
+
+class ImportBatch(SQLModel, table=True):
+    """One imported file: where its rows or shards came from, and how far the import got.
+
+    `quick_hash` finds a file imported before; `n_records` (records read) against the file's
+    record count tells a complete import from a partial one (`io.batches.previous_import`).
+    """
+
+    __tablename__ = TABLE_IMPORT_BATCHES
+
+    id: int | None = Field(default=None, primary_key=True)
+    source: str = Field(default="")  # download label or URL; the absolute path when local
+    quick_hash: str = Field(default="", index=True)
+    n_records: int = Field(default=0)
+    n_imported: int = Field(default=0)
+    format: str = code_field("file_format", FileFormat.UNKNOWN)
+    kind: str = code_field("import_kind", ImportKind.ROWS)
+    # ponytail: no FK — project_job_index lives in the master db, not in project.db.
+    job_id: str = Field(default="")
+    extra: dict = Field(default_factory=dict, sa_type=JSON)  # import options: context, role, ...
+    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
 
 # ---------------------------------------------------------------------------
@@ -78,9 +103,8 @@ class MoleculeRecord(SQLModel, table=True):
     # Identity (immutable after ingestion)
     name: str = Field(default="")
     molecule_type: str = code_field("molecule_type", MoleculeType.UNKNOWN)
-    source: str = Field(default="")  # absolute path — lives outside project
-    source_index: int = Field(default=0)
-    input_format: str = Field(default=FileFormat.UNKNOWN)
+    import_batch_id: int | None = Field(default=None, foreign_key=f"{TABLE_IMPORT_BATCHES}.id")
+    source_index: int = Field(default=0)  # position in the batch's file
 
     # Roles
     is_receptor: bool = Field(default=False)
@@ -142,7 +166,6 @@ class MoleculeRecord(SQLModel, table=True):
     in_set: bool = Field(default=False)
     usage_class: str = code_field("usage_class", MoleculeUsageClass.GENERAL)
 
-    primary_context: str = Field(default="")
     extra_data: dict = Field(default_factory=dict, sa_type=JSON)
 
     @field_validator("extra_data", mode="before")
@@ -173,6 +196,7 @@ class MoleculeRecord(SQLModel, table=True):
 # only the receptors — without it, finding a handful of receptors walks millions of ligands.
 DEFERRED_INDEXES = {
     "ix_molecules_usage_class": "(usage_class)",
+    "idx_mol_batch": "(import_batch_id, source_index)",
     "idx_mol_active": "(id) WHERE excluded=0 AND in_set=0",
     "idx_mol_role_scope": "(usage_class, is_ligand, excluded, molecule_type)",
     "idx_mol_receptor": "(usage_class) WHERE is_receptor=1",

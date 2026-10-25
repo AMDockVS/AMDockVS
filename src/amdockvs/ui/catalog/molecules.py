@@ -5,11 +5,12 @@ from PySide6.QtWidgets import QMessageBox
 from amdockvs.models import MoleculeRecord
 from amdockvs.ui.catalog.common import (
     BoundTableWidget,
+    batch_columns,
     PREVIEW_2D_COLUMN_FIELD,
     molecule_2d_preview_paint_for_runtime,
     molecule_2d_preview_tooltip,
 )
-from amdockvs.core.vocab import FileFormat, MoleculeType, MoleculeUsageClass
+from amdockvs.core.vocab import MoleculeType, MoleculeUsageClass
 from ms_components.ms_table import (
     AlignHint,
     ColumnDef,
@@ -48,9 +49,7 @@ def _molecule_table_config(*, runtime) -> TableConfig:
             ColumnDef("usage_class", label="Usage", width=110, sortable=True, filterable=True,
                       kind=ColumnKind.CHOICE, choices=choices_from_class(MoleculeUsageClass)),
             ColumnDef("n_atoms", label="Atoms", width=105, sortable=True, align=AlignHint.RIGHT),
-            ColumnDef("input_format", label="Format", width=115, sortable=True, filterable=True,
-                      kind=ColumnKind.CHOICE, choices=choices_from_class(FileFormat)),
-            ColumnDef("source", label="Source", width=320, sortable=True),
+            *batch_columns(MoleculeRecord, source_width=320, format_width=115),
             ColumnDef("current_model_index", label="Active Model", width=130, sortable=True, visible=False),
             ColumnDef("current_payload_id", label="Current Payload", width=130, sortable=True, visible=False),
             ColumnDef("stored_payload_id", label="Stored Payload", width=130, sortable=True, visible=False),

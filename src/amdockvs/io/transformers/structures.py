@@ -121,7 +121,7 @@ def _structure_rows(
             source_index=source_index,
             name=source_file.stem,
             n_atoms=0 if ligand_mol is not None else _count_atoms_from_structure_lines(current_path),
-            input_format=suffix.lstrip("."),
+            import_batch_id=batch.import_batch_id,
             stored=original,
             current=None,
             metadata=metadata,
@@ -200,7 +200,7 @@ def _structure_rows(
                     source_index=int(ligand_specs["source_index"]),
                     name=str(ligand_specs["name"] or f"{source_file.stem}_ligand"),
                     n_atoms=int(ligand_specs["n_atoms"] or 0),
-                    input_format="pdb",
+                    import_batch_id=batch.import_batch_id,
                     stored=structure_payload(ligand_bytes, "pdb"),
                     current=None,
                     metadata={

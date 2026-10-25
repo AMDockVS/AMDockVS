@@ -14,9 +14,12 @@ from amdockvs.core.configuration import (
     MAX_2D_PREVIEW_HEAVY_ATOMS_PATH,
 )
 from amdockvs.core.payloads import molecule_payload_id, payload_store
+from amdockvs.io.batches import batch_field
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.common.job_follower import JobFollower
-from ms_components.ms_table import FilterOperator, FilterSpec, TableConfig, SmartTableView, ToolbarAction
+from ms_components.ms_table import (
+    ColumnDef, ColumnKind, FilterOperator, FilterSpec, TableConfig, SmartTableView, ToolbarAction,
+)
 from ms_components.tool_panel import ActionBar
 
 # How long a finished run's outcome stays under the table before the strip hides.
@@ -26,6 +29,22 @@ _JOB_BAR_LINGER_MS = 4000
 _PREVIEW_WIDTH = 256
 _PREVIEW_HEIGHT = 192
 PREVIEW_2D_COLUMN_FIELD = "__preview_2d__"
+
+
+def batch_columns(model, *, source_width: int = 360, format_width: int = 90) -> list[ColumnDef]:
+    """Source and Format of the file a row was imported from, read from its import batch.
+
+    ponytail: not filterable — an expression filter has no QuerySpec form, so a tool scoped to
+    the table's filter would refuse it. Filter on the hidden `import_batch_id` column instead.
+    """
+    return [
+        ColumnDef("source", label="Source", width=source_width, sortable=True, filterable=False,
+                  expr=batch_field(model, "source")),
+        ColumnDef("format", label="Format", width=format_width, sortable=True, filterable=False,
+                  expr=batch_field(model, "format")),
+        ColumnDef("import_batch_id", label="Import", width=70, sortable=True, visible=False,
+                  kind=ColumnKind.INTEGER),
+    ]
 
 
 def _row_raw_object(row_data: dict) -> Any | None:

@@ -81,9 +81,6 @@ def materialize_import_batch(
         rows = list(_materialize_fasta_rows(batch=batch, entries=records, progress_cb=progress_cb, tally=tally))
     else:
         rows = list(_materialize_structure_rows(batch=batch, entries=records, progress_cb=progress_cb, tally=tally))
-    if batch.source_label:  # the file was only a carrier (pasted text, a download): name the real origin
-        for row in rows:  # refs stay on the file: complexes name their receptor by its path
-            row["source_file"], row["source"] = row.get("source"), batch.source_label
     write_import_stats(batch.storage_dir, tally)
     return rows
 
@@ -139,7 +136,7 @@ def materialize_multithreaded_sdf_file(
             source_index=source_index,
             name=name,
             n_atoms=mol.GetNumHeavyAtoms(),
-            input_format=FileFormat.SDF,
+            import_batch_id=batch.import_batch_id,
             stored=structure_payload(mol_block, "sdf", series_for(batch.primary_role or batch.kind)),
             current=None,
             metadata={
@@ -232,9 +229,8 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
     molecule_representations: list[dict[str, Any]] = []
 
     for row in rows:
-        source = str(row.get("source") or "")
         source_index = int(row.get("source_index") or 0)
-        molecule_ref = f"molecule::{row.get('source_file') or source}::{source_index}"
+        molecule_ref = f"molecule::{row.get('source_file')}::{source_index}"
         current_model_index: int | None = None
         role = str(row.get("primary_role") or "").strip().lower()
         metadata_map = metadata_map_from_row(row)
@@ -253,9 +249,8 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
         molecule_payload = {
             "name": str(row.get("name") or ""),
             "molecule_type": str(row.get("molecule_kind") or "unknown"),
-            "source": source,
+            "import_batch_id": row.get("import_batch_id"),
             "source_index": source_index,
-            "input_format": str(row.get("input_format") or ""),
             "is_receptor": role == "receptor",
             "is_ligand": role == "ligand",
             "active_binding_site_id": None,
@@ -290,7 +285,6 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
             "exclusion_reason": str(row.get("exclusion_reason") or ""),
             "in_set": bool(row.get("in_set")),
             "usage_class": str(row.get("usage_class") or MoleculeUsageClass.GENERAL),
-            "primary_context": str(row.get("primary_context") or ""),
             "extra_data": metadata_map,
             "$ref": molecule_ref,
         }

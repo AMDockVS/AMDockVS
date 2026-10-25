@@ -40,6 +40,12 @@ class FileFormat:
     FASTA = "fasta"
     UNKNOWN = "unknown"
 
+class ImportKind:
+    """Where an import batch put its records: `molecules` rows or `.mshard` shards."""
+
+    ROWS = "rows"
+    SHARDS = "shards"
+
 class BindingSiteSource:
     MANUAL = "manual"
     LIGAND = "ligand"    # centre of mass of a reference ligand
@@ -206,6 +212,8 @@ CODES: dict[str, dict[str, int]] = {
         1600, "qsar", "redocking", "rescoring", "substructure", "enrichment", "grid_reference", "custom",
         "snapshot", "filter", "manual",
     ),
+    "file_format": _domain(1700, "pdb", "sdf", "mol2", "cif", "pdbqt", "pqr", "smiles", "fasta", "unknown"),
+    "import_kind": _domain(1800, "rows", "shards"),
 }
 
 __all__ = [
@@ -214,6 +222,7 @@ __all__ = [
     "ActivityKind",
     "MoleculeType",
     "FileFormat",
+    "ImportKind",
     "BindingSiteSource",
     "ComplexPurpose",
     "MoleculeUsageClass",

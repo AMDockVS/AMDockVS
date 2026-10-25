@@ -8,6 +8,7 @@ from amdockvs.models.descriptors import (
     FingerprintRecord,
 )
 from amdockvs.models.molecules import (
+    ImportBatch,
     MoleculeModel,
     MoleculeRecord,
     MoleculeRepresentation,
@@ -45,6 +46,7 @@ QSARPredictionRecord = QSARPrediction
 __all__ = [
     "CodeRecord",
     "ensure_codes",
+    "ImportBatch",
     "MoleculeRecord",
     "MoleculeRepresentation",
     "MoleculeModel",

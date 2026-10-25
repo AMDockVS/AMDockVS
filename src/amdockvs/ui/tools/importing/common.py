@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from amdockvs.ui.catalog.common import BoundTableWidget
 
 
@@ -24,3 +26,20 @@ def nudge_monitor(window) -> None:
 
 
 __all__ = ["land_on_view", "nudge_monitor"]
+
+
+def confirm_reimport(parent, title: str, runtime, files) -> bool | None:
+    """None: cancel. True: some files were imported before and the user wants them again (the
+    import goes with `force=True`). False: nothing imported before."""
+    from PySide6.QtWidgets import QMessageBox
+
+    done = runtime.loader.duplicate_imports(files)
+    if not done:
+        return False
+    names = "\n".join(Path(f).name for f in done[:10]) + ("\n…" if len(done) > 10 else "")
+    answer = QMessageBox.question(
+        parent, title,
+        f"Already imported into this project:\n\n{names}\n\nImport again? The molecules will be duplicated.",
+        QMessageBox.Yes | QMessageBox.Cancel,
+    )
+    return True if answer == QMessageBox.Yes else None

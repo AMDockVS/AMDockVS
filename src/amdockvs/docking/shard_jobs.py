@@ -305,11 +305,7 @@ class ShardHitWriter:
 
     def handle(self, chunk_id: str, result: Any) -> None:
         for envelope in list(result or []):
-            source = str(envelope.get("source") or "")
-            shard_index = int(envelope.get("shard_index") or 0)
             shard_id = int(envelope.get("shard_id") or 0)
-            if not source:
-                continue
             hits = list(envelope.get("hits") or [])
             if hits:
                 selected = hits if self.selected_from_receptor_id else self.store.gate.take(hits)
@@ -589,7 +585,8 @@ class DockShardsJobSpec(JobSpec):
             shard = {
                 "shard_id": int(row.get("id") or 0),
                 "shard_path": worker_file(Path(str(row.get("prepared_path") or ""))),
-                "source": str(row.get("source") or ""),
+                "import_batch_id": row.get("import_batch_id"),
+                "library": str(row.get("library") or ""),
                 "shard_index": int(row.get("shard_index") or 0),
                 "n_records": int(row.get("n_records") or 0),
                 **({"record_ids": list(row.get("record_ids") or ())} if row.get("record_ids") is not None else {}),

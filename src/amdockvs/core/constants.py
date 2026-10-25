@@ -18,6 +18,7 @@ RESOURCE_POCKET_PREDICTIONS = "pocket_predictions"
 RESOURCE_SHARDS = "shards"
 
 TABLE_MOLECULES = "molecules"
+TABLE_IMPORT_BATCHES = "import_batches"
 TABLE_PAYLOADS = "ms_payloads"  # ms_flow's; app columns `<role>_payload_id` reference it
 # Payload series: payloads with the same lifetime share volumes (ms_flow.payloads).
 SERIES_MOLECULES = "molecules"  # ligand structures, stored + current, and their models

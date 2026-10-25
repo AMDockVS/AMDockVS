@@ -162,7 +162,8 @@ class LoadFileParams(BaseModel):
     binding_site_specs: list[dict[str, Any]] = Field(default_factory=list)
     extra_data_patch_by_file: dict[str, dict[str, Any]] = Field(default_factory=dict)
     binding_site_specs_by_file: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
-    source_labels: dict[str, str] = Field(default_factory=dict)
+    # resolved path → `import_batches.id`, written by `io.batches.register_batches` at submit.
+    import_batch_ids: dict[str, int] = Field(default_factory=dict)
     # Downloads the user did not keep: deleted once the job has completed (kept for a resume).
     temporary_files: list[Path] = Field(default_factory=list)
 
@@ -175,10 +176,22 @@ def drop_temporary_files(params: dict, config: dict) -> None:
         delete_files(files, temporary_root(context.path))
 
 
+def finish_import(params: dict, config: dict) -> None:
+    """Count what each batch wrote, then drop the downloads (the count reads them)."""
+    from amdockvs.io.batches import finish_batches
+
+    try:
+        if config.get("project_db") is not None:
+            finish_batches(config["project_db"], dict(params).get("import_batch_ids") or {},
+                           completed=config.get("terminal_status") == "completed")
+    finally:
+        drop_temporary_files(params, config)
+
+
 def finish_row_import(params: dict, config: dict) -> None:
     """Whatever the job ended as: the indexes a bulk import dropped come back here."""
     try:
-        drop_temporary_files(params, config)
+        finish_import(params, config)
     finally:
         if config.get("project_db") is not None:
             ensure_molecule_indexes(config["project_db"])
@@ -210,6 +223,7 @@ class LoadMultithreadedSDFParams(BaseModel):
     primary_context: str = "general"
     molecule_kind: str = "small_molecule"
     prefilter: ImportPrefilterPolicy | None = None
+    import_batch_ids: dict[str, int] = Field(default_factory=dict)
 
 
 def _resolve_storage_dir(*, kind: str, params: Mapping[str, Any], config: Mapping[str, Any] | None) -> Path:
@@ -262,7 +276,6 @@ class FileInput(InputSource):
             str(Path(path).expanduser().resolve()): [dict(item) for item in list(value or [])]
             for path, value in dict(parsed.binding_site_specs_by_file or {}).items()
         }
-        labels = {str(Path(path).expanduser().resolve()): str(label) for path, label in parsed.source_labels.items()}
         for file_path in file_paths:
             resolved_file = Path(file_path).expanduser().resolve()
             for chunk in stream_import_payload_batches(
@@ -276,7 +289,7 @@ class FileInput(InputSource):
                 prefilter=parsed.prefilter,
                 extra_data_patch=patch_by_file.get(str(resolved_file), parsed.extra_data_patch),
                 binding_site_specs=binding_by_file.get(str(resolved_file), parsed.binding_site_specs),
-                source_label=labels.get(str(resolved_file), ""),
+                import_batch_id=parsed.import_batch_ids.get(str(resolved_file)),
                 chunk_bytes=self.chunk_bytes,
                 ramp=self.ramp,
             ):
@@ -402,6 +415,7 @@ def load_ligands_multithreaded_sdf_job(params: dict, config: dict | None = None)
             file_path=resolved_file,
             storage_dir=storage_dir,
             num_threads=parsed.num_threads,
+            import_batch_id=parsed.import_batch_ids.get(str(resolved_file)),
             primary_role=str(parsed.primary_role or "ligand"),
             primary_context=str(parsed.primary_context or "general"),
             molecule_kind=str(parsed.molecule_kind or "small_molecule"),
@@ -420,7 +434,7 @@ class ShardLigandsParams(LoadFileParams):
 @job(
     task=filter_ligand_span_task,
     name="amdock_shard_ligands_job",
-    finalize=drop_temporary_files,
+    finalize=finish_import,
     params_model=ShardLigandsParams,
     executor="compute",
     supported_executors=AMDOCKVS_LOCAL_EXECUTORS,

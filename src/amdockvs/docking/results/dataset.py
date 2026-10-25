@@ -294,6 +294,9 @@ def select_hits(
                 ScreeningShard.id.in_([int(receipt.shard_id) for receipt in receipts])
             )).all()
         } if receipts else {}
+    from amdockvs.io.batches import library_names  # SQL: kept off the worker's import path
+
+    libraries = library_names(project_db) if shards else {}
     receipt_by_path = {
         _project_path(project_root, receipt.result_path): receipt
         for receipt in receipts
@@ -335,8 +338,8 @@ def select_hits(
         hits.append({
             **json.loads(payload.get("metrics_json") or "{}"),
             "docking_run_id": runs[str(receipt.engine)],
-            "name": f"{Path(source_shard.source).stem or 'library'}:{ligand_id}",
-            "source": str(source_shard.source),
+            "name": f"{libraries.get(source_shard.import_batch_id, 'library')}:{ligand_id}",
+            "import_batch_id": source_shard.import_batch_id,
             "source_index": ligand_id,
             "smiles": str(payload.get("smiles") or ""),
             "score": float(payload["score"]),

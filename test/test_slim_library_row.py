@@ -21,6 +21,9 @@ from amdockvs.runtime import AMDockVSRuntime
 SMILES = "CCO a\nOc1ccccc1O b\n"
 
 
+from amdockvs.models.codes import code_id
+
+
 def _json(value):
     return json.loads(value) if isinstance(value, str) else value
 
@@ -29,7 +32,7 @@ def _rows(rt, context: str):
     with rt.workspace.project_db.engine.connect() as conn:
         return {row[0]: (_json(row[1]), *row[2:4], str(row[4])) for row in conn.exec_driver_sql(
             "SELECT name, pains_matches, inchikey, canonical_smiles, extra_data FROM molecules "
-            "WHERE primary_context = ?", (context,))}
+            "WHERE usage_class = ?", (code_id("usage_class", context),))}
 
 
 def test_library_rows_are_slim_until_the_alerts_job(tmp_path, monkeypatch):

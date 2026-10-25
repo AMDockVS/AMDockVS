@@ -79,7 +79,7 @@ def _scope_spec(params: SelectionClusterJobParams) -> QuerySpec:
         filters["id__in_subquery"] = in_specs
     return QuerySpec(
         table=TABLE_MOLECULES,
-        fields=("id", "stored_payload_id", "current_payload_id", "current_model_index", "input_format"),
+        fields=("id", "stored_payload_id", "current_payload_id", "current_model_index"),
         filters=filters,
         order=("id",),
     )

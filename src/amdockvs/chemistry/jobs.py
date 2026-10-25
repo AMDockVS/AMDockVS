@@ -217,7 +217,7 @@ PREDICTION_GRAPH_OUTPUT = graph_sink(
 )
 
 _PREDICTION_FIELDS = (
-    "id", "source", "source_index", "stored_payload_id", "current_payload_id", "current_model_index", "has_3d",
+    "id", "source_index", "stored_payload_id", "current_payload_id", "current_model_index", "has_3d",
 )
 
 
@@ -318,9 +318,8 @@ def shard_chemistry_job(params: dict, config: dict | None = None) -> Iterator[di
         yield {
             "shard_path": worker_file(shard_path),
             "output_dir": output_dir,
-            "source": str(row.get("source") or ""),
+            "import_batch_id": row.get("import_batch_id"),
             "shard_index": int(row.get("shard_index") or 0),
-            "input_format": str(row.get("input_format") or ""),
             "steps": resolved_steps,
         }
 

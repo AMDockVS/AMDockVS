@@ -10,7 +10,7 @@ from ms_flow.core.database import ProjectStore
 
 def _row(source: str, index: int, role: str, **extra) -> dict:
     row = {
-        "source": source,
+        "source_file": source,
         "source_index": index,
         "name": f"{source}-{index}",
         "primary_role": role,

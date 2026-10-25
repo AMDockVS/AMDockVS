@@ -118,7 +118,7 @@ class CatalogDetailsView(QWidget):
             {
                 "Stored payload": molecule.stored_payload_id,
                 "Current payload": molecule.current_payload_id,
-                "Source": molecule.source,
+                "Import batch": molecule.import_batch_id,
             },
         )
         self._current_model = details.current_model
@@ -215,8 +215,7 @@ class CatalogDetailsView(QWidget):
                 "Index": getattr(shard, "shard_index", None),
                 "Records": getattr(shard, "n_records", None),
                 "State": getattr(shard, "state", None),
-                "Format": getattr(shard, "input_format", None),
-                "Source": getattr(shard, "source", None),
+                "Import batch": getattr(shard, "import_batch_id", None),
                 "Path": str(path),
                 "Size": f"{path.stat().st_size:,} bytes" if path.is_file() else "missing",
                 "Dispatch": getattr(shard, "dispatch_id", None),

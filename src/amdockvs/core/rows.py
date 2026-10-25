@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from amdockvs.core.vocab import (
-    BindingSiteSource, ClusteringMethod, FileFormat, ModelSource, MoleculeType, MoleculeUsageClass,
+    BindingSiteSource, ClusteringMethod, ModelSource, MoleculeType, MoleculeUsageClass,
 )
 
 
@@ -87,12 +87,11 @@ def molecule_row(
         name: str,
         molecule_type: str,
         n_atoms: int,
-        input_format: str,
+        import_batch_id: int | None = None,
         current_payload_id: Any = None,
         stored_payload_id: Any = None,
         current_model_index: int | None = None,
         extra_data: dict | None = None,
-        primary_context: str = "",
         usage_class: str = MoleculeUsageClass.GENERAL,
 ) -> dict[str, Any]:
     raw_meta = dict(extra_data or {}) if isinstance(extra_data, dict) else {}
@@ -101,9 +100,8 @@ def molecule_row(
     return {
         "name": str(name or f"{source_file.stem}_{source_index}"),
         "molecule_type": str(molecule_type or MoleculeType.UNKNOWN),
-        "source": str(source_file.resolve()),
+        "import_batch_id": import_batch_id,
         "source_index": max(0, source_index),
-        "input_format": str(input_format or FileFormat.UNKNOWN),
         # A sequence-only protein has no structure yet: both stay None until a model is predicted.
         # stored only when the input differs from the current form (D11).
         "stored_payload_id": stored_payload_id,
@@ -136,7 +134,6 @@ def molecule_row(
         "exclusion_reason": "",
         "in_set": False,
         "usage_class": str(usage_class or MoleculeUsageClass.GENERAL),
-        "primary_context": primary_context,
         "extra_data": meta,
     }
 

@@ -7,7 +7,7 @@ from amdockvs.chemistry.api import ChemistryAPI
 from amdockvs.core.configuration import app_config
 from amdockvs.docking.api import DockingAPI
 from amdockvs.screening.campaign import advance_shard_run, completed_shard_targets, live_target_progress
-from amdockvs.models import ScreeningShard, ScreeningShardRun, ShardEngineState
+from amdockvs.models import ImportBatch, ScreeningShard, ScreeningShardRun, ShardEngineState
 from amdockvs.molecules.storage import iter_prepared_shards
 from amdockvs.runtime import AMDockVSRuntime
 from amdockvs.core.vocab import TargetState
@@ -19,11 +19,13 @@ def _project_with_shard(tmp_path):
     source = tmp_path / "raw.parquet"
     source.write_bytes(b"raw")
     with runtime.workspace.project_db.get_session() as session:
+        batch = ImportBatch(source="library.smi", quick_hash="x", format="smiles", kind="shards")
+        session.add(batch)
+        session.flush()
         shard = ScreeningShard(
-            source="library.smi",
+            import_batch_id=batch.id,
             shard_index=0,
             path=str(source),
-            input_format="smiles",
             n_records=100,
             state="ready",
         )
@@ -67,7 +69,7 @@ def test_engine_artifact_does_not_replace_the_chemical_shard(tmp_path):
         with runtime.workspace.project_db.get_session() as session:
             inventory = session.get(ScreeningShard, int(shard.id))
             assert inventory.path == str(source)
-            assert inventory.input_format == "smiles"
+            assert session.get(ImportBatch, inventory.import_batch_id).format == "smiles"
     finally:
         runtime.close_project()
 

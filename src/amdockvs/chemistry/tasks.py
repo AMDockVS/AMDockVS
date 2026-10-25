@@ -164,10 +164,9 @@ def shard_chemistry_task(payload: dict, progress_cb=None) -> list[dict]:
     stats = transform_ligand_shard(shard_path, output_path, payload["steps"])
     # A shard whose molecules all failed is still a done shard: it holds zero records now.
     return [{
-        "source": payload["source"],
+        "import_batch_id": payload.get("import_batch_id"),
         "shard_index": int(payload["shard_index"]),
         "path": str(output_path),
-        "input_format": payload.get("input_format", ""),
         "n_records": int(stats["n_records"]),
         # Pending, not ready: what a generation's shards have had run over them is the
         # generation's `step`, not a flag on each row. Stamping `ready` here made the next

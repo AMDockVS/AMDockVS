@@ -392,7 +392,7 @@ def iter_entity_rows(
     set_id: int | None = None,
     filters: Mapping[str, Any] | None = None,
     extra_filters: Mapping[str, Any] | None = None,
-    fields: tuple[str, ...] = ("id", "stored_payload_id", "current_payload_id", "input_format", "metadata_json"),
+    fields: tuple[str, ...] = ("id", "stored_payload_id", "current_payload_id", "metadata_json"),
     order: tuple[str, ...] = ("id",),
     batch_size: int = 1000,
 ) -> Iterator[dict[str, Any]]:
@@ -471,7 +471,7 @@ def list_entity_rows(
     engine: str = "ad4",
     set_id: int | None = None,
     filters: Mapping[str, Any] | None = None,
-    fields: tuple[str, ...] = ("id", "stored_payload_id", "current_payload_id", "input_format", "metadata_json"),
+    fields: tuple[str, ...] = ("id", "stored_payload_id", "current_payload_id", "metadata_json"),
     order: tuple[str, ...] = ("id",),
 ) -> list[dict[str, Any]]:
     return list(

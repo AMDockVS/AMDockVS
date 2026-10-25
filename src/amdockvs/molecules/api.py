@@ -508,7 +508,6 @@ class MoleculeAPI:
         molecule_kind: str | None = None,
         molecule_type: str | None = None,
         role: str | None = None,
-        context: str | None = None,
         workflow: str | None = None,
         usage_class: str | Iterable[str] | None = None,
         has_3d: bool | None = None,
@@ -537,7 +536,6 @@ class MoleculeAPI:
             resolved_usage_class = "general"
         filters: dict[str, Any] = {
             "molecule_type": resolved_molecule_type,
-            "primary_context": context,
             "has_3d": has_3d,
             "has_hs": has_hs,
             "prepared": prepared,

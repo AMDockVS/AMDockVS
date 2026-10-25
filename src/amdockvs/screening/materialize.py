@@ -20,7 +20,7 @@ from sqlmodel import select
 
 from amdockvs.core.payloads import payload_store
 from amdockvs.models import DockingResult, MoleculeModel, MoleculeRecord
-from amdockvs.core.vocab import FileFormat, ModelSource, MoleculeType
+from amdockvs.core.vocab import ModelSource, MoleculeType
 
 PAYLOAD_LIGHT = "light"
 PAYLOAD_FULL = "full"
@@ -29,7 +29,7 @@ PAYLOAD_FULL = "full"
 # (recomputes everything else). Descriptors, conformers and prepared files are ~60 bytes of
 # identity away from being regenerated locally, so they only travel in `full`.
 LIGHT_FIELDS = (
-    "name", "source", "source_index", "smiles", "docking_run_id", "score", "score_type",
+    "name", "import_batch_id", "source_index", "smiles", "docking_run_id", "score", "score_type",
     "pose", "pose_rank", "receptor_molecule_id", "extra",
 )
 
@@ -146,14 +146,12 @@ class TopNGate(HitGate):
         return evicted
 
 
-def _molecule_row(hit: Mapping[str, Any], *, payload: str, structure_id: int | None,
-                  kind: str) -> dict[str, Any]:
+def _molecule_row(hit: Mapping[str, Any], *, payload: str, structure_id: int | None) -> dict[str, Any]:
     row: dict[str, Any] = {
         "name": str(hit.get("name") or ""),
         "molecule_type": MoleculeType.SMALL_MOLECULE,
-        "source": str(hit.get("source") or ""),
+        "import_batch_id": hit.get("import_batch_id"),
         "source_index": int(hit.get("source_index") or 0),
-        "input_format": str(hit.get("input_format") or kind or FileFormat.SDF),
         "is_ligand": True,
         # The pose is the only 3D a light hit carries, so it is also its structure: one payload
         # that the molecule and its docking result both hold.
@@ -195,25 +193,24 @@ def ingest_hits(
     with project_db.get_session() as session:
         posed = [hit for hit in selected if hit.get("pose") is not None]
         pose_ids = dict(zip(map(id, posed), store.put(session, [hit["pose"] for hit in posed])))
-        molecules_by_source: dict[tuple[str, int], MoleculeRecord] = {}
+        molecules_by_source: dict[tuple[int | None, int], MoleculeRecord] = {}
         if reuse_existing:
-            sources = sorted({str(hit.get("source") or "") for hit in selected})
+            batches = sorted({hit["import_batch_id"] for hit in selected if hit.get("import_batch_id") is not None})
             existing = session.exec(
                 select(MoleculeRecord).where(
                     MoleculeRecord.is_ligand.is_(True),
-                    MoleculeRecord.source.in_(sources),
+                    MoleculeRecord.import_batch_id.in_(batches),
                 )
-            ).all() if sources else []
+            ).all() if batches else []
             molecules_by_source = {
-                (str(row.source), int(row.source_index)): row for row in existing
+                (row.import_batch_id, int(row.source_index)): row for row in existing
             }
         for hit in selected:
             pose_id = pose_ids.get(id(hit))
-            source_key = (str(hit.get("source") or ""), int(hit.get("source_index") or 0))
+            source_key = (hit.get("import_batch_id"), int(hit.get("source_index") or 0))
             molecule = molecules_by_source.get(source_key)
             if molecule is None:
-                kind = hit["pose"].kind if hit.get("pose") is not None else ""
-                molecule = MoleculeRecord(**_molecule_row(hit, payload=payload, structure_id=pose_id, kind=kind))
+                molecule = MoleculeRecord(**_molecule_row(hit, payload=payload, structure_id=pose_id))
                 session.add(molecule)
                 session.flush()  # need the id for the result row
                 if reuse_existing:

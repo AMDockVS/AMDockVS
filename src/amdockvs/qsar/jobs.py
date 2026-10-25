@@ -96,9 +96,7 @@ def scope_spec(params: DescriptorJobParams) -> QuerySpec:
     molecule_type_in = filters.pop("molecule_type__in", None) or filters.pop("molecule_kind__in", None)
     if molecule_type_in:
         resolved["molecule_type__in"] = list(molecule_type_in)
-    primary_context = filters.pop("primary_context", None)
-    if primary_context is not None:
-        resolved["primary_context"] = primary_context
+    filters.pop("primary_context", None)
     filters.pop("primary_role", None)
     prepared_filter = filters.pop("prepared", None)
     prep_engine = str(filters.pop("prepared_engine_key", "") or "ad4").strip().lower()
