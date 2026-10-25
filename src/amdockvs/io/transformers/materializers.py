@@ -277,7 +277,6 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
             "has_3d": bool(row.get("has_3d")),
             "has_hs": bool(row.get("has_hs")),
             "is_minimized": bool(row.get("is_minimized")),
-            "has_activity": bool(row.get("has_activity")),
             "excluded": bool(row.get("excluded")),
             "exclusion_reason": str(row.get("exclusion_reason") or ""),
             "in_set": bool(row.get("in_set")),

@@ -127,7 +127,6 @@ def molecule_row(
         "has_3d": bool(state.get("has_3d", False)),
         "has_hs": bool(state.get("has_hs", False)),
         "is_minimized": False,
-        "has_activity": False,
         "excluded": False,
         "exclusion_reason": "",
         "in_set": False,

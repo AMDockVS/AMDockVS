@@ -100,8 +100,6 @@ class ActivitiesMixin:
                 source=str(source or ""),
             )
             session.add(record)
-            molecule.has_activity = True
-            session.add(molecule)
             session.commit()
             session.refresh(record)
             return record
@@ -116,13 +114,6 @@ class ActivitiesMixin:
             rows = session.exec(statement).all()
             for row in rows:
                 session.delete(row)
-            remaining = session.exec(
-                select(ActivityRecord).where(ActivityRecord.molecule_id == int(ligand_id))
-            ).first()
-            molecule = session.get(MoleculeRecord, int(ligand_id))
-            if molecule is not None:
-                molecule.has_activity = remaining is not None
-                session.add(molecule)
             session.commit()
             return len(rows)
 
@@ -405,11 +396,6 @@ class ActivitiesMixin:
                     )
                 )
                 loaded += 1
-            for lid in touched:
-                molecule = session.get(MoleculeRecord, lid)
-                if molecule is not None:
-                    molecule.has_activity = True
-                    session.add(molecule)
             session.commit()
         return {
             "file": str(file_path),

@@ -210,7 +210,6 @@ def _apply_sdf_activity(row: dict[str, Any], prefilter) -> None:
         specs = multi(source_properties)
         if specs:
             row["activity_specs"] = specs
-            row["has_activity"] = True
         return
     # older prefilter without the multi-column builder
     if row.get("activity_spec"):
@@ -221,7 +220,6 @@ def _apply_sdf_activity(row: dict[str, Any], prefilter) -> None:
     spec = builder(source_properties)
     if spec is not None:
         row["activity_spec"] = spec
-        row["has_activity"] = True
 
 def _maybe_parse_activity_spec(activity_text: str, *, source_file: Path, import_mode: str) -> dict[str, Any] | None:
     text = str(activity_text or "").strip()

@@ -49,16 +49,15 @@ def test_sdf_activity_spec_from_property():
     assert ImportPrefilterPolicy().activity_spec_from_properties(props) is None
 
 
-def test_import_activity_marks_molecule_has_activity():
+def test_import_activity_builds_the_activity_spec():
     from amdockvs.io.payloads import ImportPrefilterPolicy
     from amdockvs.io.transformers.rows import _apply_sdf_activity
 
-    row = {"source_properties": [{"key": "IC50", "value_text": "100"}], "has_activity": False}
+    row = {"source_properties": [{"key": "IC50", "value_text": "100"}]}
     policy = ImportPrefilterPolicy(activity_property="IC50", activity_unit="nM", activity_transform="pIC50")
 
     _apply_sdf_activity(row, policy)
 
-    assert row["has_activity"] is True
     assert row["activity_specs"][0]["activity_type"] == "pIC50"
 
 
@@ -94,3 +93,19 @@ if __name__ == "__main__":
     test_detect_match_prefers_structural()
     test_sdf_activity_spec_from_property()
     print("OK")
+
+
+def test_has_activity_is_a_subquery_on_the_activities(tmp_path):
+    from ms_flow.core.database import ProjectStore
+    from ms_flow.query import db_count
+
+    from amdockvs.models import LigandActivity, MoleculeRecord
+    from amdockvs.molecules.api import MoleculeScope, _molecule_spec
+
+    db = ProjectStore.open_at(tmp_path / "project.db")
+    with db.get_session() as s:
+        s.add_all([MoleculeRecord(id=i, name=f"m{i}", is_ligand=True) for i in (1, 2, 3)])
+        s.add(LigandActivity(molecule_id=2, value=5.0))
+        s.commit()
+    for flag, expected in ((True, 1), (False, 2)):
+        assert db_count(db, _molecule_spec(MoleculeScope(filters={"has_activity": flag}))) == expected

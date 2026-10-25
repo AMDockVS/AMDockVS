@@ -10,7 +10,7 @@ from ms_flow.selection import Selection
 
 from amdockvs.core.normalize import merge_filter_mappings, normalize_ids, normalize_set_name
 from amdockvs.molecules.scopes import MoleculeScope, as_molecule_scope, is_molecule_scope
-from amdockvs.core.constants import TABLE_MOLECULES
+from amdockvs.core.constants import TABLE_LIGAND_ACTIVITIES, TABLE_MOLECULES
 from amdockvs.core.payloads import molecule_payload_id
 from amdockvs.models import (
     BindingSite,
@@ -55,6 +55,13 @@ def _molecule_spec(scope: MoleculeScope | Selection[Any]) -> QuerySpec:
     in_specs: list[QuerySpec] = []
     if scope.source_set_id is not None:
         in_specs.append(molecule_set_spec(int(scope.source_set_id)))
+    has_activity = filters.pop("has_activity", None)
+    if has_activity is not None:
+        activities = QuerySpec(table=TABLE_LIGAND_ACTIVITIES, fields=("molecule_id",))
+        if has_activity:
+            in_specs.append(activities)
+        else:
+            filters["id__not_in_subquery"] = activities
     prepared = filters.pop("prepared", None)
     # Which preparation family the flag refers to (EngineState.engine). Defaults to "ad4",
     # the family Vina, gnina and AutoDock-GPU share (one PDBQT prep for all three).
@@ -327,14 +334,12 @@ class MoleculeAPI:
                 row = MoleculeRecord(**parent.model_dump(exclude={"id", "ro5_violations"}))
                 row.name = f"{parent.name} (edited)"
                 row.stored_payload_id = edited_payload  # the edit is all this molecule ever had
-                row.has_activity = False
                 row.in_set = False
                 metadata = {"edited_from": int(parent.id)}
                 replaced = None
             else:
                 session.exec(sql_delete(LigandActivity).where(LigandActivity.molecule_id == int(molecule.id)))
                 row = session.get(MoleculeRecord, int(molecule.id))
-                row.has_activity = False
                 metadata = sanitize_molecule_extra_data(row.extra_data)
                 for stale in ("chemistry", "history", "state"):  # described the structure that is gone
                     metadata.pop(stale, None)

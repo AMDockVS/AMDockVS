@@ -87,7 +87,7 @@ def _project(tmp_path, monkeypatch):
     imported = seed_payload(db, Chem.MolToMolBlock(_phenol_3d()).encode(), "sdf")
     with db.get_session() as s:
         s.add(MoleculeRecord(id=1, name="phenol", is_ligand=True, molecule_type="small_molecule",
-                             stored_payload_id=imported, current_payload_id=imported, has_activity=True))
+                             stored_payload_id=imported, current_payload_id=imported))
         s.add(LigandActivity(molecule_id=1, value=5.0))
         s.commit()
     runtime = SimpleNamespace(workspace=SimpleNamespace(project_db=db), _require_active_project=lambda: None)
@@ -105,7 +105,7 @@ def test_edit_a_copy_leaves_the_molecule_and_its_activity(tmp_path, monkeypatch)
     assert new_id != 1
     assert api.get(1).current_payload_id == imported and api.dependents(1) == {"activities": 1}
     copy = api.get(new_id)
-    assert copy.name == "phenol (edited)" and not copy.has_activity and api.dependents(new_id) == {}
+    assert copy.name == "phenol (edited)" and api.dependents(new_id) == {}
     assert copy.stored_payload_id == copy.current_payload_id != imported
     assert _smiles_of(api, new_id) == "Nc1ccccc1" and _smiles_of(api, 1) == "Oc1ccccc1"
 
@@ -115,7 +115,7 @@ def test_replacing_drops_the_activity_and_keeps_the_original(tmp_path, monkeypat
     assert api.edit(1, drawn) == 1
     edited = api.get(1)
     assert edited.stored_payload_id == imported and edited.current_payload_id != imported
-    assert not edited.has_activity and api.dependents(1) == {}
+    assert api.dependents(1) == {}
     assert _smiles_of(api, 1) == "Nc1ccccc1"
 
 

@@ -109,7 +109,7 @@ class CatalogDetailsView(QWidget):
                 "Receptor": bool(molecule.is_receptor),
                 "Excluded": bool(molecule.excluded),
                 "Has 3D": bool(molecule.has_3d),
-                "Has Activity": bool(molecule.has_activity),
+                "Has Activity": bool(activities),
                 "Active BS": getattr(molecule, "active_binding_site_id", None),
             },
         )

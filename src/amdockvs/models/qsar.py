@@ -27,7 +27,7 @@ class LigandActivity(SQLModel, table=True):
         2. ID-based:    existing molecule_id + value
         3. Manual:      UI entry per molecule
 
-    has_activity on MoleculeRecord mirrors existence of rows here.
+    A molecule has an activity when it has a row here (`has_activity` filters with a subquery).
     That flag is maintained by the repository layer, not application callers.
     """
 

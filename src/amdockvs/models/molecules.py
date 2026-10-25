@@ -158,7 +158,6 @@ class MoleculeRecord(SQLModel, table=True):
     has_3d: bool = Field(default=False)
     has_hs: bool = Field(default=False)
     is_minimized: bool = Field(default=False)
-    has_activity: bool = Field(default=False)  # mirror of ligand_activities rows
 
     # Global status
     excluded: bool = Field(default=False)
