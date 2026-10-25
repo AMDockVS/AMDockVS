@@ -45,7 +45,7 @@ CHEMISTRY_GRAPH_OUTPUT = graph_sink(
                 "is_minimized",
                 "conformer_count",
                 "current_payload_id",
-                "current_model_index",
+               
             ],
             "write_mode": "upsert",
             "conflict_keys": ["id"],
@@ -205,7 +205,7 @@ PREDICTION_GRAPH_OUTPUT = graph_sink(
             "name": "molecules",
             "model": MoleculeRecord,
             "columns": [
-                "id", "stored_payload_id", "current_payload_id", "current_model_index",
+                "id", "stored_payload_id", "current_payload_id",
                 "has_3d", "has_hs", "is_minimized", "conformer_count",
             ],
             "write_mode": "upsert",
@@ -217,7 +217,7 @@ PREDICTION_GRAPH_OUTPUT = graph_sink(
 )
 
 _PREDICTION_FIELDS = (
-    "id", "source_index", "stored_payload_id", "current_payload_id", "current_model_index", "has_3d",
+    "id", "source_index", "stored_payload_id", "current_payload_id", "has_3d",
 )
 
 

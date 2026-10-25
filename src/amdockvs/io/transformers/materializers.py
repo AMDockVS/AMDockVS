@@ -231,12 +231,10 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
     for row in rows:
         source_index = int(row.get("source_index") or 0)
         molecule_ref = f"molecule::{row.get('source_file')}::{source_index}"
-        current_model_index: int | None = None
         role = str(row.get("primary_role") or "").strip().lower()
         metadata_map = metadata_map_from_row(row)
         structure = row.get("current_payload_id") or row.get("stored_payload_id")
         if bool(row.get("has_3d")) and structure is not None:
-            current_model_index = 0
             molecule_models.append(
                 {
                     "molecule_ref": molecule_ref,
@@ -258,7 +256,6 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
             "stored_payload_id": row.get("stored_payload_id"),
             "current_payload_id": row.get("current_payload_id"),
             "properties_payload_id": row.get("properties_payload_id"),
-            "current_model_index": current_model_index,
             "n_atoms": int(row.get("n_atoms") or 0),
             "inchikey": row.get("inchikey"),
             "canonical_smiles": row.get("canonical_smiles"),

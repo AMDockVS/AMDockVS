@@ -94,12 +94,12 @@ def test_pdb2pqr_receptor_row_comes_back_as_the_pdb_payload(monkeypatch):
 
     update, = transform_receptor_rows(
         operation="protonate",
-        rows=[{"id": 9, "structure": PDB, "structure_kind": "pdb", "has_3d": True, "current_model_index": 0}],
+        rows=[{"id": 9, "structure": PDB, "structure_kind": "pdb", "has_3d": True}],
         params={"method": "pdb2pqr"},
         next_model_index_by_entity={9: 1},
     )
 
     current = update["current_payload_id"]
     assert (current.data, current.kind, current.series) == (b"PROTONATED PDB\n", "pdb", SERIES_RECEPTORS)
-    assert update["model_rows"][0]["payload_id"] is current and update["current_model_index"] == 1
+    assert update["model_rows"][0]["payload_id"] is current and update["model_rows"][0]["model_index"] == 1
     assert touched and not any(path.exists() for path in touched)

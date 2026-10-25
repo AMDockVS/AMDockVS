@@ -61,7 +61,6 @@ def test_protonation_returns_a_new_payload_and_leaves_the_input_alone():
             "id": 3,
             "structure": source,
             "structure_kind": "sdf",
-            "current_model_index": None,
             "extra_data": {},
             "has_3d": False,
         }],

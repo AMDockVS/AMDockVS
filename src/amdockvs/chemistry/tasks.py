@@ -43,9 +43,6 @@ def _chemistry_graph_payload(
                 mol_row[key] = state[key]
         if "current_payload_id" in update:
             mol_row["current_payload_id"] = update["current_payload_id"]
-        if "current_model_index" in update:
-            current_model_index = update.get("current_model_index")
-            mol_row["current_model_index"] = None if current_model_index is None else int(current_model_index)
         molecules.append(mol_row)
         for model_row in list(update.get("model_rows") or []):
             molecule_models.append(dict(model_row))
@@ -133,7 +130,6 @@ def receptor_prediction_task(payload: dict, progress_cb=None):
             # The first prediction is also the canonical structure of a protein that had none.
             "stored_payload_id": row.get("stored_payload_id") or current,
             "current_payload_id": current if row.get("stored_payload_id") else None,
-            "current_model_index": model_index,
             "has_3d": True,
             "has_hs": False,
             "is_minimized": False,

@@ -153,7 +153,6 @@ def transform_ligand_rows(
             continue
         try:
             model_rows: list[dict[str, Any]] = []
-            current_model_index = row.get("current_model_index")
             next_index = int(next_index_map.get(ligand_id, 0))
 
             if writes_ensemble:
@@ -161,7 +160,7 @@ def transform_ligand_rows(
                 for offset, conformer in enumerate(result.GetConformers()):
                     payload = sdf_payload(result, conf_id=conformer.GetId())
                     if current is None:
-                        current, current_model_index = payload, next_index + offset
+                        current = payload
                     model_rows.append(molecule_model_row(
                         molecule_id=ligand_id, model_index=next_index + offset, payload_id=payload,
                         source=ModelSource.ETKDG,
@@ -169,15 +168,10 @@ def transform_ligand_rows(
             else:
                 current = sdf_payload(result)
                 if last_name in {"generate_3d", "minimize"}:
-                    current_model_index = next_index
                     model_rows.append(molecule_model_row(
                         molecule_id=ligand_id, model_index=next_index, payload_id=current,
                         source=ModelSource.RDKIT,
                     ))
-                elif result.GetNumConformers() == 0:
-                    # standardize / protonate keep whatever model was current, unless the
-                    # result has no coordinates at all.
-                    current_model_index = None
 
             state = {
                 **_ligand_state(resolved_steps, result),
@@ -186,7 +180,6 @@ def transform_ligand_rows(
             update = {
                 "entity_id": ligand_id,
                 "extra_data": clean_metadata(row.get("extra_data")),
-                "current_model_index": None if current_model_index is None else int(current_model_index),
                 "state": state,
                 "model_rows": model_rows,
             }
@@ -243,7 +236,7 @@ def transform_receptor_rows(
             continue
         if not row.get("structure"):
             raise ValueError(f"Receptor {receptor_id} has no structure.")
-        current_model_index = 0 if not bool(row.get("has_3d")) and row.get("current_model_index") is None else int(next_index_map.get(receptor_id, 0))
+        model_index = int(next_index_map.get(receptor_id, 0))
         if operation_name == "fix":
             def run(source: Path, output: Path) -> None:
                 fix_receptor_pdb_file(
@@ -295,12 +288,11 @@ def transform_receptor_rows(
                 "entity_id": receptor_id,
                 "extra_data": clean_metadata(row.get("extra_data")),
                 "current_payload_id": current,
-                "current_model_index": current_model_index,
                 "state": state,
                 "model_rows": [
                     molecule_model_row(
                         molecule_id=receptor_id,
-                        model_index=current_model_index,
+                        model_index=model_index,
                         payload_id=current,
                         source={"fix": ModelSource.FIXED, "protonate": ModelSource.PROTONATED}.get(operation_name, ModelSource.MINIMIZED),
                     )

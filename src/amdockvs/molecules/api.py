@@ -11,6 +11,7 @@ from ms_flow.selection import Selection
 from amdockvs.core.normalize import merge_filter_mappings, normalize_ids, normalize_set_name
 from amdockvs.molecules.scopes import MoleculeScope, as_molecule_scope, is_molecule_scope
 from amdockvs.core.constants import TABLE_MOLECULES
+from amdockvs.core.payloads import molecule_payload_id
 from amdockvs.models import (
     BindingSite,
     ComplexRecord,
@@ -148,10 +149,11 @@ class MoleculeAPI:
                 .where(LigandActivity.molecule_id == resolved_id)
                 .order_by(LigandActivity.id.desc())
             ).all())
-            current_model = None if molecule.current_model_index is None else session.exec(
+            structure = molecule_payload_id(molecule)
+            current_model = None if structure is None else session.exec(
                 select(MoleculeModel)
                 .where(MoleculeModel.molecule_id == resolved_id)
-                .where(MoleculeModel.model_index == int(molecule.current_model_index))
+                .where(MoleculeModel.payload_id == int(structure))
             ).first()
         return self.Details(
             molecule=molecule,
@@ -338,7 +340,6 @@ class MoleculeAPI:
                     metadata.pop(stale, None)
                 replaced = row.current_payload_id
             row.current_payload_id = edited_payload
-            row.current_model_index = None
             for key, value in fields.items():
                 setattr(row, key, value)
             row.is_minimized = False
@@ -490,7 +491,6 @@ class MoleculeAPI:
                 metadata.pop(stale, None)
             row.extra_data = metadata
             row.current_payload_id = fragment_payload
-            row.current_model_index = None
             row.is_minimized = False
             for key, value in structure_fields(fragment).items():
                 setattr(row, key, value)

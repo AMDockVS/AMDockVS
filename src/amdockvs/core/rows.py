@@ -90,7 +90,6 @@ def molecule_row(
         import_batch_id: int | None = None,
         current_payload_id: Any = None,
         stored_payload_id: Any = None,
-        current_model_index: int | None = None,
         extra_data: dict | None = None,
         usage_class: str = MoleculeUsageClass.GENERAL,
 ) -> dict[str, Any]:
@@ -106,7 +105,6 @@ def molecule_row(
         # stored only when the input differs from the current form (D11).
         "stored_payload_id": stored_payload_id,
         "current_payload_id": current_payload_id,
-        "current_model_index": None if current_model_index is None else int(current_model_index),
         "active_binding_site_id": None,
         "n_atoms": max(0, n_atoms),
         "inchikey": None,

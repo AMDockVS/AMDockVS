@@ -26,9 +26,9 @@ class FakeStore:
 
     def iter_rows(self, spec, *, batch_size=128):
         self.specs.append(spec)
-        yield {"id": 1, "stored_payload_id": self.structure, "current_payload_id": None, "current_model_index": None,
+        yield {"id": 1, "stored_payload_id": self.structure, "current_payload_id": None,
                "input_format": "sdf", "extra_data": {}, "has_3d": True}
-        yield {"id": 2, "stored_payload_id": self.structure, "current_payload_id": None, "current_model_index": None,
+        yield {"id": 2, "stored_payload_id": self.structure, "current_payload_id": None,
                "input_format": "sdf", "extra_data": {}, "has_3d": True}
 
     def count(self, spec):

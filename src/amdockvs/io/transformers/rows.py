@@ -56,7 +56,6 @@ def _build_row(
         import_batch_id=import_batch_id,
         stored_payload_id=stored,
         current_payload_id=current,
-        current_model_index=None,
         extra_data=metadata_map,
         usage_class=resolved_usage,
     )

@@ -65,7 +65,6 @@ def _row(molecule_id: int, smiles: str | None):
         "id": molecule_id,
         "structure": None if molblock is None else molblock.encode(),
         "structure_kind": "sdf",
-        "current_model_index": None,
         "extra_data": {},
         "has_3d": False,
     }
@@ -153,7 +152,6 @@ def test_minimize_after_conformers_still_writes_the_ensemble():
     # Every conformer is its own payload and the first one is the molecule's current structure.
     assert len({id(row["payload_id"]) for row in update["model_rows"]}) == len(update["model_rows"])
     assert update["current_payload_id"] is update["model_rows"][0]["payload_id"]
-    assert update["current_model_index"] == 0
 
 
 def test_a_broken_row_does_not_take_the_batch_down():

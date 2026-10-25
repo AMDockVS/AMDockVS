@@ -14,7 +14,7 @@ from amdockvs.project.sets import molecule_set_spec
 
 
 _ROW_FIELDS = (
-    "id", "stored_payload_id", "current_payload_id", "current_model_index", "extra_data", "has_3d",
+    "id", "stored_payload_id", "current_payload_id", "extra_data", "has_3d",
 )
 
 

@@ -117,10 +117,10 @@ class MoleculeRecord(SQLModel, table=True):
     # Payloads (ms_flow volumes): the bytes live in volumes/, the format is the payload's kind.
     # stored → the input as imported
     # current → the working structure (selected model/conformer, protonated, 3D...); NULL while
-    # it is the stored one. Read either through `core.payloads.molecule_payload_id`.
+    # it is the stored one. Read either through `core.payloads.molecule_payload_id`; the model
+    # holding that payload is the active one.
     stored_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id")
     current_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id")
-    current_model_index: int | None = Field(default=None)
     # properties → the import batch's SDF tags (parquet, shared by the batch), read by source_index
     properties_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id")
 
@@ -328,7 +328,8 @@ class MoleculeModel(SQLModel, table=True):
     (imported or first generated). Additional indices are conformers or
     alternative models.
 
-    molecules.current_payload_id / current_model_index point to the active model.
+    The active model is the one whose payload is the molecule's structure
+    (`core.payloads.molecule_payload_id`): no index on the molecule points at it.
 
     Applies to both small molecules (RDKit conformers) and proteins
     (ESMFold predictions, NMR ensembles).
