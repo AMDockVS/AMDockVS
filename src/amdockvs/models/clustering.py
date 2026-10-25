@@ -47,7 +47,6 @@ class SimilarityResult(SQLModel, table=True):
     fp_type: str = Field()  # fingerprint used
     method: str = Field(default=SimilarityMethod.TANIMOTO)
     score: float = Field()  # 0.0 – 1.0
-    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
     @classmethod
     def build_rows(
@@ -57,7 +56,6 @@ class SimilarityResult(SQLModel, table=True):
             fp_type: str,
             method: str = SimilarityMethod.TANIMOTO,
     ) -> list[dict[str, Any]]:
-        now = datetime.now()
         return [
             {
                 "query_id": query_id,
@@ -65,7 +63,6 @@ class SimilarityResult(SQLModel, table=True):
                 "fp_type": fp_type,
                 "method": method,
                 "score": t["score"],
-                "created_at": now,
             }
             for t in targets
         ]
@@ -102,7 +99,6 @@ class ClusteringResult(SQLModel, table=True):
     is_centroid: bool = Field(default=False)
     method: str = Field(default=ClusteringMethod.BUTINA)
     fp_type: str = Field(default="")  # fingerprint used
-    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
     build_rows = staticmethod(clustering_rows)
 

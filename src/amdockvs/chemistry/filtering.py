@@ -332,7 +332,6 @@ def annotate_row_with_small_molecule_filter_values(
     row["fraction_csp3"] = values.descriptors.get("fraction_csp3")
     row["n_atoms"] = int(values.n_atoms)
     row["pains_matches"] = list(values.pains_matches)
-    row["ro5_violations"] = list(values.ro5_violations)
     row["status_flags"] = int(row.get("status_flags") or 0) | int(values.status_flags)
     return row
 
@@ -344,7 +343,7 @@ def small_molecule_filter_values_from_record(record: Any) -> SmallMoleculeFilter
     }
     n_atoms = getattr(record, "n_atoms", 0)
     pains_matches = tuple(str(item) for item in (getattr(record, "pains_matches", None) or []))
-    ro5_violations = tuple(str(item) for item in (getattr(record, "ro5_violations", None) or []))
+    ro5_violations = _ro5_violations(descriptors)  # the column is a count; the names come from the descriptors
     if all(value in (None, "", 0) for value in descriptors.values()) and int(
             n_atoms or 0) <= 0 and not pains_matches and not ro5_violations:
         return None

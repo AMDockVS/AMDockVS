@@ -61,11 +61,11 @@ def criteria_conditions(criteria: SmallMoleculeFilterCriteria) -> list:
     conds: list[Any] = []
     for rule in criteria.rules:
         if rule.field in (F.PAINS_MATCHES, F.RO5_VIOLATIONS):
-            col = M.pains_matches if rule.field == F.PAINS_MATCHES else M.ro5_violations
+            count = _json_len(M.pains_matches) if rule.field == F.PAINS_MATCHES else M.ro5_violations
             if rule.operator == OP.IS_EMPTY:
-                conds.append(_json_len(col) == 0)
+                conds.append(count == 0)
             elif rule.operator == OP.HAS_ANY:
-                conds.append(_json_len(col) > 0)
+                conds.append(count > 0)
             continue
         col = getattr(M, rule.field, None)
         make = _NUMERIC_OPS.get(rule.operator)

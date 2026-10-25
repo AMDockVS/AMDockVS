@@ -1,14 +1,13 @@
 """Rows as a table takes them, built as plain dicts by the task that produces them.
 
-A row heading to a sink is written as it comes: SQLModel does not run there, so what the model
-would default (the timestamps) is set here. A `*_payload_id` field takes an id or an
+A row heading to a sink is written as it comes: SQLModel does not run there, so nothing the model
+would default is filled in. A `*_payload_id` field takes an id or an
 `ms_flow.payloads.Payload`: the sink stores the bytes and writes the id in the same transaction.
 No SQL in this module: a worker loads it, and the models hand these out as their `build_row`.
 """
 from __future__ import annotations
 
 import json
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +18,6 @@ from amdockvs.core.vocab import (
 
 def engine_state_row(*, molecule_id: int, role_type: str, engine: str, prepared_payload_id: Any = None,
                      flex_payload_id: Any = None, files: dict | None = None, is_ready: bool = False) -> dict[str, Any]:
-    now = datetime.now()
     return {
         "molecule_id": molecule_id,
         "role_type": role_type,
@@ -28,14 +26,11 @@ def engine_state_row(*, molecule_id: int, role_type: str, engine: str, prepared_
         "flex_payload_id": flex_payload_id,
         "files": files or {},
         "is_ready": is_ready,
-        "created_at": now,
-        "updated_at": now,
     }
 
 
 def shard_engine_state_row(*, shard_id: int, engine: str, files: dict | None = None, n_records: int = 0,
                            is_ready: bool = False, error: str = "") -> dict[str, Any]:
-    now = datetime.now()
     return {
         "shard_id": int(shard_id),
         "engine": str(engine),
@@ -43,14 +38,11 @@ def shard_engine_state_row(*, shard_id: int, engine: str, files: dict | None = N
         "n_records": int(n_records),
         "is_ready": bool(is_ready),
         "error": str(error or ""),
-        "created_at": now,
-        "updated_at": now,
     }
 
 
 def interaction_rows(receptor_payload_id: Any, pose_payload_id: Any, interactions: list[dict]) -> list[dict[str, Any]]:
     """The rows of one pose in its receptor. No interactions is one "none" row: the pose was looked at."""
-    now = datetime.now()
     interactions = interactions or [{"interaction_type": "none", "residue": "", "geometry": {"method": "ms_contactmap"}}]
     return [
         {
@@ -61,7 +53,6 @@ def interaction_rows(receptor_payload_id: Any, pose_payload_id: Any, interaction
             "residue_index": i.get("residue_index", 0),
             "distance": i.get("distance"),
             "geometry": i.get("geometry", {}),
-            "created_at": now,
         }
         for i in interactions
     ]
@@ -101,11 +92,9 @@ def molecule_row(
         stored_payload_id: Any = None,
         current_model_index: int | None = None,
         extra_data: dict | None = None,
-        created_at: datetime | None = None,
         primary_context: str = "",
         usage_class: str = MoleculeUsageClass.GENERAL,
 ) -> dict[str, Any]:
-    now = created_at or datetime.now()
     raw_meta = dict(extra_data or {}) if isinstance(extra_data, dict) else {}
     state = raw_meta.get("state", {}) if isinstance(raw_meta.get("state"), dict) else {}
     meta = sanitize_molecule_extra_data(extra_data)
@@ -138,7 +127,6 @@ def molecule_row(
         "formal_charge": None,
         "fraction_csp3": None,
         "pains_matches": [],
-        "ro5_violations": [],
         "conformer_count": max(0, int(state.get("conformer_count", 0) or 0)),
         "has_3d": bool(state.get("has_3d", False)),
         "has_hs": bool(state.get("has_hs", False)),
@@ -150,8 +138,6 @@ def molecule_row(
         "usage_class": str(usage_class or MoleculeUsageClass.GENERAL),
         "primary_context": primary_context,
         "extra_data": meta,
-        "created_at": now,
-        "updated_at": now,
     }
 
 
@@ -173,7 +159,6 @@ def molecule_model_row(
         "source": source,
         "metrics": dict(metrics or {}),
         "pae_payload_id": pae_payload_id,
-        "created_at": datetime.now(),
     }
 
 
@@ -187,8 +172,6 @@ def binding_site_row(
         size: tuple[float, float, float] | None = None,
         extra_data: dict | None = None,
 ) -> dict[str, Any]:
-    # A row heading to a sink is written as-is: SQLModel does not run here, so the
-    # default_factory of created_at (NOT NULL) never fires. build_row sets it.
     cx, cy, cz = center or (None, None, None)
     sx, sy, sz = size or (None, None, None)
     return {
@@ -199,7 +182,6 @@ def binding_site_row(
         "center_x": cx, "center_y": cy, "center_z": cz,
         "size_x": sx, "size_y": sy, "size_z": sz,
         "extra_data": extra_data,
-        "created_at": datetime.now(),
     }
 
 
@@ -209,7 +191,6 @@ def clustering_rows(
     method: str = ClusteringMethod.BUTINA,
     fp_type: str = "",
 ) -> list[dict[str, Any]]:
-    now = datetime.now()
     return [
         {
             "molecule_id": a["molecule_id"],
@@ -218,7 +199,6 @@ def clustering_rows(
             "is_centroid": a.get("is_centroid", False),
             "method": method,
             "fp_type": fp_type,
-            "created_at": now,
         }
         for a in assignments
     ]

@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
 from typing import Any, Mapping
 
-from sqlalchemy import DateTime, Index, JSON, UniqueConstraint, text
+from sqlalchemy import Column, Computed, Index, Integer, JSON, UniqueConstraint, text
 from pydantic import field_validator
 from sqlmodel import SQLModel, Field
 
@@ -17,7 +16,6 @@ from amdockvs.core.constants import (
     TABLE_PAYLOADS,
 )
 from amdockvs.core.rows import molecule_model_row, molecule_row, sanitize_molecule_extra_data
-from .base import TimestampedRecord
 
 # Domain vocabulary centralised in amdockvs.core.vocab. Re-exported here so existing
 # imports keep working (`from amdockvs.models.molecules import MoleculeType`).
@@ -53,7 +51,7 @@ def _coerce_string_list(value: Any) -> list[str]:
 # MoleculeRecord
 # ---------------------------------------------------------------------------
 
-class MoleculeRecord(TimestampedRecord, table=True):
+class MoleculeRecord(SQLModel, table=True):
     """
     Central registry. One row per molecule regardless of role.
 
@@ -91,8 +89,9 @@ class MoleculeRecord(TimestampedRecord, table=True):
     )
 
     # Payloads (ms_flow volumes): the bytes live in volumes/, the format is the payload's kind.
-    # stored → the input as imported, only when it differs from the current form (D11)
-    # current → the working structure (selected model/conformer, protonated, 3D...)
+    # stored → the input as imported
+    # current → the working structure (selected model/conformer, protonated, 3D...); NULL while
+    # it is the stored one. Read either through `core.payloads.molecule_payload_id`.
     stored_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id")
     current_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id")
     current_model_index: int | None = Field(default=None)
@@ -121,7 +120,11 @@ class MoleculeRecord(TimestampedRecord, table=True):
     fraction_csp3: float | None = Field(default=None)
     # None (JSON null) = not computed: a library import leaves it to the descriptor job.
     pains_matches: list[str] | None = Field(default_factory=list, sa_type=JSON)
-    ro5_violations: list[str] = Field(default_factory=list, sa_type=JSON)
+    # Lipinski violations: arithmetic on mw/logp/hbd/hba (`chemistry.filtering._ro5_violations`),
+    # so SQLite computes it on read and stores nothing. Never written.
+    ro5_violations: int | None = Field(default=None, sa_column=Column(Integer, Computed(
+        "(coalesce(mw, 0) > 500) + (coalesce(logp, 0) > 5) + (coalesce(hbd, 0) > 5) + (coalesce(hba, 0) > 10)",
+        persisted=False)))
     conformer_count: int = Field(default=0)
 
     # Fast-check state flags — updated by the layer that performs each operation.
@@ -145,11 +148,6 @@ class MoleculeRecord(TimestampedRecord, table=True):
     def _coerce_extra_data(cls, value: Any) -> dict[str, Any]:
         return sanitize_molecule_extra_data(value)
 
-    @field_validator("ro5_violations", mode="before")
-    @classmethod
-    def _coerce_string_lists(cls, value: Any) -> list[str]:
-        return _coerce_string_list(value)
-
     @field_validator("pains_matches", mode="before")
     @classmethod
     def _coerce_pains(cls, value: Any) -> list[str] | None:
@@ -172,19 +170,27 @@ class MoleculeRecord(TimestampedRecord, table=True):
 # query takes idx_mol_receptor (or idx_mol_receptor_id), which ties with usage_class and holds
 # only the receptors — without it, finding a handful of receptors walks millions of ligands.
 DEFERRED_INDEXES = {
-    "ix_molecules_name": "(name)",
     "ix_molecules_usage_class": "(usage_class)",
     "idx_mol_active": "(id) WHERE excluded=0 AND in_set=0",
     "idx_mol_role_scope": "(usage_class, is_ligand, excluded, molecule_type)",
     "idx_mol_receptor": "(usage_class) WHERE is_receptor=1",
     "idx_mol_receptor_id": "(id) WHERE is_receptor=1",  # no usage_class term
-    # PayloadStore.release/delete look a payload's referrers up by these.
+    # PayloadStore.release/delete look a payload's referrers up by these (`col = id` implies
+    # NOT NULL, so a partial index serves it). current/properties are NULL on most rows.
     "ix_molecules_stored_payload_id": "(stored_payload_id)",
-    "ix_molecules_current_payload_id": "(current_payload_id)",
-    "ix_molecules_properties_payload_id": "(properties_payload_id)",
+    "idx_mol_current_payload": "(current_payload_id) WHERE current_payload_id IS NOT NULL",
+    "idx_mol_properties_payload": "(properties_payload_id) WHERE properties_payload_id IS NOT NULL",
 }
-# No query uses them: no lookup by InChIKey, and `excluded` is covered by the partial indexes.
-RETIRED_INDEXES = ("ix_molecules_inchikey", "ix_molecules_excluded")
+# No query needs them: no lookup by InChIKey, `excluded` is covered by the partial indexes, a
+# name search or sort scans (~0.5 s a page at 3.85M rows, run async); the payload ones were
+# replaced by partial ones (`CREATE INDEX IF NOT EXISTS` never rebuilds a changed definition).
+RETIRED_INDEXES = (
+    "ix_molecules_inchikey",
+    "ix_molecules_excluded",
+    "ix_molecules_name",
+    "ix_molecules_current_payload_id",
+    "ix_molecules_properties_payload_id",
+)
 
 
 def ensure_molecule_indexes(project) -> None:
@@ -316,6 +322,5 @@ class MoleculeModel(SQLModel, table=True):
     # Per-model quality data (e.g. ESMFold plddt_mean/ptm); ESMFold's PAE matrix as a payload.
     metrics: dict = Field(default_factory=dict, sa_type=JSON)
     pae_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
-    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
     build_row = staticmethod(molecule_model_row)

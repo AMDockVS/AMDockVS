@@ -41,7 +41,6 @@ class LigandActivity(SQLModel, table=True):
     description: str    = Field(default="")
     source: str         = Field(default="")   # reference, assay id, etc.
 
-    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
     @classmethod
     def build_row(
@@ -63,7 +62,6 @@ class LigandActivity(SQLModel, table=True):
             "kind":          kind,
             "description":   description,
             "source":        source,
-            "created_at":    datetime.now(),
         }
 
 
@@ -128,7 +126,6 @@ class QSARPrediction(SQLModel, table=True):
     value: float
     confidence: float | None = Field(default=None)
 
-    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
     @classmethod
     def build_rows(
@@ -136,14 +133,12 @@ class QSARPrediction(SQLModel, table=True):
         model_id: int,
         predictions: list[dict],  # [{"molecule_id": int, "value": float, "confidence": float|None}]
     ) -> list[dict[str, Any]]:
-        now = datetime.now()
         return [
             {
                 "molecule_id": p["molecule_id"],
                 "model_id":    model_id,
                 "value":       p["value"],
                 "confidence":  p.get("confidence"),
-                "created_at":  now,
             }
             for p in predictions
         ]

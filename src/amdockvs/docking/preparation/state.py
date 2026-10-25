@@ -6,7 +6,6 @@ The prepared PDBQT is `EngineState.prepared_payload_id`, hydrated onto the row a
 from __future__ import annotations
 
 import json
-from datetime import datetime
 from typing import Any, Iterable, Mapping
 
 from amdockvs.core.payloads import molecule_payload_id
@@ -67,7 +66,6 @@ def merge_grid_metadata(
         "center": [float(value) for value in center],
         "size": [float(value) for value in size],
         "spacing": float(spacing),
-        "created_at": datetime.now().isoformat(),
     }
     if extra:
         entry.update(dict(extra))

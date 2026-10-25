@@ -33,7 +33,6 @@ def runtime(tmp_path):
 
 
 def _add_shard(runtime, tmp_path):
-    from datetime import datetime
 
     from amdockvs.models.screening import ScreeningShard
 
@@ -46,8 +45,6 @@ def _add_shard(runtime, tmp_path):
                 input_format="smi",
                 n_records=10,
                 state=ShardState.PENDING,
-                created_at=datetime.now(),
-                updated_at=datetime.now(),
             )
         )
         session.commit()

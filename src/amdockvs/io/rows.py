@@ -163,7 +163,6 @@ def structure_fields(mol, values=None, *, full: bool = True) -> dict[str, Any]:
         "n_atoms": int(mol.GetNumAtoms() or 0),
         **{key: values.descriptors.get(key) for key in FRAGMENT_PROPERTY_FIELDS},
         "pains_matches": None if values.pains_matches is None else list(values.pains_matches),
-        "ro5_violations": list(values.ro5_violations or []),
         "has_3d": bool(state.get("has_3d")),
         "has_hs": bool(state.get("has_hs")),
         "conformer_count": int(state.get("conformer_count") or 0),

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -78,7 +77,7 @@ def _engine_state_table_config(*, role_type: str) -> TableConfig:
             ),
         ],
         default_filters=[FilterSpec("role_type", FilterOperator.EQ, role_type, label="role")],
-        default_sort=[SortSpec("is_ready"), SortSpec("updated_at", descending=True)],
+        default_sort=[SortSpec("is_ready"), SortSpec("id", descending=True)],
         page_size=20,
         page_size_options=[10, 20, 50, 100],
         load_mode=TableLoadMode.INFINITE,
@@ -129,7 +128,7 @@ class PreparationPanel:
         # keeps the experiment combination (type + usage class) on it. Per-engine prep status
         # is its own tab (PREP_STATUS_VIEW_ID) — only the counts stay, on the action bar.
         panel = ToolPanel(self)
-        self._prep_started: dict[str, datetime] = {}  # follower noun -> when its run was submitted
+        self._prep_started: dict[str, set[int]] = {}  # follower noun -> the ids excluded before its run
         self.failures_dialog = None
 
         # Preparation area (image-3 design): a vertical target list on the left drives a
@@ -675,8 +674,8 @@ class PreparationPanel:
         # ponytail: one entry per program; they run side by side, so "step i of n" only
         # means "job i". Fine while every selected program shares one prep family (K=1).
         if job_ids or before:
-            # What the engine can't prepare is excluded with updated_at = now (a second earlier covers rounding).
-            self._prep_started[follower.noun] = datetime.now().replace(microsecond=0)
+            # What the engine can't prepare gets excluded: the failures are the ids excluded since now.
+            self._prep_started[follower.noun] = self.runtime.molecules.excluded_ids()
             # The noun says ligand/receptor; the program is noise (families share one prep).
             follower.follow([*before, *((follower.noun, job_id) for job_id in job_ids.values())], unit=unit)
 

@@ -165,10 +165,8 @@ def test_prediction_plan_reuses_only_one_coherent_current_run(tmp_path):
 def test_parsed_rows_go_through_the_real_sink_unchanged(tmp_path):
     """What the parser returns is written AS-IS: there is no SQLModel on the path.
 
-    That is why `created_at` (NOT NULL, with `default_factory`) has to be set by `build_row` and
-    not by the model — the default_factory only runs when instantiating `BindingSite(...)`, which
-    the sink never does. This test writes through the same `output_spec` as the job, which is
-    where it blew up.
+    A model default_factory only runs when instantiating `BindingSite(...)`, which the sink never
+    does. This test writes through the same `output_spec` as the job.
     """
     from amdockvs.binding_sites.jobs import p2rank_prediction_job
 
@@ -187,7 +185,6 @@ def test_parsed_rows_go_through_the_real_sink_unchanged(tmp_path):
     with project_store.get_session() as session:
         stored = session.exec(select(BindingSite)).all()
     assert len(stored) == len(rows)
-    assert all(site.created_at is not None for site in stored)
     assert all(dict(site.extra_data or {}).get("run_id") == "run" for site in stored)
     ProjectStore.clear_cached_stores()
 

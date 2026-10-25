@@ -30,7 +30,6 @@ def _complex_table_config() -> TableConfig:
             ColumnDef("binding_site_id", label="BS", width=60, sortable=True, align=AlignHint.RIGHT),
             ColumnDef("activity_id", label="Activity", width=80, sortable=True, align=AlignHint.RIGHT),
             ColumnDef("reference_receptor_payload_id", label="Reference Payload", width=130, sortable=True, visible=False),
-            ColumnDef("created_at", label="Created", width=180, sortable=True),
         ],
         # default_sort=None,
         page_size=25,

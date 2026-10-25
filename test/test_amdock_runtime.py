@@ -589,7 +589,6 @@ def test_amdock_runtime_prepare_and_dock_with_stored_grid(tmp_path, monkeypatch)
 def test_a_ligand_the_engine_cannot_prepare_is_excluded_and_docking_runs_without_it(tmp_path, monkeypatch):
     _require_docking_stack()
     _patch_fake_home(monkeypatch, tmp_path)
-    from datetime import datetime
 
     runtime = AMDockVSRuntime()
     try:
@@ -609,7 +608,7 @@ def test_a_ligand_the_engine_cannot_prepare_is_excluded_and_docking_runs_without
         receptor_set = runtime.molecules.create_set(_role_scope(runtime, "receptor"), name="rs", kind="snapshot")
         _wait_completed(runtime, [runtime.chemistry.generate_3d_ligands(batch_size=4, executor_name="thread")])
 
-        started = datetime.now()
+        started = runtime.molecules.excluded_ids()
         _wait_completed(runtime, [
             runtime.docking.prepare_ligands(batch_size=4, executor_name="thread"),
             runtime.docking.prepare_receptors(batch_size=1, executor_name="thread"),

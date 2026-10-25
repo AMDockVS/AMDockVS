@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 
 from amdockvs.chemistry.structures import mol_from_bytes
 
@@ -122,7 +121,6 @@ def calculate_descriptor_rows(items: list[dict], *, fingerprint: dict | None = N
             "status": "completed",
             "error": "",
             "metadata_json": "{}",
-            "created_at": datetime.now(),
         }
         try:
             if not item.get("structure"):

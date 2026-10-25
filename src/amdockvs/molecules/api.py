@@ -100,15 +100,23 @@ class MoleculeAPI:
         with self.runtime.workspace.project_db.get_session() as session:
             return session.get(MoleculeRecord, int(molecule_id))
 
-    def excluded_since(self, when, *, limit: int = 10_000) -> list[tuple[int, str, str]]:
-        """``(id, name, reason)`` of the molecules excluded at or after ``when`` — what a run failed."""
+    def excluded_ids(self) -> set[int]:
+        """Every excluded molecule (`idx_mol_excluded` holds only those): a run's "before"."""
         self.runtime._require_active_project()
+        with self.runtime.workspace.project_db.get_session() as session:
+            return set(session.exec(select(MoleculeRecord.id).where(MoleculeRecord.excluded == True)).all())  # noqa: E712
+
+    def excluded_since(self, before: set[int], *, limit: int = 10_000) -> list[tuple[int, str, str]]:
+        """``(id, name, reason)`` of the molecules excluded now but not in ``before`` — what a run
+        failed. ponytail: a run alongside it mixes its failures in; per-job ids if that matters."""
+        new = sorted(self.excluded_ids() - set(before))[: int(limit)]
+        if not new:
+            return []
         with self.runtime.workspace.project_db.get_session() as session:
             rows = session.exec(
                 select(MoleculeRecord.id, MoleculeRecord.name, MoleculeRecord.exclusion_reason)
-                .where(MoleculeRecord.excluded == True, MoleculeRecord.updated_at >= when)  # noqa: E712
+                .where(MoleculeRecord.id.in_(new))
                 .order_by(MoleculeRecord.id)
-                .limit(int(limit))
             ).all()
         return [(int(i), str(name or ""), str(reason or "")) for i, name, reason in rows]
 
@@ -290,8 +298,6 @@ class MoleculeAPI:
         nothing of the old one's but its role. Returns the id holding the edit, or None when the
         drawing is still the same compound, which changes nothing."""
         self.runtime._require_active_project()
-        from datetime import datetime
-
         from sqlalchemy import delete as sql_delete
 
         from amdockvs.chemistry.structures import molecule_mol, sdf_payload
@@ -316,7 +322,7 @@ class MoleculeAPI:
             edited_payload, = store.put(session, [sdf_payload(mol)])
             if copy:
                 parent = session.get(MoleculeRecord, int(molecule.id))
-                row = MoleculeRecord(**parent.model_dump(exclude={"id", "created_at", "updated_at"}))
+                row = MoleculeRecord(**parent.model_dump(exclude={"id", "ro5_violations"}))
                 row.name = f"{parent.name} (edited)"
                 row.stored_payload_id = edited_payload  # the edit is all this molecule ever had
                 row.has_activity = False
@@ -338,7 +344,6 @@ class MoleculeAPI:
             row.is_minimized = False
             metadata["edited"] = True
             row.extra_data = metadata
-            row.updated_at = datetime.now()
             session.add(row)
             session.commit()
             edited_id = int(row.id)

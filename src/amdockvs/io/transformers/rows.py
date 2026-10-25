@@ -7,7 +7,6 @@ no matter whether it came from an SDF, a SMILES line or a PDB. The format module
 from __future__ import annotations
 
 import json
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
@@ -38,7 +37,6 @@ def _build_row(
     primary_context: str,
     usage_class: str = "",
 ) -> dict[str, Any]:
-    now = datetime.now()
     # ponytail: usage_class is derived from the context unless the caller states one. Only the
     # `general` context is the screening library; anything imported into a named context
     # (reference, cocrystal, activity) is curated, and `general_ligand_count` must not see it.
@@ -60,7 +58,6 @@ def _build_row(
         current_payload_id=current,
         current_model_index=None,
         extra_data=metadata_map,
-        created_at=now,
         primary_context=str(primary_context or ""),
         usage_class=resolved_usage,
     )
@@ -83,14 +80,10 @@ def _build_row(
     }
 
 def share_current(row: dict[str, Any], current: Payload) -> None:
-    """Set the row's current form, reusing the stored payload when it is the same bytes (D11).
-
-    The same `Payload` object in both columns is what makes the sink store one blob and give
-    both columns one id; a copy would store the structure twice.
-    """
+    """Set the row's current form; NULL when it is the stored bytes (`molecule_payload_id`)."""
     stored = row.get("stored_payload_id")
     same = stored is not None and stored.kind == current.kind and stored.data == current.data
-    row["current_payload_id"] = stored if same else current
+    row["current_payload_id"] = None if same else current
 
 
 def _finalize_ligand_row_from_mol(
@@ -122,7 +115,7 @@ def _finalize_ligand_row_from_mol(
     stored, kept = row.get("stored_payload_id"), decision.kept_mol
     if stored is not None and stored.kind == "smi" and not kept.GetNumConformers():
         # No coordinates to keep: a SMILES says all a block would (D6); the stored one when unchanged.
-        row["current_payload_id"] = stored if kept is mol else structure_payload(
+        row["current_payload_id"] = None if kept is mol else structure_payload(
             Chem.MolToSmiles(kept), "smi", stored.series)
     else:
         share_current(row, structure_payload(Chem.MolToMolBlock(kept), "sdf"))

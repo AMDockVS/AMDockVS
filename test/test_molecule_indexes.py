@@ -58,6 +58,11 @@ def test_role_scopes_never_scan_the_table(tmp_path, monkeypatch):
              (True, "small_molecule", "general", False), "COVERING INDEX idx_mol_role_scope"),
             ("SELECT * FROM molecules WHERE is_ligand = 1 AND excluded = 0 AND usage_class = ? ORDER BY id DESC LIMIT 21",
              ("general",), "ix_molecules_usage_class"),
+            # PayloadStore's referrer check: `col = id` lets the partial (IS NOT NULL) index in
+            ("SELECT id FROM ms_payloads WHERE NOT EXISTS (SELECT 1 FROM molecules WHERE current_payload_id = ms_payloads.id)",
+             (), "idx_mol_current_payload"),
+            ("SELECT id FROM ms_payloads WHERE NOT EXISTS (SELECT 1 FROM molecules WHERE properties_payload_id = ms_payloads.id)",
+             (), "idx_mol_properties_payload"),
         ]
         with engine.connect() as conn:
             for sql, params, index in plans:

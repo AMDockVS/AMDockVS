@@ -80,7 +80,7 @@ def test_light_payload_keeps_smiles_and_pose_but_no_descriptors(project):
         assert molecule.logp is None and molecule.heavy_atom_count is None
         assert not session.exec(select(MoleculeModel)).all()
     # The pose is the hit's only 3D: one payload, held by the molecule and by its result.
-    assert molecule.current_payload_id == molecule.stored_payload_id == result.pose_payload_id
+    assert molecule.current_payload_id is None and molecule.stored_payload_id == result.pose_payload_id
     assert read_structure(project_db, result.pose_payload_id) == ("pose 0\n", "pdbqt")
     assert result.score == -9.0
     assert result.ligand_molecule_id == molecule.id
@@ -135,5 +135,5 @@ def test_off_target_results_reuse_the_reference_hit_molecule(project):
     # reference pose stays as the molecule's structure.
     report = payload_store(project_db).check()
     assert report.ok and report.unreferenced == []
-    assert molecules[0].current_payload_id == results[0].pose_payload_id
+    assert molecules[0].stored_payload_id == results[0].pose_payload_id
     assert results[1].pose_payload_id != results[0].pose_payload_id

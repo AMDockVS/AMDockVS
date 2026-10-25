@@ -238,16 +238,16 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
         current_model_index: int | None = None
         role = str(row.get("primary_role") or "").strip().lower()
         metadata_map = metadata_map_from_row(row)
-        if bool(row.get("has_3d")) and row.get("current_payload_id") is not None:
+        structure = row.get("current_payload_id") or row.get("stored_payload_id")
+        if bool(row.get("has_3d")) and structure is not None:
             current_model_index = 0
             molecule_models.append(
                 {
                     "molecule_ref": molecule_ref,
                     "model_index": 0,
-                    "payload_id": row["current_payload_id"],
+                    "payload_id": structure,
                     "energy": None,
                     "source": ModelSource.IMPORTED,
-                    "created_at": row.get("created_at"),
                 }
             )
         molecule_payload = {
@@ -281,7 +281,6 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
             "formal_charge": row.get("formal_charge"),
             "fraction_csp3": row.get("fraction_csp3"),
             "pains_matches": None if row.get("pains_matches") is None else list(row["pains_matches"]),
-            "ro5_violations": list(row.get("ro5_violations") or []),
             "conformer_count": int(row.get("conformer_count") or 0),
             "has_3d": bool(row.get("has_3d")),
             "has_hs": bool(row.get("has_hs")),
@@ -293,8 +292,6 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
             "usage_class": str(row.get("usage_class") or MoleculeUsageClass.GENERAL),
             "primary_context": str(row.get("primary_context") or ""),
             "extra_data": metadata_map,
-            "created_at": row.get("created_at"),
-            "updated_at": row.get("updated_at"),
             "$ref": molecule_ref,
         }
         molecules.append(molecule_payload)
@@ -343,7 +340,6 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
                     "kind": str(spec.get("kind") or "continuous"),
                     "description": str(spec.get("description") or ""),
                     "source": str(spec.get("source") or ""),
-                    "created_at": row.get("created_at"),
                 }
             )
         complex_spec = row.get("complex_spec") if isinstance(row.get("complex_spec"), dict) else {}
@@ -363,8 +359,6 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
                     "activity_ref": activity_ref,
                     "purpose": str(complex_spec.get("purpose") or "redocking"),
                     "metadata_json": json.dumps(dict(complex_spec.get("metadata") or {}), ensure_ascii=True),
-                    "created_at": row.get("created_at"),
-                    "updated_at": row.get("updated_at"),
                 }
             )
         for engine_spec in list(row.get("engine_state_specs") or []):
@@ -376,8 +370,6 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
                     "prepared_payload_id": engine_spec.get("prepared_payload_id"),
                     "files": dict(engine_spec.get("files") or {}),
                     "is_ready": bool(engine_spec.get("is_ready")),
-                    "created_at": row.get("created_at"),
-                    "updated_at": row.get("updated_at"),
                 }
             )
         for position, site_spec in enumerate(list(row.get("binding_site_specs") or [])):
@@ -397,7 +389,6 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
                     "size_y": size[1],
                     "size_z": size[2],
                     "extra_data": dict(site_spec.get("extra_data") or {}),
-                    "created_at": row.get("created_at"),
                 }
             )
 
