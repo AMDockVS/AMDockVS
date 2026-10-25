@@ -10,7 +10,6 @@ from amdockvs.core.rows import binding_site_row, interaction_rows
 from amdockvs.core.constants import (
     TABLE_PAYLOADS,
     TABLE_BINDING_SITES,
-    TABLE_CONSENSUS_SCORES,
     TABLE_DOCKING_RESULTS,
     TABLE_DOCKING_RUNS,
     TABLE_LIGAND_PREPS,
@@ -213,37 +212,6 @@ class DockingResult(SQLModel, table=True):
             **{key: value for key, value in columns.items() if key in cls.model_fields},
         }
 
-
-# ---------------------------------------------------------------------------
-# ConsensusScore
-# ---------------------------------------------------------------------------
-
-class ConsensusScore(SQLModel, table=True):
-    """
-    Combined score across N engines for the same receptor-ligand molecule pair.
-    Computed as a post-processing step when docking_results exist for
-    >= 2 engines.
-
-    method examples:
-        "rank_average"   — average of per-engine pose ranks
-        "score_zscore"   — z-score normalized score combination
-        "ecr"            — exponential consensus ranking
-    """
-
-    __tablename__ = TABLE_CONSENSUS_SCORES
-    __table_args__ = (
-        UniqueConstraint("receptor_molecule_id", "ligand_molecule_id", "method"),
-    )
-
-    id: int | None   = Field(default=None, primary_key=True)
-    receptor_molecule_id: int = Field(foreign_key=f"{TABLE_MOLECULES}.id", index=True)
-    ligand_molecule_id: int   = Field(foreign_key=f"{TABLE_MOLECULES}.id", index=True)
-
-    method: str      = Field()
-    score: float     = Field()
-    engines_used: list = Field(default_factory=list, sa_type=JSON)  # ["vina","adgpu"]
-
-    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
 # ---------------------------------------------------------------------------
 # InteractionsResult

@@ -26,7 +26,6 @@ from amdockvs.models import (
     BindingSite,
     ClusteringResult,
     ComplexRecord,
-    ConsensusScore,
     DescriptorBlockRecord,
     DescriptorVectorRecord,
     DockingResultRecord,
@@ -38,7 +37,6 @@ from amdockvs.models import (
     MoleculeRecord,
     MoleculeRepresentation,
     MoleculeSetMember,
-    MoleculeSourceProperty,
     QSARPrediction,
     ReceptorPrep,
     SimilarityResult,
@@ -154,9 +152,9 @@ def _owned_payloads(project_db, ids: set[int], *, structure: bool) -> set[int]:
 
 def clear_derived(project_db, molecule_ids: Iterable[int]) -> int:
     """Drop what was computed from the molecules' structure, before a new one replaces it: models
-    (conformers), engine preparations, descriptors, fingerprints, docking results, consensus,
+    (conformers), engine preparations, descriptors, fingerprints, docking results,
     similarity hits, QSAR predictions and cluster memberships, payloads included. What describes the
-    compound — activities, source properties, sets, complexes, binding sites — stays.
+    compound — activities, sets, complexes, binding sites — stays.
 
     The structure payloads themselves stay: the caller points the row at the new one first, then
     releases the old one. Returns the docking results deleted."""
@@ -168,11 +166,8 @@ def clear_derived(project_db, molecule_ids: Iterable[int]) -> int:
     for model in (DescriptorVectorRecord, DescriptorBlockRecord, FingerprintRecord, LigandPrep,
                   MoleculeModel, QSARPrediction, ClusteringResult, MoleculeRepresentation):
         _safe_delete(project_db, model, model.molecule_id.in_(ids))
-    for model, left, right in (
-        (ConsensusScore, ConsensusScore.receptor_molecule_id, ConsensusScore.ligand_molecule_id),
-        (SimilarityResult, SimilarityResult.query_id, SimilarityResult.target_id),
-    ):
-        _safe_delete(project_db, model, or_(left.in_(ids), right.in_(ids)))
+    _safe_delete(project_db, SimilarityResult,
+                 or_(SimilarityResult.query_id.in_(ids), SimilarityResult.target_id.in_(ids)))
     results = delete_results_where(
         project_db,
         or_(
@@ -193,7 +188,7 @@ def delete_molecules(project_db, molecule_ids: Iterable[int]) -> int:
     structures = _owned_payloads(project_db, ids, structure=True)
     clear_derived(project_db, ids)
     # Children before parents: project databases enforce foreign keys.
-    for model in (LigandActivity, MoleculeSourceProperty, MoleculeSetMember):
+    for model in (LigandActivity, MoleculeSetMember):
         _safe_delete(project_db, model, model.molecule_id.in_(ids))
     _safe_delete(
         project_db,

@@ -43,7 +43,6 @@ from amdockvs.models import (
     MoleculeModel,
     MoleculeRecord,
     MoleculeRepresentation,
-    MoleculeSourceProperty,
     ReceptorPrep,
 )
 from amdockvs.models.molecules import DEFERRED_INDEXES, ensure_molecule_indexes
@@ -55,11 +54,6 @@ IMPORT_GRAPH_OUTPUT = graph_sink(
         {
             "name": "molecule_models",
             "model": MoleculeModel,
-            "validate_model": False,
-        },
-        {
-            "name": "molecule_source_properties",
-            "model": MoleculeSourceProperty,
             "validate_model": False,
         },
         {"name": "complexes", "model": ComplexRecord, "validate_model": False},
@@ -92,12 +86,6 @@ IMPORT_GRAPH_OUTPUT = graph_sink(
         },
         {
             "source_node": "molecule_models",
-            "source_ref_field": "molecule_ref",
-            "target_node": "molecules",
-            "fk_field": "molecule_id",
-        },
-        {
-            "source_node": "molecule_source_properties",
             "source_ref_field": "molecule_ref",
             "target_node": "molecules",
             "fk_field": "molecule_id",

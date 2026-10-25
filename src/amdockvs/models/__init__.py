@@ -12,12 +12,10 @@ from amdockvs.models.molecules import (
     MoleculeModel,
     MoleculeRecord,
     MoleculeRepresentation,
-    MoleculeSourceProperty,
     MoleculeUsageClass,
 )
 from amdockvs.models.docking import (
     BindingSite,
-    ConsensusScore,
     DockingResult,
     DockingRun,
     InteractionsResult,
@@ -52,7 +50,6 @@ __all__ = [
     "MoleculeRecord",
     "MoleculeRepresentation",
     "MoleculeModel",
-    "MoleculeSourceProperty",
     "MoleculeUsageClass",
     "LigandRecord",
     "ReceptorRecord",
@@ -84,7 +81,6 @@ __all__ = [
     "DockingResultRecord",
     "DockingResult",
     "DockingRun",
-    "ConsensusScore",
     "QSARModelRecord",
     "QSARModel",
     "QSARPredictionRecord",

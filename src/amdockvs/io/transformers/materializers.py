@@ -182,8 +182,7 @@ def offload_source_properties(rows: list[dict[str, Any]]) -> Any:
     rows) and are almost never viewed and never used hot — persisting them into the
     project DB is what makes the single sqlite writer the import bottleneck.
 
-    Each row's source_properties are emptied (so build_import_graph_payload emits no
-    molecule_source_properties node) and every row holds the same Payload as
+    Each row's source_properties are emptied and every row holds the same Payload as
     properties_payload_id: the sink stores it once. Tags are read back by source_index
     (read_source_properties). Returns the Payload, or None if there were no properties.
     """
@@ -222,7 +221,6 @@ def _site_ref(molecule_ref: str, position: Any) -> str | None:
 def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     molecules: list[dict[str, Any]] = []
     molecule_models: list[dict[str, Any]] = []
-    molecule_source_properties: list[dict[str, Any]] = []
     complexes: list[dict[str, Any]] = []
     ligand_activities: list[dict[str, Any]] = []
     binding_sites: list[dict[str, Any]] = []
@@ -285,18 +283,6 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
                 {"molecule_ref": molecule_ref, "repr_type": ReprType.SEQUENCE_AA, "value": str(row["sequence_aa"])}
             )
         molecule_representations.extend(identity_representations(row, molecule_ref=molecule_ref))
-        for source_prop in list(row.get("source_properties") or []):
-            key = str(source_prop.get("key") or "").strip()
-            value_text = str(source_prop.get("value_text") or "").strip()
-            if not key or not value_text:
-                continue
-            molecule_source_properties.append(
-                {
-                    "molecule_ref": molecule_ref,
-                    "key": key,
-                    "value_text": value_text,
-                }
-            )
         # One 'activity_spec' (single-endpoint / redocking-complex path) plus any 'activity_specs'
         # (multi-column import, e.g. Tox21's 12 assays) — each becomes its own ActivityRecord.
         activity_specs: list[dict[str, Any]] = []
@@ -372,7 +358,6 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
     return {
         "molecules": molecules,
         "molecule_models": molecule_models,
-        "molecule_source_properties": molecule_source_properties,
         "complexes": complexes,
         "ligand_activities": ligand_activities,
         "binding_sites": binding_sites,
