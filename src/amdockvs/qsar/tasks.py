@@ -9,6 +9,7 @@ from typing import Any
 from amdockvs.chemistry.descriptors import calculate_alert_rows, calculate_descriptor_rows
 from amdockvs.core.constants import AMDOCKVS_OFFLOADABLE_EXECUTORS
 from amdockvs.core.jobs import task
+from amdockvs.io.rows import identity_representations
 
 
 # Descriptor values are the source of truth on MoleculeRecord columns (the separate
@@ -35,7 +36,7 @@ def calculate_descriptor_batch(payload: dict):
     return _descriptor_graph_payload(rows)
 
 
-_ALERT_COLUMNS = ("pains_matches", "canonical_smiles", "inchikey")
+_ALERT_COLUMNS = ("pains_matches",)
 
 
 @task(
@@ -45,7 +46,11 @@ _ALERT_COLUMNS = ("pains_matches", "canonical_smiles", "inchikey")
     supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
 )
 def calculate_alerts_batch(payload: dict):
-    return {"molecules": calculate_alert_rows(list(payload.get("items") or []))}
+    rows = calculate_alert_rows(list(payload.get("items") or []))
+    return {
+        "molecules": [{"id": row["id"], "pains_matches": row["pains_matches"]} for row in rows],
+        "molecule_representations": [r for row in rows for r in identity_representations(row, molecule_id=row["id"])],
+    }
 
 
 def _descriptor_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:

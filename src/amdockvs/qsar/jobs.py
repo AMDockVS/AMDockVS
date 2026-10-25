@@ -21,7 +21,7 @@ from amdockvs.core.constants import (
     TABLE_MOLECULES,
 )
 from amdockvs.core.paths import set_default_project_root
-from amdockvs.models import FingerprintRecord, MoleculeRecord
+from amdockvs.models import FingerprintRecord, MoleculeRecord, MoleculeRepresentation
 from amdockvs.molecules.storage import as_store, store_from_config
 from amdockvs.models.descriptors import FingerprintType
 from amdockvs.project.sets import molecule_set_spec, prepared_molecules_spec
@@ -96,9 +96,7 @@ def scope_spec(params: DescriptorJobParams) -> QuerySpec:
     molecule_type_in = filters.pop("molecule_type__in", None) or filters.pop("molecule_kind__in", None)
     if molecule_type_in:
         resolved["molecule_type__in"] = list(molecule_type_in)
-    primary_context = filters.pop("primary_context", None)
-    if primary_context is not None:
-        resolved["primary_context"] = primary_context
+    filters.pop("primary_context", None)
     filters.pop("primary_role", None)
     prepared_filter = filters.pop("prepared", None)
     prep_engine = str(filters.pop("prepared_engine_key", "") or "ad4").strip().lower()
@@ -159,6 +157,15 @@ ALERTS_GRAPH_OUTPUT = graph_sink(
             "columns": ["id", *_ALERT_COLUMNS],
             "write_mode": "upsert",
             "conflict_keys": ["id"],
+            "validate_model": False,
+        },
+        {
+            "name": "molecule_representations",
+            "model": MoleculeRepresentation,
+            "columns": ["molecule_id", "repr_type", "value"],
+            "pk_field": "molecule_id",
+            "write_mode": "upsert",
+            "conflict_keys": ["molecule_id", "repr_type"],
             "validate_model": False,
         },
     ),

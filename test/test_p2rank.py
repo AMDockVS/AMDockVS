@@ -215,9 +215,8 @@ def test_a_second_run_is_added_next_to_the_first_and_leaves_the_active_site_alon
         old_prediction = session.exec(
             select(BindingSite).where(BindingSite.source == "p2rank")
         ).one()
-        receptor = session.get(MoleculeRecord, 7)
-        receptor.active_binding_site_id = old_prediction.id
-        session.add(receptor)
+        old_prediction.is_active = True
+        session.add(old_prediction)
         session.commit()
         old_prediction_id = int(old_prediction.id)
 
@@ -254,11 +253,10 @@ def test_a_second_run_is_added_next_to_the_first_and_leaves_the_active_site_alon
         sites = session.exec(
             select(BindingSite).where(BindingSite.molecule_id == 7).order_by(BindingSite.id)
         ).all()
-        receptor = session.get(MoleculeRecord, 7)
     assert [site.source for site in sites] == ["manual", "p2rank", "p2rank"]
     assert [dict(site.extra_data or {}).get("run_id") for site in sites[1:]] == ["old-run", "new-run"]
     # The active one is still the one the user chose, even if its run is no longer the latest.
-    assert receptor.active_binding_site_id == old_prediction_id
+    assert [site.id for site in sites if site.is_active] == [old_prediction_id]
     # And the files of the old run are not thrown away either.
     assert (output_root / "old-run" / "receptor_7").exists()
     ProjectStore.clear_cached_stores()

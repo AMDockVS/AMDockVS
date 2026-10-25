@@ -10,7 +10,8 @@ from pathlib import Path
 
 from ms_flow.query import db_rows
 
-from amdockvs.core.constants import TABLE_BINDING_SITES, TABLE_ENGINES, TABLE_MOLECULES
+from amdockvs.core.constants import TABLE_BINDING_SITES, TABLE_ENGINES, TABLE_IMPORT_BATCHES, TABLE_MOLECULES
+from amdockvs.models.codes import code_name_sql
 from amdockvs.project.summaries import (
     LigandTableStatsSummary,
     NumericRangeSummary,
@@ -45,15 +46,32 @@ def _grouped_counts(project_db, *, role_column: str, expression: str) -> list[Va
     return [ValueCountSummary(value=str(row.get("value") or ""), count=int(row.get("count") or 0)) for row in rows]
 
 
-def _by_source_file(project_db, *, role_column: str) -> list[SourceFileCountSummary]:
+def _per_batch_sql(role_column: str) -> str:
+    # Counted per batch first, then joined: one lookup per imported file, not per molecule.
+    return (
+        "SELECT ib.source AS source_value, ib.format AS format, c.count, c.min_source_index, "
+        "c.max_source_index FROM (SELECT import_batch_id, COUNT(*) AS count, "
+        "MIN(source_index) AS min_source_index, MAX(source_index) AS max_source_index "
+        f"FROM {TABLE_MOLECULES} WHERE {role_column} = 1 GROUP BY import_batch_id) c "
+        f"LEFT JOIN {TABLE_IMPORT_BATCHES} ib ON ib.id = c.import_batch_id"
+    )
+
+
+def _by_input_format(project_db, *, role_column: str) -> list[ValueCountSummary]:
     rows = db_rows(
         project_db,
         query=(
-            "SELECT m.source AS source_value, COUNT(*) AS count, "
-            "MIN(m.source_index) AS min_source_index, MAX(m.source_index) AS max_source_index "
-            f"FROM {TABLE_MOLECULES} m WHERE m.{role_column} = 1 "
-            "GROUP BY m.source ORDER BY count DESC, source_value ASC"
+            f"SELECT {code_name_sql('b.format')} AS value, SUM(b.count) AS count "
+            f"FROM ({_per_batch_sql(role_column)}) b GROUP BY value ORDER BY count DESC, value ASC"
         ),
+    )
+    return [ValueCountSummary(value=str(row.get("value") or ""), count=int(row.get("count") or 0)) for row in rows]
+
+
+def _by_source_file(project_db, *, role_column: str) -> list[SourceFileCountSummary]:
+    rows = db_rows(
+        project_db,
+        query=f"SELECT * FROM ({_per_batch_sql(role_column)}) b ORDER BY count DESC, source_value ASC",
     )
     return [
         SourceFileCountSummary(
@@ -88,7 +106,7 @@ def ligand_table_stats(project_db) -> LigandTableStatsSummary:
     return LigandTableStatsSummary(
         total_ligands=total,
         by_status=_grouped_counts(project_db, role_column="is_ligand", expression=_LIGAND_STATUS_SQL),
-        by_input_format=_grouped_counts(project_db, role_column="is_ligand", expression="m.input_format"),
+        by_input_format=_by_input_format(project_db, role_column="is_ligand"),
         by_source_file=_by_source_file(project_db, role_column="is_ligand"),
         atoms=atoms,
     )
@@ -99,7 +117,7 @@ def receptor_table_stats(project_db) -> ReceptorTableStatsSummary:
     return ReceptorTableStatsSummary(
         total_receptors=total,
         by_status=_grouped_counts(project_db, role_column="is_receptor", expression=_RECEPTOR_STATUS_SQL),
-        by_input_format=_grouped_counts(project_db, role_column="is_receptor", expression="m.input_format"),
+        by_input_format=_by_input_format(project_db, role_column="is_receptor"),
         by_source_file=_by_source_file(project_db, role_column="is_receptor"),
         atoms=atoms,
     )

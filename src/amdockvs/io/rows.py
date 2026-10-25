@@ -21,7 +21,7 @@ from amdockvs.chemistry.state import molecule_state_metadata
 from amdockvs.io.import_stats import FILTERED_PROPERTY, NO_VALID_FRAGMENT
 from amdockvs.io.payloads import ImportPrefilterPolicy
 from amdockvs.core.rows import sanitize_molecule_extra_data
-from amdockvs.core.vocab import MoleculeType, MoleculeUsageClass
+from amdockvs.core.vocab import MoleculeType, MoleculeUsageClass, ReprType
 from amdockvs.molecules.fragments import largest_ligand_fragment, ligand_fragments, single_ligand_component
 
 # Descriptor columns of a small molecule, computed on the structure it keeps.
@@ -53,13 +53,7 @@ class LigandDecision:
 
 
 def metadata_map_from_row(row: dict[str, Any]) -> dict[str, Any]:
-    metadata = sanitize_molecule_extra_data(row.get("extra_data"))
-
-    for key in ("smiles", "sequence_1d"):
-        value = row.get(key)
-        if value not in (None, ""):
-            metadata[key] = value
-    return metadata
+    return sanitize_molecule_extra_data(row.get("extra_data"))
 
 
 def active_small_molecule_criteria(prefilter: ImportPrefilterPolicy | None, molecule_kind: str):
@@ -174,6 +168,14 @@ def identity_fields(mol) -> dict[str, Any]:
     return {"canonical_smiles": canonical_smiles(mol) or None, "inchikey": inchikey(mol) or None}
 
 
+def identity_representations(fields: dict[str, Any], **owner: Any) -> list[dict[str, Any]]:
+    """The `identity_fields` in `fields` as molecule_representations rows; `owner` is
+    molecule_id= or molecule_ref=. The molecule table has no identity columns."""
+    return [{**owner, "repr_type": repr_type, "value": fields[key]}
+            for repr_type, key in ((ReprType.INCHI_KEY, "inchikey"), (ReprType.SMILES_CANONICAL, "canonical_smiles"))
+            if fields.get(key)]
+
+
 def ligand_row_fields(row: dict[str, Any], decision: LigandDecision) -> dict[str, Any]:
     """Dumps the decision onto the row. Mutates and returns `row`, as the original code did.
 
@@ -197,6 +199,7 @@ __all__ = [
     "evaluate_ligand_mol",
     "htp_mol_filter",
     "identity_fields",
+    "identity_representations",
     "ligand_row_fields",
     "metadata_map_from_row",
     "prep_ligand_mol",

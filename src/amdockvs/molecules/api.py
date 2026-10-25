@@ -10,13 +10,15 @@ from ms_flow.selection import Selection
 
 from amdockvs.core.normalize import merge_filter_mappings, normalize_ids, normalize_set_name
 from amdockvs.molecules.scopes import MoleculeScope, as_molecule_scope, is_molecule_scope
-from amdockvs.core.constants import TABLE_MOLECULES
+from amdockvs.core.constants import TABLE_LIGAND_ACTIVITIES, TABLE_MOLECULES
+from amdockvs.core.payloads import molecule_payload_id
 from amdockvs.models import (
     BindingSite,
     ComplexRecord,
     LigandActivity,
     MoleculeModel,
     MoleculeRecord,
+    MoleculeRepresentation,
     SetRecord,
 )
 from amdockvs.models.molecules import sanitize_molecule_extra_data
@@ -54,6 +56,13 @@ def _molecule_spec(scope: MoleculeScope | Selection[Any]) -> QuerySpec:
     in_specs: list[QuerySpec] = []
     if scope.source_set_id is not None:
         in_specs.append(molecule_set_spec(int(scope.source_set_id)))
+    has_activity = filters.pop("has_activity", None)
+    if has_activity is not None:
+        activities = QuerySpec(table=TABLE_LIGAND_ACTIVITIES, fields=("molecule_id",))
+        if has_activity:
+            in_specs.append(activities)
+        else:
+            filters["id__not_in_subquery"] = activities
     prepared = filters.pop("prepared", None)
     # Which preparation family the flag refers to (EngineState.engine). Defaults to "ad4",
     # the family Vina, gnina and AutoDock-GPU share (one PDBQT prep for all three).
@@ -93,6 +102,7 @@ class MoleculeAPI:
         ligand_complexes: tuple[ComplexRecord, ...]
         activities: tuple[LigandActivity, ...]
         current_model: MoleculeModel | None = None  # the model current_payload_id points at (metrics, files)
+        current_model_data: dict | None = None  # its data payload (plddt, ptm...), the PAE left out
 
     def get(self, molecule_id: int) -> MoleculeRecord | None:
         """Return one molecule without exposing the project session to callers."""
@@ -148,11 +158,20 @@ class MoleculeAPI:
                 .where(LigandActivity.molecule_id == resolved_id)
                 .order_by(LigandActivity.id.desc())
             ).all())
-            current_model = None if molecule.current_model_index is None else session.exec(
+            structure = molecule_payload_id(molecule)
+            current_model = None if structure is None else session.exec(
                 select(MoleculeModel)
                 .where(MoleculeModel.molecule_id == resolved_id)
-                .where(MoleculeModel.model_index == int(molecule.current_model_index))
+                .where(MoleculeModel.payload_id == int(structure))
             ).first()
+        model_data = None
+        if current_model is not None and current_model.data_payload_id is not None:
+            import json
+
+            from amdockvs.core.payloads import read_structure
+
+            model_data = json.loads(read_structure(self.runtime.workspace.project_db, current_model.data_payload_id)[0])
+            model_data.pop("pae", None)
         return self.Details(
             molecule=molecule,
             binding_sites=binding_sites,
@@ -160,6 +179,7 @@ class MoleculeAPI:
             ligand_complexes=ligand_complexes,
             activities=activities,
             current_model=current_model,
+            current_model_data=model_data,
         )
 
     def list_sets(self) -> list[SetRecord]:
@@ -302,7 +322,7 @@ class MoleculeAPI:
 
         from amdockvs.chemistry.structures import molecule_mol, sdf_payload
         from amdockvs.core.payloads import payload_store
-        from amdockvs.io.rows import structure_fields
+        from amdockvs.io.rows import identity_representations, structure_fields
         from amdockvs.models.qsar import LigandActivity
         from amdockvs.molecules.editing import edited_structure
         from amdockvs.project.deletion import clear_derived
@@ -315,6 +335,7 @@ class MoleculeAPI:
         if mol is None:
             return None
         fields = structure_fields(mol)
+        identity = {key: fields.pop(key) for key in ("inchikey", "canonical_smiles")}
         store = payload_store(project_db)
         if not copy:
             clear_derived(project_db, [molecule.id])
@@ -325,26 +346,26 @@ class MoleculeAPI:
                 row = MoleculeRecord(**parent.model_dump(exclude={"id", "ro5_violations"}))
                 row.name = f"{parent.name} (edited)"
                 row.stored_payload_id = edited_payload  # the edit is all this molecule ever had
-                row.has_activity = False
                 row.in_set = False
                 metadata = {"edited_from": int(parent.id)}
                 replaced = None
             else:
                 session.exec(sql_delete(LigandActivity).where(LigandActivity.molecule_id == int(molecule.id)))
                 row = session.get(MoleculeRecord, int(molecule.id))
-                row.has_activity = False
                 metadata = sanitize_molecule_extra_data(row.extra_data)
                 for stale in ("chemistry", "history", "state"):  # described the structure that is gone
                     metadata.pop(stale, None)
                 replaced = row.current_payload_id
             row.current_payload_id = edited_payload
-            row.current_model_index = None
             for key, value in fields.items():
                 setattr(row, key, value)
             row.is_minimized = False
             metadata["edited"] = True
             row.extra_data = metadata
             session.add(row)
+            session.flush()
+            for representation in identity_representations(identity, molecule_id=int(row.id)):
+                session.merge(MoleculeRepresentation(**representation))
             session.commit()
             edited_id = int(row.id)
         if replaced:
@@ -463,7 +484,7 @@ class MoleculeAPI:
         self.runtime._require_active_project()
         from amdockvs.chemistry.structures import molecule_mol, sdf_payload
         from amdockvs.core.payloads import payload_store
-        from amdockvs.io.rows import structure_fields
+        from amdockvs.io.rows import identity_representations, structure_fields
         from amdockvs.molecules.fragments import fragments_of
         from amdockvs.project.deletion import clear_derived
 
@@ -490,11 +511,14 @@ class MoleculeAPI:
                 metadata.pop(stale, None)
             row.extra_data = metadata
             row.current_payload_id = fragment_payload
-            row.current_model_index = None
             row.is_minimized = False
-            for key, value in structure_fields(fragment).items():
+            fields = structure_fields(fragment)
+            identity = {key: fields.pop(key) for key in ("inchikey", "canonical_smiles")}
+            for key, value in fields.items():
                 setattr(row, key, value)
             session.add(row)
+            for representation in identity_representations(identity, molecule_id=int(row.id)):
+                session.merge(MoleculeRepresentation(**representation))
             session.commit()
             session.refresh(row)
         if replaced:
@@ -508,7 +532,6 @@ class MoleculeAPI:
         molecule_kind: str | None = None,
         molecule_type: str | None = None,
         role: str | None = None,
-        context: str | None = None,
         workflow: str | None = None,
         usage_class: str | Iterable[str] | None = None,
         has_3d: bool | None = None,
@@ -537,7 +560,6 @@ class MoleculeAPI:
             resolved_usage_class = "general"
         filters: dict[str, Any] = {
             "molecule_type": resolved_molecule_type,
-            "primary_context": context,
             "has_3d": has_3d,
             "has_hs": has_hs,
             "prepared": prepared,

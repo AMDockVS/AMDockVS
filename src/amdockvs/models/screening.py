@@ -21,6 +21,7 @@ from amdockvs.models.codes import code_field
 
 from amdockvs.core.rows import shard_engine_state_row
 from amdockvs.core.constants import (
+    TABLE_IMPORT_BATCHES,
     TABLE_SCREENING_DISPATCHES,
     TABLE_SCREENING_SHARD_RUNS,
     TABLE_SCREENING_SHARDS,
@@ -63,22 +64,21 @@ class ShardGeneration(SQLModel, table=True):
 
 class ScreeningShard(SQLModel, table=True):
     __tablename__ = TABLE_SCREENING_SHARDS
-    # A shard is addressed by (generation, source, shard_index). Without the generation the
-    # pair collides the moment a step rewrites the library.
-    __table_args__ = (UniqueConstraint("generation_id", "source", "shard_index"),)
+    # A shard is addressed by (generation, import batch, shard_index). Without the generation
+    # the pair collides the moment a step rewrites the library.
+    __table_args__ = (UniqueConstraint("generation_id", "import_batch_id", "shard_index"),)
 
     id: int | None = Field(default=None, primary_key=True)
     generation_id: int | None = Field(
         default=None, foreign_key=f"{TABLE_SHARD_GENERATIONS}.id", index=True
     )
-    # ponytail: the pair is unique *within* an import, not across imports. The parent-side
-    # queue (io/shards.ShardQueueWriter) numbers shards as it cuts them, so a prefilter change
-    # renumbers everything — re-importing the same file appends instead of replacing. A failed
-    # import is restarted from scratch, not resumed; resuming would need span→shard receipts.
-    source: str = Field(default="", index=True)
+    # ponytail: the index is unique *within* a batch. The parent-side queue
+    # (io/shards.ShardQueueWriter) numbers shards as it cuts them, and every import is a new
+    # batch, so re-importing the same file appends instead of replacing. A failed import is
+    # restarted from scratch, not resumed; resuming would need span→shard receipts.
+    import_batch_id: int | None = Field(default=None, foreign_key=f"{TABLE_IMPORT_BATCHES}.id", index=True)
     shard_index: int = Field(default=0, index=True)
-    path: str = Field(default="")
-    input_format: str = Field(default="")
+    path: str = Field(default="")  # the .mshard's payload kind says the format
     n_records: int = Field(default=0)
     state: str = Field(default=ShardState.PENDING, index=True)
     error: str = Field(default="")

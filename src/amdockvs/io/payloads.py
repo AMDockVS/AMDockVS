@@ -261,8 +261,7 @@ class ImportBatchPayload(BaseModel):
     prefilter: ImportPrefilterPolicy | None = None
     extra_data_patch: dict[str, Any] = Field(default_factory=dict)
     binding_site_specs: list[dict[str, Any]] = Field(default_factory=list)
-    # What `molecules.source` says when the file is not the real origin ("user input", a download).
-    source_label: str = ""
+    import_batch_id: int | None = None  # the `import_batches` row of `file_path`
     # The chunk travels as a BYTE RANGE of `file_path` (`span_offset`..`span_end`): the worker
     # re-reads its records there and parses them with RDKit. It used to carry the raw text in
     # `records`, i.e. a whole second copy of the library inside the executor payloads (a 10 GB
@@ -308,6 +307,7 @@ class MultithreadedSDFImportPayload(BaseModel):
     file_path: Path
     storage_dir: Path
     num_threads: int = Field(default=4, ge=1)
+    import_batch_id: int | None = None
     primary_role: str = ""
     primary_context: str = "general"
     molecule_kind: str = "unknown"

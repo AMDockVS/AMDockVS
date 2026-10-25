@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any, Callable
-from uuid import uuid4
 
 from amdockvs.chemistry.state import molecule_state_metadata
 from amdockvs.io._common import normalize_kind
@@ -24,7 +23,9 @@ from amdockvs.core.vocab import (
     ReprType,
 )
 from amdockvs.io.import_stats import FILTERED_PREFILTER, IMPORTED, UNREADABLE, bump, write_import_stats
-from amdockvs.io.rows import active_small_molecule_criteria, cull_mol, htp_mol_filter, metadata_map_from_row
+from amdockvs.io.rows import (
+    active_small_molecule_criteria, cull_mol, htp_mol_filter, identity_representations, metadata_map_from_row,
+)
 from amdockvs.core.constants import SERIES_PROPERTIES
 from amdockvs.core.payloads import series_for, structure_payload
 from amdockvs.io.transformers.rows import (
@@ -81,9 +82,6 @@ def materialize_import_batch(
         rows = list(_materialize_fasta_rows(batch=batch, entries=records, progress_cb=progress_cb, tally=tally))
     else:
         rows = list(_materialize_structure_rows(batch=batch, entries=records, progress_cb=progress_cb, tally=tally))
-    if batch.source_label:  # the file was only a carrier (pasted text, a download): name the real origin
-        for row in rows:  # refs stay on the file: complexes name their receptor by its path
-            row["source_file"], row["source"] = row.get("source"), batch.source_label
     write_import_stats(batch.storage_dir, tally)
     return rows
 
@@ -139,7 +137,7 @@ def materialize_multithreaded_sdf_file(
             source_index=source_index,
             name=name,
             n_atoms=mol.GetNumHeavyAtoms(),
-            input_format=FileFormat.SDF,
+            import_batch_id=batch.import_batch_id,
             stored=structure_payload(mol_block, "sdf", series_for(batch.primary_role or batch.kind)),
             current=None,
             metadata={
@@ -232,41 +230,30 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
     molecule_representations: list[dict[str, Any]] = []
 
     for row in rows:
-        source = str(row.get("source") or "")
         source_index = int(row.get("source_index") or 0)
-        molecule_ref = f"molecule::{row.get('source_file') or source}::{source_index}"
-        current_model_index: int | None = None
+        molecule_ref = f"molecule::{row.get('source_file')}::{source_index}"
         role = str(row.get("primary_role") or "").strip().lower()
         metadata_map = metadata_map_from_row(row)
         structure = row.get("current_payload_id") or row.get("stored_payload_id")
         if bool(row.get("has_3d")) and structure is not None:
-            current_model_index = 0
             molecule_models.append(
                 {
                     "molecule_ref": molecule_ref,
-                    "model_index": 0,
                     "payload_id": structure,
-                    "energy": None,
                     "source": ModelSource.IMPORTED,
                 }
             )
         molecule_payload = {
             "name": str(row.get("name") or ""),
             "molecule_type": str(row.get("molecule_kind") or "unknown"),
-            "source": source,
+            "import_batch_id": row.get("import_batch_id"),
             "source_index": source_index,
-            "input_format": str(row.get("input_format") or ""),
             "is_receptor": role == "receptor",
             "is_ligand": role == "ligand",
-            "active_binding_site_id": None,
-            "active_binding_site_ref": _site_ref(molecule_ref, row.get("active_binding_site_position")),
             "stored_payload_id": row.get("stored_payload_id"),
             "current_payload_id": row.get("current_payload_id"),
             "properties_payload_id": row.get("properties_payload_id"),
-            "current_model_index": current_model_index,
             "n_atoms": int(row.get("n_atoms") or 0),
-            "inchikey": row.get("inchikey"),
-            "canonical_smiles": row.get("canonical_smiles"),
             "mw": row.get("mw"),
             "logp": row.get("logp"),
             "hbd": row.get("hbd"),
@@ -285,25 +272,19 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
             "has_3d": bool(row.get("has_3d")),
             "has_hs": bool(row.get("has_hs")),
             "is_minimized": bool(row.get("is_minimized")),
-            "has_activity": bool(row.get("has_activity")),
             "excluded": bool(row.get("excluded")),
             "exclusion_reason": str(row.get("exclusion_reason") or ""),
             "in_set": bool(row.get("in_set")),
             "usage_class": str(row.get("usage_class") or MoleculeUsageClass.GENERAL),
-            "primary_context": str(row.get("primary_context") or ""),
             "extra_data": metadata_map,
             "$ref": molecule_ref,
         }
         molecules.append(molecule_payload)
         if str(row.get("sequence_aa") or ""):
             molecule_representations.append(
-                {
-                    "id": uuid4().hex,
-                    "molecule_ref": molecule_ref,
-                    "repr_type": ReprType.SEQUENCE_AA,
-                    "value": str(row["sequence_aa"]),
-                }
+                {"molecule_ref": molecule_ref, "repr_type": ReprType.SEQUENCE_AA, "value": str(row["sequence_aa"])}
             )
+        molecule_representations.extend(identity_representations(row, molecule_ref=molecule_ref))
         for source_prop in list(row.get("source_properties") or []):
             key = str(source_prop.get("key") or "").strip()
             value_text = str(source_prop.get("value_text") or "").strip()
@@ -372,6 +353,7 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
                     "is_ready": bool(engine_spec.get("is_ready")),
                 }
             )
+        active_position = row.get("active_binding_site_position")
         for position, site_spec in enumerate(list(row.get("binding_site_specs") or [])):
             center = tuple(site_spec.get("center") or (None, None, None))
             size = tuple(site_spec.get("size") or (None, None, None))
@@ -379,6 +361,7 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
                 {
                     "$ref": _site_ref(molecule_ref, position),
                     "molecule_ref": molecule_ref,
+                    "is_active": active_position is not None and int(active_position) == position,
                     "name": str(site_spec.get("name") or ""),
                     "source": str(site_spec.get("source") or BindingSiteSource.MANUAL),
                     "source_ref": str(site_spec.get("source_ref") or ""),

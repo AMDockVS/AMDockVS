@@ -14,7 +14,7 @@ panel the plan pairs with this table (§6) waits for there to be dispatches to s
 from __future__ import annotations
 
 from amdockvs.models import ScreeningShard
-from amdockvs.ui.catalog.common import BoundTableWidget
+from amdockvs.ui.catalog.common import BoundTableWidget, batch_columns
 from amdockvs.core.vocab import ShardState
 from ms_components.ms_table import (
     AlignHint,
@@ -40,8 +40,7 @@ def _shard_table_config() -> TableConfig:
                       kind=ColumnKind.INTEGER),
             ColumnDef("state", label="State", width=100, sortable=True, filterable=True,
                       kind=ColumnKind.CHOICE, choices=choices_from_class(ShardState)),
-            ColumnDef("source", label="Source", width=360, sortable=True, filterable=True),
-            ColumnDef("input_format", label="Format", width=90, sortable=True, filterable=True),
+            *batch_columns(ScreeningShard),
             ColumnDef("error", label="Error", width=240, sortable=False),
             ColumnDef("path", label="Path", width=320, sortable=True, visible=False),
         ],

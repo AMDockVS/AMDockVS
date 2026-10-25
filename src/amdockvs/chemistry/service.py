@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
-from ms_flow.payloads import scratch_file
+from ms_flow.payloads import PayloadGroup, scratch_file
 
 from amdockvs.chemistry.pipeline import LIGAND_STEPS, normalize_steps, run_pipeline
 from amdockvs.chemistry.state import mol_has_explicit_hs
@@ -20,7 +20,7 @@ from amdockvs.chemistry.tools import (
     protonate_receptor_pdb2pqr_file,
     protonate_receptor_reduce_file,
 )
-from amdockvs.core.constants import SERIES_RECEPTORS
+from amdockvs.core.constants import SERIES_MOLECULES, SERIES_RECEPTORS
 from amdockvs.core.payloads import structure_payload
 from amdockvs.core.rows import molecule_model_row
 from amdockvs.core.vocab import ModelSource
@@ -88,7 +88,6 @@ def transform_ligand_rows(
     operations: str | Sequence[Any],
     rows: Iterable[Mapping[str, Any]],
     params: Mapping[str, Any] | None = None,
-    next_model_index_by_entity: Mapping[int, int] | None = None,
     progress_cb=None,
 ) -> dict[str, Any]:
     """Apply one or more chemistry steps to a batch of ligand rows.
@@ -106,7 +105,6 @@ def transform_ligand_rows(
             raise ValueError(f"Unsupported ligand chemistry operation: {name}")
 
     normalized_params = dict(params or {})
-    next_index_map = {int(key): int(value) for key, value in dict(next_model_index_by_entity or {}).items()}
     row_list = [dict(row) for row in rows]
     updates: list[dict[str, Any]] = []
     failed_rows: list[dict[str, Any]] = []
@@ -153,31 +151,26 @@ def transform_ligand_rows(
             continue
         try:
             model_rows: list[dict[str, Any]] = []
-            current_model_index = row.get("current_model_index")
-            next_index = int(next_index_map.get(ligand_id, 0))
 
             if writes_ensemble:
+                from rdkit import Chem
+
                 current = None
-                for offset, conformer in enumerate(result.GetConformers()):
-                    payload = sdf_payload(result, conf_id=conformer.GetId())
+                group = PayloadGroup(kind="sdf", series=SERIES_MOLECULES)  # the ensemble compresses as one
+                for conformer in result.GetConformers():
+                    payload = group.add(Chem.MolToMolBlock(result, confId=conformer.GetId()).encode() + b"$$$$\n")
                     if current is None:
-                        current, current_model_index = payload, next_index + offset
+                        current = payload
                     model_rows.append(molecule_model_row(
-                        molecule_id=ligand_id, model_index=next_index + offset, payload_id=payload,
-                        source=ModelSource.ETKDG,
+                        molecule_id=ligand_id, payload_id=payload, source=ModelSource.ETKDG,
                     ))
             else:
                 current = sdf_payload(result)
                 if last_name in {"generate_3d", "minimize"}:
-                    current_model_index = next_index
                     model_rows.append(molecule_model_row(
-                        molecule_id=ligand_id, model_index=next_index, payload_id=current,
+                        molecule_id=ligand_id, payload_id=current,
                         source=ModelSource.RDKIT,
                     ))
-                elif result.GetNumConformers() == 0:
-                    # standardize / protonate keep whatever model was current, unless the
-                    # result has no coordinates at all.
-                    current_model_index = None
 
             state = {
                 **_ligand_state(resolved_steps, result),
@@ -186,7 +179,6 @@ def transform_ligand_rows(
             update = {
                 "entity_id": ligand_id,
                 "extra_data": clean_metadata(row.get("extra_data")),
-                "current_model_index": None if current_model_index is None else int(current_model_index),
                 "state": state,
                 "model_rows": model_rows,
             }
@@ -226,7 +218,6 @@ def transform_receptor_rows(
     operation: str,
     rows: Iterable[Mapping[str, Any]],
     params: Mapping[str, Any] | None = None,
-    next_model_index_by_entity: Mapping[int, int] | None = None,
     progress_cb=None,
 ) -> list[dict[str, Any]]:
     operation_name = str(operation or "").strip().lower()
@@ -234,7 +225,6 @@ def transform_receptor_rows(
         raise ValueError(f"Unsupported receptor chemistry operation: {operation}")
 
     normalized_params = dict(params or {})
-    next_index_map = {int(key): int(value) for key, value in dict(next_model_index_by_entity or {}).items()}
     row_list = [dict(row) for row in rows]
     updates: list[dict[str, Any]] = []
     for index, row in enumerate(row_list, start=1):
@@ -243,7 +233,6 @@ def transform_receptor_rows(
             continue
         if not row.get("structure"):
             raise ValueError(f"Receptor {receptor_id} has no structure.")
-        current_model_index = 0 if not bool(row.get("has_3d")) and row.get("current_model_index") is None else int(next_index_map.get(receptor_id, 0))
         if operation_name == "fix":
             def run(source: Path, output: Path) -> None:
                 fix_receptor_pdb_file(
@@ -295,12 +284,10 @@ def transform_receptor_rows(
                 "entity_id": receptor_id,
                 "extra_data": clean_metadata(row.get("extra_data")),
                 "current_payload_id": current,
-                "current_model_index": current_model_index,
                 "state": state,
                 "model_rows": [
                     molecule_model_row(
                         molecule_id=receptor_id,
-                        model_index=current_model_index,
                         payload_id=current,
                         source={"fix": ModelSource.FIXED, "protonate": ModelSource.PROTONATED}.get(operation_name, ModelSource.MINIMIZED),
                     )

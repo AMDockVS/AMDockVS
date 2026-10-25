@@ -4,6 +4,7 @@ No SQL and no job declaration here: a worker loads this module and nothing of `j
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -43,9 +44,6 @@ def _chemistry_graph_payload(
                 mol_row[key] = state[key]
         if "current_payload_id" in update:
             mol_row["current_payload_id"] = update["current_payload_id"]
-        if "current_model_index" in update:
-            current_model_index = update.get("current_model_index")
-            mol_row["current_model_index"] = None if current_model_index is None else int(current_model_index)
         molecules.append(mol_row)
         for model_row in list(update.get("model_rows") or []):
             molecule_models.append(dict(model_row))
@@ -68,7 +66,6 @@ def ligand_chemistry_task(payload: dict, progress_cb=None):
         operations=payload.get("operation") or "",
         rows=list(payload.get("rows") or []),
         params=dict(payload.get("params") or {}),
-        next_model_index_by_entity=dict(payload.get("next_model_index_by_entity") or {}),
         progress_cb=progress_cb,
     )
     updates = list(result.get("updates") or [])
@@ -95,7 +92,6 @@ def receptor_chemistry_task(payload: dict, progress_cb=None):
         operation=str(payload.get("operation") or ""),
         rows=rows,
         params=dict(payload.get("params") or {}),
-        next_model_index_by_entity=dict(payload.get("next_model_index_by_entity") or {}),
         progress_cb=progress_cb,
     )
     if list(payload.get("rows") or []) and not updates:
@@ -119,7 +115,6 @@ def receptor_prediction_task(payload: dict, progress_cb=None):
             raise ValueError(f"Receptor {receptor_id} has neither a sequence nor a structure to read one from.")
         with scratch_file(payload["structure"], f".{payload.get('structure_kind') or 'cif'}") as path:
             sequence = sequence_from_structure(path)
-    model_index = int(payload["model_index"])
     metrics, cif, pae = predict_structure(sequence, model=str(payload["model"]))
     if metrics.get("potential_sequence_of_concern"):
         print(f"ESMFold flagged receptor {receptor_id} as a potential sequence of concern.")
@@ -133,7 +128,6 @@ def receptor_prediction_task(payload: dict, progress_cb=None):
             # The first prediction is also the canonical structure of a protein that had none.
             "stored_payload_id": row.get("stored_payload_id") or current,
             "current_payload_id": current if row.get("stored_payload_id") else None,
-            "current_model_index": model_index,
             "has_3d": True,
             "has_hs": False,
             "is_minimized": False,
@@ -142,11 +136,9 @@ def receptor_prediction_task(payload: dict, progress_cb=None):
         "molecule_models": [
             molecule_model_row(
                 molecule_id=receptor_id,
-                model_index=model_index,
                 payload_id=current,
                 source=ModelSource.ESMFOLD,
-                metrics=metrics,
-                pae_payload_id=None if pae is None else structure_payload(pae, "npy", SERIES_AUX),
+                data_payload_id=structure_payload(json.dumps({**metrics, "pae": pae}), "json", SERIES_AUX),
             )
         ],
     }
@@ -164,10 +156,9 @@ def shard_chemistry_task(payload: dict, progress_cb=None) -> list[dict]:
     stats = transform_ligand_shard(shard_path, output_path, payload["steps"])
     # A shard whose molecules all failed is still a done shard: it holds zero records now.
     return [{
-        "source": payload["source"],
+        "import_batch_id": payload.get("import_batch_id"),
         "shard_index": int(payload["shard_index"]),
         "path": str(output_path),
-        "input_format": payload.get("input_format", ""),
         "n_records": int(stats["n_records"]),
         # Pending, not ready: what a generation's shards have had run over them is the
         # generation's `step`, not a flag on each row. Stamping `ready` here made the next

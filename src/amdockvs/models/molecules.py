@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any, Mapping
 
-from sqlalchemy import Column, Computed, Index, Integer, JSON, UniqueConstraint, text
+from sqlalchemy import Column, Computed, DateTime, Index, Integer, JSON, UniqueConstraint, text
 from pydantic import field_validator
 from sqlmodel import SQLModel, Field
 
 from amdockvs.models.codes import code_field
 
 from amdockvs.core.constants import (
-    TABLE_BINDING_SITES,
+    TABLE_IMPORT_BATCHES,
     TABLE_MOLECULE_MODELS,
     TABLE_MOLECULE_REPRESENTATIONS,
     TABLE_MOLECULE_SOURCE_PROPERTIES,
@@ -23,6 +24,7 @@ from amdockvs.core.rows import molecule_model_row, molecule_row, sanitize_molecu
 # imports keep working (`from amdockvs.models.molecules import MoleculeType`).
 from amdockvs.core.vocab import (
     FileFormat,
+    ImportKind,
     ModelSource,
     MoleculeType,
     MoleculeUsageClass,
@@ -49,6 +51,28 @@ def _coerce_string_list(value: Any) -> list[str]:
     return [str(item) for item in parsed if str(item or "").strip()]
 
 
+class ImportBatch(SQLModel, table=True):
+    """One imported file: where its rows or shards came from, and how far the import got.
+
+    `quick_hash` finds a file imported before; `n_records` (records read) against the file's
+    record count tells a complete import from a partial one (`io.batches.previous_import`).
+    """
+
+    __tablename__ = TABLE_IMPORT_BATCHES
+
+    id: int | None = Field(default=None, primary_key=True)
+    source: str = Field(default="")  # download label or URL; the absolute path when local
+    quick_hash: str = Field(default="", index=True)
+    n_records: int = Field(default=0)
+    n_imported: int = Field(default=0)
+    format: str = code_field("file_format", FileFormat.UNKNOWN)
+    kind: str = code_field("import_kind", ImportKind.ROWS)
+    # ponytail: no FK — project_job_index lives in the master db, not in project.db.
+    job_id: str = Field(default="")
+    extra: dict = Field(default_factory=dict, sa_type=JSON)  # import options: context, role, ...
+    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
+
+
 # ---------------------------------------------------------------------------
 # MoleculeRecord
 # ---------------------------------------------------------------------------
@@ -62,7 +86,8 @@ class MoleculeRecord(SQLModel, table=True):
         excluded=False, usage_class=reference → reference-only molecules (e.g. cocrystals)
         excluded=True                         → globally discarded
 
-    Representations live in molecule_representations.
+    Representations live in molecule_representations, identity included (inchikey,
+    smiles_canonical: finds duplicates and activities).
     3D models / conformers live in molecule_models.
     """
 
@@ -78,32 +103,22 @@ class MoleculeRecord(SQLModel, table=True):
     # Identity (immutable after ingestion)
     name: str = Field(default="")
     molecule_type: str = code_field("molecule_type", MoleculeType.UNKNOWN)
-    source: str = Field(default="")  # absolute path — lives outside project
-    source_index: int = Field(default=0)
-    input_format: str = Field(default=FileFormat.UNKNOWN)
+    import_batch_id: int | None = Field(default=None, foreign_key=f"{TABLE_IMPORT_BATCHES}.id")
+    source_index: int = Field(default=0)  # position in the batch's file
 
     # Roles
     is_receptor: bool = Field(default=False)
     is_ligand: bool = Field(default=False)
-    active_binding_site_id: int | None = Field(
-        default=None,
-        foreign_key=f"{TABLE_BINDING_SITES}.id",
-    )
 
     # Payloads (ms_flow volumes): the bytes live in volumes/, the format is the payload's kind.
     # stored → the input as imported
     # current → the working structure (selected model/conformer, protonated, 3D...); NULL while
-    # it is the stored one. Read either through `core.payloads.molecule_payload_id`.
+    # it is the stored one. Read either through `core.payloads.molecule_payload_id`; the model
+    # holding that payload is the active one.
     stored_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id")
     current_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id")
-    current_model_index: int | None = Field(default=None)
     # properties → the import batch's SDF tags (parquet, shared by the batch), read by source_index
     properties_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id")
-
-    # Identity of the current structure (small molecules): finds duplicates and activities.
-    # Canonical isomeric SMILES without explicit Hs — charged atoms keep theirs in brackets.
-    inchikey: str | None = Field(default=None)
-    canonical_smiles: str | None = Field(default=None)
 
     # Basic chemical properties
     n_atoms: int = Field(default=0)
@@ -134,7 +149,6 @@ class MoleculeRecord(SQLModel, table=True):
     has_3d: bool = Field(default=False)
     has_hs: bool = Field(default=False)
     is_minimized: bool = Field(default=False)
-    has_activity: bool = Field(default=False)  # mirror of ligand_activities rows
 
     # Global status
     excluded: bool = Field(default=False)
@@ -142,7 +156,6 @@ class MoleculeRecord(SQLModel, table=True):
     in_set: bool = Field(default=False)
     usage_class: str = code_field("usage_class", MoleculeUsageClass.GENERAL)
 
-    primary_context: str = Field(default="")
     extra_data: dict = Field(default_factory=dict, sa_type=JSON)
 
     @field_validator("extra_data", mode="before")
@@ -173,6 +186,7 @@ class MoleculeRecord(SQLModel, table=True):
 # only the receptors — without it, finding a handful of receptors walks millions of ligands.
 DEFERRED_INDEXES = {
     "ix_molecules_usage_class": "(usage_class)",
+    "idx_mol_batch": "(import_batch_id, source_index)",
     "idx_mol_active": "(id) WHERE excluded=0 AND in_set=0",
     "idx_mol_role_scope": "(usage_class, is_ligand, excluded, molecule_type)",
     "idx_mol_receptor": "(usage_class) WHERE is_receptor=1",
@@ -223,18 +237,19 @@ class MoleculeRepresentation(SQLModel, table=True):
     """
     1-D string representations. One row per (molecule, repr_type).
     Supports multiple types and edge cases (e.g. peptide with both
-    sequence_aa and smiles_canonical).
+    sequence_aa and smiles_canonical). Identity of the current structure (small molecules):
+    inchikey and smiles_canonical, isomeric without explicit Hs — charged atoms keep theirs in
+    brackets.
     """
 
     __tablename__ = TABLE_MOLECULE_REPRESENTATIONS
     __table_args__ = (
-        UniqueConstraint("molecule_id", "repr_type"),
         Index("idx_repr_lookup", "repr_type", "value"),
+        {"sqlite_with_rowid": False},
     )
 
-    id: str = Field(primary_key=True)
-    molecule_id: int = Field(foreign_key=f"{TABLE_MOLECULES}.id", index=True)
-    repr_type: str = code_field("repr_type")
+    molecule_id: int = Field(foreign_key=f"{TABLE_MOLECULES}.id", primary_key=True)
+    repr_type: str = code_field("repr_type", primary_key=True)
     value: str = Field()
 
     @classmethod
@@ -300,29 +315,24 @@ class MoleculeSourceProperty(SQLModel, table=True):
 
 class MoleculeModel(SQLModel, table=True):
     """
-    Structural models for a molecule. Index 0 is always the canonical model
-    (imported or first generated). Additional indices are conformers or
-    alternative models.
+    Structural models for a molecule, in the order they were made (the id). A step that makes
+    several of one molecule (conformers) writes them as one PayloadGroup, so they compress
+    together like poses.
 
-    molecules.current_payload_id / current_model_index point to the active model.
+    The active model is the one whose payload is the molecule's structure
+    (`core.payloads.molecule_payload_id`): no index on the molecule points at it.
 
     Applies to both small molecules (RDKit conformers) and proteins
     (ESMFold predictions, NMR ensembles).
     """
 
     __tablename__ = TABLE_MOLECULE_MODELS
-    __table_args__ = (
-        UniqueConstraint("molecule_id", "model_index"),
-    )
 
     id: int | None = Field(default=None, primary_key=True)
     molecule_id: int = Field(foreign_key=f"{TABLE_MOLECULES}.id", index=True)
-    model_index: int = Field(default=0)  # 0 = canonical
     payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
-    energy: float | None = Field(default=None)  # kcal/mol if minimized
     source: str = code_field("model_source", ModelSource.IMPORTED)
-    # Per-model quality data (e.g. ESMFold plddt_mean/ptm); ESMFold's PAE matrix as a payload.
-    metrics: dict = Field(default_factory=dict, sa_type=JSON)
-    pae_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
+    # Per-model data as a JSON payload (e.g. ESMFold plddt_mean, ptm, pae); NULL if none.
+    data_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
 
     build_row = staticmethod(molecule_model_row)

@@ -274,13 +274,6 @@ class PrepareLigandShardsJobSpec(JobSpec):
                 state = prepared_states.get(shard_id)
                 prepared_path = str(dict(state.files or {}).get("prepared") or "") if state else ""
                 prepared = bool(state and state.is_ready and prepared_path and Path(prepared_path).is_file())
-                # Compatibility with projects prepared before engine artifacts had their own
-                # table. A forced preparation writes the new state and completes the migration.
-                prepared = prepared or (
-                    parsed.engine == "ad4"
-                    and str(row.get("input_format") or "").lower() == "pdbqt"
-                    and shard_path.is_file()
-                )
                 if prepared and not parsed.force:
                     continue
                 yield {
@@ -291,7 +284,7 @@ class PrepareLigandShardsJobSpec(JobSpec):
                     "output_dir": worker_output_dir(
                         shard_path.parent / PREPARED_DIR.format(engine=parsed.engine)
                     ),
-                    "source": str(row.get("source") or ""),
+                    "import_batch_id": row.get("import_batch_id"),
                     "shard_index": int(row.get("shard_index") or 0),
                 }
 

@@ -117,11 +117,8 @@ def test_api_lists_the_receptors_the_method_hides(monkeypatch, tmp_path):
             session.commit()
             if center is not None:
                 site = BindingSite(molecule_id=row.id, name="active", center_x=center[0], center_y=center[1],
-                                   center_z=center[2], size_x=size[0], size_y=size[1], size_z=size[2])
+                                   center_z=center[2], size_x=size[0], size_y=size[1], size_z=size[2], is_active=True)
                 session.add(site)
-                session.commit()
-                row.active_binding_site_id = site.id
-                session.add(row)
                 session.commit()
             ids[name] = row.id
 

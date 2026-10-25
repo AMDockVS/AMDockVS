@@ -388,7 +388,7 @@ class GridBoxSettingDockWidget(QWidget):
             self._clear_preview()
 
     def _populate_tree(self) -> None:
-        active_id = int(getattr(self._current_molecule, "active_binding_site_id", 0) or 0)
+        active_id = self._active_site_id()
         selected_site_item: QTreeWidgetItem | None = None
         for site in self._sites:
             item = self._make_site_item(site, active=(int(site.id or 0) == active_id))
@@ -444,7 +444,7 @@ class GridBoxSettingDockWidget(QWidget):
         molecule = self._current_molecule
         if molecule is None:
             return None
-        active_id = int(getattr(molecule, "active_binding_site_id", 0) or 0)
+        active_id = self._active_site_id()
         site = self._site_by_id(active_id) if active_id > 0 else None
         if site is None:
             return None
@@ -455,6 +455,10 @@ class GridBoxSettingDockWidget(QWidget):
             (float(site.center_x), float(site.center_y), float(site.center_z)),
             (float(site.size_x), float(site.size_y), float(site.size_z)),
         )
+
+    def _active_site_id(self) -> int:
+        """The current receptor's active site (0: none), from the sites it has loaded."""
+        return next((int(site.id or 0) for site in self._sites if site.is_active), 0)
 
     def _site_by_id(self, site_id: int) -> BindingSite | None:
         for site in self._sites:
@@ -760,7 +764,7 @@ class GridBoxSettingDockWidget(QWidget):
             return
         self._working = GridBoxState()
         self._remove_working_item()
-        active_id = int(getattr(self._current_molecule, "active_binding_site_id", 0) or 0)
+        active_id = self._active_site_id()
         if active_id:
             self.focus_binding_site(self._current_molecule, site_id=active_id, ensure_selected=True)
         else:
@@ -889,7 +893,7 @@ class GridBoxSettingDockWidget(QWidget):
         molecule = self._current_molecule
         if molecule is None:
             return
-        active_id = int(getattr(molecule, "active_binding_site_id", 0) or 0)
+        active_id = self._active_site_id()
         if active_id <= 0:
             return
         self.focus_binding_site(molecule, site_id=active_id, ensure_selected=True)
@@ -933,7 +937,7 @@ class GridBoxSettingDockWidget(QWidget):
                 source_ref=str(site.source_ref or ""),
                 center=(self.cx.value(), self.cy.value(), self.cz.value()),
                 size=(self.sx.value(), self.sy.value(), self.sz.value()),
-                set_active=int(getattr(molecule, "active_binding_site_id", 0) or 0) == int(site.id or 0),
+                set_active=bool(site.is_active),
             )
         except Exception as exc:
             QMessageBox.critical(self, "Save Binding Site", str(exc))
@@ -976,7 +980,6 @@ class GridBoxSettingDockWidget(QWidget):
                 molecule_id=int(molecule.id or 0),
                 binding_site_id=int(site.id or 0),
             )
-            molecule.active_binding_site_id = int(site.id or 0)
         except Exception as exc:
             QMessageBox.critical(self, "Set Active Binding Site", str(exc))
             return
@@ -1010,7 +1013,7 @@ class GridBoxSettingDockWidget(QWidget):
         has_receptor = self._current_molecule is not None
         selected = self._selected_site()
         has_selected_site = selected is not None
-        active_id = int(getattr(self._current_molecule, "active_binding_site_id", 0) or 0)
+        active_id = self._active_site_id()
         self.site_tree.setEnabled(has_receptor)
         self.show_working_box.setEnabled(has_receptor)
         self.new_button.setEnabled(has_receptor)

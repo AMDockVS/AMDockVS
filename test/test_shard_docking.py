@@ -24,6 +24,15 @@ from amdockvs.docking.preparation.shards import (
 )
 
 
+def _batch(session, source: str) -> int:
+    from amdockvs.models import ImportBatch
+
+    batch = ImportBatch(source=source, quick_hash=source, kind="shards")
+    session.add(batch)
+    session.flush()
+    return int(batch.id)
+
+
 def _pdbqt_shard(path: Path, count: int = 5) -> Path:
     with ShardWriter(
         path,
@@ -352,7 +361,7 @@ def test_select_hits_projects_scores_then_loads_only_selected_poses(tmp_path, mo
         project_db = runtime.workspace.project_db
         with project_db.get_session() as session:
             receptor = MoleculeRecord(name="R", molecule_type="protein", is_receptor=True)
-            source_shard = ScreeningShard(source="lib.smi", shard_index=0, path="lib.parquet", n_records=3)
+            source_shard = ScreeningShard(import_batch_id=_batch(session, "lib.smi"), shard_index=0, path="lib.parquet", n_records=3)
             session.add(receptor)
             session.add(source_shard)
             session.commit()
@@ -422,7 +431,7 @@ def test_top_n_writes_nothing_until_the_campaign_closes(tmp_path):
         with project_db.get_session() as session:
             receptor = MoleculeRecord(name="R", molecule_type="protein", is_receptor=True)
             source_shard = ScreeningShard(
-                source="lib.smi", shard_index=0, path="lib.parquet", n_records=3
+                import_batch_id=_batch(session, "lib.smi"), shard_index=0, path="lib.parquet", n_records=3
             )
             session.add(receptor)
             session.add(source_shard)
@@ -504,7 +513,7 @@ def test_general_top_n_is_ranked_per_receptor_and_deduplicates_ligands(tmp_path)
                 for name in ("reference", "off-target")
             ]
             source_shard = ScreeningShard(
-                source="library.smi", shard_index=0, path="library.parquet", n_records=2
+                import_batch_id=_batch(session, "library.smi"), shard_index=0, path="library.parquet", n_records=2
             )
             session.add_all([*receptors, source_shard])
             session.commit()
@@ -569,7 +578,7 @@ def test_interrupted_top_n_is_recovered_from_completed_result_shards(tmp_path):
             session.add(receptor)
             session.flush()
             source_shards = [
-                ScreeningShard(source="library.smi", shard_index=index, path=f"input-{index}.parquet", n_records=2)
+                ScreeningShard(import_batch_id=_batch(session, "library.smi"), shard_index=index, path=f"input-{index}.parquet", n_records=2)
                 for index in range(2)
             ]
             session.add_all(source_shards)

@@ -14,7 +14,7 @@ from amdockvs.project.sets import molecule_set_spec
 
 
 _ROW_FIELDS = (
-    "id", "stored_payload_id", "current_payload_id", "current_model_index", "input_format", "extra_data", "has_3d",
+    "id", "stored_payload_id", "current_payload_id", "extra_data", "has_3d",
 )
 
 
@@ -81,19 +81,6 @@ def iter_receptor_rows(
     )
 
 
-def max_model_index_by_molecule_ids(project_db, molecule_ids: Sequence[int]) -> dict[int, int]:
-    normalized_ids = sorted({int(item) for item in molecule_ids if int(item) > 0})
-    if not normalized_ids:
-        return {}
-    with project_db.get_session() as session:
-        rows = session.exec(
-            select(MoleculeModel.molecule_id, func.max(MoleculeModel.model_index))
-            .where(MoleculeModel.molecule_id.in_(normalized_ids))
-            .group_by(MoleculeModel.molecule_id)
-        ).all()
-    return {int(molecule_id): int(max_index) for molecule_id, max_index in rows if molecule_id is not None and max_index is not None}
-
-
 def sequences_by_molecule_ids(project_db, molecule_ids: Sequence[int]) -> dict[int, str]:
     normalized_ids = sorted({int(item) for item in molecule_ids if int(item) > 0})
     if not normalized_ids:
@@ -110,5 +97,4 @@ def sequences_by_molecule_ids(project_db, molecule_ids: Sequence[int]) -> dict[i
 __all__ = [
     "iter_ligand_rows",
     "iter_receptor_rows",
-    "max_model_index_by_molecule_ids",
 ]

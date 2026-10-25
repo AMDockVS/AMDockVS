@@ -1,10 +1,8 @@
 """Chemistry reads the bytes of the row and hands back Payloads: no path in, no path out."""
 from __future__ import annotations
 
-import io
 from pathlib import Path
 
-import numpy as np
 from ms_flow.payloads import Payload
 from rdkit import Chem
 
@@ -39,10 +37,8 @@ def test_receptor_tool_runs_on_a_temp_file_and_returns_the_output_bytes():
 
 
 def test_prediction_task_returns_payloads_and_keeps_the_stored_structure(monkeypatch):
-    pae = io.BytesIO()
-    np.save(pae, np.zeros((2, 2), dtype=np.float32))
     monkeypatch.setattr(
-        chemistry_tasks, "predict_structure", lambda sequence, *, model, token=None: ({"ptm": 0.5}, b"data_x\n", pae.getvalue())
+        chemistry_tasks, "predict_structure", lambda sequence, *, model, token=None: ({"ptm": 0.5}, b"data_x\n", [[0.0]])
     )
     sequence_seen = {}
     monkeypatch.setattr(
@@ -55,7 +51,6 @@ def test_prediction_task_returns_payloads_and_keeps_the_stored_structure(monkeyp
             "sequence": "",
             "structure": PDB,
             "structure_kind": "pdb",
-            "model_index": 2,
             "model": "esmfold2-fast-2026-05",
         }
     )
@@ -66,7 +61,7 @@ def test_prediction_task_returns_payloads_and_keeps_the_stored_structure(monkeyp
     assert isinstance(molecule["current_payload_id"], Payload)
     model, = out["molecule_models"]
     assert model["payload_id"] is molecule["current_payload_id"]
-    assert model["pae_payload_id"].kind == "npy"
+    assert model["data_payload_id"].kind == "json"
 
 
 def test_pdb2pqr_receptor_row_comes_back_as_the_pdb_payload(monkeypatch):
@@ -94,12 +89,11 @@ def test_pdb2pqr_receptor_row_comes_back_as_the_pdb_payload(monkeypatch):
 
     update, = transform_receptor_rows(
         operation="protonate",
-        rows=[{"id": 9, "structure": PDB, "structure_kind": "pdb", "has_3d": True, "current_model_index": 0}],
+        rows=[{"id": 9, "structure": PDB, "structure_kind": "pdb", "has_3d": True}],
         params={"method": "pdb2pqr"},
-        next_model_index_by_entity={9: 1},
     )
 
     current = update["current_payload_id"]
     assert (current.data, current.kind, current.series) == (b"PROTONATED PDB\n", "pdb", SERIES_RECEPTORS)
-    assert update["model_rows"][0]["payload_id"] is current and update["current_model_index"] == 1
+    assert update["model_rows"][0]["payload_id"] is current
     assert touched and not any(path.exists() for path in touched)

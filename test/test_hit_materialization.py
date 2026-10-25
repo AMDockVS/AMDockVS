@@ -15,7 +15,7 @@ from amdockvs.core.constants import SERIES_POSES
 from amdockvs.core.payloads import payload_store, read_structure, structure_payload
 from amdockvs.docking.results.repository import docking_run_id
 from amdockvs.screening.materialize import HitGate, ingest_hits
-from amdockvs.models import DockingResult, MoleculeModel, MoleculeRecord
+from amdockvs.models import DockingResult, ImportBatch, MoleculeModel, MoleculeRecord, MoleculeRepresentation
 from amdockvs.molecules.storage import ShardStore
 from amdockvs.runtime import AMDockVSRuntime
 
@@ -26,6 +26,9 @@ def project(tmp_path):
     rt.create_project(name="hits", folder=tmp_path)
     assert docking_run_id(rt.workspace.project_db, run_id="run-1", engine="vina", run_kind="screening",
                           protocol={}) == 1  # the run every `hit_rows` row points to
+    with rt.workspace.project_db.get_session() as session:  # the library every hit comes from
+        session.add(ImportBatch(id=1, source="/data/library.smi", quick_hash="x"))
+        session.commit()
     yield rt
     rt.close_project()
 
@@ -35,7 +38,7 @@ def hit_rows(count, *, score=-9.0, receptor_id=1):
         {
             "name": f"hit_{index}",
             "smiles": "CCO",
-            "source": "/data/library.smi",
+            "import_batch_id": 1,
             "source_index": index,
             "docking_run_id": 1,
             "score": score,
@@ -76,7 +79,7 @@ def test_light_payload_keeps_smiles_and_pose_but_no_descriptors(project):
     with project_db.get_session() as session:
         molecule = session.exec(select(MoleculeRecord)).one()
         result = session.exec(select(DockingResult)).one()
-        assert molecule.extra_data["smiles"] == "CCO"
+        assert session.get(MoleculeRepresentation, (molecule.id, "smiles_isomeric")).value == "CCO"
         assert molecule.logp is None and molecule.heavy_atom_count is None
         assert not session.exec(select(MoleculeModel)).all()
     # The pose is the hit's only 3D: one payload, held by the molecule and by its result.

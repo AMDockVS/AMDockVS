@@ -730,7 +730,7 @@ class DockingAPI:
         with self.runtime.workspace.project_db.get_session() as session:
             rows = session.exec(
                 select(MoleculeRecord, BindingSite)
-                .join(BindingSite, BindingSite.id == MoleculeRecord.active_binding_site_id)
+                .join(BindingSite, (BindingSite.molecule_id == MoleculeRecord.id) & (BindingSite.is_active == True))  # noqa: E712
                 .where(MoleculeRecord.is_receptor == True)  # noqa: E712 - SQL expression
             ).all()
         misfits: list[int] = []

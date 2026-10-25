@@ -133,7 +133,7 @@ class MolecularViewerController:
             except Exception:
                 pass
         # Draw the box AFTER loading the structure (delete('all') above would wipe it otherwise).
-        active_id = int(getattr(receptor, "active_binding_site_id", 0) or 0)
+        active_id = int(self.w.runtime.binding_sites.active_site_id(int(receptor.id or 0)) or 0)
         if active_id > 0:
             self.w.grid_dock.focus_binding_site(receptor, site_id=active_id, ensure_selected=True)
             geometry = self.w.grid_dock.active_box_geometry()
@@ -518,8 +518,9 @@ class MolecularViewerController:
                 _log.exception("PyMOL could not show %s", object_name)
                 return
             # delete("all") above wiped the box: a receptor brings its active site back with it.
-            active_id = int(getattr(molecule, "active_binding_site_id", 0) or 0)
-            if bool(getattr(molecule, "is_receptor", False)) and active_id and getattr(self.w, "grid_dock", None):
+            is_receptor = bool(getattr(molecule, "is_receptor", False)) and getattr(self.w, "grid_dock", None)
+            active_id = int(self.w.runtime.binding_sites.active_site_id(int(molecule.id or 0)) or 0) if is_receptor else 0
+            if active_id:
                 self.w.grid_dock.focus_binding_site(molecule, site_id=active_id, ensure_selected=True)
             if then is not None:
                 then(molecule)

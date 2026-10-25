@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from amdockvs.core.vocab import (
-    BindingSiteSource, ClusteringMethod, FileFormat, ModelSource, MoleculeType, MoleculeUsageClass,
+    BindingSiteSource, ClusteringMethod, ModelSource, MoleculeType, MoleculeUsageClass,
 )
 
 
@@ -87,12 +87,10 @@ def molecule_row(
         name: str,
         molecule_type: str,
         n_atoms: int,
-        input_format: str,
+        import_batch_id: int | None = None,
         current_payload_id: Any = None,
         stored_payload_id: Any = None,
-        current_model_index: int | None = None,
         extra_data: dict | None = None,
-        primary_context: str = "",
         usage_class: str = MoleculeUsageClass.GENERAL,
 ) -> dict[str, Any]:
     raw_meta = dict(extra_data or {}) if isinstance(extra_data, dict) else {}
@@ -101,15 +99,12 @@ def molecule_row(
     return {
         "name": str(name or f"{source_file.stem}_{source_index}"),
         "molecule_type": str(molecule_type or MoleculeType.UNKNOWN),
-        "source": str(source_file.resolve()),
+        "import_batch_id": import_batch_id,
         "source_index": max(0, source_index),
-        "input_format": str(input_format or FileFormat.UNKNOWN),
         # A sequence-only protein has no structure yet: both stay None until a model is predicted.
         # stored only when the input differs from the current form (D11).
         "stored_payload_id": stored_payload_id,
         "current_payload_id": current_payload_id,
-        "current_model_index": None if current_model_index is None else int(current_model_index),
-        "active_binding_site_id": None,
         "n_atoms": max(0, n_atoms),
         "inchikey": None,
         "canonical_smiles": None,
@@ -131,12 +126,10 @@ def molecule_row(
         "has_3d": bool(state.get("has_3d", False)),
         "has_hs": bool(state.get("has_hs", False)),
         "is_minimized": False,
-        "has_activity": False,
         "excluded": False,
         "exclusion_reason": "",
         "in_set": False,
         "usage_class": str(usage_class or MoleculeUsageClass.GENERAL),
-        "primary_context": primary_context,
         "extra_data": meta,
     }
 
@@ -144,21 +137,15 @@ def molecule_row(
 def molecule_model_row(
         *,
         molecule_id: int,
-        model_index: int,
         payload_id: Any,
         source: str = ModelSource.IMPORTED,
-        energy: float | None = None,
-        metrics: dict | None = None,
-        pae_payload_id: Any = None,
+        data_payload_id: Any = None,
 ) -> dict[str, Any]:
     return {
         "molecule_id": molecule_id,
-        "model_index": model_index,
         "payload_id": payload_id,
-        "energy": energy,
         "source": source,
-        "metrics": dict(metrics or {}),
-        "pae_payload_id": pae_payload_id,
+        "data_payload_id": data_payload_id,
     }
 
 
@@ -171,6 +158,7 @@ def binding_site_row(
         center: tuple[float, float, float] | None = None,
         size: tuple[float, float, float] | None = None,
         extra_data: dict | None = None,
+        is_active: bool = False,
 ) -> dict[str, Any]:
     cx, cy, cz = center or (None, None, None)
     sx, sy, sz = size or (None, None, None)
@@ -182,6 +170,7 @@ def binding_site_row(
         "center_x": cx, "center_y": cy, "center_z": cz,
         "size_x": sx, "size_y": sy, "size_z": sz,
         "extra_data": extra_data,
+        "is_active": bool(is_active),
     }
 
 

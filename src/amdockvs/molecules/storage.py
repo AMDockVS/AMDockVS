@@ -66,7 +66,7 @@ class DbStore:
 
 
 SHARD_FIELDS = (
-    "id", "generation_id", "source", "shard_index", "path", "input_format", "n_records", "state"
+    "id", "generation_id", "import_batch_id", "shard_index", "path", "n_records", "state"
 )
 
 
@@ -168,24 +168,18 @@ DOCKABLE_STATES = (ShardState.PREPARED, ShardState.DONE, ShardState.DOCKING)
 def shard_scope_spec(
     *,
     state: str | None = ShardState.PENDING,
-    input_format: str | None = None,
     states: tuple[str, ...] | None = None,
 ) -> QuerySpec:
     """The shards a run should touch. `state=None` is the whole inventory.
 
     Filtering on `state != done` here is all the idempotency there is: a shard that finished
     is not fed again, so a crashed run resumes by simply being started again.
-
-    ``input_format`` describes the current chemical representation. Engine readiness is queried
-    through ``ShardEngineState``; the format filter remains for inventory and legacy projects.
     """
     filters: dict[str, Any] = {}
     if states is not None:
         filters["state__in"] = list(states)
     elif state is not None:
         filters["state"] = state
-    if input_format is not None:
-        filters["input_format"] = input_format
     return QuerySpec(table=TABLE_SCREENING_SHARDS, fields=SHARD_FIELDS, filters=filters, order=("id",))
 
 
@@ -266,27 +260,6 @@ class ShardStore:
         )
 
 
-def set_shard_state(project_db, *, source: str, shard_index: int, state: str) -> None:
-    """Move one shard along its lifecycle. The inventory row is the only place this is written."""
-    from sqlmodel import select
-
-    from amdockvs.models import ScreeningShard
-
-    generation_id = active_generation_id(project_db)
-    with project_db.get_session() as session:
-        query = select(ScreeningShard).where(
-            ScreeningShard.source == str(source), ScreeningShard.shard_index == int(shard_index)
-        )
-        # `(source, shard_index)` only addresses a shard within a generation — without this
-        # the parent's row is an equally good match and `.first()` picks whichever.
-        if generation_id is not None:
-            query = query.where(ScreeningShard.generation_id == generation_id)
-        row = session.exec(query).first()
-        if row is None:
-            return
-        row.state = str(state)
-        session.add(row)
-        session.commit()
 
 
 def as_store(source) -> LigandStore:
@@ -341,6 +314,9 @@ def iter_prepared_shards(project_db, *, engine: str) -> Iterator[dict[str, Any]]
         if generation_id is not None:
             query = query.where(ScreeningShard.generation_id == generation_id)
         shards = list(session.exec(query).all())
+    from amdockvs.io.batches import library_names
+
+    libraries = library_names(project_db)
     for shard in shards:
         state = states.get(int(shard.id or 0))
         if state is not None:
@@ -348,30 +324,14 @@ def iter_prepared_shards(project_db, *, engine: str) -> Iterator[dict[str, Any]]
             if state.is_ready and prepared_path and Path(prepared_path).is_file():
                 yield {
                     "id": int(shard.id or 0),
-                    "source": shard.source,
+                    "import_batch_id": shard.import_batch_id,
+                    "library": libraries.get(shard.import_batch_id, "library"),
                     "shard_index": int(shard.shard_index),
                     "path": shard.path,
                     "prepared_path": prepared_path,
-                    "input_format": shard.input_format,
                     "n_records": int(state.n_records),
                     "state": shard.state,
                 }
-            continue
-        if (
-            normalized_engine == "ad4"
-            and str(shard.input_format or "").lower() == "pdbqt"
-            and Path(shard.path).is_file()
-        ):
-            yield {
-                "id": int(shard.id or 0),
-                "source": shard.source,
-                "shard_index": int(shard.shard_index),
-                "path": shard.path,
-                "prepared_path": shard.path,
-                "input_format": shard.input_format,
-                "n_records": int(shard.n_records),
-                "state": shard.state,
-            }
 
 
 def prepared_shard_record_count(project_db, *, engine: str) -> int:
@@ -414,26 +374,6 @@ def has_ligand_rows(project_db) -> bool:
     ) > 0
 
 
-def check_library_target(project_db, *, target: str) -> None:
-    """Refuse an import that would give the project a second screening library.
-
-    This is the invariant, and it is enforced here rather than trusted: it is what lets every
-    scope name one store and never a union of two.
-    """
-    if target == LIBRARY_SHARDS and general_ligand_count(project_db):
-        raise ValueError(
-            "This project's screening library is already rows in the database. Sharding a "
-            "second library would leave the project with two, which no scope can name. Delete "
-            "the general ligands first, or shard into a new project."
-        )
-    if target == LIBRARY_ROWS and has_shards(project_db):
-        raise ValueError(
-            "This project's screening library is sharded on disk. Importing general ligands as "
-            "rows would leave the project with two libraries. Import them as shards, or bring "
-            "them in as reference ligands (primary_context='reference') if they are curated."
-        )
-
-
 def store_from_config(config: Mapping[str, Any] | None) -> LigandStore:
     """A chunk feed gets a `config`, not the runtime — this is where it resolves its store.
 
@@ -456,14 +396,12 @@ __all__ = [
     "LIBRARY_ROWS",
     "LIBRARY_SHARDS",
     "as_store",
-    "check_library_target",
     "general_ligand_count",
     "has_shards",
     "has_ligand_rows",
     "library_kind",
     "iter_prepared_shards",
     "prepared_shard_record_count",
-    "set_shard_state",
     "shard_scope_spec",
     "store_from_config",
 ]

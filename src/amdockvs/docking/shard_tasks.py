@@ -43,7 +43,7 @@ def _discard_poses(rows: list[dict]) -> None:
                     path.unlink(missing_ok=True)
 
 
-def _hit_row(row: dict, *, smiles: str, source: str, docking_run_id: int | None) -> dict[str, Any]:
+def _hit_row(row: dict, *, smiles: str, shard: dict, docking_run_id: int | None) -> dict[str, Any]:
     """A docking result row turned into what `ingest_hits` promotes: a molecule and its result
     columns (its `ligand_molecule_id` is the shard record until then); its pose is added by the
     caller as a payload."""
@@ -51,8 +51,8 @@ def _hit_row(row: dict, *, smiles: str, source: str, docking_run_id: int | None)
     return {
         **{key: value for key, value in row.items() if key != "pose_path"},
         "docking_run_id": docking_run_id,
-        "name": f"{Path(source).stem or 'library'}:{ligand_id}",
-        "source": source,
+        "name": f"{shard.get('library') or 'library'}:{ligand_id}",
+        "import_batch_id": shard.get("import_batch_id"),
         # The shard record id *is* the identity of a library molecule: the shard's
         # `source_indices` metadata is what maps it back to a line in the original file.
         "source_index": ligand_id,
@@ -84,11 +84,9 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
     own engine call — the ligand ids inside a shard start at 0, so two shards in one call
     would write over each other's poses.
     """
-    source = str(shard.get("source") or "")
     shard_index = int(shard.get("shard_index") or 0)
     envelope = {
         "shard_id": int(shard.get("shard_id") or 0),
-        "source": source,
         "shard_index": shard_index,
         "chunks_total": int(payload.get("chunks_total") or 1),
         "receptor_id": int(payload.get("receptor_id") or 0),
@@ -145,7 +143,7 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
                 "shard_id": header["shard_id"],
                 "base_id": header["base_id"],
                 "slot_count": header["slot_count"],
-                "source_shard": source,
+                "import_batch_id": shard.get("import_batch_id"),
                 "run_id": str(payload.get("run_id") or ""),
                 "protocol": dict(payload.get("protocol_metadata") or {}),
                 "receptor_id": envelope["receptor_id"],
@@ -188,7 +186,7 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
                         hit = _hit_row(
                             row,
                             smiles=smiles.get(ligand_id, ""),
-                            source=source,
+                            shard=shard,
                             docking_run_id=payload.get("docking_run_id"),
                         )
                         # Compressed when pickled, so in the worker: the parent only appends it.

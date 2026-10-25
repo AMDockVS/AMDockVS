@@ -15,9 +15,6 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from amdockvs.core.constants import TABLE_SCREENING_SHARDS
 from amdockvs.molecules.storage import (
-    LIBRARY_ROWS,
-    LIBRARY_SHARDS,
-    check_library_target,
     library_kind,
 )
 from amdockvs.runtime import AMDockVSRuntime
@@ -39,10 +36,8 @@ def _add_shard(runtime, tmp_path):
     with runtime.workspace.project_db.get_session() as session:
         session.add(
             ScreeningShard(
-                source=str(tmp_path / "lib.smi"),
                 shard_index=0,
                 path=str(tmp_path / "shard_00000.smi"),
-                input_format="smi",
                 n_records=10,
                 state=ShardState.PENDING,
             )
@@ -64,17 +59,6 @@ def test_mode_is_not_stored_anywhere(runtime, tmp_path):
     runtime.close_project()
     runtime.open_project(summary_id)
     assert runtime.mode == ProjectMode.HTPVS
-
-
-def test_shards_refuse_to_join_a_row_library(runtime, tmp_path):
-    """One screening library per project: that is what lets a scope name a single store."""
-    project_db = runtime.workspace.project_db
-    check_library_target(project_db, target=LIBRARY_ROWS)  # empty project: either is fine
-    check_library_target(project_db, target=LIBRARY_SHARDS)
-    _add_shard(runtime, tmp_path)
-    check_library_target(project_db, target=LIBRARY_SHARDS)  # more shards are fine
-    with pytest.raises(ValueError, match="sharded"):
-        check_library_target(project_db, target=LIBRARY_ROWS)
 
 
 def test_shard_table_is_the_only_source_of_truth():
@@ -160,8 +144,8 @@ def test_the_import_dialog_defaults_to_the_existing_library(runtime, tmp_path):
     })()
     submit, _name = dialog.workflow_submit()
     submit(SimpleNamespace(loader=loader, mode=ProjectMode.HTPVS))
-    # Rows in a sharded project are curated by definition — never a second screening library.
-    assert contexts == ["reference"] and not dialog._target_sharded
+    # Rows and shards coexist: rows in a sharded project are general unless marked As Reference.
+    assert contexts == ["general"] and not dialog._target_sharded
 
 
 def test_activities_only_come_with_the_reference_mark(runtime, tmp_path):
@@ -214,7 +198,7 @@ def test_reference_ligands_are_not_the_screening_library(runtime, tmp_path):
     def row(context):
         return _build_row(
             source_file=tmp_path / "l.sdf", source_index=0, name="l",
-            n_atoms=1, input_format="sdf", stored=None, current=None,
+            n_atoms=1, import_batch_id=None, stored=None, current=None,
             metadata={}, molecule_kind="small_molecule", primary_role="ligand",
             primary_context=context,
         )

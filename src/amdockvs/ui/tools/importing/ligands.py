@@ -42,7 +42,7 @@ from amdockvs.ui.common.drop_area import (
 )
 from amdockvs.io.formats import QT_FILE_FILTER as _LIGAND_FILTER
 from amdockvs.ui.view_ids import LIGANDS_VIEW_ID, SHARDS_VIEW_ID
-from amdockvs.ui.tools.importing.common import land_on_view, nudge_monitor
+from amdockvs.ui.tools.importing.common import confirm_reimport, land_on_view, nudge_monitor
 from amdockvs.ui.tools.importing.download import download_into, file_label, file_tip
 from amdockvs.ui.tools.importing.ligand_forms import (
     ImportActivityForm,
@@ -510,7 +510,7 @@ class LigandImportDialog(QDialog):
             self.activity_form.contribute(policy)
         return finalize_import_prefilter_policy(policy)
 
-    def workflow_submit(self):
+    def workflow_submit(self, *, force: bool = False):
         """Validate the current selection and return (submit, name) where submit(runtime) performs
         the import (grouped by type, small-molecule group carrying the prefilter). None if empty.
         Captures the files + policy so the import runs later, when the workflow runs."""
@@ -548,21 +548,17 @@ class LigandImportDialog(QDialog):
 
         def submit(rt):
             job_ids: list = []
-            # A row import into a sharded project is curated by definition — the library is on
-            # disk, so these cannot be a second one. Read at run time: a workflow step may be
-            # configured before the project holds any shards.
-            context = "reference" if (not shard and rt.mode == ProjectMode.HTPVS) else "general"
             for (kind, reference), paths in groups.items():
                 small = kind == MoleculeType.SMALL_MOLECULE
                 prefilter = (reference_policy if reference else policy) if small else None
                 # Only the screening library shards; reference files and other types are rows.
                 if shard and small and not reference:
-                    res = rt.loader.shard_ligands(paths, molecule_kind=kind, prefilter=prefilter)
+                    res = rt.loader.shard_ligands(paths, molecule_kind=kind, prefilter=prefilter, force=force)
                 else:
                     res = rt.loader.load_ligands(
                         paths, molecule_kind=kind, prefilter=prefilter,
-                        primary_context="reference" if reference else context,
-                        source_labels=source_labels,
+                        primary_context="reference" if reference else "general",
+                        source_labels=source_labels, force=force,
                     )
                 job_ids.extend(res if isinstance(res, (list, tuple)) else [res])
             return [j for j in job_ids if j]
@@ -586,7 +582,11 @@ class LigandImportDialog(QDialog):
         super().done(result)
 
     def _do_import(self) -> None:
-        payload = self.workflow_submit()
+        files = [path for path, _kind in self.table.rows()]
+        force = confirm_reimport(self, "Import Ligands", self.runtime, files) if files else False
+        if force is None:
+            return
+        payload = self.workflow_submit(force=force)
         if payload is None:
             return
         submit, _name = payload

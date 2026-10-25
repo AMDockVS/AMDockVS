@@ -56,7 +56,7 @@ from amdockvs.ui.view_ids import RECEPTOR_VIEW_ID
 from amdockvs.models.molecules import MoleculeType
 from amdockvs.ui.common.widgets import WrapCombo
 from ms_components.chips import ChipsSelect
-from amdockvs.ui.tools.importing.common import land_on_view, nudge_monitor
+from amdockvs.ui.tools.importing.common import confirm_reimport, land_on_view, nudge_monitor
 from amdockvs.ui.tools.importing.download import download_into, file_label, file_tip
 
 
@@ -887,7 +887,7 @@ class ReceptorImportDialog(QDialog):
         discard_temporary(self.panel.downloaded - imported)
         super().done(result)
 
-    def workflow_submit(self):
+    def workflow_submit(self, *, force: bool = False):
         """(submit, name) capturing the receptor import (+ any dimer ligand-role files) as a deferred
         job, or None if empty. Runs when the workflow runs."""
         files = list(self.panel.file_paths)
@@ -902,13 +902,13 @@ class ReceptorImportDialog(QDialog):
             # A temporary download both jobs read is the ligand job's to delete.
             shared = set(ligand_role_files)
             res = rt.loader.load_receptors(
-                files, **import_request, temporary_files=[path for path in files if path not in shared])
+                files, **import_request, temporary_files=[path for path in files if path not in shared], force=force)
             job_ids.extend(res if isinstance(res, (list, tuple)) else [res])
             # Dimer case: flagged receptors also enter the general screening set as biopolymer ligands.
             if ligand_role_files:
                 res2 = rt.loader.load_ligands(
                     ligand_role_files, molecule_kind=MoleculeType.PROTEIN, primary_context="general",
-                    source_labels=import_request.get("source_labels"),
+                    source_labels=import_request.get("source_labels"), force=force,
                 )
                 job_ids.extend(res2 if isinstance(res2, (list, tuple)) else [res2])
             return [j for j in job_ids if j]
@@ -926,7 +926,11 @@ class ReceptorImportDialog(QDialog):
             self._do_import()
 
     def _do_import(self) -> None:
-        payload = self.workflow_submit()
+        files = list(self.panel.file_paths)
+        force = confirm_reimport(self, "Import Receptors", self.runtime, files) if files else False
+        if force is None:
+            return
+        payload = self.workflow_submit(force=force)
         if payload is None:
             return
         submit, _name = payload

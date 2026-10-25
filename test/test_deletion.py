@@ -86,7 +86,7 @@ def _project(tmp_path):
         s.add(MoleculeRecord(id=3, name="b", is_ligand=True, stored_payload_id=ids["shared"], current_payload_id=ids["alone"]))
         s.add(MoleculeRecord(id=4, name="c", is_ligand=True, stored_payload_id=ids["shared"], current_payload_id=ids["shared"]))
         s.commit()
-        s.add(MoleculeModel(molecule_id=2, model_index=1, payload_id=ids["model"], pae_payload_id=ids["pae"]))
+        s.add(MoleculeModel(molecule_id=2, payload_id=ids["model"], data_payload_id=ids["pae"]))
         s.add(EngineState(molecule_id=2, role_type="ligand", engine="vina", prepared_payload_id=ids["prepared"]))
         s.add(FingerprintRecord(molecule_id=2, fp_type="morgan", fp_binary=b""))
         s.add(LigandActivity(molecule_id=2, activity_type="IC50", value=1.0))
