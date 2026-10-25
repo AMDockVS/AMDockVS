@@ -9,7 +9,9 @@ from rdkit.Chem import AllChem  # noqa: E402
 
 from ms_contactmap.model import Diagram, Interaction, Residue, ResidueRef  # noqa: E402
 
-from amdockvs.ui.viewers.interactions_3d import GROUP, show_interaction, show_residue_interactions  # noqa: E402
+from amdockvs.ui.viewers.interactions_3d import interaction_group, show_interaction, show_residue_interactions  # noqa: E402
+
+GROUP = interaction_group("receptor_1", "pose")
 
 _SER = """\
 ATOM      1  N   SER A  10       0.000   0.000   0.000  1.00  0.00           N
@@ -43,12 +45,29 @@ def test_contacts_of_the_picked_residue_are_drawn_at_their_3d_length(tmp_path):
     try:
         cmd.load(str(tmp_path / "rec.pdb"), "receptor_1")
         cmd.load(str(tmp_path / "pose.sdf"), "pose")
+        cmd.set("grid_slot", 2, "receptor_1")
+        cmd.set("grid_slot", 2, "pose")
         for _picked_again in range(2):  # the previous drawing is replaced, not added to
             assert show_residue_interactions(cmd, receptor_obj="receptor_1", ligand_obj="pose",
                                              key=key, diagram=diagram) == 2
         points = [n for n in cmd.get_names("objects") if n.startswith(f"{GROUP}_p")]
+        assert all(cmd.count_atoms(obj) == 1 for obj in points)
         assert round(cmd.get_distance(points[0], points[1]), 1) == 2.8
         assert GROUP in cmd.get_names("all")
+        for obj in cmd.get_names("objects"):
+            if cmd.get_type(obj) != "object:group":
+                assert cmd.get_setting_int("grid_slot", obj) == 2
+
+        cmd.create("receptor_2", "receptor_1")
+        cmd.create("pose_2", "pose")
+        cmd.set("grid_slot", 3, "receptor_2")
+        assert show_residue_interactions(cmd, receptor_obj="receptor_2", ligand_obj="pose_2",
+                                         key=key, diagram=diagram) == 2
+        assert GROUP in cmd.get_names("objects")
+        other_group = interaction_group("receptor_2", "pose_2")
+        for obj in cmd.get_names("objects"):
+            if obj.startswith(other_group) and cmd.get_type(obj) != "object:group":
+                assert cmd.get_setting_int("grid_slot", obj) == 3
 
         # A contact picked in the interaction table: just that one, in its type's colour.
         contact = SimpleNamespace(kind="hbond", residue_key=key, ligand_atoms=(2,), protein_atom="OG", via_water=None)

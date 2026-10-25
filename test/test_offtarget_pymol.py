@@ -68,6 +68,49 @@ def _label(cmd, slot):
     return labels
 
 
+def test_multiple_ligand_grids_share_the_scene_and_keep_pose_replacement_local(grid_scene):
+    widget, cmd, dock, pending = grid_scene
+    viewer = MolecularViewerController(SimpleNamespace(pymol_dock=dock))
+    viewer.set_multiple_selection_enabled(True)
+    widget._poses[742] = widget._poses[741]
+    widget._show_ligand_grid(741)
+    widget._show_ligand_grid(742)
+    for work, done in reversed(pending[:]):
+        done(work())
+    pending.clear()
+    for ligand_id in (741, 742):
+        for rid in (1, 2, 3):
+            rec, lig = widget._grid_objects(dock, ligand_id, rid)
+            assert rec in cmd.get_names("objects") and lig in cmd.get_names("objects")
+            assert cmd.get_setting_int("grid_slot", rec) == cmd.get_setting_int("grid_slot", lig)
+    assert set(dock.scene_context.grid_labels) == set(range(1, 7))
+    widget._select_pose(741, 1, 2)
+    work, done = pending.pop()
+    done(work())
+    assert cmd.get_coords("lig_1_ligand_741")[0][0] == 12
+    assert cmd.get_coords("lig_1_ligand_742")[0][0] == 11
+
+    widget._show_ligand_grid(741)
+    work, done = pending.pop()
+    viewer.clear_scene()
+    done(work())
+    assert cmd.get_names("objects") == []
+
+
+def test_multiple_selection_keeps_a_grid_when_switching_to_a_nonstructural_tab(grid_scene):
+    widget, cmd, dock, pending = grid_scene
+    viewer = MolecularViewerController(SimpleNamespace(
+        pymol_dock=dock, central_widget=SimpleNamespace(open_view=lambda _: None)))
+    viewer.set_multiple_selection_enabled(True)
+    widget._show_ligand_grid(741)
+    work, done = pending.pop()
+    done(work())
+    objects = cmd.get_names("objects")
+    viewer.sync_to_active_view("other")
+    assert cmd.get_names("objects") == objects
+    assert cmd.get_setting_int("grid_mode") == 1
+
+
 def test_offtarget_passes_receptor_ligand_and_selected_pose_names_to_pymol(grid_scene):
     widget, cmd, dock, pending = grid_scene
     widget._show_ligand_grid(741)

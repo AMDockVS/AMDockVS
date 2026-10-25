@@ -223,6 +223,41 @@ def set_pymol_scene_context(
 ) -> None:
     """`restore_view=False` keeps the camera the caller just set (an oriented catalog row);
     the molecule's remembered style still applies."""
+    if multiple_selection_enabled(dock):
+        cmd = dock.cmd
+        previous = getattr(dock, "scene_context", None)
+        if previous is not None and not any(_object_list(cmd, s) for s in previous.selections.values()):
+            previous = None
+        roles = dict(selections or {})
+        if previous is not None:
+            for role, selection in previous.selections.items():
+                names = _object_list(cmd, selection)
+                names.extend(_object_list(cmd, roles.get(role, "none")))
+                if names:
+                    roles[role] = " or ".join(dict.fromkeys(names))
+        selections = roles
+        objects = list(dict.fromkeys(
+            obj for selection in roles.values() for obj in _object_list(cmd, selection)
+        ))
+        replaced_slots = getattr(dock, "_amdock_replaced_slots", {})
+        for obj in objects:
+            if obj in replaced_slots:
+                cmd.set("grid_slot", replaced_slots.pop(obj), obj)
+        target = " or ".join(objects) or target
+        if (previous is not None and previous.is_comparison) or kind in {"comparison", "offtarget"}:
+            kind = "comparison"
+            grid_labels = {**(dict(previous.grid_labels) if previous is not None else {}), **(grid_labels or {})}
+            slots = {obj: cmd.get_setting_int("grid_slot", obj) for obj in objects}
+            unassigned = [obj for obj, slot in slots.items() if slot <= 0]
+            if unassigned:
+                slot = max([0, *slots.values()]) + 1
+                for obj in unassigned:
+                    cmd.set("grid_slot", slot, obj)
+                grid_labels[slot] = " + ".join(unassigned)
+        elif "receptor" in roles and "ligand" in roles:
+            kind, default_preset = "complex", "amdockvs.complex"
+        elif len(roles) > 1:
+            kind, default_preset = "generic", ""
     setter = getattr(dock, "set_scene_context", None)
     if callable(setter):
         setter(
@@ -233,6 +268,28 @@ def set_pymol_scene_context(
             grid_labels=grid_labels,
         )
     _apply_scene_memory(dock, kind, target, selections, restore_view=restore_view)
+    if multiple_selection_enabled(dock) and kind not in {"comparison", "offtarget"}:
+        dock.cmd.zoom(target, 3)
+
+
+def multiple_selection_enabled(dock) -> bool:
+    return bool(getattr(dock, "_amdock_multiple_selection", False))
+
+
+def prepare_pymol_scene(dock, *objects: str) -> None:
+    """Replace the selected structures while optionally retaining the rest of the scene."""
+    if not multiple_selection_enabled(dock):
+        dock.cmd.delete("all")
+        dock._amdock_replaced_slots = {}
+    else:
+        dock._amdock_replaced_slots = {}
+        existing = set(dock.cmd.get_names("objects"))
+        for obj in objects:
+            if obj in existing:
+                slot = dock.cmd.get_setting_int("grid_slot", obj)
+                if slot > 0:
+                    dock._amdock_replaced_slots[obj] = slot
+            dock.cmd.delete(obj)
 
 
 def _context_selection(
@@ -489,6 +546,7 @@ def install_amdock_pymol_presets(window) -> None:
                 key=f"pymol.{method}",
                 label=label,
                 callback=_pymol_builtin_callback(method),
+                per_grid_slot=True,
                 tooltip="PyMOL Actions > Preset.",
             )
         )
@@ -878,8 +936,13 @@ def install_pymol_toolbar(window) -> None:
 
     menu = QMenu(control_bar)
 
-    _menu_action(menu, "Clear Scene", lambda: _safe_cmd(window, "delete", "all"),
+    _menu_action(menu, "Clear Scene", window.viewer.clear_scene,
                  tooltip="Delete all objects from the PyMOL scene.")
+    multiple_action = menu.addAction("Keep loaded structures (multiple selection)")
+    multiple_action.setCheckable(True)
+    multiple_action.setChecked(multiple_selection_enabled(dock))
+    multiple_action.setToolTip("Add selected structures to the scene. Uncheck to replace the scene on the next selection.")
+    multiple_action.toggled.connect(window.viewer.set_multiple_selection_enabled)
     _menu_action(menu, "Color by Role", lambda: apply_scene_atom_coloring(window),
                  tooltip="Color receptor/ligand carbons by role, heteroatoms by element.")
 
