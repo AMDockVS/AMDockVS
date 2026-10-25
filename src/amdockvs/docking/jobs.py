@@ -165,7 +165,7 @@ def count_pending_redocking_pairs(
         for value in (row.get("receptor_molecule_id"), row.get("ligand_molecule_id"))
         if int(value or 0) > 0
     ]
-    molecules = get_molecule_rows_by_ids(project_db, molecule_ids, engine=preparation_engine or engine)
+    molecules = get_molecule_rows_by_ids(project_db, molecule_ids, engine=preparation_engine or get_docking_program(engine).preparation_engine)
     candidates = [
         row for row in complex_rows
         if int(row.get("id") or 0) > 0
@@ -262,7 +262,7 @@ class RedockingJobParams(BaseModel):
     skip_existing: bool = True
 
 
-from amdockvs.docking.engines.programs import chunk_resources
+from amdockvs.docking.engines.programs import chunk_resources, get_docking_program
 
 
 def iter_docking_batches(
@@ -300,7 +300,7 @@ def iter_docking_batches(
     selected_top_n: int | None = None,
     selected_max_score: float | None = None,
 ) -> Iterator[dict]:
-    prep_engine = str(preparation_engine or engine)
+    prep_engine = str(preparation_engine or get_docking_program(engine).preparation_engine)
     normalized_ligand_filters = dict(ligand_filters or {})
     normalized_receptor_filters = dict(receptor_filters or {})
     if requires_ligand_preparation:
@@ -481,7 +481,7 @@ def iter_redocking_batches(
             molecule_ids.append(receptor_id)
         if ligand_id > 0:
             molecule_ids.append(ligand_id)
-    prep_engine = str(preparation_engine or engine)
+    prep_engine = str(preparation_engine or get_docking_program(engine).preparation_engine)
     resolved_output_dir = Path(output_dir).expanduser().resolve()
     resolved_output_dir.mkdir(parents=True, exist_ok=True)
     directory = inputs_dir(project_db)

@@ -226,7 +226,7 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
     complexes: list[dict[str, Any]] = []
     ligand_activities: list[dict[str, Any]] = []
     binding_sites: list[dict[str, Any]] = []
-    engine_states: list[dict[str, Any]] = []
+    preps: dict[str, list[dict[str, Any]]] = {"receptor": [], "ligand": []}
     molecule_representations: list[dict[str, Any]] = []
 
     for row in rows:
@@ -342,17 +342,11 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
                     "metadata_json": json.dumps(dict(complex_spec.get("metadata") or {}), ensure_ascii=True),
                 }
             )
-        for engine_spec in list(row.get("engine_state_specs") or []):
-            engine_states.append(
-                {
-                    "molecule_ref": molecule_ref,
-                    "role_type": str(engine_spec.get("role_type") or role),
-                    "engine": str(engine_spec.get("engine") or "ad4"),
-                    "prepared_payload_id": engine_spec.get("prepared_payload_id"),
-                    "files": dict(engine_spec.get("files") or {}),
-                    "is_ready": bool(engine_spec.get("is_ready")),
-                }
-            )
+        for prep_spec in list(row.get("prep_specs") or []):
+            prep_role = "receptor" if str(prep_spec.get("role_type") or role) == "receptor" else "ligand"
+            payload_key = "rigid_payload_id" if prep_role == "receptor" else "payload_id"
+            preps[prep_role].append({"molecule_ref": molecule_ref, "family": str(prep_spec.get("family") or "ad4"),
+                                     payload_key: prep_spec.get("payload_id")})
         active_position = row.get("active_binding_site_position")
         for position, site_spec in enumerate(list(row.get("binding_site_specs") or [])):
             center = tuple(site_spec.get("center") or (None, None, None))
@@ -382,7 +376,8 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
         "complexes": complexes,
         "ligand_activities": ligand_activities,
         "binding_sites": binding_sites,
-        "engine_states": engine_states,
+        "receptor_preps": preps["receptor"],
+        "ligand_preps": preps["ligand"],
         "molecule_representations": molecule_representations,
     }
 

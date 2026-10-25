@@ -89,7 +89,7 @@ from amdockvs.docking.residues import residues_in_box
 from amdockvs.core.payloads import molecule_payload_id, read_structure
 from amdockvs.io.formats import as_pdb
 from amdockvs.molecules.api import ensure_molecule_set_ref
-from amdockvs.models import BindingSite, EngineState, MoleculeRecord
+from amdockvs.models import BindingSite, MoleculeRecord, ReceptorPrep, prep_table
 from amdockvs.project.sets import ComplexSetRef, MoleculeSetRef, prepared_molecules_spec
 from amdockvs.workflows.rules import apply_workflow_filters
 
@@ -264,13 +264,10 @@ class DockingAPI:
             return None  # a family nothing is ready for leaves every row in: no anti-join to run
         # NOT IN, not a correlated NOT EXISTS: DuckDB (1 thread, 1 GB) hash-joins the whole
         # table for the latter (4 s and GBs of spill for one page); SQLite is faster with it too.
+        model, molecule_column, payload_column = prep_table(role)
         missing = [
             MoleculeRecord.id.not_in(
-                select(EngineState.molecule_id).where(
-                    EngineState.role_type == role,
-                    EngineState.engine == engine,
-                    EngineState.is_ready.is_(True),
-                )
+                select(molecule_column).where(model.family == engine, payload_column.is_not(None))
             )
             for engine in normalized_engines
         ]
@@ -868,21 +865,23 @@ class DockingAPI:
         # Flexible residues belong to the receptor (what gets passed to prep), not to any
         # binding site — the box is only a candidate filter, not the owner of the selection.
         with self.runtime.workspace.project_db.get_session() as session:
-            receptor = session.get(MoleculeRecord, receptor_id)
-            if receptor is None:
-                return []
-            return [str(k) for k in (dict(receptor.extra_data or {}).get("flexible_residues") or [])]
+            prep = self._ad4_receptor_prep(session, receptor_id)
+            return [str(k) for k in (prep.flex_residues if prep else [])]
+
+    @staticmethod
+    def _ad4_receptor_prep(session, receptor_id: int):
+        # ponytail: flexible side chains are an ad4 (Vina family) concept; key by family if another engine docks flexibly.
+        return session.exec(select(ReceptorPrep).where(
+            ReceptorPrep.receptor_molecule_id == int(receptor_id), ReceptorPrep.family == "ad4")).first()
 
     def set_flexible_residues(self, *, receptor_id: int, residue_keys: list[str]) -> list[str]:
         keys = [str(k) for k in residue_keys]
         with self.runtime.workspace.project_db.get_session() as session:
-            receptor = session.get(MoleculeRecord, receptor_id)
-            if receptor is None:
+            if session.get(MoleculeRecord, receptor_id) is None:
                 raise ValueError(f"No receptor with id {receptor_id}.")
-            data = dict(receptor.extra_data or {})
-            data["flexible_residues"] = keys
-            receptor.extra_data = data
-            session.add(receptor)
+            prep = self._ad4_receptor_prep(session, receptor_id) or ReceptorPrep(receptor_molecule_id=receptor_id)
+            prep.flex_residues = keys
+            session.add(prep)
             session.commit()
         return keys
 

@@ -214,6 +214,7 @@ CODES: dict[str, dict[str, int]] = {
     ),
     "file_format": _domain(1700, "pdb", "sdf", "mol2", "cif", "pdbqt", "pqr", "smiles", "fasta", "unknown"),
     "import_kind": _domain(1800, "rows", "shards"),
+    "prep_family": _domain(1900, "ad4"),
 }
 
 __all__ = [

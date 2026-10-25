@@ -38,12 +38,13 @@ from amdockvs.core.worker_io import worker_output_dir
 from amdockvs.models import (
     BindingSite,
     ComplexRecord,
-    EngineState,
     LigandActivity,
+    LigandPrep,
     MoleculeModel,
     MoleculeRecord,
     MoleculeRepresentation,
     MoleculeSourceProperty,
+    ReceptorPrep,
 )
 from amdockvs.models.molecules import DEFERRED_INDEXES, ensure_molecule_indexes
 
@@ -64,8 +65,15 @@ IMPORT_GRAPH_OUTPUT = graph_sink(
         {"name": "complexes", "model": ComplexRecord, "validate_model": False},
         {"name": "ligand_activities", "model": LigandActivity, "validate_model": False},
         {"name": "binding_sites", "model": BindingSite, "validate_model": False},
-        # A PDBQT import arrives already prepared: the file *is* the engine artifact.
-        {"name": "engine_states", "model": EngineState, "validate_model": False},
+        # A PDBQT import arrives already prepared: the file *is* the ad4 artifact.
+        {"name": "receptor_preps", "model": ReceptorPrep, "validate_model": False},
+        {
+            "name": "ligand_preps",
+            "model": LigandPrep,
+            "columns": ("molecule_id", "family", "payload_id"),
+            "pk_field": "molecule_id",
+            "validate_model": False,
+        },
         # Explicit columns: model-derived ones drop the pk, and this table's pk is (molecule_id, repr_type).
         {
             "name": "molecule_representations",
@@ -101,7 +109,13 @@ IMPORT_GRAPH_OUTPUT = graph_sink(
             "fk_field": "molecule_id",
         },
         {
-            "source_node": "engine_states",
+            "source_node": "receptor_preps",
+            "source_ref_field": "molecule_ref",
+            "target_node": "molecules",
+            "fk_field": "receptor_molecule_id",
+        },
+        {
+            "source_node": "ligand_preps",
             "source_ref_field": "molecule_ref",
             "target_node": "molecules",
             "fk_field": "molecule_id",

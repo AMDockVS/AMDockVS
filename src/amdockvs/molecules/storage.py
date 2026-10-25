@@ -287,27 +287,32 @@ def library_kind(project_db) -> str:
     return ProjectMode.HTPVS if has_shards(project_db) else ProjectMode.VS
 
 
+# Beside the input, in a folder named after the family: a campaign's stages read as a chain of folders.
+PREPARED_DIR = "prepared_{engine}"
+
+
+def prepared_shard_path(shard_path: str | Path, family: str) -> Path:
+    """Where a shard's prepared twin lives: derived, so `shard_preps` stores no path."""
+    shard_path = Path(shard_path)
+    return shard_path.parent / PREPARED_DIR.format(engine=family) / shard_path.name
+
+
 def iter_prepared_shards(project_db, *, engine: str) -> Iterator[dict[str, Any]]:
-    """Prepared artifacts for one engine family, joined to their shard inventory.
+    """Prepared artifacts for one family, joined to their shard inventory.
 
-    The in-memory map contains only shard metadata, never library molecules. The legacy branch
-    keeps projects made before ``ShardEngineState`` readable until they are prepared again.
+    The in-memory map contains only shard metadata, never library molecules. A shard counts as
+    prepared when it has a ``shard_preps`` row and its file is still there.
     """
-    from pathlib import Path
-
     from sqlmodel import select
 
-    from amdockvs.models import ScreeningShard, ShardEngineState
+    from amdockvs.models import ScreeningShard, ShardPrep
 
-    normalized_engine = str(engine or "").strip().lower()
+    family = str(engine or "").strip().lower()
     generation_id = active_generation_id(project_db)
     with project_db.get_session() as session:
-        states = {
-            int(row.shard_id): row
-            for row in session.exec(
-                select(ShardEngineState).where(ShardEngineState.engine == normalized_engine)
-            ).all()
-        }
+        counts = dict(session.exec(
+            select(ShardPrep.shard_id, ShardPrep.n_records).where(ShardPrep.family == family)
+        ).all())
         # Scoped like every other shard read: the parent generation is still in the table and
         # its prepared artifacts are still on disk, but they are not the library any more.
         query = select(ScreeningShard).order_by(ScreeningShard.id)
@@ -318,20 +323,19 @@ def iter_prepared_shards(project_db, *, engine: str) -> Iterator[dict[str, Any]]
 
     libraries = library_names(project_db)
     for shard in shards:
-        state = states.get(int(shard.id or 0))
-        if state is not None:
-            prepared_path = str(dict(state.files or {}).get("prepared") or "")
-            if state.is_ready and prepared_path and Path(prepared_path).is_file():
-                yield {
-                    "id": int(shard.id or 0),
-                    "import_batch_id": shard.import_batch_id,
-                    "library": libraries.get(shard.import_batch_id, "library"),
-                    "shard_index": int(shard.shard_index),
-                    "path": shard.path,
-                    "prepared_path": prepared_path,
-                    "n_records": int(state.n_records),
-                    "state": shard.state,
-                }
+        n_records = counts.get(int(shard.id or 0))
+        prepared_path = prepared_shard_path(shard.path, family)
+        if n_records is not None and prepared_path.is_file():
+            yield {
+                "id": int(shard.id or 0),
+                "import_batch_id": shard.import_batch_id,
+                "library": libraries.get(shard.import_batch_id, "library"),
+                "shard_index": int(shard.shard_index),
+                "path": shard.path,
+                "prepared_path": str(prepared_path),
+                "n_records": int(n_records),
+                "state": shard.state,
+            }
 
 
 def prepared_shard_record_count(project_db, *, engine: str) -> int:
@@ -400,7 +404,9 @@ __all__ = [
     "has_shards",
     "has_ligand_rows",
     "library_kind",
+    "PREPARED_DIR",
     "iter_prepared_shards",
+    "prepared_shard_path",
     "prepared_shard_record_count",
     "shard_scope_spec",
     "store_from_config",

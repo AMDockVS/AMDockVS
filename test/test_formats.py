@@ -101,14 +101,13 @@ def test_a_pdbqt_becomes_an_sdf_and_a_prepared_ad4_molecule():
         # Current form is SDF; the PDBQT survives untouched as the original and the engine artifact.
         assert row["current_payload_id"].kind == "sdf"
         assert row["stored_payload_id"].kind == "pdbqt"
-        states = build_import_graph_payload(rows)["engine_states"]
-        assert [(s["engine"], s["role_type"], s["is_ready"]) for s in states] == [
-            ("ad4", "ligand", True)
-        ]
-        assert states[0]["prepared_payload_id"].data.startswith(b"REMARK")
+        graph = build_import_graph_payload(rows)
+        states = graph["ligand_preps"]
+        assert graph["receptor_preps"] == [] and [s["family"] for s in states] == ["ad4"]
+        assert states[0]["payload_id"].data.startswith(b"REMARK")
         # Its own copy in its own series: re-preparing must not release the original.
-        assert states[0]["prepared_payload_id"].series == "prepared"
-        assert states[0]["prepared_payload_id"] is not row["stored_payload_id"]
+        assert states[0]["payload_id"].series == "prepared"
+        assert states[0]["payload_id"] is not row["stored_payload_id"]
 
 
 def test_a_receptor_pdbqt_is_stored_as_mmcif():

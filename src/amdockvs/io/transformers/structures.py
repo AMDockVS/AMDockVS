@@ -144,13 +144,12 @@ def _structure_rows(
         if suffix == ".pdbqt":
             # The imported file already is what preparation would have produced: register it
             # as the ad4 artifact so the molecule is dockable without re-preparing it.
-            row["engine_state_specs"] = [
+            row["prep_specs"] = [
                 {
                     "role_type": str(batch.primary_role or batch.kind).strip().lower(),
-                    "engine": "ad4",
+                    "family": "ad4",
                     # Its own copy: re-preparing releases it without touching the original.
-                    "prepared_payload_id": structure_payload(source_bytes, source_kind, SERIES_PREPARED),
-                    "is_ready": True,
+                    "payload_id": structure_payload(source_bytes, source_kind, SERIES_PREPARED),
                 }
             ]
         row["binding_site_specs"] = [

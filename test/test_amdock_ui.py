@@ -21,7 +21,7 @@ from amdockvs.ui.shell.job_feedback import JobFeedbackController
 from amdockvs.ui.shell.projects import ApplicationWidget, ProjectsWidget
 from amdockvs.ui.catalog.activity import LigandActivityWidget
 from amdockvs.ui.catalog.results import ComplexWidget
-from amdockvs.ui.tools.docking import DockingStudioWidget, EngineStatePrepView
+from amdockvs.ui.tools.docking import DockingStudioWidget, PrepStatusView
 from amdockvs.ui.tools.binding_sites.detection import (
     P2RANK_SCORE_COLORS,
     _score_palette_indices,
@@ -661,12 +661,16 @@ def test_tool_buttons_are_flat_and_keep_result_views_available(tmp_path, monkeyp
         assert not window._status_bar.selection_indicators["receptor"].isVisible()
         studio.stepper.set_current_index(1)
         assert studio._unprepared_clause("ligand") is None  # nothing ready yet: no anti-join
-        from amdockvs.models import EngineState, MoleculeRecord
-        with runtime.workspace.project_db.get_session() as session:
+        from payload_seed import seed_payload
+
+        from amdockvs.models import LigandPrep, MoleculeRecord
+        project_db = runtime.workspace.project_db
+        prepared = seed_payload(project_db, "REMARK\n", "pdbqt")
+        with project_db.get_session() as session:
             ready = MoleculeRecord(name="ready", is_ligand=True)
             session.add(ready)
             session.flush()
-            session.add(EngineState(molecule_id=ready.id, role_type="ligand", engine="ad4", is_ready=True))
+            session.add(LigandPrep(molecule_id=ready.id, payload_id=prepared))
             session.commit()
         assert studio._unprepared_clause("ligand") is not None
         chip.clicked.emit()
@@ -722,27 +726,26 @@ def test_preparing_ligands_without_3d_offers_to_generate_it(tmp_path, monkeypatc
 
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
-def test_prep_status_role_swaps_the_filter_in_place(tmp_path, monkeypatch):
-    """Ligand/receptor prep status is one view over the `engines` table, not two: the
-    studio step swaps the base filter instead of registering a second view."""
+def test_prep_status_role_swaps_the_page_in_place(tmp_path, monkeypatch):
+    """Ligand/receptor prep status is one registered view with a page per table
+    (`ligand_preps`, `receptor_preps`): the studio step swaps the page."""
     _patch_fake_home(monkeypatch, tmp_path)
 
     app = QApplication.instance() or QApplication(["amdockvs-ui"])
     runtime = AMDockVSRuntime()
     try:
         runtime.create_project(name="prep_roles", folder=tmp_path / "project", description="ui test")
-        view = EngineStatePrepView(runtime=runtime)
+        view = PrepStatusView(runtime=runtime)
         app.processEvents()
 
-        def role() -> str:
-            spec = next(f for f in view.table._builder.active_filters if f.field == "role_type")
-            return str(spec.value)
+        def table() -> str:
+            return view.currentWidget().table._config.model_class.__tablename__
 
-        assert role() == "ligand"
+        assert table() == "ligand_preps"
 
         view.set_role("receptor")
         app.processEvents()
-        assert role() == "receptor"
+        assert table() == "receptor_preps"
     finally:
         runtime.shutdown()
 

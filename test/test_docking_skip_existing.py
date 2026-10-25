@@ -11,7 +11,7 @@ from amdockvs.docking.jobs import count_pending_docking_pairs, iter_docking_batc
 from amdockvs.docking.protocols import DockingProtocolMetadata
 from amdockvs.docking.pairs import iter_docking_batches_from_rows
 from amdockvs.docking.results.repository import docking_run_id
-from amdockvs.models.docking import DockingResult, EngineState
+from amdockvs.models.docking import DockingResult, LigandPrep, ReceptorPrep
 from amdockvs.models.molecules import ImportBatch, MoleculeRecord
 
 from payload_seed import seed_payload
@@ -44,9 +44,8 @@ def _project(tmp_path):
             ligands.append(lig)
         session.commit()
 
-        for role, rows in (("receptor", receptors), ("ligand", ligands)):
-            for row in rows:
-                session.add(EngineState(molecule_id=row.id, role_type=role, engine=ENGINE, is_ready=True))
+        session.add_all(ReceptorPrep(receptor_molecule_id=row.id, rigid_payload_id=receptor_pid) for row in receptors)
+        session.add_all(LigandPrep(molecule_id=row.id, payload_id=ligand_pid) for row in ligands)
         # Already docked: the first N_DOCKED ligands against the first receptor.
         run = docking_run_id(store, run_id="", engine=ENGINE, run_kind="screening", protocol={"hash": proto})
         for lig in ligands[:N_DOCKED]:
@@ -79,7 +78,7 @@ def _counted(store, *, skip_existing):
     return count_pending_docking_pairs(
         project_db=store,
         engine=ENGINE,
-        preparation_engine=ENGINE,
+        preparation_engine="ad4",
         ligand_set_id=None,
         receptor_set_id=None,
         ligand_filters=None,

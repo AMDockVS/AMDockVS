@@ -10,7 +10,7 @@ from pathlib import Path
 
 from ms_flow.query import db_rows
 
-from amdockvs.core.constants import TABLE_BINDING_SITES, TABLE_ENGINES, TABLE_IMPORT_BATCHES, TABLE_MOLECULES
+from amdockvs.core.constants import TABLE_BINDING_SITES, TABLE_IMPORT_BATCHES, TABLE_MOLECULES, TABLE_RECEPTOR_PREPS
 from amdockvs.models.codes import code_name_sql
 from amdockvs.project.summaries import (
     LigandTableStatsSummary,
@@ -26,8 +26,8 @@ _RECEPTOR_STATUS_SQL = (
     "CASE "
     f"WHEN EXISTS (SELECT 1 FROM {TABLE_BINDING_SITES} b WHERE b.molecule_id = m.id "
     "AND b.center_x IS NOT NULL AND b.size_x IS NOT NULL) THEN 'grid_ready' "
-    f"WHEN EXISTS (SELECT 1 FROM {TABLE_ENGINES} e WHERE e.molecule_id = m.id "
-    "AND e.role_type = 'receptor' AND e.is_ready = 1) THEN 'prepared' "
+    f"WHEN EXISTS (SELECT 1 FROM {TABLE_RECEPTOR_PREPS} e WHERE e.receptor_molecule_id = m.id "
+    "AND e.rigid_payload_id IS NOT NULL) THEN 'prepared' "
     "WHEN m.has_3d = 1 THEN 'imported' "
     "ELSE 'unknown' END"
 )

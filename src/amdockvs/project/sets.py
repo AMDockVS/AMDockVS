@@ -8,7 +8,7 @@ from sqlmodel import delete, select
 
 from ms_flow.query import QuerySpec
 
-from amdockvs.core.constants import TABLE_ENGINES, TABLE_MOLECULE_SET_MEMBERS
+from amdockvs.core.constants import TABLE_LIGAND_PREPS, TABLE_MOLECULE_SET_MEMBERS, TABLE_RECEPTOR_PREPS
 from amdockvs.models import MoleculeRecord, SetItemRecord, SetRecord
 
 
@@ -235,13 +235,15 @@ def molecule_set_spec(set_id: int) -> QuerySpec:
 
 
 def prepared_molecules_spec(*, role_type: str, engine: str, is_ready: bool = True) -> QuerySpec:
+    """The molecules prepared for family `engine` (`is_ready=False`: the ones that failed)."""
+    receptor = str(role_type).strip().lower() == "receptor"
+    payload = "rigid_payload_id" if receptor else "payload_id"
     return QuerySpec(
-        table=TABLE_ENGINES,
-        fields=("molecule_id",),
+        table=TABLE_RECEPTOR_PREPS if receptor else TABLE_LIGAND_PREPS,
+        fields=("receptor_molecule_id" if receptor else "molecule_id",),
         filters={
-            "role_type": str(role_type).strip().lower(),
-            "engine": str(engine).strip().lower(),
-            "is_ready": bool(is_ready),
+            "family": str(engine).strip().lower(),
+            **({f"{payload}__is_not_null": True} if is_ready else {"error__is_not_null": True}),
         },
     )
 

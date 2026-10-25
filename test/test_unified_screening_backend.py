@@ -7,7 +7,7 @@ from amdockvs.chemistry.api import ChemistryAPI
 from amdockvs.core.configuration import app_config
 from amdockvs.docking.api import DockingAPI
 from amdockvs.screening.campaign import advance_shard_run, completed_shard_targets, live_target_progress
-from amdockvs.models import ImportBatch, ScreeningShard, ScreeningShardRun, ShardEngineState
+from amdockvs.models import ImportBatch, ScreeningShard, ScreeningShardRun, ShardPrep
 from amdockvs.molecules.storage import iter_prepared_shards
 from amdockvs.runtime import AMDockVSRuntime
 from amdockvs.core.vocab import TargetState
@@ -44,13 +44,7 @@ def test_engine_artifact_does_not_replace_the_chemical_shard(tmp_path):
         assert app_config(runtime).shards.keep_history is False
         with runtime.workspace.project_db.get_session() as session:
             session.add(
-                ShardEngineState(
-                    shard_id=int(shard.id),
-                    engine="ad4",
-                    files={"source": str(source), "prepared": str(prepared)},
-                    n_records=97,
-                    is_ready=True,
-                )
+                ShardPrep(shard_id=int(shard.id), family="ad4", n_records=97)
             )
             session.commit()
 

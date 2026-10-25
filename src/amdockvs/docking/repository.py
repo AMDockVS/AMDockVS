@@ -25,7 +25,7 @@ from amdockvs.core.constants import (
 from amdockvs.core.payloads import molecule_payload_id, payload_store
 from amdockvs.docking.preparation.state import docking_input_payload_id
 from amdockvs.binding_sites.repository import active_site, set_active
-from amdockvs.models import BindingSite, EngineState, MoleculeRecord
+from amdockvs.models import BindingSite, MoleculeRecord, prep_table
 from amdockvs.models.molecules import sanitize_molecule_extra_data
 from amdockvs.project.sets import (
     list_complex_set_ids,
@@ -116,18 +116,18 @@ def _augment_molecule_rows(
     if not wanted:
         return rows
     ids = sorted({int(row["id"]) for row in wanted})
-    states: dict[int, EngineState] = {}
+    model, molecule_column, payload_column = prep_table(role_type)
+    states: dict[int, tuple] = {}  # molecule id -> (prepared payload, flex payload)
     sites: dict[int, BindingSite] = {}
     with project_db.get_session() as session:
         for offset in range(0, len(ids), _HYDRATE_ID_CHUNK):
             chunk = ids[offset:offset + _HYDRATE_ID_CHUNK]
-            for state in session.exec(
-                select(EngineState)
-                .where(EngineState.molecule_id.in_(chunk))
-                .where(EngineState.role_type == str(role_type))
-                .where(EngineState.engine == str(engine))
+            for molecule_id, payload_id, flex_id in session.exec(
+                select(molecule_column, payload_column, getattr(model, "flex_payload_id", None))
+                .where(molecule_column.in_(chunk))
+                .where(model.family == str(engine))
             ).all():
-                states[int(state.molecule_id)] = state
+                states[int(molecule_id)] = (payload_id, flex_id)
             # Active sites only: one per molecule at most.
             for site in session.exec(
                 select(BindingSite)
@@ -143,14 +143,14 @@ def _augment_molecule_rows(
         molecule_id = int(row.get("id") or 0)
         if molecule_id <= 0:
             continue
-        engine_state = states.get(molecule_id)
+        prepared_id, flex_id = states.get(molecule_id, (None, None))
         site = sites.get(molecule_id)
         payload = _binding_site_payload(site)
-        prepared_ready = bool(engine_state is not None and bool(engine_state.is_ready))
+        prepared_ready = prepared_id is not None
         row["prepared_engine"] = prepared_ready
         row[prepared_flag_key] = prepared_ready
-        row["prepared_payload_id"] = engine_state.prepared_payload_id if prepared_ready else None
-        row["flex_payload_id"] = engine_state.flex_payload_id if prepared_ready else None
+        row["prepared_payload_id"] = prepared_id
+        row["flex_payload_id"] = flex_id if prepared_ready else None
         grid_ready = bool(payload is not None)
         row["grid_engine"] = grid_ready
         row["grid_engine_payload"] = payload

@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 )
 from ms_components.ms_stepper import Orientation, QStepper
 from amdockvs.ui.tools.binding_sites.flexible_residues import FlexibleResiduesPanel
-from amdockvs.ui.tools.docking.preparation_panel import EngineStatePrepView, PreparationPanel
+from amdockvs.ui.tools.docking.preparation_panel import PrepStatusView, PreparationPanel
 from amdockvs.ui.tools.docking.protocol_editor import ProtocolEditorWidget
 from amdockvs.ui.tools.docking.run_panel import RunPanel
 from amdockvs.ui.tools.docking.scope_panel import ScopePanel
@@ -326,7 +326,7 @@ def register_docking_workspace(window) -> None:
     window.register_main_view(
         PREP_STATUS_VIEW_ID,
         "Prep Status",
-        lambda: EngineStatePrepView(runtime=window.runtime, parent=window.central_widget),
+        lambda: PrepStatusView(runtime=window.runtime, parent=window.central_widget),
     )
 
 

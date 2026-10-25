@@ -19,14 +19,13 @@ from sqlmodel import Field, SQLModel
 
 from amdockvs.models.codes import code_field
 
-from amdockvs.core.rows import shard_engine_state_row
 from amdockvs.core.constants import (
     TABLE_IMPORT_BATCHES,
     TABLE_SCREENING_DISPATCHES,
     TABLE_SCREENING_SHARD_RUNS,
     TABLE_SCREENING_SHARDS,
     TABLE_SCREENING_TARGETS,
-    TABLE_SHARD_ENGINE_STATES,
+    TABLE_SHARD_PREPS,
     TABLE_SHARD_GENERATIONS,
 )
 from amdockvs.core.vocab import DispatchState, ShardState, TargetState
@@ -85,29 +84,17 @@ class ScreeningShard(SQLModel, table=True):
     dispatch_id: int | None = Field(default=None, foreign_key=f"{TABLE_SCREENING_DISPATCHES}.id", index=True)
 
 
-class ShardEngineState(SQLModel, table=True):
-    """Reusable preparation artifacts for one shard and preparation family.
+class ShardPrep(SQLModel, table=True):
+    """A shard prepared for one family: the row exists = prepared. Its file is derived
+    (`molecules.storage.prepared_shard_path`), not stored; failures are counted, not listed."""
 
-    The inventory path remains the current chemical shard. Docking-specific representations
-    live here so AD4, DOCK6, DiffDock, and later families can coexist without rewriting the
-    inventory row or treating a file extension as readiness state.
-    """
+    __tablename__ = TABLE_SHARD_PREPS
+    __table_args__ = ({"sqlite_with_rowid": False},)
 
-    __tablename__ = TABLE_SHARD_ENGINE_STATES
-    __table_args__ = (
-        UniqueConstraint("shard_id", "engine"),
-        Index("idx_shard_engine_ready", "engine", "is_ready"),
-    )
-
-    id: int | None = Field(default=None, primary_key=True)
-    shard_id: int = Field(foreign_key=f"{TABLE_SCREENING_SHARDS}.id", index=True)
-    engine: str = Field(default="", index=True)
-    files: dict = Field(default_factory=dict, sa_type=JSON)
+    shard_id: int = Field(foreign_key=f"{TABLE_SCREENING_SHARDS}.id", primary_key=True)
+    family: str = code_field("prep_family", "ad4", primary_key=True)
     n_records: int = Field(default=0)
-    is_ready: bool = Field(default=False, index=True)
-    error: str = Field(default="")
-
-    build_row = staticmethod(shard_engine_state_row)
+    n_failed: int = Field(default=0)  # > 0 = partial
 
 
 class ScreeningShardRun(SQLModel, table=True):
@@ -181,6 +168,6 @@ __all__ = [
     "ScreeningShard",
     "ScreeningShardRun",
     "ScreeningTarget",
-    "ShardEngineState",
+    "ShardPrep",
     "ShardGeneration",
 ]
