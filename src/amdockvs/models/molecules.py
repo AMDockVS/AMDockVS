@@ -172,19 +172,27 @@ class MoleculeRecord(TimestampedRecord, table=True):
 # query takes idx_mol_receptor (or idx_mol_receptor_id), which ties with usage_class and holds
 # only the receptors — without it, finding a handful of receptors walks millions of ligands.
 DEFERRED_INDEXES = {
-    "ix_molecules_name": "(name)",
     "ix_molecules_usage_class": "(usage_class)",
     "idx_mol_active": "(id) WHERE excluded=0 AND in_set=0",
     "idx_mol_role_scope": "(usage_class, is_ligand, excluded, molecule_type)",
     "idx_mol_receptor": "(usage_class) WHERE is_receptor=1",
     "idx_mol_receptor_id": "(id) WHERE is_receptor=1",  # no usage_class term
-    # PayloadStore.release/delete look a payload's referrers up by these.
+    # PayloadStore.release/delete look a payload's referrers up by these (`col = id` implies
+    # NOT NULL, so a partial index serves it). current/properties are NULL on most rows.
     "ix_molecules_stored_payload_id": "(stored_payload_id)",
-    "ix_molecules_current_payload_id": "(current_payload_id)",
-    "ix_molecules_properties_payload_id": "(properties_payload_id)",
+    "idx_mol_current_payload": "(current_payload_id) WHERE current_payload_id IS NOT NULL",
+    "idx_mol_properties_payload": "(properties_payload_id) WHERE properties_payload_id IS NOT NULL",
 }
-# No query uses them: no lookup by InChIKey, and `excluded` is covered by the partial indexes.
-RETIRED_INDEXES = ("ix_molecules_inchikey", "ix_molecules_excluded")
+# No query needs them: no lookup by InChIKey, `excluded` is covered by the partial indexes, a
+# name search or sort scans (~0.5 s a page at 3.85M rows, run async); the payload ones were
+# replaced by partial ones (`CREATE INDEX IF NOT EXISTS` never rebuilds a changed definition).
+RETIRED_INDEXES = (
+    "ix_molecules_inchikey",
+    "ix_molecules_excluded",
+    "ix_molecules_name",
+    "ix_molecules_current_payload_id",
+    "ix_molecules_properties_payload_id",
+)
 
 
 def ensure_molecule_indexes(project) -> None:
