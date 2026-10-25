@@ -138,7 +138,6 @@ def molecule_row(
         "formal_charge": None,
         "fraction_csp3": None,
         "pains_matches": [],
-        "ro5_violations": [],
         "conformer_count": max(0, int(state.get("conformer_count", 0) or 0)),
         "has_3d": bool(state.get("has_3d", False)),
         "has_hs": bool(state.get("has_hs", False)),

@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from typing import Any, Mapping
 
-from sqlalchemy import DateTime, Index, JSON, UniqueConstraint, text
+from sqlalchemy import Column, Computed, DateTime, Index, Integer, JSON, UniqueConstraint, text
 from pydantic import field_validator
 from sqlmodel import SQLModel, Field
 
@@ -122,7 +122,11 @@ class MoleculeRecord(TimestampedRecord, table=True):
     fraction_csp3: float | None = Field(default=None)
     # None (JSON null) = not computed: a library import leaves it to the descriptor job.
     pains_matches: list[str] | None = Field(default_factory=list, sa_type=JSON)
-    ro5_violations: list[str] = Field(default_factory=list, sa_type=JSON)
+    # Lipinski violations: arithmetic on mw/logp/hbd/hba (`chemistry.filtering._ro5_violations`),
+    # so SQLite computes it on read and stores nothing. Never written.
+    ro5_violations: int | None = Field(default=None, sa_column=Column(Integer, Computed(
+        "(coalesce(mw, 0) > 500) + (coalesce(logp, 0) > 5) + (coalesce(hbd, 0) > 5) + (coalesce(hba, 0) > 10)",
+        persisted=False)))
     conformer_count: int = Field(default=0)
 
     # Fast-check state flags — updated by the layer that performs each operation.
@@ -145,11 +149,6 @@ class MoleculeRecord(TimestampedRecord, table=True):
     @classmethod
     def _coerce_extra_data(cls, value: Any) -> dict[str, Any]:
         return sanitize_molecule_extra_data(value)
-
-    @field_validator("ro5_violations", mode="before")
-    @classmethod
-    def _coerce_string_lists(cls, value: Any) -> list[str]:
-        return _coerce_string_list(value)
 
     @field_validator("pains_matches", mode="before")
     @classmethod
