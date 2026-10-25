@@ -4,6 +4,8 @@ from __future__ import annotations
 from sqlalchemy import Index, JSON, UniqueConstraint
 from sqlmodel import SQLModel, Field
 
+from amdockvs.models.codes import code_field
+
 from amdockvs.core.constants import (
     TABLE_PAYLOADS,
     TABLE_BINDING_SITES,
@@ -47,5 +49,5 @@ class ComplexRecord(SQLModel, table=True):
     binding_site_id: int | None = Field(default=None, foreign_key=f"{TABLE_BINDING_SITES}.id")
     activity_id: int | None = Field(default=None, foreign_key=f"{TABLE_LIGAND_ACTIVITIES}.id")
 
-    purpose: str = Field(default=ComplexPurpose.REDOCKING, index=True)
+    purpose: str = code_field("complex_purpose", ComplexPurpose.REDOCKING, index=True)
     metadata_json: str = Field(default="{}")

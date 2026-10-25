@@ -4,6 +4,8 @@ from typing import Any
 from sqlalchemy import DateTime, Index, JSON, UniqueConstraint
 from sqlmodel import SQLModel, Field
 
+from amdockvs.models.codes import code_field
+
 from amdockvs.core.rows import binding_site_row, engine_state_row, interaction_rows
 from amdockvs.core.constants import (
     TABLE_PAYLOADS,
@@ -46,7 +48,7 @@ class BindingSite(SQLModel, table=True):
     molecule_id: int = Field(foreign_key=f"{TABLE_MOLECULES}.id", index=True)
 
     name: str = Field(default="")
-    source: str = Field(default=BindingSiteSource.MANUAL)  # ver BindingSiteSource
+    source: str = code_field("binding_site_source", BindingSiteSource.MANUAL)
     source_ref: str = Field(default="")
 
     center_x: float | None = Field(default=None)
@@ -134,8 +136,8 @@ class DockingRun(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     run_id: str = Field(default="")             # the submit's id; "" for runs submitted without one
-    engine: str = Field(default="")             # "vina" | "qvina" | "gnina" | "adgpu" | ...
-    run_kind: str = Field(default="screening")  # "screening" | "redocking"
+    engine: str = code_field("engine")
+    run_kind: str = code_field("run_kind", "screening")
     protocol_hash: str = Field(default="", index=True)
     protocol_label: str = Field(default="")
     protocol: dict = Field(default_factory=dict, sa_type=JSON)  # the whole protocol: program, config
@@ -165,7 +167,7 @@ class DockingResult(SQLModel, table=True):
     pose_rank: int    = Field(default=1) # 1 = best pose
 
     score: float | None       = Field(default=None)   # binding energy kcal/mol
-    score_type: str           = Field(default="")     # "vina_score" | "ad4_score" | ...
+    score_type: str           = code_field("score_type")
     rmsd_vs_reference: float | None = Field(default=None)
 
     # Pose (SDF) as a payload of the "poses" series; the poses of a pair share one needle.

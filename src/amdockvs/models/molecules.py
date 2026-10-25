@@ -7,6 +7,8 @@ from sqlalchemy import Column, Computed, Index, Integer, JSON, UniqueConstraint,
 from pydantic import field_validator
 from sqlmodel import SQLModel, Field
 
+from amdockvs.models.codes import code_field
+
 from amdockvs.core.constants import (
     TABLE_BINDING_SITES,
     TABLE_MOLECULE_MODELS,
@@ -75,7 +77,7 @@ class MoleculeRecord(SQLModel, table=True):
 
     # Identity (immutable after ingestion)
     name: str = Field(default="")
-    molecule_type: str = Field(default=MoleculeType.UNKNOWN)
+    molecule_type: str = code_field("molecule_type", MoleculeType.UNKNOWN)
     source: str = Field(default="")  # absolute path — lives outside project
     source_index: int = Field(default=0)
     input_format: str = Field(default=FileFormat.UNKNOWN)
@@ -138,7 +140,7 @@ class MoleculeRecord(SQLModel, table=True):
     excluded: bool = Field(default=False)
     exclusion_reason: str = Field(default="")
     in_set: bool = Field(default=False)
-    usage_class: str = Field(default=MoleculeUsageClass.GENERAL)
+    usage_class: str = code_field("usage_class", MoleculeUsageClass.GENERAL)
 
     primary_context: str = Field(default="")
     extra_data: dict = Field(default_factory=dict, sa_type=JSON)
@@ -232,7 +234,7 @@ class MoleculeRepresentation(SQLModel, table=True):
 
     id: str = Field(primary_key=True)
     molecule_id: int = Field(foreign_key=f"{TABLE_MOLECULES}.id", index=True)
-    repr_type: str = Field()
+    repr_type: str = code_field("repr_type")
     value: str = Field()
 
     @classmethod
@@ -318,7 +320,7 @@ class MoleculeModel(SQLModel, table=True):
     model_index: int = Field(default=0)  # 0 = canonical
     payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
     energy: float | None = Field(default=None)  # kcal/mol if minimized
-    source: str = Field(default=ModelSource.IMPORTED)  # see ModelSource
+    source: str = code_field("model_source", ModelSource.IMPORTED)
     # Per-model quality data (e.g. ESMFold plddt_mean/ptm); ESMFold's PAE matrix as a payload.
     metrics: dict = Field(default_factory=dict, sa_type=JSON)
     pae_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)

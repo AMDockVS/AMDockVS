@@ -6,6 +6,8 @@ from typing import Any
 from sqlalchemy import DateTime, JSON, UniqueConstraint, Index
 from sqlmodel import SQLModel, Field
 
+from amdockvs.models.codes import code_field
+
 from amdockvs.core.constants import (
     TABLE_CLUSTERING_RESULTS,
     TABLE_MOLECULES,
@@ -118,7 +120,7 @@ class ClusteringRun(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     run_id: str = Field(index=True)  # uuid
     created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
-    method: str = Field(default="")
+    method: str = code_field("clustering_method")
     threshold: float = Field(default=0.0)
     scope_label: str = Field(default="")     # e.g. "General", "Reference", "Set #3"
     fp_radius: int = Field(default=2)

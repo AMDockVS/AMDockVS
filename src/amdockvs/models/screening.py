@@ -17,6 +17,8 @@ from datetime import datetime
 from sqlalchemy import DateTime, JSON, Index, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
+from amdockvs.models.codes import code_field
+
 from amdockvs.core.rows import shard_engine_state_row
 from amdockvs.core.constants import (
     TABLE_SCREENING_DISPATCHES,
@@ -126,12 +128,12 @@ class ScreeningShardRun(SQLModel, table=True):
     run_id: str = Field(default="", index=True)
     shard_id: int = Field(foreign_key=f"{TABLE_SCREENING_SHARDS}.id", index=True)
     receptor_molecule_id: int = Field(default=0, index=True)
-    engine: str = Field(default="", index=True)
+    engine: str = code_field("engine", index=True)
     protocol_hash: str = Field(default="", index=True)
     ligands_scored: int = Field(default=0)
     hits: int = Field(default=0)
     result_path: str = Field(default="")
-    state: str = Field(default=TargetState.SCHEDULED, index=True)
+    state: str = code_field("run_state", TargetState.SCHEDULED, index=True)
     error: str = Field(default="")
 
 
@@ -141,7 +143,7 @@ class ScreeningDispatch(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     path: str = Field(default="", index=True)
     bytes: int = Field(default=0)
-    state: str = Field(default=DispatchState.UPLOADED, index=True)
+    state: str = code_field("dispatch_state", DispatchState.UPLOADED, index=True)
     # Filled from the cluster's feedback; the count is not knowable at dispatch time.
     n_shards_returned: int = Field(default=0)
     note: str = Field(default="")
@@ -167,11 +169,11 @@ class ScreeningTarget(SQLModel, table=True):
     # receptor deleted mid-run must not fail the delete or take the run's history with it.
     receptor_molecule_id: int = Field(default=0, index=True)
     receptor_name: str = Field(default="")
-    engine: str = Field(default="")
+    engine: str = code_field("engine")
     ligands_total: int = Field(default=0)
     ligands_done: int = Field(default=0)
     hits: int = Field(default=0)
-    state: str = Field(default=TargetState.SCHEDULED, index=True)
+    state: str = code_field("run_state", TargetState.SCHEDULED, index=True)
 
 
 __all__ = [

@@ -5,6 +5,8 @@ from typing import Any
 from sqlalchemy import UniqueConstraint, JSON
 from sqlmodel import SQLModel, Field
 
+from amdockvs.models.codes import code_field
+
 from amdockvs.core.constants import (
     TABLE_MOLECULE_SET_MEMBERS,
     TABLE_MOLECULE_SETS,
@@ -23,7 +25,7 @@ class MoleculeSet(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     name: str      = Field(index=True)
-    purpose: str   = Field(default=SetPurpose.CUSTOM)  # see SetPurpose
+    purpose: str   = code_field("set_purpose", SetPurpose.CUSTOM)
     description: str = Field(default="")
 
 

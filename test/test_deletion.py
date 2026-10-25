@@ -38,7 +38,7 @@ def _seed():
     with Session(engine) as s:
         s.add(MoleculeRecord(id=1, name="rec", is_receptor=True))
         s.add(MoleculeRecord(id=2, name="lig", is_ligand=True))
-        s.add(ComplexRecord(id=1, receptor_molecule_id=1, ligand_molecule_id=2, purpose="screening"))
+        s.add(ComplexRecord(id=1, receptor_molecule_id=1, ligand_molecule_id=2, purpose="reference"))
         s.add(DockingRun(id=1, engine="vina"))
         for rank in (1, 2):
             s.add(DockingResultRecord(receptor_molecule_id=1, ligand_molecule_id=2, docking_run_id=1, pose_rank=rank))
