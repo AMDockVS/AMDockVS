@@ -78,14 +78,15 @@ def test_docking_sends_one_whole_shard_per_receptor(tmp_path, monkeypatch):
         lambda *_a, **_kw: iter(_shard_rows(tmp_path, 3, fmt="pdbqt")),
     )
     monkeypatch.setattr(shard_jobs, "completed_shard_targets", lambda *a, **k: set())
-    monkeypatch.setattr(shard_jobs, "count_docking_results", lambda *a, **k: 0)
     monkeypatch.setattr(shard_jobs, "docking_run_id", lambda *a, **k: 1)
+    monkeypatch.setattr(shard_jobs, "find_docking_run", lambda *a, **k: 1)
+    monkeypatch.setattr(shard_jobs, "plan_targets", lambda *a, **k: None)
     monkeypatch.setattr(shard_jobs, "receptor_targets", lambda *a, **k: [
         {"receptor_id": r, "receptor_name": f"r{r}", "receptor_path": str(tmp_path / f"r{r}.pdbqt"),
          "box_center": [0.0, 0.0, 0.0], "box_size": [20.0, 20.0, 20.0], "spacing": 0.375}
         for r in (7, 8)
     ])
-    params = {"output_dir": str(tmp_path), "hit_threshold": -8.0, "hit_cap": 100, "batch_size": 1}
+    params = {"output_dir": str(tmp_path), "hit_threshold": -8.0, "hit_cap": 100, "batch_size": 1, "run_id": "run"}
     assert shard_jobs.DockShardsJobSpec.count_chunks(params, {"project_db": object()}) == 6
     chunks = list(shard_jobs.DockShardsJobSpec.build_chunks(params, {"project_db": object()}))
     assert len(chunks) == 6  # 3 shards x 2 receptors
@@ -121,6 +122,7 @@ def test_off_target_scope_uses_only_reference_top_n_records(tmp_path, monkeypatc
     monkeypatch.setattr(shard_jobs, "completed_shard_targets", lambda *a, **k: set())
     monkeypatch.setattr(shard_jobs, "plan_targets", lambda *a, **k: None)
     monkeypatch.setattr(shard_jobs, "docking_run_id", lambda *a, **k: 1)
+    monkeypatch.setattr(shard_jobs, "find_docking_run", lambda *a, **k: None)
     monkeypatch.setattr(shard_jobs, "select_hit_refs", lambda *a, **k: [
         {"_shard_id": 1, "ligand_id": 3},
         {"_shard_id": 3, "ligand_id": 200},
@@ -136,7 +138,6 @@ def test_off_target_scope_uses_only_reference_top_n_records(tmp_path, monkeypatc
         "output_dir": str(tmp_path),
         "hit_threshold": 0.0,
         "hit_cap": 3,
-        "hit_mode": "top_n",
         "run_id": "run",
         "selected_from_receptor_id": 7,
         "selected_top_n": 3,

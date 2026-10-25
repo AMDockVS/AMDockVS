@@ -275,7 +275,7 @@ class PrepareLigandShardsJobSpec(JobSpec):
             prepared_ids = set(session.exec(select(ShardPrep.shard_id).where(ShardPrep.family == parsed.engine)).all())
 
         def pending() -> Iterator[dict[str, Any]]:
-            for row in ShardStore(project_db).iter_rows(shard_scope_spec(state=None)):
+            for row in ShardStore(project_db).iter_rows(shard_scope_spec()):
                 shard_path = Path(str(row.get("path") or ""))
                 shard_id = int(row.get("id") or 0)
                 prepared = shard_id in prepared_ids and prepared_shard_path(shard_path, parsed.engine).is_file()

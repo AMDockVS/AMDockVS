@@ -17,7 +17,7 @@ from amdockvs.core.constants import AMDOCKVS_OFFLOADABLE_EXECUTORS, SERIES_AUX, 
 from amdockvs.core.jobs import task
 from amdockvs.core.payloads import structure_payload
 from amdockvs.core.rows import molecule_model_row
-from amdockvs.core.vocab import ModelSource, ShardState
+from amdockvs.core.vocab import ModelSource
 
 
 def _chemistry_graph_payload(
@@ -160,9 +160,5 @@ def shard_chemistry_task(payload: dict, progress_cb=None) -> list[dict]:
         "shard_index": int(payload["shard_index"]),
         "path": str(output_path),
         "n_records": int(stats["n_records"]),
-        # Pending, not ready: what a generation's shards have had run over them is the
-        # generation's `step`, not a flag on each row. Stamping `ready` here made the next
-        # chemistry step (whose feed is `state=pending`) find an empty library.
-        "state": ShardState.PENDING,
         "error": "" if not stats["n_failed"] else f"{stats['n_failed']} of {stats['n_input']} molecules failed",
     }]

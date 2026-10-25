@@ -20,6 +20,7 @@ from sqlmodel import Field, SQLModel
 from amdockvs.models.codes import code_field
 
 from amdockvs.core.constants import (
+    TABLE_DOCKING_RUNS,
     TABLE_IMPORT_BATCHES,
     TABLE_SCREENING_DISPATCHES,
     TABLE_SCREENING_SHARD_RUNS,
@@ -28,7 +29,7 @@ from amdockvs.core.constants import (
     TABLE_SHARD_PREPS,
     TABLE_SHARD_GENERATIONS,
 )
-from amdockvs.core.vocab import DispatchState, ShardState, TargetState
+from amdockvs.core.vocab import DispatchState, TargetState
 
 
 class ShardGeneration(SQLModel, table=True):
@@ -79,7 +80,6 @@ class ScreeningShard(SQLModel, table=True):
     shard_index: int = Field(default=0, index=True)
     path: str = Field(default="")  # the .mshard's payload kind says the format
     n_records: int = Field(default=0)
-    state: str = Field(default=ShardState.PENDING, index=True)
     error: str = Field(default="")
     dispatch_id: int | None = Field(default=None, foreign_key=f"{TABLE_SCREENING_DISPATCHES}.id", index=True)
 
@@ -107,12 +107,12 @@ class ScreeningShardRun(SQLModel, table=True):
 
     __tablename__ = TABLE_SCREENING_SHARD_RUNS
     __table_args__ = (
-        UniqueConstraint("run_id", "shard_id", "receptor_molecule_id", "engine", "protocol_hash"),
-        Index("idx_screening_shard_run_lookup", "run_id", "engine", "protocol_hash", "state"),
+        UniqueConstraint("docking_run_id", "shard_id", "receptor_molecule_id"),
+        Index("idx_screening_shard_run_lookup", "docking_run_id", "state"),
     )
 
     id: int | None = Field(default=None, primary_key=True)
-    run_id: str = Field(default="", index=True)
+    docking_run_id: int = Field(foreign_key=f"{TABLE_DOCKING_RUNS}.id")
     shard_id: int = Field(foreign_key=f"{TABLE_SCREENING_SHARDS}.id", index=True)
     receptor_molecule_id: int = Field(default=0, index=True)
     engine: str = code_field("engine", index=True)
@@ -148,10 +148,10 @@ class ScreeningTarget(SQLModel, table=True):
     """
 
     __tablename__ = TABLE_SCREENING_TARGETS
-    __table_args__ = (UniqueConstraint("run_id", "receptor_molecule_id"),)
+    __table_args__ = (UniqueConstraint("docking_run_id", "receptor_molecule_id"),)
 
     id: int | None = Field(default=None, primary_key=True)
-    run_id: str = Field(default="", index=True)
+    docking_run_id: int = Field(foreign_key=f"{TABLE_DOCKING_RUNS}.id")
     # ponytail: no foreign key on purpose. This is campaign bookkeeping, not a relation — a
     # receptor deleted mid-run must not fail the delete or take the run's history with it.
     receptor_molecule_id: int = Field(default=0, index=True)
@@ -159,7 +159,8 @@ class ScreeningTarget(SQLModel, table=True):
     engine: str = code_field("engine")
     ligands_total: int = Field(default=0)
     ligands_done: int = Field(default=0)
-    hits: int = Field(default=0)
+    hits: int = Field(default=0)  # passed the prefilter
+    imported: int = Field(default=0)  # of those, materialized as rows (the top-N)
     state: str = code_field("run_state", TargetState.SCHEDULED, index=True)
 
 

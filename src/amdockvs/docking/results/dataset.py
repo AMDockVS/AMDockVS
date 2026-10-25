@@ -148,13 +148,14 @@ def completed_result_receipts(
 ) -> list[ScreeningShardRun]:
     from sqlmodel import select
 
-    from amdockvs.models import ScreeningShardRun
+    from amdockvs.models import DockingRun, ScreeningShardRun
 
     with project_db.get_session() as session:
         return list(session.exec(
             select(ScreeningShardRun)
+            .join(DockingRun, DockingRun.id == ScreeningShardRun.docking_run_id)
             .where(
-                ScreeningShardRun.run_id == str(run_id),
+                DockingRun.run_id == str(run_id),
                 ScreeningShardRun.protocol_hash == str(protocol_hash),
                 ScreeningShardRun.state == TargetState.DONE,
                 ScreeningShardRun.result_path != "",

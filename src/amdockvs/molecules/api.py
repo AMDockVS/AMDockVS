@@ -458,7 +458,7 @@ class MoleculeAPI:
 
         self.runtime._require_active_project()
         store = ShardStore(self.runtime.workspace.project_db)
-        whole = shard_scope_spec(state=None)
+        whole = shard_scope_spec()
         prepared = list(iter_prepared_shards(self.runtime.workspace.project_db, engine=engine))
         return {
             "shards": store.count(whole),

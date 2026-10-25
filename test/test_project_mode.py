@@ -18,7 +18,7 @@ from amdockvs.molecules.storage import (
     library_kind,
 )
 from amdockvs.runtime import AMDockVSRuntime
-from amdockvs.core.vocab import ProjectMode, ShardState
+from amdockvs.core.vocab import ProjectMode
 
 
 @pytest.fixture
@@ -39,7 +39,6 @@ def _add_shard(runtime, tmp_path):
                 shard_index=0,
                 path=str(tmp_path / "shard_00000.smi"),
                 n_records=10,
-                state=ShardState.PENDING,
             )
         )
         session.commit()

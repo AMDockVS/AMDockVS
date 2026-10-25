@@ -22,7 +22,6 @@ from amdockvs.molecules.storage import (
     shard_scope_spec,
 )
 from amdockvs.runtime import AMDockVSRuntime
-from amdockvs.core.vocab import ShardState
 
 
 @pytest.fixture
@@ -49,7 +48,6 @@ def _populate(project_db, generation_id, directory, *, count=3, tag="g"):
                     path=str(path),
                     input_format="smi",
                     n_records=1000,
-                    state=ShardState.PENDING,
                 )
             )
         session.commit()
@@ -66,7 +64,7 @@ def test_a_scope_never_spans_two_generations(project, tmp_path):
     _populate(project_db, second, tmp_path, count=2, tag="second")
 
     store = ShardStore(project_db)
-    whole = shard_scope_spec(state=None)
+    whole = shard_scope_spec()
     # The new generation exists in the table but is not the library yet.
     assert store.count(whole) == 3
     assert active_generation_id(project_db) == first
@@ -87,18 +85,18 @@ def test_a_failed_rewrite_leaves_the_library_alone(project, tmp_path):
     writer = ShardGenerationWriter(project_db=project_db, generation_id=second)
     writer.handle("chunk-0", [{
         "source": "lib.smi", "shard_index": 0, "path": str(tmp_path / "p_00000.parquet"),
-        "input_format": "smi", "n_records": 998, "state": ShardState.READY,
+        "input_format": "smi", "n_records": 998,
     }])
     writer.on_error("chunk-1", "boom")
     # flush() never runs: the job failed.
 
     store = ShardStore(project_db)
-    assert store.count(shard_scope_spec(state=None)) == 3
-    assert store.record_count(shard_scope_spec(state=None)) == 3000
+    assert store.count(shard_scope_spec()) == 3
+    assert store.record_count(shard_scope_spec()) == 3000
 
     writer.flush()
-    assert store.count(shard_scope_spec(state=None)) == 1
-    assert store.record_count(shard_scope_spec(state=None)) == 998
+    assert store.count(shard_scope_spec()) == 1
+    assert store.record_count(shard_scope_spec()) == 998
 
 
 def test_the_window_is_two_deep(project, tmp_path):

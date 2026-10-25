@@ -28,7 +28,7 @@ from ms_flow.core.data.shard import PayloadKind, Serializer, ShardWriter
 from amdockvs.io.parsers import iter_record_span
 from amdockvs.io.payloads import ImportBatchPayload
 from amdockvs.io.rows import cull_mol, htp_mol_filter
-from amdockvs.core.vocab import FileFormat, ShardState
+from amdockvs.core.vocab import FileFormat
 
 SHARD_SUFFIX = ".parquet"
 
@@ -235,7 +235,6 @@ class ShardQueueWriter:
                     shard_index=shard_index,
                     path=str(path),
                     n_records=n_records,
-                    state=ShardState.PENDING,
                 )
             )
             session.commit()
@@ -284,7 +283,6 @@ class ShardGenerationWriter:
                         shard_index=int(row.get("shard_index") or 0),
                         path=str(row.get("path") or ""),
                         n_records=int(row.get("n_records") or 0),
-                        state=str(row.get("state") or ShardState.READY),
                         error=str(row.get("error") or ""),
                     )
                 )
@@ -308,7 +306,7 @@ class ShardGenerationWriter:
         """
         from amdockvs.molecules.storage import ShardStore, activate_generation, shard_scope_spec
 
-        spec = shard_scope_spec(state=None)
+        spec = shard_scope_spec()
         store = ShardStore(self._project_db)
         written = store.record_count(replace(spec, filters={**spec.filters, "generation_id": self._generation_id}))
         if written <= 0:

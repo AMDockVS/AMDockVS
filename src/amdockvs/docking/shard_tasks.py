@@ -17,10 +17,9 @@ from amdockvs.docking.engines.registry import run_docking_chunk
 from amdockvs.docking.preparation.shards import extract_ligands
 from amdockvs.docking.results.dataset import ResultFragmentWriter, local_pose_path, result_fragment_path, result_row
 
-# How the cap is spent. `threshold`: the first `cap` ligands that beat the threshold, written as
-# they come back — the campaign can stop early. `top_n`: the best `cap` of everything scored,
-# written when the run ends — no early stop, and nothing to look at until then.
-HIT_MODE_THRESHOLD = "threshold"
+# How the cap is spent: the best `cap` of everything scored per receptor, picked from the result
+# fragments when the run ends. Only an off-target stage, already narrowed to a ranking, streams
+# its hits back as they come.
 HIT_MODE_TOP_N = "top_n"
 
 
@@ -148,7 +147,7 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
                 "protocol": dict(payload.get("protocol_metadata") or {}),
                 "receptor_id": envelope["receptor_id"],
                 "selection": {
-                    "mode": str(payload.get("hit_mode") or HIT_MODE_THRESHOLD),
+                    "mode": HIT_MODE_TOP_N,
                     "cap": int(payload.get("hit_cap") or 0),
                     "threshold": threshold,
                     **(
@@ -179,10 +178,7 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
                 )
                 if is_hit:
                     hits_found += 1
-                    if (
-                        str(payload.get("hit_mode") or HIT_MODE_THRESHOLD) != HIT_MODE_TOP_N
-                        or payload.get("selected_from_receptor_id")
-                    ):
+                    if payload.get("selected_from_receptor_id"):
                         hit = _hit_row(
                             row,
                             smiles=smiles.get(ligand_id, ""),

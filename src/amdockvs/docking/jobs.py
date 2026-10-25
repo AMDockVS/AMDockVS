@@ -51,6 +51,7 @@ from amdockvs.docking.repository import (
 from amdockvs.docking.results.repository import (
     count_docking_results,
     docking_run_id,
+    find_docking_run,
     supersede_results,
     existing_result_pairs,
 )
@@ -355,7 +356,8 @@ def iter_docking_batches(
         # `docking_results` rows; the state only colors the Docked bar.
         plan_targets(
             project_db,
-            run_id=run_id,
+            docking_run_id=docking_run_id(project_db, run_id=run_id, engine=engine, run_kind="screening",
+                                          protocol=protocol_payload),
             receptors=[{"receptor_id": row.get("id")} for row in receptors],
             ligands_total=count_entity_rows(
                 project_db, entity_kind="ligand", engine=prep_engine,
@@ -695,11 +697,15 @@ def _supersede(params: dict, config: dict) -> None:
     if not params.get("skip_existing", True):
         supersede_results(project_db, run_id=run_id)
     if run_id:
+        run = find_docking_run(
+            project_db, run_id=run_id, engine=str(params.get("engine") or "vina"), run_kind="screening",
+            protocol_hash=str(DockingProtocolMetadata.from_mapping(params.get("protocol_metadata")).hash or ""),
+        )
         status = config.get("terminal_status")
         if status in (TargetState.FAILED, TargetState.CANCELED):
-            stop_run(project_db, run_id=run_id, state=status)
+            stop_run(project_db, docking_run_id=run, state=status)
         elif status == "completed":
-            finish_run(project_db, run_id=run_id)
+            finish_run(project_db, docking_run_id=run)
 
 
 class DockingJobSpec(JobSpec):

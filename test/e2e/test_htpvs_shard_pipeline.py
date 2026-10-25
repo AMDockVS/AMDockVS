@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from amdockvs import AMDockVSRuntime
 from amdockvs.molecules.storage import ShardStore, shard_scope_spec
-from amdockvs.core.vocab import ProjectMode, ShardState
+from amdockvs.core.vocab import ProjectMode
 
 
 def _make_sdf(path: Path, count: int, prefix: str):
@@ -55,7 +55,6 @@ def test_htpvs_import_shards_and_the_pipeline_runs_over_them(tmp_path, monkeypat
         assert len(shards) == 9  # 3 files x 20 molecules, 8 per shard -> 3 shards each
         assert store.record_count() == 60
         assert all(Path(row["path"]).is_file() for row in shards)
-        assert {row["state"] for row in shards} == {ShardState.PENDING}
 
         # The whole point of the mode: no ligand ever became a row.
         assert runtime.molecules.count(runtime.molecules.select(role="ligand")) == 0
@@ -69,11 +68,8 @@ def test_htpvs_import_shards_and_the_pipeline_runs_over_them(tmp_path, monkeypat
 
         # The run wrote a new generation; the store reads only the active one. Its parent is
         # still on disk (kept for a redo), so a raw table read would see 18.
-        done = list(store.iter_rows(shard_scope_spec(state=None)))
+        done = list(store.iter_rows(shard_scope_spec()))
         assert len(done) == 9
-        # Pending again: what ran over a generation is its `step`, not a per-row flag, so the
-        # next step feeds on these.
-        assert {row["state"] for row in done} == {ShardState.PENDING}
         assert store.record_count() == 60
         for row in done:
             output = Path(row["path"])
@@ -97,7 +93,7 @@ def test_htpvs_import_shards_and_the_pipeline_runs_over_them(tmp_path, monkeypat
             ["standardize"], executor_name="thread", wait=True
         )
         assert again.status == "completed"
-        chained = list(store.iter_rows(shard_scope_spec(state=None)))
+        chained = list(store.iter_rows(shard_scope_spec()))
         assert len(chained) == 9 and store.record_count() == 60
         assert all(Path(row["path"]).parent.name.endswith("_standardize") for row in chained)
         assert not any(Path(row["path"]).exists() for row in shards)

@@ -130,24 +130,6 @@ class ProjectMode:
     VS = "vs"          # ligands materialized as rows; the whole catalog UI applies
     HTPVS = "htpvs"    # ligands live in shards; only promoted hits ever become rows
 
-class ShardState:
-    """Lifecycle of the current chemical shard representation.
-
-    Preparation readiness and docking progress now live in engine/campaign-scoped tables.
-    ``prepared``, ``docking`` and ``docked`` remain readable for legacy projects only.
-    """
-
-    PENDING = "pending"      # imported, nothing run over it yet
-    RUNNING = "running"
-    READY = "ready"          # chemistry pipeline done
-    PREPARED = "prepared"    # ligands rewritten as PDBQT: dockable
-    DOCKING = "docking"      # handed to a run, results not all back
-    DOCKED = "docked"
-    FAILED = "failed"
-    # ponytail: rows written before the lifecycle existed say "done". Kept so they still read
-    # as a value; nothing writes it any more.
-    DONE = "done"
-
 class DispatchState:
     """What happened to a source file handed to a cluster. Lives as long as the campaign."""
 
@@ -234,7 +216,6 @@ __all__ = [
     "SimilarityMethod",
     "ClusteringMethod",
     "ProjectMode",
-    "ShardState",
     "DispatchState",
     "TargetState",
 ]

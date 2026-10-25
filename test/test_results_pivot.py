@@ -292,7 +292,7 @@ def test_live_campaign_progress_patches_cells_without_resetting_or_losing_select
         session.add_all([
             DockingRun(id=1, engine="vina", protocol_hash="p", protocol_label="Vina"),
             MoleculeRecord(id=41, name="4UWH", is_receptor=True),
-            ScreeningTarget(run_id="r1", receptor_molecule_id=41, receptor_name="4UWH",
+            ScreeningTarget(docking_run_id=1, receptor_molecule_id=41, receptor_name="4UWH",
                             ligands_total=1000, ligands_done=0),
         ])
         session.commit()
@@ -331,9 +331,10 @@ def test_dependent_offtarget_stage_adds_its_receptors_without_manual_refresh():
     }
     with db.get_session() as session:
         session.add_all([
+            DockingRun(id=1, engine="vina", protocol_hash="p", protocol_label="Vina"),
             MoleculeRecord(id=41, name="Reference", is_receptor=True),
             MoleculeRecord(id=42, name="Off-target", is_receptor=True),
-            ScreeningTarget(run_id="r1", receptor_molecule_id=41, receptor_name="Reference",
+            ScreeningTarget(docking_run_id=1, receptor_molecule_id=41, receptor_name="Reference",
                             ligands_total=1000, ligands_done=1000),
         ])
         session.commit()
@@ -353,7 +354,7 @@ def test_dependent_offtarget_stage_adds_its_receptors_without_manual_refresh():
 
     with db.get_session() as session:
         session.add(ScreeningTarget(
-            run_id="r1", receptor_molecule_id=42, receptor_name="Off-target",
+            docking_run_id=1, receptor_molecule_id=42, receptor_name="Off-target",
             ligands_total=100, ligands_done=0,
         ))
         session.commit()
@@ -376,8 +377,9 @@ def test_a_scheduled_receptor_is_listed_before_it_has_any_result():
     db = _Db()
     with db.get_session() as session:
         session.add_all([
+            DockingRun(id=1, engine="vina", protocol_hash="p", protocol_label="Vina"),
             MoleculeRecord(id=7, name="4UWF", is_receptor=True),
-            ScreeningTarget(run_id="r1", receptor_molecule_id=7, receptor_name="4UWF",
+            ScreeningTarget(docking_run_id=1, receptor_molecule_id=7, receptor_name="4UWF",
                             ligands_total=11950, ligands_done=27),
         ])
         session.commit()
@@ -399,7 +401,7 @@ def test_a_row_mode_plan_counts_docked_from_its_results():
         session.add_all([
             DockingRun(id=1, engine="vina", protocol_hash="p", protocol_label="Vina"),
             MoleculeRecord(id=8, name="4UWG", is_receptor=True),
-            ScreeningTarget(run_id="r2", receptor_molecule_id=8, ligands_total=901),
+            ScreeningTarget(docking_run_id=1, receptor_molecule_id=8, ligands_total=901),
             *[DockingResultRecord(receptor_molecule_id=8, ligand_molecule_id=100 + i,
                                   docking_run_id=1, pose_rank=1, score=-7.0) for i in range(3)],
         ])

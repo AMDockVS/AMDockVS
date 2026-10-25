@@ -31,7 +31,7 @@ from ms_flow.query import QuerySpec, db_count, db_pages
 
 from amdockvs.core.constants import TABLE_MOLECULES, TABLE_SCREENING_SHARDS
 from amdockvs.screening.materialize import HitGate, PAYLOAD_LIGHT, ingest_hits
-from amdockvs.core.vocab import MoleculeType, MoleculeUsageClass, ProjectMode, ShardState
+from amdockvs.core.vocab import MoleculeType, MoleculeUsageClass, ProjectMode
 
 
 class LigandStore(Protocol):
@@ -66,7 +66,7 @@ class DbStore:
 
 
 SHARD_FIELDS = (
-    "id", "generation_id", "import_batch_id", "shard_index", "path", "n_records", "state"
+    "id", "generation_id", "import_batch_id", "shard_index", "path", "n_records"
 )
 
 
@@ -160,27 +160,9 @@ def activate_generation(project_db, generation_id: int) -> None:
             path.unlink(missing_ok=True)
 
 
-# Legacy values retained for callers opening projects created before preparation and campaign
-# state moved to their own tables. New docking code does not use this global lifecycle.
-DOCKABLE_STATES = (ShardState.PREPARED, ShardState.DONE, ShardState.DOCKING)
-
-
-def shard_scope_spec(
-    *,
-    state: str | None = ShardState.PENDING,
-    states: tuple[str, ...] | None = None,
-) -> QuerySpec:
-    """The shards a run should touch. `state=None` is the whole inventory.
-
-    Filtering on `state != done` here is all the idempotency there is: a shard that finished
-    is not fed again, so a crashed run resumes by simply being started again.
-    """
-    filters: dict[str, Any] = {}
-    if states is not None:
-        filters["state__in"] = list(states)
-    elif state is not None:
-        filters["state"] = state
-    return QuerySpec(table=TABLE_SCREENING_SHARDS, fields=SHARD_FIELDS, filters=filters, order=("id",))
+def shard_scope_spec() -> QuerySpec:
+    """Every shard; `ShardStore` pins it to the active generation."""
+    return QuerySpec(table=TABLE_SCREENING_SHARDS, fields=SHARD_FIELDS, order=("id",))
 
 
 class ShardStore:
@@ -274,7 +256,7 @@ def as_store(source) -> LigandStore:
 
 def has_shards(project_db) -> bool:
     """Does this project hold a sharded screening library?"""
-    return db_count(project_db, shard_scope_spec(state=None)) > 0
+    return db_count(project_db, shard_scope_spec()) > 0
 
 
 def library_kind(project_db) -> str:
@@ -334,7 +316,6 @@ def iter_prepared_shards(project_db, *, engine: str) -> Iterator[dict[str, Any]]
                 "path": shard.path,
                 "prepared_path": str(prepared_path),
                 "n_records": int(n_records),
-                "state": shard.state,
             }
 
 
@@ -389,7 +370,6 @@ def store_from_config(config: Mapping[str, Any] | None) -> LigandStore:
 
 
 __all__ = [
-    "DOCKABLE_STATES",
     "DbStore",
     "activate_generation",
     "active_generation_id",
