@@ -72,6 +72,7 @@ class DockingRunRequest:
     offtarget_reference_id: int | None = None
     offtarget_top_n: int = 0
     offtarget_max_score: float | None = None  # by-threshold selection; top_n is then the ceiling
+    replace_existing: bool = False
 
 
 @dataclass(frozen=True)

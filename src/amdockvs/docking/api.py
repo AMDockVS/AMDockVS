@@ -64,6 +64,7 @@ from amdockvs.docking.results.jobs import (
     interactions_job,
 )
 from amdockvs.docking.protocols import DockingProtocolMetadata
+from amdockvs.docking.rerun import check_protocol_conflict, clear_previous_docking, resolved_protocol
 from amdockvs.docking.shard_jobs import (
     DockShardsJobParams,
     dock_shards_job,
@@ -98,11 +99,13 @@ def _validated_engine_config(
     overrides: dict[str, Any] | None,
     **legacy,
 ) -> dict[str, Any]:
-    values = (
-        {**legacy, **dict(overrides or {})}
-        if program.config_model is DockingEngineConfig
-        else dict(overrides or {})
-    )
+    values = {}
+    for key, value in legacy.items():
+        field = program.config_model.model_fields.get(key)
+        shared = DockingEngineConfig.model_fields.get(key)
+        if field is not None and (shared is None or field.default == shared.default or value != shared.default):
+            values[key] = value
+    values.update(overrides or {})
     return program.validate_config(values)
 
 
@@ -161,6 +164,22 @@ class DockingAPI:
 
     def list_programs(self) -> tuple[DockingProgramSpec, ...]:
         return list_docking_programs()
+
+    def check_protocol(
+        self, *, program: str, engine_config: dict, protocol_metadata: dict | None = None,
+        replace_existing: bool = False,
+    ) -> dict:
+        """Check the program's current configuration without deleting or submitting anything."""
+        if not isinstance(replace_existing, bool):
+            raise ValueError("replace_existing must be a boolean.")
+        project_db = self._project_db()
+        spec = self.get_program_spec(program)
+        protocol = resolved_protocol(spec, spec.validate_config(engine_config), protocol_metadata)
+        check_protocol_conflict(
+            project_db, program=spec, protocol=protocol,
+            replace_existing=replace_existing,
+        )
+        return protocol
 
     def live_campaign_progress(
         self,
@@ -529,6 +548,7 @@ class DockingAPI:
             check_required: bool = True,
             selected_from_receptor_id: int | None = None,
             selected_top_n: int | None = None,
+            replace_existing: bool = False,
     ) -> str:
         """`run` for a sharded library: the campaign, with the gate that makes it end.
 
@@ -562,6 +582,15 @@ class DockingAPI:
             min_rmsd=min_rmsd,
         )
         resolved_engine_config = _validated_engine_config(program_spec, engine_config, **knobs)
+        protocol_metadata = self.check_protocol(
+            program=program_spec.key, engine_config=resolved_engine_config,
+            protocol_metadata=protocol_metadata, replace_existing=replace_existing,
+        )
+        reset_results = replace_existing and check_protocol_conflict(
+            self.runtime.workspace.project_db, program=program_spec, protocol=protocol_metadata, replace_existing=True,
+        )
+        if reset_results and selected_from_receptor_id is not None:
+            raise ValueError("Changing docking configuration requires rerunning the reference stage before off-target docking.")
         receptor_set_ref = self._set_ref(receptor_set, name="docking_receptor_input")
         receptor_scope = scope_payload(receptor_set) if is_molecule_scope(receptor_set) else {}
         receptor_filters = self._program_scope_filters(receptor_scope, role="receptor", program=program_spec)
@@ -584,6 +613,12 @@ class DockingAPI:
             skip_existing=skip_existing,
             check_required=check_required,
         )
+        if reset_results:
+            if check_required and not depends_on:
+                dock_shards_job.count_chunks(
+                    params.model_dump(mode="python"), config={"project_db": self.runtime.workspace.project_db},
+                )
+            clear_previous_docking(self.runtime.workspace.project_db, program=program_spec)
         return self.runtime.submit_job(
             dock_shards_job,
             params=params.model_dump(mode="python"),
@@ -1006,6 +1041,7 @@ class DockingAPI:
             selected_from_receptor_id: int | None = None,
             selected_top_n: int | None = None,
             selected_max_score: float | None = None,
+            replace_existing: bool = False,
     ) -> str:
         """Run docking over the active library, selecting its row or shard adapter.
 
@@ -1069,6 +1105,7 @@ class DockingAPI:
                 check_required=check_required,
                 selected_from_receptor_id=selected_from_receptor_id,
                 selected_top_n=selected_top_n,
+                replace_existing=replace_existing,
             )
         if selected_from_receptor_id is not None and not selected_top_n:
             raise ValueError("An off-target stage over ligand rows requires selected_top_n.")
@@ -1079,6 +1116,15 @@ class DockingAPI:
             )
         program_spec = self.get_program_spec(program)
         resolved_engine_config = _validated_engine_config(program_spec, engine_config, **knobs)
+        protocol_metadata = self.check_protocol(
+            program=program_spec.key, engine_config=resolved_engine_config,
+            protocol_metadata=protocol_metadata, replace_existing=replace_existing,
+        )
+        reset_results = replace_existing and check_protocol_conflict(
+            self.runtime.workspace.project_db, program=program_spec, protocol=protocol_metadata, replace_existing=True,
+        )
+        if reset_results and selected_from_receptor_id is not None:
+            raise ValueError("Changing docking configuration requires rerunning the reference stage before off-target docking.")
         resolved_batch_size = max(1, int(batch_size or app_config(self.runtime).docking.batch_size))
         ligand_set_ref = self._set_ref(ligand_set, name="docking_ligand_input")
         receptor_set_ref = self._set_ref(receptor_set, name="docking_receptor_input")
@@ -1129,7 +1175,7 @@ class DockingAPI:
             ligand_filters=ligand_filters,
             receptor_filters=receptor_filters,
             protocol_metadata=protocol_metadata,
-            skip_existing=skip_existing,
+            skip_existing=False if reset_results else skip_existing,
             requires_ligand_preparation=program_spec.requires_ligand_preparation,
             requires_receptor_preparation=program_spec.requires_receptor_preparation,
         )
@@ -1166,6 +1212,8 @@ class DockingAPI:
             selected_top_n=selected_top_n,
             selected_max_score=selected_max_score,
         )
+        if reset_results:
+            clear_previous_docking(self.runtime.workspace.project_db, program=program_spec)
         job_id = self.runtime.submit_job(
             docking_job,
             params=params.model_dump(mode="python"),

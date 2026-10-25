@@ -634,7 +634,7 @@ class RunPanel:
         run_async(
             lambda: self._check_docking_conflict(signature),
             lambda conflict: self._after_conflict_check(conflict, inp, params, signature),
-            on_error=self._on_docking_error,
+            on_error=lambda exc: self._on_docking_error(exc, inp=inp, params=params, signature=signature),
         )
 
     def _preparing(self) -> list:
@@ -802,7 +802,7 @@ class RunPanel:
         run_async(
             lambda: self._submit_docking(inp, params),
             lambda result: self._on_docking_submitted(result, signature),
-            on_error=self._on_docking_error,
+            on_error=lambda exc: self._on_docking_error(exc, inp=inp, params=params, signature=signature),
         )
 
     def _sync_hit_cap_label(self) -> None:
@@ -871,6 +871,11 @@ class RunPanel:
         if reference_id is not None and int(reference_id) not in ready_receptor_ids:
             return {"warning": "The selected off-target reference receptor is no longer ready."}
         receptor_scope = self._resolve_receptor_scope(list(ready_receptor_ids))
+        for protocol in protocols:
+            self.runtime.docking.check_protocol(
+                program=protocol.program, engine_config=dict(protocol.config),
+                protocol_metadata=protocol.to_mapping(), replace_existing=bool(params.get("replace_existing")),
+            )
         job_ids: dict[str, str] = {}
         for index, protocol in enumerate(protocols):
             config = dict(protocol.config)
@@ -891,6 +896,7 @@ class RunPanel:
                 "run_id": protocol_run_id,
                 "protocol_metadata": protocol.to_mapping(),
                 "engine_config": config,
+                "replace_existing": bool(params.get("replace_existing")),
             }
             key = protocol_job_key(protocol, index)
             if reference_id is None or len(ready_receptor_ids) < 2:
@@ -911,7 +917,7 @@ class RunPanel:
                 depends_on=[reference_job],
                 selected_from_receptor_id=reference_id,
                 selected_top_n=int(params["hit_cap"]),
-                **common,
+                **{**common, "replace_existing": False},
             )
         return {
             "job_ids": job_ids,
@@ -972,6 +978,7 @@ class RunPanel:
             # by-threshold the cutoff and the ceiling.
             offtarget_top_n=int(params.get("hit_cap") or 0),
             offtarget_max_score=float(params["hit_threshold"]),
+            replace_existing=bool(params.get("replace_existing")),
         )
         try:
             submission = self.submission_service.submit(
@@ -1024,9 +1031,28 @@ class RunPanel:
         if manager is not None:
             manager.toggle("tools", False)
 
-    def _on_docking_error(self, exc: Exception) -> None:
+    def _on_docking_error(self, exc: Exception, *, inp=None, params=None, signature="") -> None:
+        from amdockvs.docking.rerun import DockingProtocolConflictError
+
         self.run_button.setEnabled(True)
-        if isinstance(exc, ValueError):
+        if isinstance(exc, DockingProtocolConflictError) and inp is not None and params is not None:
+            dialog = QMessageBox(self)
+            dialog.setWindowTitle("Docking configuration changed")
+            dialog.setIcon(QMessageBox.Icon.Warning)
+            dialog.setText("Replace this program's previous docking results?")
+            dialog.setInformativeText(
+                "All previous docking results for this program in the project will be deleted, "
+                "including poses and derived analyses. Docking will start over with the new configuration.\n\n"
+                "Redocking results will be preserved. If the new run fails or is canceled, "
+                "the deleted results will not be restored."
+            )
+            dialog.setDetailedText(str(exc))
+            replace = dialog.addButton("Replace docking results", QMessageBox.ButtonRole.DestructiveRole)
+            dialog.setDefaultButton(dialog.addButton(QMessageBox.StandardButton.Cancel))
+            dialog.exec()
+            if dialog.clickedButton() == replace:
+                self._after_conflict_check(("", ""), inp, {**params, "replace_existing": True}, signature)
+        elif isinstance(exc, ValueError):
             self._warn("Run Docking", str(exc))
         else:
             self._error("Run Docking", exc)
