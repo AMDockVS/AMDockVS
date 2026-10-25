@@ -102,6 +102,7 @@ class MoleculeAPI:
         ligand_complexes: tuple[ComplexRecord, ...]
         activities: tuple[LigandActivity, ...]
         current_model: MoleculeModel | None = None  # the model current_payload_id points at (metrics, files)
+        current_model_data: dict | None = None  # its data payload (plddt, ptm...), the PAE left out
 
     def get(self, molecule_id: int) -> MoleculeRecord | None:
         """Return one molecule without exposing the project session to callers."""
@@ -163,6 +164,14 @@ class MoleculeAPI:
                 .where(MoleculeModel.molecule_id == resolved_id)
                 .where(MoleculeModel.payload_id == int(structure))
             ).first()
+        model_data = None
+        if current_model is not None and current_model.data_payload_id is not None:
+            import json
+
+            from amdockvs.core.payloads import read_structure
+
+            model_data = json.loads(read_structure(self.runtime.workspace.project_db, current_model.data_payload_id)[0])
+            model_data.pop("pae", None)
         return self.Details(
             molecule=molecule,
             binding_sites=binding_sites,
@@ -170,6 +179,7 @@ class MoleculeAPI:
             ligand_complexes=ligand_complexes,
             activities=activities,
             current_model=current_model,
+            current_model_data=model_data,
         )
 
     def list_sets(self) -> list[SetRecord]:

@@ -241,12 +241,11 @@ def ingest_hits(
             session.add(docking_result)
             if payload == PAYLOAD_FULL:
                 models = list(hit.get("models") or ())
-                for index, model_id in enumerate(store.put(session, models)):
+                for model_id in store.put(session, models):
                     session.add(
                         MoleculeModel(
                             **MoleculeModel.build_row(
                                 molecule_id=molecule_id,
-                                model_index=index,
                                 payload_id=model_id,
                                 source=ModelSource.IMPORTED,
                             )

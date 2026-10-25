@@ -137,21 +137,15 @@ def molecule_row(
 def molecule_model_row(
         *,
         molecule_id: int,
-        model_index: int,
         payload_id: Any,
         source: str = ModelSource.IMPORTED,
-        energy: float | None = None,
-        metrics: dict | None = None,
-        pae_payload_id: Any = None,
+        data_payload_id: Any = None,
 ) -> dict[str, Any]:
     return {
         "molecule_id": molecule_id,
-        "model_index": model_index,
         "payload_id": payload_id,
-        "energy": energy,
         "source": source,
-        "metrics": dict(metrics or {}),
-        "pae_payload_id": pae_payload_id,
+        "data_payload_id": data_payload_id,
     }
 
 

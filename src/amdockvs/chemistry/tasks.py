@@ -4,6 +4,7 @@ No SQL and no job declaration here: a worker loads this module and nothing of `j
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -65,7 +66,6 @@ def ligand_chemistry_task(payload: dict, progress_cb=None):
         operations=payload.get("operation") or "",
         rows=list(payload.get("rows") or []),
         params=dict(payload.get("params") or {}),
-        next_model_index_by_entity=dict(payload.get("next_model_index_by_entity") or {}),
         progress_cb=progress_cb,
     )
     updates = list(result.get("updates") or [])
@@ -92,7 +92,6 @@ def receptor_chemistry_task(payload: dict, progress_cb=None):
         operation=str(payload.get("operation") or ""),
         rows=rows,
         params=dict(payload.get("params") or {}),
-        next_model_index_by_entity=dict(payload.get("next_model_index_by_entity") or {}),
         progress_cb=progress_cb,
     )
     if list(payload.get("rows") or []) and not updates:
@@ -116,7 +115,6 @@ def receptor_prediction_task(payload: dict, progress_cb=None):
             raise ValueError(f"Receptor {receptor_id} has neither a sequence nor a structure to read one from.")
         with scratch_file(payload["structure"], f".{payload.get('structure_kind') or 'cif'}") as path:
             sequence = sequence_from_structure(path)
-    model_index = int(payload["model_index"])
     metrics, cif, pae = predict_structure(sequence, model=str(payload["model"]))
     if metrics.get("potential_sequence_of_concern"):
         print(f"ESMFold flagged receptor {receptor_id} as a potential sequence of concern.")
@@ -138,11 +136,9 @@ def receptor_prediction_task(payload: dict, progress_cb=None):
         "molecule_models": [
             molecule_model_row(
                 molecule_id=receptor_id,
-                model_index=model_index,
                 payload_id=current,
                 source=ModelSource.ESMFOLD,
-                metrics=metrics,
-                pae_payload_id=None if pae is None else structure_payload(pae, "npy", SERIES_AUX),
+                data_payload_id=structure_payload(json.dumps({**metrics, "pae": pae}), "json", SERIES_AUX),
             )
         ],
     }

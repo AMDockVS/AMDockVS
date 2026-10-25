@@ -78,7 +78,6 @@ def test_multi_step_rows_return_one_payload_and_report_the_folded_state():
     result = transform_ligand_rows(
         operations=[("standardize", {}), ("protonate", {"method": "explicit_hs"}), ("generate_3d", {})],
         rows=[_row(index, smiles) for index, smiles in enumerate(SMILES, start=1)],
-        next_model_index_by_entity={1: 0, 2: 0, 3: 0},
     )
 
     assert result["failure_count"] == 0
@@ -143,7 +142,6 @@ def test_minimize_after_conformers_still_writes_the_ensemble():
             ("minimize", {}),
         ],
         rows=[_row(1, "CCCCCCO")],
-        next_model_index_by_entity={1: 0},
     )
 
     update, = result["updates"]

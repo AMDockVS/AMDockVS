@@ -315,9 +315,9 @@ class MoleculeSourceProperty(SQLModel, table=True):
 
 class MoleculeModel(SQLModel, table=True):
     """
-    Structural models for a molecule. Index 0 is always the canonical model
-    (imported or first generated). Additional indices are conformers or
-    alternative models.
+    Structural models for a molecule, in the order they were made (the id). A step that makes
+    several of one molecule (conformers) writes them as one PayloadGroup, so they compress
+    together like poses.
 
     The active model is the one whose payload is the molecule's structure
     (`core.payloads.molecule_payload_id`): no index on the molecule points at it.
@@ -327,18 +327,12 @@ class MoleculeModel(SQLModel, table=True):
     """
 
     __tablename__ = TABLE_MOLECULE_MODELS
-    __table_args__ = (
-        UniqueConstraint("molecule_id", "model_index"),
-    )
 
     id: int | None = Field(default=None, primary_key=True)
     molecule_id: int = Field(foreign_key=f"{TABLE_MOLECULES}.id", index=True)
-    model_index: int = Field(default=0)  # 0 = canonical
     payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
-    energy: float | None = Field(default=None)  # kcal/mol if minimized
     source: str = code_field("model_source", ModelSource.IMPORTED)
-    # Per-model quality data (e.g. ESMFold plddt_mean/ptm); ESMFold's PAE matrix as a payload.
-    metrics: dict = Field(default_factory=dict, sa_type=JSON)
-    pae_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
+    # Per-model data as a JSON payload (e.g. ESMFold plddt_mean, ptm, pae); NULL if none.
+    data_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
 
     build_row = staticmethod(molecule_model_row)

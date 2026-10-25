@@ -239,9 +239,7 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
             molecule_models.append(
                 {
                     "molecule_ref": molecule_ref,
-                    "model_index": 0,
                     "payload_id": structure,
-                    "energy": None,
                     "source": ModelSource.IMPORTED,
                 }
             )

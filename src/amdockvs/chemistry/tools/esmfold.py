@@ -6,7 +6,6 @@ and never stored by AMDock.
 """
 from __future__ import annotations
 
-import io
 import json
 import os
 import urllib.error
@@ -169,15 +168,11 @@ def prediction_metrics(data: dict[str, Any], *, model: str) -> dict[str, Any]:
     }
 
 
-def prediction_files(data: dict[str, Any], *, model: str) -> tuple[dict[str, Any], bytes, bytes | None]:
-    """(metrics, mmCIF bytes, pAE matrix as .npy bytes or None): what a fold stores, no file written."""
+def prediction_files(data: dict[str, Any], *, model: str) -> tuple[dict[str, Any], bytes, list | None]:
+    """(metrics, mmCIF bytes, pAE matrix as the API's nested list or None): what a fold stores, no
+    file written."""
     cif = complex_to_structure(data).make_mmcif_document().as_string().encode()
-    pae = None
-    if data.get("pae") is not None:
-        buffer = io.BytesIO()
-        np.save(buffer, np.asarray(data["pae"], dtype=np.float32))
-        pae = buffer.getvalue()
-    return prediction_metrics(data, model=model), cif, pae
+    return prediction_metrics(data, model=model), cif, data.get("pae")
 
 
 def sequence_from_structure(path: str | Path) -> str:
