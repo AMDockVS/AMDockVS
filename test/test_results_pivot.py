@@ -5,6 +5,7 @@ disabled after its data arrives, or one that silently shows another pivot's tabl
 """
 from pathlib import Path
 import sys
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -241,6 +242,15 @@ def test_running_job_refresh_reaches_the_active_results_page():
     assert calls == ["availability", "hits"]
 
 
+def _wait_for(done, timeout_s: float = 10.0) -> None:
+    """Process events until `done()`: the table counts its rows in the background."""
+    deadline = time.monotonic() + timeout_s
+    while not done() and time.monotonic() < deadline:
+        QApplication.processEvents()
+        time.sleep(0.01)
+    assert done()
+
+
 def test_live_hits_refreshes_receptor_aggregates_and_only_the_ligand_count():
     QApplication.instance() or QApplication(["amdockvs-live-counts-test"])
     db = _Db()
@@ -280,9 +290,9 @@ def test_live_hits_refreshes_receptor_aggregates_and_only_the_ligand_count():
     receptor = widget.receptor_table._model.get_row_data(0)
     # No campaign plan for this receptor, so the counters fall back to the results themselves.
     assert receptor["ligands"] == 2 and receptor["progress"] == 2
-    assert widget.ligand_table.record_total == 2
+    assert widget.ligand_table._model.loaded_count == 1  # the loaded rows were not reloaded
+    _wait_for(lambda: widget.ligand_table.record_total == 2)
     assert "2 records" in widget.ligand_table._result_count_label.text()
-    assert widget.ligand_table._model.loaded_count == 1
 
 
 def test_live_campaign_progress_patches_cells_without_resetting_or_losing_selection():
