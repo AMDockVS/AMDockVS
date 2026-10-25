@@ -295,6 +295,67 @@ def test_live_hits_refreshes_receptor_aggregates_and_only_the_ligand_count():
     assert "2 records" in widget.ligand_table._result_count_label.text()
 
 
+@pytest.mark.parametrize("sharded", [False, True])
+@pytest.mark.parametrize("selected_protocol", ["quick-8", ""])
+def test_live_protocols_include_resumed_docking_without_resetting_tables(
+    monkeypatch, sharded, selected_protocol,
+):
+    QApplication.instance() or QApplication(["amdockvs-live-protocols-test"])
+    monkeypatch.setattr(
+        "amdockvs.ui.catalog.results.run_async",
+        lambda fn, on_result, **_kwargs: on_result(fn()),
+    )
+    db = _Db()
+    with db.get_session() as session:
+        session.add_all([
+            DockingRun(id=1, engine="qvina", protocol_hash="quick-8",
+                       protocol_label="QuickVina2 | exh=8 (9 poses)"),
+            MoleculeRecord(id=41, name="Off-target", is_receptor=True),
+            MoleculeRecord(id=101, name="Ligand", is_ligand=True),
+            DockingResultRecord(id=11, receptor_molecule_id=41, ligand_molecule_id=101,
+                                docking_run_id=1, pose_rank=1, score=-8.0),
+        ])
+        session.commit()
+    protocols = [("quick-8", "QuickVina2 | exh=8 (9 poses)")]
+    widget = DockingResultsWidget(runtime=SimpleNamespace(
+        workspace=SimpleNamespace(project_db=db),
+        docking=SimpleNamespace(
+            result_protocols=lambda **_kwargs: list(protocols),
+            hit=lambda **_kwargs: None,
+            live_campaign_progress=lambda **_kwargs: {
+                41: {"ligands": 1, "docked": 1, "pending": 0},
+            },
+        ),
+    ))
+    widget.protocol_combo.setCurrentIndex(widget.protocol_combo.findData(selected_protocol))
+    if sharded:
+        widget.set_active_shard_jobs(["resumed-docking"])
+    with db.get_session() as session:
+        session.add(DockingRun(id=2, engine="qvina", protocol_hash="quick-1",
+                              protocol_label="QuickVina2 | exh=1 (3 poses)"))
+        session.commit()
+    widget.refresh_counts()
+    assert widget.protocol_combo.findData("quick-1") == -1
+
+    resets = []
+    widget.ligand_table._model.modelReset.connect(lambda: resets.append(True))
+    with db.get_session() as session:
+        session.add(DockingResultRecord(
+            id=22, receptor_molecule_id=41, ligand_molecule_id=101,
+            docking_run_id=2, pose_rank=1, score=-7.0,
+        ))
+        session.commit()
+
+    protocols.append(("quick-1", "QuickVina2 | exh=1 (3 poses)"))
+    widget.refresh_counts()
+
+    assert widget.protocol_combo.findData("quick-1") >= 0
+    assert widget.protocol_combo.currentData() == selected_protocol
+    assert widget._selected_receptor_id == 41
+    assert widget._selected_ligand_id == 101
+    assert resets == []
+
+
 def test_live_campaign_progress_patches_cells_without_resetting_or_losing_selection():
     QApplication.instance() or QApplication(["amdockvs-live-progress-test"])
     db = _Db()

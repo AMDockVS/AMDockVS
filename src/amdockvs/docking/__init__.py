@@ -4,6 +4,7 @@ from importlib import import_module
 
 _LAZY_EXPORTS = {
     "DockingAPI": ("amdockvs.docking.api", "DockingAPI"),
+    "DockingProtocolConflictError": ("amdockvs.docking.rerun", "DockingProtocolConflictError"),
     "DiagramJobParams": ("amdockvs.docking.results.jobs", "DiagramJobParams"),
     "DiagramJobSpec": ("amdockvs.docking.results.jobs", "DiagramJobSpec"),
     "DockingJobParams": ("amdockvs.docking.jobs", "DockingJobParams"),

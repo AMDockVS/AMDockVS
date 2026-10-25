@@ -187,7 +187,8 @@ def test_submission_does_not_force_prepared_scope_when_program_does_not_need_it(
                 AssertionError("prepared scope forced")
             )
         ),
-        docking=SimpleNamespace(run=lambda **kwargs: calls.append(kwargs) or "job-1"),
+        docking=SimpleNamespace(run=lambda **kwargs: calls.append(kwargs) or "job-1",
+                                check_protocol=lambda **_kwargs: None),
     )
     request = DockingRunRequest(
         run_kind="docking",

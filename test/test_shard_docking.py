@@ -152,7 +152,8 @@ def test_the_run_panel_submits_a_campaign_instead_of_pairs():
                 molecules=SimpleNamespace(shard_counts=lambda: {
                     "shards": 12, "records": 12000, "prepared": 12, "prepared_records": 11969,
                 }),
-                docking=SimpleNamespace(run_shards=lambda **kwargs: submitted.update(kwargs) or "job-1"),
+                docking=SimpleNamespace(run_shards=lambda **kwargs: submitted.update(kwargs) or "job-1",
+                                        check_protocol=lambda **_kwargs: None),
             )
             self.readiness_service = SimpleNamespace(
                 receptors=lambda _scope, program: EntityReadiness(total=1, ready=1, ready_ids=(7,))
@@ -201,7 +202,7 @@ def test_the_run_panel_chains_reference_then_off_target_jobs():
                     },
                     get=lambda receptor_id: SimpleNamespace(name=f"R{receptor_id}"),
                 ),
-                docking=SimpleNamespace(run_shards=run_shards),
+                docking=SimpleNamespace(run_shards=run_shards, check_protocol=lambda **_kwargs: None),
             )
             self.readiness_service = SimpleNamespace(
                 receptors=lambda _scope, program: EntityReadiness(
