@@ -52,6 +52,7 @@ from amdockvs.ui.tools.pymol_ribbon import (
     apply_receptor_atom_coloring,
     fetch_structures,
     load_structure,
+    multiple_selection_enabled,
     replace_comparison_structure,
     set_pymol_scene_context,
 )
@@ -176,6 +177,7 @@ class OffTargetResultsWidget(QWidget):
         self._names: dict[int, str] = {}
         self._grid_ligand_id: int | None = None
         self._grid_request = 0
+        self._grid_requests_by_ligand: dict[int, int] = {}
         self._token = 0
         self._signature = None
         self.table = None
@@ -511,7 +513,8 @@ class OffTargetResultsWidget(QWidget):
             self._grid_request += 1
             cmd, dock = self._pymol()
             context = getattr(dock, "scene_context", None)
-            if self._grid_ligand_id is not None and context is not None and context.is_comparison:
+            if (self._grid_ligand_id is not None and context is not None and context.is_comparison
+                    and not multiple_selection_enabled(dock)):
                 dock.set_scene_context("generic")
             self._grid_ligand_id = None
         super().hideEvent(event)
@@ -561,8 +564,9 @@ class OffTargetResultsWidget(QWidget):
             return
         context = getattr(dock, "scene_context", None)
         objects = cmd.get_names("objects")
+        rec_obj, lig_obj = self._grid_objects(dock, ligand_id, receptor_id)
         if (context is not None and context.is_comparison and self._grid_ligand_id == ligand_id
-                and f"rec_{receptor_id}" in objects and f"lig_{receptor_id}" in objects):
+                and rec_obj in objects and lig_obj in objects):
             self._replace_grid_pose(dock, ligand_id, receptor_id, pose)
         else:
             self._show_ligand_grid(ligand_id)
@@ -570,6 +574,11 @@ class OffTargetResultsWidget(QWidget):
     def _pymol(self):
         dock = getattr(self.window(), "pymol_dock", None)
         return getattr(dock, "cmd", None) if dock is not None else None, dock
+
+    @staticmethod
+    def _grid_objects(dock, ligand_id: int, receptor_id: int) -> tuple[str, str]:
+        suffix = f"_ligand_{ligand_id}" if multiple_selection_enabled(dock) else ""
+        return f"rec_{receptor_id}{suffix}", f"lig_{receptor_id}{suffix}"
 
     def _show_ligand_grid(self, ligand_id: int) -> None:
         """Tile every receptor (with its selected pose) for this ligand in a PyMOL grid.
@@ -580,8 +589,15 @@ class OffTargetResultsWidget(QWidget):
             return
         self._grid_request += 1
         request = self._grid_request
-        self._with_poses(ligand_id, lambda: request == self._grid_request and self._fetch_grid(
+        self._grid_requests_by_ligand[ligand_id] = request
+        epoch = getattr(dock, "_amdock_scene_epoch", 0)
+        self._with_poses(ligand_id, lambda: self._grid_request_valid(dock, ligand_id, request, epoch) and self._fetch_grid(
             cmd, dock, ligand_id, request))
+
+    def _grid_request_valid(self, dock, ligand_id: int, request: int, epoch: int) -> bool:
+        return (epoch == getattr(dock, "_amdock_scene_epoch", 0)
+                and (request == self._grid_request or (multiple_selection_enabled(dock)
+                     and self._grid_requests_by_ligand.get(ligand_id) == request)))
 
     def _fetch_grid(self, cmd, dock, ligand_id: int, request: int) -> None:
         ref_id = self._columns[0][0]
@@ -595,9 +611,10 @@ class OffTargetResultsWidget(QWidget):
                 wanted[f"lig_{rid}"] = int(pose["pose_payload_id"])
                 complex_names[rid] = f"{receptor_name}-{ligand_name}[P{pose.get('pose_rank') or 1}]"
         store = payload_store(self.runtime)
+        epoch = getattr(dock, "_amdock_scene_epoch", 0)
 
         def draw(found: dict) -> None:
-            if request == self._grid_request:
+            if self._grid_request_valid(dock, ligand_id, request, epoch):
                 self._draw_ligand_grid(cmd, dock, ref_id, found, complex_names, ligand_id)
 
         run_async(
@@ -611,38 +628,60 @@ class OffTargetResultsWidget(QWidget):
     ) -> None:
         try:
             dock.show()
-            cmd.delete("all")
+            multiple = multiple_selection_enabled(dock)
+            previous_slots = {}
+            grid_labels = {}
+            if multiple:
+                previous_slots = {obj: cmd.get_setting_int("grid_slot", obj)
+                                  for obj in cmd.get_object_list("all") if not obj.startswith("panel_text")}
+                context = dock.scene_context
+                grid_labels = dict(context.grid_labels) if context.is_comparison else {}
+                unassigned = [obj for obj, slot in previous_slots.items() if slot <= 0]
+                if unassigned:
+                    slot = max([0, *previous_slots.values()]) + 1
+                    grid_labels[slot] = " + ".join(unassigned)
+                    for obj in unassigned:
+                        cmd.set("grid_slot", slot, obj)
+                        previous_slots[obj] = slot
+            else:
+                cmd.delete("all")
             ref_receptor_obj = None
             loaded_receptor_objs: list[str] = []
             loaded_ligand_objs: list[str] = []
-            grid_labels = {}
-            slot = 0
+            slot = max([0, *previous_slots.values()])
             for rid, complex_name in complex_names.items():
-                rec_obj, lig_obj = f"rec_{rid}", f"lig_{rid}"
-                if rec_obj not in found or lig_obj not in found:
+                rec_key, lig_key = f"rec_{rid}", f"lig_{rid}"
+                rec_obj, lig_obj = self._grid_objects(dock, ligand_id, rid)
+                if rec_key not in found or lig_key not in found:
                     continue
-                slot += 1
-                grid_labels[slot] = complex_name
-                load_structure(cmd, found[rec_obj], rec_obj)
-                load_structure(cmd, found[lig_obj], lig_obj)
+                panel_slot = previous_slots.get(rec_obj, 0)
+                if panel_slot <= 0:
+                    slot += 1
+                    panel_slot = slot
+                grid_labels[panel_slot] = complex_name
+                if multiple:
+                    cmd.delete(rec_obj)
+                    cmd.delete(lig_obj)
+                load_structure(cmd, found[rec_key], rec_obj)
+                load_structure(cmd, found[lig_key], lig_obj)
                 loaded_receptor_objs.append(rec_obj)
                 loaded_ligand_objs.append(lig_obj)
                 apply_receptor_atom_coloring(cmd, rec_obj)
                 try:
                     cmd.show("sticks", lig_obj)
-                    apply_ligand_atom_coloring(cmd, lig_obj, slot - 1)
+                    apply_ligand_atom_coloring(cmd, lig_obj, panel_slot - 1)
                 except Exception:
                     pass
                 # receptor + its pose share one grid slot so they tile together
-                cmd.set("grid_slot", slot, rec_obj)
-                cmd.set("grid_slot", slot, lig_obj)
+                cmd.set("grid_slot", panel_slot, rec_obj)
+                cmd.set("grid_slot", panel_slot, lig_obj)
                 if rid == ref_id:
                     ref_receptor_obj = rec_obj
             if self.align_check.isChecked() and ref_receptor_obj is not None:
                 for rid in complex_names:
                     if rid == ref_id:
                         continue
-                    rec_obj, lig_obj = f"rec_{rid}", f"lig_{rid}"
+                    rec_obj, lig_obj = self._grid_objects(dock, ligand_id, rid)
                     try:
                         cmd.align(rec_obj, ref_receptor_obj)
                         cmd.matrix_copy(rec_obj, lig_obj)  # move the pose with its receptor
@@ -670,7 +709,7 @@ class OffTargetResultsWidget(QWidget):
             return
         receptor_name = dict(self._columns)[receptor_id]
         title = f"{receptor_name}-{self._names.get(ligand_id, ligand_id)}[P{pose.get('pose_rank') or 1}]"
-        rec_obj, lig_obj = f"rec_{receptor_id}", f"lig_{receptor_id}"
+        rec_obj, lig_obj = self._grid_objects(dock, ligand_id, receptor_id)
         store = payload_store(self.runtime)
 
         def draw(found: dict) -> None:
@@ -681,7 +720,11 @@ class OffTargetResultsWidget(QWidget):
                     or not dock.scene_context.is_comparison):
                 return
             if lig_obj in found:
-                replace_comparison_structure(dock, found[lig_obj], lig_obj, reference=rec_obj, label=title)
+                if replace_comparison_structure(dock, found[lig_obj], lig_obj, reference=rec_obj, label=title):
+                    from amdockvs.ui.viewers.interactions_3d import interaction_group
+                    group = interaction_group(rec_obj, lig_obj)
+                    if group in dock.cmd.get_names("objects"):
+                        dock.cmd.delete(group)
 
         run_async(
             lambda: fetch_structures(store, {lig_obj: int(payload_id)}),

@@ -18,6 +18,8 @@ from amdockvs.ui.tools.pymol_ribbon import (
     apply_scene_atom_coloring,
     fetch_structures,
     load_structure,
+    multiple_selection_enabled,
+    prepare_pymol_scene,
     set_pymol_scene_context,
 )
 
@@ -50,13 +52,14 @@ class MolecularViewerController:
     def __init__(self, window):
         self.w = window
         self.grid_preview_enabled = True
-        self._request = 0  # the latest read wins: a slower, older click must not repaint the canvas
+        self._request = 0  # single selection keeps only the latest read; multiple selection keeps all
 
     # -- reading structures --------------------------------------------------------
 
     def _later(self, work, then) -> None:
-        """`work()` off the GUI thread, then `then(result)` on it, unless a newer request came."""
-        self._request += 1
+        """Read off the GUI thread; discard superseded single selections or a cleared scene."""
+        if not multiple_selection_enabled(self.w.pymol_dock):
+            self._request += 1
         request = self._request
 
         def done(result) -> None:
@@ -65,11 +68,31 @@ class MolecularViewerController:
 
         run_async(work, done, lambda error: _log.warning("PyMOL could not read its structures: %s", error))
 
+    def set_multiple_selection_enabled(self, enabled: bool) -> None:
+        self._request += 1
+        dock = self.w.pymol_dock
+        dock._amdock_multiple_selection = bool(enabled)
+        dock._amdock_scene_epoch = getattr(dock, "_amdock_scene_epoch", 0) + 1
+        self._replace_next_pose = not enabled
+
+    def clear_scene(self) -> None:
+        self._request += 1
+        dock = self.w.pymol_dock
+        if dock is not None and dock.cmd is not None:
+            dock._amdock_scene_epoch = getattr(dock, "_amdock_scene_epoch", 0) + 1
+            try:
+                dock.cmd.delete("all")
+                dock._amdock_replaced_slots = {}
+                set_pymol_scene_context(dock, "generic")
+            except Exception as error:
+                _log.warning("PyMOL could not clear its scene: %s", error)
+
     def _read(self, wanted: dict, then) -> None:
         """`then({name: (bytes, kind)})` for the payload ids in `wanted` that are set."""
         ids = {name: int(payload_id) for name, payload_id in wanted.items() if payload_id}
         if not ids:
-            self._request += 1
+            if not multiple_selection_enabled(self.w.pymol_dock):
+                self._request += 1
             then({})
             return
         store = payload_store(self.w.runtime)
@@ -118,7 +141,7 @@ class MolecularViewerController:
             name = self._receptor_pymol_name(receptor)
             try:
                 self.w.pymol_dock.show()
-                cmd.delete("all")
+                prepare_pymol_scene(self.w.pymol_dock, name)
                 load_structure(cmd, found["receptor"], name)
                 apply_receptor_atom_coloring(cmd, name)
                 cmd.zoom("all", 3)
@@ -183,23 +206,32 @@ class MolecularViewerController:
         """A residue picked in the 2D diagram: sticks, zoom and its contacts drawn in 3D."""
         from amdockvs.ui.viewers.interactions_3d import show_residue_interactions
 
-        self._on_pose(hit, lambda cmd, receptor_obj: show_residue_interactions(
-            cmd, receptor_obj=receptor_obj, ligand_obj="amdock_result_pose", key=key, diagram=diagram))
+        self._on_pose(hit, lambda cmd, receptor_obj, ligand_obj: show_residue_interactions(
+            cmd, receptor_obj=receptor_obj, ligand_obj=ligand_obj, key=key, diagram=diagram))
 
     def show_interaction(self, hit: DockingHitSummary, contact) -> None:
         """One contact picked in Selected Result's interaction table, drawn in its type's colour."""
         from amdockvs.ui.viewers.interactions_3d import show_interaction
 
-        self._on_pose(hit, lambda cmd, receptor_obj: show_interaction(
-            cmd, receptor_obj=receptor_obj, ligand_obj="amdock_result_pose", contact=contact))
+        self._on_pose(hit, lambda cmd, receptor_obj, ligand_obj: show_interaction(
+            cmd, receptor_obj=receptor_obj, ligand_obj=ligand_obj, contact=contact))
+
+    def _pose_objects(self, hit) -> tuple[str, str]:
+        receptor = f"receptor_{hit.receptor_id}"
+        ligand = "amdock_result_pose"
+        if multiple_selection_enabled(self.w.pymol_dock):
+            suffix = f"_pose_{hit.pose_payload_id or hit.ligand_payload_id}"
+            receptor += suffix
+            ligand += f"_{hit.receptor_id}{suffix}"
+        return receptor, ligand
 
     def _on_pose(self, hit: DockingHitSummary, draw) -> None:
         cmd = getattr(self.w.pymol_dock, "cmd", None)
-        receptor_obj = f"receptor_{hit.receptor_id}"
-        if cmd is None or not self._holds(cmd, receptor_obj) or not self._holds(cmd, "amdock_result_pose"):
+        receptor_obj, ligand_obj = self._pose_objects(hit)
+        if cmd is None or not self._holds(cmd, receptor_obj) or not self._holds(cmd, ligand_obj):
             return  # ponytail: docked poses only; a redocking hit loads under other names
         with contextlib.suppress(Exception):
-            draw(cmd, receptor_obj)
+            draw(cmd, receptor_obj, ligand_obj)
 
     def sync_to_active_view(self, view_id: str | None) -> None:
         """PyMOL follows the active tab: a structural view shows its first row; any other
@@ -211,13 +243,8 @@ class MolecularViewerController:
         if callable(hook):
             hook()
             return
-        cmd = getattr(self.w.pymol_dock, "cmd", None)
-        if cmd is not None:
-            try:
-                cmd.delete("all")
-                set_pymol_scene_context(self.w.pymol_dock, "generic")
-            except Exception:
-                pass
+        if not multiple_selection_enabled(self.w.pymol_dock):
+            self.clear_scene()
 
     # -- docking poses -------------------------------------------------------------
 
@@ -225,6 +252,9 @@ class MolecularViewerController:
         dock = self.w.pymol_dock
         if dock is None or getattr(dock, "cmd", None) is None:
             return
+        if getattr(self, "_replace_next_pose", False):
+            self.clear_scene()
+            self._replace_next_pose = False
         if str(getattr(hit, "run_kind", "") or "").strip().lower() == "redocking" and (
             hit.pose_payload_id or hit.reference_ligand_payload_id or hit.ligand_payload_id
         ):
@@ -234,7 +264,7 @@ class MolecularViewerController:
 
     def _load_docked_hit(self, dock, hit: DockingHitSummary, *, with_receptor: bool = False) -> None:
         cmd = dock.cmd
-        receptor_obj = f"receptor_{hit.receptor_id}"
+        receptor_obj, ligand_obj = self._pose_objects(hit)
         # Results are grouped by receptor, so load it ONCE: only read and reload it when it
         # changes, then just swap the ligand pose. Ask PyMOL what it actually holds instead of
         # remembering what we loaded: switching tabs runs cmd.delete("all") (sync_to_active_view),
@@ -245,7 +275,6 @@ class MolecularViewerController:
             wanted["receptor"] = hit.receptor_payload_id
 
         def show(found: dict) -> None:
-            ligand_obj = "amdock_result_pose"
             try:
                 dock.show()
                 if not self._holds(cmd, receptor_obj):
@@ -253,14 +282,15 @@ class MolecularViewerController:
                         # Cleared while the pose was being read: ask again, receptor included.
                         self._load_docked_hit(dock, hit, with_receptor=True)
                         return
-                    cmd.delete("all")
+                    prepare_pymol_scene(dock, receptor_obj, ligand_obj)
                     if "receptor" in found:
                         load_structure(cmd, found["receptor"], receptor_obj)
                         apply_receptor_atom_coloring(cmd, receptor_obj)
                         cmd.zoom(receptor_obj, 3)
                 else:
                     cmd.delete(ligand_obj)  # keep the receptor; replace only the pose
-                    cmd.delete("amdock_interactions")  # the previous pose's 3D contacts
+                    from amdockvs.ui.viewers.interactions_3d import interaction_group
+                    cmd.delete(interaction_group(receptor_obj, ligand_obj))
                 if "pose" in found:
                     load_structure(cmd, found["pose"], ligand_obj)  # each pose is its own payload: one state
                     try:
@@ -307,11 +337,14 @@ class MolecularViewerController:
         def show(found: dict) -> None:
             try:
                 dock.show()
-                cmd.delete("all")
-                reference_receptor_obj = "redock_reference_receptor"
-                docking_receptor_obj = "redock_docking_receptor"
-                reference_ligand_obj = "redock_reference_ligand"
-                docked_pose_obj = "redock_docked_pose"
+                suffix = (f"_{hit.pose_payload_id or hit.reference_ligand_payload_id or hit.ligand_payload_id}"
+                          if multiple_selection_enabled(dock) else "")
+                reference_receptor_obj = f"redock_reference_receptor{suffix}"
+                docking_receptor_obj = f"redock_docking_receptor{suffix}"
+                reference_ligand_obj = f"redock_reference_ligand{suffix}"
+                docked_pose_obj = f"redock_docked_pose{suffix}"
+                prepare_pymol_scene(dock, reference_receptor_obj, docking_receptor_obj,
+                                    reference_ligand_obj, docked_pose_obj)
                 receptor_objs: list[str] = []
                 if "reference_receptor" in found:
                     load_structure(cmd, found["reference_receptor"], reference_receptor_obj)
@@ -381,6 +414,8 @@ class MolecularViewerController:
         if dock is None or getattr(dock, "cmd", None) is None or not payload_id:
             return
         loaded_object = str(object_name or "selected_file")
+        if multiple_selection_enabled(dock):
+            loaded_object += f"_{payload_id}"
 
         def show(found: dict) -> None:
             if "structure" not in found:
@@ -388,7 +423,7 @@ class MolecularViewerController:
             cmd = dock.cmd
             try:
                 dock.show()
-                cmd.delete("all")
+                prepare_pymol_scene(dock, loaded_object)
                 load_structure(cmd, found["structure"], loaded_object)
                 apply_scene_atom_coloring(self.w)
                 cmd.zoom("all", 3)
@@ -473,7 +508,7 @@ class MolecularViewerController:
             cmd = dock.cmd
             try:
                 dock.show()
-                cmd.delete("all")
+                prepare_pymol_scene(dock, object_name)
                 load_structure(cmd, found["structure"], object_name)
                 if bool(getattr(molecule, "is_ligand", False)):
                     context_kind = "ligand"
@@ -538,7 +573,7 @@ class MolecularViewerController:
                 return
             try:
                 dock.show()
-                cmd.delete("all")
+                prepare_pymol_scene(dock, receptor_name)
                 load_structure(cmd, found["receptor"], receptor_name)
                 apply_receptor_atom_coloring(cmd, receptor_name)
                 cmd.zoom(receptor_name, 3)
@@ -593,9 +628,9 @@ class MolecularViewerController:
             cmd = dock.cmd
             try:
                 dock.show()
-                cmd.delete("all")
                 receptor_obj = f"complex_receptor_{pair_id}"
                 ligand_obj = f"complex_ligand_{pair_id}"
+                prepare_pymol_scene(dock, receptor_obj, ligand_obj)
                 load_structure(cmd, found["receptor"], receptor_obj)
                 if "ligand" in found:
                     load_structure(cmd, found["ligand"], ligand_obj)

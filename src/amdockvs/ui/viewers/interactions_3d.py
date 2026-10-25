@@ -12,6 +12,10 @@ from __future__ import annotations
 GROUP = "amdock_interactions"
 
 
+def interaction_group(receptor_obj: str, ligand_obj: str) -> str:
+    return f"{GROUP}_{receptor_obj}_{ligand_obj}"
+
+
 def residue_selection(receptor_obj: str, key: str) -> str:
     """``A:248B:LEU`` -> the PyMOL selection of that residue in ``receptor_obj``."""
     chain, number, _name = key.split(":")
@@ -60,8 +64,10 @@ def show_interaction(cmd, *, receptor_obj: str, ligand_obj: str, contact) -> int
 
 def _draw(cmd, receptor_obj: str, ligand_obj: str, key: str, contacts, ligand) -> int:
     from ms_contactmap.model import INTERACTION_STYLES
+    from ms_components.ms_pymol import associate_scene_objects
 
-    cmd.delete(GROUP)
+    group = interaction_group(receptor_obj, ligand_obj)
+    cmd.delete(group)
     residue = residue_selection(receptor_obj, key)
     cmd.show("sticks", f"({residue}) and not hydro")
     cmd.label(f"({residue}) and name CA", '"%s %s%s" % (resn, chain, resi)')
@@ -72,7 +78,7 @@ def _draw(cmd, receptor_obj: str, ligand_obj: str, key: str, contacts, ligand) -
     names: list[str] = []
 
     def point(xyz, *, sphere: bool = False) -> str:
-        name = f"{GROUP}_p{len(names)}"
+        name = f"{group}_p{len(names)}"
         cmd.pseudoatom(name, pos=[float(v) for v in xyz])
         cmd.hide("everything", name)
         if sphere:
@@ -82,7 +88,7 @@ def _draw(cmd, receptor_obj: str, ligand_obj: str, key: str, contacts, ligand) -
         return name
 
     def dash(a: str, b: str, color: str) -> None:
-        name = f"{GROUP}_d{len(names)}"
+        name = f"{group}_d{len(names)}"
         cmd.distance(name, a, b)
         cmd.set("dash_color", color.replace("#", "0x"), name)
         cmd.set("dash_gap", 0.35, name)
@@ -114,6 +120,7 @@ def _draw(cmd, receptor_obj: str, ligand_obj: str, key: str, contacts, ligand) -
         dash(a, point(end), color)
         drawn += 1
     if names:
-        cmd.group(GROUP, " ".join(names))
+        cmd.group(group, " ".join(names))
+        associate_scene_objects(cmd, [*names, group], reference=receptor_obj)
     cmd.zoom(f"({residue}) or {ligand_obj}", 3)
     return drawn
