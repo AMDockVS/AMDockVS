@@ -112,15 +112,6 @@ IMPORT_GRAPH_OUTPUT = graph_sink(
             "fk_field": "binding_site_id",
         },
         {
-            # Deferred: the receptor points at one of its own sites, which are inserted later
-            # (they need its molecule_id). The sink closes it with an UPDATE at end of commit.
-            "source_node": "molecules",
-            "source_ref_field": "active_binding_site_ref",
-            "target_node": "binding_sites",
-            "fk_field": "active_binding_site_id",
-            "deferred": True,
-        },
-        {
             "source_node": "complexes",
             "source_ref_field": "receptor_ref",
             "target_node": "molecules",

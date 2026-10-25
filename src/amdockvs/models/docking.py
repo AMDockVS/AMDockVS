@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Index, JSON, UniqueConstraint
+from sqlalchemy import DateTime, Index, JSON, UniqueConstraint, text
 from sqlmodel import SQLModel, Field
 
 from amdockvs.models.codes import code_field
@@ -28,7 +28,7 @@ class BindingSite(SQLModel, table=True):
     """
     A binding site / docking grid definition for a molecule in receptor role.
     One receptor-capable molecule can have N binding sites from different sources.
-    The active one is referenced by MoleculeRecord.active_binding_site_id.
+    The active one has `is_active` set: at most one per molecule (a partial UNIQUE index).
 
     Sites are only ever added; nothing rewrites or renumbers them. A prediction re-run appends a
     new batch next to the old one and it is the user who deletes what they no longer want, so a
@@ -43,9 +43,13 @@ class BindingSite(SQLModel, table=True):
     """
 
     __tablename__ = TABLE_BINDING_SITES
+    __table_args__ = (
+        Index("uq_binding_site_active", "molecule_id", unique=True, sqlite_where=text("is_active=1")),
+    )
 
     id: int | None = Field(default=None, primary_key=True)
     molecule_id: int = Field(foreign_key=f"{TABLE_MOLECULES}.id", index=True)
+    is_active: bool = Field(default=False)
 
     name: str = Field(default="")
     source: str = code_field("binding_site_source", BindingSiteSource.MANUAL)

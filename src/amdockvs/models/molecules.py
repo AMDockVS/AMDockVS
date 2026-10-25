@@ -11,7 +11,6 @@ from sqlmodel import SQLModel, Field
 from amdockvs.models.codes import code_field
 
 from amdockvs.core.constants import (
-    TABLE_BINDING_SITES,
     TABLE_IMPORT_BATCHES,
     TABLE_MOLECULE_MODELS,
     TABLE_MOLECULE_REPRESENTATIONS,
@@ -109,10 +108,6 @@ class MoleculeRecord(SQLModel, table=True):
     # Roles
     is_receptor: bool = Field(default=False)
     is_ligand: bool = Field(default=False)
-    active_binding_site_id: int | None = Field(
-        default=None,
-        foreign_key=f"{TABLE_BINDING_SITES}.id",
-    )
 
     # Payloads (ms_flow volumes): the bytes live in volumes/, the format is the payload's kind.
     # stored → the input as imported

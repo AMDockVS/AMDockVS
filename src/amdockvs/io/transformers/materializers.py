@@ -251,8 +251,6 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
             "source_index": source_index,
             "is_receptor": role == "receptor",
             "is_ligand": role == "ligand",
-            "active_binding_site_id": None,
-            "active_binding_site_ref": _site_ref(molecule_ref, row.get("active_binding_site_position")),
             "stored_payload_id": row.get("stored_payload_id"),
             "current_payload_id": row.get("current_payload_id"),
             "properties_payload_id": row.get("properties_payload_id"),
@@ -362,6 +360,7 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
                     "is_ready": bool(engine_spec.get("is_ready")),
                 }
             )
+        active_position = row.get("active_binding_site_position")
         for position, site_spec in enumerate(list(row.get("binding_site_specs") or [])):
             center = tuple(site_spec.get("center") or (None, None, None))
             size = tuple(site_spec.get("size") or (None, None, None))
@@ -369,6 +368,7 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
                 {
                     "$ref": _site_ref(molecule_ref, position),
                     "molecule_ref": molecule_ref,
+                    "is_active": active_position is not None and int(active_position) == position,
                     "name": str(site_spec.get("name") or ""),
                     "source": str(site_spec.get("source") or BindingSiteSource.MANUAL),
                     "source_ref": str(site_spec.get("source_ref") or ""),

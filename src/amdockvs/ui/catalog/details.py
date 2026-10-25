@@ -110,7 +110,7 @@ class CatalogDetailsView(QWidget):
                 "Excluded": bool(molecule.excluded),
                 "Has 3D": bool(molecule.has_3d),
                 "Has Activity": bool(activities),
-                "Active BS": getattr(molecule, "active_binding_site_id", None),
+                "Active BS": next((site.id for site in binding_sites if site.is_active), None),
             },
         )
         self._add_section(
@@ -274,11 +274,9 @@ class CatalogDetailsView(QWidget):
                     if int(site.id or 0) == site_id:
                         return site
         if self._current_molecule is not None:
-            active_id = int(getattr(self._current_molecule, "active_binding_site_id", 0) or 0)
-            if active_id > 0:
-                for site in self._current_binding_sites:
-                    if int(site.id or 0) == active_id:
-                        return site
+            for site in self._current_binding_sites:
+                if site.is_active:
+                    return site
         return self._current_binding_sites[0] if self._current_binding_sites else None
 
     def _sync_actions(self) -> None:

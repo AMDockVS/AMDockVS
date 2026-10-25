@@ -105,7 +105,6 @@ def molecule_row(
         # stored only when the input differs from the current form (D11).
         "stored_payload_id": stored_payload_id,
         "current_payload_id": current_payload_id,
-        "active_binding_site_id": None,
         "n_atoms": max(0, n_atoms),
         "inchikey": None,
         "canonical_smiles": None,
@@ -165,6 +164,7 @@ def binding_site_row(
         center: tuple[float, float, float] | None = None,
         size: tuple[float, float, float] | None = None,
         extra_data: dict | None = None,
+        is_active: bool = False,
 ) -> dict[str, Any]:
     cx, cy, cz = center or (None, None, None)
     sx, sy, sz = size or (None, None, None)
@@ -176,6 +176,7 @@ def binding_site_row(
         "center_x": cx, "center_y": cy, "center_z": cz,
         "size_x": sx, "size_y": sy, "size_z": sz,
         "extra_data": extra_data,
+        "is_active": bool(is_active),
     }
 
 

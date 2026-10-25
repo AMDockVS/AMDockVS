@@ -125,8 +125,6 @@ def delete_binding_sites(project_db, binding_site_ids: Iterable[int]) -> int:
     ids = _ids(binding_site_ids)
     if not ids:
         return 0
-    _safe_update(project_db, MoleculeRecord, MoleculeRecord.active_binding_site_id.in_(ids),
-                 {"active_binding_site_id": None})
     _safe_update(project_db, ComplexRecord, ComplexRecord.binding_site_id.in_(ids),
                  {"binding_site_id": None})
     return _safe_delete(project_db, BindingSite, BindingSite.id.in_(ids))

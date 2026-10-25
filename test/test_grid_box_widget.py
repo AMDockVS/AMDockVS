@@ -50,6 +50,7 @@ def grid_box_widget():
             size_x=22.0,
             size_y=22.0,
             size_z=22.0,
+            is_active=True,
         ),
     ]
     widget = GridBoxSettingDockWidget(
@@ -60,7 +61,6 @@ def grid_box_widget():
             id=4,
             name="4UWG",
             is_receptor=True,
-            active_binding_site_id=2,
         )
     )
     app.processEvents()
