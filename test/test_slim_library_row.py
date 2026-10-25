@@ -31,8 +31,12 @@ def _json(value):
 def _rows(rt, context: str):
     with rt.workspace.project_db.engine.connect() as conn:
         return {row[0]: (_json(row[1]), *row[2:4], str(row[4])) for row in conn.exec_driver_sql(
-            "SELECT name, pains_matches, inchikey, canonical_smiles, extra_data FROM molecules "
-            "WHERE usage_class = ?", (code_id("usage_class", context),))}
+            "SELECT name, pains_matches, "
+            "(SELECT value FROM molecule_representations WHERE molecule_id = m.id AND repr_type = ?), "
+            "(SELECT value FROM molecule_representations WHERE molecule_id = m.id AND repr_type = ?), "
+            "extra_data FROM molecules m WHERE usage_class = ?",
+            (code_id("repr_type", "inchikey"), code_id("repr_type", "smiles_canonical"),
+             code_id("usage_class", context)))}
 
 
 def test_library_rows_are_slim_until_the_alerts_job(tmp_path, monkeypatch):

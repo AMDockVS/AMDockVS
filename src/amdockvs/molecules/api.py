@@ -18,6 +18,7 @@ from amdockvs.models import (
     LigandActivity,
     MoleculeModel,
     MoleculeRecord,
+    MoleculeRepresentation,
     SetRecord,
 )
 from amdockvs.models.molecules import sanitize_molecule_extra_data
@@ -311,7 +312,7 @@ class MoleculeAPI:
 
         from amdockvs.chemistry.structures import molecule_mol, sdf_payload
         from amdockvs.core.payloads import payload_store
-        from amdockvs.io.rows import structure_fields
+        from amdockvs.io.rows import identity_representations, structure_fields
         from amdockvs.models.qsar import LigandActivity
         from amdockvs.molecules.editing import edited_structure
         from amdockvs.project.deletion import clear_derived
@@ -324,6 +325,7 @@ class MoleculeAPI:
         if mol is None:
             return None
         fields = structure_fields(mol)
+        identity = {key: fields.pop(key) for key in ("inchikey", "canonical_smiles")}
         store = payload_store(project_db)
         if not copy:
             clear_derived(project_db, [molecule.id])
@@ -351,6 +353,9 @@ class MoleculeAPI:
             metadata["edited"] = True
             row.extra_data = metadata
             session.add(row)
+            session.flush()
+            for representation in identity_representations(identity, molecule_id=int(row.id)):
+                session.merge(MoleculeRepresentation(**representation))
             session.commit()
             edited_id = int(row.id)
         if replaced:
@@ -469,7 +474,7 @@ class MoleculeAPI:
         self.runtime._require_active_project()
         from amdockvs.chemistry.structures import molecule_mol, sdf_payload
         from amdockvs.core.payloads import payload_store
-        from amdockvs.io.rows import structure_fields
+        from amdockvs.io.rows import identity_representations, structure_fields
         from amdockvs.molecules.fragments import fragments_of
         from amdockvs.project.deletion import clear_derived
 
@@ -497,9 +502,13 @@ class MoleculeAPI:
             row.extra_data = metadata
             row.current_payload_id = fragment_payload
             row.is_minimized = False
-            for key, value in structure_fields(fragment).items():
+            fields = structure_fields(fragment)
+            identity = {key: fields.pop(key) for key in ("inchikey", "canonical_smiles")}
+            for key, value in fields.items():
                 setattr(row, key, value)
             session.add(row)
+            for representation in identity_representations(identity, molecule_id=int(row.id)):
+                session.merge(MoleculeRepresentation(**representation))
             session.commit()
             session.refresh(row)
         if replaced:

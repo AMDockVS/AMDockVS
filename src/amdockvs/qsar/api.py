@@ -17,10 +17,12 @@ from sqlalchemy.orm import aliased
 from sqlmodel import select
 
 from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR, RESOURCE_QSAR_MODELS
+from amdockvs.core.vocab import ReprType
 from amdockvs.models import (
     ActivityRecord,
     FingerprintRecord,
     MoleculeRecord,
+    MoleculeRepresentation,
     QSARModelRecord,
     QSARPredictionRecord,
 )
@@ -938,7 +940,12 @@ class QSARAPI(ActivitiesMixin):
         mol = molecule_mol(self.runtime.workspace.project_db, rec, remove_hs=True)
         if mol is not None:
             return mol
-        return Chem.MolFromSmiles(rec.canonical_smiles) if rec.canonical_smiles else None
+        smiles = session.exec(
+            select(MoleculeRepresentation.value)
+            .where(MoleculeRepresentation.molecule_id == rec.id)
+            .where(MoleculeRepresentation.repr_type == ReprType.SMILES_CANONICAL)
+        ).first()
+        return Chem.MolFromSmiles(smiles) if smiles else None
 
     def atom_contributions(self, *, model: QSARModelRef | int, ligand_id: int) -> dict[str, Any]:
         """Per-atom contribution to an ECFP4 model's prediction (StarDrop's "glowing molecule").

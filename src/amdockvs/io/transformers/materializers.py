@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any, Callable
-from uuid import uuid4
 
 from amdockvs.chemistry.state import molecule_state_metadata
 from amdockvs.io._common import normalize_kind
@@ -24,7 +23,9 @@ from amdockvs.core.vocab import (
     ReprType,
 )
 from amdockvs.io.import_stats import FILTERED_PREFILTER, IMPORTED, UNREADABLE, bump, write_import_stats
-from amdockvs.io.rows import active_small_molecule_criteria, cull_mol, htp_mol_filter, metadata_map_from_row
+from amdockvs.io.rows import (
+    active_small_molecule_criteria, cull_mol, htp_mol_filter, identity_representations, metadata_map_from_row,
+)
 from amdockvs.core.constants import SERIES_PROPERTIES
 from amdockvs.core.payloads import series_for, structure_payload
 from amdockvs.io.transformers.rows import (
@@ -255,8 +256,6 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
             "current_payload_id": row.get("current_payload_id"),
             "properties_payload_id": row.get("properties_payload_id"),
             "n_atoms": int(row.get("n_atoms") or 0),
-            "inchikey": row.get("inchikey"),
-            "canonical_smiles": row.get("canonical_smiles"),
             "mw": row.get("mw"),
             "logp": row.get("logp"),
             "hbd": row.get("hbd"),
@@ -285,13 +284,9 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
         molecules.append(molecule_payload)
         if str(row.get("sequence_aa") or ""):
             molecule_representations.append(
-                {
-                    "id": uuid4().hex,
-                    "molecule_ref": molecule_ref,
-                    "repr_type": ReprType.SEQUENCE_AA,
-                    "value": str(row["sequence_aa"]),
-                }
+                {"molecule_ref": molecule_ref, "repr_type": ReprType.SEQUENCE_AA, "value": str(row["sequence_aa"])}
             )
+        molecule_representations.extend(identity_representations(row, molecule_ref=molecule_ref))
         for source_prop in list(row.get("source_properties") or []):
             key = str(source_prop.get("key") or "").strip()
             value_text = str(source_prop.get("value_text") or "").strip()

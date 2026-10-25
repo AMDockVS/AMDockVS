@@ -66,11 +66,12 @@ IMPORT_GRAPH_OUTPUT = graph_sink(
         {"name": "binding_sites", "model": BindingSite, "validate_model": False},
         # A PDBQT import arrives already prepared: the file *is* the engine artifact.
         {"name": "engine_states", "model": EngineState, "validate_model": False},
-        # Explicit columns: model-derived ones drop the pk, and this table's id is a caller-made text key.
+        # Explicit columns: model-derived ones drop the pk, and this table's pk is (molecule_id, repr_type).
         {
             "name": "molecule_representations",
             "model": MoleculeRepresentation,
-            "columns": ("id", "molecule_id", "repr_type", "value"),
+            "columns": ("molecule_id", "repr_type", "value"),
+            "pk_field": "molecule_id",
             "validate_model": False,
         },
     ),

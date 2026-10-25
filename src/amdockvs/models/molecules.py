@@ -86,7 +86,8 @@ class MoleculeRecord(SQLModel, table=True):
         excluded=False, usage_class=reference → reference-only molecules (e.g. cocrystals)
         excluded=True                         → globally discarded
 
-    Representations live in molecule_representations.
+    Representations live in molecule_representations, identity included (inchikey,
+    smiles_canonical: finds duplicates and activities).
     3D models / conformers live in molecule_models.
     """
 
@@ -118,11 +119,6 @@ class MoleculeRecord(SQLModel, table=True):
     current_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id")
     # properties → the import batch's SDF tags (parquet, shared by the batch), read by source_index
     properties_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id")
-
-    # Identity of the current structure (small molecules): finds duplicates and activities.
-    # Canonical isomeric SMILES without explicit Hs — charged atoms keep theirs in brackets.
-    inchikey: str | None = Field(default=None)
-    canonical_smiles: str | None = Field(default=None)
 
     # Basic chemical properties
     n_atoms: int = Field(default=0)
@@ -241,18 +237,19 @@ class MoleculeRepresentation(SQLModel, table=True):
     """
     1-D string representations. One row per (molecule, repr_type).
     Supports multiple types and edge cases (e.g. peptide with both
-    sequence_aa and smiles_canonical).
+    sequence_aa and smiles_canonical). Identity of the current structure (small molecules):
+    inchikey and smiles_canonical, isomeric without explicit Hs — charged atoms keep theirs in
+    brackets.
     """
 
     __tablename__ = TABLE_MOLECULE_REPRESENTATIONS
     __table_args__ = (
-        UniqueConstraint("molecule_id", "repr_type"),
         Index("idx_repr_lookup", "repr_type", "value"),
+        {"sqlite_with_rowid": False},
     )
 
-    id: str = Field(primary_key=True)
-    molecule_id: int = Field(foreign_key=f"{TABLE_MOLECULES}.id", index=True)
-    repr_type: str = code_field("repr_type")
+    molecule_id: int = Field(foreign_key=f"{TABLE_MOLECULES}.id", primary_key=True)
+    repr_type: str = code_field("repr_type", primary_key=True)
     value: str = Field()
 
     @classmethod

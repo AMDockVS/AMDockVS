@@ -137,7 +137,7 @@ def test_editing_again_releases_the_earlier_edit_but_never_the_import(tmp_path, 
 def test_select_fragment_cuts_it_from_the_original_and_keeps_the_activity(tmp_path, monkeypatch):
     from sqlmodel import select
 
-    from amdockvs.models import LigandActivity, MoleculeRecord
+    from amdockvs.models import LigandActivity, MoleculeRecord, MoleculeRepresentation
     from amdockvs.molecules.fragments import ligand_fragments
     from payload_seed import seed_payload
 
@@ -157,7 +157,9 @@ def test_select_fragment_cuts_it_from_the_original_and_keeps_the_activity(tmp_pa
     row = api.select_fragment(1, other["fragment_index"])
 
     assert row.stored_payload_id == salted and row.current_payload_id != salted
-    assert row.canonical_smiles == other["smiles"] == "CC(=O)O"
+    with db.get_session() as s:
+        smiles = s.get(MoleculeRepresentation, (1, "smiles_canonical")).value
+    assert smiles == other["smiles"] == "CC(=O)O"
     assert row.extra_data["fragmentation"]["selected_fragment_index"] == other["fragment_index"]
     with db.get_session() as s:
         assert len(s.exec(select(LigandActivity)).all()) == 1  # measured on the imported compound
