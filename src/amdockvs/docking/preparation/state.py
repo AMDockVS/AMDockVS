@@ -1,6 +1,6 @@
 """What a docking run reads of an entity's preparation: the input payload and the grid.
 
-The prepared PDBQT is `EngineState.prepared_payload_id`, hydrated onto the row as
+The prepared PDBQT is the `ligand_preps` / `receptor_preps` payload, hydrated onto the row as
 `prepared_payload_id`; the grid lives in a per-engine slot of the metadata JSON.
 """
 from __future__ import annotations

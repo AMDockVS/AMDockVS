@@ -65,7 +65,6 @@ from amdockvs.docking.results.jobs import (
 )
 from amdockvs.docking.protocols import DockingProtocolMetadata
 from amdockvs.docking.shard_jobs import (
-    HIT_MODE_THRESHOLD,
     DockShardsJobParams,
     dock_shards_job,
     recover_ranked_hits,
@@ -89,7 +88,7 @@ from amdockvs.docking.residues import residues_in_box
 from amdockvs.core.payloads import molecule_payload_id, read_structure
 from amdockvs.io.formats import as_pdb
 from amdockvs.molecules.api import ensure_molecule_set_ref
-from amdockvs.models import BindingSite, EngineState, MoleculeRecord
+from amdockvs.models import BindingSite, MoleculeRecord, ReceptorPrep, prep_table
 from amdockvs.project.sets import ComplexSetRef, MoleculeSetRef, prepared_molecules_spec
 from amdockvs.workflows.rules import apply_workflow_filters
 
@@ -264,13 +263,10 @@ class DockingAPI:
             return None  # a family nothing is ready for leaves every row in: no anti-join to run
         # NOT IN, not a correlated NOT EXISTS: DuckDB (1 thread, 1 GB) hash-joins the whole
         # table for the latter (4 s and GBs of spill for one page); SQLite is faster with it too.
+        model, molecule_column, payload_column = prep_table(role)
         missing = [
             MoleculeRecord.id.not_in(
-                select(EngineState.molecule_id).where(
-                    EngineState.role_type == role,
-                    EngineState.engine == engine,
-                    EngineState.is_ready.is_(True),
-                )
+                select(molecule_column).where(model.family == engine, payload_column.is_not(None))
             )
             for engine in normalized_engines
         ]
@@ -510,7 +506,6 @@ class DockingAPI:
             receptor_set: MoleculeSetRef | MoleculeScope | int | None = None,
             hit_threshold: float,
             hit_cap: int,
-            hit_mode: str = HIT_MODE_THRESHOLD,
             output_dir: PathLike | None = None,
             exhaustiveness: int = 8,
             num_modes: int = 9,
@@ -537,8 +532,9 @@ class DockingAPI:
     ) -> str:
         """`run` for a sharded library: the campaign, with the gate that makes it end.
 
-        No ligand scope — the library is the inventory of prepared shards. `hit_threshold` and
-        `hit_cap` are required, not defaulted: a campaign without them writes back everything it
+        No ligand scope — the library is the inventory of prepared shards. When the run ends, the
+        best `hit_cap` ligands per receptor that pass the `hit_threshold` prefilter become rows;
+        both are required, not defaulted: a campaign without them writes back everything it
         scored, which is the failure mode `htpvs` exists to prevent. A dependent off-target
         stage sets `selected_from_receptor_id`; its deferred chunker reads that receptor's
         durable Top-N and extracts only those records from the source shards.
@@ -546,11 +542,8 @@ class DockingAPI:
         self.runtime._require_active_project()
         if selected_top_n is not None and selected_from_receptor_id is None:
             raise ValueError("selected_top_n requires selected_from_receptor_id.")
-        if selected_from_receptor_id is not None:
-            if str(hit_mode) != "top_n":
-                raise ValueError("Off-target selection requires hit_mode='top_n'.")
-            if not str(run_id or "").strip():
-                raise ValueError("Off-target selection requires the reference run_id.")
+        if selected_from_receptor_id is not None and not str(run_id or "").strip():
+            raise ValueError("Off-target selection requires the reference run_id.")
         if (box_center is None) ^ (box_size is None):
             raise ValueError("docking.run requires both box_center and box_size when either one is provided.")
         program_spec = self.get_program_spec(program)
@@ -586,7 +579,6 @@ class DockingAPI:
             engine_config=resolved_engine_config,
             hit_threshold=float(hit_threshold),
             hit_cap=int(hit_cap),
-            hit_mode=str(hit_mode),
             selected_from_receptor_id=selected_from_receptor_id,
             selected_top_n=(int(selected_top_n) if selected_top_n is not None else int(hit_cap)),
             skip_existing=skip_existing,
@@ -604,7 +596,6 @@ class DockingAPI:
                 "project_db": self.runtime.workspace.project_db,
                 "hit_cap": int(hit_cap),
                 "hit_threshold": float(hit_threshold),
-                "hit_mode": str(hit_mode),
                 "run_id": params.run_id,
                 "engine": params.engine,
                 "protocol_hash": str(params.protocol_metadata.hash or ""),
@@ -868,21 +859,23 @@ class DockingAPI:
         # Flexible residues belong to the receptor (what gets passed to prep), not to any
         # binding site — the box is only a candidate filter, not the owner of the selection.
         with self.runtime.workspace.project_db.get_session() as session:
-            receptor = session.get(MoleculeRecord, receptor_id)
-            if receptor is None:
-                return []
-            return [str(k) for k in (dict(receptor.extra_data or {}).get("flexible_residues") or [])]
+            prep = self._ad4_receptor_prep(session, receptor_id)
+            return [str(k) for k in (prep.flex_residues if prep else [])]
+
+    @staticmethod
+    def _ad4_receptor_prep(session, receptor_id: int):
+        # ponytail: flexible side chains are an ad4 (Vina family) concept; key by family if another engine docks flexibly.
+        return session.exec(select(ReceptorPrep).where(
+            ReceptorPrep.receptor_molecule_id == int(receptor_id), ReceptorPrep.family == "ad4")).first()
 
     def set_flexible_residues(self, *, receptor_id: int, residue_keys: list[str]) -> list[str]:
         keys = [str(k) for k in residue_keys]
         with self.runtime.workspace.project_db.get_session() as session:
-            receptor = session.get(MoleculeRecord, receptor_id)
-            if receptor is None:
+            if session.get(MoleculeRecord, receptor_id) is None:
                 raise ValueError(f"No receptor with id {receptor_id}.")
-            data = dict(receptor.extra_data or {})
-            data["flexible_residues"] = keys
-            receptor.extra_data = data
-            session.add(receptor)
+            prep = self._ad4_receptor_prep(session, receptor_id) or ReceptorPrep(receptor_molecule_id=receptor_id)
+            prep.flex_residues = keys
+            session.add(prep)
             session.commit()
         return keys
 
@@ -1009,7 +1002,6 @@ class DockingAPI:
             compute_interactions: bool = False,
             hit_threshold: float | None = None,
             hit_cap: int = 0,
-            hit_mode: str = HIT_MODE_THRESHOLD,
             payload: str = PAYLOAD_LIGHT,
             selected_from_receptor_id: int | None = None,
             selected_top_n: int | None = None,
@@ -1063,7 +1055,6 @@ class DockingAPI:
                 receptor_set=receptor_set,
                 hit_threshold=float(hit_threshold),
                 hit_cap=int(hit_cap),
-                hit_mode=hit_mode,
                 output_dir=output_dir,
                 box_center=box_center,
                 box_size=box_size,

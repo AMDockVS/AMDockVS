@@ -96,6 +96,14 @@ class _Recorder:
         self.hits.append(rows)
 
 
+def _run(project_db, run_id, *, engine="vina", protocol_hash="") -> int:
+    """The `docking_runs` row a job's feed would have created."""
+    from amdockvs.docking.results.repository import docking_run_id
+
+    return docking_run_id(project_db, run_id=run_id, engine=engine, run_kind="screening",
+                          protocol={"hash": protocol_hash})
+
+
 def test_a_shard_run_receives_one_campaign_scoped_update_per_receptor(tmp_path, monkeypatch):
     seen = _Recorder()
     monkeypatch.setattr(shard_jobs, "advance_target", lambda *a, **k: None)  # its own test
@@ -110,6 +118,8 @@ def test_a_shard_run_receives_one_campaign_scoped_update_per_receptor(tmp_path, 
     )
     writer.store = seen
     writer._materialize_selected = seen.materialize
+    writer._docking_run_id = 7  # the run the feed created
+    writer.selected_from_receptor_id = 2  # only an off-target stage streams hits
 
     for _ in range(3):
         writer.handle("c", [{
@@ -121,7 +131,7 @@ def test_a_shard_run_receives_one_campaign_scoped_update_per_receptor(tmp_path, 
         }])
 
     assert len(seen.states) == 3
-    assert all(row["run_id"] == "run-1" and row["shard_id"] == 4 for row in seen.states)
+    assert all(row["docking_run_id"] == 7 and row["shard_id"] == 4 for row in seen.states)
     assert all(row["engine"] == "vina" and row["protocol_hash"] == "proto-1" for row in seen.states)
     assert len(seen.hits) == 3
 
@@ -208,7 +218,6 @@ def test_the_run_panel_chains_reference_then_off_target_jobs():
             "protocols": [{"program": "vina", "label": "Vina", "hash": "proto"}],
             "hit_threshold": 0.0,
             "hit_cap": 50,
-            "hit_mode": "top_n",
             "offtarget_reference_id": 7,
             "executor_name": "compute",
             "skip_existing": True,
@@ -281,7 +290,6 @@ def test_docking_streams_each_ligand_into_a_result_shard_and_removes_loose_poses
             "receptor_path": "receptor.pdbqt",
             "hit_threshold": -8.0,
             "hit_cap": 25,
-            "hit_mode": "top_n",
             "run_id": "run-1",
             "protocol_metadata": {"hash": "proto-1"},
         },
@@ -379,7 +387,7 @@ def test_select_hits_projects_scores_then_loads_only_selected_poses(tmp_path, mo
                 })
         advance_shard_run(
             project_db,
-            run_id="run",
+            docking_run_id=_run(project_db, "run", protocol_hash="proto"),
             shard_id=shard_id,
             receptor_id=receptor_id,
             engine="vina",
@@ -442,11 +450,11 @@ def test_top_n_writes_nothing_until_the_campaign_closes(tmp_path):
             project_db=project_db,
             hit_cap=2,
             hit_threshold=-8.0,
-            hit_mode="top_n",
             run_id="run-top",
             engine="vina",
             protocol_hash="proto-top",
         )
+        _run(project_db, "run-top", protocol_hash="proto-top")  # the feed's, before any chunk
         result_shard = tmp_path / "ranked.results.parquet"
         with shard_tasks.ResultFragmentWriter(
             result_shard,
@@ -533,13 +541,14 @@ def test_general_top_n_is_ranked_per_receptor_and_deduplicates_ligands(tmp_path)
                         "pose_suffix": ".sdf",
                     })
             advance_shard_run(
-                project_db, run_id="run", shard_id=shard_id, receptor_id=receptor_id,
+                project_db, docking_run_id=_run(project_db, "run", protocol_hash="proto"),
+                shard_id=shard_id, receptor_id=receptor_id,
                 engine="vina", protocol_hash="proto", scored=2, hits=2,
                 result_path=str(result_path),
             )
 
         ShardHitWriter(
-            project_db=project_db, hit_cap=1, hit_threshold=0.0, hit_mode="top_n",
+            project_db=project_db, hit_cap=1, hit_threshold=0.0,
             run_id="run", engine="vina", protocol_hash="proto",
         ).close()
 
@@ -573,6 +582,7 @@ def test_interrupted_top_n_is_recovered_from_completed_result_shards(tmp_path):
     runtime.create_project(name="recover-ranked", folder=tmp_path)
     try:
         project_db = runtime.workspace.project_db
+        run = _run(project_db, "interrupted", protocol_hash="proto-recover")
         with project_db.get_session() as session:
             receptor = MoleculeRecord(name="R", molecule_type="protein", is_receptor=True)
             session.add(receptor)
@@ -584,7 +594,7 @@ def test_interrupted_top_n_is_recovered_from_completed_result_shards(tmp_path):
             session.add_all(source_shards)
             session.flush()
             session.add(ScreeningTarget(
-                run_id="interrupted", receptor_molecule_id=int(receptor.id), receptor_name="R",
+                docking_run_id=run, receptor_molecule_id=int(receptor.id), receptor_name="R",
                 engine="vina", ligands_total=4, ligands_done=4, state=TargetState.CANCELED,
             ))
             session.commit()
@@ -619,7 +629,7 @@ def test_interrupted_top_n_is_recovered_from_completed_result_shards(tmp_path):
                     })
             with project_db.get_session() as session:
                 session.add(ScreeningShardRun(
-                    run_id="interrupted",
+                    docking_run_id=run,
                     shard_id=shard_ids[shard_index],
                     receptor_molecule_id=receptor_id,
                     engine="vina",
@@ -668,7 +678,7 @@ def test_canceled_job_marks_campaign_targets_canceled(tmp_path):
         project_db = runtime.workspace.project_db
         plan_targets(
             project_db,
-            run_id="run-canceled",
+            docking_run_id=_run(project_db, "run-canceled"),
             receptors=[{"receptor_id": 1, "receptor_name": "4UWG"}],
             ligands_total=100,
             engine="vina",
@@ -678,6 +688,7 @@ def test_canceled_job_marks_campaign_targets_canceled(tmp_path):
             hit_cap=10,
             hit_threshold=-8.0,
             run_id="run-canceled",
+            engine="vina",
         )
         writer.on_job_terminal("canceled")
         writer.close()
@@ -696,12 +707,13 @@ def test_dependency_cancellation_does_not_overwrite_reference_failure(tmp_path):
     runtime.create_project(name="failed-reference", folder=tmp_path)
     try:
         project_db = runtime.workspace.project_db
+        run = _run(project_db, "cascade")
         plan_targets(
-            project_db, run_id="cascade", receptors=[{"receptor_id": 1}],
+            project_db, docking_run_id=run, receptors=[{"receptor_id": 1}],
             ligands_total=10, engine="vina",
         )
-        stop_run(project_db, run_id="cascade", state=TargetState.FAILED)
-        stop_run(project_db, run_id="cascade", state=TargetState.CANCELED)
+        stop_run(project_db, docking_run_id=run, state=TargetState.FAILED)
+        stop_run(project_db, docking_run_id=run, state=TargetState.CANCELED)
         assert list_targets(project_db, run_id="cascade")[0]["state"] == TargetState.FAILED
     finally:
         runtime.close_project()
@@ -717,9 +729,10 @@ def test_a_scheduled_receptor_is_visible_before_it_has_a_single_result(tmp_path)
     runtime.create_project(name="campaign-plan", folder=tmp_path)
     try:
         project_db = runtime.workspace.project_db
+        run = _run(project_db, "run-1")
         plan_targets(
             project_db,
-            run_id="run-1",
+            docking_run_id=run,
             receptors=[{"receptor_id": 1, "receptor_name": "1ATP"}, {"receptor_id": 2, "receptor_name": "4DFR"}],
             ligands_total=12000,
             engine="vina",
@@ -729,14 +742,14 @@ def test_a_scheduled_receptor_is_visible_before_it_has_a_single_result(tmp_path)
         assert scheduled[0] == {**scheduled[0], "ligands_done": 0, "pending": 12000, "hits": 0,
                                 "state": TargetState.SCHEDULED}
 
-        advance_target(project_db, run_id="run-1", receptor_id=1, scored=64, hits=2)
-        advance_target(project_db, run_id="run-1", receptor_id=1, scored=64, hits=0)
+        advance_target(project_db, docking_run_id=run, receptor_id=1, scored=64, hits=2)
+        advance_target(project_db, docking_run_id=run, receptor_id=1, scored=64, hits=0)
         first = list_targets(project_db, run_id="run-1")[0]
         assert (first["ligands_done"], first["pending"], first["hits"]) == (128, 11872, 2)
         assert first["state"] == TargetState.RUNNING
 
         assert len(list_targets(project_db, active_only=True)) == 2
-        finish_run(project_db, run_id="run-1")
+        finish_run(project_db, docking_run_id=run)
         assert list_targets(project_db, active_only=True) == []
     finally:
         runtime.close_project()

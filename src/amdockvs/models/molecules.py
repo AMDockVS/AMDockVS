@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import Any, Mapping
+from typing import Any
 
 from sqlalchemy import Column, Computed, DateTime, Index, Integer, JSON, UniqueConstraint, text
 from pydantic import field_validator
@@ -14,7 +14,6 @@ from amdockvs.core.constants import (
     TABLE_IMPORT_BATCHES,
     TABLE_MOLECULE_MODELS,
     TABLE_MOLECULE_REPRESENTATIONS,
-    TABLE_MOLECULE_SOURCE_PROPERTIES,
     TABLE_MOLECULES,
     TABLE_PAYLOADS,
 )
@@ -273,40 +272,6 @@ class MoleculeRepresentation(SQLModel, table=True):
             .where(cls.value == inchikey)
         ).first()
         return row.molecule_id if row else None
-
-
-class MoleculeSourceProperty(SQLModel, table=True):
-    __tablename__ = TABLE_MOLECULE_SOURCE_PROPERTIES
-    __table_args__ = (
-        UniqueConstraint("molecule_id", "key"),
-        Index("idx_source_prop_lookup", "key", "value_text"),
-    )
-
-    id: int | None = Field(default=None, primary_key=True)
-    molecule_id: int = Field(foreign_key=f"{TABLE_MOLECULES}.id", index=True)
-    key: str = Field(index=True)
-    value_text: str = Field(default="")
-
-    @classmethod
-    def build_rows(
-            cls,
-            molecule_id: int,
-            properties: Mapping[str, Any],
-    ) -> list[dict[str, Any]]:
-        rows: list[dict[str, Any]] = []
-        for key, value in dict(properties or {}).items():
-            normalized_key = str(key or "").strip()
-            normalized_value = str(value or "").strip()
-            if not normalized_key or not normalized_value:
-                continue
-            rows.append(
-                {
-                    "molecule_id": int(molecule_id),
-                    "key": normalized_key,
-                    "value_text": normalized_value,
-                }
-            )
-        return rows
 
 
 # ---------------------------------------------------------------------------

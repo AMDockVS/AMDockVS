@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from amdockvs.models import ScreeningShard
 from amdockvs.ui.catalog.common import BoundTableWidget, batch_columns
-from amdockvs.core.vocab import ShardState
 from ms_components.ms_table import (
     AlignHint,
     ColumnDef,
@@ -23,7 +22,6 @@ from ms_components.ms_table import (
     SortSpec,
     TableConfig,
     TableLoadMode,
-    choices_from_class,
 )
 from amdockvs.ui.view_ids import SHARDS_VIEW_ID
 
@@ -38,8 +36,6 @@ def _shard_table_config() -> TableConfig:
                       kind=ColumnKind.INTEGER),
             ColumnDef("n_records", label="Records", width=90, sortable=True, align=AlignHint.RIGHT,
                       kind=ColumnKind.INTEGER),
-            ColumnDef("state", label="State", width=100, sortable=True, filterable=True,
-                      kind=ColumnKind.CHOICE, choices=choices_from_class(ShardState)),
             *batch_columns(ScreeningShard),
             ColumnDef("error", label="Error", width=240, sortable=False),
             ColumnDef("path", label="Path", width=320, sortable=True, visible=False),

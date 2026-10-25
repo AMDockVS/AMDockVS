@@ -202,7 +202,7 @@ class ResultsPivotWidget(QWidget):
             "Number of best available hits:",
             default_n,
             1,
-            1_000_000,
+            10_000,
         )
         if not accepted:
             return

@@ -46,6 +46,14 @@ def docking_run_id(project_db, *, run_id: str, engine: str, run_kind: str, proto
         return int(found)
 
 
+def find_docking_run(project_db, *, run_id: str, engine: str, run_kind: str, protocol_hash: str) -> int | None:
+    """The `docking_runs` row a job created, or None when it never got to create one."""
+    values = {"run_id": str(run_id or ""), "engine": str(engine).strip().lower(),
+              "run_kind": str(run_kind or "screening"), "protocol_hash": str(protocol_hash or "")}
+    with project_db.get_session() as session:
+        return session.exec(select(DockingRun.id).filter_by(**values)).first()
+
+
 def runs_where(*, run_id: str | None = None, engine: str | None = None,
                run_kind: str | None = None, protocol_hash: str | None = None):
     """The ids of the docking runs that match, as a subquery for `docking_run_id IN (...)`."""
@@ -747,6 +755,7 @@ def list_receptor_result_summaries(project_db) -> list[ReceptorDockingSummary]:
 __all__ = [
     "count_docked_pairs",
     "docking_run_id",
+    "find_docking_run",
     "runs_where",
     "supersede_results",
     "docked_ligands_spec",

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Callable, Iterable, Iterator, Mapping
 
 from amdockvs.core.constants import DEFAULT_VINA_BACKEND, DEFAULT_VINA_COMMAND
-from amdockvs.docking.engines.programs import chunk_resources
+from amdockvs.docking.engines.programs import chunk_resources, get_docking_program
 from amdockvs.docking.methods import excludes
 from amdockvs.docking.preparation.state import grid_from_row
 
@@ -105,7 +105,7 @@ def iter_docking_batches_from_rows(
 ) -> Iterator[dict[str, object]]:
     # Prepared inputs/grids are stored under the preparation engine (e.g. AutoDock-GPU
     # reuses Vina pdbqt prep); the chunk's `engine` tag selects the docking runner.
-    prep_engine = str(preparation_engine or engine)
+    prep_engine = str(preparation_engine or get_docking_program(engine).preparation_engine)
     method = dict(engine_config or {}).get("method")
     protocol_payload = dict(protocol_metadata or {})
     normalized_batch_size = max(1, int(batch_size))

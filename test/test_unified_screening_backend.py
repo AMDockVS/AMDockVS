@@ -7,7 +7,7 @@ from amdockvs.chemistry.api import ChemistryAPI
 from amdockvs.core.configuration import app_config
 from amdockvs.docking.api import DockingAPI
 from amdockvs.screening.campaign import advance_shard_run, completed_shard_targets, live_target_progress
-from amdockvs.models import ImportBatch, ScreeningShard, ScreeningShardRun, ShardEngineState
+from amdockvs.models import ImportBatch, ScreeningShard, ScreeningShardRun, ShardPrep
 from amdockvs.molecules.storage import iter_prepared_shards
 from amdockvs.runtime import AMDockVSRuntime
 from amdockvs.core.vocab import TargetState
@@ -44,13 +44,7 @@ def test_engine_artifact_does_not_replace_the_chemical_shard(tmp_path):
         assert app_config(runtime).shards.keep_history is False
         with runtime.workspace.project_db.get_session() as session:
             session.add(
-                ShardEngineState(
-                    shard_id=int(shard.id),
-                    engine="ad4",
-                    files={"source": str(source), "prepared": str(prepared)},
-                    n_records=97,
-                    is_ready=True,
-                )
+                ShardPrep(shard_id=int(shard.id), family="ad4", n_records=97)
             )
             session.commit()
 
@@ -91,9 +85,15 @@ def test_shard_completion_is_scoped_to_run_engine_and_protocol(tmp_path):
     runtime, shard, _source = _project_with_shard(tmp_path)
     db = runtime.workspace.project_db
     try:
+        from amdockvs.docking.results.repository import docking_run_id
+
+        def run(run_id, protocol_hash):
+            return docking_run_id(db, run_id=run_id, engine="vina", run_kind="screening",
+                                  protocol={"hash": protocol_hash})
+
         advance_shard_run(
             db,
-            run_id="run-a",
+            docking_run_id=run("run-a", "p1"),
             shard_id=int(shard.id),
             receptor_id=10,
             engine="vina",
@@ -102,13 +102,13 @@ def test_shard_completion_is_scoped_to_run_engine_and_protocol(tmp_path):
             hits=3,
             result_path="results/docking/screening/run-a/results.parquet",
         )
-        assert completed_shard_targets(db, run_id="run-a", engine="vina", protocol_hash="p1") == {
+        assert completed_shard_targets(db, docking_run_id=run("run-a", "p1")) == {
             (int(shard.id), 10)
         }
 
         advance_shard_run(
             db,
-            run_id="run-a",
+            docking_run_id=run("run-a", "p1"),
             shard_id=int(shard.id),
             receptor_id=10,
             engine="vina",
@@ -116,8 +116,8 @@ def test_shard_completion_is_scoped_to_run_engine_and_protocol(tmp_path):
             scored=100,
             hits=1,
         )
-        assert completed_shard_targets(db, run_id="run-b", engine="vina", protocol_hash="p1") == set()
-        assert completed_shard_targets(db, run_id="run-a", engine="vina", protocol_hash="p2") == set()
+        assert completed_shard_targets(db, docking_run_id=run("run-b", "p1")) == set()
+        assert completed_shard_targets(db, docking_run_id=run("run-a", "p2")) == set()
 
         with db.get_session() as session:
             receipt = session.exec(select(ScreeningShardRun)).one()
@@ -131,14 +131,14 @@ def test_shard_completion_is_scoped_to_run_engine_and_protocol(tmp_path):
 
 def test_live_target_progress_adds_only_matching_inflight_chunk_work():
     targets = [
-        {"id": 1, "run_id": "old", "receptor_molecule_id": 7, "ligands_total": 50, "ligands_done": 50},
-        {"id": 2, "run_id": "run", "receptor_molecule_id": 7, "ligands_total": 100, "ligands_done": 20},
-        {"id": 3, "run_id": "run", "receptor_molecule_id": 8, "ligands_total": 100, "ligands_done": 0},
+        {"id": 1, "docking_run_id": 1, "receptor_molecule_id": 7, "ligands_total": 50, "ligands_done": 50},
+        {"id": 2, "docking_run_id": 2, "receptor_molecule_id": 7, "ligands_total": 100, "ligands_done": 20},
+        {"id": 3, "docking_run_id": 2, "receptor_molecule_id": 8, "ligands_total": 100, "ligands_done": 0},
     ]
     chunks = [
-        {"progress": 50.0, "payload_json": '{"run_id":"run","receptor_id":7,"shards":[{"n_records":40}]}'},
-        {"progress": 25.0, "payload_json": '{"run_id":"run","receptor_id":8,"shards":[{"n_records":100}]}'},
-        {"progress": 100.0, "payload_json": '{"run_id":"old","receptor_id":7,"shards":[{"n_records":50}]}'},
+        {"progress": 50.0, "payload_json": '{"docking_run_id":2,"receptor_id":7,"shards":[{"n_records":40}]}'},
+        {"progress": 25.0, "payload_json": '{"docking_run_id":2,"receptor_id":8,"shards":[{"n_records":100}]}'},
+        {"progress": 100.0, "payload_json": '{"docking_run_id":1,"receptor_id":7,"shards":[{"n_records":50}]}'},
     ]
 
     assert live_target_progress(targets, chunks) == {

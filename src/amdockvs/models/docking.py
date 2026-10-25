@@ -6,14 +6,14 @@ from sqlmodel import SQLModel, Field
 
 from amdockvs.models.codes import code_field
 
-from amdockvs.core.rows import binding_site_row, engine_state_row, interaction_rows
+from amdockvs.core.rows import binding_site_row, interaction_rows
 from amdockvs.core.constants import (
     TABLE_PAYLOADS,
     TABLE_BINDING_SITES,
-    TABLE_CONSENSUS_SCORES,
     TABLE_DOCKING_RESULTS,
     TABLE_DOCKING_RUNS,
-    TABLE_ENGINES,
+    TABLE_LIGAND_PREPS,
+    TABLE_RECEPTOR_PREPS,
     TABLE_MOLECULES,
     TABLE_INTERACTION_RESULTS,
 )
@@ -77,50 +77,47 @@ class BindingSite(SQLModel, table=True):
     build_row = staticmethod(binding_site_row)
 
 
-class EngineState(SQLModel, table=True):
-    """
-    Engine-specific preparation state for a molecule acting in a given role.
-    One row per (molecule_id, role_type, engine).
+class ReceptorPrep(SQLModel, table=True):
+    """A receptor prepared for one family (`ad4` serves Vina, QuickVina, gnina and AutoDock-GPU).
 
-    role_type: "receptor" | "ligand"
-    molecule_id: molecules.id
-
-    files JSON structure varies by engine:
-        vina:      {"prepared": "path/to/receptor.pdbqt"}
-        adgpu:     {"prepared": "path/to/receptor.pdbqt",
-                    "maps":     "path/to/maps/"}
-        diffdock:  {}   (uses sequence/smiles directly — no prep files)
-        dock6:     {"mol2": "path/to/receptor.mol2",
-                    "spheres": "path/to/receptor.sph"}
-
-    is_ready=True means all required files for this engine exist and are valid.
-    Pre-flight checks query: WHERE molecule_id=X AND role_type=Y AND engine=Z AND is_ready=True
+    Ready = `rigid_payload_id` set; a failed preparation leaves it NULL with `error`.
+    `flex_residues` is the user's pick of flexible side chains, which a re-preparation keeps
+    (it writes every column but this one); `flex_payload_id` is what was prepared from it.
     """
 
-    __tablename__ = TABLE_ENGINES
-    __table_args__ = (
-        UniqueConstraint("molecule_id", "role_type", "engine"),
-        Index("idx_engine_state_lookup", "molecule_id", "role_type", "engine"),
-        # Covering index for the other direction: "how many / which molecules are ready for
-        # engine X". Without it that scan is ~3.5x slower (270ms vs 79ms over 900k rows).
-        Index("idx_engine_state_role_engine", "role_type", "engine", "is_ready"),
-    )
+    __tablename__ = TABLE_RECEPTOR_PREPS
+    __table_args__ = (UniqueConstraint("receptor_molecule_id", "family"),)
 
     id: int | None = Field(default=None, primary_key=True)
-    molecule_id: int = Field(foreign_key=f"{TABLE_MOLECULES}.id", index=True)
-    role_type: str = Field(index=True)  # "receptor" | "ligand"
-    engine: str = Field(index=True)  # "vina" | "adgpu" | ...
-
-    # The engine's prepared input (PDBQT...) as a payload of the "prepared" series (D10);
-    # `files` keeps only what is not bytes (the source it was prepared from, failures).
-    prepared_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
-    # A receptor's flexible side chains, when the user picked any: the engine docks with both.
+    receptor_molecule_id: int = Field(foreign_key=f"{TABLE_MOLECULES}.id")
+    family: str = code_field("prep_family", "ad4")
+    rigid_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
     flex_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
-    files: dict = Field(default_factory=dict, sa_type=JSON)
-    is_ready: bool = Field(default=False, index=True)
+    flex_residues: list = Field(default_factory=list, sa_type=JSON)
+    error: str | None = Field(default=None)
 
 
-    build_row = staticmethod(engine_state_row)
+class LigandPrep(SQLModel, table=True):
+    """A ligand prepared for one family. Ready = `payload_id` set; NULL = failed, with `error`."""
+
+    __tablename__ = TABLE_LIGAND_PREPS
+    __table_args__ = (
+        # "Which molecules are ready for family X" without a table scan; the PK rides along.
+        Index("idx_ligand_prep_ready", "family", "payload_id"),
+        {"sqlite_with_rowid": False},
+    )
+
+    molecule_id: int = Field(foreign_key=f"{TABLE_MOLECULES}.id", primary_key=True)
+    family: str = code_field("prep_family", "ad4", primary_key=True)
+    payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
+    error: str | None = Field(default=None)
+
+
+def prep_table(role_type: str):
+    """`(model, molecule column, prepared payload column)` of a role's preparations."""
+    if str(role_type).strip().lower() == "receptor":
+        return ReceptorPrep, ReceptorPrep.receptor_molecule_id, ReceptorPrep.rigid_payload_id
+    return LigandPrep, LigandPrep.molecule_id, LigandPrep.payload_id
 
 
 # ---------------------------------------------------------------------------
@@ -215,37 +212,6 @@ class DockingResult(SQLModel, table=True):
             **{key: value for key, value in columns.items() if key in cls.model_fields},
         }
 
-
-# ---------------------------------------------------------------------------
-# ConsensusScore
-# ---------------------------------------------------------------------------
-
-class ConsensusScore(SQLModel, table=True):
-    """
-    Combined score across N engines for the same receptor-ligand molecule pair.
-    Computed as a post-processing step when docking_results exist for
-    >= 2 engines.
-
-    method examples:
-        "rank_average"   — average of per-engine pose ranks
-        "score_zscore"   — z-score normalized score combination
-        "ecr"            — exponential consensus ranking
-    """
-
-    __tablename__ = TABLE_CONSENSUS_SCORES
-    __table_args__ = (
-        UniqueConstraint("receptor_molecule_id", "ligand_molecule_id", "method"),
-    )
-
-    id: int | None   = Field(default=None, primary_key=True)
-    receptor_molecule_id: int = Field(foreign_key=f"{TABLE_MOLECULES}.id", index=True)
-    ligand_molecule_id: int   = Field(foreign_key=f"{TABLE_MOLECULES}.id", index=True)
-
-    method: str      = Field()
-    score: float     = Field()
-    engines_used: list = Field(default_factory=list, sa_type=JSON)  # ["vina","adgpu"]
-
-    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
 
 # ---------------------------------------------------------------------------
 # InteractionsResult

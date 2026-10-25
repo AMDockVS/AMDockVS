@@ -1,7 +1,7 @@
 """Ligand preparation over a shard: one container in, one PDBQT container out.
 
 The `vs` twin is `service.prepare_entities_rows`, which writes one `.pdbqt` file per ligand and
-one `EngineState` row per molecule. Neither scales to a screening library — that is the whole
+one `ligand_preps` row per molecule. Neither scales to a screening library — that is the whole
 reason the library is sharded. What travels instead is the shard: the prepared PDBQT text sits
 at the *same id* as the molecule it came from, so nothing is renumbered and nothing is joined.
 
@@ -19,8 +19,6 @@ from ms_flow.core.data.shard import PayloadKind, Serializer, Shard, ShardWriter
 from amdockvs.chemistry.pipeline import run_pipeline
 from amdockvs.chemistry.shards import read_shard
 from amdockvs.docking.preparation.meeko import prepare_ligand_vina_pdbqt_from_mol
-
-PREPARED_DIR = "prepared_{engine}"
 
 _SMILES_REMARK = "REMARK SMILES "
 _SMILES_IDX_REMARK = "REMARK SMILES IDX"
@@ -246,7 +244,6 @@ def extract_ligands(
 
 __all__ = [
     "FAILURE_LOG_SUFFIX",
-    "PREPARED_DIR",
     "extract_ligands",
     "failure_log_path",
     "failure_report",

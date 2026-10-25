@@ -26,7 +26,6 @@ from amdockvs.chemistry.structures import with_structures
 from amdockvs.chemistry.tools.esmfold import FAST_MODEL
 from amdockvs.io.shards import shard_generation_writer
 from amdockvs.models import MoleculeModel, MoleculeRecord
-from amdockvs.core.vocab import ShardState
 
 
 # Chemistry operations update existing molecules (upsert by id) and may add new
@@ -266,11 +265,6 @@ class ShardChemistryJobParams(BaseModel):
 
     operation: str | list[Any]
     params: dict[str, Any] = Field(default_factory=dict)
-    # Which shards of the active generation to feed; `pending` is every shard of a library
-    # nothing has been run over yet, which is what a fresh generation is. Resume-after-crash
-    # is not what this does any more: a failed run's generation is discarded whole, so the
-    # retry reads the parent from the start.
-    state: str = ShardState.PENDING
     # The generation this run writes into, opened by the API before submitting. It is not the
     # active one until the job completes, which is what keeps a half-done rewrite invisible.
     generation_id: int = 0
@@ -305,7 +299,7 @@ def shard_chemistry_job(params: dict, config: dict | None = None) -> Iterator[di
         raise ValueError("shard_chemistry_job requires a generation to write into.")
     # One directory per generation, so forgetting a generation is deleting a directory.
     output_dir = worker_output_dir(parsed.output_dir)
-    for row in ShardStore(project_db).iter_rows(shard_scope_spec(state=parsed.state)):
+    for row in ShardStore(project_db).iter_rows(shard_scope_spec()):
         shard_path = Path(str(row.get("path") or ""))
         yield {
             "shard_path": worker_file(shard_path),

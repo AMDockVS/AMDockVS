@@ -779,7 +779,7 @@ class ProtocolEditorWidget:
 
     @staticmethod
     def _prep_engine_for(program: str) -> str:
-        """The preparation family a program belongs to — what EngineState rows are keyed by.
+        """The preparation family a program belongs to — what preparation rows are keyed by.
 
         Every "is it prepared?" question is per family, so no caller may assume "ad4".
         """

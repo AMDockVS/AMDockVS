@@ -16,6 +16,7 @@ cannot afford to keep.
 
 from __future__ import annotations
 
+from collections import Counter
 from contextlib import suppress
 from pathlib import Path
 from typing import Any, Iterator
@@ -25,10 +26,9 @@ from sqlalchemy import func
 from sqlmodel import select
 
 from amdockvs.core.jobs import JobSpec
-from amdockvs.docking.shard_tasks import HIT_MODE_THRESHOLD, HIT_MODE_TOP_N, dock_shards
+from amdockvs.docking.shard_tasks import HIT_MODE_TOP_N, dock_shards
 
 from amdockvs.core.worker_io import worker_file, worker_output_dir
-from amdockvs.core.configuration import DEFAULT_HIT_SAFETY_CAP
 from amdockvs.core.constants import (
     AMDOCKVS_OFFLOADABLE_EXECUTORS, DEFAULT_VINA_BACKEND, DEFAULT_VINA_COMMAND, SERIES_POSES,
 )
@@ -36,7 +36,7 @@ from amdockvs.core.payloads import structure_payload
 from amdockvs.docking.engines.programs import chunk_resources
 from amdockvs.docking.protocols import DockingProtocolMetadata
 from amdockvs.docking.repository import inputs_dir, list_entity_rows, resolve_docking_output_dir, with_input_files
-from amdockvs.docking.results.repository import count_docking_results, docking_run_id, runs_where
+from amdockvs.docking.results.repository import docking_run_id, find_docking_run, runs_where
 from amdockvs.docking.results.dataset import (
     completed_result_receipts,
     result_fragment_path,
@@ -55,7 +55,7 @@ from amdockvs.screening.campaign import (
     stop_run,
 )
 from amdockvs.screening.materialize import HitGate, PAYLOAD_LIGHT, ingest_hits
-from amdockvs.models import DockingResultRecord, ScreeningShardRun, ScreeningTarget
+from amdockvs.models import DockingResultRecord, DockingRun, ScreeningShardRun, ScreeningTarget
 from amdockvs.core.paths import get_default_project_root
 from amdockvs.molecules.storage import ShardStore, iter_prepared_shards
 from amdockvs.core.vocab import TargetState
@@ -63,14 +63,6 @@ from amdockvs.core.vocab import TargetState
 # Poses of a campaign live apart from `vs` results: shard record ids and molecule ids both start
 # at 0, and the pose file name is built from the ligand id.
 SCREENING_SUBDIR = "screening"
-
-HIT_MODES = (HIT_MODE_THRESHOLD, HIT_MODE_TOP_N)
-
-# By-threshold has no hit count of its own — "everything under the cutoff" is the criterion.
-# This is only the unattended-run ceiling: a campaign that reaches it has a wrong threshold,
-# not a lucky library. Settings > shards > hit_cap; this is the packaged default for code
-# evaluated before a runtime exists.
-HIT_SAFETY_CAP = DEFAULT_HIT_SAFETY_CAP
 
 # The prefilter a ranked run uses: none. Docking scores are negative, so this only drops poses
 # that did not bind at all — "best N of the whole run" must not quietly exclude what the user
@@ -100,6 +92,12 @@ def _with_poses(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return selected
 
 
+def _count_imported(project_db, docking_run_id: int | None, rows: list[dict[str, Any]]) -> None:
+    """The materialized hits land in their receptors' `imported` counters."""
+    for receptor_id, count in Counter(int(row.get("receptor_molecule_id") or 0) for row in rows).items():
+        advance_target(project_db, docking_run_id=int(docking_run_id or 0), receptor_id=receptor_id, imported=count)
+
+
 def _project_path(project_root: str | Path, value: str) -> Path:
     path = Path(str(value or ""))
     return path if path.is_absolute() else Path(project_root) / path
@@ -121,18 +119,20 @@ def recoverable_ranked_runs(project_db, *, project_root: str | Path) -> list[dic
             .where(ScreeningShardRun.state == TargetState.DONE, ScreeningShardRun.result_path != "")
             .order_by(ScreeningShardRun.id.desc())
         ).all()
-        target_states: dict[str, set[str]] = {}
+        target_states: dict[int, set[str]] = {}
         for target in session.exec(select(ScreeningTarget)).all():
-            target_states.setdefault(str(target.run_id), set()).add(str(target.state))
+            target_states.setdefault(int(target.docking_run_id), set()).add(str(target.state))
+        submit_ids = dict(session.exec(select(DockingRun.id, DockingRun.run_id)).all())
 
-    groups: dict[tuple[str, str], list[ScreeningShardRun]] = {}
+    groups: dict[int, list[ScreeningShardRun]] = {}
     for receipt in receipts:
-        groups.setdefault((str(receipt.run_id), str(receipt.protocol_hash or "")), []).append(receipt)
+        groups.setdefault(int(receipt.docking_run_id), []).append(receipt)
 
     candidates: list[dict[str, Any]] = []
     active = {TargetState.SCHEDULED, TargetState.RUNNING}
-    for (run_id, protocol_hash), rows in groups.items():
-        if target_states.get(run_id, set()) & active:
+    for run, rows in groups.items():
+        run_id, protocol_hash = str(submit_ids.get(run) or ""), str(rows[0].protocol_hash or "")
+        if target_states.get(run, set()) & active:
             continue
         if _materialized_count(project_db, run_id=run_id, protocol_hash=protocol_hash):
             continue
@@ -154,7 +154,7 @@ def recoverable_ranked_runs(project_db, *, project_root: str | Path) -> list[dic
             "run_id": run_id,
             "protocol_hash": protocol_hash,
             "protocol_label": str(protocol.get("label") or protocol.get("program") or rows[0].engine),
-            "status": ", ".join(sorted(target_states.get(run_id, {"terminal"}))),
+            "status": ", ".join(sorted(target_states.get(run, {"terminal"}))),
             "top_n": max(0, int(selection.get("cap") or 0)),
             "threshold": float(selection.get("threshold", RANKED_PREFILTER_SCORE)),
             "shards": sum(path.is_file() for path in paths),
@@ -208,6 +208,8 @@ def recover_ranked_hits(
         payload=PAYLOAD_LIGHT,
         reuse_existing=True,
     ) if selected else []
+    if receipts:
+        _count_imported(project_db, receipts[0].docking_run_id, materialized)
     return {
         "shards": readable_shards,
         "scored": scanned,
@@ -246,7 +248,6 @@ class DockShardsJobParams(BaseModel):
     # without a cap a generous receptor materializes the library the mode exists to keep out.
     hit_threshold: float
     hit_cap: int = Field(ge=1)
-    hit_mode: str = HIT_MODE_THRESHOLD
     # Set only for the dependent off-target stage. Once the reference job completes, its
     # durable ranking supplies the record ids; only those records are extracted from each shard.
     selected_from_receptor_id: int | None = Field(default=None, ge=1)
@@ -269,7 +270,6 @@ class ShardHitWriter:
         hit_cap: int,
         hit_threshold: float,
         payload: str = PAYLOAD_LIGHT,
-        hit_mode: str = HIT_MODE_THRESHOLD,
         run_id: str = "",
         engine: str = "",
         protocol_hash: str = "",
@@ -279,7 +279,7 @@ class ShardHitWriter:
         self.run_id = str(run_id)
         self.engine = str(engine)
         self.protocol_hash = str(protocol_hash or "")
-        self.hit_mode = str(hit_mode)
+        self._docking_run_id: int | None = None
         self.hit_cap = int(hit_cap)
         self.hit_threshold = float(hit_threshold)
         self.selected_from_receptor_id = (
@@ -292,30 +292,40 @@ class ShardHitWriter:
             payload=payload,
         )
 
+    @property
+    def docking_run_id(self) -> int | None:
+        """The run the feed created before its first chunk; None until then (nothing to count)."""
+        if self._docking_run_id is None:
+            self._docking_run_id = find_docking_run(
+                self.project_db, run_id=self.run_id, engine=self.engine, run_kind="screening",
+                protocol_hash=self.protocol_hash,
+            )
+        return self._docking_run_id
+
     def _materialize_selected(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not rows:
             return []
-        return ingest_hits(
+        materialized = ingest_hits(
             self.project_db,
             _with_poses(rows),
             gate=HitGate(cap=len(rows)),
             payload=self.store.payload,
             reuse_existing=True,
         )
+        _count_imported(self.project_db, self.docking_run_id, materialized)
+        return materialized
 
     def handle(self, chunk_id: str, result: Any) -> None:
         for envelope in list(result or []):
             shard_id = int(envelope.get("shard_id") or 0)
             hits = list(envelope.get("hits") or [])
-            if hits:
-                selected = hits if self.selected_from_receptor_id else self.store.gate.take(hits)
-                if self.hit_mode != HIT_MODE_TOP_N or self.selected_from_receptor_id:
-                    self._materialize_selected(selected)
+            if hits and self.selected_from_receptor_id:  # only an off-target stage streams hits
+                self._materialize_selected(hits)
             hit_count = int(envelope.get("hits_found", len(hits)) or 0)
             if shard_id > 0:
                 recorded = advance_shard_run(
                     self.project_db,
-                    run_id=self.run_id,
+                    docking_run_id=int(envelope.get("docking_run_id") or self.docking_run_id or 0),
                     shard_id=shard_id,
                     receptor_id=int(envelope.get("receptor_id") or 0),
                     engine=self.engine,
@@ -327,7 +337,7 @@ class ShardHitWriter:
                 if recorded:
                     advance_target(
                         self.project_db,
-                        run_id=self.run_id,
+                        docking_run_id=int(envelope.get("docking_run_id") or self.docking_run_id or 0),
                         receptor_id=int(envelope.get("receptor_id") or 0),
                         scored=int(envelope.get("scored") or 0),
                         hits=hit_count,
@@ -337,12 +347,12 @@ class ShardHitWriter:
         """MF owns the failure; without a completed receipt a resubmission runs it again."""
 
     def flush(self) -> None:
-        """Nothing to flush mid-run: streaming mode already wrote, ranked mode must not yet."""
+        """Nothing to flush mid-run: the top-N is picked when the run ends."""
 
     def close(self) -> None:
         """Finalize hits on success; expose cancellation/failure without promoting partial top-N."""
         if self.terminal_status == "completed":
-            if self.hit_mode == HIT_MODE_TOP_N and not self.selected_from_receptor_id:
+            if not self.selected_from_receptor_id:
                 root = get_default_project_root()
                 if root is None:
                     root = getattr(self.project_db, "project_dir", None)
@@ -370,11 +380,11 @@ class ShardHitWriter:
                     )
                 ]
                 self._materialize_selected(selected)
-            finish_run(self.project_db, run_id=self.run_id)
+            finish_run(self.project_db, docking_run_id=self.docking_run_id)
             return
         stop_run(
             self.project_db,
-            run_id=self.run_id,
+            docking_run_id=self.docking_run_id,
             state=TargetState.CANCELED if self.terminal_status == "canceled" else TargetState.FAILED,
         )
 
@@ -388,7 +398,6 @@ def shard_hit_writer(
     hit_cap: int,
     hit_threshold: float,
     payload: str = PAYLOAD_LIGHT,
-    hit_mode: str = HIT_MODE_THRESHOLD,
     run_id: str = "",
     engine: str = "",
     protocol_hash: str = "",
@@ -397,7 +406,7 @@ def shard_hit_writer(
     """Factory for `result_handler_factory`; the runtime passes the kwargs from the API."""
     return ShardHitWriter(
         project_db=project_db, hit_cap=hit_cap, hit_threshold=hit_threshold,
-        payload=payload, hit_mode=hit_mode, run_id=run_id,
+        payload=payload, run_id=run_id,
         engine=engine, protocol_hash=protocol_hash,
         selected_from_receptor_id=selected_from_receptor_id,
     )
@@ -503,13 +512,11 @@ def _shard_docking_scope(
         ]
     protocol_hash = str(parsed.protocol_metadata.hash or "")
     completed = (
-        completed_shard_targets(
-            project_db,
-            run_id=parsed.run_id,
-            engine=parsed.engine,
+        completed_shard_targets(project_db, docking_run_id=find_docking_run(
+            project_db, run_id=parsed.run_id, engine=parsed.engine, run_kind="screening",
             protocol_hash=protocol_hash,
-        )
-        if parsed.skip_existing
+        ))
+        if parsed.skip_existing and parsed.run_id
         else set()
     )
     if parsed.check_required and not shards and not parsed.selected_from_receptor_id:
@@ -568,19 +575,19 @@ class DockShardsJobSpec(JobSpec):
         prepared_records = sum(int(row.get("n_records") or 0) for row in prepared_rows)
         # Chunk construction is deferred by MF while preparation is active. Resolve and plan
         # here, not in the public API, so totals describe the completed preparation snapshot.
-        if parsed.run_id:
+        run = docking_run_id(
+            project_db, run_id=parsed.run_id, engine=parsed.engine, run_kind="screening",
+            protocol=parsed.protocol_metadata.as_metrics_payload(),
+        ) if targets and prepared_rows else None
+        if run is not None and parsed.run_id:
             plan_targets(
                 project_db,
-                run_id=parsed.run_id,
+                docking_run_id=run,
                 receptors=targets,
                 ligands_total=prepared_records,
                 engine=parsed.engine,
             )
         emitted = False
-        run = docking_run_id(
-            project_db, run_id=parsed.run_id, engine=parsed.engine, run_kind="screening",
-            protocol=parsed.protocol_metadata.as_metrics_payload(),
-        ) if targets and prepared_rows else None
         for row in prepared_rows:
             shard = {
                 "shard_id": int(row.get("id") or 0),
@@ -592,15 +599,6 @@ class DockShardsJobSpec(JobSpec):
                 **({"record_ids": list(row.get("record_ids") or ())} if row.get("record_ids") is not None else {}),
             }
             if not targets:
-                break
-            # The cap half of the gate, as in `vs`: the feed stops handing out work once the
-            # run has written its quota. Checked per group, so chunks in flight can overshoot;
-            # the exact ceiling is the gate in ShardHitWriter.
-            if (
-                parsed.hit_mode != HIT_MODE_TOP_N
-                and count_docking_results(project_db, run_id=parsed.run_id, score_lte=parsed.hit_threshold)
-                >= parsed.hit_cap
-            ):
                 break
             for target in targets:
                 if (int(shard.get("shard_id") or 0), int(target["receptor_id"])) in completed:
@@ -635,7 +633,6 @@ class DockShardsJobSpec(JobSpec):
                     **chunk_resources(parsed.engine, parsed.engine_config),
                     "hit_threshold": parsed.hit_threshold,
                     "hit_cap": parsed.hit_cap,
-                    "hit_mode": parsed.hit_mode,
                     "selected_from_receptor_id": parsed.selected_from_receptor_id,
                 }
         if not emitted:

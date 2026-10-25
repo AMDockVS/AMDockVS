@@ -64,7 +64,7 @@ def _molecule_spec(scope: MoleculeScope | Selection[Any]) -> QuerySpec:
         else:
             filters["id__not_in_subquery"] = activities
     prepared = filters.pop("prepared", None)
-    # Which preparation family the flag refers to (EngineState.engine). Defaults to "ad4",
+    # Which preparation family the flag refers to (the `family` of ligand_preps / receptor_preps). Defaults to "ad4",
     # the family Vina, gnina and AutoDock-GPU share (one PDBQT prep for all three).
     prep_engine = str(filters.pop("prepared_engine_key", "") or "ad4")
     if prepared is not None:
@@ -458,7 +458,7 @@ class MoleculeAPI:
 
         self.runtime._require_active_project()
         store = ShardStore(self.runtime.workspace.project_db)
-        whole = shard_scope_spec(state=None)
+        whole = shard_scope_spec()
         prepared = list(iter_prepared_shards(self.runtime.workspace.project_db, engine=engine))
         return {
             "shards": store.count(whole),

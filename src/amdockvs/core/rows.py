@@ -16,29 +16,17 @@ from amdockvs.core.vocab import (
 )
 
 
-def engine_state_row(*, molecule_id: int, role_type: str, engine: str, prepared_payload_id: Any = None,
-                     flex_payload_id: Any = None, files: dict | None = None, is_ready: bool = False) -> dict[str, Any]:
-    return {
-        "molecule_id": molecule_id,
-        "role_type": role_type,
-        "engine": engine,
-        "prepared_payload_id": prepared_payload_id,
-        "flex_payload_id": flex_payload_id,
-        "files": files or {},
-        "is_ready": is_ready,
-    }
+def prep_row(*, role_type: str, molecule_id: int, family: str, payload_id: Any = None,
+             flex_payload_id: Any = None, error: str | None = None) -> dict[str, Any]:
+    """A `receptor_preps` or `ligand_preps` row. No `payload_id` = it failed, `error` says why."""
+    if role_type == "receptor":
+        return {"receptor_molecule_id": molecule_id, "family": family, "rigid_payload_id": payload_id,
+                "flex_payload_id": flex_payload_id, "error": error}
+    return {"molecule_id": molecule_id, "family": family, "payload_id": payload_id, "error": error}
 
 
-def shard_engine_state_row(*, shard_id: int, engine: str, files: dict | None = None, n_records: int = 0,
-                           is_ready: bool = False, error: str = "") -> dict[str, Any]:
-    return {
-        "shard_id": int(shard_id),
-        "engine": str(engine),
-        "files": dict(files or {}),
-        "n_records": int(n_records),
-        "is_ready": bool(is_ready),
-        "error": str(error or ""),
-    }
+def shard_prep_row(*, shard_id: int, family: str, n_records: int = 0, n_failed: int = 0) -> dict[str, Any]:
+    return {"shard_id": int(shard_id), "family": str(family), "n_records": int(n_records), "n_failed": int(n_failed)}
 
 
 def interaction_rows(receptor_payload_id: Any, pose_payload_id: Any, interactions: list[dict]) -> list[dict[str, Any]]:
