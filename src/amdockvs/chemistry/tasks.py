@@ -135,7 +135,7 @@ def receptor_prediction_task(payload: dict, progress_cb=None):
             "id": receptor_id,
             # The first prediction is also the canonical structure of a protein that had none.
             "stored_payload_id": row.get("stored_payload_id") or current,
-            "current_payload_id": current,
+            "current_payload_id": current if row.get("stored_payload_id") else None,
             "current_model_index": model_index,
             "has_3d": True,
             "has_hs": False,

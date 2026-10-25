@@ -238,13 +238,14 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
         current_model_index: int | None = None
         role = str(row.get("primary_role") or "").strip().lower()
         metadata_map = metadata_map_from_row(row)
-        if bool(row.get("has_3d")) and row.get("current_payload_id") is not None:
+        structure = row.get("current_payload_id") or row.get("stored_payload_id")
+        if bool(row.get("has_3d")) and structure is not None:
             current_model_index = 0
             molecule_models.append(
                 {
                     "molecule_ref": molecule_ref,
                     "model_index": 0,
-                    "payload_id": row["current_payload_id"],
+                    "payload_id": structure,
                     "energy": None,
                     "source": ModelSource.IMPORTED,
                     "created_at": row.get("created_at"),

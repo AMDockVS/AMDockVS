@@ -93,10 +93,8 @@ def _materialize_smiles_rows(
                 _progress_update(progress_cb, index, total_entries)
                 continue
         else:
-            if mol_block:
+            if mol_block:  # else no coordinates: the stored SMILES is it, current stays NULL (D6)
                 share_current(row, structure_payload(mol_block, "sdf", series_for(batch.primary_role or batch.kind)))
-            else:
-                row["current_payload_id"] = row["stored_payload_id"]  # no coordinates: the SMILES is it (D6)
         bump(tally, IMPORTED)
         yield row
         yield from _split_fragment_rows(

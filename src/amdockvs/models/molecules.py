@@ -91,8 +91,9 @@ class MoleculeRecord(TimestampedRecord, table=True):
     )
 
     # Payloads (ms_flow volumes): the bytes live in volumes/, the format is the payload's kind.
-    # stored → the input as imported, only when it differs from the current form (D11)
-    # current → the working structure (selected model/conformer, protonated, 3D...)
+    # stored → the input as imported
+    # current → the working structure (selected model/conformer, protonated, 3D...); NULL while
+    # it is the stored one. Read either through `core.payloads.molecule_payload_id`.
     stored_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id")
     current_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id")
     current_model_index: int | None = Field(default=None)

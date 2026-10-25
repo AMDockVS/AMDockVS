@@ -158,7 +158,6 @@ def _molecule_row(hit: Mapping[str, Any], *, payload: str, structure_id: int | N
         # The pose is the only 3D a light hit carries, so it is also its structure: one payload
         # that the molecule and its docking result both hold.
         "stored_payload_id": structure_id,
-        "current_payload_id": structure_id,
         "extra_data": {"smiles": str(hit.get("smiles") or "")},
     }
     if payload == PAYLOAD_FULL:
