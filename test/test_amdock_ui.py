@@ -41,6 +41,7 @@ from amdockvs.ui.view_ids import (
     PREP_STATUS_VIEW_ID,
     RECEPTOR_VIEW_ID,
     REDOCKING_VIEW_ID,
+    SHARDS_VIEW_ID,
 )
 
 
@@ -808,6 +809,7 @@ def test_prepare_ligands_from_table_and_shards(tmp_path, monkeypatch):
             shard_ids = [int(shard.id) for shard in shards]
         window = AMDockVSMainWindow(runtime=runtime)
         window.show()
+        assert window.central_widget.open_view(SHARDS_VIEW_ID) is not None  # a project with shards opens on them too
         studio = window.tools.open_tool(DOCKING_VIEW_ID)
         studio.stepper.set_current_index(1)
         studio.refresh()

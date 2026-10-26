@@ -198,7 +198,7 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
             rows = run_docking_chunk({
                 **payload,
                 "pairs": pairs,
-                "report_name": f"shard_{shard_index:05d}_r{envelope['receptor_id']:05d}.json",
+                "report_name": f"shard_{envelope['shard_id']:06d}_r{envelope['receptor_id']:05d}.json",
                 "_pair_callback": consume_pair,
                 "_collect_rows": False,
             })

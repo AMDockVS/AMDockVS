@@ -53,14 +53,15 @@ def result_fragment_path(output_dir: str | Path, payload: Mapping[str, Any], sha
         dict(payload.get("protocol_metadata") or {}).get("hash"), fallback="default"
     )
     receptor_id = int(payload.get("receptor_id") or 0)
-    shard_index = int(shard.get("shard_index") or 0)
+    # The global id: a shard index repeats in every import batch and generation.
+    shard_id = int(shard.get("shard_id") or 0)
     return (
         Path(output_dir)
         / "runs"
         / run_id
         / f"proto_{protocol}"
         / f"receptor_{receptor_id:05d}"
-        / f"shard_{shard_index:05d}.results.parquet"
+        / f"shard_{shard_id:06d}.results.parquet"
     )
 
 

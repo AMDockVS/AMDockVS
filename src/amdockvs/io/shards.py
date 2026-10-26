@@ -202,41 +202,39 @@ class ShardQueueWriter:
         base_id = self._next_id
         self._shard_index += 1
         self._next_id += len(records)
-        path = self._shard_dir / f"shard_{shard_index:05d}{SHARD_SUFFIX}"
-        with ShardWriter(
-            path,
-            dataset_id=None,
-            shard_id=shard_index,
-            base_id=base_id,
-            kind=payload_kind_for(input_format),
-            serializer=Serializer.UTF8,
-            slot_count=len(records),
-            metadata={
-                "import_batch_id": import_batch_id,
-                "input_format": input_format,
-                # Dense ids, so this is the only place the source ordinal survives.
-                "source_indices": [index for index, _raw in records],
-            },
-        ) as writer:
-            for offset, (_index, raw) in enumerate(records):
-                writer.add(base_id + offset, raw.encode("utf-8"))
-        self._insert_row(
-            import_batch_id=import_batch_id, shard_index=shard_index, path=path, n_records=len(records)
-        )
-
-    def _insert_row(self, *, import_batch_id: int | None, shard_index: int, path: Path, n_records: int) -> None:
         from amdockvs.models import ScreeningShard
 
+        # Named by the row's global id, not the index: every import restarts the index at 0
+        # in the same directory, so `shard_00000` of a second import overwrote the first's.
+        # The row is flushed for its id and committed only once the file is written.
         with self._project_db.get_session() as session:
-            session.add(
-                ScreeningShard(
-                    generation_id=self._generation_id,
-                    import_batch_id=import_batch_id,
-                    shard_index=shard_index,
-                    path=str(path),
-                    n_records=n_records,
-                )
+            row = ScreeningShard(
+                generation_id=self._generation_id,
+                import_batch_id=import_batch_id,
+                shard_index=shard_index,
+                n_records=len(records),
             )
+            session.add(row)
+            session.flush()
+            path = self._shard_dir / f"shard_{int(row.id):06d}{SHARD_SUFFIX}"
+            with ShardWriter(
+                path,
+                dataset_id=None,
+                shard_id=int(row.id),
+                base_id=base_id,
+                kind=payload_kind_for(input_format),
+                serializer=Serializer.UTF8,
+                slot_count=len(records),
+                metadata={
+                    "import_batch_id": import_batch_id,
+                    "input_format": input_format,
+                    # Dense ids, so this is the only place the source ordinal survives.
+                    "source_indices": [index for index, _raw in records],
+                },
+            ) as writer:
+                for offset, (_index, raw) in enumerate(records):
+                    writer.add(base_id + offset, raw.encode("utf-8"))
+            row.path = str(path)
             session.commit()
 
 

@@ -27,6 +27,10 @@ class _FakeDB:
             def add(self, row):
                 db.rows.append(row)
 
+            def flush(self):
+                for number, row in enumerate(db.rows, start=1):
+                    row.id = row.id or number  # the inventory's own id, project-wide
+
             def commit(self):
                 pass
 
@@ -82,3 +86,19 @@ def test_two_files_never_share_a_shard(tmp_path):
     assert {row.import_batch_id for row in db.rows} == {1, 2}
     assert [row.n_records for row in db.rows] == [3, 3]
     assert len({row.shard_index for row in db.rows}) == 2  # the index is the queue's, not the file's
+
+
+def test_a_second_import_does_not_overwrite_the_first(tmp_path):
+    """Each import restarts the index at 0 in the same folder: files go by the global id."""
+    db = _FakeDB()
+    for batch in (1, 2):
+        writer = ShardQueueWriter(project_db=db, shard_dir=tmp_path / "shards", shard_size=4)
+        writer.handle("c0", [_group(batch, 2)])
+        writer.flush()
+
+    assert [row.shard_index for row in db.rows] == [0, 0]
+    assert len({row.path for row in db.rows}) == 2
+    for row in db.rows:
+        with Shard.open(row.path) as shard:
+            assert shard.shard_id == row.id
+            assert shard.metadata["import_batch_id"] == row.import_batch_id
