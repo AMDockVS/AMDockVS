@@ -938,11 +938,6 @@ def install_pymol_toolbar(window) -> None:
 
     _menu_action(menu, "Clear Scene", window.viewer.clear_scene,
                  tooltip="Delete all objects from the PyMOL scene.")
-    multiple_action = menu.addAction("Keep loaded structures (multiple selection)")
-    multiple_action.setCheckable(True)
-    multiple_action.setChecked(multiple_selection_enabled(dock))
-    multiple_action.setToolTip("Add selected structures to the scene. Uncheck to replace the scene on the next selection.")
-    multiple_action.toggled.connect(window.viewer.set_multiple_selection_enabled)
     _menu_action(menu, "Color by Role", lambda: apply_scene_atom_coloring(window),
                  tooltip="Color receptor/ligand carbons by role, heteroatoms by element.")
 
