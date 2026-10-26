@@ -816,9 +816,7 @@ def test_prepare_ligands_from_table_and_shards(tmp_path, monkeypatch):
         app.processEvents()
 
         assert not studio.ligand_source_section.isHidden() and studio.prep_from_rows.isEnabled()
-        assert studio._ligand_sources() == {"shards"}  # the screening library by default
-        studio.prep_from_rows.setChecked(True)
-        assert studio._ligand_sources() == {"rows", "shards"}
+        assert studio._ligand_sources() == {"rows", "shards"}  # both stores by default
         window.selection.set("shard", shard_ids[:1])
         deadline = time.monotonic() + 10
         while "1 selected" not in studio.prep_source_counts["shards"].text() and time.monotonic() < deadline:
@@ -827,6 +825,8 @@ def test_prepare_ligands_from_table_and_shards(tmp_path, monkeypatch):
         assert "2 shard(s)" in studio.prep_source_counts["shards"].text()
         assert "1 selected" in studio.prep_source_counts["shards"].text()
         assert "2 ligand(s)" in studio.prep_source_counts["rows"].text()
+        headline = studio.ligand_bar.headline.text()  # the bar counts both stores
+        assert "2 ligand(s) in the table" in headline and "2 shard(s)" in headline and "20 molecule(s)" in headline
 
         calls = []
         monkeypatch.setattr(runtime.docking, "prepare_ligand_shards",

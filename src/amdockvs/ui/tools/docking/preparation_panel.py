@@ -140,6 +140,8 @@ class PreparationPanel:
         self.ligand_source_section = panel.add_section("Ligands from")
         self.prep_from_rows = QCheckBox("Table", self.ligand_source_section.body)
         self.prep_from_shards = QCheckBox("Shards", self.ligand_source_section.body)
+        # Both ticked: one click prepares everything; the sync unticks the table while it is empty.
+        self.prep_from_rows.setChecked(True)
         self.prep_from_shards.setChecked(True)
         self.prep_source_counts: dict[str, QLabel] = {}
         for source, box, view_id in (("rows", self.prep_from_rows, LIGANDS_VIEW_ID),

@@ -760,9 +760,11 @@ class ProtocolEditorWidget:
         )
         # The Ligands step's own boxes: same data gates, but either store or both.
         self.ligand_source_section.setVisible(bool(sharded) and not redocking)
+        # Ticked whenever it turns available, unticked when it doesn't; the user's own pick
+        # stands in between.
+        if self.prep_from_rows.isEnabled() != bool(ligand_rows):
+            self.prep_from_rows.setChecked(bool(ligand_rows))
         self.prep_from_rows.setEnabled(bool(ligand_rows))
-        if not ligand_rows and self.prep_from_rows.isChecked():
-            self.prep_from_rows.setChecked(False)
 
     def _on_experiment_config_changed(self) -> None:
         self._sync_ligand_source_choice()

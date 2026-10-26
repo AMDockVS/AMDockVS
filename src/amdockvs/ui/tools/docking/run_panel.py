@@ -159,6 +159,7 @@ class RunPanel:
             "program": self._program(),
             "run_kind": self._run_kind(),
             "sharded": self._ligand_scope_is_sharded(),  # reads the source selector: GUI thread
+            "sources": tuple(sorted(self._ligand_sources())),
             # The Ligands step lists both stores' counts whenever its "Ligands from" row shows.
             "count_shards": step == 1 and not self.ligand_source_section.isHidden(),
             "sel_shard": tuple(self._selected_shard_ids() or ()),
@@ -172,7 +173,7 @@ class RunPanel:
             "programs_chosen": bool(self._selected_protocols()),
         }
         sig = (
-            step, inputs["program"], inputs["run_kind"], inputs["sharded"], inputs["receptor_type"], inputs["ligand_type"],
+            step, inputs["program"], inputs["run_kind"], inputs["sources"], inputs["receptor_type"], inputs["ligand_type"],
             tuple(inputs["sel_lig"]), tuple(inputs["sel_rec"]), inputs["count_shards"], inputs["sel_shard"],
             inputs["focused"], inputs["programs_chosen"], tuple(inputs["prep_engines"]), inputs["force_prep"],
         )
@@ -208,7 +209,7 @@ class RunPanel:
         # user isn't even looking at. molecules.count() materializes the set, so each call is
         # O(n) — only pay for what the visible step shows.
         step = inp["step"]
-        data: dict = {"step": step, "programs_chosen": inp["programs_chosen"]}
+        data: dict = {"step": step, "programs_chosen": inp["programs_chosen"], "sources": inp["sources"]}
         if step == 0:  # Programs — nothing in the DB to show here.
             return data
 
@@ -222,6 +223,9 @@ class RunPanel:
                 data["shards_selected"] = len(inp["sel_shard"])
             if inp.get("sharded"):
                 data["sharded"] = True
+                if inp.get("count_shards"):  # the Table box shows its count ticked or not
+                    data["ligands_total"] = self.runtime.molecules.count(
+                        self._resolve_ligand_scope(inp["sel_lig"], run_kind=inp.get("run_kind", "docking")))
                 return data
             lig_scope = self._resolve_ligand_scope(
                 inp["sel_lig"], run_kind=inp.get("run_kind", "docking")
@@ -347,16 +351,22 @@ class RunPanel:
             # Scope = which ligands (one, shared). "N prepared" is per family, so it lives on
             # the family rows, not here — a single number would be one family's count
             # presented as the total.
-            self._set_scope_summary(
-                self.ligand_bar,
-                f"{data['ligands_total']} ligand(s) in scope",
-                f"{ligand_failed} failed" if ligand_failed else "",
-            )
+            headline = f"{data['ligands_total']} ligand(s) in scope"
+            detail = f"{ligand_failed} failed" if ligand_failed else ""
+            # Checked only when ALL in scope are prepared.
+            done = data["ligands_total"] > 0 and data["ligands_prepared"] >= data["ligands_total"]
+            if "shards" in data["sources"] and "shards_total" in data:
+                # Both stores ticked, so the bar counts both: the button prepares both.
+                shards, prepared = int(data["shards_total"]), int(data["shards_prepared"])
+                headline = (f"{data['ligands_total']} ligand(s) in the table · {shards} shard(s) · "
+                            f"{data['shard_records']} molecule(s)")
+                detail = " · ".join(filter(None, (detail, f"{prepared} shard(s) prepared")))
+                done = done and shards > 0 and prepared >= shards
+            self._set_scope_summary(self.ligand_bar, headline, detail)
             self._set_prep_family_counts(
                 data.get("ligands_prepared_by_engine") or {}, int(data["ligands_total"])
             )
-            # Checked only when ALL in scope are prepared.
-            self._mark_step(self.step_ligands, data["ligands_prepared"], data["ligands_total"])
+            self.step_ligands.set_done(done)
         if "receptors_total" not in data:
             return
         receptor_failed = int(data.get("rec_scope_failed") or 0)
