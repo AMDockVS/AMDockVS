@@ -159,6 +159,9 @@ class RunPanel:
             "program": self._program(),
             "run_kind": self._run_kind(),
             "sharded": self._ligand_scope_is_sharded(),  # reads the source selector: GUI thread
+            # The Ligands step lists both stores' counts whenever its "Ligands from" row shows.
+            "count_shards": step == 1 and not self.ligand_source_section.isHidden(),
+            "sel_shard": tuple(self._selected_shard_ids() or ()),
             "receptor_type": self._receptor_type(),
             "ligand_type": self._ligand_type(),
             "sel_lig": self._selected_ligand_ids,
@@ -170,7 +173,7 @@ class RunPanel:
         }
         sig = (
             step, inputs["program"], inputs["run_kind"], inputs["sharded"], inputs["receptor_type"], inputs["ligand_type"],
-            tuple(inputs["sel_lig"]), tuple(inputs["sel_rec"]),
+            tuple(inputs["sel_lig"]), tuple(inputs["sel_rec"]), inputs["count_shards"], inputs["sel_shard"],
             inputs["focused"], inputs["programs_chosen"], tuple(inputs["prep_engines"]), inputs["force_prep"],
         )
         if not force and sig == self._last_refresh_sig:
@@ -210,13 +213,15 @@ class RunPanel:
             return data
 
         if step == 1:  # Ligands — just the scope label.
-            if inp.get("sharded"):
-                # No molecule rows to count: the library is on disk, so count shards instead.
+            if inp.get("sharded") or inp.get("count_shards"):
+                # The library on disk: count shards (a small table), not molecule rows.
                 counts = self.runtime.molecules.shard_counts()
-                data["sharded"] = True
                 data["shards_total"] = counts["shards"]
                 data["shard_records"] = counts["records"]
                 data["shards_prepared"] = counts["prepared"]
+                data["shards_selected"] = len(inp["sel_shard"])
+            if inp.get("sharded"):
+                data["sharded"] = True
                 return data
             lig_scope = self._resolve_ligand_scope(
                 inp["sel_lig"], run_kind=inp.get("run_kind", "docking")
@@ -320,6 +325,8 @@ class RunPanel:
         if token != self._refresh_token:
             return
         self.step_programs.set_done(bool(data.get("programs_chosen")))
+        if data.get("step") == 1:
+            self._set_prep_source_counts(data)
         if data.get("sharded"):
             total = int(data.get("shards_total") or 0)
             prepared = int(data.get("shards_prepared") or 0)
@@ -331,7 +338,7 @@ class RunPanel:
             # Per-engine family counts are a molecule-row idea: a shard is prepared for the
             # engine that rewrote it, and its row carries no engine breakdown.
             self._set_prep_family_counts({}, 0)
-            self.prepare_ligands_button.setEnabled(True)
+            self.prepare_ligands_button.setEnabled(bool(self._ligand_sources()))
             self._mark_step(self.step_ligands, prepared, total)
             return
         self.prepare_ligands_button.setEnabled(True)

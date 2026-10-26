@@ -64,6 +64,10 @@ def test_preparation_sends_one_whole_shard_per_task(tmp_path, monkeypatch):
     ))
     assert [len(chunk["shards"]) for chunk in chunks] == [1, 1, 1, 1, 1]
     assert [s["shard_index"] for chunk in chunks for s in chunk["shards"]] == [0, 1, 2, 3, 4]
+    picked = list(preparation_jobs.PrepareLigandShardsJobSpec.build_chunks(
+        {"engine": "ad4", "shard_ids": [2, 5]}, {"project_db": _ProjectDB()}
+    ))
+    assert [s["shard_id"] for chunk in picked for s in chunk["shards"]] == [2, 5]  # the Shards selection
     # Nothing pending still yields one chunk so the job can close; it does no work.
     monkeypatch.setattr(preparation_jobs, "ShardStore", _Store([]))
     empty = list(preparation_jobs.PrepareLigandShardsJobSpec.build_chunks({}, {"project_db": _ProjectDB()}))

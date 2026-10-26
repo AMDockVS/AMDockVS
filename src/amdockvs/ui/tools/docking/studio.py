@@ -280,8 +280,14 @@ class DockingStudioWidget(
     def _on_shared_selection_changed(self, role: str) -> None:
         # Picking or dropping a selection changes what the step's table lists (see
         # _unprepared_clause). Off screen, showEvent does it.
-        if self.isVisible():
-            self._sync_ligand_table_filter() if role == "ligand" else self._sync_receptor_table_filter()
+        if not self.isVisible():
+            return
+        if role == "ligand":
+            self._sync_ligand_table_filter()
+        elif role == "receptor":
+            self._sync_receptor_table_filter()
+        else:
+            self._dispatch_refresh()  # a shard selection only changes the counts
 
     def hideEvent(self, event):
         super().hideEvent(event)

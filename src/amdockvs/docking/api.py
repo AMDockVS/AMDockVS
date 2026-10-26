@@ -493,13 +493,14 @@ class DockingAPI:
             *,
             program: str = VINA_PROGRAM.key,
             force: bool = False,
+            shard_ids: list[int] | None = None,
             executor_name: str = DEFAULT_LOCAL_CPU_EXECUTOR,
             depends_on: list[str] | None = None,
     ) -> str:
         """`prepare_ligands` for a sharded library: the unit of work is a shard, not a row.
 
-        No scope argument on purpose — a sharded library has no rows to select from, so the
-        whole inventory is the scope and narrowing it happened at import. One shard is one task.
+        `shard_ids` narrows it to those shards (the Shards table selection); None = every
+        shard. One shard is one task.
         """
         self.runtime._require_active_project()
         program_spec = self.get_program_spec(program)
@@ -510,6 +511,7 @@ class DockingAPI:
         params = PrepareLigandShardsJobParams(
             engine=program_spec.preparation_engine,
             force=force,
+            shard_ids=None if shard_ids is None else [int(value) for value in shard_ids],
         )
         return self.runtime.submit_job(
             prepare_ligand_shards_job,

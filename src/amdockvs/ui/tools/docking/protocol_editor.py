@@ -152,7 +152,7 @@ class ProtocolEditorWidget:
         # htpvs only: docking screens the sharded library or the curated rows beside it.
         self.ligand_source_combo = QComboBox(box)
         self.ligand_source_combo.addItem("Screening library (shards)", "shards")
-        self.ligand_source_combo.addItem("Reference ligands (rows)", "rows")
+        self.ligand_source_combo.addItem("Ligand table (rows)", "rows")
         for combo in (self.method_combo, self.receptor_type_combo, self.ligand_type_combo,
                       self.ligand_source_combo):
             combo.currentIndexChanged.connect(self._on_experiment_config_changed)
@@ -756,8 +756,13 @@ class ProtocolEditorWidget:
         combo.blockSignals(False)
         combo.setToolTip(
             "Redocking re-docks the reference cocrystals: rows only." if redocking
-            else "" if ligand_rows else "No reference ligands yet: import some as rows to dock them."
+            else "" if ligand_rows else "No ligand rows yet: import some as rows to dock them."
         )
+        # The Ligands step's own boxes: same data gates, but either store or both.
+        self.ligand_source_section.setVisible(bool(sharded) and not redocking)
+        self.prep_from_rows.setEnabled(bool(ligand_rows))
+        if not ligand_rows and self.prep_from_rows.isChecked():
+            self.prep_from_rows.setChecked(False)
 
     def _on_experiment_config_changed(self) -> None:
         self._sync_ligand_source_choice()

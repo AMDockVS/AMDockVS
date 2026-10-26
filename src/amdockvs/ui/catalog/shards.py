@@ -56,6 +56,10 @@ def _shard_table_config() -> TableConfig:
 class ShardsWidget(BoundTableWidget):
     """Behaves like Ligands/Receptors minus PyMOL: the details panel gets the shard's metadata."""
 
+    # Right-click > Select picks the shards Docking Studio prepares (see PreparationPanel).
+    selection_role = "shard"
+    selectable = True
+
     def __init__(self, *, runtime, parent=None):
         super().__init__(
             runtime=runtime,
