@@ -51,7 +51,6 @@ class ProtocolEditorWidget:
     """Program and protocol editor component for Docking Studio."""
 
     def _build_programs_tab(self) -> QWidget:
-        # Nothing to launch on this step, so the panel has no action bar.
         panel = ToolPanel(self)
         self._build_experiment_setup(panel.add_section("Experiment Setup"))
 
@@ -89,6 +88,10 @@ class ProtocolEditorWidget:
         self._check_programs()
         from amdockvs.ui.shell.settings_tools import tool_events
         tool_events.installed.connect(self._check_programs)
+        next_button = QPushButton("Next", panel)
+        next_button.setToolTip("Continue to Ligands to select and prepare ligands.")
+        next_button.clicked.connect(self.stepper.next)
+        panel.action_bar.add_action(next_button)
         return panel
 
     def _build_protocols_box(self, box) -> None:

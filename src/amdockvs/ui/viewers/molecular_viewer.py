@@ -7,6 +7,11 @@ import contextlib
 import logging
 import math
 
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QWidget
+from ms_components.ms_table import TableInteraction
+from ms_components.ms_table.table_model import COLUMN_DEF_ROLE
+
 from amdockvs.core.payloads import molecule_payload_id, payload_store
 from amdockvs.project.summaries import DockingHitSummary
 from amdockvs.ui.common.async_query import run_async
@@ -53,6 +58,18 @@ class MolecularViewerController:
         self.w = window
         self.grid_preview_enabled = True
         self._request = 0  # single selection keeps only the latest read; multiple selection keeps all
+        if isinstance(window, QWidget):
+            self._table_input = TableInteraction(window)
+            self._table_input.pressed.connect(self._on_table_pressed)
+
+    def _on_table_pressed(self, view, index, modifiers) -> None:
+        column = index.data(COLUMN_DEF_ROLE)
+        if column is None:
+            if view.objectName() != "redocking_results":
+                return
+        elif column.field == "target_score" or column.field.startswith("ddg_"):
+            return  # Off-target score cells edit a pose inside the existing comparison.
+        self.select_table_row(view, additive=bool(modifiers & Qt.ShiftModifier))
 
     # -- reading structures --------------------------------------------------------
 
@@ -68,16 +85,22 @@ class MolecularViewerController:
 
         run_async(work, done, lambda error: _log.warning("PyMOL could not read its structures: %s", error))
 
-    def set_multiple_selection_enabled(self, enabled: bool) -> None:
-        self._request += 1
+    def select_table_row(self, table, *, additive: bool = False) -> None:
         dock = self.w.pymol_dock
-        dock._amdock_multiple_selection = bool(enabled)
-        dock._amdock_scene_epoch = getattr(dock, "_amdock_scene_epoch", 0) + 1
-        self._replace_next_pose = not enabled
+        if dock is None:
+            return
+        additive = additive and table is getattr(dock, "_amdock_selection_table", None)
+        if not additive:
+            self.clear_scene()
+        dock._amdock_selection_table = table
+        dock._amdock_multiple_selection = True  # Replacement already cleared the scene above.
 
     def clear_scene(self) -> None:
         self._request += 1
         dock = self.w.pymol_dock
+        if dock is not None:
+            dock._amdock_selection_table = None
+            dock._amdock_multiple_selection = False
         if dock is not None and dock.cmd is not None:
             dock._amdock_scene_epoch = getattr(dock, "_amdock_scene_epoch", 0) + 1
             try:
@@ -238,13 +261,15 @@ class MolecularViewerController:
         view (or an empty table) clears PyMOL so it never keeps showing a stale molecule."""
         if self.w.pymol_dock is None:
             return
+        self.clear_scene()
         widget = self.w.central_widget.open_view(view_id) if view_id else None
         hook = getattr(widget, "show_active_in_pymol", None)
         if callable(hook):
+            table = getattr(widget, "table", None)
+            if table is not None:
+                self.select_table_row(table.view)
             hook()
             return
-        if not multiple_selection_enabled(self.w.pymol_dock):
-            self.clear_scene()
 
     # -- docking poses -------------------------------------------------------------
 
@@ -252,9 +277,6 @@ class MolecularViewerController:
         dock = self.w.pymol_dock
         if dock is None or getattr(dock, "cmd", None) is None:
             return
-        if getattr(self, "_replace_next_pose", False):
-            self.clear_scene()
-            self._replace_next_pose = False
         if str(getattr(hit, "run_kind", "") or "").strip().lower() == "redocking" and (
             hit.pose_payload_id or hit.reference_ligand_payload_id or hit.ligand_payload_id
         ):
@@ -413,9 +435,8 @@ class MolecularViewerController:
         dock = self.w.pymol_dock
         if dock is None or getattr(dock, "cmd", None) is None or not payload_id:
             return
+        self.clear_scene()
         loaded_object = str(object_name or "selected_file")
-        if multiple_selection_enabled(dock):
-            loaded_object += f"_{payload_id}"
 
         def show(found: dict) -> None:
             if "structure" not in found:

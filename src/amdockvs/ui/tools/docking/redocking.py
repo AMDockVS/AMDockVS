@@ -35,6 +35,7 @@ from amdockvs.ui.tools.docking.redocking_charts import RedockingChartsPanel
 from amdockvs.project.summaries import DockingHitSummary
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.view_ids import REDOCKING_VIEW_ID
+from ms_components.ms_table import TableInteraction
 
 
 class RedockingWidget(QWidget):
@@ -113,6 +114,9 @@ class RedockingWidget(QWidget):
         result_actions.addStretch(1)
         results_layout.addLayout(result_actions)
         self.results_table = QTableWidget(0, 9, results_box)
+        self.results_table.setObjectName("redocking_results")
+        self._table_input = TableInteraction(self.results_table)
+        self._table_input.reselected.connect(lambda *_: self._view_selected())
         self.results_table.setHorizontalHeaderLabels(["Receptor", "Ligand", "P#", "Protocol", "Pose", "RMSD", "Method", "Score", "Complex"])
         self.results_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.results_table.setSelectionMode(QAbstractItemView.SingleSelection)
