@@ -836,6 +836,15 @@ def test_prepare_ligands_from_table_and_shards(tmp_path, monkeypatch):
         monkeypatch.setattr(studio.ligand_prep_jobs, "follow", lambda jobs, **_kw: calls.append(("follow", [j for _n, j in jobs])))
         studio._prepare_ligands()
         assert calls == [("shards", shard_ids[:1]), ("rows", None), ("follow", ["shard-job", "row-job"])]
+
+        # A workflow step keeps the same boxes: with only Shards ticked it prepares only shards.
+        import amdockvs.ui.tools.workflow_panel as workflow_panel
+        saved = []
+        monkeypatch.setattr(workflow_panel, "save_to_workflow", lambda *_a, submit, **_kw: saved.append(submit))
+        studio.prep_from_rows.setChecked(False)
+        studio._save_prepare_ligands_to_workflow()
+        calls.clear()
+        assert saved[-1](runtime)[-1] == "shard-job" and calls == [("shards", shard_ids[:1])]
     finally:
         if window is not None:
             window.close()

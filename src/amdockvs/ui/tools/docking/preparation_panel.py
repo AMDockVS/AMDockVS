@@ -800,7 +800,10 @@ class PreparationPanel:
 
         # Capture current config now (widget-free submit). check_required=False: in a workflow this
         # waits for the 3D step, so the submit-time has_3d gate would always fail.
-        scope = self._prep_ligand_scope()
+        # The "Ligands from" boxes too: a step saved with only Shards ticked prepares only shards.
+        sources = self._ligand_sources()
+        scope = self._prep_ligand_scope() if "rows" in sources else None
+        shard_ids = self._selected_shard_ids() if "shards" in sources else None
         target = self._selected_prep_target()
         programs = self._distinct_prep_programs() if target is None else [target]
         batch = max(1, int(self.prepare_ligand_batch_size.value()))
@@ -808,14 +811,23 @@ class PreparationPanel:
         # Captured now, not at run time: a workflow step keeps the destination it was saved with.
         executor = self.ligand_prep_destination.executor_name()
 
-        def submit(rt, programs=programs, scope=scope, batch=batch, force=force, executor=executor):
-            return [
-                rt.docking.prepare_ligands(
-                    program=p, ligand_set=scope, batch_size=batch, force=force,
-                    executor_name=executor, check_required=False,
-                )
-                for p in programs
-            ]
+        def submit(rt, programs=programs, sources=sources, scope=scope, shard_ids=shard_ids,
+                   batch=batch, force=force, executor=executor):
+            jobs = []
+            if "shards" in sources:
+                jobs += [
+                    rt.docking.prepare_ligand_shards(program=p, force=force, shard_ids=shard_ids, executor_name=executor)
+                    for p in programs
+                ]
+            if "rows" in sources:
+                jobs += [
+                    rt.docking.prepare_ligands(
+                        program=p, ligand_set=scope, batch_size=batch, force=force,
+                        executor_name=executor, check_required=False,
+                    )
+                    for p in programs
+                ]
+            return jobs
 
         save_to_workflow(self.window(), kind="prepare_ligands", name="Prepare ligands", category="prepare", submit=submit)
 
