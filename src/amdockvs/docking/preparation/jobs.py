@@ -242,6 +242,7 @@ class PrepareLigandShardsJobParams(BaseModel):
 
     engine: str = "ad4"
     force: bool = False
+    shard_ids: list[int] | None = None  # None = every shard
 
 
 class PrepareLigandShardsJobSpec(JobSpec):
@@ -253,8 +254,10 @@ class PrepareLigandShardsJobSpec(JobSpec):
     params_model = PrepareLigandShardsJobParams
     executor = "compute"
     supported_executors = AMDOCKVS_OFFLOADABLE_EXECUTORS
+    # The key columns are listed: the model default leaves primary keys out of an upsert.
     output_spec = table_sink(
-        model=ShardPrep, write_mode="upsert", conflict_keys=("shard_id", "family")
+        model=ShardPrep, columns=("shard_id", "family", "n_records", "n_failed"),
+        write_mode="upsert", conflict_keys=("shard_id", "family"),
     )
     output_flush_every = DEFAULT_OUTPUT_FLUSH_EVERY
     store_results = False
@@ -274,10 +277,14 @@ class PrepareLigandShardsJobSpec(JobSpec):
         with project_db.get_session() as session:
             prepared_ids = set(session.exec(select(ShardPrep.shard_id).where(ShardPrep.family == parsed.engine)).all())
 
+        picked = None if parsed.shard_ids is None else {int(value) for value in parsed.shard_ids}
+
         def pending() -> Iterator[dict[str, Any]]:
             for row in ShardStore(project_db).iter_rows(shard_scope_spec()):
                 shard_path = Path(str(row.get("path") or ""))
                 shard_id = int(row.get("id") or 0)
+                if picked is not None and shard_id not in picked:
+                    continue  # ponytail: filtered here, the shard table is small
                 prepared = shard_id in prepared_ids and prepared_shard_path(shard_path, parsed.engine).is_file()
                 if prepared and not parsed.force:
                     continue

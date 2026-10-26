@@ -200,3 +200,22 @@ def test_docking_public_methods_select_shards_without_a_ligand_scope(monkeypatch
     assert docked["receptor_set"] == 7
     assert (docked["hit_threshold"], docked["hit_cap"]) == (-8.0, 500)
     assert "batch_size" not in docked
+
+
+def test_shard_prep_rows_upsert_through_the_job_sink(tmp_path):
+    from amdockvs.core.rows import shard_prep_row
+    from amdockvs.docking.preparation.jobs import PrepareLigandShardsJobSpec
+
+    runtime, shard, _source = _project_with_shard(tmp_path)
+    try:
+        project_db = runtime.workspace.project_db
+        sink = PrepareLigandShardsJobSpec.output_spec
+        project_db.persist_output_spec(sink, [shard_prep_row(shard_id=shard.id, family="ad4", n_records=90)])
+        project_db.persist_output_spec(sink, [shard_prep_row(shard_id=shard.id, family="ad4", n_records=97, n_failed=3)])
+        with project_db.get_session() as session:
+            stored = session.exec(select(ShardPrep)).all()
+        assert [(row.shard_id, row.family, row.n_records, row.n_failed) for row in stored] == [
+            (int(shard.id), "ad4", 97, 3)
+        ]
+    finally:
+        runtime.close_project()
