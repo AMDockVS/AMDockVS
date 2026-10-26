@@ -12,6 +12,7 @@ from amdockvs.core.jobs import STATUS as JOB_STATUS
 
 class JobFollower(QObject):
     """One Run = ``[(stage, job_id), ...]`` in execution order (a chain waits on ``depends_on``).
+    A stage may carry its own unit as a third item: ``(stage, job_id, unit)``.
 
     The bar shows the running job, else the first unfinished one; it finishes once every job
     is terminal. MolSuite cancels a failed job's dependents, so a chain always terminates.
@@ -27,6 +28,7 @@ class JobFollower(QObject):
         self.noun = noun
         self.unit = unit
         self._stages: list[tuple[str, str]] = []
+        self._units: dict[str, str] = {}
         self._states: dict[str, object] = {}
         self._outcomes: dict[str, str] = {}
         self._connected = False
@@ -37,9 +39,10 @@ class JobFollower(QObject):
     def job_ids(self) -> list[str]:
         return [job_id for _stage, job_id in self._stages]
 
-    def follow(self, stages: list[tuple[str, str]], *, unit: str | None = None) -> None:
+    def follow(self, stages: list[tuple], *, unit: str | None = None) -> None:
         self._connect()
-        self._stages = [(str(stage), str(job_id)) for stage, job_id in stages]
+        self._stages = [(str(stage[0]), str(stage[1])) for stage in stages]
+        self._units = {str(stage[1]): str(stage[2]) for stage in stages if len(stage) > 2}
         self._states, self._outcomes = {}, {}
         self.unit = unit or self.unit
         self.bar.start("Queued", self._step_text(0))
@@ -92,7 +95,7 @@ class JobFollower(QObject):
         busy = int(state.chunks_running)
         detail = " · ".join(filter(None, (self._step_text(index), f"{format_count(busy)} running" if busy else "")))
         self.bar.set_progress(
-            int(state.chunks_done), total, stage=stage, unit=self.unit, failures=self._failures(), detail=detail
+            int(state.chunks_done), total, stage=stage, unit=self._units.get(job_id, self.unit), failures=self._failures(), detail=detail
         )
 
     def _step_text(self, index: int) -> str:

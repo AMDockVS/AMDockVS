@@ -224,6 +224,11 @@ class CatalogDetailsView(QWidget):
         error = str(getattr(shard, "error", "") or "")
         if error:
             self._add_section("Error", {"Message": error})
+        preps = self.runtime.molecules.shard_preps(int(getattr(shard, "id", 0) or 0))
+        self._add_section("Prepared", {
+            family: f"{prepared:,} record(s)" + (f" · {failed:,} failed" if failed else "")
+            for family, (prepared, failed) in sorted(preps.items())
+        } or {"Status": "not prepared"})
         header = _shard_header(path)
         # The one per-molecule thing worth surfacing: which ligands the last stage dropped and
         # why. A sharded library has no per-molecule row to carry an error, so the header holds

@@ -25,35 +25,23 @@ class ScopePanel:
         except Exception:  # noqa: BLE001 - no project open yet; the step shows nothing anyway
             return False
 
-    def _ligand_source(self) -> str:
-        """`shards` or `rows`: where this experiment reads its ligands from.
+    def _ligand_sources(self) -> set[str]:
+        """`{"rows", "shards"}` or a part of it: where this experiment reads its ligands.
 
         Rows are the only answer in `vs`, and for redocking everywhere (it re-docks the
-        reference cocrystals, curated rows in both modes). A sharded project offers docking
-        both — the library on disk or the curated rows beside it — and the tool's own
-        selector picks; without the selector it screens the library.
+        reference cocrystals, curated rows in both modes). A sharded project reads the Ligands
+        step's "Ligands from" boxes, either store or both, on every step: what is prepared
+        there is what Preview & Run docks. Without the boxes it screens the library.
         """
         if not self._library_is_sharded() or self._run_kind() == "redocking":
-            return "rows"
-        combo = getattr(self, "ligand_source_combo", None)
-        return str(combo.currentData() or "shards") if combo is not None else "shards"
-
-    def _ligand_sources(self) -> set[str]:
-        """`{"rows", "shards"}` or a part of it: where the current step reads its ligands.
-
-        The Ligands step prepares from its own "Ligands from" boxes, either store or both; the
-        other steps follow the experiment's single choice.
-        """
+            return {"rows"}
         boxes = (getattr(self, "prep_from_rows", None), getattr(self, "prep_from_shards", None))
-        if (None in boxes or self.stepper.current_index != self._PREP_STEP["ligand"]
-                or not self._library_is_sharded()):
-            return {self._ligand_source()}
-        if self._run_kind() == "redocking":
-            return {"rows"}  # the reference cocrystals are rows
+        if None in boxes:
+            return {"shards"}
         return {source for source, box in zip(("rows", "shards"), boxes) if box.isChecked()}
 
     def _ligand_scope_is_sharded(self) -> bool:
-        """Does the current step leave the ligand rows out (shards only, or nothing picked)?"""
+        """Does the experiment leave the ligand rows out (shards only, or nothing picked)?"""
         return "rows" not in self._ligand_sources()
 
     def _ligand_usage_class(self, run_kind: str) -> str:

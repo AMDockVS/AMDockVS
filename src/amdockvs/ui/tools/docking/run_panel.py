@@ -437,6 +437,7 @@ class RunPanel:
         # collapses to an empty "selected" scope after preparation cleared the table selection.
         return {
             "sharded": self._ligand_scope_is_sharded(),
+            "sources": tuple(sorted(self._ligand_sources())),
             "program": self._program(),
             "run_kind": self._run_kind(),
             "receptor_type": self._receptor_type(),
@@ -497,6 +498,10 @@ class RunPanel:
         ).as_mapping()
         result["ready_receptors"] = self._receptor_names(result.get("ready_receptor_ids") or ())
         result["offtarget_reference_id"] = inp.get("offtarget_reference_id")
+        if "shards" in (inp.get("sources") or ()):
+            # Both stores ticked: the run docks the table, then the shards, so both must be ready.
+            result["shards"] = self.runtime.molecules.shard_counts()
+            result["ready"] = bool(result.get("ready") and result["shards"]["prepared"])
         return result
 
     def _receptor_names(self, receptor_ids) -> list[tuple[int, str]]:
@@ -539,7 +544,8 @@ class RunPanel:
                 (int(receptor_id), str(name))
                 for receptor_id, name in (result.get("ready_receptors") or ())
             ])
-        self._set_sharded_run_mode(result.get("mode") == "sharded", docking=result.get("mode") != "redocking")
+        self._set_sharded_run_mode(result.get("mode") == "sharded" or "shards" in result,
+                                   docking=result.get("mode") != "redocking", rows=result.get("mode") != "sharded")
         if result.get("mode") == "sharded":
             records = int(result.get("records") or 0)
             self.req_ligands_count.setText(
@@ -591,13 +597,18 @@ class RunPanel:
                 else "; ".join(notes) + "."
             )
             return
-        self.req_ligands_count.setText(f"{lig['ready']} / {lig['total']} prepared")
+        shards = result.get("shards")
+        self.req_ligands_count.setText(f"{lig['ready']} / {lig['total']} prepared" + (
+            f" · {shards['prepared']} / {shards['shards']} shard(s) prepared · "
+            f"{shards['prepared_records']} molecule(s)" if shards else ""))
         self.req_receptors_count.setText(f"{rec['ready']} / {rec['total']} prepared")
         pairs = dict(result.get("pairs") or {})
         total_pairs = int(pairs.get("total") or 0)
         receptors = max(0, int(rec.get("ready") or 0))
+        # The shards run after the table: their dockings ride on the same line.
+        shard_text = f" + {int(shards['prepared_records']) * receptors} from shards" if shards else ""
         if not total_pairs:
-            self._pairs_text("No dockings in scope")
+            self._pairs_text("No dockings in scope" + shard_text)
         elif result.get("offtarget_reference_id") is not None and receptors > 1:
             ligands = int(lig.get("ready") or 0)
             self._pairs_text(
@@ -607,7 +618,7 @@ class RunPanel:
         else:
             done = int(pairs.get("already") or 0)
             text = f"{int(pairs.get('to_run') or 0)} of {total_pairs} docking(s) to run"
-            self._pairs_text(f"{text} ({done} already docked)" if done else text)
+            self._pairs_text((f"{text} ({done} already docked)" if done else text) + shard_text)
         self.step_run.set_done(result["ready"])
         notes = []
         failures = []
@@ -619,6 +630,8 @@ class RunPanel:
             notes.append("; ".join(failures))
         if int(rec.get("no_site") or 0):  # prepared or not, they are not docked: said, not dropped
             notes.append(f"{int(rec['no_site'])} receptor(s) have no binding site and are left out")
+        if shards and not int(shards["prepared"]):
+            notes.append("no shard is prepared yet")
         if notes:
             self.check_status_label.setText("; ".join(notes) + ".")
         else:
@@ -793,7 +806,7 @@ class RunPanel:
         )
         return (
             f"{docking_signature(request, identity)}:offtarget="
-            f"{params.get('offtarget_reference_id') or 'none'}"
+            f"{params.get('offtarget_reference_id') or 'none'}:sources={'+'.join(inp.get('sources') or ())}"
         )
 
     def _check_docking_conflict(self, signature: str) -> tuple[str, str]:
@@ -857,19 +870,22 @@ class RunPanel:
         self.offtarget_reference_combo.blockSignals(False)
         self._sync_hit_cap_label()
 
-    def _set_sharded_run_mode(self, sharded: bool, *, docking: bool = True) -> None:
+    def _set_sharded_run_mode(self, sharded: bool, *, docking: bool = True, rows: bool | None = None) -> None:
         # Rows keep everything they dock, so the selection only applies to them through the
         # off-target funnel, and only once there is a second receptor to funnel into.
+        # `rows`: the run docks table rows too (both stores), so their batch size still applies.
         self._sharded = sharded
         self.hits_box.setVisible(sharded or (docking and len(self._ready_receptor_options) > 1))
         if not docking and self.offtarget_reference_combo.currentIndex() != 0:
             self.offtarget_reference_combo.setCurrentIndex(0)
         self._sync_hit_cap_label()
-        self.batch_size_label.setVisible(not sharded)
-        self.batch_size.setVisible(not sharded)
+        batch = not sharded if rows is None else rows
+        self.batch_size_label.setVisible(batch)
+        self.batch_size.setVisible(batch)
 
-    def _submit_shard_docking(self, inp: dict, params: dict) -> dict:
+    def _submit_shard_docking(self, inp: dict, params: dict, depends_on: list[str] | None = None) -> dict:
         """The sharded twin of `_submit_docking`: no ligand scope, a hit gate instead.
+        `depends_on`: jobs the campaign waits for (the table's docking, with both stores).
 
         ponytail: it calls `runtime.docking.run_shards` directly rather than going through
         `DockingSubmissionService`, whose request object is built around ligand scopes and
@@ -919,12 +935,14 @@ class RunPanel:
             if reference_id is None or len(ready_receptor_ids) < 2:
                 job_ids[key] = self.runtime.docking.run_shards(
                     receptor_set=receptor_scope,
+                    depends_on=depends_on,
                     **common,
                 )
                 continue
             reference_id = int(reference_id)
             reference_job = self.runtime.docking.run_shards(
                 receptor_set=self._resolve_receptor_scope([reference_id]),
+                depends_on=depends_on,
                 **common,
             )
             job_ids[f"{key}:reference"] = reference_job
@@ -949,6 +967,9 @@ class RunPanel:
         if inp.get("sharded"):
             return self._submit_shard_docking(inp, params)
         counts = self._compute_requirement_counts(inp)
+        if "shards" in counts and not int(counts["shards"]["prepared"]):
+            # Refused before the table's jobs go: half a run is not what both boxes asked for.
+            return {"warning": "No prepared shards in the library — run ligand preparation first."}
         protocols = tuple(
             DockingProtocol.from_mapping(value)
             for value in (params.get("protocols") or ())
@@ -1004,8 +1025,16 @@ class RunPanel:
             )
         except ValueError as exc:
             return {"warning": str(exc)}
+        job_ids, notice = dict(submission.job_ids), ""
+        if "shards" in counts:
+            # The table first, then the shards: the campaign waits for the table's docking.
+            shard_run = self._submit_shard_docking(
+                {**inp, "sharded": True}, params, depends_on=list(submission.job_ids.values()))
+            job_ids.update({f"shards:{key}": job_id for key, job_id in shard_run.get("job_ids", {}).items()})
+            notice = shard_run.get("warning", "")
         return {
-            "job_ids": submission.job_ids,
+            "notice": notice,
+            "job_ids": job_ids,
             "interaction_job_id": submission.interaction_job_id,
             "receptor_ids": list(submission.receptor_ids),
             "complex_ids": list(submission.complex_ids),
@@ -1017,6 +1046,8 @@ class RunPanel:
         if "warning" in result:
             self._warn("Run Docking", result["warning"])
             return
+        if result.get("notice"):  # the table's run went; the shards' did not
+            self._warn("Run Docking", f"The shards were not docked: {result['notice']}")
         # Remember each launched job's signature so a later launch can detect a duplicate.
         for job_id in result["job_ids"].values():
             self._docking_job_sigs[str(job_id)] = signature

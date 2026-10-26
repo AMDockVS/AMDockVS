@@ -830,12 +830,22 @@ def test_prepare_ligands_from_table_and_shards(tmp_path, monkeypatch):
 
         calls = []
         monkeypatch.setattr(runtime.docking, "prepare_ligand_shards",
-                            lambda **kw: calls.append(("shards", kw.get("shard_ids"))) or "shard-job")
+                            lambda **kw: calls.append(("shards", kw.get("shard_ids"), kw.get("depends_on"))) or "shard-job")
         monkeypatch.setattr(runtime.docking, "prepare_ligands",
                             lambda **kw: calls.append(("rows", None)) or "row-job")
-        monkeypatch.setattr(studio.ligand_prep_jobs, "follow", lambda jobs, **_kw: calls.append(("follow", [j for _n, j in jobs])))
+        monkeypatch.setattr(studio.ligand_prep_jobs, "follow", lambda jobs, **_kw: calls.append(("follow", [j[1] for j in jobs])))
         studio._prepare_ligands()
-        assert calls == [("shards", shard_ids[:1]), ("rows", None), ("follow", ["shard-job", "row-job"])]
+        # The table first, then the shards, waiting on it: one job after the other.
+        assert calls == [("rows", None), ("shards", shard_ids[:1], ["row-job"]), ("follow", ["row-job", "shard-job"])]
+
+        # Preview & Run counts both stores too: the boxes are the experiment's choice.
+        studio.stepper.set_current_index(3)
+        deadline = time.monotonic() + 10
+        while "shard(s) prepared" not in studio.req_ligands_count.text() and time.monotonic() < deadline:
+            app.processEvents()
+            time.sleep(0.01)
+        assert "0 / 2 shard(s) prepared" in studio.req_ligands_count.text()
+        assert "/ 2 prepared" in studio.req_ligands_count.text()  # the table's two ligands
 
         # A workflow step keeps the same boxes: with only Shards ticked it prepares only shards.
         import amdockvs.ui.tools.workflow_panel as workflow_panel
@@ -844,7 +854,7 @@ def test_prepare_ligands_from_table_and_shards(tmp_path, monkeypatch):
         studio.prep_from_rows.setChecked(False)
         studio._save_prepare_ligands_to_workflow()
         calls.clear()
-        assert saved[-1](runtime)[-1] == "shard-job" and calls == [("shards", shard_ids[:1])]
+        assert saved[-1](runtime)[-1] == "shard-job" and calls == [("shards", shard_ids[:1], None)]
     finally:
         if window is not None:
             window.close()

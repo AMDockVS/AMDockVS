@@ -76,8 +76,39 @@ def _prep_table_config(*, role_type: str) -> TableConfig:
     )
 
 
+def _shard_prep_table_config() -> TableConfig:
+    """Per-(shard, family) preparation, from `shard_preps`: a row = that shard is prepared."""
+    from amdockvs.models import ShardPrep
+
+    return TableConfig(
+        model_class=ShardPrep,
+        columns=[
+            ColumnDef("shard_id", label="Shard", width=90, sortable=True, filterable=True, align=AlignHint.RIGHT),
+            ColumnDef("family", label="Family", width=120, sortable=True, filterable=True,
+                      kind=ColumnKind.CHOICE,
+                      choices=tuple(sorted({spec.preparation_engine for spec in list_docking_programs()}))),
+            ColumnDef("n_records", label="Prepared", width=90, sortable=True, align=AlignHint.RIGHT,
+                      kind=ColumnKind.INTEGER),
+            ColumnDef("n_failed", label="Failed", width=90, sortable=True, align=AlignHint.RIGHT,
+                      kind=ColumnKind.INTEGER),
+        ],
+        default_sort=[SortSpec("shard_id", descending=False)],
+        page_size=20,
+        page_size_options=[10, 20, 50, 100],
+        load_mode=TableLoadMode.INFINITE,
+        show_row_numbers=False,
+        show_vertical_header=True,
+        multi_select=False,
+        empty_message="No shard prepared yet",
+    )
+
+
 # One class per table: BoundTableWidget keys its saved column prefs by class.
 class _LigandPrepTable(BoundTableWidget):
+    pass
+
+
+class _ShardPrepTable(BoundTableWidget):
     pass
 
 
@@ -86,16 +117,19 @@ class _ReceptorPrepTable(BoundTableWidget):
 
 
 class PrepStatusView(QStackedWidget):
-    """Prepared/not per (molecule, family): one page per role, each over its own table. The
-    Docking Studio step picks the role (`set_role`); one population shows at a time."""
+    """Prepared/not per (molecule, family), or per (shard, family): one page per role, each over
+    its own table. The Docking Studio step and the tab on screen pick the role (`set_role`);
+    one population shows at a time."""
 
     def __init__(self, *, runtime, role_type: str = "ligand", parent=None):
         super().__init__(parent)
+        empty = "Open or create a project to inspect preparation status."
         self.pages = {
-            role: table(runtime=runtime, config=_prep_table_config(role_type=role),
-                        empty_text="Open or create a project to inspect preparation status.", parent=self)
+            role: table(runtime=runtime, config=_prep_table_config(role_type=role), empty_text=empty, parent=self)
             for role, table in (("ligand", _LigandPrepTable), ("receptor", _ReceptorPrepTable))
         }
+        self.pages["shard"] = _ShardPrepTable(runtime=runtime, config=_shard_prep_table_config(),
+                                              empty_text=empty, parent=self)
         for page in self.pages.values():
             self.addWidget(page)
         self.role = ""
@@ -658,10 +692,10 @@ class PreparationPanel:
         target = self._selected_prep_target()
         programs = self._distinct_prep_programs() if target is None else [target]
         job_ids: dict[str, str] = {}
-        before: list[tuple[str, str]] = []  # jobs followed with the row preparation
-        if "shards" in sources:
-            if not self._prepare_ligand_shards(programs, before) or "rows" not in sources:
-                return
+        before: list[tuple[str, str]] = []  # jobs that run ahead of the row preparation (3D)
+        if "rows" not in sources:
+            self._prepare_ligand_shards(programs, [], [])
+            return
         ligand_scope = self._prep_ligand_scope()
 
         def submit(**deferred) -> None:
@@ -700,6 +734,11 @@ class PreparationPanel:
         except Exception as exc:
             self._follow_prep(self.ligand_prep_jobs, job_ids, before=before)
             self._error("Prepare Ligands", exc)
+            return
+        rows = [*before, *((self.ligand_prep_jobs.noun, job_id) for job_id in job_ids.values())]
+        if "shards" in sources:
+            # The table first, then the shards: one after the other, never fighting for workers.
+            self._prepare_ligand_shards(programs, rows, [job_id for _stage, job_id in rows])
             return
         self._follow_prep(self.ligand_prep_jobs, job_ids, before=before)
         self.stepper.set_current_index(2)
@@ -743,14 +782,14 @@ class PreparationPanel:
         self.prepare_ligand_batch_label.setVisible(not sharded)
         self.prepare_ligand_batch_size.setVisible(not sharded)
 
-    def _prepare_ligand_shards(self, programs: list[str], followed: list[tuple[str, str]]) -> bool:
+    def _prepare_ligand_shards(self, programs: list[str], before: list[tuple[str, str]], depends_on: list[str]) -> None:
         """Same button, same programs, shard-sized work: no batch — one shard is one task.
 
-        The Shards selection narrows it; "Force re-prepare" still means what it says. With the
-        table also ticked, the jobs go into `followed` for the row preparation to follow too;
-        alone, they are followed here. False = a submit failed and the error was shown.
+        The Shards selection narrows it; "Force re-prepare" still means what it says. `before`
+        are the row jobs already submitted: the shard jobs wait on `depends_on` and are followed
+        after them.
         """
-        jobs: list[tuple[str, str]] = []
+        jobs: list[tuple[str, str, str]] = []
         try:
             for program in programs:
                 jobs.append(("Shard preparation", self.runtime.docking.prepare_ligand_shards(
@@ -758,17 +797,14 @@ class PreparationPanel:
                     force=self.force_prepare_ligands.isChecked(),
                     shard_ids=self._selected_shard_ids(),
                     executor_name=self.ligand_prep_destination.executor_name(),
-                )))
+                    depends_on=depends_on or None,
+                ), "shards"))
         except Exception as exc:
-            self._follow_prep(self.ligand_prep_jobs, {}, unit="shards", before=jobs)
+            self._follow_prep(self.ligand_prep_jobs, {}, before=[*before, *jobs])
             self._error("Prepare Ligands", exc)
-            return False
-        if "rows" in self._ligand_sources():
-            followed.extend(jobs)
-        else:
-            self._follow_prep(self.ligand_prep_jobs, {}, unit="shards", before=jobs)
-            self.stepper.set_current_index(2)
-        return True
+            return
+        self._follow_prep(self.ligand_prep_jobs, {}, before=[*before, *jobs])
+        self.stepper.set_current_index(2)
 
     def _prepare_receptors(self) -> None:
         job_ids: dict[str, str] = {}
@@ -816,17 +852,18 @@ class PreparationPanel:
         def submit(rt, programs=programs, sources=sources, scope=scope, shard_ids=shard_ids,
                    batch=batch, force=force, executor=executor):
             jobs = []
-            if "shards" in sources:
-                jobs += [
-                    rt.docking.prepare_ligand_shards(program=p, force=force, shard_ids=shard_ids, executor_name=executor)
-                    for p in programs
-                ]
             if "rows" in sources:
                 jobs += [
                     rt.docking.prepare_ligands(
                         program=p, ligand_set=scope, batch_size=batch, force=force,
                         executor_name=executor, check_required=False,
                     )
+                    for p in programs
+                ]
+            if "shards" in sources:  # after the table, as from the button
+                jobs += [
+                    rt.docking.prepare_ligand_shards(program=p, force=force, shard_ids=shard_ids,
+                                                     executor_name=executor, depends_on=list(jobs) or None)
                     for p in programs
                 ]
             return jobs
