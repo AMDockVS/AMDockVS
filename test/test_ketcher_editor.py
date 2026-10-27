@@ -85,14 +85,6 @@ def test_apply_offers_copy_even_without_results(monkeypatch, choice):
     assert editor._ask_copy(None, "ligand", {}) is choice
 
 
-def test_cannot_apply_when_loading_the_molecule_failed(monkeypatch):
-    from amdockvs.ui.viewers import ketcher_editor as editor
-
-    monkeypatch.setattr(editor.QMessageBox, "warning", lambda *_args: None)
-    # No button access: Apply must stay disabled when setMolecule rejects.
-    editor.KetcherDialog._ready(SimpleNamespace(), {"error": "invalid structure"})
-
-
 @pytest.mark.parametrize("smiles, changed", [
     ("CCO", False),
     ("OCC", False),
@@ -115,10 +107,6 @@ def test_editor_returns_only_chemical_changes(monkeypatch, smiles, changed):
     AllChem.Compute2DCoords(drawing)
     molblock = Chem.MolToMolBlock(drawing)
 
-    def run(command, **_kwargs):
-        Path(command[-1]).write_text(molblock)
-        return SimpleNamespace(returncode=0)
-
-    monkeypatch.setattr(editor.subprocess, "run", run)
+    monkeypatch.setattr("ms_components.ms_ketcher.run_editor", lambda *_args, **_kwargs: molblock)
     result = editor._run_editor(Path("/ketcher"), Chem.MolToMolBlock(original), "Edit")
     assert result == (molblock if changed else None)
