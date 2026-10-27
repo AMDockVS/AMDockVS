@@ -15,14 +15,22 @@ from rdkit.Chem.rdDistGeom import EmbedMolecule
 from amdockvs.chemistry.state import mol_has_3d, mol_has_explicit_hs
 
 
-def edited_structure(molblock: str, original: Chem.Mol | None) -> Chem.Mol | None:
-    """The edited molecule, or None when the drawing is still the same compound as `original`.
-
-    Raises ValueError on a drawing RDKit cannot read, or one whose 3D cannot be built."""
+def changed_molecule(molblock: str, original: Chem.Mol | None) -> Chem.Mol | None:
+    """Validate the drawing; None if its canonical isomeric SMILES is unchanged, ignoring ordinary Hs."""
     mol = Chem.MolFromMolBlock(str(molblock or ""), removeHs=False)
     if mol is None or mol.GetNumAtoms() == 0:
         raise ValueError("The editor returned no molecule RDKit can read.")
     if original is not None and _smiles(mol) == _smiles(original):
+        return None
+    return mol
+
+
+def edited_structure(molblock: str, original: Chem.Mol | None) -> Chem.Mol | None:
+    """The edited molecule, or None when the drawing is still the same compound as `original`.
+
+    Raises ValueError on a drawing RDKit cannot read, or one whose 3D cannot be built."""
+    mol = changed_molecule(molblock, original)
+    if mol is None:
         return None
     if original is None or not mol_has_3d(original):
         # Ketcher leaves the Hs of atoms the user drew implicit (an "OH" label): give them atoms
@@ -52,4 +60,4 @@ def _with_original_3d(mol: Chem.Mol, original: Chem.Mol) -> Chem.Mol:
     return target if mol_has_explicit_hs(original) else Chem.RemoveHs(target)
 
 
-__all__ = ["edited_structure"]
+__all__ = ["changed_molecule", "edited_structure"]
