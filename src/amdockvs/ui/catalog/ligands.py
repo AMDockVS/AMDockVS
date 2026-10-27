@@ -31,7 +31,8 @@ def _yes_no(value) -> str:
     return "Yes" if value else "No"
 
 
-def _ligand_table_config(*, runtime) -> TableConfig:
+def _ligand_table_config(*, runtime, window=None) -> TableConfig:
+    get_window = window or QApplication.activeWindow
     return TableConfig(
         model_class=MoleculeRecord,
         columns=[
@@ -89,9 +90,8 @@ def _ligand_table_config(*, runtime) -> TableConfig:
         embedded_controls=True,  # Columns/Export · stretch · Reload/Settings
         context_menu_actions={"Create Ligand Set…": lambda objs: _create_ligand_set(runtime, objs)},
         toolbar_left=[
-            # ponytail: activeWindow() is the main window at click time (no modal open then).
             ToolbarAction(label="Import…",
-                          on_click=lambda objs: import_ligands_from_file(QApplication.activeWindow())),
+                          on_click=lambda objs: import_ligands_from_file(get_window())),
             # ToolbarAction(label="Create Set…",
             #               on_click=lambda objs: _create_ligand_set(runtime, objs)),
         ],
@@ -99,7 +99,7 @@ def _ligand_table_config(*, runtime) -> TableConfig:
         empty_backdrop=icon("caffeine.svg"),
         empty_action=ToolbarAction(
             label="Import Ligands…",
-            on_click=lambda objs: import_ligands_from_file(QApplication.activeWindow()),
+            on_click=lambda objs: import_ligands_from_file(get_window()),
         ),
     )
 
@@ -115,7 +115,7 @@ class LigandWidget(BoundTableWidget):
         # picker table — see `_docking_ligand_table_config`.
         super().__init__(
             runtime=runtime,
-            config=config or _ligand_table_config(runtime=runtime),
+            config=config or _ligand_table_config(runtime=runtime, window=lambda: self.window()),
             empty_text="Open or create a project to inspect ligands.",
             parent=parent,
         )

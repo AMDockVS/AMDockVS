@@ -64,6 +64,8 @@ class AMDockVSMainWindow(QMainWindow):
     them on the window, not on the controllers."""
 
     job_submitted = Signal(str, str)  # (job name, job id) — emitted from any thread
+    import_dialog_opened = Signal(str, object)
+    project_opened = Signal(str)
 
     def __init__(self, *, runtime: AMDockVSRuntime, parent: QWidget | None = None):
         super().__init__(parent)
@@ -187,6 +189,7 @@ class AMDockVSMainWindow(QMainWindow):
 
         self.central_widget = MainContentWidget()
         self.central_widget.open_project_requested.connect(self._open_projects_browser)
+        self.central_widget.docking_tutorial_requested.connect(self._start_docking_tutorial)
         register_all(self)
         self.central_widget.current_view_changed.connect(self._on_current_view_changed)
         self.setCentralWidget(self.central_widget)
@@ -454,6 +457,11 @@ class AMDockVSMainWindow(QMainWindow):
         if self._app_widget is not None and not self._closing:
             self._app_widget.open_projects()
 
+    def _start_docking_tutorial(self) -> None:
+        from amdockvs.ui.docking_tutorial import launch_simple_docking_tutorial
+
+        launch_simple_docking_tutorial(self)
+
     # -- views / tools / auxiliary (delegating to the shell controllers) -----------
 
     def register_main_view(self, view_id: str, title: str, factory, *, on_close=None) -> None:
@@ -621,6 +629,7 @@ class AMDockVSMainWindow(QMainWindow):
             self._set_project_ui_enabled(True)
             self.aux.reset()
             self._open_default_views()
+            self.project_opened.emit(str(project_id))
             return
         reply = QMessageBox.question(
             self,
@@ -645,6 +654,9 @@ class AMDockVSMainWindow(QMainWindow):
             super().closeEvent(event)
             return
         self._closing = True
+        tutorial = getattr(self, "_docking_tutorial", None)
+        if tutorial is not None:
+            tutorial.controller.stop()
         self.runtime.on_job_submitted = None  # the toast's window is going away
         self.jobs.stop_timers()
         # Native detached docks have no QObject parent by design so the OS treats

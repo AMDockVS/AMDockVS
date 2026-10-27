@@ -109,6 +109,7 @@ class ReceptorImportPanel(QWidget):
     ):
         super().__init__(parent)
         self._runtime = runtime
+        self.file_dialog_directory = ""
         self._show_file_controls = show_file_controls
         # Drag-and-drop feeds the same add path as the button, when file editing is available.
         self.setAcceptDrops(self._show_file_controls)
@@ -344,7 +345,7 @@ class ReceptorImportPanel(QWidget):
         paths, _ = QFileDialog.getOpenFileNames(
             self,
             "Add Receptor Files",
-            "",
+            self.file_dialog_directory,
             QT_FILE_FILTER,
         )
         self._add_paths(paths)
@@ -855,6 +856,8 @@ class ReceptorImportPanel(QWidget):
 class ReceptorImportDialog(QDialog):
     """Default receptor importer: the reusable ReceptorImportPanel (unchanged) hosted in a dialog."""
 
+    jobs_submitted = Signal(object)
+
     def __init__(self, *, runtime, parent=None, defer=False):
         super().__init__(parent)
         self.runtime = runtime
@@ -939,6 +942,7 @@ class ReceptorImportDialog(QDialog):
         except Exception as exc:
             QMessageBox.critical(self, "Import Receptors", f"Could not submit receptor import job:\n{exc}")
             return
+        self.jobs_submitted.emit(job_ids)
         land_on_view(self.parent(), RECEPTOR_VIEW_ID, job_ids)
         nudge_monitor(self.parent())
         self.accept()

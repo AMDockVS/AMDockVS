@@ -1000,6 +1000,7 @@ class RunPanel:
         if "warning" in result:
             self._warn("Run Docking", result["warning"])
             return
+        self.docking_submitted.emit(list(result["job_ids"].values()))
         # Remember each launched job's signature so a later launch can detect a duplicate.
         for job_id in result["job_ids"].values():
             self._docking_job_sigs[str(job_id)] = signature

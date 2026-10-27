@@ -24,6 +24,7 @@ class ApplicationWidget(QWidget):
     project_requested = Signal(str)
     active_project_delete_requested = Signal(str)
     projects_closed = Signal()
+    projects_opened = Signal(object)
     exit_requested = Signal()
     settings_saved = Signal()
 
@@ -49,6 +50,7 @@ class ApplicationWidget(QWidget):
         self._projects_widget.show()
         self._projects_widget.raise_()
         self._projects_widget.activateWindow()
+        self.projects_opened.emit(self._projects_widget)
 
     def open_settings(self, *, node: str | None = None) -> None:
         if self._settings_dialog is None:

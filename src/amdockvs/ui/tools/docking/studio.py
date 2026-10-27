@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QObject, Qt, QTimer
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QMessageBox,
@@ -47,6 +47,8 @@ class DockingStudioWidget(
     RunPanel,
     QWidget,
 ):
+    docking_submitted = Signal(object)
+
     # Cap on remembered selected ids per side (ligands/receptors) — a few thousand ints is
     # negligible RAM; beyond this the user almost certainly means "All" anyway.
     def __init__(self, *, runtime, parent=None):

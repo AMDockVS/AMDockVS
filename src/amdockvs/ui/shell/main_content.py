@@ -5,6 +5,8 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
     QLabel,
+    QFrame,
+    QGridLayout,
     QProxyStyle,
     QPushButton,
     QStackedWidget,
@@ -44,6 +46,7 @@ class MainContentWidget(QStackedWidget):
     current_view_changed = Signal(object)
     view_open_state_changed = Signal(str, bool)
     open_project_requested = Signal()
+    docking_tutorial_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -84,9 +87,13 @@ class MainContentWidget(QStackedWidget):
         # Its content over a faint logo whose "A" follows the theme.
         logo = themed_icon(str(files("amdockvs.ui.resources.icons") / "logo.svg"), QPalette.ColorRole.WindowText)
         page = Backdrop(logo, self)
-        layout = QVBoxLayout(page)
-        layout.setAlignment(Qt.AlignCenter)
-        layout.setSpacing(12)
+        layout = QGridLayout(page)
+        layout.setContentsMargins(24, 24, 24, 24)
+        primary = QWidget(page)
+        primary.setObjectName("welcomeProjectControls")
+        primary_layout = QVBoxLayout(primary)
+        primary_layout.setContentsMargins(0, 0, 0, 0)
+        primary_layout.setSpacing(12)
 
         title = QLabel("AMDockVS")
         title.setAlignment(Qt.AlignCenter)
@@ -95,15 +102,39 @@ class MainContentWidget(QStackedWidget):
         hint.setAlignment(Qt.AlignCenter)
         hint.setStyleSheet("font-size: 16px;")
 
-        button = QPushButton("Open or Create Project…")
+        button = self.open_project_button = QPushButton("Open or Create Project…")
         button.setCursor(Qt.CursorShape.PointingHandCursor)
         button.setStyleSheet("font-size: 15px; padding: 8px 24px;")
         button.clicked.connect(self.open_project_requested.emit)
 
-        layout.addWidget(title)
-        layout.addWidget(hint)
-        layout.addSpacing(16)
-        layout.addWidget(button, alignment=Qt.AlignCenter)
+        primary_layout.addWidget(title)
+        primary_layout.addWidget(hint)
+        primary_layout.addSpacing(16)
+        primary_layout.addWidget(button, alignment=Qt.AlignCenter)
+        layout.addWidget(primary, 0, 0, alignment=Qt.AlignCenter)
+        card = QFrame(page)
+        card.setObjectName("simpleDockingTutorialCard")
+        card.setFrameShape(QFrame.Shape.StyledPanel)
+        card.setAutoFillBackground(True)
+        card.setFixedWidth(420)
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(22, 18, 22, 18)
+        card_layout.setSpacing(10)
+        heading = QLabel("Your first docking", card)
+        heading.setStyleSheet("font-size: 20px; font-weight: 600;")
+        description = QLabel(
+            "Dock SAR405 into Vps34 in eight guided steps. Create a project, import the example molecules, "
+            "prepare them, and run your first calculation in a separate practice project.", card)
+        description.setWordWrap(True)
+        description.setMinimumHeight(description.heightForWidth(374))
+        detail = QLabel("Vps34 · SAR405 · 4OYS", card)
+        self.docking_tutorial_button = QPushButton("Start tutorial", card)
+        self.docking_tutorial_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.docking_tutorial_button.clicked.connect(self.docking_tutorial_requested.emit)
+        for widget in (heading, description, detail, self.docking_tutorial_button):
+            card_layout.addWidget(widget)
+        layout.addWidget(card, 0, 0, alignment=Qt.AlignLeft | Qt.AlignBottom)
+        page.setMinimumHeight(primary.sizeHint().height() + 2 * card.sizeHint().height() + 48)
         return page
 
     def register_view(

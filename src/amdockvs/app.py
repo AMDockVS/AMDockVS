@@ -23,6 +23,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="amdockvs")
     parser.add_argument("-pi", "--project-id", help="UUID of the project to open at start-up.")
     parser.add_argument("-pp", "--project-path", help="Path of the project to open at start-up.")
+    parser.add_argument("--tutorial", choices=["simple-docking"], help="Start the guided docking tutorial.")
     parser.add_argument("--delete-project-id", help=argparse.SUPPRESS)  # set by restart(), see below
     return parser
 
@@ -227,6 +228,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             from PySide6.QtWidgets import QMessageBox
 
             QMessageBox.warning(window, "Open Project", f"Could not open the startup project:\n{startup_error}")
+        elif args.tutorial:
+            from PySide6.QtCore import QTimer
+            from amdockvs.ui.docking_tutorial import start_simple_docking_tutorial
+
+            QTimer.singleShot(0, lambda: start_simple_docking_tutorial(window))
         return qt_app.exec()
     finally:
         try:
