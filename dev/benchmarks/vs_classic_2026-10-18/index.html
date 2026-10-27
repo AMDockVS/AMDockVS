@@ -1,0 +1,1091 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Virtual screening, molecular preparation, QSAR, and docking with MolSuite.">
+      
+      
+        <meta name="author" content="AMDockVS authors">
+      
+      
+        <link rel="canonical" href="https://amdockvs.github.io/AMDockVS/latest/benchmarks/vs_classic_2026-10-18/">
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../images/favicon.svg">
+      <meta name="generator" content="zensical-0.0.73">
+    
+    
+      
+        <title>AMDockVS vs. un script clásico (estilo AMDock 1.x) — 2026-10-18 - AMDockVS</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../../assets/stylesheets/modern/main.4ab2de0c.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/modern/palette.b60ce83d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-hidden="true"></label>
+    <div data-md-component="skip">
+      <a href="#__skip" class="md-skip">
+        Skip to content
+      </a>
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="AMDockVS" class="md-header__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+      <span class="md-visually-hidden">Navigation</span>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AMDockVS
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              AMDockVS vs. un script clásico (estilo AMDock 1.x) — 2026-10-18
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+          <span class="md-visually-hidden">Search</span>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="AMDockVS" class="md-nav__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    AMDockVS
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../runtime_api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API guide
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data_and_export/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Data and export
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Examples
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#pregunta" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Pregunta
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#caso-de-estudio" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Caso de estudio
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#que-hace-cada-lado" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Qué hace cada lado
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ajustes-que-necesito-el-script-clasico" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Ajustes que necesitó el script clásico
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resultados" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Resultados
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#por-que-salen-asi" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Por qué salen así
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#disco-a-escala-proyeccion-lineal-sin-correrlo" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Disco a escala (proyección lineal, sin correrlo)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#prueba-aparte-guardar-solo-coordenadas-2026-10-19" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Prueba aparte: guardar solo coordenadas (2026-10-19)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#conclusion" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Conclusión
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#pendiente-anotado-sin-implementar" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Pendiente (anotado, sin implementar)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#como-reproducirlo" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Cómo reproducirlo
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+              
+              <article class="md-content__inner md-typeset">
+                <a id="__skip" tabindex="-1"></a>
+                
+                  
+
+  
+  
+
+
+<h1 id="amdockvs-vs-un-script-clasico-estilo-amdock-1x-2026-10-18">AMDockVS vs. un script clásico (estilo AMDock 1.x) — 2026-10-18<a class="headerlink" href="#amdockvs-vs-un-script-clasico-estilo-amdock-1x-2026-10-18" title="Permanent link">&para;</a></h1>
+<h2 id="pregunta">Pregunta<a class="headerlink" href="#pregunta" title="Permanent link">&para;</a></h2>
+<p>¿Cuesta más correr un cribado con la API de AMDockVS que con un script propio que haga lo mismo
+"a mano"? Se midieron tiempo, CPU, RAM, disco y archivos, y se compararon los resultados.</p>
+<h2 id="caso-de-estudio">Caso de estudio<a class="headerlink" href="#caso-de-estudio" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Ligandos:</strong> 500 moléculas de <code>data/Enamine_D10k/Enamine_D10k.sdf</code> (una de cada 20, en orden).</li>
+<li><strong>Receptor:</strong> <code>data/docking/1iep_receptor.pdbqt</code> (ya preparado), caja conocida
+  centro (15.190, 53.903, 16.917), tamaño 20 × 20 × 20 Å.</li>
+<li><strong>Química (igual en ambos):</strong> Dimorphite-DL a pH 7,4 → ETKDGv3 (seed 0xF00D) → meeko 0.8.0 →
+  QuickVina 2.1 con exhaustiveness 8, 9 modos, <code>--cpu 1</code>, seed 0.</li>
+<li><strong>Máquina:</strong> Ryzen 7 3700X (8 núcleos / 16 hilos), 46 GB RAM, NVMe ext4. Ambas corridas limitadas
+  a 14 CPUs (<code>taskset -c 0-13</code>), una detrás de otra, nunca a la vez.</li>
+<li><strong>Software:</strong> <code>main</code> de AMDockVS, ms_flow, ms_components, ms_contactmap y ms_env, entorno <code>MSDD_312</code>.</li>
+</ul>
+<h2 id="que-hace-cada-lado">Qué hace cada lado<a class="headerlink" href="#que-hace-cada-lado" title="Permanent link">&para;</a></h2>
+<p><strong>Script clásico</strong> (<code>classic.py</code>): lee el SDF; con <code>multiprocessing.Pool(14)</code>, cada worker
+protona y genera el 3D en proceso, escribe un <code>.sdf</code>, llama a <code>mk_prepare_ligand.py</code> como
+subproceso y luego a <code>qvina2.1</code> como subproceso, y lee el mejor score del <code>_out.pdbqt</code>.</p>
+<p><strong>AMDockVS</strong> (<code>amdockvs_run.py</code>): la API pública con la configuración por defecto.
+<code>loader.load_ligands</code> / <code>load_receptors</code> → <code>chemistry.run_ligand_pipeline(["protonate",
+"generate_3d"])</code> → <code>docking.prepare_ligands(program="qvina")</code> → <code>docking.set_grid</code> →
+<code>docking.run(program="qvina", engine_config={...})</code>. Corre con un HOME temporal, así que no
+registra nada en <code>~/.molsuite</code>.</p>
+<p><strong>Medición</strong> (<code>measure.py</code>): cada corrida se lanza en un scope cgroup propio (<code>systemd-run --user
+--scope</code>) con <code>taskset</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Métrica</th>
+<th>Cómo se obtuvo</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CPU</td>
+<td><code>cpu.stat</code> del cgroup: todo el árbol, subprocesos incluidos</td>
+</tr>
+<tr>
+<td>RAM</td>
+<td>Suma del PSS (y del RSS) de todo el árbol, muestreada cada 0,5 s; además <code>memory.peak</code> del cgroup</td>
+</tr>
+<tr>
+<td>Disco</td>
+<td>Tamaño real y ocupado de lo que queda en la carpeta de salida</td>
+</tr>
+</tbody>
+</table>
+<p>La comparación de scores está en <code>compare_scores.py</code>. Los scores de AMDockVS se leyeron de
+<code>project.db</code> emparejando por <code>source_index</code>.</p>
+<h2 id="ajustes-que-necesito-el-script-clasico">Ajustes que necesitó el script clásico<a class="headerlink" href="#ajustes-que-necesito-el-script-clasico" title="Permanent link">&para;</a></h2>
+<p>El script ingenuo falló antes de dar resultados válidos. En los dos casos AMDockVS ya trae la
+solución por defecto:</p>
+<ol>
+<li><strong>Anillos de 7 o más átomos:</strong> meeko, por defecto, los marca como flexibles y escribe los tipos
+   <code>CG0</code>/<code>G0</code>, que QuickVina rechaza (<code>"CG0" is not a valid AutoDock type</code>). Se añadió
+   <code>--rigid_macrocycles</code>.</li>
+<li><strong>Sales</strong> (<code>.Cl</code>, <code>.Br</code>): meeko rechaza moléculas de varios fragmentos. Esto no se corrigió en el
+   script, para dejar constancia del fallo, así que esos 2 ligandos (Z3072634657, Z2568340255)
+   <strong>no se docaron</strong>. AMDockVS se queda con el fragmento orgánico mayor y sí los docó
+   (−8,2 y −7,8 kcal/mol).</li>
+</ol>
+<h2 id="resultados">Resultados<a class="headerlink" href="#resultados" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Script clásico</th>
+<th>AMDockVS</th>
+<th>Diferencia</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Ligandos docados</td>
+<td>498</td>
+<td><strong>500</strong></td>
+<td>+2</td>
+</tr>
+<tr>
+<td>Tiempo total</td>
+<td>1289 s</td>
+<td>1300 s</td>
+<td>+0,9 %</td>
+</tr>
+<tr>
+<td>Tiempo por ligando docado</td>
+<td>2,59 s</td>
+<td>2,60 s</td>
+<td>empate</td>
+</tr>
+<tr>
+<td>CPU total (user + sys)</td>
+<td>17 658 s</td>
+<td><strong>14 827 s</strong></td>
+<td>−16 %</td>
+</tr>
+<tr>
+<td>CPU por ligando docado</td>
+<td>35,5 s</td>
+<td><strong>29,7 s</strong></td>
+<td>−16 %</td>
+</tr>
+<tr>
+<td>Uso medio de las 14 CPUs</td>
+<td>97,8 %</td>
+<td>81,4 %</td>
+<td>—</td>
+</tr>
+<tr>
+<td>RAM pico (suma de PSS)</td>
+<td>1832 MB</td>
+<td><strong>1417 MB</strong></td>
+<td>−23 %</td>
+</tr>
+<tr>
+<td>RAM pico (suma de RSS)</td>
+<td>3960 MB</td>
+<td><strong>2174 MB</strong></td>
+<td>−45 %</td>
+</tr>
+<tr>
+<td><code>memory.peak</code> del cgroup (incluye page cache)</td>
+<td>1954 MB</td>
+<td><strong>1297 MB</strong></td>
+<td>−34 %</td>
+</tr>
+<tr>
+<td>Máximo de procesos a la vez</td>
+<td>30</td>
+<td>28</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Archivos que deja</td>
+<td>1499</td>
+<td><strong>15</strong></td>
+<td>−99 %</td>
+</tr>
+<tr>
+<td>Bytes reales</td>
+<td>14,8 MB</td>
+<td>13,6 MB</td>
+<td>−8 %</td>
+</tr>
+<tr>
+<td>Ocupado en disco (bloques de 4 KB)</td>
+<td>17,3 MB</td>
+<td><strong>13,6 MB</strong></td>
+<td>−21 %</td>
+</tr>
+</tbody>
+</table>
+<p>Tiempos de AMDockVS por fase:</p>
+<table>
+<thead>
+<tr>
+<th>Fase</th>
+<th>Tiempo</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Arranque del proyecto</td>
+<td>0,1 s</td>
+</tr>
+<tr>
+<td>Importación</td>
+<td>2,0 s</td>
+</tr>
+<tr>
+<td>Protonación + 3D</td>
+<td>4,0 s</td>
+</tr>
+<tr>
+<td>meeko</td>
+<td>2,9 s</td>
+</tr>
+<tr>
+<td>Docking</td>
+<td>1290 s</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Los resultados son idénticos:</strong> los 498 ligandos comunes tienen exactamente el mismo mejor score
+en los dos lados (Pearson = Spearman = 1,0).</p>
+<p><strong>No se pudo medir la escritura a disco.</strong> El cgroup de usuario no tiene el controlador <code>io</code>, y el
+delta de <code>/proc/diskstats</code> mide todo el dispositivo: dio ~330 MB en las dos corridas, casi todo de
+otros procesos. Se descartó.</p>
+<h2 id="por-que-salen-asi">Por qué salen así<a class="headerlink" href="#por-que-salen-asi" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>El tiempo empata porque manda QuickVina:</strong> ~36 s por ligando, el 99 % del total. Dos efectos de
+  signo contrario se compensan:</li>
+<li>El script arranca un Python con meeko <strong>por cada ligando</strong>: 1,35 s de pared, 3,5 s de CPU y
+    258 MB por llamada. Esos ~1750 s de CPU explican la mayor parte de su exceso de CPU y los picos
+    de RAM.</li>
+<li>AMDockVS pierde ~45 s al final porque agrupa 4 ligandos por chunk de docking. En los últimos
+    ~100 s quedan CPUs paradas, pero eso solo explica ~4 puntos del uso medio.</li>
+<li><strong>El uso medio (98 % vs 81 %) no mide eficiencia.</strong> En las dos corridas QuickVina usa ~0,85 s de
+  CPU por segundo de pared: 14 827 s de CPU entre ~17 400 s de slots ocupados en AMDockVS. El 98 %
+  del script no viene de docar mejor: son ~3000 s de CPU extra (arrancar Python y meeko por
+  ligando) que ocupan las CPUs al mismo tiempo que el docking.</li>
+<li><strong>Tamaño del batch de docking.</strong> Se simuló el reparto con las 498 duraciones reales:</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Ligandos por chunk</th>
+<th>Tiempo total simulado</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>1299 s</td>
+</tr>
+<tr>
+<td>2</td>
+<td>1317 s</td>
+</tr>
+<tr>
+<td>4 (por defecto)</td>
+<td>1345 s</td>
+</tr>
+<tr>
+<td>8</td>
+<td>1437 s</td>
+</tr>
+<tr>
+<td>Ideal (sin cola)</td>
+<td>1275 s</td>
+</tr>
+</tbody>
+</table>
+<p>Con 500 ligandos, pasar de 4 a 1 ahorraría ~3,5 %; con 5000, menos del 0,5 %. No justifica
+  cambiarlo, salvo quizás usar chunks más pequeños cuando hay pocos pares por CPU.
+- <strong>RAM.</strong> QuickVina corre desde hilos del proceso principal, sin un worker de Python por cada run,
+  y meeko se importa una sola vez. El script tiene 14 workers con RDKit, más hasta 14 meeko
+  arrancando a la vez.</p>
+<h2 id="disco-a-escala-proyeccion-lineal-sin-correrlo">Disco a escala (proyección lineal, sin correrlo)<a class="headerlink" href="#disco-a-escala-proyeccion-lineal-sin-correrlo" title="Permanent link">&para;</a></h2>
+<p><strong>Por ligando con 9 poses:</strong>
+- <strong>Clásico:</strong> 34,6 KB ocupados en 3 archivos (<code>.sdf</code> 5,3 + <code>.pdbqt</code> 4,1 + <code>_out.pdbqt</code> 25,1 KB).
+- <strong>AMDockVS:</strong> 27,1 KB, repartidos así:</p>
+<table>
+<thead>
+<tr>
+<th>Concepto</th>
+<th>KB por ligando</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Tabla <code>docking_results</code></td>
+<td>12,2</td>
+</tr>
+<tr>
+<td>Poses SDF comprimidas (848 B cada una; 3,7 KB sin comprimir)</td>
+<td>7,5</td>
+</tr>
+<tr>
+<td>Índices</td>
+<td>2,1</td>
+</tr>
+<tr>
+<td>Estructuras de entrada, 3D y PDBQT</td>
+<td>2,7</td>
+</tr>
+<tr>
+<td>Filas de moléculas y registro de payloads</td>
+<td>1,0</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>Ligandos</th>
+<th>Clásico</th>
+<th>AMDockVS (modo filas, tal como está)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1 M</td>
+<td>35 GB en <strong>3 M archivos</strong></td>
+<td>27 GB en decenas de archivos</td>
+</tr>
+<tr>
+<td>10 M</td>
+<td>346 GB en <strong>30 M archivos</strong></td>
+<td>271 GB (~140 GB en <code>project.db</code>)</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>El límite real del script son los archivos, no los bytes.</strong> Este disco tiene 15 M inodos, así
+  que con 10 M ligandos el script falla aunque sobre espacio. En HPC las cuotas suelen rondar
+  1 M archivos por usuario.</li>
+<li><strong>AMDockVS desperdicia espacio.</strong> Casi la mitad de su tamaño es la columna <code>metrics</code> de
+  <code>docking_results</code>: ~1,2 KB de JSON <strong>por pose</strong>. Repite en cada fila datos del run (caja,
+  protocolo, engine, <code>run_id</code>) y del ligando (las 9 energías, MW, TPSA, cLogP, HBD/HBA, eficiencias).
+  Guardados una sola vez, la tabla bajaría a ~2 KB por ligando y el total a ~17 KB por ligando
+  (~17 GB por millón). Esto encaja con lo que ya se sabe de AMDockVS: tablas sin uso y propiedades
+  repetidas en 3 o 4 sitios, pendientes de depurar.</li>
+<li><strong>Modo con shards</strong> (pensado para millones): <code>docking.run</code> exige <code>hit_threshold</code>/<code>hit_cap</code> y solo
+  guarda las poses de los hits. Estimación sin medir: ~27-37 GB para 10 M ligandos más los hits,
+  según cuántas versiones de los shards se conserven.</li>
+</ul>
+<h2 id="prueba-aparte-guardar-solo-coordenadas-2026-10-19">Prueba aparte: guardar solo coordenadas (2026-10-19)<a class="headerlink" href="#prueba-aparte-guardar-solo-coordenadas-2026-10-19" title="Permanent link">&para;</a></h2>
+<p><code>coords_test.py</code>, fuera de AMDockVS, sobre las 4446 poses del benchmark. Las 9 poses de un ligando
+tienen siempre la misma topología, en el mismo orden de átomos (0 diferencias). Las variantes
+guardan <strong>un payload por ligando</strong> con zstd-19:</p>
+<table>
+<thead>
+<tr>
+<th>Variante</th>
+<th>Por ligando</th>
+<th>Por pose</th>
+<th>vs hoy</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Hoy: un SDF por pose</td>
+<td>7991 B</td>
+<td>899 B</td>
+<td>100 %</td>
+</tr>
+<tr>
+<td>Los 9 SDF del ligando en un solo payload</td>
+<td>4009 B</td>
+<td>451 B</td>
+<td>50 %</td>
+</tr>
+<tr>
+<td>Topología + xyz int32 a 1e-4 Å (sin pérdida respecto al SDF)</td>
+<td>3896 B</td>
+<td>438 B</td>
+<td>49 %</td>
+</tr>
+<tr>
+<td>Topología + xyz int16 a 1e-3 Å desde el centro de la caja</td>
+<td>2622 B</td>
+<td>295 B</td>
+<td>33 %</td>
+</tr>
+<tr>
+<td>Topología + xyz float16 absolutas (error máx. 0,031 Å)</td>
+<td>2260 B</td>
+<td>254 B</td>
+<td>28 %</td>
+</tr>
+<tr>
+<td>Topología + xyz float16 desde el centro de la caja (error máx. 0,004 Å)</td>
+<td>2541 B</td>
+<td>286 B</td>
+<td>32 %</td>
+</tr>
+<tr>
+<td>Lo mismo, solo átomos pesados</td>
+<td>1592 B</td>
+<td>179 B</td>
+<td>20 %</td>
+</tr>
+<tr>
+<td>Lo mismo, sin topología (se toma de la estructura de entrada)</td>
+<td>1305 B</td>
+<td>147 B</td>
+<td>16 %</td>
+</tr>
+</tbody>
+</table>
+<ul>
+<li><strong>Agrupar por ligando da la mitad del ahorro</strong>, porque zstd ya elimina la topología repetida
+  dentro de un mismo payload.</li>
+<li><strong>Bajar la precisión a 1e-3 Å</strong> (la de un PDBQT) y usar int16 desde el centro de la caja da otro
+  tercio.</li>
+<li><strong>int16 frente a float16:</strong> el error de int16 es fijo, 0,0005 Å en toda la caja. El de float16 crece
+  con el valor de la coordenada: 0,031 Å aquí, y ~0,06 Å si el receptor está a más de 64 Å del
+  origen de su PDB. Depende de dónde cae la proteína.</li>
+<li><strong>Quitar los H</strong> reduce casi a la mitad lo que queda. Los H apolares se regeneran, pero la
+  orientación de los H polares se pierde (sin medir: guardar pesados + H polares).</li>
+<li><strong>"Sin topología"</strong> supone que el orden de átomos de la pose coincide con el de la estructura de
+  entrada guardada. No está comprobado.</li>
+<li><strong>A 33 M ligandos con 9 poses</strong>, solo las poses: hoy ~264 GB, agrupadas ~132 GB, int16 con H
+  ~87 GB, solo pesados ~53 GB. Con top 3 poses, aproximadamente un tercio de cada cifra.</li>
+</ul>
+<p><strong>Por tipo de número</strong> (<code>dtype_test.py</code>, solo las coordenadas, 200 214 posiciones de átomo; el átomo
+más alejado está a 11,2 Å del centro de la caja):</p>
+<table>
+<thead>
+<tr>
+<th>Tipo</th>
+<th>Bytes por átomo sin comprimir</th>
+<th>Con zstd-19</th>
+<th>Error máximo</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Texto SDF</td>
+<td>30</td>
+<td>—</td>
+<td>0</td>
+</tr>
+<tr>
+<td>float32</td>
+<td>12</td>
+<td>9,8</td>
+<td>~0</td>
+</tr>
+<tr>
+<td>int32 en milésimas de Å</td>
+<td>12</td>
+<td>7,4</td>
+<td>0,0005 Å</td>
+</tr>
+<tr>
+<td>int16 en milésimas desde el centro</td>
+<td>6</td>
+<td>5,8</td>
+<td>0,0005 Å</td>
+</tr>
+<tr>
+<td>float16 desde el centro</td>
+<td>6</td>
+<td>5,6</td>
+<td>0,004 Å</td>
+</tr>
+<tr>
+<td>float16 absoluto</td>
+<td>6</td>
+<td>4,9</td>
+<td>0,031 Å</td>
+</tr>
+</tbody>
+</table>
+<p>int16 cabe si ninguna coordenada se aleja más de 32,767 Å del centro. Se decide por bloque con un
+<code>max()</code> sobre los datos y, si no cabe, se usa int32 (un byte del bloque dice cuál es).</p>
+<h2 id="conclusion">Conclusión<a class="headerlink" href="#conclusion" title="Permanent link">&para;</a></h2>
+<p>AMDockVS es competitivo:
+- <strong>Tiempo:</strong> igual (el tiempo lo pone el motor de docking).
+- <strong>Recursos:</strong> −16 % de CPU, −23 % de RAM, 99 % menos archivos y menos disco ocupado.
+- <strong>Resultados:</strong> idénticos, y sin fallar con sales ni con anillos de 7 o más átomos.</p>
+<p>Lo que de verdad lo distingue no se ve en esta tabla: reanudar tras un fallo, saltar los pares ya
+docados, cancelar matando los binarios, resultados consultables con la química de la pose,
+interacciones en la misma pasada y escalar a shards u otros hosts sin reescribir nada. El script
+solo conserva su ventaja para un cálculo único, en una máquina donde no se quiere instalar nada.</p>
+<h2 id="pendiente-anotado-sin-implementar">Pendiente (anotado, sin implementar)<a class="headerlink" href="#pendiente-anotado-sin-implementar" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Quitar de <code>docking_results.metrics</code> los datos del run y del ligando que se repiten por pose, y en
+  general depurar tablas sin uso y propiedades duplicadas.</li>
+<li>Usar chunks de docking más pequeños cuando hay pocos pares por CPU (~3,5 % con 500 ligandos).</li>
+<li>Una advertencia de API: <code>docking.top_hits(limit=)</code> cuenta <strong>poses</strong>, no ligandos. Para un resumen
+  por ligando está <code>ligand_summaries</code>.</li>
+</ul>
+<h2 id="como-reproducirlo">Cómo reproducirlo<a class="headerlink" href="#como-reproducirlo" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><span class="nb">source</span><span class="w"> </span>/home/mario/programs/miniconda3/etc/profile.d/conda.sh<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>conda<span class="w"> </span>activate<span class="w"> </span>MSDD_312
+<span class="nb">export</span><span class="w"> </span><span class="nv">PYTHONPATH</span><span class="o">=</span><span class="nv">$PWD</span>/src:<span class="nv">$PWD</span>/../ms_flow/src:<span class="nv">$PWD</span>/../ms_components/src:<span class="nv">$PWD</span>/../ms_contactmap/src:<span class="nv">$PWD</span>/../ms_env/src
+<span class="c1"># copiar estos scripts junto a ligs500.sdf y 1iep_receptor.pdbqt (rutas en measure.py: /tmp/bench_vs)</span>
+python<span class="w"> </span>measure.py<span class="w"> </span>classic<span class="w"> </span>classic.py
+python<span class="w"> </span>measure.py<span class="w"> </span>amdock<span class="w"> </span>amdockvs_run.py
+python<span class="w"> </span>compare_scores.py<span class="w">   </span><span class="c1"># lee los scores de AMDockVS directamente de project.db</span>
+</code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 AMDockVS authors
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"../..","features":["content.code.copy","navigation.footer","navigation.path","navigation.sections","navigation.top","search.highlight","search.suggest"],"redirect":null,"search":"../../assets/javascripts/workers/search.c47bb847.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"provider":"mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.77dd0ce9.min.js"></script>
+      
+    
+  </body>
+</html>

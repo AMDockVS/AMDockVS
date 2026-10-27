@@ -1,0 +1,753 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Virtual screening, molecular preparation, QSAR, and docking with MolSuite.">
+      
+      
+        <meta name="author" content="AMDockVS authors">
+      
+      
+        <link rel="canonical" href="https://amdockvs.github.io/AMDockVS/latest/amdock_structure/">
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../images/favicon.svg">
+      <meta name="generator" content="zensical-0.0.73">
+    
+    
+      
+        <title>Estructura recomendada de amdock - AMDockVS</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../assets/stylesheets/modern/main.4ab2de0c.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../assets/stylesheets/modern/palette.b60ce83d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-hidden="true"></label>
+    <div data-md-component="skip">
+      <a href="#__skip" class="md-skip">
+        Skip to content
+      </a>
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="./.." title="AMDockVS" class="md-header__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+      <span class="md-visually-hidden">Navigation</span>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AMDockVS
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Estructura recomendada de amdock
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+          <span class="md-visually-hidden">Search</span>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="./.." title="AMDockVS" class="md-nav__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    AMDockVS
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../runtime_api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API guide
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../data_and_export/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Data and export
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Examples
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#regla-principal" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Regla principal
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#excepcion-deliberada-docking" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Excepción deliberada: docking
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Excepción deliberada: docking">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#anadir-un-docking-engine" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Añadir un docking engine
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#regla-de-contexto" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Regla de contexto
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#que-va-junto" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Qué va junto
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#que-no-hacer-por-ahora" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Qué no hacer por ahora
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#criterio-de-separacion" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Criterio de separación
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#como-deberia-verse-un-caso-de-uso-nuevo" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Cómo debería verse un caso de uso nuevo
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#contrato-mental-para-el-equipo" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Contrato mental para el equipo
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+              
+              <article class="md-content__inner md-typeset">
+                <a id="__skip" tabindex="-1"></a>
+                
+                  
+
+  
+  
+
+
+<h1 id="estructura-recomendada-de-amdock">Estructura recomendada de <code>amdock</code><a class="headerlink" href="#estructura-recomendada-de-amdock" title="Permanent link">&para;</a></h1>
+<p>Esta app se está migrando a una forma más simple e intuitiva. La prioridad no es “la arquitectura más pura”, sino que un programador nuevo pueda abrir <code>../src/amdockvs</code> y entender rápido dónde tocar.</p>
+<h2 id="regla-principal">Regla principal<a class="headerlink" href="#regla-principal" title="Permanent link">&para;</a></h2>
+<p>La ruta feliz debe estar en pocos sitios:</p>
+<ul>
+<li><code>runtime.py</code>: fachada pública de negocio</li>
+<li><code>jobs/</code>: jobs y tasks por funcionalidad</li>
+<li><code>queries.py</code>: lecturas de dominio del proyecto</li>
+<li><code>io/</code>: parsing y materialización de archivos</li>
+<li><code>summaries.py</code>: DTOs públicos</li>
+</ul>
+<p>La UI no debe esconder lógica de negocio. Debe llamar al runtime.</p>
+<h2 id="excepcion-deliberada-docking">Excepción deliberada: docking<a class="headerlink" href="#excepcion-deliberada-docking" title="Permanent link">&para;</a></h2>
+<p>Docking sí tiene variación real y frecuente. Por eso su extensión se concentra en
+<code>src/amdockvs/docking/</code> mediante tres contratos pequeños, sin crear un framework de
+plugins adicional:</p>
+<ul>
+<li><code>programs.py</code>: capacidades, modelo de configuración y recursos del programa.</li>
+<li><code>preparations.py</code>: perfil de preparación de ligando, receptor y, opcionalmente, shard.</li>
+<li><code>registry.py</code>: registro y despacho del runner que ejecuta un chunk.</li>
+<li><code>vina.py</code>, <code>qvina.py</code>, <code>gnina.py</code>, <code>adgpu.py</code>: implementación de cada runner incorporado; <code>autogrid.py</code> genera los mapas AD4 que comparten Vina (<code>ad4</code>) y AutoDock-GPU.</li>
+</ul>
+<p>Los jobs de MolSuite (<code>preparation_jobs.py</code>, <code>jobs.py</code> y <code>shard_jobs.py</code>) son la
+infraestructura estable. No deben importar condicionalmente cada engine ni contener
+ramas <code>if engine == ...</code>; reciben el nombre registrado y despachan por los contratos
+anteriores. Los nombres históricos de task de Vina se conservan únicamente para no
+romper jobs persistidos.</p>
+<h3 id="anadir-un-docking-engine">Añadir un docking engine<a class="headerlink" href="#anadir-un-docking-engine" title="Permanent link">&para;</a></h3>
+<p>Un engine nuevo define un modelo Pydantic propio, un <code>DockingProgramSpec</code> y un runner:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">pydantic</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseModel</span><span class="p">,</span> <span class="n">ConfigDict</span><span class="p">,</span> <span class="n">Field</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">amdockvs.docking</span><span class="w"> </span><span class="kn">import</span> <span class="n">DockingProgramSpec</span><span class="p">,</span> <span class="n">register_docking_engine</span>
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">MyEngineConfig</span><span class="p">(</span><span class="n">BaseModel</span><span class="p">):</span>
+    <span class="n">model_config</span> <span class="o">=</span> <span class="n">ConfigDict</span><span class="p">(</span><span class="n">extra</span><span class="o">=</span><span class="s2">"forbid"</span><span class="p">)</span>
+    <span class="n">iterations</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="mi">20</span><span class="p">,</span> <span class="n">ge</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+
+
+<span class="n">MY_ENGINE</span> <span class="o">=</span> <span class="n">DockingProgramSpec</span><span class="p">(</span>
+    <span class="n">key</span><span class="o">=</span><span class="s2">"my_engine"</span><span class="p">,</span>
+    <span class="n">label</span><span class="o">=</span><span class="s2">"My engine"</span><span class="p">,</span>
+    <span class="n">workflow_key</span><span class="o">=</span><span class="s2">"vina"</span><span class="p">,</span>
+    <span class="n">preparation_engine</span><span class="o">=</span><span class="s2">"ad4"</span><span class="p">,</span>
+    <span class="n">docking_engine</span><span class="o">=</span><span class="s2">"my_engine"</span><span class="p">,</span>
+    <span class="n">config_model</span><span class="o">=</span><span class="n">MyEngineConfig</span><span class="p">,</span>
+    <span class="n">protocol_identity_keys</span><span class="o">=</span><span class="p">(</span><span class="s2">"iterations"</span><span class="p">,),</span>
+    <span class="n">resource_resolver</span><span class="o">=</span><span class="k">lambda</span> <span class="n">config</span><span class="p">:</span> <span class="p">{</span><span class="s2">"cpu_required"</span><span class="p">:</span> <span class="mi">2</span><span class="p">},</span>
+<span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">run_my_engine</span><span class="p">(</span><span class="n">payload</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]:</span>
+    <span class="c1"># payload["pairs"] contiene los pares resueltos por el job de MolSuite.</span>
+    <span class="c1"># payload["iterations"] ya fue validado y combinado desde engine_config.</span>
+    <span class="o">...</span>
+
+
+<span class="n">register_docking_engine</span><span class="p">(</span><span class="n">MY_ENGINE</span><span class="p">,</span> <span class="n">run_my_engine</span><span class="p">)</span>
+</code></pre></div>
+<p>Las capacidades <code>requires_ligand_preparation</code>,
+<code>requires_receptor_preparation</code> y <code>requires_binding_site</code> controlan readiness y
+construcción de lotes. <code>supports_shards</code> debe declararse solo si el runner acepta el
+contrato de campañas por shards.</p>
+<p>Si la preparación no es <code>ad4</code>, se registra junto al programa:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">amdockvs.docking</span><span class="w"> </span><span class="kn">import</span> <span class="n">PreparationProfile</span><span class="p">,</span> <span class="n">register_preparation_profile</span>
+
+<span class="n">register_preparation_profile</span><span class="p">(</span>
+    <span class="n">PreparationProfile</span><span class="p">(</span>
+        <span class="n">key</span><span class="o">=</span><span class="s2">"my_prep"</span><span class="p">,</span>
+        <span class="n">prepare_entities</span><span class="o">=</span><span class="n">prepare_my_entities</span><span class="p">,</span>
+        <span class="n">prepare_shard</span><span class="o">=</span><span class="n">prepare_my_shard</span><span class="p">,</span>  <span class="c1"># opcional</span>
+    <span class="p">)</span>
+<span class="p">)</span>
+</code></pre></div>
+<p>Vina, QuickVina, GNINA y AutoDock-GPU comparten correctamente el perfil <code>ad4</code>: los cuatro consumen
+PDBQT compatible. Compartir la preparación evita duplicación; no implica compartir
+el runner ni la configuración del docking.</p>
+<h2 id="regla-de-contexto">Regla de contexto<a class="headerlink" href="#regla-de-contexto" title="Permanent link">&para;</a></h2>
+<p>AMDock no resuelve layout del proyecto por su cuenta.</p>
+<p>Las rutas de trabajo salen del contrato de MolSuite:</p>
+<ul>
+<li><code>ligands</code></li>
+<li><code>receptors</code></li>
+<li><code>docking_results</code></li>
+<li><code>exports</code></li>
+<li><code>jobs</code></li>
+</ul>
+<p>Los jobs deben consumir <code>project_resources</code> desde <code>config</code>, no recomponer <code>data/...</code> o <code>results/...</code> localmente.</p>
+<h2 id="que-va-junto">Qué va junto<a class="headerlink" href="#que-va-junto" title="Permanent link">&para;</a></h2>
+<p>Cada feature del backend debe vivir junta:</p>
+<ul>
+<li><code>jobs/ingestion.py</code></li>
+<li><code>jobs/descriptors.py</code></li>
+<li><code>jobs/docking.py</code></li>
+</ul>
+<p>En cada módulo de <code>jobs/</code> se permite tener:</p>
+<ul>
+<li>modelos <code>Params</code></li>
+<li>helpers pequeños propios del job</li>
+<li><code>@task(...)</code></li>
+<li><code>@job(...)</code></li>
+</ul>
+<p>Esto evita perseguir el flujo entre <code>job.py</code>, <code>task.py</code>, <code>service.py</code>, <code>builder.py</code> y <code>registry.py</code> cuando todavía no hace falta.</p>
+<h2 id="que-no-hacer-por-ahora">Qué no hacer por ahora<a class="headerlink" href="#que-no-hacer-por-ahora" title="Permanent link">&para;</a></h2>
+<p>No crear capas preventivas tipo:</p>
+<ul>
+<li><code>repository/</code></li>
+<li><code>services/</code></li>
+<li><code>builders/</code></li>
+<li><code>orchestrators/</code></li>
+<li><code>domain/infra/application/</code> artificial</li>
+</ul>
+<p>Solo merece separarse si un módulo deja de ser legible por sí mismo o si una pieza se reutiliza claramente entre varias features.</p>
+<h2 id="criterio-de-separacion">Criterio de separación<a class="headerlink" href="#criterio-de-separacion" title="Permanent link">&para;</a></h2>
+<p>Separar un módulo cuando ocurra una de estas:</p>
+<ul>
+<li>supera un tamaño que ya dificulta leer el flujo completo</li>
+<li>mezcla dos responsabilidades reales distintas</li>
+<li>una función se reutiliza desde más de una feature</li>
+<li>una dependencia pesada merece quedar aislada, como I/O o parsing</li>
+</ul>
+<p>Por eso <code>io/loaders.py</code> sí tiene sentido aparte: no es “arquitectura extra”, es una frontera real entre parsing/materialización y jobs.
+El layout del proyecto no vive ahí; vive en MolSuite.</p>
+<h2 id="como-deberia-verse-un-caso-de-uso-nuevo">Cómo debería verse un caso de uso nuevo<a class="headerlink" href="#como-deberia-verse-un-caso-de-uso-nuevo" title="Permanent link">&para;</a></h2>
+<p>Si mañana añadimos un job de scoring posterior a docking, la ruta esperada sería:</p>
+<ul>
+<li><code>jobs/scoring.py</code></li>
+<li>método público en <code>runtime.py</code></li>
+<li>lecturas de resultados en <code>queries.py</code> si hacen falta</li>
+<li>DTO nuevo en <code>summaries.py</code> solo si la API pública lo necesita</li>
+</ul>
+<p>No debería requerir crear un subárbol entero nuevo.</p>
+<h2 id="contrato-mental-para-el-equipo">Contrato mental para el equipo<a class="headerlink" href="#contrato-mental-para-el-equipo" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Si quiero ejecutar algo de dominio: voy a <code>runtime.py</code></li>
+<li>Si quiero cambiar cómo se define un job: voy a <code>jobs/</code></li>
+<li>Si quiero cambiar cómo se leen datos del proyecto: voy a <code>queries.py</code></li>
+<li>Si quiero tocar parsing o archivos: voy a <code>io/</code></li>
+<li>Si quiero saber qué devuelve la API: voy a <code>summaries.py</code></li>
+<li>Si quiero construir una vista de dominio: voy a <code>ui/</code>, pero consumo <code>runtime.py</code>, no <code>molsuite.core.*</code> ni SQL directo</li>
+</ul>
+<p>Ese mapa es más valioso para esta app que una separación demasiado sofisticada.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 AMDockVS authors
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["content.code.copy","navigation.footer","navigation.path","navigation.sections","navigation.top","search.highlight","search.suggest"],"redirect":null,"search":"../assets/javascripts/workers/search.c47bb847.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"provider":"mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.77dd0ce9.min.js"></script>
+      
+    
+  </body>
+</html>

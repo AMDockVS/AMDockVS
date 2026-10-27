@@ -1,0 +1,937 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Virtual screening, molecular preparation, QSAR, and docking with MolSuite.">
+      
+      
+        <meta name="author" content="AMDockVS authors">
+      
+      
+        <link rel="canonical" href="https://amdockvs.github.io/AMDockVS/latest/TODO/">
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../images/favicon.svg">
+      <meta name="generator" content="zensical-0.0.73">
+    
+    
+      
+        <title>TODO - AMDockVS</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../assets/stylesheets/modern/main.4ab2de0c.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../assets/stylesheets/modern/palette.b60ce83d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-hidden="true"></label>
+    <div data-md-component="skip">
+      <a href="#__skip" class="md-skip">
+        Skip to content
+      </a>
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="./.." title="AMDockVS" class="md-header__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+      <span class="md-visually-hidden">Navigation</span>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AMDockVS
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              TODO
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+          <span class="md-visually-hidden">Search</span>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="./.." title="AMDockVS" class="md-nav__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    AMDockVS
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../runtime_api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API guide
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../data_and_export/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Data and export
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Examples
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#moleculefragment" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        MoleculeFragment
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#docking-programs" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Docking programs
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Docking programs">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#lista" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Lista
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#requerimientos" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Requerimientos
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Requerimientos">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#autodock-vina" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Autodock Vina
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#autodockgpu" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        AutodockGPU
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#smina-algo-viejo-y-desactualizado-lo-dejo-por-ahora" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        SMINA (algo viejo y desactualizado, lo dejo por ahora)
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gnina" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        GNINA
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dock6-demasiado-complejo-por-ahora" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        DOCK6 (demasiado complejo por ahora)
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ledock" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        LeDock
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rxdock-se-ve-robusto-pero-bastante-complicado-lo-excluyo-por-ahora" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        RxDock (se ve robusto pero bastante complicado, lo excluyo por ahora)
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#diffdock" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        DiffDock
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#preparacion-de-receptores-anotado-2026-09-01" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Preparación de receptores (anotado 2026-09-01)
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Preparación de receptores (anotado 2026-09-01)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pendiente-relacionado-no-es-bug-protonacion-consciente-de-metales" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Pendiente relacionado (no es bug): protonación consciente de metales
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#diagramas-y-smiles-anotado-2026-09-16" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Diagramas y SMILES (anotado 2026-09-16)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#interacciones-en-la-tabla-anotado-2026-10-08" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Interacciones en la tabla (anotado 2026-10-08)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#editar-un-receptor-ya-importado-anotado-2026-10-15" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Editar un receptor ya importado (anotado 2026-10-15)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#duplicados-en-ligands-anotado-2026-10-17" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Duplicados en Ligands (anotado 2026-10-17)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cross-docking-anotado-2026-10-17" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Cross-docking (anotado 2026-10-17)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#almacenamiento-del-docking-anotado-2026-10-19" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Almacenamiento del docking (anotado 2026-10-19)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+              
+              <article class="md-content__inner md-typeset">
+                <a id="__skip" tabindex="-1"></a>
+                
+                  
+
+  
+  
+
+
+<h1 id="todo">TODO<a class="headerlink" href="#todo" title="Permanent link">&para;</a></h1>
+<h2 id="moleculefragment">MoleculeFragment<a class="headerlink" href="#moleculefragment" title="Permanent link">&para;</a></h2>
+<ul>
+<li>UI fragment selection: no hay forma de cambiar de fragmento desde la UI; no está claro que haga
+  falta (anotado 2026-10-14). La API existe: <code>molecules.select_fragment(id, index)</code> recorta el
+  fragmento del original importado (<code>stored_path</code>) y lo escribe solo entonces. Los fragmentos ya no
+  se materializan al importar; <code>extra_data.fragmentation.components</code> lista <code>{fragment_index, role, smiles}</code>.</li>
+<li>Deduplicación manual (columnas <code>inchikey</code> / <code>canonical_smiles</code> ya existen; no para shards).
+  Proyectos importados antes del 2026-10-14 tienen esas columnas vacías: hace falta un backfill.</li>
+</ul>
+<h2 id="docking-programs">Docking programs<a class="headerlink" href="#docking-programs" title="Permanent link">&para;</a></h2>
+<h3 id="lista">Lista<a class="headerlink" href="#lista" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Autodock Vina (Vina + ad4, version nueva)</li>
+<li>AutodockGPU</li>
+<li>SMINA</li>
+<li>GNINA</li>
+<li>DOCK6</li>
+<li>LeDock</li>
+<li>RxDock</li>
+<li>DiffDock</li>
+</ul>
+<h3 id="requerimientos">Requerimientos<a class="headerlink" href="#requerimientos" title="Permanent link">&para;</a></h3>
+<h4 id="autodock-vina">Autodock Vina<a class="headerlink" href="#autodock-vina" title="Permanent link">&para;</a></h4>
+<ul>
+<li>receptor pdbqt</li>
+<li>ligand pdbqt</li>
+<li>box</li>
+</ul>
+<h4 id="autodockgpu">AutodockGPU<a class="headerlink" href="#autodockgpu" title="Permanent link">&para;</a></h4>
+<ul>
+<li>receptor pdbqt</li>
+<li>ligand pdbqt</li>
+<li>box</li>
+</ul>
+<h4 id="smina-algo-viejo-y-desactualizado-lo-dejo-por-ahora">SMINA (algo viejo y desactualizado, lo dejo por ahora)<a class="headerlink" href="#smina-algo-viejo-y-desactualizado-lo-dejo-por-ahora" title="Permanent link">&para;</a></h4>
+<ul>
+<li>receptor pdbqt</li>
+<li>ligand pdbqt</li>
+<li>box</li>
+</ul>
+<h4 id="gnina">GNINA<a class="headerlink" href="#gnina" title="Permanent link">&para;</a></h4>
+<ul>
+<li>receptor pdbqt</li>
+<li>ligand pdbqt</li>
+<li>box</li>
+</ul>
+<h4 id="dock6-demasiado-complejo-por-ahora">DOCK6 (demasiado complejo por ahora)<a class="headerlink" href="#dock6-demasiado-complejo-por-ahora" title="Permanent link">&para;</a></h4>
+<ul>
+<li>parameters</li>
+<li>receptor</li>
+<li>Spheres file (*.sph)</li>
+<li>Energy Grid (*.nrg, *.bmp, *.cnt)</li>
+<li>box in pdb</li>
+<li>ligand mol2</li>
+</ul>
+<h4 id="ledock">LeDock<a class="headerlink" href="#ledock" title="Permanent link">&para;</a></h4>
+<ul>
+<li>receptor pdb</li>
+<li>ligand mol2</li>
+<li>box</li>
+</ul>
+<h4 id="rxdock-se-ve-robusto-pero-bastante-complicado-lo-excluyo-por-ahora">RxDock (se ve robusto pero bastante complicado, lo excluyo por ahora)<a class="headerlink" href="#rxdock-se-ve-robusto-pero-bastante-complicado-lo-excluyo-por-ahora" title="Permanent link">&para;</a></h4>
+<h4 id="diffdock">DiffDock<a class="headerlink" href="#diffdock" title="Permanent link">&para;</a></h4>
+<ul>
+<li>receptor sequence (pdb optional)</li>
+<li>ligand smiles</li>
+</ul>
+<h2 id="preparacion-de-receptores-anotado-2026-09-01">Preparación de receptores (anotado 2026-09-01)<a class="headerlink" href="#preparacion-de-receptores-anotado-2026-09-01" title="Permanent link">&para;</a></h2>
+<p>Tres bugs verificados con 4UWH (p2). Los tres <strong>reparados 2026-09-01</strong>: el escritor de
+<code>io/receptor_preview.py</code> ya no aplica su lista blanca ciega, y qué llega al PDBQT se decide
+ahora en <em>Docking Studio &gt; Receptors</em> ("Include structural waters" / "Include cofactors",
+apagadas por defecto). Cubierto por <code>test/test_receptor_hetero.py</code>.</p>
+<ol>
+<li>
+<p>~~<strong><code>remove_cofactors</code> no hace nada</strong> — <code>io/receptor_preview.py:315</code>~~ <strong>DONE 2026-09-01</strong>
+   <code>_components_to_remove()</code> ya decidía bien, pero el escritor aplicaba después
+   <code>if not _is_polymer_residue(resname) and resname not in _COORDINATION_METAL_CODES: continue</code>,
+   así que los cofactores se borraban siempre, marcada o no la casilla. Meeko los prepara sin
+   problema: probado con JXM (30 átomos) → PDBQT con 31. <em>Reparado:</em> el filtro es ahora "lo que
+   no está en <code>component_keys</code>", y clasifica por resname (no por <code>residue_key</code>: una assembly
+   biológica renombra las cadenas copiadas).</p>
+</li>
+<li>
+<p>~~<strong><code>remove_non_structural_waters</code> no hace nada</strong> — <code>io/receptor_preview.py:317</code>~~ <strong>DONE 2026-09-01</strong>
+   Se borraban <strong>todas</strong> las aguas, incluidas las estructurales que la preview marca como
+   <code>is_selected</code>. Meeko sí las admite: con coordenadas reales salen al PDBQT como
+   <code>OW/HW1/HW2</code> tipo <code>OA/HD</code> y cargas TIP3P (-0.412 / +0.206). Ojo al depurar: aguas con
+   coordenadas inventadas que solapan la proteína hacen que Meeko falle con
+   <code>adjacent_mol doesn't contain the mapped atoms</code> (enlaces inter-residuo espurios), no es un
+   problema de soporte de agua.</p>
+</li>
+<li>
+<p>~~<strong><code>retained_structural_waters</code> miente y nadie lo consume</strong> — <code>io/receptor_preview.py:331</code>~~
+   <strong>DONE 2026-09-01 a medias</strong>: ya no miente (con (2) reparado, las aguas retenidas están de
+   verdad en el fichero), pero el campo <strong>sigue sin consumidor</strong>. Borrarlo cuando se decida que
+   nadie lo va a leer.</p>
+</li>
+</ol>
+<h3 id="pendiente-relacionado-no-es-bug-protonacion-consciente-de-metales">Pendiente relacionado (no es bug): protonación consciente de metales<a class="headerlink" href="#pendiente-relacionado-no-es-bug-protonacion-consciente-de-metales" title="Permanent link">&para;</a></h3>
+<p>pdb2pqr 3.7.1 no ve los metales (PROPKA trabaja solo sobre el biomolecule). Para congelar el
+estado de los residuos coordinantes hay dos palancas ya comprobadas:
+- renombrar el residuo en el input: <code>HID/HIE/HIP</code>, <code>CYM</code>, <code>ASH</code>, <code>GLH</code>, <code>LYN</code> (probado:
+  HIS A:370 → HIE sale HIE y las otras 153 HIS siguen HIS);
+- <code>-i/--titrate_only "A:10,A:11"</code> para limitar qué residuos son titulables.
+La detección geométrica ya existe (<code>receptor_preview.py:518</code>: ≥2 donantes a ≤2.8 Å del metal).</p>
+<h2 id="diagramas-y-smiles-anotado-2026-09-16">Diagramas y SMILES (anotado 2026-09-16)<a class="headerlink" href="#diagramas-y-smiles-anotado-2026-09-16" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Setting para exportar imágenes de diagramas (PNG/SVG): subproceso prioritario en los 2 CPUs lógicos de reserva vs job diferido en MF. Hoy: JSON en proceso, imagen siempre por subproceso (<code>export_diagram_image</code>). Pendiente de decidir; no se implementa todavía.</li>
+<li>La columna <code>smiles</code> no se actualiza cuando cambia la química (protonación, tautómero, 3D, etc.). Decidir: refrescarla en cada paso o generarla al vuelo desde el SDF guardado. Para salidas de docking vale el SMILES de meeko.</li>
+<li>Exportación de diagramas (ms_contactmap <code>export.py</code>), solo nota; hoy está bien así:</li>
+<li>HECHO 2026-09-16: SVG sin raster (ligando incluido) y <code>export_png(dpi=...)</code> / <code>--dpi</code>. AMDockVS sigue usando <code>scale=2</code> (192 dpi); decidir si pasa <code>dpi=300</code>.</li>
+<li>El SVG de <code>QSvgGenerator</code> pesa ~370 KB (cinta = cientos de segmentos, gotas con 4 capas de sombra, ligando re-pintado). Solo importa para web; si hace falta, pensar un modo de render eficiente.</li>
+</ul>
+<h2 id="interacciones-en-la-tabla-anotado-2026-10-08">Interacciones en la tabla (anotado 2026-10-08)<a class="headerlink" href="#interacciones-en-la-tabla-anotado-2026-10-08" title="Permanent link">&para;</a></h2>
+<p>Decidido por Mario; no se trabaja hasta cerrar el motor de orquestación (ms_flow).</p>
+<ul>
+<li>Las interacciones viven en <code>interaction_results</code>. Hoy la casilla del docking (<code>compute_diagram</code>) solo deja <code>&lt;pose&gt;.rank&lt;N&gt;.diagram.json</code> + imagen junto a la pose y la tabla queda vacía; solo la llena <code>amdock_interactions_job</code>.</li>
+<li>Docking con la opción marcada: una sola task que devuelve filas para <code>docking_results</code> e <code>interaction_results</code> por un <code>graph_sink</code> (la fila hija lleva la referencia a su pose y el sink pone <code>docking_result_id</code>).</li>
+<li>Decidido 2026-10-17: <code>interaction_results</code> se identifica por (payload del receptor, payload de la pose del ligando), no por <code>docking_result_id</code>. Así un complejo de referencia (cocristal, sin fila de docking) tiene su diagrama con la misma tabla, sin otra estructura. El docking escribe la fila con los payloads que ya conoce; no hace falta la relación del <code>graph_sink</code> hacia <code>docking_results</code>.</li>
+<li>No se filtra por interacciones (consultas tipo "poses con puente de H a ASP86"): solo se guardan y se muestran. Quizás más adelante; no se diseña para ello ahora.</li>
+<li>La imagen no se genera en el docking: el diagrama se dibuja en la UI a partir de las interacciones. Si algún día hace falta, se añade.</li>
+<li>El panel de resultados lee las interacciones de la tabla (<code>list_interactions</code>), no del JSON (<code>pose_interactions</code>, <code>ui/catalog/results.py:864</code>): el fichero puede no estar.</li>
+<li>El botón "Build diagram" y <code>amdock_diagram_job</code> detectan y no escriben en la tabla: arreglar.</li>
+<li>Depende de ms_contactmap (en desarrollo): entrada solo de detección y SASA más rápido. Medido el 2026-10-08 en una pose (1iep): detección 0,04 s; exposición 3,0 s; layout 0,15 s; imagen 1,8 s. El job de interacciones paga hoy esos 3 s porque llama a <code>build_pose_diagram</code> (<code>docking/results/interactions.py:57</code>).</li>
+</ul>
+<h2 id="editar-un-receptor-ya-importado-anotado-2026-10-15">Editar un receptor ya importado (anotado 2026-10-15)<a class="headerlink" href="#editar-un-receptor-ya-importado-anotado-2026-10-15" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Hoy cadenas, ensamblaje, altloc, aguas y cofactores quedan fijados al importar; no hay acción
+  para cambiarlos. Reimportar el mismo archivo con otras opciones crea una variante nueva (otra
+  clave de almacenamiento, <code>_receptor_import_variant</code>), no reemplaza. Los binding sites sí se
+  editan después (herramienta Binding Sites).</li>
+<li>Todo lo necesario para reprocesar ya se guarda: la copia del original (<code>original_path</code>) y las
+  opciones usadas (<code>extra_data.structure.import_profile</code>).</li>
+<li>Propuesta: acción de fila "Edit import…" que abre el panel de importación con esa fila
+  rellenada; al aplicar, "Edit a copy" (variante nueva) o "Replace" (mismo patrón que el editor
+  Ketcher de ligandos). "Replace" avisa de que se borran dockings, binding sites y preparaciones
+  que dependen del receptor.</li>
+</ul>
+<h2 id="duplicados-en-ligands-anotado-2026-10-17">Duplicados en Ligands (anotado 2026-10-17)<a class="headerlink" href="#duplicados-en-ligands-anotado-2026-10-17" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Hoy el import no detecta duplicados: el mismo compuesto importado dos veces son dos filas y se
+  dockea dos veces (pasó con datos duplicados a propósito para hacer crecer la tabla).</li>
+<li>No comprobarlo en el import (coste por molécula en el camino caliente). <code>molecules.inchikey</code>
+  ya existe y tiene índice: detectarlos después es un <code>GROUP BY inchikey HAVING count(*) &gt; 1</code>.</li>
+<li>Forma propuesta: acción "Find duplicates" en Ligands que filtra/selecciona las repetidas
+  (como un scope), y el usuario decide borrar o conservar. Opcional: aviso al terminar el import
+  si la consulta encuentra alguna. Sin implementar.</li>
+</ul>
+<h2 id="cross-docking-anotado-2026-10-17">Cross-docking (anotado 2026-10-17)<a class="headerlink" href="#cross-docking-anotado-2026-10-17" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Redocking dockea cada ligando de referencia en SU receptor (el par original del complejo).
+  Cross-docking: cada ligando de referencia contra los receptores de OTROS complejos del mismo
+  blanco, para medir si el protocolo reproduce poses con una conformación de proteína ajena.</li>
+<li>Lo que falta: elegir el conjunto de receptores (mismos binding sites / misma proteína),
+  superponer cada receptor sobre el del complejo original para que el RMSD contra el ligando de
+  referencia tenga sentido (hoy el RMSD se mide en el marco del receptor dockeado), y una vista
+  de resultados en matriz ligando × receptor (éxito ≤ 2 Å).</li>
+<li>Encaja como otro <code>run_kind</code> sobre el mismo motor de docking. Sin implementar.</li>
+</ul>
+<h2 id="almacenamiento-del-docking-anotado-2026-10-19">Almacenamiento del docking (anotado 2026-10-19)<a class="headerlink" href="#almacenamiento-del-docking-anotado-2026-10-19" title="Permanent link">&para;</a></h2>
+<p>Sale del benchmark <code>docs/benchmarks/vs_classic_2026-10-18/</code>. Hoy son 27 KB por ligando con 9 poses
+(~890 GB para 33 M). Por pose, <code>docking_results.metrics</code> lleva 1199 B de JSON: 551 B del run, 352 B
+del ligando, 247 B derivados del score y solo 49 B que son de la pose.</p>
+<ul>
+<li><strong>Configuración del run una sola vez:</strong> caja, protocolo, engine, backend, exhaustiveness,
+  <code>run_id</code>, fecha y receptor van en una tabla de runs (o en un volumen si es grande), y cada fila
+  la referencia por id.</li>
+<li><strong>Propiedades del ligando fuera de <code>docking_results</code>:</strong> MW, TPSA, cLogP, HBD/HBA y átomos pesados
+  ya están en <code>molecules</code>. Las 9 energías del ligando se repiten en cada una de sus poses.</li>
+<li><strong>Derivados del score (LE, pKi, BEI, SEI, LLE…):</strong> se quedan, porque se usan para ordenar y
+  filtrar. Son ligeros, pero mejor como columnas que dentro del JSON. <code>lle</code> y
+  <code>lipophilic_efficiency</code> son el mismo valor dos veces.</li>
+<li><strong>Limpieza profunda de lo duplicado o sin uso:</strong> índices repetidos (<code>idx_dr_ligand_molecule</code> =
+  <code>ix_docking_results_ligand_molecule_id</code>, <code>idx_dr_receptor_molecule</code> =
+  <code>ix_docking_results_receptor_molecule_id</code>), tablas sin uso y propiedades que están en 3 o 4
+  sitios.</li>
+<li><strong>¿Hacen falta 9 poses?</strong> En VS bastaría probablemente con el top 3. Antes de fijarlo, medir
+  con rescoring de gnina en qué posición original cae la pose que gana.</li>
+<li><strong>Compresión de poses:</strong> cada pose es un payload aparte (SDF con todos los H, ~3,9 KB, zstd
+  sin diccionario → 848 B). Medido con las 4446 poses: zstd-19 sin diccionario 784 B, con
+  diccionario entrenado (<code>PayloadStore.train_dictionary</code> ya existe y AMDockVS no lo usa) 566 B,
+  todas como un solo bloque 416 B. Guardar la topología una vez por ligando y solo las
+  coordenadas por pose: medido en <code>docs/benchmarks/vs_classic_2026-10-18/</code> (un payload por ligando
+  = 50 %; int16 a 1e-3 Å = 33 %; solo átomos pesados = 20 % de lo de hoy).
+  Propuesta (2026-10-19, sin decidir): lo genérico es <strong>un payload por ligando con sus poses en el
+  formato de hoy</strong> (SDF de varias moléculas, PDB/PDBQT con MODEL). Sirve para cualquier tipo de
+  molécula y da el 50 %. int32 sin pérdida da lo mismo (49 %), y un diccionario zstd no aporta nada
+  con bloques agrupados (51 %). Las coordenadas int16 (33 %) solo valen la pena para el modo shards.</li>
+<li><strong>"Fire and forget" con corte de energía</strong>, como en shards: el usuario fija un corte (p. ej.
+  −8,5 para Vina y derivados) y no se guardan en disco las poses de los ligandos peores que el corte
+  (score &gt; −8,5). Solo queda su registro de energía en la tabla. Sin implementar.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 AMDockVS authors
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["content.code.copy","navigation.footer","navigation.path","navigation.sections","navigation.top","search.highlight","search.suggest"],"redirect":null,"search":"../assets/javascripts/workers/search.c47bb847.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"provider":"mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.77dd0ce9.min.js"></script>
+      
+    
+  </body>
+</html>

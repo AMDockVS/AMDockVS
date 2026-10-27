@@ -1,0 +1,1197 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Virtual screening, molecular preparation, QSAR, and docking with MolSuite.">
+      
+      
+        <meta name="author" content="AMDockVS authors">
+      
+      
+        <link rel="canonical" href="https://amdockvs.github.io/AMDockVS/latest/plan_acceso_datos_2026-08-27/">
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../images/favicon.svg">
+      <meta name="generator" content="zensical-0.0.73">
+    
+    
+      
+        <title>Plan: unificación del acceso a datos (ms_flow + AMDock) - AMDockVS</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../assets/stylesheets/modern/main.4ab2de0c.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../assets/stylesheets/modern/palette.b60ce83d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-hidden="true"></label>
+    <div data-md-component="skip">
+      <a href="#__skip" class="md-skip">
+        Skip to content
+      </a>
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="./.." title="AMDockVS" class="md-header__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+      <span class="md-visually-hidden">Navigation</span>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AMDockVS
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Plan: unificación del acceso a datos (ms_flow + AMDock)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+          <span class="md-visually-hidden">Search</span>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="./.." title="AMDockVS" class="md-nav__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    AMDockVS
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../runtime_api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API guide
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../data_and_export/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Data and export
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Examples
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#principio-rector" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Principio rector
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fase-1-arreglar-memoria-y-unificar-capas" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 1 — Arreglar memoria y unificar capas
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Fase 1 — Arreglar memoria y unificar capas">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#11-ms_flow-una-sola-fabrica-de-engine-y-un-solo-compilador-de-sql" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1.1 ms_flow · una sola fábrica de engine y un solo compilador de SQL
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12-ms_flow-extender-queryspec-minimamente-db_count" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1.2 ms_flow · extender <code>QuerySpec</code> (mínimamente) + <code>db_count</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#13-amdock-matar-los-sets-de-python" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1.3 amdock · matar los sets de Python
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#14-amdock-disolver-queriespy-en-repositories-por-herramienta" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1.4 amdock · disolver <code>queries.py</code> en repositories por herramienta
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#15-ui-una-sola-tabla-dos-modos-de-navegacion" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1.5 UI · una sola tabla, dos modos de navegación
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#16-ms_flow-sink-de-archivos-hallazgo-4" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1.6 ms_flow · sink de archivos (hallazgo #4)
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#17-ms_flow-retencion-en-executordb-hallazgo-6" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1.7 ms_flow · retención en <code>executor.db</code> (hallazgo #6)
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fase-2-inputsource-emite-specs-habilita-htp" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 2 — <code>InputSource</code> emite specs (habilita HTP)
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Fase 2 — InputSource emite specs (habilita HTP)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#27-identidad-de-molecula-clave-hash-id" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        2.7 Identidad de molécula (clave hash / id)
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#orden-y-dependencias" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Orden y dependencias
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hallazgos-cubiertos" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Hallazgos cubiertos
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#estado-fase-1-2026-08-28" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Estado Fase 1 — 2026-08-28
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#estado-fase-2-2026-08-28" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Estado Fase 2 — 2026-08-28
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+              
+              <article class="md-content__inner md-typeset">
+                <a id="__skip" tabindex="-1"></a>
+                
+                  
+
+  
+  
+
+
+<h1 id="plan-unificacion-del-acceso-a-datos-ms_flow-amdock">Plan: unificación del acceso a datos (ms_flow + AMDock)<a class="headerlink" href="#plan-unificacion-del-acceso-a-datos-ms_flow-amdock" title="Permanent link">&para;</a></h1>
+<p>Fecha: 2026-08-27
+Origen: revisión de fugas de memoria en <code>../src/amdockvs</code> y <code>ms_flow</code>.</p>
+<h2 id="principio-rector">Principio rector<a class="headerlink" href="#principio-rector" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong><code>InputSource</code> planifica. <code>DataBridge</code> lee. Una sola puerta a la db.</strong></p>
+</blockquote>
+<ul>
+<li><code>InputSource</code> = generador con estado. Responde <em>"¿cómo parto el trabajo total en N chunks?"</em>.
+  Es lógica de dominio (producto cruzado receptor×ligando, recorrido de archivos, presupuesto de bytes).</li>
+<li><code>DataBridge</code> = resolutor sin estado. Responde <em>"dado un spec, dame los datos"</em>.
+  Es el <strong>único</strong> que abre la db o el filesystem.</li>
+</ul>
+<p>Hoy <code>InputSource</code> hace las dos cosas (trocea <em>y</em> lee vía <code>db_stream</code>), por eso <code>DataBridge</code>
+está construido pero sin uso real en AMDock (0 <code>InputSpec</code> producidos en todo <code>AMDockVS/src</code>).
+Esa es la duplicación a eliminar: <strong>no una capa, sino que <code>InputSource</code> lea</strong>.</p>
+<p>Regla derivada, no negociable:</p>
+<blockquote>
+<p><strong>Nada se materializa en Python si la db lo resuelve.</strong>
+<strong>AMDock no escribe SQL ni SQLAlchemy: declara <code>QuerySpec</code>. Solo ms_flow traduce.</strong></p>
+</blockquote>
+<hr />
+<h2 id="fase-1-arreglar-memoria-y-unificar-capas">Fase 1 — Arreglar memoria y unificar capas<a class="headerlink" href="#fase-1-arreglar-memoria-y-unificar-capas" title="Permanent link">&para;</a></h2>
+<p>No toca la frontera A/B. AMDock sigue alimentando jobs por la ruta actual.
+Todos los hallazgos de memoria quedan cerrados aquí, sin apostar a una ruta sin ejercitar.</p>
+<h3 id="11-ms_flow-una-sola-fabrica-de-engine-y-un-solo-compilador-de-sql">1.1 ms_flow · una sola fábrica de engine y un solo compilador de SQL<a class="headerlink" href="#11-ms_flow-una-sola-fabrica-de-engine-y-un-solo-compilador-de-sql" title="Permanent link">&para;</a></h3>
+<p>Bug real, no estética: <code>core/database/base.py:42 create_sqlite_engine()</code> aplica
+<code>timeout=30.0</code>, <code>busy_timeout=30000</code>, <code>foreign_keys=ON</code>, WAL, <code>synchronous=NORMAL</code>.
+Ninguna ruta de <code>core/data/backends.py</code> lo hace.</p>
+<table>
+<thead>
+<tr>
+<th>Tarea</th>
+<th>Archivo</th>
+<th>Acción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1.1.a</td>
+<td><code>core/data/backends.py:681-730</code></td>
+<td><strong>Borrar</strong> el fallback de escritura con <code>sqlite3</code> crudo. Solo alcanzable con <code>db_role != "project"</code>, y <code>db_role</code> es <code>"project"</code> en el 100% de los call sites de ambos repos. Código muerto por alcanzabilidad.</td>
+</tr>
+<tr>
+<td>1.1.b</td>
+<td><code>core/data/backends.py:378, 523, 639, 654</code></td>
+<td>Sustituir <code>create_engine(f"sqlite:///{db_path}")</code> por <code>create_sqlite_engine()</code>, <strong>cacheado por path</strong>. Hoy se crea un engine (y su pool) por llamada.</td>
+</tr>
+<tr>
+<td>1.1.c</td>
+<td><code>core/data/backends.py:570-601</code></td>
+<td><code>SQLiteBackend.read</code> conserva firma y contrato; cambia solo por dentro: compone un <code>QuerySpec</code> y delega en <code>ProjectStore</code>. Elimina <code>sqlite3.connect</code> (busy_timeout 5s por defecto y <code>foreign_keys=OFF</code>) y el <code>SELECT</code> armado a mano.</td>
+</tr>
+<tr>
+<td>1.1.d</td>
+<td><code>core/data/contracts.py:39</code></td>
+<td>Borrar <code>compile_db_filters</code> una vez 1.1.c la deja huérfana (único uso: <code>backends.py:583</code>).</td>
+</tr>
+<tr>
+<td>1.1.e</td>
+<td><code>core/data/backends.py</code></td>
+<td>Ruta de lectura por lotes: <code>read()</code> con <code>batch_size</code> usa <code>ProjectStore.stream_rows</code> en vez de <code>fetchall()</code> (<code>:579</code>, <code>:600</code>).</td>
+</tr>
+</tbody>
+</table>
+<p>Infra de abstracción — qué se queda y por qué:</p>
+<ul>
+<li><strong>Se queda</strong> el registry por <em>kind</em> (<code>inline</code>/<code>bytes</code>/<code>file</code>/<code>db</code>/<code>graph</code>). No es abstracción
+  multi-motor: es multi-<strong>fuente</strong>, y es exactamente lo que necesita HTP para que un shard en
+  disco entre por la misma puerta que una tabla.</li>
+<li><strong>Se va</strong> lo multi-motor: nunca existió (no hay postgres, ni <code>db_url</code>, ni dialect switching).
+  Concretamente, los roles <code>db_role</code> <code>executor</code>/<code>custom</code> no los usa nadie → 1.1.a.</li>
+<li><code>DataBridge(input_backends=..., output_backends=...)</code>: parámetros de inyección que nadie pasa.
+  Son 4 líneas; se dejan, borrarlos no paga.</li>
+</ul>
+<p><strong>Check:</strong> un test que abra dos conexiones concurrentes al mismo <code>project.db</code> vía backend y
+verifique <code>PRAGMA foreign_keys == 1</code> y <code>busy_timeout == 30000</code>.</p>
+<h3 id="12-ms_flow-extender-queryspec-minimamente-db_count">1.2 ms_flow · extender <code>QuerySpec</code> (mínimamente) + <code>db_count</code><a class="headerlink" href="#12-ms_flow-extender-queryspec-minimamente-db_count" title="Permanent link">&para;</a></h3>
+<p><code>QuerySpec</code> es un <strong>adaptador</strong>: forma declarativa, serializable a <code>payload_json</code>, traducible.
+No es un ORM y no debe crecer hacia uno. Se le añade <strong>un</strong> operador y <strong>un</strong> ejecutor.</p>
+<table>
+<thead>
+<tr>
+<th>Tarea</th>
+<th>Archivo</th>
+<th>Acción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1.2.a</td>
+<td><code>query.py</code></td>
+<td>Operadores <code>__in_subquery</code> / <code>__not_in_subquery</code>, cuyo valor es <strong>otro <code>QuerySpec</code></strong>. <code>compile()</code> pasa a ser recursivo (~15 líneas). Serializable, sin SQL crudo, sin SQLAlchemy en AMDock.</td>
+</tr>
+<tr>
+<td>1.2.b</td>
+<td><code>query.py</code></td>
+<td><code>db_count(spec)</code>. Mismo spec, tercera salida junto a <code>db_rows</code> / <code>db_stream</code>. <strong>No</strong> se añaden agregados a la gramática.</td>
+</tr>
+<tr>
+<td>1.2.c</td>
+<td><code>query.py</code></td>
+<td><code>QuerySpec.from_select(stmt)</code> como válvula <strong>interna de ms_flow</strong>: congela <code>str(stmt)</code> + params compilados en el <code>query=</code>/<code>params</code> que ya existe. Es la garantía de que 1.2.a sea el último operador que se añade.</td>
+</tr>
+<tr>
+<td>1.2.d</td>
+<td><code>query.py</code></td>
+<td>Renombrar la familia <code>project_*</code> → algo que no colisione con "project" del registro de ms_flow (p. ej. <code>rows()</code>/<code>stream()</code>/<code>count()</code> en un namespace <code>ms_flow.query</code>). Cosmético; hacerlo ahora que hay pocos call sites.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Check:</strong> <code>assert</code> sobre <code>QuerySpec(...).compile()</code> con un <code>__not_in_subquery</code> anidado
+comparando SQL y params esperados.</p>
+<h3 id="13-amdock-matar-los-sets-de-python">1.3 amdock · matar los sets de Python<a class="headerlink" href="#13-amdock-matar-los-sets-de-python" title="Permanent link">&para;</a></h3>
+<p>Los tres sets tienen <strong>la misma forma</strong>: <code>id IN (SELECT ... FROM otra WHERE ...)</code>.
+Existen solo porque <code>QuerySpec</code> era mono-tabla. Con 1.2.a desaparecen los tres.</p>
+<table>
+<thead>
+<tr>
+<th>Tarea</th>
+<th>Archivo</th>
+<th>Acción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1.3.a</td>
+<td><code>docking/repository.py:525-555</code></td>
+<td><code>existing_result_pairs()</code> → borrar. Sustituir por: por receptor, <code>ligand.id __not_in_subquery(DockingResult.ligand_molecule_id WHERE receptor_id=R)</code>. Una columna, cero Python.</td>
+</tr>
+<tr>
+<td>1.3.b</td>
+<td><code>docking/service.py:327-370</code></td>
+<td><code>iter_docking_batches_from_rows</code>: quitar <code>if (receptor_id, ligand_id) in skip_pairs</code>. El skip lo hace la db.</td>
+</tr>
+<tr>
+<td>1.3.c</td>
+<td><code>docking/jobs.py:328</code></td>
+<td>Quitar <code>skip_pairs</code> del closure del generador. Es la única estructura que escalaba con el total en vez de con el batch.</td>
+</tr>
+<tr>
+<td>1.3.d</td>
+<td><code>docking/jobs.py:79-104</code></td>
+<td><code>count_pending_docking_pairs</code>: fuera <code>set(entity_ids(...))</code> de ligandos y receptores. Se resuelve con <code>db_count(spec)</code> (1.2.b).</td>
+</tr>
+<tr>
+<td>1.3.e</td>
+<td><code>docking/repository.py:196</code></td>
+<td><code>_iter_entity_ids</code>: quitar el post-filtrado en Python contra <code>allowed</code> y <code>prepared</code>. Ambos son subqueries.</td>
+</tr>
+<tr>
+<td>1.3.f</td>
+<td><code>docking/api.py:495-540</code></td>
+<td><code>check_required</code>: hoy construye 4 colecciones del tamaño de la biblioteca para reportar 4 números. Reescribir con <code>db_count</code> + muestreo, siguiendo el patrón que ya usa <code>check_ligand_preparation_required</code> (<code>docking/api.py:300</code>, <code>MISSING_SAMPLE_SIZE</code>).</td>
+</tr>
+<tr>
+<td>1.3.g</td>
+<td><code>docking/repository.py:78</code></td>
+<td><code>_augment_molecule_row</code> lanza 2 queries por fila (N+1). Resolver con subquery/join en el spec.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Check:</strong> con 50 ligandos × 2 receptores y 30 pares ya dockeados, <code>count_pending_docking_pairs</code>
+devuelve 70 y el generador emite 70 pares — sin construir ninguna colección de tamaño biblioteca.</p>
+<h3 id="14-amdock-disolver-queriespy-en-repositories-por-herramienta">1.4 amdock · disolver <code>queries.py</code> en repositories por herramienta<a class="headerlink" href="#14-amdock-disolver-queriespy-en-repositories-por-herramienta" title="Permanent link">&para;</a></h3>
+<p><code>queries.py</code> es una capa global compartida (18 métodos: 14 de docking, 4 de molecules).
+Es lo contrario de lo que se quiere: tocar docking obliga a tocar un módulo global.</p>
+<table>
+<thead>
+<tr>
+<th>Tarea</th>
+<th>Acción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1.4.a</td>
+<td>Los 14 métodos de docking bajan a <code>docking/repository.py</code> (ya existe).</td>
+</tr>
+<tr>
+<td>1.4.b</td>
+<td>Los 4 de molecules (<code>list_ligands</code>, <code>list_receptors</code>, <code>get_ligand_table_stats</code>, <code>get_receptor_table_stats</code>) van a un <code>molecules/repository.py</code> nuevo. Los dos <code>*_table_stats</code> <strong>se conservan</strong> (sin callers hoy, pero previstos) y se reescriben con <code>db_count</code> en vez de leer la tabla entera (<code>queries.py:436</code>, <code>:476</code>).</td>
+</tr>
+<tr>
+<td>1.4.c</td>
+<td>Borrar <code>_safe_project_rows</code> (<code>queries.py:225</code>): su <code>query=</code> crudo es justo el atajo que 1.2.a/1.2.c sustituyen, y el <code>except</code> que devuelve <code>[]</code> ante "no such table" enmascara errores.</td>
+</tr>
+<tr>
+<td>1.4.d</td>
+<td>Borrar <code>queries.py</code> y <code>project_queries()</code> (13 call sites, 12 desde <code>docking/api.py</code>).</td>
+</tr>
+<tr>
+<td>1.4.e</td>
+<td><code>docking/*</code>: eliminar <code>session.exec(select(...))</code> directo. No es la puerta equivocada por sí mismo, pero docking hoy usa <strong>tres</strong> a la vez (ORM + <code>db_stream</code> + <code>db_rows</code>). Queda una: el repository construye <code>QuerySpec</code>, <code>api.py</code> no sabe de queries.</td>
+</tr>
+</tbody>
+</table>
+<p>Regla que queda: <strong>una herramienta = un repository = todos sus <code>QuerySpec</code></strong>.</p>
+<h3 id="15-ui-una-sola-tabla-dos-modos-de-navegacion">1.5 UI · una sola tabla, dos modos de navegación<a class="headerlink" href="#15-ui-una-sola-tabla-dos-modos-de-navegacion" title="Permanent link">&para;</a></h3>
+<p>Hoy hay cuatro mecanismos de paginación: <code>ms_table</code> (offset), <code>lazy_table</code> (offset),
+<code>workspace</code> (offset + append manual) y <code>page_after</code> (keyset, en ms_flow, sin usar).</p>
+<table>
+<thead>
+<tr>
+<th>Tarea</th>
+<th>Archivo</th>
+<th>Acción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1.5.a</td>
+<td><code>ms_components/ms_table/table_config.py</code> (<code>ColumnDef</code>)</td>
+<td>Permitir que una columna lleve una <strong>expresión SQLAlchemy</strong> además de un nombre. <code>QueryBuilder</code> ya construye con SQLAlchemy, así que la acepta sin cambio estructural. Esto es lo único que le faltaba a <code>SmartTableView</code> para columnas <code>JSON_EXTRACT</code>.</td>
+</tr>
+<tr>
+<td>1.5.b</td>
+<td><code>amdock/ui/lazy_table.py</code></td>
+<td><strong>Borrar</strong> (191 líneas). Su única razón de existir la cubre 1.5.a.</td>
+</tr>
+<tr>
+<td>1.5.c</td>
+<td><code>ms_components/ms_table/table_config.py</code></td>
+<td>Flags en <code>TableConfig</code> para ocultar filtros/búsqueda (tabla "simple"). No hace falta un componente nuevo.</td>
+</tr>
+<tr>
+<td>1.5.d</td>
+<td><code>amdock/ui/workspace.py</code></td>
+<td>Las tres tablas de resultados (receptores, ligandos y poses) → <code>SmartTableView</code> con config simple. Mata <code>self._ligand_rows.extend(rows)</code> (acumulación no acotada) y el <code>resizeColumnsToContents()</code> sobre todas las filas cargadas (escroleo cuadrático).</td>
+</tr>
+<tr>
+<td>1.5.e</td>
+<td><code>ms_components/ms_table/query_builder.py:167-168</code></td>
+<td>Navegación: <strong>offset</strong> para <code>TableLoadMode.PAGINATED</code> (hace falta saltar a la página N), <strong>keyset</strong> para <code>INFINITE</code> (solo avanza). El keyset ya existe: <code>ms_flow/core/database/project.py:510 page_after(cursor_field, after, limit)</code>. Cursor compuesto <code>(sort_key, id)</code> para orden no único.</td>
+</tr>
+<tr>
+<td>1.5.f</td>
+<td><code>ms_components/ms_table/query_builder.py</code></td>
+<td><code>QueryBuilder.to_query_spec()</code>. Es el caso que lo justifica: la selección <strong>"filtered"</strong> tiene que llegar al job. Sin esto, o manda una lista de ids materializada (el problema que estamos matando) o no se puede pasar.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Check:</strong> cargar 5.000 filas en modo <code>INFINITE</code> y verificar que el modelo mantiene ≤ 2 páginas
+en memoria y que el SQL emitido no contiene <code>OFFSET</code>.</p>
+<h3 id="16-ms_flow-sink-de-archivos-hallazgo-4">1.6 ms_flow · sink de archivos (hallazgo #4)<a class="headerlink" href="#16-ms_flow-sink-de-archivos-hallazgo-4" title="Permanent link">&para;</a></h3>
+<p><code>core/executor/result_handlers.py:208</code> mantiene <code>self._file_history: list[StagedOutput]</code>, al que
+se hace append por cada chunk <code>FileOutputSpec</code> (<code>:401</code>) sin podar hasta <code>close()</code>; y <code>_file_payload()</code>
+(<code>:412</code>) hace <code>list(self._file_history)</code> y <strong>reconstruye el archivo entero en cada <code>write_batch</code></strong>
+→ memoria O(N) y IO O(N²). Latente: AMDock hoy solo usa sinks de db.</p>
+<p>Dos modos, según lo que definiste:</p>
+<ul>
+<li><code>append</code>: se abre el archivo una vez y cada batch se anexa. Sin historia en memoria.</li>
+<li><code>per_batch</code>: un archivo por batch. Solo se retiene el manifiesto de rutas.</li>
+</ul>
+<p>En ambos, el valor puede ser <strong>una lista de archivos</strong> (una salida que escribe dos archivos con
+dos informaciones distintas; o un batch que devuelve varios archivos individuales).</p>
+<h3 id="17-ms_flow-retencion-en-executordb-hallazgo-6">1.7 ms_flow · retención en <code>executor.db</code> (hallazgo #6)<a class="headerlink" href="#17-ms_flow-retencion-en-executordb-hallazgo-6" title="Permanent link">&para;</a></h3>
+<p><code>ExecutorJobChunk</code> y <code>ExecutorJobEvent</code> no tienen política de retención → crecimiento indefinido
+en disco. Purga por antigüedad/job terminado, configurable. Es disco, no RAM: prioridad baja
+dentro de la Fase 1, pero cierra el hallazgo.</p>
+<hr />
+<h2 id="fase-2-inputsource-emite-specs-habilita-htp">Fase 2 — <code>InputSource</code> emite specs (habilita HTP)<a class="headerlink" href="#fase-2-inputsource-emite-specs-habilita-htp" title="Permanent link">&para;</a></h2>
+<p>Solo cuando HTP sea real. En este punto <code>DataBridge</code> estrena con el motor ya arreglado por 1.1
+en vez de con <code>sqlite3</code> pelado.</p>
+<p>Objetivo:</p>
+<div class="highlight"><pre><span></span><code>InputSource  →  compone specs  →  DataBridge  →  ÚNICA puerta a la db
+ (lógica)         (referencias)     (lectura)
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Tarea</th>
+<th>Acción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2.1</td>
+<td><code>InputSource</code> deja de llamar <code>db_stream</code>. Cuando necesita saber dónde cortar, compone un spec de <strong>una sola columna</strong> y se lo pide al bridge: <code>DbInputSpec(fields=["id"], where={"id__gt": last}, limit=N)</code>. Streaming, memoria constante sea cual sea el total. Keyset, no OFFSET — misma primitiva que 1.5.e.</td>
+</tr>
+<tr>
+<td>2.2</td>
+<td>Nuevos métodos en <code>InputSource</code>: <code>count()</code> → <code>None</code> por defecto, sobrescrito por los hijos que puedan (<code>ProjectQueryInput</code> → <code>db_count</code>; fuente HTP de archivos → <code>None</code> o el conteo del índice). Y <code>filter(predicate)</code> genérico, aplicado dentro de <code>iter_chunks</code>, perezoso.</td>
+</tr>
+<tr>
+<td>2.3</td>
+<td><code>docking/jobs.py:568 DockingPairsInput</code> y <code>io/jobs.py:182 FileInput</code> emiten chunks con <strong>referencias</strong>, no filas. El payload en <code>payload_json</code> deja de ser una segunda copia de la biblioteca. La lógica de troceo (producto cruzado, parámetros por par, presupuesto de bytes) se queda donde está: es lógica de dominio, no cabe en un spec.</td>
+</tr>
+<tr>
+<td>2.4</td>
+<td><code>amdock/molecules/stream.py</code>: <code>MoleculeStream</code> <strong>se borra</strong> — es una tercera copia de <code>InputSource</code>. <code>MoleculeRow</code> se queda en AMDock, pero el envoltorio se hace <strong>del lado del consumidor</strong> (la función del job), no en el feed: todo lo que entra en <code>payload_json</code> debe ser plano. Cero coste de envoltorio en la ruta de feed; sin conflicto con la postura de <code>bulk_insert</code>/SQLAlchemy Core. Quitar además el <code>dict(data)</code> copy de <code>MoleculeRow.__init__</code>.</td>
+</tr>
+<tr>
+<td>2.5</td>
+<td>Fuente HTP de archivos: shards en disco + índice ligero (<code>.idx</code> sidecar con offsets). Cumple el mismo protocolo <code>InputSource</code>; ningún método de docking/prep/selection se entera.</td>
+</tr>
+<tr>
+<td>2.6</td>
+<td>Resume: <code>cursor_position</code> (<code>core/executor/services/feeding.py:247</code>) es un <strong>contador de chunks</strong>, no un cursor de datos — al reanudar una fuente diferida se re-itera y se descartan N chunks. Con keyset se persiste la última clave emitida y se arranca de ahí.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="27-identidad-de-molecula-clave-hash-id">2.7 Identidad de molécula (clave hash / id)<a class="headerlink" href="#27-identidad-de-molecula-clave-hash-id" title="Permanent link">&para;</a></h3>
+<p>Dos identidades separadas, es la única forma que funciona para HTP:</p>
+<ul>
+<li><strong>Hash de contenido</strong> (InChIKey o hash canónico) = <strong>identidad</strong>. Estable, se calcula sin db,
+  viaja con la molécula desde el shard, es la clave del <code>MoleculeRow</code> mientras vive en archivos.</li>
+<li><strong><code>id</code> de la db</strong> = <strong>localidad</strong>. Solo existe si la molécula se promueve a <code>project.db</code>;
+  la fila guarda el hash como columna indexada.</li>
+</ul>
+<p>Así el <code>__not_in_subquery</code> funciona igual sobre <code>id</code> (flujo normal) que sobre el hash
+(flujo HTP promovido), y un hit que se promueve se reconcilia sin re-parsear nada.</p>
+<hr />
+<h2 id="orden-y-dependencias">Orden y dependencias<a class="headerlink" href="#orden-y-dependencias" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code>1.1 (engine + compilador)  ──┐
+1.2 (QuerySpec + count)    ──┼──&gt; 1.3 (sets de Python)  ──&gt; 1.4 (repositories)
+                             └──&gt; 1.5.f (to_query_spec)
+
+1.5.a ──&gt; 1.5.b ──&gt; 1.5.d          1.5.c ──&gt; 1.5.d          1.5.e (independiente)
+
+1.6, 1.7  independientes
+
+Fase 1 completa ──&gt; Fase 2
+</code></pre></div>
+<p>Camino crítico: <strong>1.2 → 1.3</strong>. Es lo que cierra los hallazgos de RAM (#1, #2, #3)
+y lo que quita las comparaciones de listas enormes en Python.</p>
+<h2 id="hallazgos-cubiertos">Hallazgos cubiertos<a class="headerlink" href="#hallazgos-cubiertos" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Hallazgo</th>
+<th>Tarea</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><code>skip_pairs</code> + sets de ids en <code>docking/jobs.py</code></td>
+<td>1.3.a–c</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>check_required</code>: 4 colecciones para 4 números</td>
+<td>1.3.f</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>*_table_stats</code> leen la tabla entera para agregar</td>
+<td>1.4.b</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Sink de archivos O(N) memoria / O(N²) IO</td>
+<td>1.6</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Acumulación no acotada en <code>workspace.py</code></td>
+<td>1.5.d</td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>executor.db</code> sin retención</td>
+<td>1.7</td>
+</tr>
+<tr>
+<td>—</td>
+<td><code>sqlite3</code> crudo sin pragmas (bug de concurrencia + FK off)</td>
+<td>1.1</td>
+</tr>
+<tr>
+<td>—</td>
+<td>Dos puertas de acceso a db</td>
+<td>Fase 2</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="estado-fase-1-2026-08-28">Estado Fase 1 — 2026-08-28<a class="headerlink" href="#estado-fase-1-2026-08-28" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Tarea</th>
+<th>Estado</th>
+<th>Nota</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1.1</td>
+<td>hecho</td>
+<td>pragmas + FK en el acceso sqlite</td>
+</tr>
+<tr>
+<td>1.2.a–b</td>
+<td>hecho</td>
+<td><code>__in_subquery</code> / <code>__not_in_subquery</code>, rutas JSON declarativas, <code>db_count</code></td>
+</tr>
+<tr>
+<td>1.2.c–d</td>
+<td><strong>no hecho</strong></td>
+<td><code>QuerySpec.from_select</code> sin consumidor; renombrar la familia <code>project_*</code> es churn sin ganancia</td>
+</tr>
+<tr>
+<td>1.3</td>
+<td>hecho salvo redocking</td>
+<td>el cribado es <code>NOT IN (subconsulta)</code>; redocking sigue con <code>existing_result_pairs</code> (acotado por el set de complejos, y <code>DockingResult</code> no tiene columna <code>complex_id</code> con la que armar la subconsulta)</td>
+</tr>
+<tr>
+<td>1.4</td>
+<td>hecho</td>
+<td><code>queries.py</code> (960 líneas) borrado → <code>docking/repository.py</code> + <code>molecules/repository.py</code>. <code>list_ligands</code> / <code>list_receptors</code> / <code>molecule_source_properties</code> se borraron en vez de moverse: filtraban por <code>primary_role</code>, que no es columna de <code>MoleculeRecord</code> — estaban muertas y rotas. Los <code>*_table_stats</code> se reescribieron agregando en SQL</td>
+</tr>
+<tr>
+<td>1.5.a</td>
+<td>hecho</td>
+<td><code>ColumnDef.expr</code> (expresión SQLAlchemy); filtrable y ordenable</td>
+</tr>
+<tr>
+<td>1.5.b</td>
+<td>hecho</td>
+<td><code>lazy_table.py</code> borrado</td>
+</tr>
+<tr>
+<td>1.5.c</td>
+<td>hecho</td>
+<td><code>TableConfig.show_filters</code> / <code>show_search</code></td>
+</tr>
+<tr>
+<td>1.5.d</td>
+<td>hecho</td>
+<td><code>By Receptor</code>, <code>Ligands</code> y <code>Poses</code> son <code>SmartTableView</code>. Ligands usa <code>pose_rank=1</code> como fila raíz y un subquery correlacionado acotado para <code>pose_count</code>; ya no hay lista/append manual en memoria.</td>
+</tr>
+<tr>
+<td>1.5.e</td>
+<td>hecho</td>
+<td>Keyset en <code>INFINITE</code> (cursor compuesto <code>(orden, pk)</code>) y ventana real de 2 páginas que reemplaza las anteriores. La carga normal no hace <code>COUNT</code>; pide una fila extra como centinela. <code>OFFSET</code> queda sólo como fallback para saltar hacia una zona cuyo cursor ya no está en la ventana.</td>
+</tr>
+<tr>
+<td>1.5.f</td>
+<td>hecho</td>
+<td><code>QueryBuilder.to_query_spec()</code> → dict de kwargs (la tabla no depende de ms_flow); levanta si el estado no es expresable</td>
+</tr>
+<tr>
+<td>1.6</td>
+<td>hecho</td>
+<td><code>FileOutputSpec.append</code> y <code>.per_batch</code>. Lo de "el valor puede ser una lista de archivos" no se hizo: sin consumidor no hay contrato de nombres</td>
+</tr>
+<tr>
+<td>1.7</td>
+<td>hecho</td>
+<td><code>ExecutorStore.purge_finished_jobs(older_than_days=30)</code>, se corre al abrir proyecto; expuesta como <code>purge_job_history</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="estado-fase-2-2026-08-28">Estado Fase 2 — 2026-08-28<a class="headerlink" href="#estado-fase-2-2026-08-28" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Tarea</th>
+<th>Estado</th>
+<th>Qué se hizo / por qué se desvió</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2.1</td>
+<td>Hecho, por otra puerta</td>
+<td><code>ms_flow.query.db_pages(source, spec, key="id", page_size=N)</code>: keyset (<code>WHERE key &gt; última ORDER BY key LIMIT n</code>), una lectura corta por página. <strong>No va por <code>DataBridge</code></strong>: tras 1.1 <code>ProjectStore.read_rows</code> y <code>SQLiteBackend.read</code> compilan por el mismo <code>compile_select</code> sobre el mismo <code>get_sqlite_engine</code>, y <code>read_rows</code> ya abre y cierra sesión por llamada. Meter un <code>DataBridge</code>+<code>DataContext</code> en el config del chunk-source era fontanería sin diferencia de comportamiento con SQLite como único motor. Adoptado por <code>ProjectTableInput</code>, <code>ProjectQueryInput</code>, <code>iter_entity_rows</code>, <code>_iter_entity_ids</code> y el alcance de selección. Sin clave utilizable (SQL crudo, <code>offset</code>, orden ajeno) cae a <code>db_stream</code>.</td>
+</tr>
+<tr>
+<td>—</td>
+<td>Bug encontrado de paso</td>
+<td><code>compile_select</code> emitía <code>OFFSET ?</code> sin <code>LIMIT</code>, que SQLite rechaza. Ahora emite <code>LIMIT -1 OFFSET ?</code>.</td>
+</tr>
+<tr>
+<td>2.2</td>
+<td><code>filter()</code> sí, <code>count()</code> no</td>
+<td><code>InputSource.filter(predicate)</code> genérico y perezoso, aplicado dentro de <code>iter_chunks</code> (y también en el <code>iter_chunks</code> propio de <code>SimpleInputSource</code>). <code>count()</code> <strong>no se añadió</strong>: nadie lo consume — <code>total_chunks</code> no se alimenta de la fuente, y declararlo de más deja el job sin completar nunca. El único sitio que contaba recorriendo (<code>sum(1 for _ in ...)</code> en <code>selection/api.py</code>) pasó a <code>scope_molecule_count</code>, que es un <code>COUNT</code>.</td>
+</tr>
+<tr>
+<td>2.3</td>
+<td>Hecho (import); docking ya cumplía</td>
+<td><code>DockingPairsInput</code> ya emitía referencias (<code>build_docking_pair</code>: ids, rutas, números). La segunda copia de la biblioteca estaba en el feed de import: cada chunk llevaba ~4 MB de texto <code>raw</code> en <code>payload_json</code>, o sea un SDF de 10 GB metía 10 GB en payloads/spool. Ahora el chunk lleva un <strong>rango de bytes</strong> (<code>span_offset</code>, <code>span_end</code>, <code>span_first_index</code>, <code>span_count</code>) y el worker relee ahí sus registros (<code>iter_record_spans</code> / <code>read_record_span</code> en <code>io/parsers/readers.py</code>). El payload baja de ~4 MB a ~200 B. <code>records</code>/<code>entries</code> siguen valiendo para formatos sin separador (un PDB suelto) y para payloads antiguos.</td>
+</tr>
+<tr>
+<td>2.4</td>
+<td>Hecho, y de más</td>
+<td><code>MoleculeStream</code> borrado. También <code>MoleculeRow</code>, <code>from_rows</code> y <code>db_molecules</code>: al mover el envoltorio al consumidor se quedaron sin un solo uso, y <code>db_molecules</code> era un alias exacto de <code>iter_entity_rows</code>. El módulo <code>amdock/molecules/stream.py</code> desaparece entero. El troceo es <code>itertools.batched</code> y el filtrado el <code>filter</code> de serie — escalera, peldaño 2. De paso, la pertenencia a un set en el alcance de selección era un <code>set</code> de Python con todos los ids; ahora es <code>id__in_subquery</code>.</td>
+</tr>
+<tr>
+<td>2.5</td>
+<td>No construido</td>
+<td>Sigue sin consumidor y el propio plan lo condiciona a "solo cuando HTP sea real". Lo que sí quedó hecho es su primitiva: <code>iter_record_spans</code> <strong>es</strong> el índice de offsets del sidecar <code>.idx</code>, y <code>read_record_span</code> el lector de shard. Cuando HTP exista, esto es la mitad del trabajo.</td>
+</tr>
+<tr>
+<td>2.6</td>
+<td>No aplica como está escrito</td>
+<td>La premisa no se cumple: nada en ms_flow reanuda un feed entre procesos. <code>JobFeed</code> sólo se crea en <code>submit</code>, en memoria, y <code>restore_chunk_source</code> se llama siempre con <code>cursor_position=0</code> — no hay ningún sitio donde se descarten N chunks. Persistir una clave de datos aquí sería construir la función de reanudación, no arreglarla. Se deja <code>cursor_position</code> como el contador que es.</td>
+</tr>
+<tr>
+<td>2.7</td>
+<td>Ya estaba en el esquema</td>
+<td>Las dos identidades ya existen: el InChIKey vive en <code>molecule_representations</code> con <code>Index("idx_repr_lookup", repr_type, value)</code> — columna hash indexada — y <code>molecules.id</code> es la localidad. <code>__not_in_subquery</code> funciona hoy sobre cualquiera de las dos. No hay nada que construir hasta que las moléculas vivan en shards (2.5).</td>
+</tr>
+</tbody>
+</table>
+<p>Comprobaciones nuevas: <code>ms_flow/tests/test_project_pages.py</code> (páginas == cursor, una lectura corta por
+página, límite/filtros, y las caídas a <code>db_stream</code>), <code>test/test_import_record_spans.py</code> (el rango
+releído rinde exactamente los registros de antes; los chunks son contiguos y no llevan la biblioteca) y
+<code>test/test_preparation_stream.py</code> (sustituye a <code>test_molecule_stream.py</code>: lo que queda por proteger es
+que el consumidor trocee perezosamente y salte lo ya preparado).</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 AMDockVS authors
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["content.code.copy","navigation.footer","navigation.path","navigation.sections","navigation.top","search.highlight","search.suggest"],"redirect":null,"search":"../assets/javascripts/workers/search.c47bb847.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"provider":"mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.77dd0ce9.min.js"></script>
+      
+    
+  </body>
+</html>
