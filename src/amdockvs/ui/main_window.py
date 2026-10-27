@@ -3,11 +3,12 @@ from __future__ import annotations
 import os
 import sys
 
-from PySide6.QtCore import Qt, QTimer, QSettings, Signal
+from PySide6.QtCore import Qt, QTimer, QSettings, QSignalBlocker, Signal
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
+    QHBoxLayout,
     QMessageBox,
     QWidget,
 )
@@ -17,6 +18,7 @@ from amdockvs.runtime import AMDockVSRuntime
 from amdockvs.project.summaries import DockingHitSummary
 from amdockvs.ui.catalog.common import SelectionStore
 from amdockvs.ui.shell.main_content import MainContentWidget
+from amdockvs.ui.shell.tutorials_panel import TutorialsPanel
 from amdockvs.ui.monitor import JobsDialog
 from amdockvs.ui.shell.projects import ApplicationWidget
 from amdockvs.ui.registry import register_all
@@ -189,10 +191,21 @@ class AMDockVSMainWindow(QMainWindow):
 
         self.central_widget = MainContentWidget()
         self.central_widget.open_project_requested.connect(self._open_projects_browser)
-        self.central_widget.docking_tutorial_requested.connect(self._start_docking_tutorial)
+        hide_tutorials = self._settings.value("tutorials/hide_on_startup", False, type=bool)
+        self.tutorials_panel = TutorialsPanel(hide_on_startup=hide_tutorials)
+        self.tutorials_panel.start_requested.connect(self._start_docking_tutorial)
+        self.tutorials_panel.close_requested.connect(lambda: self._set_tutorials_panel_visible(False))
+        self.tutorials_panel.startup_preference_changed.connect(self._set_tutorials_startup_preference)
         register_all(self)
         self.central_widget.current_view_changed.connect(self._on_current_view_changed)
-        self.setCentralWidget(self.central_widget)
+        central_shell = QWidget(self)
+        shell_layout = QHBoxLayout(central_shell)
+        shell_layout.setContentsMargins(0, 0, 0, 0)
+        shell_layout.setSpacing(0)
+        shell_layout.addWidget(self.tutorials_panel)
+        shell_layout.addWidget(self.central_widget, 1)
+        self.tutorials_panel.setVisible(not hide_tutorials)
+        self.setCentralWidget(central_shell)
         self.monitor_bridge.job_finished.connect(self.jobs.on_job_finished)
         self.monitor_bridge.project_changed.connect(self.jobs.on_monitor_project_changed)
         self.monitor_bridge.project_snapshot_updated.connect(self.jobs.on_project_snapshot_updated)
@@ -341,6 +354,11 @@ class AMDockVSMainWindow(QMainWindow):
         file_menu.addAction("Exit", self.close)
 
         view_menu = menu_bar.addMenu("&View")
+        self.tutorials_panel_action = view_menu.addAction("Tutorials panel")
+        self.tutorials_panel_action.setCheckable(True)
+        self.tutorials_panel_action.setChecked(not self.tutorials_panel.isHidden())
+        self.tutorials_panel_action.toggled.connect(self._set_tutorials_panel_visible)
+        view_menu.addSeparator()
         toolbars_menu = view_menu.addMenu("Toolbars")
         cgrp = QActionGroup(self)
         cgrp.setExclusive(True)
@@ -452,6 +470,11 @@ class AMDockVSMainWindow(QMainWindow):
             widget.setVisible(on)  # hidden, not greyed: the welcome screen stands alone
         for action in self._project_actions:
             action.setEnabled(on)
+        # The tutorials library belongs to the welcome page; the guided
+        # tutorial itself continues in the project workspace without it.
+        if on:
+            self._set_tutorials_panel_visible(False)
+        self.tutorials_panel_action.setEnabled(not on)
 
     def _open_projects_browser(self) -> None:
         if self._app_widget is not None and not self._closing:
@@ -461,6 +484,19 @@ class AMDockVSMainWindow(QMainWindow):
         from amdockvs.ui.docking_tutorial import launch_simple_docking_tutorial
 
         launch_simple_docking_tutorial(self)
+
+    def _set_tutorials_panel_visible(self, visible: bool) -> None:
+        self.tutorials_panel.setVisible(visible)
+        action = getattr(self, "tutorials_panel_action", None)
+        if action is not None:
+            with QSignalBlocker(action):
+                action.setChecked(visible)
+
+    def _set_tutorials_startup_preference(self, hide: bool) -> None:
+        self._settings.setValue("tutorials/hide_on_startup", hide)
+        self._settings.sync()
+        if hide:
+            self._set_tutorials_panel_visible(False)
 
     # -- views / tools / auxiliary (delegating to the shell controllers) -----------
 

@@ -5,7 +5,6 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
     QLabel,
-    QFrame,
     QGridLayout,
     QProxyStyle,
     QPushButton,
@@ -46,7 +45,6 @@ class MainContentWidget(QStackedWidget):
     current_view_changed = Signal(object)
     view_open_state_changed = Signal(str, bool)
     open_project_requested = Signal()
-    docking_tutorial_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -112,29 +110,6 @@ class MainContentWidget(QStackedWidget):
         primary_layout.addSpacing(16)
         primary_layout.addWidget(button, alignment=Qt.AlignCenter)
         layout.addWidget(primary, 0, 0, alignment=Qt.AlignCenter)
-        card = QFrame(page)
-        card.setObjectName("simpleDockingTutorialCard")
-        card.setFrameShape(QFrame.Shape.StyledPanel)
-        card.setAutoFillBackground(True)
-        card.setFixedWidth(420)
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(22, 18, 22, 18)
-        card_layout.setSpacing(10)
-        heading = QLabel("Your first docking", card)
-        heading.setStyleSheet("font-size: 20px; font-weight: 600;")
-        description = QLabel(
-            "Dock SAR405 into Vps34 in eight guided steps. Create a project, import the example molecules, "
-            "prepare them, and run your first calculation in a separate practice project.", card)
-        description.setWordWrap(True)
-        description.setMinimumHeight(description.heightForWidth(374))
-        detail = QLabel("Vps34 · SAR405 · 4OYS", card)
-        self.docking_tutorial_button = QPushButton("Start tutorial", card)
-        self.docking_tutorial_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.docking_tutorial_button.clicked.connect(self.docking_tutorial_requested.emit)
-        for widget in (heading, description, detail, self.docking_tutorial_button):
-            card_layout.addWidget(widget)
-        layout.addWidget(card, 0, 0, alignment=Qt.AlignLeft | Qt.AlignBottom)
-        page.setMinimumHeight(primary.sizeHint().height() + 2 * card.sizeHint().height() + 48)
         return page
 
     def register_view(

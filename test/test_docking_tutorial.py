@@ -12,10 +12,10 @@ import pytest
 from amdockvs.runtime import AMDockVSRuntime
 from PySide6.QtTest import QTest
 from PySide6.QtCore import Qt, QThread, QTimer
-from PySide6.QtWidgets import QApplication, QDialog, QDockWidget, QFileDialog, QFrame, QMessageBox, QTableWidgetItem, QWidget
+from PySide6.QtWidgets import QApplication, QDialog, QDockWidget, QFileDialog, QFrame, QMessageBox, QTableWidgetItem
 from amdockvs.ui.docking_tutorial import copy_example_inputs, example_data, start_simple_docking_tutorial
 from amdockvs.ui.main_window import AMDockVSMainWindow
-from amdockvs.ui.shell.main_content import MainContentWidget
+from amdockvs.ui.shell.tutorials_panel import TutorialsPanel
 from amdockvs.ui.view_ids import DOCKING_VIEW_ID
 
 
@@ -43,25 +43,18 @@ def wait_until(app, predicate):
     pytest.fail("Tutorial did not reach the expected state")
 
 
-def test_welcome_card_starts_a_tutorial_without_opening_the_project_browser():
+def test_tutorial_panel_starts_a_tutorial():
     app = QApplication.instance() or QApplication([])
-    content = MainContentWidget()
-    content.resize(900, 700)
-    content.show()
+    panel = TutorialsPanel()
+    panel.resize(320, 700)
+    panel.show()
     app.processEvents()
-    started, projects = [], []
-    content.docking_tutorial_requested.connect(lambda: started.append(True))
-    content.open_project_requested.connect(lambda: projects.append(True))
-    content.docking_tutorial_button.click()
-    assert started == [True] and projects == []
-    card = content.findChild(QFrame, "simpleDockingTutorialCard")
-    assert card.isVisible()
-    assert content.docking_tutorial_button.isVisible()
-    primary = content.findChild(QWidget, "welcomeProjectControls")
-    assert card.geometry().bottom() > primary.geometry().bottom()
-    assert card.geometry().left() < primary.geometry().left()
-    assert not card.geometry().intersects(primary.geometry())
-    content.close()
+    started = []
+    panel.start_requested.connect(lambda: started.append(True))
+    panel.start_button.click()
+    assert started == [True]
+    assert panel.findChild(QFrame, "tutorialCard").isVisible()
+    panel.close()
 
 
 def test_bundled_example_is_usable_offline_and_the_box_contains_the_ligand():
@@ -178,6 +171,23 @@ def submit_import(tutorial, role, jobs, monkeypatch):
     assert tutorial.controller.overlay.parentWidget() is tutorial.window
 
 
+def test_tutorials_panel_is_hidden_in_project_workspace(practice):
+    app, runtime, window, _messages = practice
+    assert runtime.active_context is not None
+    assert not window.tutorials_panel.isVisible()
+    assert not window.tutorials_panel_action.isEnabled()
+    assert not window._settings.value("tutorials/hide_on_startup", False, type=bool)
+
+    # Starting directly with an existing project also stays in the workspace.
+    second = AMDockVSMainWindow(runtime=runtime)
+    second.show()
+    app.processEvents()
+    assert not second.tutorials_panel.isVisible()
+    assert not second.tutorials_panel_action.isEnabled()
+    second.close()
+    app.processEvents()
+
+
 def test_creation_keeps_an_open_project_and_uses_a_fresh_directory(practice, tmp_path):
     _app, runtime, _window, _messages = practice
     active = runtime.active_context
@@ -196,7 +206,7 @@ def test_starting_from_an_open_project_restarts_into_the_practice_project(practi
     calls = []
     monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *_: str(tmp_path))
     monkeypatch.setattr(application, "restart", lambda *args: calls.append(args))
-    window.central_widget.docking_tutorial_button.click()
+    window.tutorials_panel.start_button.click()
     assert runtime.active_context is active
     assert len(calls) == 1
     assert calls[0] == (window, "--tutorial", "simple-docking")
@@ -423,7 +433,7 @@ def test_welcome_tutorial_waits_for_user_project_creation(tmp_path, monkeypatch)
     window.show()
     app.processEvents()
     try:
-        window.central_widget.docking_tutorial_button.click()
+        window.tutorials_panel.start_button.click()
         tutorial = window._docking_tutorial
         assert runtime.active_context is None
         assert runtime.list_projects(page=1, items_per_page=100) == []
