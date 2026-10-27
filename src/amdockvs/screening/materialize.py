@@ -258,6 +258,43 @@ def ingest_hits(
     return materialized
 
 
+def promote_records(project_db, records: Iterable[Mapping[str, Any]]) -> dict[tuple[int | None, int], int]:
+    """Library records into `molecules` rows and nothing else: what a reduction of a sharded
+    library keeps (a clustering's representatives, a QSAR cut). A record promoted before — a
+    hit, an earlier pick — keeps its row. A record's `structure` is a `Payload`. Returns
+    {(import_batch_id, source_index): molecule_id}.
+
+    ponytail: a session, like `ingest_hits`: what reaches it is the reduction, never the library.
+    """
+    pending: dict[tuple[int | None, int], Mapping[str, Any]] = {
+        (record.get("import_batch_id"), int(record.get("source_index") or 0)): record for record in records
+    }
+    if not pending:
+        return {}
+    promoted: dict[tuple[int | None, int], int] = {}
+    with project_db.get_session() as session:
+        batches = sorted({batch for batch, _index in pending if batch is not None})
+        for molecule_id, batch, index in session.exec(
+            select(MoleculeRecord.id, MoleculeRecord.import_batch_id, MoleculeRecord.source_index).where(
+                MoleculeRecord.is_ligand.is_(True), MoleculeRecord.import_batch_id.in_(batches)
+            )
+        ).all() if batches else ():
+            if (batch, int(index or 0)) in pending:
+                promoted[(batch, int(index or 0))] = int(molecule_id)
+        new = [(key, record) for key, record in pending.items() if key not in promoted]
+        structure_ids = payload_store(project_db).put(session, [record["structure"] for _key, record in new])
+        for (key, record), structure_id in zip(new, structure_ids):
+            molecule = MoleculeRecord(**_molecule_row(record, payload=PAYLOAD_LIGHT, structure_id=structure_id))
+            session.add(molecule)
+            session.flush()
+            if record.get("smiles"):
+                session.add(MoleculeRepresentation(molecule_id=int(molecule.id), repr_type=ReprType.SMILES_ISOMERIC,
+                                                   value=str(record["smiles"])))
+            promoted[key] = int(molecule.id)
+        session.commit()
+    return promoted
+
+
 __all__ = [
     "DESCRIPTOR_FIELDS",
     "HitGate",
@@ -266,4 +303,5 @@ __all__ = [
     "PAYLOAD_LIGHT",
     "TopNGate",
     "ingest_hits",
+    "promote_records",
 ]

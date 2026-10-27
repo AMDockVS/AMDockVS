@@ -10,7 +10,13 @@ from pydantic import BaseModel, Field
 from ms_flow.query import QuerySpec
 from ms_flow.sinks import graph_sink
 from amdockvs.core.jobs import job
-from amdockvs.qsar.tasks import _ALERT_COLUMNS, _DESCRIPTOR_COLUMNS, calculate_alerts_batch, calculate_descriptor_batch
+from amdockvs.qsar.tasks import (
+    _ALERT_COLUMNS,
+    _DESCRIPTOR_COLUMNS,
+    calculate_alerts_batch,
+    calculate_descriptor_batch,
+    predict_shard_task,
+)
 
 from amdockvs.chemistry.structures import with_structures
 from amdockvs.core.configuration import DEFAULT_LIGAND_BATCH_SIZE
@@ -22,7 +28,8 @@ from amdockvs.core.constants import (
 )
 from amdockvs.core.paths import set_default_project_root
 from amdockvs.models import FingerprintRecord, MoleculeRecord, MoleculeRepresentation
-from amdockvs.molecules.storage import as_store, store_from_config
+from amdockvs.core.worker_io import worker_file, worker_output_dir
+from amdockvs.molecules.storage import ShardStore, as_store, store_from_config
 from amdockvs.models.descriptors import FingerprintType
 from amdockvs.project.sets import molecule_set_spec, prepared_molecules_spec
 
@@ -187,3 +194,32 @@ def calculate_molecule_alerts_job(params: dict, config: dict | None = None) -> I
     if config_map.get("project_db") is None:
         raise ValueError("calculate_molecule_alerts_job requires project_db in config.")
     yield from _iter_descriptor_batches(store_from_config(config_map), parsed)
+
+
+class ShardPredictJobParams(BaseModel):
+    model_path: str
+    output_dir: str
+
+
+@job(
+    task=predict_shard_task,
+    name="amdock_qsar_predict_shards_job",
+    params_model=ShardPredictJobParams,
+    executor="compute",
+    supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
+)
+def predict_shards_job(params: dict, config: dict | None = None) -> Iterator[dict]:
+    """One shard per chunk, each scored into its own file: the predictions of a library stay
+    beside it, by reference, until a cut promotes the best of them."""
+    parsed = ShardPredictJobParams(**params)
+    project_db = dict(config or {}).get("project_db")
+    if project_db is None:
+        raise ValueError("predict_shards_job requires project_db in config.")
+    for row in ShardStore(project_db).iter_rows():
+        yield {
+            "shard_path": worker_file(row["path"]),
+            "shard_id": int(row["id"]),
+            "import_batch_id": row.get("import_batch_id"),
+            "model_path": worker_file(parsed.model_path),
+            "output_dir": worker_output_dir(parsed.output_dir),
+        }

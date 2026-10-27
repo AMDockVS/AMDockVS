@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QMessageBox,
     QPushButton,
@@ -396,6 +397,14 @@ class QSARModelsWidget(QWidget):
         use_row.addWidget(
             _btn("predict", "Predict all ligands", "Score every ligand with each ticked model.", self._predict))
         use_row.addWidget(
+            _btn("predict_shards", "Predict shards",
+                 "Score the screening library in its shards with each ticked model, as a job. The "
+                 "scores stay by reference until 'Promote top…' turns the best into ligand rows.",
+                 self._predict_shards))
+        use_row.addWidget(
+            _btn("promote", "Promote top…", "The ticked model's best shard scores become ligand rows, "
+                 "with their predictions (tick one; run 'Predict shards' first).", self._promote_shards))
+        use_row.addWidget(
             _btn("evaluate", "Evaluate", "Metrics of each ticked model on its labeled ligands.", self._evaluate))
         use_row.addWidget(
             _btn("plot", "Observed vs predicted", "Model-fit scatter; several ticked models overlay as series.",
@@ -448,6 +457,7 @@ class QSARModelsWidget(QWidget):
         all_classification = n >= 1 and tasks == {"classification"}
         rules = {
             "compare": n >= 1, "predict": n >= 1, "evaluate": n >= 1,
+            "predict_shards": n >= 1, "promote": n == 1,
             "plot": all_regression,  # observed-vs-predicted is a regression diagnostic
             "roc": all_classification,  # ROC is classification-only
             "importance": n == 1, "ad": n == 1, "glowing": one_ecfp4,
@@ -629,6 +639,37 @@ class QSARModelsWidget(QWidget):
                 f"#{mid} {name}: {res['predicted']} scored ({res['skipped_missing_descriptor']} skipped)"
                 for mid, name, res in out)),
             on_error=lambda exc: QMessageBox.warning(self, "QSAR predict", str(exc)),
+            busy=self,
+        )
+
+    def _predict_shards(self) -> None:
+        checked = self._require_checked()
+        if not checked:
+            return
+        try:
+            jobs = [self.runtime.qsar.predict_shards(model=int(m.id)) for m in checked]
+        except Exception as exc:  # noqa: BLE001 — a project without shards, a missing model file
+            QMessageBox.warning(self, "QSAR predict shards", str(exc))
+            return
+        self.status.setText(f"Scoring the shards: {len(jobs)} job(s) — see Jobs. Then 'Promote top…'.")
+
+    def _promote_shards(self) -> None:
+        checked = self._require_checked(exactly_one=True)
+        if not checked:
+            return
+        model_id = int(checked[0].id)
+        top_n, ok = QInputDialog.getInt(self, "Promote top", "Best-scored shard molecules to make ligand rows:",
+                                        100, 1, 1_000_000, 10)
+        if not ok:
+            return
+        higher = str((checked[0].metrics or {}).get("task", "")) != "regression" or QMessageBox.question(
+            self, "Promote top", "Is a higher predicted value better?") == QMessageBox.Yes
+        run_async(
+            lambda: self.runtime.qsar.promote_shard_predictions(model=model_id, top_n=int(top_n),
+                                                                higher_is_better=higher),
+            lambda res: self.status.setText(f"#{model_id}: {res['kept']} of {res['scored']} shard "
+                                            f"molecules promoted to ligand rows, with their predictions."),
+            on_error=lambda exc: QMessageBox.warning(self, "QSAR promote", str(exc)),
             busy=self,
         )
 

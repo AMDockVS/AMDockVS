@@ -62,9 +62,12 @@ def cluster_molecules_task(payload: dict) -> dict | list:
     # ponytail: assignments are returned as a list — that is the task contract, and the sink
     # writes them in bulk. It is the last point proportional to n on this path (~300 B/mol);
     # if it gets in the way, the next step is a batched sink, not another structure here.
+    # A run over shards keeps its members by reference (the sidecar): only the representatives
+    # become rows, and the job's sink promotes them.
+    members = sorted(centroids) if payload.get("by_reference") else range(count)
     assignments = [
         {"molecule_id": int(molecule_ids[i]), "cluster_id": int(labels[i]), "is_centroid": i in centroids}
-        for i in range(count)
+        for i in members
     ]
     rows = clustering_rows(
         cluster_run_id=str(payload.get("cluster_run_id") or ""),
@@ -79,6 +82,39 @@ def cluster_molecules_task(payload: dict) -> dict | list:
     # that is not this one.
     sidecar = Path(str(payload.get("output_dir") or "")) / f"{payload.get('cluster_run_id') or ''}.parquet"
     return {"rows": rows, "sidecar": str(sidecar)}
+
+
+@task(
+    name="amdock_shard_fingerprints",
+    description="Pack the Morgan fingerprints of one library shard.",
+    executor="compute",
+    supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
+)
+def shard_fingerprints_task(payload: dict) -> dict:
+    """One shard's records as `<shard id>.fp.npy` (bit-packed) + `<shard id>.ids.npy` (their
+    `shard_key`s): the part of a run's fingerprint matrix this shard owns. A record that does not
+    parse is left out, as a row without a structure is."""
+    import numpy as np
+
+    from amdockvs.chemistry.fingerprints import morgan_fingerprint
+    from amdockvs.chemistry.shards import read_shard
+    from amdockvs.diversity.clustering import fp_matrix_from_bitstrings
+    from amdockvs.io.shards import shard_key
+
+    ids, mols = read_shard(payload["shard_path"])
+    radius, nbits = int(payload["radius"]), int(payload["nbits"])
+    keys, bitstrings = [], []
+    for record_id, mol in zip(ids, mols):
+        if mol is not None:
+            keys.append(shard_key(payload.get("import_batch_id"), record_id))
+            bitstrings.append(morgan_fingerprint(mol, radius=radius, n_bits=nbits).ToBitString())
+    out_dir = Path(str(payload["output_dir"]))
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stem = out_dir / str(int(payload["shard_id"]))
+    packed = np.packbits(fp_matrix_from_bitstrings(bitstrings), axis=-1) if keys else np.zeros((0, (nbits + 7) // 8), np.uint8)
+    np.save(f"{stem}.fp.npy", packed)
+    np.save(f"{stem}.ids.npy", np.asarray(keys, dtype=np.int64))
+    return {"fp_path": f"{stem}.fp.npy", "ids_path": f"{stem}.ids.npy", "count": len(keys)}
 
 
 def _write_graph_sidecar(

@@ -46,6 +46,25 @@ def payload_kind_for(input_format: str) -> int:
 
 FORMAT_FOR_KIND = {kind: fmt for fmt, kind in _PAYLOAD_KIND.items()}
 
+# A library molecule is (import batch, record id), and a run over the library that needs one int
+# per molecule (a fingerprint matrix, a prediction file) packs the pair into one int64.
+# ponytail: record ids below 2**32 per batch; a molecule row id never reaches 2**32, which is
+# what `is_shard_key` tells the two apart by.
+_RECORD_BITS = 32
+
+
+def shard_key(import_batch_id: int | None, record_id: int) -> int:
+    return (int(import_batch_id or 0) << _RECORD_BITS) | int(record_id)
+
+
+def split_shard_key(key: int) -> tuple[int, int]:
+    """`(import_batch_id, record_id)`; the record id is the molecule's `source_index`."""
+    return int(key) >> _RECORD_BITS, int(key) & ((1 << _RECORD_BITS) - 1)
+
+
+def is_shard_key(key: int) -> bool:
+    return int(key) >> _RECORD_BITS > 0
+
 
 def mol_from_record(raw: str, input_format: str):
     """One record's raw text -> an RDKit molecule, or None. Shared with the shard pipeline,
@@ -328,8 +347,11 @@ __all__ = [
     "ShardQueueWriter",
     "shard_generation_writer",
     "filter_ligand_span",
+    "is_shard_key",
     "mol_from_record",
     "payload_kind_for",
+    "shard_key",
     "shard_queue_writer",
     "smiles_record",
+    "split_shard_key",
 ]

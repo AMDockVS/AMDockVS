@@ -21,7 +21,9 @@ import numpy as np
 from sqlalchemy import update as sql_update
 from sqlmodel import select
 
-from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR
+from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR, SHARDS_PRIORITY
+from amdockvs.io.shards import is_shard_key
+from amdockvs.molecules.storage import ShardStore
 from amdockvs.models import ClusteringResult, ClusteringRun, MoleculeRecord
 from amdockvs.models.sets import SetPurpose
 from amdockvs.project.sets import MoleculeSetRef, create_snapshot_set
@@ -38,6 +40,7 @@ from amdockvs.diversity.jobs import (
     scope_molecule_count,
     scope_molecule_rows,
     cluster_molecules_job,
+    shard_fingerprints_job,
     stored_fingerprints_for_ids,
 )
 
@@ -181,6 +184,7 @@ class DiversityAPI:
         num_cpus: int | None = None,
         executor_name: str = DEFAULT_LOCAL_CPU_EXECUTOR,
         depends_on: list[str] | None = None,
+        shards: bool = False,
     ) -> str:
         """Submit the clustering job over the DB; results land in ``clustering_results``. Returns
         the job id. The run is tagged with ``cluster_run_id`` (auto if blank) — read it back with
@@ -192,8 +196,15 @@ class DiversityAPI:
 
         ``num_cpus`` sets the parallelism: >1 runs bblean multiround with that many processes and the
         job **requests exactly that many CPUs** (``cpu_required``) so mf schedules it correctly. When
-        None it is derived from the scope size via ``plan_cpus``."""
+        None it is derived from the scope size via ``plan_cpus``.
+
+        ``shards`` clusters the library's shards instead (the scope arguments do not apply): a
+        fingerprint job packs them shard by shard, the clustering waits for it, and only the
+        representatives become molecule rows; every member stays in the run's sidecar by
+        ``io.shards.shard_key``. Both jobs run at ``SHARDS_PRIORITY``."""
         self.runtime._require_active_project()
+        if num_cpus is None and shards:
+            num_cpus = plan_cpus(ShardStore(self.runtime.workspace.project_db).record_count())
         if num_cpus is None:
             num_cpus = plan_cpus(
                 self.scope_count(
@@ -214,13 +225,22 @@ class DiversityAPI:
             with_activity=with_activity,
             cluster_run_id=cluster_run_id or uuid.uuid4().hex,
             num_processes=num_cpus,
+            shards=shards,
         )
+        priority = {}
+        if shards:
+            priority = {"priority": SHARDS_PRIORITY}
+            depends_on = [self.runtime.submit_job(
+                shard_fingerprints_job, params=params.model_dump(mode="python"), executor_name=executor_name,
+                depends_on=depends_on, **priority,
+            )]
         return self.runtime.submit_job(
             cluster_molecules_job,
             params=params.model_dump(mode="python"),
             executor_name=executor_name,
             cpu_required=num_cpus,
             depends_on=depends_on,
+            **priority,
         )
 
     # --- inline preview: load once (sampled+projected), cluster many times ----
@@ -560,6 +580,8 @@ class DiversityAPI:
         flags[picks] = True
         picked_ids = [int(i) for i in frame["molecule_id"].to_numpy()[picks]]
         of_run = ClusteringResult.cluster_run_id == run_id
+        if picked_ids and is_shard_key(picked_ids[0]):
+            picked_ids = self._promote_picks(run_id, picked_ids, labels[picks])
         with self.runtime.workspace.project_db.get_session() as session:
             session.exec(sql_update(ClusteringResult).where(of_run).values(is_centroid=False))
             for start in range(0, len(picked_ids), 900):
@@ -573,6 +595,26 @@ class DiversityAPI:
         frame["is_centroid"] = flags
         frame.to_parquet(sidecar, index=False)
         return {"n_molecules": len(frame), "n_clusters": int(len(np.unique(labels))), "n_reps": len(picks)}
+
+    def _promote_picks(self, run_id: str, keys: list[int], labels) -> list[int]:
+        """A run over shards: its picks are library records until they are promoted. A pick
+        without a row yet gets one (a representative row of a run is a molecule of it); one
+        promoted by an earlier pick keeps its row. Returns the picks' molecule ids."""
+        cluster_of = dict(zip(keys, (int(label) for label in labels)))
+        promoted = ShardStore(self.runtime.workspace.project_db).promote(keys)
+        of_run = ClusteringResult.cluster_run_id == run_id
+        with self.runtime.workspace.project_db.get_session() as session:
+            template = session.exec(select(ClusteringResult).where(of_run)).first()
+            known = set(session.exec(select(ClusteringResult.molecule_id).where(of_run)).all())
+            session.add_all(
+                ClusteringResult(
+                    molecule_id=molecule_id, cluster_run_id=run_id, cluster_id=cluster_of[key],
+                    method=getattr(template, "method", ""), fp_type=getattr(template, "fp_type", ""),
+                )
+                for key, molecule_id in promoted.items() if molecule_id not in known
+            )
+            session.commit()
+        return list(promoted.values())
 
     def centroid_ids(self, cluster_run_id: str) -> list[int]:
         return [r["molecule_id"] for r in self.get_run(cluster_run_id) if r["is_centroid"]]
