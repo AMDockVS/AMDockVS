@@ -565,7 +565,8 @@ class SimpleDockingTutorial(QObject):
 
     def _finish(self, *_):
         self._cleanup()
-        self.window.open_or_focus_view(COMPLEXES_VIEW_ID)
+        results = self.window.open_or_focus_view(COMPLEXES_VIEW_ID)
+        results.refresh()
         QMessageBox.information(self.window, "Tutorial completed",
             "Your first docking is complete. Select a pose in Docking Results to inspect its score and structure. "
             "The practice project and results have been saved.")

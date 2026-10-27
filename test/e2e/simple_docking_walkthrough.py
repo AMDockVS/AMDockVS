@@ -4,16 +4,20 @@ Usage: python test/e2e/simple_docking_walkthrough.py /tmp/tutorial-review
 AMDockVS must be importable, installed or through PYTHONPATH=src.
 """
 import os
+import json
 from pathlib import Path
 import sys
 import time
 
 
-def main(root, *, cancel_during_preview=False):
+def main(root, *, cancel_during_preview=False, native=False):
     root.mkdir(parents=True, exist_ok=True)
     os.environ.update(AMDOCK_HOME=str(root / "amdock"), MOLSUITE_HOME=str(root / "molsuite"),
-                      QT_QPA_PLATFORM="offscreen", AMDOCK_DISABLE_PYMOL="1",
                       AMDOCK_CCD_CACHE=str(root / "ccd"))
+    if native:
+        os.environ.pop("AMDOCK_DISABLE_PYMOL", None)
+    else:
+        os.environ.update(QT_QPA_PLATFORM="offscreen", AMDOCK_DISABLE_PYMOL="1")
     from amdockvs.runtime import AMDockVSRuntime
     from PySide6.QtCore import QTimer, Qt
     from PySide6.QtTest import QTest
@@ -23,18 +27,28 @@ def main(root, *, cancel_during_preview=False):
     from amdockvs.ui.main_window import AMDockVSMainWindow
     from amdockvs.ui.view_ids import DOCKING_VIEW_ID
 
+    if native:
+        from ms_components.opengl import prepare_pymol_opengl
+
+        prepare_pymol_opengl()
     app = QApplication(["tutorial-walkthrough"])
+    if native:
+        assert app.platformName() not in {"offscreen", "minimal"}
     apply_theme("dark", app)
     runtime = AMDockVSRuntime()
     window = AMDockVSMainWindow(runtime=runtime)
-    # Reuse the real box editor without starting an OpenGL/PyMOL context.
-    from amdockvs.ui.tools.binding_sites.box import GridBoxSettingDockWidget
-    grid_host = QDockWidget("Grid Box", window)
-    grid = GridBoxSettingDockWidget(runtime=runtime, parent=grid_host)
-    window.grid_dock = grid
-    grid_host.setWidget(grid)
-    window.addDockWidget(Qt.RightDockWidgetArea, grid_host)
-    grid_host.hide()
+    if native:
+        grid = window.grid_dock
+        assert grid is not None and window.pymol_dock is not None
+    else:
+        # Reuse the real box editor without starting an OpenGL/PyMOL context.
+        from amdockvs.ui.tools.binding_sites.box import GridBoxSettingDockWidget
+        grid_host = QDockWidget("Grid Box", window)
+        grid = GridBoxSettingDockWidget(runtime=runtime, parent=grid_host)
+        window.grid_dock = grid
+        grid_host.setWidget(grid)
+        window.addDockWidget(Qt.RightDockWidgetArea, grid_host)
+        grid_host.hide()
     window.show()
     for width, height in ((900, 700), (1400, 900)):
         window.resize(width, height)
@@ -63,6 +77,27 @@ def main(root, *, cancel_during_preview=False):
     started = time.monotonic()
     seen, clicked = set(), set()
     result = [1]
+    graphics = {"platform": app.platformName(), "checks": []}
+    inspection_started = None
+
+    def check_pymol(label):
+        from ms_components.opengl import pymol_context_error
+
+        viewport = window.pymol_dock.pymol_widget
+        context = viewport.context()
+        assert pymol_context_error(context) is None
+        assert window.pymol_dock.cmd.count_atoms() > 0
+        frame = viewport.grabFramebuffer()
+        assert not frame.isNull() and frame.width() >= 100 and frame.height() >= 100
+        colors = {frame.pixelColor(x, y).rgba()
+                  for x in range(0, frame.width(), max(1, frame.width() // 40))
+                  for y in range(0, frame.height(), max(1, frame.height() // 40))}
+        assert len(colors) > 8, "The PyMOL framebuffer contains no rendered structure"
+        frame.save(str(root / f"pymol-{label}.png"))
+        graphics["checks"].append({"stage": label, "renderer": window.pymol_dock.cmd.get_renderer(),
+                                   "version": context.format().version(), "profile": context.format().profile().name,
+                                   "framebuffer": [frame.width(), frame.height()], "colors": len(colors)})
+        (root / "graphics.json").write_text(json.dumps(graphics, indent=2))
 
     def click(button, index, pos=None):
         if button.isVisible() and button.isEnabled():
@@ -72,7 +107,10 @@ def main(root, *, cancel_during_preview=False):
             QTimer.singleShot(0, lambda: QTest.mouseClick(button, Qt.LeftButton, pos=pos or button.rect().center()))
 
     def tick():
+        nonlocal inspection_started
         try:
+            if time.monotonic() - started > 240:
+                raise RuntimeError(f"Tutorial timed out: step {tutorial.controller.index}, {errors}")
             for role, chooser in pickers:
                 if chooser.isVisible() and f"choose-{role}" not in clicked:
                     clicked.add(f"choose-{role}")
@@ -137,8 +175,43 @@ def main(root, *, cancel_during_preview=False):
                 stats = runtime.docking.result_stats()
                 if errors:
                     print(errors, file=sys.stderr, flush=True)
-                result[0] = 0 if messages == ["Tutorial completed"] and stats.completed_results == 1 else 1
+                if native:
+                    from amdockvs.ui.view_ids import COMPLEXES_VIEW_ID
+
+                    results = window.central_widget.open_view(COMPLEXES_VIEW_ID).stack.currentWidget()
+                    state = {"receptor": results._selected_receptor_id, "ligand": results._selected_ligand_id,
+                             "program": results.protocol_combo.currentData(),
+                             "counts": {name: getattr(results, f"{name}_table").record_total
+                                        for name in ("receptor", "ligand", "pose")}}
+                    if graphics.get("result_state") != state:
+                        graphics["result_state"] = state
+                        (root / "graphics.json").write_text(json.dumps(graphics, indent=2))
+                        print("Result inspection:", state, flush=True)
+                    if inspection_started is None:
+                        inspection_started = time.monotonic()
+                    if time.monotonic() - inspection_started > 30:
+                        counts = {name: getattr(results, f"{name}_table").record_total
+                                  for name in ("receptor", "ligand", "pose")}
+                        raise RuntimeError(f"Result inspection stalled: {counts}, scene={window.pymol_dock.scene_context}")
+                    for name in ("receptor", "ligand", "pose"):
+                        table = getattr(results, f"{name}_table").view
+                        item = table.model().index(0, 0)
+                        if not item.isValid() or item.data() is None:
+                            return
+                        if f"inspect-{name}" not in seen:
+                            seen.add(f"inspect-{name}")
+                            QTest.mouseClick(table.viewport(), Qt.LeftButton, pos=table.visualRect(item).center())
+                            return
+                    pose_object = window.pymol_dock.scene_context.selections.get("ligand", "")
+                    if not pose_object.startswith("amdock_result_pose") or results.d_score.text() == "-":
+                        return
+                    if window.pymol_dock.cmd.count_atoms(pose_object) == 0:
+                        return
+                    graphics["score"] = float(results.d_score.text())
+                    graphics["pose_atoms"] = window.pymol_dock.cmd.count_atoms(pose_object)
+                    check_pymol("completed")
                 window.grab().save(str(root / "completed.png"))
+                result[0] = 0 if messages == ["Tutorial completed"] and stats.completed_results == 1 else 1
                 print(stats.model_dump_json(), flush=True)
                 app.quit()
                 return
@@ -202,9 +275,35 @@ def main(root, *, cancel_during_preview=False):
                     if item.isValid():
                         QTest.mouseClick(table.viewport(), Qt.LeftButton, pos=table.visualRect(item).center())
                     return
+                if native and "pymol-detached" not in seen:
+                    viewport = window.pymol_dock.pymol_widget
+                    if viewport.context() is None or window.pymol_dock.cmd.count_atoms() == 0:
+                        return
+                    check_pymol("docked")
+                    seen.add("pymol-detached")
+                    window.pymol_dock.open_in_window()
+                    return
+                if native and "pymol-redocked" not in seen:
+                    assert window.dock_manager.is_windowed("pymol")
+                    tutorial.controller.refresh()
+                    assert tutorial.controller.overlay.parentWidget() is window.pymol_dock.window()
+                    window.pymol_dock.grab().save(str(root / "pymol-native-window.png"))
+                    check_pymol("detached")
+                    seen.add("pymol-redocked")
+                    window.pymol_dock.dock_to_main_window()
+                    return
+                if native and "pymol-reattached" not in seen:
+                    assert not window.dock_manager.is_windowed("pymol")
+                    check_pymol("reattached")
+                    seen.add("pymol-reattached")
                 if not grid.isVisible():
-                    grid_host.show()
-                    grid.show()
+                    if native:
+                        action = window._pymol_grid_action
+                        button = window.pymol_dock.control_bar.toolbar.widgetForAction(action)
+                        click(button, "show-grid")
+                    else:
+                        grid_host.show()
+                        grid.show()
                     return
                 if "box-new" not in clicked:
                     grid.grab().save(str(root / "box-empty.png"))
@@ -227,8 +326,11 @@ def main(root, *, cancel_during_preview=False):
                     click(tutorial.studio.prepare_receptor_button, index)
             elif index == 6 and "Ready to run" in tutorial.studio.check_status_label.text():
                 click(tutorial.studio.run_button, index)
-        except Exception as exc:
-            print(str(exc), file=sys.stderr, flush=True)
+        except Exception:
+            import traceback
+
+            result[0] = 1
+            traceback.print_exc()
             window.grab().save(str(root / "failed.png"))
             tutorial.controller.stop()
             app.quit()
@@ -250,4 +352,5 @@ def main(root, *, cancel_during_preview=False):
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(Path(sys.argv[1]).resolve(), cancel_during_preview="--cancel-during-preview" in sys.argv[2:]))
+    raise SystemExit(main(Path(sys.argv[1]).resolve(), cancel_during_preview="--cancel-during-preview" in sys.argv[2:],
+                         native="--native" in sys.argv[2:]))

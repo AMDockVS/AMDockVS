@@ -518,6 +518,37 @@ def test_live_ligand_reload_keeps_the_selected_ligand_context():
     assert pose_reloads == []
 
 
+def test_final_refresh_during_protocol_lookup_keeps_the_selected_receptor_scope(monkeypatch):
+    QApplication.instance() or QApplication(["amdockvs-result-scope-test"])
+    pending = []
+    monkeypatch.setattr("amdockvs.ui.catalog.results.run_async",
+                        lambda fn, done, **kwargs: pending.append((fn, done)))
+    db = _Db()
+    with db.get_session() as session:
+        session.add_all([
+            DockingRun(id=1, engine="vina", protocol_hash="p", protocol_label="Vina"),
+            MoleculeRecord(id=41, name="Receptor", is_receptor=True),
+            MoleculeRecord(id=101, name="Ligand", is_ligand=True),
+            DockingResultRecord(id=11, receptor_molecule_id=41, ligand_molecule_id=101,
+                                docking_run_id=1, pose_rank=1, score=-8.0),
+        ])
+        session.commit()
+    widget = DockingResultsWidget(runtime=SimpleNamespace(
+        workspace=SimpleNamespace(project_db=db),
+        docking=SimpleNamespace(result_protocols=lambda **kwargs: [("p", "Vina")], hit=lambda **kwargs: None),
+    ))
+    widget._populate_protocol_combo([])
+    widget._selected_receptor_id = None
+    pending.clear()
+    widget._on_receptor_selection_changed([SimpleNamespace(id=41)])
+    widget.refresh_view()
+    for read, done in list(pending):
+        done(read())
+
+    assert widget.ligand_table.record_total == 1
+    assert widget.ligand_table._model.get_raw_object(0).ligand_molecule_id == 101
+
+
 def test_result_tables_use_small_two_page_dynamic_windows():
     widget = _widget(hits=True, offtarget=False, redocking=False).current_page()
     assert all(isinstance(table, SmartTableView) for table in (
