@@ -98,6 +98,7 @@ class ReceptorImportPanel(QWidget):
     """
 
     ready_changed = Signal(bool)
+    preview_finished = Signal()
 
     def __init__(
         self,
@@ -109,6 +110,8 @@ class ReceptorImportPanel(QWidget):
     ):
         super().__init__(parent)
         self._runtime = runtime
+        self.file_dialog_directory = ""
+        self.file_dialog_options = QFileDialog.Option(0)
         self._show_file_controls = show_file_controls
         # Drag-and-drop feeds the same add path as the button, when file editing is available.
         self.setAcceptDrops(self._show_file_controls)
@@ -300,6 +303,15 @@ class ReceptorImportPanel(QWidget):
     def file_paths(self) -> list[str]:
         return list(self._file_paths)
 
+    @property
+    def preview_running(self) -> bool:
+        return any(thread.isRunning() for thread in self.findChildren(QThread))
+
+    @Slot()
+    def _on_preview_thread_finished(self) -> None:
+        if not self.preview_running:
+            self.preview_finished.emit()
+
     def ligand_role_files(self) -> list[str]:
         """Receptor files the user also flagged as general ligands (dimer case)."""
         # ponytail: only the preview table carries the checkboxes; the no-preview path
@@ -350,8 +362,9 @@ class ReceptorImportPanel(QWidget):
         paths, _ = QFileDialog.getOpenFileNames(
             self,
             "Add Receptor Files",
-            "",
+            self.file_dialog_directory,
             QT_FILE_FILTER,
+            options=self.file_dialog_options,
         )
         self._add_paths(paths)
 
@@ -691,6 +704,7 @@ class ReceptorImportPanel(QWidget):
         self._scan_worker.finished.connect(self._on_scan_finished)
         self._scan_worker.finished.connect(self._scan_thread.quit)
         self._scan_thread.finished.connect(self._scan_thread.deleteLater)
+        self._scan_thread.finished.connect(self._on_preview_thread_finished)
         self._scan_thread.start()
 
     @Slot(int, int, str, dict)
@@ -869,6 +883,8 @@ class ReceptorImportPanel(QWidget):
 class ReceptorImportDialog(QDialog):
     """Default receptor importer: the reusable ReceptorImportPanel (unchanged) hosted in a dialog."""
 
+    jobs_submitted = Signal(object)
+
     def __init__(self, *, runtime, parent=None, defer=False):
         super().__init__(parent)
         self.runtime = runtime
@@ -898,7 +914,12 @@ class ReceptorImportDialog(QDialog):
     def done(self, result: int) -> None:
         # Temporary downloads that will not be imported: on cancel all, on accept the removed ones.
         imported = set(self.panel.file_paths) if result == QDialog.Accepted else set()
-        discard_temporary(self.panel.downloaded - imported)
+        discarded = self.panel.downloaded - imported
+        if self.panel.preview_running:
+            self.panel.preview_finished.connect(lambda: discard_temporary(discarded),
+                                                Qt.ConnectionType.SingleShotConnection)
+        else:
+            discard_temporary(discarded)
         super().done(result)
 
     def workflow_submit(self, *, force: bool = False):
@@ -953,6 +974,7 @@ class ReceptorImportDialog(QDialog):
         except Exception as exc:
             QMessageBox.critical(self, "Import Receptors", f"Could not submit receptor import job:\n{exc}")
             return
+        self.jobs_submitted.emit(job_ids)
         land_on_view(self.parent(), RECEPTOR_VIEW_ID, job_ids)
         nudge_monitor(self.parent())
         self.accept()

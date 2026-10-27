@@ -22,7 +22,8 @@ from ms_components.ms_table import (
 from amdockvs.ui.view_ids import COMPLEX_PAIRS_VIEW_ID, RECEPTOR_VIEW_ID
 
 
-def _receptor_table_config(runtime) -> TableConfig:
+def _receptor_table_config(runtime, window=None) -> TableConfig:
+    get_window = window or QApplication.activeWindow
     return TableConfig(
         model_class=MoleculeRecord,
         columns=[
@@ -54,9 +55,8 @@ def _receptor_table_config(runtime) -> TableConfig:
             "Create Receptor Set…": lambda objs: _create_receptor_set(runtime, objs),
         },
         toolbar_left=[
-            # ponytail: activeWindow() is the main window at click time (no modal open then).
             ToolbarAction(label="Import…",
-                          on_click=lambda objs: import_receptors_from_file(QApplication.activeWindow())),
+                          on_click=lambda objs: import_receptors_from_file(get_window())),
             ToolbarAction(label="Show Complexes",
                           tooltip="Open the Complexes table with the selected receptors' pairs.",
                           on_click=lambda objs: show_receptor_complexes(QApplication.activeWindow(), objs)),
@@ -67,7 +67,7 @@ def _receptor_table_config(runtime) -> TableConfig:
         empty_backdrop=icon("protein.svg"),
         empty_action=ToolbarAction(
             label="Import Receptors…",
-            on_click=lambda objs: import_receptors_from_file(QApplication.activeWindow()),
+            on_click=lambda objs: import_receptors_from_file(get_window()),
         ),
     )
 
@@ -80,7 +80,7 @@ class ReceptorWidget(BoundTableWidget):
     def __init__(self, *, runtime, parent=None):
         super().__init__(
             runtime=runtime,
-            config=_receptor_table_config(runtime),
+            config=_receptor_table_config(runtime, window=lambda: self.window()),
             empty_text="Open or create a project to inspect receptors.",
             parent=parent,
         )

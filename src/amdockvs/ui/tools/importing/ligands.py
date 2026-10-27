@@ -250,9 +250,13 @@ class LigandImportDialog(QDialog):
     their kind.
     """
 
+    jobs_submitted = Signal(object)
+
     def __init__(self, *, runtime, parent=None, defer=False):
         super().__init__(parent)
         self.runtime = runtime
+        self.file_dialog_directory = ""
+        self.file_dialog_options = QFileDialog.Option(0)
         # defer=True: used as a workflow step config — capture the import as a deferred submit
         # (run when the workflow runs) instead of importing now.
         self._defer = bool(defer)
@@ -370,7 +374,10 @@ class LigandImportDialog(QDialog):
         return label
 
     def _on_add(self) -> None:
-        paths, _ = QFileDialog.getOpenFileNames(self, "Add ligand files", "", _LIGAND_FILTER)
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Add ligand files", self.file_dialog_directory, _LIGAND_FILTER,
+            options=self.file_dialog_options,
+        )
         if paths:
             self.table.add_files(paths)
 
@@ -597,6 +604,7 @@ class LigandImportDialog(QDialog):
             return
         # Land where the molecules are actually going: staying on an empty Ligands table
         # while a shard import runs reads as "nothing happened".
+        self.jobs_submitted.emit(job_ids)
         land_on_view(self.parent(), SHARDS_VIEW_ID if self._target_sharded else LIGANDS_VIEW_ID, job_ids)
         nudge_monitor(self.parent())
         self.accept()

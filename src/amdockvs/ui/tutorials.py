@@ -23,9 +23,13 @@ def start_interface_tour(window: AMDockVSMainWindow) -> TutorialController:
 
     from amdockvs.ui.view_ids import DOCKING_VIEW_ID
 
+    hands_on = getattr(window, "_docking_tutorial", None)
+    if hands_on is not None:
+        hands_on.controller.stop()
+
     controller = getattr(window, "_interface_tutorial", None)
     if controller is None:
-        controller = TutorialController(targets={}, parent=window)
+        controller = TutorialController(targets={}, parent=window, dim_background=False)
         controller.failed.connect(
             lambda _tutorial_id, message: QMessageBox.warning(window, "Guided tour", message)
         )

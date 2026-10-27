@@ -5,6 +5,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
     QLabel,
+    QGridLayout,
     QProxyStyle,
     QPushButton,
     QStackedWidget,
@@ -84,9 +85,13 @@ class MainContentWidget(QStackedWidget):
         # Its content over a faint logo whose "A" follows the theme.
         logo = themed_icon(str(files("amdockvs.ui.resources.icons") / "logo.svg"), QPalette.ColorRole.WindowText)
         page = Backdrop(logo, self)
-        layout = QVBoxLayout(page)
-        layout.setAlignment(Qt.AlignCenter)
-        layout.setSpacing(12)
+        layout = QGridLayout(page)
+        layout.setContentsMargins(24, 24, 24, 24)
+        primary = QWidget(page)
+        primary.setObjectName("welcomeProjectControls")
+        primary_layout = QVBoxLayout(primary)
+        primary_layout.setContentsMargins(0, 0, 0, 0)
+        primary_layout.setSpacing(12)
 
         title = QLabel("AMDockVS")
         title.setAlignment(Qt.AlignCenter)
@@ -95,15 +100,16 @@ class MainContentWidget(QStackedWidget):
         hint.setAlignment(Qt.AlignCenter)
         hint.setStyleSheet("font-size: 16px;")
 
-        button = QPushButton("Open or Create Project…")
+        button = self.open_project_button = QPushButton("Open or Create Project…")
         button.setCursor(Qt.CursorShape.PointingHandCursor)
         button.setStyleSheet("font-size: 15px; padding: 8px 24px;")
         button.clicked.connect(self.open_project_requested.emit)
 
-        layout.addWidget(title)
-        layout.addWidget(hint)
-        layout.addSpacing(16)
-        layout.addWidget(button, alignment=Qt.AlignCenter)
+        primary_layout.addWidget(title)
+        primary_layout.addWidget(hint)
+        primary_layout.addSpacing(16)
+        primary_layout.addWidget(button, alignment=Qt.AlignCenter)
+        layout.addWidget(primary, 0, 0, alignment=Qt.AlignCenter)
         return page
 
     def register_view(

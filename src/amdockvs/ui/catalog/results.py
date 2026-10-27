@@ -648,8 +648,8 @@ class DockingResultsWidget(QWidget):
         if receptor_id == self._selected_receptor_id:
             return
         self._selected_receptor_id = receptor_id or None
-        self._selected_ligand_id = None
-        self._show_detail(None)
+        # A final refresh can supersede the protocol query; apply the receptor scope now.
+        self._refresh_ligands(auto_select=True)
         self._reload_protocols(auto_select=True)
 
     def _on_ligand_selection_changed(self, objects: list) -> None:

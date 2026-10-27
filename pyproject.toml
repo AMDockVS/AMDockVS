@@ -32,7 +32,7 @@ dependencies = [
     # MolSuite stack
     "ms_env>=0.3.0",
     "ms_flow>=0.6.0",
-    "ms_components[monitor,projects,pymol,steps,table]>=0.4.0",
+    "ms_components[monitor,projects,pymol,steps,table]>=0.4.1.dev0",  # close-only tutorial controls
     "ms_contactmap>=0.3.1",
     # Chemistry / structure
     "rdkit>=2025.3.5",
@@ -103,6 +103,7 @@ amdockvs = [
     "ui/resources/styles/*.qss",
     "ui/resources/images/*",
     "data/*.json",
+    "data/tutorials/simple_docking/*",
 ]
 
 # docs/benchmarks holds *_test.py measurement scripts, not tests.

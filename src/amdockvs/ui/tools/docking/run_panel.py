@@ -1044,6 +1044,7 @@ class RunPanel:
             return
         if result.get("notice"):  # the table's run went; the shards' did not
             self._warn("Run Docking", f"The shards were not docked: {result['notice']}")
+        self.docking_submitted.emit(list(result["job_ids"].values()))
         # Remember each launched job's signature so a later launch can detect a duplicate.
         for job_id in result["job_ids"].values():
             self._docking_job_sigs[str(job_id)] = signature

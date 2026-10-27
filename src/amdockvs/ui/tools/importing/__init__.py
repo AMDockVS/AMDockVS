@@ -12,6 +12,7 @@ def open_import_view(window, *, kind: str = "ligand"):
         dialog = ReceptorImportDialog(runtime=window.runtime, parent=window)
     else:
         dialog = LigandImportDialog(runtime=window.runtime, parent=window)
+    window.import_dialog_opened.emit("receptor" if str(kind).lower().startswith("receptor") else "ligand", dialog)
     dialog.exec()
     return dialog
 
