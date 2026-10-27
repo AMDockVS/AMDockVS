@@ -102,6 +102,21 @@ def install_freeze_watchdog(qt_app, *, stall_seconds: float = 10.0):
     return timer
 
 
+def use_en_us_numbers() -> None:
+    """One number format whatever the OS locale: 18.93, never 18,93.
+
+    Qt widgets read QLocale's default, which follows LC_NUMERIC. QApplication() also calls
+    setlocale(LC_ALL, ""), so in-process C/C++ code (Vina reading its maps, strtod) would parse
+    "18.93" as 18 under a comma locale. Reset both, after QApplication() and before any widget.
+    """
+    import locale
+
+    from PySide6.QtCore import QLocale
+
+    QLocale.setDefault(QLocale(QLocale.Language.English, QLocale.Country.UnitedStates))
+    locale.setlocale(locale.LC_NUMERIC, "C")
+
+
 def _open_startup_project(runtime: AMDockVSRuntime, *, project_id: str | None, project_path: str | None) -> None:
     if project_id and project_path:
         raise ValueError("Use --project-id or --project-path, not both.")
@@ -159,6 +174,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             True,
         )
         qt_app = QApplication(["amdockvs"])
+    use_en_us_numbers()
 
     watchdog = install_freeze_watchdog(qt_app)  # noqa: F841 - the timer must outlive this scope
 
