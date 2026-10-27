@@ -89,6 +89,7 @@ def test_build_uses_molecule_type_tabs_and_requested_groups(build_widget):
         "Proteins",
     ]
     assert [section.title() for section in build_widget.small_molecules_tab.findChildren(ToolSection)] == [
+        "Ligands from",  # shown in a sharded project only
         "Protonation",
         "3D generation",
         "Minimization",
@@ -143,7 +144,7 @@ def test_build_actions_are_right_aligned_and_tabs_fix_operation_scope(build_widg
 
     build_widget.tabs.setCurrentWidget(build_widget.proteins_tab)
     assert build_widget._selected_molecule_type() == MoleculeType.PROTEIN
-    assert build_widget._cfg_build_ligands()["ligands"].molecule_type == MoleculeType.SMALL_MOLECULE
+    assert build_widget._cfg_build_ligands()[0]["ligands"].molecule_type == MoleculeType.SMALL_MOLECULE
     assert build_widget._cfg_protonate_receptors()["receptors"].molecule_type == MoleculeType.PROTEIN
 
 
@@ -166,7 +167,7 @@ def test_only_fix_structure_can_go_back_to_the_imported_structure(build_widget):
     assert build_widget._cfg_fix_receptors()["structure_source"] == "original"
 
     for cfg in (
-        build_widget._cfg_build_ligands(),
+        *build_widget._cfg_build_ligands(),
         build_widget._cfg_protonate_receptors(),
         build_widget._cfg_minimize_receptors(),
     ):
@@ -227,27 +228,34 @@ def test_build_runs_only_ticked_steps_and_targets_shards_in_a_sharded_project(bu
     build_widget.ligand_min_section.setChecked(False)
     assert not build_widget.run_build_ligands_button.isEnabled()
 
-    # No shards: no target choice, rows with a batch size.
-    assert build_widget.small_molecules_tab.top_bar.isHidden()
-    assert build_widget._cfg_build_ligands()["ligands"] is not None
+    # No shards: no store choice, rows with a batch size.
+    assert build_widget.ligand_source_section.isHidden()
+    assert [cfg["ligands"] is None for cfg in build_widget._cfg_build_ligands()] == [False]
 
     build_widget.runtime.molecules.shape = (True, 0)
     build_widget._sync_ligand_target()
-    assert not build_widget.small_molecules_tab.top_bar.isHidden()
-    assert build_widget._cfg_build_ligands()["ligands"] is None  # -> run_shard_pipeline
+    assert not build_widget.ligand_source_section.isHidden()
+    # No rows yet: the table box is there but cannot be ticked.
+    rows_box = build_widget.ligand_sources.boxes["rows"]
+    assert not rows_box.isEnabled() and not rows_box.isChecked()
+    assert [cfg["ligands"] is None for cfg in build_widget._cfg_build_ligands()] == [True]  # -> run_shard_pipeline
     assert build_widget.batch_size_ligands.isHidden()  # one shard per task, fixed
     assert not build_widget.ligand_conformers_section.isEnabled()
     build_widget.ligand_conformers_section.setChecked(True)
     assert "conformers" not in dict(build_widget._build_steps())  # shards refuse ensembles
-    # No reference rows yet: the rows choice is there but cannot be taken.
-    rows_index = build_widget.ligand_target.findData("rows")
-    assert not build_widget.ligand_target.model().item(rows_index).isEnabled()
 
+    # Rows arrive: the table is ticked again, both stores run, ensembles only for the rows.
     build_widget.runtime.molecules.shape = (True, 3)
     build_widget._sync_ligand_target()
-    build_widget.ligand_target.setCurrentIndex(rows_index)
-    assert build_widget._cfg_build_ligands()["ligands"] is not None
+    assert rows_box.isEnabled() and rows_box.isChecked()
+    rows, shards = build_widget._cfg_build_ligands()
+    assert rows["ligands"] is not None and shards["ligands"] is None
+    assert "conformers" in dict(rows["steps"]) and "conformers" not in dict(shards["steps"])
     assert not build_widget.batch_size_ligands.isHidden()
+    build_widget.ligand_sources.boxes["shards"].setChecked(False)
+    assert [cfg["ligands"] is None for cfg in build_widget._cfg_build_ligands()] == [False]
+    build_widget.ligand_sources.boxes["rows"].setChecked(False)
+    assert not build_widget.run_build_ligands_button.isEnabled()
 
 
 def test_conformers_run_before_minimize_with_the_shared_seed(build_widget):

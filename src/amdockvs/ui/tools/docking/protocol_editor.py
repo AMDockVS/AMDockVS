@@ -744,11 +744,7 @@ class ProtocolEditorWidget:
             sharded, ligand_rows = False, 0
         redocking = self._run_kind() == "redocking"
         self.ligand_source_section.setVisible(bool(sharded) and not redocking)
-        # Ticked whenever it turns available, unticked when it doesn't; the user's own pick
-        # stands in between.
-        if self.prep_from_rows.isEnabled() != bool(ligand_rows):
-            self.prep_from_rows.setChecked(bool(ligand_rows))
-        self.prep_from_rows.setEnabled(bool(ligand_rows))
+        self.ligand_sources.set_rows_available(bool(ligand_rows))
 
     def _on_experiment_config_changed(self) -> None:
         self._sync_ligand_source_choice()

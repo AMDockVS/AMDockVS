@@ -35,10 +35,8 @@ class ScopePanel:
         """
         if not self._library_is_sharded() or self._run_kind() == "redocking":
             return {"rows"}
-        boxes = (getattr(self, "prep_from_rows", None), getattr(self, "prep_from_shards", None))
-        if None in boxes:
-            return {"shards"}
-        return {source for source, box in zip(("rows", "shards"), boxes) if box.isChecked()}
+        sources = getattr(self, "ligand_sources", None)
+        return {"shards"} if sources is None else sources.sources()
 
     def _ligand_scope_is_sharded(self) -> bool:
         """Does the experiment leave the ligand rows out (shards only, or nothing picked)?"""

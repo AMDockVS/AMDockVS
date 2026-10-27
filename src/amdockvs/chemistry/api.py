@@ -21,7 +21,7 @@ from amdockvs.chemistry.jobs import (
     shard_chemistry_job,
 )
 from amdockvs.chemistry.tools.esmfold import ESM_TOKEN_ENV, FAST_MODEL, api_token
-from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR, RESOURCE_SHARDS
+from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR, RESOURCE_SHARDS, SHARDS_PRIORITY
 from amdockvs.molecules.api import ensure_molecule_set_ref
 from amdockvs.molecules.storage import create_generation, has_shards
 from amdockvs.project.sets import MoleculeSetRef
@@ -250,6 +250,7 @@ class ChemistryAPI:
             ).model_dump(mode="python"),
             executor_name=executor_name,
             depends_on=depends_on,
+            priority=SHARDS_PRIORITY,
             result_handler_kwargs={"project_db": project_db, "generation_id": generation_id},
         )
         return self.runtime.wait_for_job(job_id) if wait else job_id

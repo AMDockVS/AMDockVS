@@ -801,4 +801,4 @@ def test_both_stores_dock_the_table_then_the_shards():
         "skip_existing": True, "run_id": "run",
     })
     assert result["job_ids"] == {"1:Vina:p": "row-job", "shards:1:Vina:p": "shard-job"}
-    assert shards[0]["depends_on"] == ["row-job"]  # one after the other, not side by side
+    assert "depends_on" not in shards[0]  # side by side; run_shards gives them the lower priority
