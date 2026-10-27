@@ -20,11 +20,11 @@ from pydantic import BaseModel, Field
 from ms_flow.engine import writer
 from ms_flow.query import QuerySpec, db_rows
 from ms_flow.sinks import table_sink
-from amdockvs.core.jobs import job
-from amdockvs.diversity.tasks import cluster_molecules_task
+from amdockvs.core.jobs import configs, job
+from amdockvs.diversity.tasks import cluster_molecules_task, shard_fingerprints_task
 
 from amdockvs.core.configuration import DEFAULT_LIGAND_BATCH_SIZE
-from amdockvs.molecules.storage import as_store, store_from_config
+from amdockvs.molecules.storage import ShardStore, as_store, store_from_config
 from amdockvs.core.worker_io import worker_file, worker_output_dir
 from amdockvs.core.constants import (
     AMDOCKVS_OFFLOADABLE_EXECUTORS,
@@ -58,6 +58,13 @@ class SelectionClusterJobParams(BaseModel):
     # Resolved on the submit side, where a runtime (and so the project's settings layer) exists;
     # a worker only ever sees the number it was handed.
     batch_size: int = Field(default=DEFAULT_LIGAND_BATCH_SIZE, ge=1)
+    # The library's shards instead of the table: the run reads the fingerprints
+    # `shard_fingerprints_job` packed there, and only its representatives become rows.
+    shards: bool = Field(default=False)
+
+
+def _run_dir(project_db, run_id: str) -> Path:
+    return Path(project_db.db_path).expanduser().resolve().parent / "clustering_runs" / run_id
 
 
 def _scope_spec(params: SelectionClusterJobParams) -> QuerySpec:
@@ -191,18 +198,90 @@ def _write_packed_fingerprints(
     return fp_path, ids_path, written
 
 
+def _concat_shard_fingerprints(src: Path, *, out_dir: Path, nbits: int) -> tuple[Path, Path, int]:
+    """The per-shard parts into the one ``fingerprints.npy`` + ``ids.npy`` the task reads.
+
+    ponytail: a copy (256 B/mol on disk, never in RAM: memmap to memmap); reading the parts in
+    place would need a PackedFingerprints over many arrays.
+    """
+    import numpy as np
+
+    parts = sorted(src.glob("*.ids.npy"))
+    counts = [int(np.load(part, mmap_mode="r").shape[0]) for part in parts]
+    total = sum(counts)
+    fp_path, ids_path = out_dir / "fingerprints.npy", out_dir / "ids.npy"
+    if total:
+        packed = np.lib.format.open_memmap(fp_path, mode="w+", dtype=np.uint8, shape=(total, (nbits + 7) // 8))
+        ids_out = np.lib.format.open_memmap(ids_path, mode="w+", dtype=np.int64, shape=(total,))
+        at = 0
+        for part, n in zip(parts, counts):
+            packed[at:at + n] = np.load(str(part).replace(".ids.npy", ".fp.npy"), mmap_mode="r")
+            ids_out[at:at + n] = np.load(part, mmap_mode="r")
+            at += n
+        packed.flush()
+        ids_out.flush()
+        del packed, ids_out
+    shutil.rmtree(src, ignore_errors=True)
+    return fp_path, ids_path, total
+
+
 def _assignments(params, project):
-    """The sink of the job, for chunks that return their rows beside the sidecar they wrote."""
+    """The sink of the job, for chunks that return their rows beside the sidecar they wrote.
+    A run over shards returns its representatives by `shard_key`: they are promoted first."""
     sink = writer(table_sink(model=ClusteringResult, write_mode="bulk"), project)
-    return SimpleNamespace(tables=sink.tables, write=lambda results: sink.write([result["rows"] for result in results]))
+    shards = bool(dict(params).get("shards"))
+
+    def write(results) -> None:
+        batches = [result["rows"] for result in results]
+        if shards:
+            store = ShardStore(configs[project]["project_db"])
+            promoted = [store.promote(row["molecule_id"] for row in rows) for rows in batches]
+            batches = [[{**row, "molecule_id": ids[row["molecule_id"]]} for row in rows if row["molecule_id"] in ids]
+                       for rows, ids in zip(batches, promoted)]
+        sink.write(batches)
+
+    return SimpleNamespace(tables=sink.tables, write=write)
 
 
 def _drop_fingerprints(params: dict, config: dict) -> None:
     """The packed fingerprints of the run: the worker deletes the ones it read, which on another
     disk are copies."""
-    run_id, db_path = str(dict(params).get("cluster_run_id") or ""), getattr(config.get("project_db"), "db_path", None)
-    if run_id and db_path:
-        shutil.rmtree(Path(db_path).expanduser().resolve().parent / "clustering_runs" / run_id, ignore_errors=True)
+    run_id, project_db = str(dict(params).get("cluster_run_id") or ""), config.get("project_db")
+    if run_id and getattr(project_db, "db_path", None):
+        shutil.rmtree(_run_dir(project_db, run_id), ignore_errors=True)
+
+
+def _drop_failed_fingerprints(params: dict, config: dict) -> None:
+    """A finished fingerprint job hands its parts to the clustering; a failed one, to nobody."""
+    if config.get("terminal_status") != "completed":
+        _drop_fingerprints(params, config)
+
+
+@job(
+    task=shard_fingerprints_task,
+    name="amdock_shard_fingerprints_job",
+    params_model=SelectionClusterJobParams,
+    executor="compute",
+    supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
+    finalize=_drop_failed_fingerprints,
+)
+def shard_fingerprints_job(params: dict, config: dict | None = None) -> Iterator[dict]:
+    """One shard per chunk: the fingerprints a clustering over the library reads, packed beside
+    its run. The clustering job waits for this one."""
+    parsed = SelectionClusterJobParams(**params)
+    project_db = dict(config or {}).get("project_db")
+    if project_db is None:
+        raise ValueError("shard_fingerprints_job requires project_db in config.")
+    out_dir = _run_dir(project_db, parsed.cluster_run_id) / "shards"
+    for row in ShardStore(project_db).iter_rows():
+        yield {
+            "shard_path": worker_file(row["path"]),
+            "shard_id": int(row["id"]),
+            "import_batch_id": row.get("import_batch_id"),
+            "radius": int(parsed.fp_radius),
+            "nbits": int(parsed.fp_nbits),
+            "output_dir": worker_output_dir(out_dir),
+        }
 
 
 @job(
@@ -229,10 +308,13 @@ def cluster_molecules_job(params: dict, config: dict | None = None) -> Iterator[
         project_root = str(root)
 
     run_id = parsed.cluster_run_id or uuid.uuid4().hex
-    fp_path, ids_path, count = _write_packed_fingerprints(
-        project_db, parsed, out_dir=Path(project_root or ".") / "clustering_runs" / run_id,
-        store=store_from_config(config_map),
-    )
+    run_dir = Path(project_root or ".") / "clustering_runs" / run_id
+    if parsed.shards:
+        fp_path, ids_path, count = _concat_shard_fingerprints(run_dir / "shards", out_dir=run_dir, nbits=parsed.fp_nbits)
+    else:
+        fp_path, ids_path, count = _write_packed_fingerprints(
+            project_db, parsed, out_dir=run_dir, store=store_from_config(config_map),
+        )
     if not count:
         return
     # A single chunk (BitBIRCH is single-pass and clustering is global) but the payload is a
@@ -249,6 +331,7 @@ def cluster_molecules_job(params: dict, config: dict | None = None) -> Iterator[
         "cluster_run_id": run_id,
         "output_dir": worker_output_dir(Path(project_root or ".") / "clustering_runs"),
         "fp_type": _fp_type_for_radius(parsed.fp_radius),
+        "by_reference": parsed.shards,
     }
 
 
@@ -257,4 +340,5 @@ __all__ = [
     "activity_values",
     "cluster_molecules_job",
     "cluster_molecules_task",
+    "shard_fingerprints_job",
 ]

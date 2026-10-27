@@ -31,6 +31,14 @@ WITHOUT_SINK = {
         "counts across chunks and decides which scored ligands become molecules at all. A sink "
         "would write every pose back, which is what the sharded mode exists to prevent."
     ),
+    "amdock_shard_fingerprints_job": (
+        "writes no rows: each shard's fingerprints go to .npy files the clustering job that "
+        "depends on it reads and deletes."
+    ),
+    "amdock_qsar_predict_shards_job": (
+        "writes no rows: the scores stay in a parquet per shard, by reference, until "
+        "promote_shard_predictions turns a cut of them into rows."
+    ),
 }
 
 
