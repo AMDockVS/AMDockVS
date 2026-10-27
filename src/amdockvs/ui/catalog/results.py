@@ -201,6 +201,7 @@ class DockingResultsWidget(QWidget):
         self.receptor_table = project_table(runtime, receptor_config, receptor_box)
         self.receptor_table.setMinimumHeight(150)
         self.receptor_table.selection_changed.connect(self._on_receptor_selection_changed)
+        self.receptor_table.row_reselected.connect(lambda _obj: self._load_selected_hit_in_pymol())
         self.receptor_table.data_refreshed.connect(self._on_receptors_loaded)
         receptor_layout.addWidget(self.receptor_table)
         splitter.addWidget(receptor_box)
@@ -221,6 +222,7 @@ class DockingResultsWidget(QWidget):
         self.ligand_table = project_table(runtime, ligand_config, ligand_box)
         self.ligand_table.setMinimumHeight(150)
         self.ligand_table.selection_changed.connect(self._on_ligand_selection_changed)
+        self.ligand_table.row_reselected.connect(lambda _obj: self._load_selected_hit_in_pymol())
         self.ligand_table.data_refreshed.connect(self._on_ligands_loaded)
         ligand_layout.addWidget(self.ligand_table)
         splitter.addWidget(ligand_box)
@@ -237,6 +239,7 @@ class DockingResultsWidget(QWidget):
         self.pose_table = project_table(runtime, pose_config, pose_box)
         self.pose_table.setMinimumHeight(150)
         self.pose_table.selection_changed.connect(self._on_pose_selection_changed)
+        self.pose_table.row_reselected.connect(lambda _obj: self._load_selected_hit_in_pymol())
         self.pose_table.data_refreshed.connect(self._on_poses_loaded)
         pose_layout.addWidget(self.pose_table)
         splitter.addWidget(pose_box)
@@ -683,15 +686,23 @@ class DockingResultsWidget(QWidget):
         if result_id <= 0:
             return
         self._hit_token += 1
-        token = self._hit_token
+        dock = getattr(self.window(), "pymol_dock", None)
+        token = (self._hit_token, getattr(dock, "_amdock_scene_epoch", 0))
         run_async(
             lambda: self.runtime.docking.hit(result_id=result_id),
             lambda hit: self._apply_selected_hit(hit, token),
             on_error=lambda _exc: self._apply_selected_hit(None, token),
         )
 
-    def _apply_selected_hit(self, hit: DockingHitSummary | None, token: int) -> None:
-        if token != self._hit_token:
+    def _apply_selected_hit(self, hit: DockingHitSummary | None, token: tuple[int, int]) -> None:
+        dock = getattr(self.window(), "pymol_dock", None)
+        if token[1] != getattr(dock, "_amdock_scene_epoch", 0):
+            return
+        if token[0] != self._hit_token:
+            from amdockvs.ui.tools.pymol_ribbon import multiple_selection_enabled
+
+            if hit is not None and self._load_hit_in_pymol is not None and multiple_selection_enabled(dock):
+                self._load_hit_in_pymol(hit, self._pose_rank(hit))
             return
         self._show_detail(hit)
         self._load_selected_hit_in_pymol()

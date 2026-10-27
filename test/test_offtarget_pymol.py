@@ -71,9 +71,10 @@ def _label(cmd, slot):
 def test_multiple_ligand_grids_share_the_scene_and_keep_pose_replacement_local(grid_scene):
     widget, cmd, dock, pending = grid_scene
     viewer = MolecularViewerController(SimpleNamespace(pymol_dock=dock))
-    viewer.set_multiple_selection_enabled(True)
     widget._poses[742] = widget._poses[741]
+    viewer.select_table_row(widget)
     widget._show_ligand_grid(741)
+    viewer.select_table_row(widget, additive=True)
     widget._show_ligand_grid(742)
     for work, done in reversed(pending[:]):
         done(work())
@@ -97,18 +98,33 @@ def test_multiple_ligand_grids_share_the_scene_and_keep_pose_replacement_local(g
     assert cmd.get_names("objects") == []
 
 
-def test_multiple_selection_keeps_a_grid_when_switching_to_a_nonstructural_tab(grid_scene):
+def test_shift_selection_is_cleared_when_switching_to_a_nonstructural_tab(grid_scene):
     widget, cmd, dock, pending = grid_scene
     viewer = MolecularViewerController(SimpleNamespace(
         pymol_dock=dock, central_widget=SimpleNamespace(open_view=lambda _: None)))
-    viewer.set_multiple_selection_enabled(True)
+    viewer.select_table_row(widget)
+    viewer.select_table_row(widget, additive=True)
     widget._show_ligand_grid(741)
     work, done = pending.pop()
     done(work())
-    objects = cmd.get_names("objects")
     viewer.sync_to_active_view("other")
-    assert cmd.get_names("objects") == objects
-    assert cmd.get_setting_int("grid_mode") == 1
+    assert cmd.get_names("objects") == []
+    assert cmd.get_setting_int("grid_mode") == 0
+
+
+def test_opening_an_unshown_ligand_from_its_pose_menu_starts_a_new_scene(grid_scene, monkeypatch):
+    widget, cmd, dock, pending = grid_scene
+    viewer = MolecularViewerController(SimpleNamespace(pymol_dock=dock))
+    viewer.select_table_row(widget)
+    viewer.select_table_row(widget, additive=True)
+    cmd.pseudoatom("unrelated")
+    monkeypatch.setattr(widget, "window", lambda: SimpleNamespace(viewer=viewer))
+    monkeypatch.setattr(widget, "table", SimpleNamespace(view=object()))
+    widget._on_pose_changed(741, 1)
+    work, done = pending.pop()
+    done(work())
+    assert "unrelated" not in cmd.get_names("objects")
+    assert dock.scene_context.is_comparison
 
 
 def test_offtarget_passes_receptor_ligand_and_selected_pose_names_to_pymol(grid_scene):

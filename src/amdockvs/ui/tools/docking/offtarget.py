@@ -570,6 +570,9 @@ class OffTargetResultsWidget(QWidget):
                 and rec_obj in objects and lig_obj in objects):
             self._replace_grid_pose(dock, ligand_id, receptor_id, pose)
         else:
+            viewer = getattr(self.window(), "viewer", None)
+            if viewer is not None and self.table is not None:
+                viewer.select_table_row(self.table.view)
             self._show_ligand_grid(ligand_id)
 
     def _pymol(self):
