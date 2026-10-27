@@ -47,3 +47,6 @@ se detecta con los parámetros de búsqueda y salida (incluidos número de poses
 semilla y rango de energía); el número de CPU no crea otra configuración.
 La API usa la configuración validada para los metadatos, aunque el llamador omita
 los metadatos o suministre un hash anterior.
+
+Las opciones anteriores `existing_results="recalculate"`, `"missing"` y `"keep"`
+se retiraron: no hay modos alternativos de conservación de protocolos de docking.
