@@ -1,0 +1,12 @@
+# setuptools-scm puts every git-tracked file in the sdist.  These are the
+# working directories of the repo, not of the package: internal planning docs,
+# scratch scripts and notebooks have no business on PyPI.  Tests, examples and
+# the small fixture data under data/ stay, so an sdist is still runnable.
+prune docs
+prune scripts
+prune notebooks
+prune tools
+
+# Root-level working notes.  prune only takes directories.
+exclude AGENTS.md ui_refactor.md
+exclude "AMDock Backend Refactoring.md"
