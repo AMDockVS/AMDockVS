@@ -192,6 +192,7 @@ class StatusBar(QStatusBar):
         self.selection_indicators = {
             "ligand": SelectionIndicator("Ligands", self),
             "receptor": SelectionIndicator("Receptors", self),
+            "shard": SelectionIndicator("Shards", self),
         }
         for indicator in self.selection_indicators.values():
             self.addPermanentWidget(indicator)

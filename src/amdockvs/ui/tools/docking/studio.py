@@ -23,6 +23,7 @@ from amdockvs.ui.view_ids import (
     DOCKING_VIEW_ID,
     PREP_STATUS_VIEW_ID,
     RECEPTOR_VIEW_ID,
+    SHARDS_VIEW_ID,
 )
 
 class _WheelGuard(QObject):
@@ -194,14 +195,22 @@ class DockingStudioWidget(
             opener = getattr(self.window(), "open_or_focus_view", None)
             if callable(opener):
                 opener(view_id)
-        # The auxiliary zone follows the table: prepared ligands under Ligands, receptors under Receptors.
-        aux = getattr(self.window(), "aux", None)
-        if index in (1, 2) and aux is not None:
-            aux.page_for(PREP_STATUS_VIEW_ID).set_role("ligand" if index == 1 else "receptor")
+        self._sync_prep_status_role()
         self._req_preview_timer.start()
         # Entering Preview & Run auto-checks (no manual button); _check_requirements self-gates.
         self._check_requirements()
         self._sync_prep_poll()
+
+    def _sync_prep_status_role(self, *_args) -> None:
+        """The auxiliary zone follows the table: prepared ligands under Ligands, shards under
+        Shards, receptors under Receptors — on the tab on screen, not just the step's."""
+        index = self.stepper.current_index
+        aux = getattr(self.window(), "aux", None)
+        if index not in (1, 2) or aux is None:
+            return
+        current = self.window().central_widget.current_view_id()
+        role = "receptor" if index == 2 else "shard" if current == SHARDS_VIEW_ID else "ligand"
+        aux.page_for(PREP_STATUS_VIEW_ID).set_role(role)
 
     def on_job_finished(self, *_args) -> None:
         """A preparation job landing changes the counts under the Run step. Re-check instead of
@@ -270,6 +279,7 @@ class DockingStudioWidget(
         store = getattr(self.window(), "selection", None)
         if store is not None and not self._selection_bound:
             store.changed.connect(self._on_shared_selection_changed)
+            self.window().central_widget.current_view_changed.connect(self._sync_prep_status_role)
             self._selection_bound = True
         self._sync_ligand_table_filter()
         self._sync_receptor_table_filter()
@@ -280,8 +290,14 @@ class DockingStudioWidget(
     def _on_shared_selection_changed(self, role: str) -> None:
         # Picking or dropping a selection changes what the step's table lists (see
         # _unprepared_clause). Off screen, showEvent does it.
-        if self.isVisible():
-            self._sync_ligand_table_filter() if role == "ligand" else self._sync_receptor_table_filter()
+        if not self.isVisible():
+            return
+        if role == "ligand":
+            self._sync_ligand_table_filter()
+        elif role == "receptor":
+            self._sync_receptor_table_filter()
+        else:
+            self._dispatch_refresh()  # a shard selection only changes the counts
 
     def hideEvent(self, event):
         super().hideEvent(event)

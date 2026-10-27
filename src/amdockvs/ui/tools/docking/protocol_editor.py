@@ -152,20 +152,13 @@ class ProtocolEditorWidget:
         self.ligand_type_combo.addItem("Small molecule", MoleculeType.SMALL_MOLECULE)
         self.ligand_type_combo.setToolTip(
             "Only small-molecule ligands are enabled for now; peptides/proteins will be added later.")
-        # htpvs only: docking screens the sharded library or the curated rows beside it.
-        self.ligand_source_combo = QComboBox(box)
-        self.ligand_source_combo.addItem("Screening library (shards)", "shards")
-        self.ligand_source_combo.addItem("Reference ligands (rows)", "rows")
-        for combo in (self.method_combo, self.receptor_type_combo, self.ligand_type_combo,
-                      self.ligand_source_combo):
+        for combo in (self.method_combo, self.receptor_type_combo, self.ligand_type_combo):
             combo.currentIndexChanged.connect(self._on_experiment_config_changed)
         form.addRow("Experiment", self.experiment_kind_combo)
         form.addRow("Method", self.method_combo)
-        form.addRow("Ligands from", self.ligand_source_combo)
         form.addRow("Receptor type", self.receptor_type_combo)
         form.addRow("Ligand type", self.ligand_type_combo)
         self._experiment_form = form
-        form.setRowVisible(self.ligand_source_combo, False)
 
     def _build_program_config(self, spec) -> QWidget:
         page = QWidget(self)
@@ -741,26 +734,21 @@ class ProtocolEditorWidget:
     def _sync_ligand_source_choice(self) -> None:
         """Offer shards vs rows only where both can exist, and only the choices that can run.
 
-        Shown in `htpvs` alone. Rows need curated ligand rows to exist; redocking re-docks the
-        reference cocrystals, which are rows, so it cannot take shards.
+        The Ligands step's "Ligands from" boxes, shown in `htpvs` alone: they pick the store(s)
+        for the whole experiment. Rows need curated ligand rows to exist; redocking re-docks
+        the reference cocrystals, which are rows, so it hides the choice.
         """
-        combo = self.ligand_source_combo
         try:
             sharded, ligand_rows = self.runtime.molecules.library_shape()
         except Exception:  # noqa: BLE001 - no project open yet
             sharded, ligand_rows = False, 0
         redocking = self._run_kind() == "redocking"
-        self._experiment_form.setRowVisible(combo, bool(sharded))
-        combo.model().item(0).setEnabled(not redocking)
-        combo.model().item(1).setEnabled(bool(ligand_rows))
-        wanted = "rows" if redocking or (combo.currentData() == "rows" and ligand_rows) else "shards"
-        combo.blockSignals(True)
-        combo.setCurrentIndex(combo.findData(wanted))
-        combo.blockSignals(False)
-        combo.setToolTip(
-            "Redocking re-docks the reference cocrystals: rows only." if redocking
-            else "" if ligand_rows else "No reference ligands yet: import some as rows to dock them."
-        )
+        self.ligand_source_section.setVisible(bool(sharded) and not redocking)
+        # Ticked whenever it turns available, unticked when it doesn't; the user's own pick
+        # stands in between.
+        if self.prep_from_rows.isEnabled() != bool(ligand_rows):
+            self.prep_from_rows.setChecked(bool(ligand_rows))
+        self.prep_from_rows.setEnabled(bool(ligand_rows))
 
     def _on_experiment_config_changed(self) -> None:
         self._sync_ligand_source_choice()

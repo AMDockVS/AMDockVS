@@ -45,13 +45,17 @@ def test_ligand_table_follows_experiment_and_library(mode, run_kind, view_id):
     assert panel._ligand_scope_is_sharded() is (view_id == SHARDS_VIEW_ID)
 
 
-def test_a_sharded_project_can_dock_its_reference_rows():
-    """htpvs: the tool's selector may pick rows, and there every ligand row is curated."""
+def test_a_sharded_project_can_dock_its_rows():
+    """htpvs: the "Ligands from" boxes may pick rows, or both; shards don't make those rows reference."""
     panel = _Panel("htpvs", "docking")
-    panel.ligand_source_combo = SimpleNamespace(currentData=lambda: "rows")
+    panel.prep_from_rows = SimpleNamespace(isChecked=lambda: True)
+    panel.prep_from_shards = SimpleNamespace(isChecked=lambda: False)
     assert panel._ligand_view_id() == LIGANDS_VIEW_ID
-    assert panel._ligand_usage_class("docking") == "reference"
-    assert _Panel("vs", "docking")._ligand_usage_class("docking") == "general"
+    panel.prep_from_shards = SimpleNamespace(isChecked=lambda: True)
+    assert panel._ligand_sources() == {"rows", "shards"}  # on every step, not only Ligands
+    assert not panel._ligand_scope_is_sharded()
+    assert panel._ligand_usage_class("docking") == "general"
+    assert panel._ligand_usage_class("redocking") == "reference"
 
 
 def test_no_project_no_shards():

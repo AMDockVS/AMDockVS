@@ -41,6 +41,7 @@ from amdockvs.ui.view_ids import (
     PREP_STATUS_VIEW_ID,
     RECEPTOR_VIEW_ID,
     REDOCKING_VIEW_ID,
+    SHARDS_VIEW_ID,
 )
 
 
@@ -775,6 +776,85 @@ def test_ui_is_locked_until_a_project_is_open(tmp_path, monkeypatch):
         assert window._status_bar.isVisible()
         assert window.diagram_dock.isEnabled()
         assert all(action.isEnabled() for action in window._project_actions)
+    finally:
+        if window is not None:
+            window.close()
+        runtime.shutdown()
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+def test_prepare_ligands_from_table_and_shards(tmp_path, monkeypatch):
+    """A project with rows and shards prepares from either store or both, and the Shards
+    selection narrows the shard job. The rows are general: shards don't make them reference."""
+    from amdockvs.models import ImportBatch, ScreeningShard
+
+    _patch_fake_home(monkeypatch, tmp_path / "home")
+    monkeypatch.setenv("AMDOCK_DISABLE_PYMOL", "1")
+    app = QApplication.instance() or QApplication(["amdockvs-ui"])
+    window = None
+    runtime = AMDockVSRuntime()
+    try:
+        runtime.create_project(name="two_stores", folder=tmp_path / "two_stores", description="rows and shards")
+        smiles = tmp_path / "ligands.smi"
+        smiles.write_text("CCO a\nCCN b\n", encoding="utf-8")
+        runtime.wait_for_jobs(runtime.loader.load_ligands([smiles], batch_size=4, executor_name="thread"), timeout_s=120)
+        with runtime.workspace.project_db.get_session() as session:
+            batch = ImportBatch(source="library.smi", quick_hash="x", format="smiles", kind="shards")
+            session.add(batch)
+            session.flush()
+            shards = [ScreeningShard(import_batch_id=batch.id, shard_index=index, path=str(tmp_path / f"s{index}.parquet"),
+                                     n_records=10, state="ready") for index in range(2)]
+            session.add_all(shards)
+            session.commit()
+            shard_ids = [int(shard.id) for shard in shards]
+        window = AMDockVSMainWindow(runtime=runtime)
+        window.show()
+        assert window.central_widget.open_view(SHARDS_VIEW_ID) is not None  # a project with shards opens on them too
+        studio = window.tools.open_tool(DOCKING_VIEW_ID)
+        studio.stepper.set_current_index(1)
+        studio.refresh()
+        app.processEvents()
+
+        assert not studio.ligand_source_section.isHidden() and studio.prep_from_rows.isEnabled()
+        assert studio._ligand_sources() == {"rows", "shards"}  # both stores by default
+        window.selection.set("shard", shard_ids[:1])
+        deadline = time.monotonic() + 10
+        while "1 selected" not in studio.prep_source_counts["shards"].text() and time.monotonic() < deadline:
+            app.processEvents()
+            time.sleep(0.01)
+        assert "2 shard(s)" in studio.prep_source_counts["shards"].text()
+        assert "1 selected" in studio.prep_source_counts["shards"].text()
+        assert "2 ligand(s)" in studio.prep_source_counts["rows"].text()
+        headline = studio.ligand_bar.headline.text()  # the bar counts both stores
+        assert "2 ligand(s) in the table" in headline and "2 shard(s)" in headline and "20 molecule(s)" in headline
+
+        calls = []
+        monkeypatch.setattr(runtime.docking, "prepare_ligand_shards",
+                            lambda **kw: calls.append(("shards", kw.get("shard_ids"), kw.get("depends_on"))) or "shard-job")
+        monkeypatch.setattr(runtime.docking, "prepare_ligands",
+                            lambda **kw: calls.append(("rows", None)) or "row-job")
+        monkeypatch.setattr(studio.ligand_prep_jobs, "follow", lambda jobs, **_kw: calls.append(("follow", [j[1] for j in jobs])))
+        studio._prepare_ligands()
+        # The table first, then the shards, waiting on it: one job after the other.
+        assert calls == [("rows", None), ("shards", shard_ids[:1], ["row-job"]), ("follow", ["row-job", "shard-job"])]
+
+        # Preview & Run counts both stores too: the boxes are the experiment's choice.
+        studio.stepper.set_current_index(3)
+        deadline = time.monotonic() + 10
+        while "shard(s) prepared" not in studio.req_ligands_count.text() and time.monotonic() < deadline:
+            app.processEvents()
+            time.sleep(0.01)
+        assert "0 / 2 shard(s) prepared" in studio.req_ligands_count.text()
+        assert "/ 2 prepared" in studio.req_ligands_count.text()  # the table's two ligands
+
+        # A workflow step keeps the same boxes: with only Shards ticked it prepares only shards.
+        import amdockvs.ui.tools.workflow_panel as workflow_panel
+        saved = []
+        monkeypatch.setattr(workflow_panel, "save_to_workflow", lambda *_a, submit, **_kw: saved.append(submit))
+        studio.prep_from_rows.setChecked(False)
+        studio._save_prepare_ligands_to_workflow()
+        calls.clear()
+        assert saved[-1](runtime)[-1] == "shard-job" and calls == [("shards", shard_ids[:1], None)]
     finally:
         if window is not None:
             window.close()

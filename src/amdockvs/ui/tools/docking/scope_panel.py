@@ -25,27 +25,31 @@ class ScopePanel:
         except Exception:  # noqa: BLE001 - no project open yet; the step shows nothing anyway
             return False
 
-    def _ligand_source(self) -> str:
-        """`shards` or `rows`: where this experiment reads its ligands from.
+    def _ligand_sources(self) -> set[str]:
+        """`{"rows", "shards"}` or a part of it: where this experiment reads its ligands.
 
         Rows are the only answer in `vs`, and for redocking everywhere (it re-docks the
-        reference cocrystals, curated rows in both modes). A sharded project offers docking
-        both — the library on disk or the curated rows beside it — and the tool's own
-        selector picks; without the selector it screens the library.
+        reference cocrystals, curated rows in both modes). A sharded project reads the Ligands
+        step's "Ligands from" boxes, either store or both, on every step: what is prepared
+        there is what Preview & Run docks. Without the boxes it screens the library.
         """
         if not self._library_is_sharded() or self._run_kind() == "redocking":
-            return "rows"
-        combo = getattr(self, "ligand_source_combo", None)
-        return str(combo.currentData() or "shards") if combo is not None else "shards"
+            return {"rows"}
+        boxes = (getattr(self, "prep_from_rows", None), getattr(self, "prep_from_shards", None))
+        if None in boxes:
+            return {"shards"}
+        return {source for source, box in zip(("rows", "shards"), boxes) if box.isChecked()}
 
     def _ligand_scope_is_sharded(self) -> bool:
-        """Do this experiment's ligands live outside the project database?"""
-        return self._ligand_source() == "shards"
+        """Does the experiment leave the ligand rows out (shards only, or nothing picked)?"""
+        return "rows" not in self._ligand_sources()
 
     def _ligand_usage_class(self, run_kind: str) -> str:
-        """Docking reads the general rows — except in `htpvs`, where every ligand row is curated."""
-        redocking = str(run_kind or "") == "redocking"
-        return "reference" if redocking or self._library_is_sharded() else "general"
+        """Docking reads the general rows, redocking the reference ones — whatever else is stored.
+
+        Shards beside the rows don't make the rows reference: only the "As Reference" mark does.
+        """
+        return "reference" if str(run_kind or "") == "redocking" else "general"
 
     def _focus_ligand_view(self) -> None:
         """Follow the experiment: switching to redocking swaps Shards for Ligands under you.

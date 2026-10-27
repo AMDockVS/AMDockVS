@@ -41,6 +41,7 @@ from amdockvs.ui.view_ids import (
     OFFTARGET_VIEW_ID,
     RECEPTOR_VIEW_ID,
     REDOCKING_VIEW_ID,
+    SHARDS_VIEW_ID,
     WORKFLOW_VIEW_ID,
 )
 
@@ -227,10 +228,13 @@ class AMDockVSMainWindow(QMainWindow):
     def _open_default_views(self) -> None:
         """Land on Receptors + Ligands: both start empty and offer their Import button,
         so a fresh project has its first step in front of the user. Molecules is the
-        union view — nothing is imported *as* a molecule, so it's a poor landing tab."""
+        union view — nothing is imported *as* a molecule, so it's a poor landing tab. A project
+        with shards also opens Shards: that is where its screening library is."""
         # open_view() only returns the tab if it already exists; opening is open_or_focus_view().
         self.open_or_focus_view(RECEPTOR_VIEW_ID)
         self.open_or_focus_view(LIGANDS_VIEW_ID)
+        if self.views._library_shape()[0]:
+            self.open_or_focus_view(SHARDS_VIEW_ID)
         self.open_or_focus_view(RECEPTOR_VIEW_ID)
 
     def resizeEvent(self, event):

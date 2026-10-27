@@ -467,6 +467,17 @@ class MoleculeAPI:
             "prepared_records": sum(int(row.get("n_records") or 0) for row in prepared),
         }
 
+    def shard_preps(self, shard_id: int) -> dict[str, tuple[int, int]]:
+        """One shard's preparations: family -> (prepared records, failed records)."""
+        from sqlmodel import select
+
+        from amdockvs.models import ShardPrep
+
+        self.runtime._require_active_project()
+        with self.runtime.workspace.project_db.get_session() as session:
+            rows = session.exec(select(ShardPrep).where(ShardPrep.shard_id == int(shard_id))).all()
+        return {str(row.family): (int(row.n_records), int(row.n_failed)) for row in rows}
+
     def list_fragments(self, molecule_id: int) -> list[dict[str, Any]]:
         self.runtime._require_active_project()
         with self.runtime.workspace.project_db.get_session() as session:
