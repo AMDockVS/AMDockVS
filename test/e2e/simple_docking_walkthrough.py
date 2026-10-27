@@ -322,7 +322,7 @@ def main(root, *, cancel_during_preview=False, native=False):
                                            (*tutorial.example["grid_center"], *tutorial.example["grid_size"])):
                         spin.setFocus()
                         QTest.keyClick(spin, Qt.Key_A, Qt.ControlModifier)
-                        QTest.keyClicks(spin, f"{value:.2f}")
+                        QTest.keyClicks(spin, spin.locale().toString(float(value), "f", 2))
                         QTest.keyClick(spin, Qt.Key_Tab)
                     grid.grab().save(str(root / "box-values.png"))
                 elif "box-saved" not in clicked:

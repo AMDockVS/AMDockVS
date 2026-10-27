@@ -445,7 +445,6 @@ class SimpleDockingTutorial(QObject):
                 text = "Click Ligands in the Docking Studio header, then click Prepare Ligands. Wait for preparation to complete."
         elif step.id == "prepare-receptor" and not self._grid_ready:
             grid = self.window.grid_dock
-            center = ", ".join(f"{value:.2f}" for value in self.example["grid_center"])
             if self.studio.stepper.current_index != 2:
                 text = "Click Receptors in the Docking Studio header to prepare the receptor and define its docking box."
             elif grid is None or grid._current_molecule is None:
@@ -455,7 +454,11 @@ class SimpleDockingTutorial(QObject):
             elif not grid._working.dirty and grid._working.source_site_id is None:
                 text = "Click New in the Grid Box panel to create a working docking box."
             elif not self._box_values_match(grid):
-                text = (f"Enter Center X, Y, Z = {center} Å and Size X, Y, Z = 22.00 Å. "
+                # The spin boxes parse the user's locale: 18,93 where the decimal mark is a comma.
+                number = lambda value: grid.cx.locale().toString(float(value), "f", 2)
+                center = " / ".join(map(number, self.example["grid_center"]))
+                size = " / ".join(map(number, self.example["grid_size"]))
+                text = (f"Enter Center X / Y / Z = {center} Å and Size X / Y / Z = {size} Å. "
                         "These values cover the original SAR405 binding site.")
             elif grid._working.dirty:
                 text = "The box values match the example. Click Save to store this docking site."

@@ -11,7 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from amdockvs.runtime import AMDockVSRuntime
 from PySide6.QtTest import QTest
-from PySide6.QtCore import Qt, QThread, QTimer
+from PySide6.QtCore import QLocale, Qt, QThread, QTimer
 from PySide6.QtWidgets import QApplication, QDialog, QDockWidget, QFileDialog, QFrame, QMessageBox, QTableWidgetItem
 from amdockvs.ui.docking_tutorial import copy_example_inputs, example_data, start_simple_docking_tutorial
 from amdockvs.ui.main_window import AMDockVSMainWindow
@@ -284,6 +284,12 @@ def test_seven_steps_wait_for_successful_jobs_and_prepared_data(practice, monkey
     grid = window.grid_dock
     grid.set_molecule(runtime.molecules.select(role="receptor").one())
     grid.new_button.click()
+    tutorial.studio.stepper.next()  # the user opens Receptors
+    monkeypatch.setattr(grid, "isVisible", lambda: True)  # the window is never shown here
+    for spin in (grid.cx, grid.cy, grid.cz, grid.sx, grid.sy, grid.sz):
+        spin.setLocale(QLocale(QLocale.Language.Spanish, QLocale.Country.Colombia))
+    # The box values are written the way the spin boxes parse them.
+    assert "18,93 / -14,91 / -23,05" in tutorial._instruction(tutorial.controller.current_step)
     for spin, value in zip((grid.cx, grid.cy, grid.cz, grid.sx, grid.sy, grid.sz),
                            (*tutorial.example["grid_center"], *tutorial.example["grid_size"])):
         spin.setValue(value)
