@@ -1,0 +1,1171 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Virtual screening, molecular preparation, QSAR, and docking with MolSuite.">
+      
+      
+        <meta name="author" content="AMDockVS authors">
+      
+      
+        <link rel="canonical" href="https://amdockvs.github.io/AMDockVS/latest/plan_implementacion_optimizacion_2026-10-24/">
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../images/favicon.svg">
+      <meta name="generator" content="zensical-0.0.73">
+    
+    
+      
+        <title>Plan de implementación: SQLite delgado, química de importación y shards Parquet (2026-10-24) - AMDockVS</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../assets/stylesheets/modern/main.4ab2de0c.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../assets/stylesheets/modern/palette.b60ce83d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-hidden="true"></label>
+    <div data-md-component="skip">
+      <a href="#__skip" class="md-skip">
+        Skip to content
+      </a>
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="./.." title="AMDockVS" class="md-header__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+      <span class="md-visually-hidden">Navigation</span>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AMDockVS
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Plan de implementación: SQLite delgado, química de importación y shards Parquet (2026-10-24)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+          <span class="md-visually-hidden">Search</span>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="./.." title="AMDockVS" class="md-nav__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    AMDockVS
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../runtime_api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API guide
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../data_and_export/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Data and export
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Examples
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#fase-1-sqlite-delgado-columnas-e-indices" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 1. SQLite delgado: columnas e índices
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Fase 1. SQLite delgado: columnas e índices">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#10-que-contiene-cada-columna-en-s1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1.0 Qué contiene cada columna en <code>s1</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#11-fechas-fuera-de-molecules" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1.1 Fechas fuera de <code>molecules</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12-tabla-de-lotes-de-importacion" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1.2 Tabla de lotes de importación
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#13-current_payload_id-null-significa-igual-que-el-almacenado" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1.3 <code>current_payload_id</code> NULL significa "igual que el almacenado"
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#14-ro5-sin-columna" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1.4 Ro5 sin columna
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#15-indices" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1.5 Índices
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#16-lo-que-no-se-toca" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1.6 Lo que NO se toca
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#17-ms_flow-ms_payloads-126-mb-40-mb-del-indice-volume_id" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1.7 ms_flow: <code>ms_payloads</code> (126 MB + 40 MB del índice <code>volume_id</code>)
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#18-migracion-y-medida" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1.8 Migración y medida
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fase-2-quimica-de-la-importacion" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 2. Química de la importación
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Fase 2. Química de la importación">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#20-perfil-de-hoy-945-smol-frente-a-4522-antes-de-c2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        2.0 Perfil de hoy: 945 µs/mol, frente a 4522 antes de C.2
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#21-bucles-de-atomos-a-c-estimado-250-s" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        2.1 Bucles de átomos a C++ (estimado: −250 µs)
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22-resolver-la-ruta-una-vez-por-lote-estimado-100-s" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        2.2 Resolver la ruta una vez por lote (estimado: −100 µs)
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23-descriptores-secundarios-bajo-demanda" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        2.3 Descriptores secundarios bajo demanda
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#24-guardar-el-smiles-de-entrada-tal-cual" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        2.4 Guardar el SMILES de entrada tal cual
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#25-que-mas-puede-salir-de-la-fila-hacia-volumenes-o-shards" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        2.5 Qué más puede salir de la fila hacia volúmenes o shards
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#26-fuera-de-la-importacion" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        2.6 Fuera de la importación
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fase-3-shards-en-parquet" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 3. Shards en Parquet
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Fase 3. Shards en Parquet">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#30-contenedor-hecho-en-el-arbol-de-trabajo-sin-commit" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        3.0 Contenedor: hecho en el árbol de trabajo, sin commit
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#31-granularidad-del-docking" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        3.1 Granularidad del docking
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-descriptores-dentro-del-shard-opcional-d-s5" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        3.2 Descriptores dentro del shard (opcional, D-S5)
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-capa-de-consulta" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        3.3 Capa de consulta
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#34-fragmentos-de-resultados-pequenos" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        3.4 Fragmentos de resultados pequeños
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#35-banco" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        3.5 Banco
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#orden-y-decisiones" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Orden y decisiones
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+              
+              <article class="md-content__inner md-typeset">
+                <a id="__skip" tabindex="-1"></a>
+                
+                  
+
+  
+  
+
+
+<h1 id="plan-de-implementacion-sqlite-delgado-quimica-de-importacion-y-shards-parquet-2026-10-24">Plan de implementación: SQLite delgado, química de importación y shards Parquet (2026-10-24)<a class="headerlink" href="#plan-de-implementacion-sqlite-delgado-quimica-de-importacion-y-shards-parquet-2026-10-24" title="Permanent link">&para;</a></h1>
+<p>Continúa <code>plan_optimizacion_almacenamiento_2026-10-22.md</code> (partes A y C). Ya está en <code>db/sqlite</code>:
+índices diferidos (C.1), y de la fila delgada (C.2) PAINS / InChIKey / SMILES canónico bajo
+demanda y la regla D6 (sin molblock 2D con entrada SMILES). Este plan cubre lo que falta.</p>
+<p>Trabajo en las ramas <code>db/sqlite</code> de AMDockVS, ms_flow y ms_components, con un commit por
+punto y sin ramas por funcionalidad. Las ramas <code>db/duckdb</code> se quedan para volver a probar
+DuckDB 2.0.1.</p>
+<p>Medidas de hoy:
+- Proyecto <code>s1</code>: 3.854.288 SMILES lead-like importados en <code>db/sqlite</code>.
+  - <code>molecules</code> ocupa 1055 MB y sus índices 517 MB.
+- Perfil de la importación por filas: 5000 SMILES de <code>DGAA.smi</code>, un núcleo.</p>
+<hr />
+<h2 id="fase-1-sqlite-delgado-columnas-e-indices">Fase 1. SQLite delgado: columnas e índices<a class="headerlink" href="#fase-1-sqlite-delgado-columnas-e-indices" title="Permanent link">&para;</a></h2>
+<h3 id="10-que-contiene-cada-columna-en-s1">1.0 Qué contiene cada columna en <code>s1</code><a class="headerlink" href="#10-que-contiene-cada-columna-en-s1" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Columna</th>
+<th>Contenido en s1</th>
+<th style="text-align: right;">Bytes/fila (aprox.)</th>
+<th>Propuesta</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>created_at</code>, <code>updated_at</code></td>
+<td>texto ISO; las dos iguales en todas las filas</td>
+<td style="text-align: right;">52</td>
+<td>ver 1.1</td>
+</tr>
+<tr>
+<td><code>source</code></td>
+<td>ruta absoluta del fichero; 168 valores distintos</td>
+<td style="text-align: right;">57</td>
+<td>ver 1.2 (pasa al lote)</td>
+</tr>
+<tr>
+<td><code>input_format</code></td>
+<td>constante <code>smiles</code></td>
+<td style="text-align: right;">6</td>
+<td>ver 1.2 (pasa al lote)</td>
+</tr>
+<tr>
+<td><code>current_payload_id</code></td>
+<td>igual a <code>stored_payload_id</code> en el 100 % de las filas</td>
+<td style="text-align: right;">7 + índice 46 MB</td>
+<td>1.3</td>
+</tr>
+<tr>
+<td><code>pains_matches</code></td>
+<td>JSON <code>null</code>, 4 B</td>
+<td style="text-align: right;">4</td>
+<td>NULL de SQL</td>
+</tr>
+<tr>
+<td><code>extra_data</code></td>
+<td><code>{}</code> en todas las filas</td>
+<td style="text-align: right;">2</td>
+<td>NULL de SQL</td>
+</tr>
+<tr>
+<td><code>ro5_violations</code></td>
+<td>lista JSON calculada en la importación</td>
+<td style="text-align: right;">2+</td>
+<td>1.4: expresión SQL, sin columna</td>
+</tr>
+<tr>
+<td><code>molecule_type</code>, <code>usage_class</code>, <code>primary_context</code></td>
+<td>constantes (texto)</td>
+<td style="text-align: right;">28</td>
+<td>se quedan (ver 1.6)</td>
+</tr>
+<tr>
+<td><code>properties_payload_id</code>, <code>current_model_index</code>, <code>active_binding_site_id</code>, <code>inchikey</code>, <code>canonical_smiles</code></td>
+<td>todo NULL</td>
+<td style="text-align: right;">~0</td>
+<td>se quedan; el índice de <code>properties</code> sí cuesta (1.5)</td>
+</tr>
+<tr>
+<td>booleanos (8)</td>
+<td>0/1</td>
+<td style="text-align: right;">0 (SQLite guarda 0 y 1 solo en la cabecera)</td>
+<td>nada</td>
+</tr>
+<tr>
+<td><code>n_atoms</code> = <code>heavy_atom_count</code></td>
+<td>iguales en el 100 % de las filas</td>
+<td style="text-align: right;">2</td>
+<td>coinciden solo porque la entrada SMILES no trae H; ambos se quedan</td>
+</tr>
+</tbody>
+</table>
+<p>El total estimado ronda <strong>~130 B de ~274 B por fila (≈45 %)</strong>. La cifra sale de las
+longitudes en texto; la real se mide con el banco (1.8).</p>
+<h3 id="11-fechas-fuera-de-molecules">1.1 Fechas fuera de <code>molecules</code><a class="headerlink" href="#11-fechas-fuera-de-molecules" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Lectores actuales de <code>molecules.updated_at</code>:</li>
+<li><code>molecules.excluded_since(since)</code>, que usan los diálogos de fallos de preparación
+    (<code>preparation_panel.py:678</code>) y de Build (<code>build.py:755</code>);</li>
+<li>el orden por defecto <code>updated_at</code> de la vista de preparación (<code>preparation_panel.py:81</code>).
+    Hay que comprobar si esa vista lee <code>molecules</code> o la tabla de entradas de docking.</li>
+<li>Propuesta: el job que excluye devuelve los ids que excluyó, como salida del job o como
+  <code>exclusion_reason</code> con el id del job. El diálogo los lee de ahí, y <code>excluded_since</code>
+  desaparece.</li>
+<li><code>created_at</code> pasa al lote de importación (1.2).</li>
+<li>Resultado: <code>MoleculeRecord</code> deja de heredar <code>TimestampedRecord</code>, que hoy solo usa
+  <code>molecules</code>.</li>
+</ul>
+<h3 id="12-tabla-de-lotes-de-importacion">1.2 Tabla de lotes de importación<a class="headerlink" href="#12-tabla-de-lotes-de-importacion" title="Permanent link">&para;</a></h3>
+<p>Nueva tabla <code>import_batches(id, source, input_format, created_at, …)</code>. En <code>molecules</code>,
+<code>source</code>, <code>input_format</code> y <code>created_at</code> se sustituyen por <code>import_batch_id</code>, un entero de
+1-2 B.
+- Ahorro: ~90 B por fila.
+- Los lectores de <code>source</code> (detalles, re-corte de fragmentos, exportar) hacen JOIN o leen el
+  lote.
+- Las moléculas que nacen fuera de una importación (edición, Build, copia) apuntan a un lote
+  sintético del job que las creó.</p>
+<h3 id="13-current_payload_id-null-significa-igual-que-el-almacenado">1.3 <code>current_payload_id</code> NULL significa "igual que el almacenado"<a class="headerlink" href="#13-current_payload_id-null-significa-igual-que-el-almacenado" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Se escribe solo cuando una transformación lo cambia.</li>
+<li>Los lectores (51 referencias en 26 ficheros) pasan a usar <code>coalesce(current, stored)</code>
+  mediante una sola función o propiedad, para que no quede repartido.</li>
+<li><code>PayloadStore.release/check</code> sigue mirando los dos campos.</li>
+</ul>
+<h3 id="14-ro5-sin-columna">1.4 Ro5 sin columna<a class="headerlink" href="#14-ro5-sin-columna" title="Permanent link">&para;</a></h3>
+<p><code>ro5_violations</code> es aritmética sobre <code>mw</code>, <code>logp</code>, <code>hbd</code> y <code>hba</code>. El filtro la expresa en SQL y
+la UI la calcula al mostrarla. Era el punto C.2-4 y aún no está hecho.</p>
+<h3 id="15-indices">1.5 Índices<a class="headerlink" href="#15-indices" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Índice</th>
+<th style="text-align: right;">Tamaño en s1</th>
+<th>Propuesta</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ix_molecules_usage_class</code></td>
+<td style="text-align: right;">62 MB</td>
+<td>retirar: <code>idx_mol_role_scope</code> empieza por <code>usage_class</code></td>
+</tr>
+<tr>
+<td><code>ix_molecules_current_payload_id</code></td>
+<td style="text-align: right;">46 MB</td>
+<td>parcial <code>WHERE current_payload_id IS NOT NULL</code> (con 1.3 queda casi vacío)</td>
+</tr>
+<tr>
+<td><code>ix_molecules_properties_payload_id</code></td>
+<td style="text-align: right;">35 MB, columna toda NULL</td>
+<td>parcial <code>WHERE … IS NOT NULL</code></td>
+</tr>
+<tr>
+<td><code>ix_molecules_name</code></td>
+<td style="text-align: right;">67 MB</td>
+<td>decidir (D-S3): solo lo usan el orden por nombre de la tabla y <code>binding_sites</code> (receptores)</td>
+</tr>
+<tr>
+<td><code>idx_mol_role_scope</code></td>
+<td style="text-align: right;">128 MB</td>
+<td>se queda (conteos de rol)</td>
+</tr>
+</tbody>
+</table>
+<p>Ahorro: ~140 MB de 517 sin tocar <code>name</code>.</p>
+<h3 id="16-lo-que-no-se-toca">1.6 Lo que NO se toca<a class="headerlink" href="#16-lo-que-no-se-toca" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>molecule_type</code>, <code>usage_class</code> y <code>primary_context</code>: son mutables o se filtran, y pasarlos
+  a códigos enteros toca más de 35 lectores para ganar unos 28 B.</li>
+<li>Los booleanos.</li>
+<li>Las columnas NULL: cuestan ~1 B.</li>
+</ul>
+<h3 id="17-ms_flow-ms_payloads-126-mb-40-mb-del-indice-volume_id">1.7 ms_flow: <code>ms_payloads</code> (126 MB + 40 MB del índice <code>volume_id</code>)<a class="headerlink" href="#17-ms_flow-ms_payloads-126-mb-40-mb-del-indice-volume_id" title="Permanent link">&para;</a></h3>
+<p>En s1, <code>kind</code> y <code>volume_id</code> tienen un solo valor, y <code>part_offset</code>/<code>part_length</code> son NULL.
+La ganancia es pequeña (los NULL ya son baratos). Queda anotado, sin construir, salvo que el
+banco diga lo contrario.</p>
+<h3 id="18-migracion-y-medida">1.8 Migración y medida<a class="headerlink" href="#18-migracion-y-medida" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Los proyectos nuevos se crean con el esquema delgado.</li>
+<li>En los existentes, decisión D-S2:</li>
+<li><strong>(a)</strong> dejar las columnas viejas sin usar, que no cuesta nada;</li>
+<li><strong>(b)</strong> migrarlos con <code>ALTER TABLE DROP COLUMN</code> tras quitar sus índices, lo que reescribe
+    la tabla.</li>
+<li>Banco: <code>bench_import_scale.py</code> con 1M SMILES (el disco tiene 7,8 GB libres, así que 4M no
+  cabe). Se mide B/fila, MB de índices, tiempo de importación y tiempo de página de la tabla.</li>
+<li>Pruebas: las suites actuales y una prueba de "fila delgada" que fije qué columnas escribe
+  una importación de librería.</li>
+</ul>
+<hr />
+<h2 id="fase-2-quimica-de-la-importacion">Fase 2. Química de la importación<a class="headerlink" href="#fase-2-quimica-de-la-importacion" title="Permanent link">&para;</a></h2>
+<h3 id="20-perfil-de-hoy-945-smol-frente-a-4522-antes-de-c2">2.0 Perfil de hoy: 945 µs/mol, frente a 4522 antes de C.2<a class="headerlink" href="#20-perfil-de-hoy-945-smol-frente-a-4522-antes-de-c2" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Parte</th>
+<th style="text-align: right;">µs/mol</th>
+<th>Comentario</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Crippen logP (<code>CalcCrippenDescriptors</code>)</td>
+<td style="text-align: right;">~243</td>
+<td>primera percepción de tipos de átomo; básico, se queda</td>
+</tr>
+<tr>
+<td>Bucles Python sobre átomos (<code>chemistry/state.py</code>, <code>molecules/fragments.py</code>)</td>
+<td style="text-align: right;">~280</td>
+<td>~130 iteraciones por molécula desde Python</td>
+</tr>
+<tr>
+<td><code>Path.resolve()</code> por fila (<code>core/paths.py:42</code> y <code>molecule_row</code>)</td>
+<td style="text-align: right;">~106</td>
+<td>14 <code>lstat</code> por molécula</td>
+</tr>
+<tr>
+<td>Parseo (<code>_parse_smiles_line</code> + <code>MolToSmiles</code> no canónico)</td>
+<td style="text-align: right;">~130</td>
+<td>necesario; ver 2.4</td>
+</tr>
+<tr>
+<td>HBA/HBD y resto de descriptores</td>
+<td style="text-align: right;">~120</td>
+<td>básicos</td>
+</tr>
+</tbody>
+</table>
+<h3 id="21-bucles-de-atomos-a-c-estimado-250-s">2.1 Bucles de átomos a C++ (estimado: −250 µs)<a class="headerlink" href="#21-bucles-de-atomos-a-c-estimado-250-s" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>mol_has_explicit_hs</code> → comparar <code>GetNumAtoms()</code> con <code>GetNumHeavyAtoms()</code>, o devolver
+  <code>False</code> directamente con entrada SMILES.</li>
+<li><code>_has_metal_atoms</code>, <code>_is_simple_ion</code> y <code>_has_carbon</code> → un patrón SMARTS precompilado y
+  <code>Chem.GetFormalCharge</code>.</li>
+<li>La clasificación de componentes se salta cuando hay un solo componente. El commit 986c149
+  ya lo intenta, pero el perfil sigue mostrando 23 llamadas por molécula; hay que revisar
+  quién las hace.</li>
+</ul>
+<h3 id="22-resolver-la-ruta-una-vez-por-lote-estimado-100-s">2.2 Resolver la ruta una vez por lote (estimado: −100 µs)<a class="headerlink" href="#22-resolver-la-ruta-una-vez-por-lote-estimado-100-s" title="Permanent link">&para;</a></h3>
+<p><code>source_file.resolve()</code> se calcula al crear el lote, no en cada fila. Con 1.2 la ruta además
+deja de viajar en la fila.</p>
+<h3 id="23-descriptores-secundarios-bajo-demanda">2.3 Descriptores secundarios bajo demanda<a class="headerlink" href="#23-descriptores-secundarios-bajo-demanda" title="Permanent link">&para;</a></h3>
+<p><code>ring_count</code>, <code>aromatic_ring_count</code>, <code>hetero_atom_count</code>, <code>formal_charge</code>, <code>fraction_csp3</code> y
+<code>fragment_count</code> (C.2-2, sin hacer) se calculan con el job <code>compute_descriptors</code> que ya existe
+y que el filtro lanza cuando los necesita.
+- Ahorro: poca CPU (~45 µs, porque comparten la percepción) y ~6 B por fila.
+- Es la misma regla que PAINS: NULL = no calculado.</p>
+<h3 id="24-guardar-el-smiles-de-entrada-tal-cual">2.4 Guardar el SMILES de entrada tal cual<a class="headerlink" href="#24-guardar-el-smiles-de-entrada-tal-cual" title="Permanent link">&para;</a></h3>
+<p>Hoy se reescribe con <code>MolToSmiles(canonical=False)</code> después de parsearlo. Si la entrada ya es
+un SMILES válido y no hubo corte de fragmento, se guarda el token original. Hay que medir
+antes de decidir; si gana menos de 20 µs, no se toca.</p>
+<h3 id="25-que-mas-puede-salir-de-la-fila-hacia-volumenes-o-shards">2.5 Qué más puede salir de la fila hacia volúmenes o shards<a class="headerlink" href="#25-que-mas-puede-salir-de-la-fila-hacia-volumenes-o-shards" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Con entrada SMILES ya no queda nada: el molblock se fue con D6, y <code>fragmentation</code> solo se
+  guarda con más de un componente.</li>
+<li>Con entrada SDF hay que verificar si las etiquetas del SDF se guardan dos veces: en el
+  payload SDF y en el sidecar de propiedades. Si es así, se elige una sola copia.</li>
+<li>Los cientos de descriptores para QSAR ya viven en <code>descriptor_blocks</code> (JSON), bajo demanda.</li>
+</ul>
+<h3 id="26-fuera-de-la-importacion">2.6 Fuera de la importación<a class="headerlink" href="#26-fuera-de-la-importacion" title="Permanent link">&para;</a></h3>
+<p>Build (protonar, 3D, minimizar) y la preparación de docking (meeko) se perfilan igual, con
+1000 ligandos. Se escriben propuestas solo con el perfil en la mano. Meeko se queda (decisión
+del 2026-10-13).</p>
+<p><strong>Objetivo de la fase:</strong> ~945 → ~550 µs/mol con entrada SMILES, medido con el mismo perfil y
+con <code>bench_import_scale.py</code> a 1M.</p>
+<hr />
+<h2 id="fase-3-shards-en-parquet">Fase 3. Shards en Parquet<a class="headerlink" href="#fase-3-shards-en-parquet" title="Permanent link">&para;</a></h2>
+<h3 id="30-contenedor-hecho-en-el-arbol-de-trabajo-sin-commit">3.0 Contenedor: hecho en el árbol de trabajo, sin commit<a class="headerlink" href="#30-contenedor-hecho-en-el-arbol-de-trabajo-sin-commit" title="Permanent link">&para;</a></h3>
+<ul>
+<li>ms_flow, <code>core/data/shard.py</code>:</li>
+<li>misma API (<code>ShardWriter</code>, <code>Shard</code>, <code>Record</code>); el fichero es Parquet <code>id uint64</code> +
+    <code>record</code>, con la cabecera en los metadatos <code>ms_flow.shard</code>;</li>
+<li>zstd y checksums de página;</li>
+<li>escritura atómica (<code>.tmp</code> + fsync + <code>replace</code>).</li>
+<li>AMDockVS:</li>
+<li><code>SHARD_SUFFIX = ".parquet"</code>;</li>
+<li>se borraron la lectura heredada de los fragmentos de resultados gzip-JSON y el alias
+    <code>RESULT_SHARD_FORMAT</code>;</li>
+<li>tests y docs actualizados.</li>
+<li>Un <code>.mshard</code> viejo se rechaza con "re-import the library" (p1 hay que reimportarlo).</li>
+<li>Suites:</li>
+<li>ms_flow: 262 passed;</li>
+<li>AMDockVS: 645 passed y 2 failed. Los dos fallos (<code>test_offtarget_colors</code>,
+    <code>test_results_pivot</code>) vienen del COUNT en segundo plano de ms_components (<code>bac4d85</code>);
+    con ms_components anterior a ese commit pasan los 42 tests de esos ficheros.</li>
+</ul>
+<h3 id="31-granularidad-del-docking">3.1 Granularidad del docking<a class="headerlink" href="#31-granularidad-del-docking" title="Permanent link">&para;</a></h3>
+<p>Hoy un shard (hasta 65.535 registros) por receptor es una tarea (<code>shard_jobs.py:221</code>). Con
+Parquet, un rango de ids o un grupo de filas se lee sin abrir el resto. La propuesta es que la
+tarea sea <code>(shard, rango)</code> con un tamaño configurable, de modo que una librería de pocos shards
+reparta trabajo entre todos los núcleos.</p>
+<h3 id="32-descriptores-dentro-del-shard-opcional-d-s5">3.2 Descriptores dentro del shard (opcional, D-S5)<a class="headerlink" href="#32-descriptores-dentro-del-shard-opcional-d-s5" title="Permanent link">&para;</a></h3>
+<p>Un paso "anotar" escribe en el Parquet del shard las columnas <code>mw</code>, <code>logp</code>, <code>hbd</code>, <code>hba</code>,
+<code>tpsa</code>, <code>rotatable_bonds</code> y <code>heavy_atom_count</code>. Así el filtro HTP y los conteos se hacen sobre
+<code>shards/*.parquet</code> sin RDKit y sin pasar por <code>molecules</code>. La importación de shards sigue sin
+química (5,4 s por 100k); anotar es un job aparte.</p>
+<h3 id="33-capa-de-consulta">3.3 Capa de consulta<a class="headerlink" href="#33-capa-de-consulta" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>pyarrow.dataset</code>, que ya es dependencia, para conteos, filtros y detalles del catálogo.</li>
+<li>DuckDB en memoria solo si una consulta lo necesita (D8 sigue abierta). No se abre ningún
+  fichero DuckDB propio.</li>
+</ul>
+<h3 id="34-fragmentos-de-resultados-pequenos">3.4 Fragmentos de resultados pequeños<a class="headerlink" href="#34-fragmentos-de-resultados-pequenos" title="Permanent link">&para;</a></h3>
+<p>Hay un <code>.results.parquet</code> por cada par (shard, receptor). Con miles de ficheros el filtro se
+vuelve ~20× más lento (B.7). Propuesta: compactar al terminar la campaña en un Parquet por
+receptor, con grupos de filas de ~256 KB. Los <code>.failures.jsonl</code> pasan a ser filas con
+<code>status=failed</code> en el mismo fragmento.</p>
+<h3 id="35-banco">3.5 Banco<a class="headerlink" href="#35-banco" title="Permanent link">&para;</a></h3>
+<p>La etapa <code>app_mshard</code> de <code>bench_storage_formats.py</code> se rehace con el contenedor Parquet. Se
+miden importación, disco y lectura en el docking, con 100k y 1M.</p>
+<hr />
+<h2 id="orden-y-decisiones">Orden y decisiones<a class="headerlink" href="#orden-y-decisiones" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>Commit de 3.0 primero.</strong> Ya está hecho y probado. Si se deja en el árbol de trabajo,
+   choca con los cambios de las fases 1 y 2.</li>
+<li>Fase 1: 1.5 → 1.3 → 1.4 → 1.1 → 1.2. Va de menor a mayor radio de cambio, y cada paso es
+   un commit con su medida.</li>
+<li>Fase 2: 2.2 → 2.1 → 2.3 → 2.4. Antes de cada cambio, se mide el perfil.</li>
+<li>Fase 3: 3.1 → 3.4 → 3.2/3.3 según D-S5.</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Decisión</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>D-S1</td>
+<td>¿Fuera <code>created_at</code>/<code>updated_at</code> de <code>molecules</code>, con el job devolviendo los ids que excluye?</td>
+</tr>
+<tr>
+<td>D-S2</td>
+<td>Proyectos existentes: ¿columnas viejas sin usar (a) o migración con <code>DROP COLUMN</code> (b)?</td>
+</tr>
+<tr>
+<td>D-S3</td>
+<td>¿Se queda <code>ix_molecules_name</code> (67 MB en 3,85M) para ordenar por nombre?</td>
+</tr>
+<tr>
+<td>D-S4</td>
+<td>¿Tabla <code>import_batches</code> (1.2)? Es el cambio más grande de la fase 1.</td>
+</tr>
+<tr>
+<td>D-S5</td>
+<td>¿Descriptores básicos dentro del shard Parquet (paso "anotar")?</td>
+</tr>
+<tr>
+<td>D-S6</td>
+<td>¿Commit del contenedor Parquet (3.0) antes de empezar la fase 1?</td>
+</tr>
+</tbody>
+</table>
+<p>Respuestas de Mario (2026-10-24):
+- D-S1: se quitan las fechas de todas las tablas, salvo las de los jobs.
+- D-S2: no se migra nada; los cambios valen para proyectos nuevos.
+- D-S3: <code>ix_molecules_name</code> se quita. Medido en s1 sin el índice: búsqueda exacta por nombre
+  0,46 s y orden por nombre 0,49 s por página.
+- D-S4: se hace <code>import_batches</code>, pero antes se presenta su diseño.
+- D-S5: recomendación, no por ahora.
+- D-S6: commit en <code>db/sqlite</code> hecho (ms_flow 2eb07d2, AMDockVS fa4ff3e).</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 AMDockVS authors
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["content.code.copy","navigation.footer","navigation.path","navigation.sections","navigation.top","search.highlight","search.suggest"],"redirect":null,"search":"../assets/javascripts/workers/search.c47bb847.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"provider":"mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.77dd0ce9.min.js"></script>
+      
+    
+  </body>
+</html>
