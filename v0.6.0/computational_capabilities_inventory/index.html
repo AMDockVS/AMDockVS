@@ -1,0 +1,1251 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Virtual screening, molecular preparation, QSAR, and docking with MolSuite.">
+      
+      
+        <meta name="author" content="AMDockVS authors">
+      
+      
+        <link rel="canonical" href="https://amdockvs.github.io/AMDockVS/latest/computational_capabilities_inventory/">
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../images/favicon.svg">
+      <meta name="generator" content="zensical-0.0.73">
+    
+    
+      
+        <title>Inventario inicial de capacidades computacionales de AMDock - AMDockVS</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../assets/stylesheets/modern/main.4ab2de0c.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../assets/stylesheets/modern/palette.b60ce83d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-hidden="true"></label>
+    <div data-md-component="skip">
+      <a href="#__skip" class="md-skip">
+        Skip to content
+      </a>
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="./.." title="AMDockVS" class="md-header__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+      <span class="md-visually-hidden">Navigation</span>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AMDockVS
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Inventario inicial de capacidades computacionales de AMDock
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+          <span class="md-visually-hidden">Search</span>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="./.." title="AMDockVS" class="md-nav__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    AMDockVS
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../runtime_api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API guide
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../data_and_export/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Data and export
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Examples
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-calculos-que-amdock-hara-de-forma-explicita" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1. Cálculos que AMDock hará de forma explícita
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Cálculos que AMDock hará de forma explícita">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#11-docking" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1.1 Docking
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12-redocking" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1.2 Redocking
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#13-qsar-simple" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1.3 QSAR simple
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-operaciones-y-metodos-comunes-transversales" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        2. Operaciones y métodos comunes transversales
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Operaciones y métodos comunes transversales">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-ingesta-y-normalizacion-quimica" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        2.1 Ingesta y normalización química
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22-preparacion-molecular" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        2.2 Preparación molecular
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23-representaciones-quimicas" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        2.3 Representaciones químicas
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#24-comparacion-estructural" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        2.4 Comparación estructural
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#25-seleccion-y-reduccion" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        2.5 Selección y reducción
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#26-validacion-y-analisis" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        2.6 Validación y análisis
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-familias-de-metodos-comunes-en-caddqsar-que-conviene-contemplar" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        3. Familias de métodos comunes en CADD/QSAR que conviene contemplar
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Familias de métodos comunes en CADD&#x2f;QSAR que conviene contemplar">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-metodos-centrados-en-docking-y-structure-based-design" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        3.1 Métodos centrados en docking y structure-based design
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-metodos-centrados-en-ligand-based-screening" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        3.2 Métodos centrados en ligand-based screening
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-metodos-centrados-en-farmacoforo" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        3.3 Métodos centrados en farmacóforo
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#34-metodos-centrados-en-qsarqspr" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        3.4 Métodos centrados en QSAR/QSPR
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#35-metodos-centrados-en-dinamica-y-energia-libre" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        3.5 Métodos centrados en dinámica y energía libre
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#36-metodos-centrados-en-ia-reciente" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        3.6 Métodos centrados en IA reciente
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-metodos-concretos-que-hoy-parecen-mas-comunes-y-razonables-para-amdock" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        4. Métodos concretos que hoy parecen más comunes y razonables para AMDock
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Métodos concretos que hoy parecen más comunes y razonables para AMDock">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-nucleo-cercano" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        4.1 Núcleo cercano
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-extensiones-naturales-de-cortomedio-plazo" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        4.2 Extensiones naturales de corto/medio plazo
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-extensiones-de-mayor-costo" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        4.3 Extensiones de mayor costo
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-desglose-preliminar-por-backend-metodos-comunes-vs-especificos" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        5. Desglose preliminar por backend: métodos comunes vs. específicos
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Desglose preliminar por backend: métodos comunes vs. específicos">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-metodos-comunes-reutilizables" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        5.1 Métodos comunes reutilizables
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-metodos-especificos-de-docking" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        5.2 Métodos específicos de docking
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#53-metodos-especificos-de-qsar" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        5.3 Métodos específicos de QSAR
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#54-metodos-especificos-de-redocking" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        5.4 Métodos específicos de redocking
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-propuesta-de-metodos-base-para-el-inventario-funcional" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        6. Propuesta de métodos “base” para el inventario funcional
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Propuesta de métodos “base” para el inventario funcional">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#61-artefactos" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        6.1 Artefactos
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#62-capacidades" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        6.2 Capacidades
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#63-workflows-compuestos" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        6.3 Workflows compuestos
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-metodos-comunes-en-la-literatura-que-justifican-este-mapa" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        7. Métodos comunes en la literatura que justifican este mapa
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-decision-arquitectonica-preliminar-sugerida" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        8. Decisión arquitectónica preliminar sugerida
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fuentes-usadas" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fuentes usadas
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+              
+              <article class="md-content__inner md-typeset">
+                <a id="__skip" tabindex="-1"></a>
+                
+                  
+
+  
+  
+
+
+<h1 id="inventario-inicial-de-capacidades-computacionales-de-amdock">Inventario inicial de capacidades computacionales de AMDock<a class="headerlink" href="#inventario-inicial-de-capacidades-computacionales-de-amdock" title="Permanent link">&para;</a></h1>
+<p>Este documento define <code>AMDock</code> primero como motor de cálculo. No organiza pantallas ni docks; organiza qué cálculos existen, qué familias de métodos son comunes en CADD y qué piezas parecen transversales.</p>
+<p>La intención es:</p>
+<ul>
+<li>fijar el alcance científico/técnico del backend;</li>
+<li>separar métodos comunes de métodos específicos;</li>
+<li>preparar una estructura de módulos y artefactos que después la UI solo refleje.</li>
+</ul>
+<h2 id="1-calculos-que-amdock-hara-de-forma-explicita">1. Cálculos que AMDock hará de forma explícita<a class="headerlink" href="#1-calculos-que-amdock-hara-de-forma-explicita" title="Permanent link">&para;</a></h2>
+<h3 id="11-docking">1.1 Docking<a class="headerlink" href="#11-docking" title="Permanent link">&para;</a></h3>
+<p>Incluye:</p>
+<ul>
+<li>preparación de receptor;</li>
+<li>preparación de ligando;</li>
+<li>generación/ajuste de conformaciones 3D si hace falta;</li>
+<li>definición del sitio de unión;</li>
+<li>docking convencional;</li>
+<li>rescoring si aplica;</li>
+<li>análisis de interacciones;</li>
+<li>ranking y comparación de poses.</li>
+</ul>
+<h3 id="12-redocking">1.2 Redocking<a class="headerlink" href="#12-redocking" title="Permanent link">&para;</a></h3>
+<p>Incluye todo lo de docking, con matices adicionales:</p>
+<ul>
+<li>extracción del ligando nativo/co-cristalizado;</li>
+<li>randomización o re-generación de la pose inicial;</li>
+<li>redocking al mismo sitio;</li>
+<li>comparación contra la pose cristalográfica;</li>
+<li>RMSD de pose;</li>
+<li>evaluación de capacidad de reproducción de pose;</li>
+<li>eventualmente cross-docking como extensión natural.</li>
+</ul>
+<h3 id="13-qsar-simple">1.3 QSAR simple<a class="headerlink" href="#13-qsar-simple" title="Permanent link">&para;</a></h3>
+<p>Incluye:</p>
+<ul>
+<li>conjunto de ligandos;</li>
+<li>actividad/endpoint;</li>
+<li>cálculo de descriptores;</li>
+<li>cálculo de fingerprints;</li>
+<li>limpieza/selección de features;</li>
+<li>entrenamiento de modelos básicos;</li>
+<li>validación;</li>
+<li>predicción.</li>
+</ul>
+<h2 id="2-operaciones-y-metodos-comunes-transversales">2. Operaciones y métodos comunes transversales<a class="headerlink" href="#2-operaciones-y-metodos-comunes-transversales" title="Permanent link">&para;</a></h2>
+<p>Estas piezas no pertenecen a un único workflow. Son infraestructura científica reutilizable.</p>
+<h3 id="21-ingesta-y-normalizacion-quimica">2.1 Ingesta y normalización química<a class="headerlink" href="#21-ingesta-y-normalizacion-quimica" title="Permanent link">&para;</a></h3>
+<ul>
+<li>leer archivos: <code>SDF</code>, <code>SMILES</code>, <code>MOL</code>, <code>MOL2</code>, <code>PDB</code>, <code>PDBQT</code>, etc.;</li>
+<li>parseo robusto y materialización;</li>
+<li>estandarización;</li>
+<li>neutralización / normalización de cargas;</li>
+<li>remoción o manejo de sales/solventes;</li>
+<li>canonicalización;</li>
+<li>deduplicación;</li>
+<li>asignación de identidad química y procedencia.</li>
+</ul>
+<h3 id="22-preparacion-molecular">2.2 Preparación molecular<a class="headerlink" href="#22-preparacion-molecular" title="Permanent link">&para;</a></h3>
+<ul>
+<li>protonación / estado de ionización;</li>
+<li>tautomerización / selección de tautómero;</li>
+<li>adición de H;</li>
+<li>asignación de bond orders;</li>
+<li>generación de geometría 3D;</li>
+<li>optimización geométrica;</li>
+<li>generación de conformeros;</li>
+<li>alineamiento;</li>
+<li>cálculo de carga parcial;</li>
+<li>preparación específica para motor de docking.</li>
+</ul>
+<h3 id="23-representaciones-quimicas">2.3 Representaciones químicas<a class="headerlink" href="#23-representaciones-quimicas" title="Permanent link">&para;</a></h3>
+<ul>
+<li>estructura 2D;</li>
+<li>estructura 3D;</li>
+<li>conformer ensemble;</li>
+<li>descriptores 1D/2D/3D;</li>
+<li>fingerprints topológicos;</li>
+<li>fingerprints circulares tipo ECFP/Morgan;</li>
+<li>fingerprints farmacofóricos;</li>
+<li>shape descriptors;</li>
+<li>interaction fingerprints.</li>
+</ul>
+<h3 id="24-comparacion-estructural">2.4 Comparación estructural<a class="headerlink" href="#24-comparacion-estructural" title="Permanent link">&para;</a></h3>
+<ul>
+<li>similitud química;</li>
+<li>búsqueda por subestructura;</li>
+<li>búsqueda por scaffold;</li>
+<li>RMSD;</li>
+<li>shape overlap;</li>
+<li>alineamiento de ligandos;</li>
+<li>comparación de farmacóforos;</li>
+<li>comparación de poses y/o interacciones.</li>
+</ul>
+<h3 id="25-seleccion-y-reduccion">2.5 Selección y reducción<a class="headerlink" href="#25-seleccion-y-reduccion" title="Permanent link">&para;</a></h3>
+<ul>
+<li>filtros fisicoquímicos;</li>
+<li>filtros estilo Lipinski / Veber / drug-likeness;</li>
+<li>filtrado por alertas o reglas;</li>
+<li>selección de descriptores;</li>
+<li>reducción de dimensionalidad;</li>
+<li>clustering;</li>
+<li>diversity picking.</li>
+</ul>
+<h3 id="26-validacion-y-analisis">2.6 Validación y análisis<a class="headerlink" href="#26-validacion-y-analisis" title="Permanent link">&para;</a></h3>
+<ul>
+<li>métricas de pose;</li>
+<li>métricas de ranking/enrichment;</li>
+<li>validación de modelos QSAR;</li>
+<li>análisis de error;</li>
+<li>interpretabilidad básica;</li>
+<li>visualización 2D/3D/interacciones.</li>
+</ul>
+<h2 id="3-familias-de-metodos-comunes-en-caddqsar-que-conviene-contemplar">3. Familias de métodos comunes en CADD/QSAR que conviene contemplar<a class="headerlink" href="#3-familias-de-metodos-comunes-en-caddqsar-que-conviene-contemplar" title="Permanent link">&para;</a></h2>
+<p>Esto no significa que AMDock vaya a implementar todo ahora. Es un mapa de familias de métodos frecuentes sobre las que luego se puede decidir prioridad.</p>
+<h3 id="31-metodos-centrados-en-docking-y-structure-based-design">3.1 Métodos centrados en docking y structure-based design<a class="headerlink" href="#31-metodos-centrados-en-docking-y-structure-based-design" title="Permanent link">&para;</a></h3>
+<ul>
+<li>rigid receptor / flexible ligand docking;</li>
+<li>ensemble docking;</li>
+<li>induced-fit / flexible receptor docking;</li>
+<li>redocking;</li>
+<li>cross-docking;</li>
+<li>rescoring;</li>
+<li>consensus scoring;</li>
+<li>interaction profiling;</li>
+<li>pose consensus;</li>
+<li>post-docking refinement.</li>
+</ul>
+<h3 id="32-metodos-centrados-en-ligand-based-screening">3.2 Métodos centrados en ligand-based screening<a class="headerlink" href="#32-metodos-centrados-en-ligand-based-screening" title="Permanent link">&para;</a></h3>
+<ul>
+<li>similarity search con fingerprints;</li>
+<li>similarity search con descriptores;</li>
+<li>substructure search;</li>
+<li>scaffold search / scaffold hopping;</li>
+<li>fingerprint clustering;</li>
+<li>diversity selection;</li>
+<li>nearest-neighbor / analogue search.</li>
+</ul>
+<h3 id="33-metodos-centrados-en-farmacoforo">3.3 Métodos centrados en farmacóforo<a class="headerlink" href="#33-metodos-centrados-en-farmacoforo" title="Permanent link">&para;</a></h3>
+<ul>
+<li>ligand-based pharmacophore;</li>
+<li>structure-based pharmacophore;</li>
+<li>pharmacophore screening;</li>
+<li>pharmacophore + docking;</li>
+<li>pharmacophore + similarity filtering.</li>
+</ul>
+<h3 id="34-metodos-centrados-en-qsarqspr">3.4 Métodos centrados en QSAR/QSPR<a class="headerlink" href="#34-metodos-centrados-en-qsarqspr" title="Permanent link">&para;</a></h3>
+<ul>
+<li>descriptor-based QSAR;</li>
+<li>fingerprint-based QSAR;</li>
+<li>3D-QSAR;</li>
+<li>clasificación binaria/multiclase;</li>
+<li>regresión;</li>
+<li>selección de variables;</li>
+<li>validación interna y externa;</li>
+<li>applicability domain.</li>
+</ul>
+<h3 id="35-metodos-centrados-en-dinamica-y-energia-libre">3.5 Métodos centrados en dinámica y energía libre<a class="headerlink" href="#35-metodos-centrados-en-dinamica-y-energia-libre" title="Permanent link">&para;</a></h3>
+<ul>
+<li>minimización y relajación;</li>
+<li>molecular dynamics;</li>
+<li>trayectoria y análisis conformacional;</li>
+<li>MM/PBSA o MM/GBSA;</li>
+<li>free energy perturbation / alchemical methods;</li>
+<li>binding free-energy refinement.</li>
+</ul>
+<h3 id="36-metodos-centrados-en-ia-reciente">3.6 Métodos centrados en IA reciente<a class="headerlink" href="#36-metodos-centrados-en-ia-reciente" title="Permanent link">&para;</a></h3>
+<ul>
+<li>modelos generativos de ligandos;</li>
+<li>docking asistido por ML;</li>
+<li>scoring con redes neuronales;</li>
+<li>predicción directa de pose desde secuencia/SMILES/estructura;</li>
+<li>surrogate models para priorización.</li>
+</ul>
+<h2 id="4-metodos-concretos-que-hoy-parecen-mas-comunes-y-razonables-para-amdock">4. Métodos concretos que hoy parecen más comunes y razonables para AMDock<a class="headerlink" href="#4-metodos-concretos-que-hoy-parecen-mas-comunes-y-razonables-para-amdock" title="Permanent link">&para;</a></h2>
+<p>Esta lista es el punto útil para empezar a diseñar módulos.</p>
+<h3 id="41-nucleo-cercano">4.1 Núcleo cercano<a class="headerlink" href="#41-nucleo-cercano" title="Permanent link">&para;</a></h3>
+<ul>
+<li>lectura y materialización de moléculas;</li>
+<li>preparación básica de ligandos;</li>
+<li>preparación básica de receptores;</li>
+<li>generación de 3D / conformeros;</li>
+<li>docking convencional;</li>
+<li>redocking;</li>
+<li>RMSD de pose;</li>
+<li>análisis de interacciones;</li>
+<li>descriptores 2D básicos;</li>
+<li>fingerprints circulares;</li>
+<li>similitud y subestructura;</li>
+<li>QSAR básico con pocos algoritmos;</li>
+<li>PCA / clustering / selección visual de features.</li>
+</ul>
+<h3 id="42-extensiones-naturales-de-cortomedio-plazo">4.2 Extensiones naturales de corto/medio plazo<a class="headerlink" href="#42-extensiones-naturales-de-cortomedio-plazo" title="Permanent link">&para;</a></h3>
+<ul>
+<li>ensemble docking;</li>
+<li>consensus scoring;</li>
+<li>rescoring;</li>
+<li>pharmacophore screening;</li>
+<li>3D descriptors;</li>
+<li>shape similarity;</li>
+<li>analogue search;</li>
+<li>activity cliffs / SAR support;</li>
+<li>validación QSAR más formal;</li>
+<li>applicability domain.</li>
+</ul>
+<h3 id="43-extensiones-de-mayor-costo">4.3 Extensiones de mayor costo<a class="headerlink" href="#43-extensiones-de-mayor-costo" title="Permanent link">&para;</a></h3>
+<ul>
+<li>induced-fit docking;</li>
+<li>docking con modelos ML tipo GNINA/DiffDock-like workflows;</li>
+<li>molecular dynamics;</li>
+<li>MM/GBSA o MM/PBSA;</li>
+<li>free energy perturbation;</li>
+<li>generación molecular / active learning.</li>
+</ul>
+<h2 id="5-desglose-preliminar-por-backend-metodos-comunes-vs-especificos">5. Desglose preliminar por backend: métodos comunes vs. específicos<a class="headerlink" href="#5-desglose-preliminar-por-backend-metodos-comunes-vs-especificos" title="Permanent link">&para;</a></h2>
+<h3 id="51-metodos-comunes-reutilizables">5.1 Métodos comunes reutilizables<a class="headerlink" href="#51-metodos-comunes-reutilizables" title="Permanent link">&para;</a></h3>
+<p>Estos deberían vivir como capacidades compartidas del backend, no incrustados dentro de un único workflow.</p>
+<ul>
+<li><code>file_ingestion</code></li>
+<li><code>molecule_standardization</code></li>
+<li><code>protonation_and_tautomer_handling</code></li>
+<li><code>conformer_generation</code></li>
+<li><code>geometry_optimization</code></li>
+<li><code>descriptor_calculation</code></li>
+<li><code>fingerprint_calculation</code></li>
+<li><code>similarity_and_substructure</code></li>
+<li><code>alignment</code></li>
+<li><code>rmsd</code></li>
+<li><code>interaction_extraction</code></li>
+<li><code>feature_selection</code></li>
+<li><code>dimensionality_reduction</code></li>
+<li><code>clustering</code></li>
+</ul>
+<h3 id="52-metodos-especificos-de-docking">5.2 Métodos específicos de docking<a class="headerlink" href="#52-metodos-especificos-de-docking" title="Permanent link">&para;</a></h3>
+<ul>
+<li>receptor preparation para docking;</li>
+<li>grid / pocket definition;</li>
+<li>pose sampling;</li>
+<li>docking scoring;</li>
+<li>rescoring;</li>
+<li>redocking evaluation;</li>
+<li>pose reproduction metrics;</li>
+<li>interaction maps.</li>
+</ul>
+<h3 id="53-metodos-especificos-de-qsar">5.3 Métodos específicos de QSAR<a class="headerlink" href="#53-metodos-especificos-de-qsar" title="Permanent link">&para;</a></h3>
+<ul>
+<li>actividad / endpoint management;</li>
+<li>dataset split;</li>
+<li>model fitting;</li>
+<li>hyperparameter tuning;</li>
+<li>model validation;</li>
+<li>applicability domain;</li>
+<li>prediction / inference;</li>
+<li>feature importance / explainability básica.</li>
+</ul>
+<h3 id="54-metodos-especificos-de-redocking">5.4 Métodos específicos de redocking<a class="headerlink" href="#54-metodos-especificos-de-redocking" title="Permanent link">&para;</a></h3>
+<ul>
+<li>extracción de pose cristalográfica;</li>
+<li>randomización o regeneración de pose inicial;</li>
+<li>reproducción de pose;</li>
+<li>comparación contra referencia nativa;</li>
+<li>RMSD heavy-atom / scaffold-aware RMSD;</li>
+<li>comparación de interacciones nativas vs. redock.</li>
+</ul>
+<h2 id="6-propuesta-de-metodos-base-para-el-inventario-funcional">6. Propuesta de métodos “base” para el inventario funcional<a class="headerlink" href="#6-propuesta-de-metodos-base-para-el-inventario-funcional" title="Permanent link">&para;</a></h2>
+<p>No es todavía una estructura de carpetas. Es un inventario funcional mínimo.</p>
+<h3 id="61-artefactos">6.1 Artefactos<a class="headerlink" href="#61-artefactos" title="Permanent link">&para;</a></h3>
+<ul>
+<li>ligands</li>
+<li>receptors</li>
+<li>activities</li>
+<li>descriptors</li>
+<li>fingerprints</li>
+<li>docking_runs</li>
+<li>docking_results</li>
+<li>redocking_runs</li>
+<li>interaction_profiles</li>
+<li>qsar_models</li>
+<li>qsar_predictions</li>
+</ul>
+<h3 id="62-capacidades">6.2 Capacidades<a class="headerlink" href="#62-capacidades" title="Permanent link">&para;</a></h3>
+<ul>
+<li>ingest</li>
+<li>prepare</li>
+<li>represent</li>
+<li>compare</li>
+<li>dock</li>
+<li>redock</li>
+<li>analyze_interactions</li>
+<li>build_qsar</li>
+<li>validate_qsar</li>
+<li>predict_qsar</li>
+<li>reduce_and_cluster</li>
+</ul>
+<h3 id="63-workflows-compuestos">6.3 Workflows compuestos<a class="headerlink" href="#63-workflows-compuestos" title="Permanent link">&para;</a></h3>
+<ul>
+<li>virtual_screening</li>
+<li>redocking_validation</li>
+<li>ligand_similarity_filtering</li>
+<li>descriptor_filtering</li>
+<li>simple_qsar_training</li>
+<li>pose_analysis</li>
+</ul>
+<h2 id="7-metodos-comunes-en-la-literatura-que-justifican-este-mapa">7. Métodos comunes en la literatura que justifican este mapa<a class="headerlink" href="#7-metodos-comunes-en-la-literatura-que-justifican-este-mapa" title="Permanent link">&para;</a></h2>
+<p>Resumen inferido de revisiones y guías:</p>
+<ul>
+<li>En docking, el workflow base suele separarse en <code>sampling</code> y <code>scoring</code>, y luego se extiende con <code>redocking</code>, <code>cross-docking</code>, <code>ensemble docking</code>, <code>consensus scoring</code> y <code>interaction analysis</code>.</li>
+<li>En QSAR, lo normal es construir modelos a partir de descriptores o fingerprints, con selección de variables, validación y dominio de aplicabilidad.</li>
+<li>En ligand-based virtual screening, fingerprints, similitud estructural y subestructura siguen siendo métodos centrales y muy reutilizables.</li>
+<li>En screening estructural más avanzado, pharmacophore, docking y rescoring se combinan con frecuencia.</li>
+</ul>
+<h2 id="8-decision-arquitectonica-preliminar-sugerida">8. Decisión arquitectónica preliminar sugerida<a class="headerlink" href="#8-decision-arquitectonica-preliminar-sugerida" title="Permanent link">&para;</a></h2>
+<p>Antes de pensar la UI, AMDock debería organizarse alrededor de:</p>
+<ul>
+<li><code>artefactos persistidos</code>;</li>
+<li><code>capacidades computacionales</code>;</li>
+<li><code>workflows compuestos</code>;</li>
+<li><code>métodos comunes compartidos</code>.</li>
+</ul>
+<p>La UI debería reflejar eso, no definirlo.</p>
+<h2 id="fuentes-usadas">Fuentes usadas<a class="headerlink" href="#fuentes-usadas" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Receptor–ligand molecular docking review: https://pmc.ncbi.nlm.nih.gov/articles/PMC5425711/</li>
+<li>GNINA 1.0 and docking pipeline overview: https://pmc.ncbi.nlm.nih.gov/articles/PMC8191141/</li>
+<li>Redocking / RMSD protocol example: https://pmc.ncbi.nlm.nih.gov/articles/PMC9116214/</li>
+<li>Ensemble docking review: https://pmc.ncbi.nlm.nih.gov/articles/PMC6129458/</li>
+<li>Consensus and ensemble docking example: https://pmc.ncbi.nlm.nih.gov/articles/PMC8169699/</li>
+<li>Pose/rank consensus in docking-based screening: https://pmc.ncbi.nlm.nih.gov/articles/PMC8965822/</li>
+<li>OECD (Q)SAR Assessment Framework: https://www.oecd.org/content/dam/oecd/en/publications/reports/2023/11/q-sar-assessment-framework-guidance-for-the-regulatory-assessment-of-quantitative-structure-activity-relationship-models-and-predictions_9b064821/d96118f6-en.pdf</li>
+<li>OECD validation guidance for (Q)SAR models: https://www.oecd.org/content/dam/oecd/en/publications/reports/2014/09/guidance-document-on-the-validation-of-quantitative-structure-activity-relationship-q-sar-models_g1ghcc68/9789264085442-en.pdf</li>
+<li>QSAR mathematical methods review: https://pmc.ncbi.nlm.nih.gov/articles/PMC2695261/</li>
+<li>Fingerprint similarity search review: https://pubmed.ncbi.nlm.nih.gov/20838967/</li>
+<li>Overview of fingerprint similarity search in screening: https://pubmed.ncbi.nlm.nih.gov/26558489/</li>
+<li>Pharmacophore modeling concepts and applications: https://pubmed.ncbi.nlm.nih.gov/26703541/</li>
+<li>Drug design by pharmacophore and virtual screening review: https://pubmed.ncbi.nlm.nih.gov/35631472/</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 AMDockVS authors
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["content.code.copy","navigation.footer","navigation.path","navigation.sections","navigation.top","search.highlight","search.suggest"],"redirect":null,"search":"../assets/javascripts/workers/search.c47bb847.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"provider":"mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.77dd0ce9.min.js"></script>
+      
+    
+  </body>
+</html>
