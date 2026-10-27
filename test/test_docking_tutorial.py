@@ -2,6 +2,7 @@
 import json
 import shutil
 import os
+from threading import Event
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -10,7 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from amdockvs.runtime import AMDockVSRuntime
 from PySide6.QtTest import QTest
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread, QTimer
 from PySide6.QtWidgets import QApplication, QDialog, QDockWidget, QFileDialog, QFrame, QMessageBox, QTableWidgetItem, QWidget
 from amdockvs.ui.docking_tutorial import copy_example_inputs, example_data, start_simple_docking_tutorial
 from amdockvs.ui.main_window import AMDockVSMainWindow
@@ -307,6 +308,67 @@ def test_cancel_disconnects_and_ignores_late_job_submission(practice, monkeypatc
     assert messages == []
 
 
+def test_import_finishing_while_on_the_previous_step_is_not_lost(practice, monkeypatch):
+    app, runtime, window, _messages = practice
+    tutorial = start_simple_docking_tutorial(window)
+    import amdockvs.ui.docking_tutorial as module
+    from amdockvs.models import MoleculeRecord
+
+    monkeypatch.setattr(module, "run_async", lambda fn, done, on_error=None: done(fn()))
+    submit_import(tutorial, "receptor", ["rec"], monkeypatch)
+    with runtime.workspace.project_db.get_session() as session:
+        session.add(MoleculeRecord(name="receptor", molecule_type="protein", is_receptor=True, n_atoms=30))
+        session.commit()
+    tutorial._job_finished("rec", "completed")
+    wait_until(app, lambda: tutorial.controller.current_step.id == "load-ligand")
+    submit_import(tutorial, "ligand", ["lig"], monkeypatch)
+    tutorial.controller.back()
+    with runtime.workspace.project_db.get_session() as session:
+        session.add(MoleculeRecord(name="ligand", molecule_type="small_molecule", is_ligand=True, n_atoms=30))
+        session.commit()
+    tutorial._job_finished("lig", "completed")
+    assert tutorial.controller.current_step.id == "load-receptor"
+    tutorial.controller.next()
+    wait_until(app, lambda: tutorial.controller.current_step.id == "docking-studio")
+    assert tutorial.pending == {} and "ligand" in tutorial.completed_stages
+
+
+def test_cancelling_a_slow_preview_keeps_the_ui_responsive_and_defers_window_close(practice, monkeypatch):
+    app, _runtime, window, _messages = practice
+    release = Event()
+
+    class Preview(QThread):
+        def run(self):
+            release.wait(5)
+
+    window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+    tutorial = start_simple_docking_tutorial(window)
+    wait_until(app, tutorial.import_buttons["receptor"].isVisible)
+    tutorial.import_buttons["receptor"].click()
+    dialog = tutorial.dialogs["receptor"]
+    panel = dialog.panel
+    panel.set_files([str(tutorial.inputs / tutorial.example["receptor"])])
+    thread = Preview(panel)
+    thread.finished.connect(panel._on_preview_thread_finished)
+    thread.start()
+    try:
+        wait_until(app, lambda: panel.preview_running)
+        tutorial.controller.stop()
+        assert not tutorial.controller.is_active and panel.preview_running
+        heartbeat = []
+        QTimer.singleShot(0, lambda: heartbeat.append(True))
+        app.processEvents()
+        assert heartbeat == [True]
+        window.close()
+        assert not window._closing and window.isVisible()
+        release.set()
+        wait_until(app, lambda: window._closing and not window.isVisible())
+    finally:
+        release.set()
+        wait_until(app, lambda: not panel.preview_running)
+        window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+
+
 @pytest.mark.parametrize("role", ["receptor", "ligand"])
 def test_identical_copies_are_accepted_and_wrong_contents_can_be_removed(practice, tmp_path, monkeypatch, role):
     app, _runtime, window, _messages = practice
@@ -328,7 +390,7 @@ def test_identical_copies_are_accepted_and_wrong_contents_can_be_removed(practic
     app.processEvents()
     assert tutorial._correct_import(role)
     assert dialog.import_button.isEnabled()
-    tutorial.controller._refresh()
+    tutorial.controller.refresh()
     assert tutorial._import_target(role) is dialog.import_button
     assert not tutorial.controller.overlay.panel.geometry().intersects(tutorial.controller.overlay.hole)
     # The name is identical but the contents are wrong. This must remain blocked.
@@ -337,7 +399,7 @@ def test_identical_copies_are_accepted_and_wrong_contents_can_be_removed(practic
     assert not dialog.import_button.isEnabled()
     table = dialog.panel.table if role == "receptor" else dialog.table
     table.clearSelection()
-    tutorial.controller._refresh()
+    tutorial.controller.refresh()
     assert tutorial._import_target(role) is table
     assert not tutorial.controller.overlay.panel.geometry().intersects(tutorial.controller.overlay.hole)
     QTest.mouseClick(table.viewport(), Qt.LeftButton, pos=table.visualRect(table.model().index(0, 0)).center())
@@ -372,6 +434,22 @@ def test_welcome_tutorial_waits_for_user_project_creation(tmp_path, monkeypatch)
         browser = window._app_widget._projects_widget.project_browser
         assert tutorial._project_target() is browser.new_button
         assert runtime.active_context is None
+        monkeypatch.setattr(QDialog, "exec", lambda dialog: dialog.show())
+        browser.new_button.click()
+        app.processEvents()
+        form = tutorial._project_form
+        assert tutorial._project_target() is form.name_input
+        form.name_input.setText("Practice")
+        form.name_input.editingFinished.emit()
+        assert tutorial._project_target() is form.path_row
+        monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *args: "")
+        form.browse_button.click()
+        assert not tutorial._project_path_chosen
+        assert tutorial._project_target() is form.path_row
+        monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *args: str(tmp_path))
+        form.browse_button.click()
+        assert tutorial._project_path_chosen
+        assert tutorial._project_target() is form.save_button
         tutorial.controller.stop()
         assert runtime.active_context is None
     finally:

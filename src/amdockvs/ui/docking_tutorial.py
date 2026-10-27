@@ -8,13 +8,11 @@ from pathlib import Path
 import shutil
 
 from PySide6.QtCore import QObject, QTimer, Signal
-from PySide6.QtWidgets import QDialogButtonBox, QMessageBox, QPushButton
-from ms_components.ms_projects.browser import ProjectFormDialog
-from ms_components.ms_tutorial import Tutorial, TutorialEvent, TutorialStep, TutorialTarget
+from PySide6.QtWidgets import QDialog, QMessageBox, QPushButton
+from ms_components.ms_tutorial import Tutorial, TutorialController, TutorialEvent, TutorialStep, TutorialTarget
 
 from amdockvs.core.jobs import STATUS
 from amdockvs.ui.common.async_query import run_async
-from amdockvs.ui.common.tutorial import TutorialController
 from amdockvs.ui.view_ids import COMPLEXES_VIEW_ID, DOCKING_VIEW_ID, LIGANDS_VIEW_ID, RECEPTOR_VIEW_ID
 
 
@@ -95,6 +93,7 @@ class SimpleDockingTutorial(QObject):
         self.studio = None
         self.pending = {}
         self.outcomes = {}
+        self.completed_stages = set()
         self._checking = set()
         self._generation = 0
         self._feedback = ""
@@ -111,19 +110,19 @@ class SimpleDockingTutorial(QObject):
             "prepare_receptor": TutorialTarget(self._receptor_target, prepare=self._bind_studio),
             "run": TutorialTarget(self._run_target, prepare=self._bind_studio),
         }, events={
-            "project_created": TutorialEvent(self.project_created),
-            "receptor_loaded": TutorialEvent(self.receptor_loaded),
-            "ligand_loaded": TutorialEvent(self.ligand_loaded),
+            "project_created": TutorialEvent(self.project_created, is_complete=lambda: self.inputs is not None),
+            "receptor_loaded": TutorialEvent(self.receptor_loaded, is_complete=lambda: "receptor" in self.completed_stages),
+            "ligand_loaded": TutorialEvent(self.ligand_loaded, is_complete=lambda: "ligand" in self.completed_stages),
             "studio_opened": TutorialEvent(window.tools.action_buttons[DOCKING_VIEW_ID].clicked),
             "programs_selected": TutorialEvent(lambda: self.studio.stepper.step_changed,
                 accept=lambda *_: self.studio.stepper.current_index == 1
                     and self.studio._selected_programs() == ["vina"]
                     and self.studio._run_kind() == "docking" and self.studio._method() == "standard"
                     and self.studio._ligand_type() == "small_molecule"),
-            "ligand_prepared": TutorialEvent(self.ligand_prepared),
-            "receptor_prepared": TutorialEvent(self.receptor_prepared),
-            "docking_finished": TutorialEvent(self.docking_finished),
-        }, parent=self, instruction_provider=self._instruction)
+            "ligand_prepared": TutorialEvent(self.ligand_prepared, is_complete=lambda: "prepare_ligand" in self.completed_stages),
+            "receptor_prepared": TutorialEvent(self.receptor_prepared, is_complete=lambda: "prepare_receptor" in self.completed_stages),
+            "docking_finished": TutorialEvent(self.docking_finished, is_complete=lambda: "docking" in self.completed_stages),
+        }, parent=self, instruction_provider=self._instruction, dim_background=False)
         self.controller.step_changed.connect(lambda *_: setattr(self, "_feedback", ""))
         self.controller.finished.connect(self._finish)
         self.controller.cancelled.connect(self._cleanup)
@@ -176,7 +175,19 @@ class SimpleDockingTutorial(QObject):
         if browser is not self._project_browser:
             self._project_browser = browser
             browser.project_created.connect(self._remember_created_project)
-        self.controller._refresh()
+            browser.project_form_opened.connect(self._bind_project_form)
+        self.controller.refresh()
+
+    def _bind_project_form(self, form):
+        if not self.controller.is_active or form.mode != "create":
+            return
+        self._project_form = form
+        self._project_path_chosen = False
+        self._project_name_entered = False
+        form.name_committed.connect(self._project_name_finished)
+        form.path_selected.connect(self._project_path_changed)
+        form.finished.connect(self.controller.refresh)
+        QTimer.singleShot(0, self.controller.refresh)
 
     def _remember_created_project(self, project_id):
         if self.controller.is_active:
@@ -204,30 +215,19 @@ class SimpleDockingTutorial(QObject):
             return self.window.central_widget.main_content_tabs.tabBar()
         browser = self._project_browser
         if browser is not None and isValid(browser):
-            forms = [form for form in browser.findChildren(ProjectFormDialog) if form.isVisible()]
-            if forms:
-                form = forms[-1]
-                if form is not self._project_form:
-                    self._project_form = form
-                    self._project_path_chosen = False
-                    self._project_name_entered = False
-                    form.name_input.editingFinished.connect(self._project_name_finished)
-                    for button in form.path_input.parentWidget().findChildren(QPushButton):
-                        button.clicked.connect(self._project_path_changed)
-                    form.path_input.textChanged.connect(self._project_path_changed)
-                    # Move the overlay away before the accepted form leaves its modal loop.
-                    form.finished.connect(lambda *_: self.controller._refresh())
+            form = self._project_form
+            if form is not None and isValid(form) and form.isVisible():
                 if not self._project_name_entered or not form.name_input.text().strip():
                     return form.name_input
                 if not self._project_path_chosen:
-                    return form.path_input.parentWidget()
-                return form.findChild(QDialogButtonBox).button(QDialogButtonBox.Save)
+                    return form.path_row
+                return form.save_button
             if browser.isVisible():
                 return browser.new_button
         return self.window.central_widget.open_project_button
 
-    def _project_name_finished(self):
-        self._project_name_entered = bool(self._project_form.name_input.text().strip())
+    def _project_name_finished(self, name):
+        self._project_name_entered = bool(name)
 
     def _project_path_changed(self, *_):
         self._project_path_chosen = True
@@ -296,7 +296,7 @@ class SimpleDockingTutorial(QObject):
         self._validate_import_choice(role)
         # The normal import action shows the dialog. Refresh on its event loop so
         # the spotlight follows the user's click into the now-visible window.
-        QTimer.singleShot(0, self.controller._refresh)
+        QTimer.singleShot(0, self.controller.refresh)
 
     def _bind_studio(self):
         if self.studio is None:
@@ -472,10 +472,11 @@ class SimpleDockingTutorial(QObject):
         self._feedback = ""
         self.pending[stage] = {str(job) for job in jobs if job}
         self.outcomes[stage] = {}
+        self.completed_stages.discard(stage)
         if stage in self.dialogs:
             # Move the overlay before QDialog.accept() closes its previous host. Closing
             # the importer is successful submission, not cancellation of the tutorial.
-            self.controller._refresh()
+            self.controller.refresh()
         self.window.monitor_bridge.request_refresh()
 
     def _job_finished(self, job_id, status):
@@ -531,6 +532,7 @@ class SimpleDockingTutorial(QObject):
             signal = {"receptor": self.receptor_loaded, "ligand": self.ligand_loaded,
                       "prepare_ligand": self.ligand_prepared, "prepare_receptor": self.receptor_prepared,
                       "docking": self.docking_finished}[stage]
+            self.completed_stages.add(stage)
             signal.emit()
 
         def error(exc):
@@ -542,23 +544,14 @@ class SimpleDockingTutorial(QObject):
 
     def _note(self, message):
         self._feedback = message
-        if self.controller.overlay is not None:
-            self.controller.overlay.body.setPlainText(self.controller.current_step.text + "\n\n" + message)
+        self.controller.refresh()
 
     def _cleanup(self, *_):
-        from shiboken6 import isValid
-
         self._generation += 1
         self.pending.clear()
         for dialog in self.dialogs.values():
-            dialog.hide()
-            panel = getattr(dialog, "panel", None)
-            thread = getattr(panel, "_scan_thread", None)
-            if thread is not None and isValid(thread) and thread.isRunning():
-                # Only the one bundled receptor is scanned here. Let that short preview
-                # finish before its parent can be destroyed; Qt aborts on a live QThread.
-                thread.quit()
-                thread.wait()
+            if dialog.isVisible() or dialog.result() != QDialog.Accepted:
+                dialog.reject()
         try:
             self.window.monitor_bridge.job_finished.disconnect(self._job_finished)
             self.window.import_dialog_opened.disconnect(self._bind_import_dialog)
@@ -566,6 +559,7 @@ class SimpleDockingTutorial(QObject):
             self.window.project_opened.disconnect(self._project_opened)
             if self._project_browser is not None:
                 self._project_browser.project_created.disconnect(self._remember_created_project)
+                self._project_browser.project_form_opened.disconnect(self._bind_project_form)
         except RuntimeError:
             pass
 

@@ -653,10 +653,17 @@ class AMDockVSMainWindow(QMainWindow):
         if self._closing:
             super().closeEvent(event)
             return
-        self._closing = True
         tutorial = getattr(self, "_docking_tutorial", None)
         if tutorial is not None:
             tutorial.controller.stop()
+        from amdockvs.ui.tools.importing.receptors import ReceptorImportPanel
+
+        preview = next((panel for panel in self.findChildren(ReceptorImportPanel) if panel.preview_running), None)
+        if preview is not None:
+            event.ignore()
+            preview.preview_finished.connect(self.close, Qt.ConnectionType.SingleShotConnection)
+            return
+        self._closing = True
         self.runtime.on_job_submitted = None  # the toast's window is going away
         self.jobs.stop_timers()
         # Native detached docks have no QObject parent by design so the OS treats

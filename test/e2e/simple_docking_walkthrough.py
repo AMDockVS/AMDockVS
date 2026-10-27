@@ -113,6 +113,11 @@ def main(root, *, cancel_during_preview=False):
                     click(target, "project-new")
                 return
             if cancel_during_preview:
+                if "preview-cancelled" in seen:
+                    if not tutorial.dialogs["receptor"].panel.preview_running:
+                        result[0] = 0
+                        app.quit()
+                    return
                 if "receptor" not in tutorial.dialogs:
                     if "open-receptor" not in clicked:
                         click(tutorial.import_buttons["receptor"], "open-receptor")
@@ -121,12 +126,10 @@ def main(root, *, cancel_during_preview=False):
                     if "add-receptor" not in clicked:
                         click(tutorial.controller.targets["receptor"].widget(), "add-receptor")
                     return
-                thread = tutorial.dialogs["receptor"].panel._scan_thread
-                if thread is not None and thread.isRunning():
+                if tutorial.dialogs["receptor"].panel.preview_running:
+                    seen.add("preview-cancelled")
                     tutorial.controller.stop()
-                    assert not thread.isRunning()
-                    result[0] = 0
-                    app.quit()
+                    assert not tutorial.controller.is_active
                 elif time.monotonic() - started > 5:
                     raise RuntimeError("The preview scanner was not observed running")
                 return

@@ -98,6 +98,7 @@ class ReceptorImportPanel(QWidget):
     """
 
     ready_changed = Signal(bool)
+    preview_finished = Signal()
 
     def __init__(
         self,
@@ -302,6 +303,15 @@ class ReceptorImportPanel(QWidget):
     @property
     def file_paths(self) -> list[str]:
         return list(self._file_paths)
+
+    @property
+    def preview_running(self) -> bool:
+        return any(thread.isRunning() for thread in self.findChildren(QThread))
+
+    @Slot()
+    def _on_preview_thread_finished(self) -> None:
+        if not self.preview_running:
+            self.preview_finished.emit()
 
     def ligand_role_files(self) -> list[str]:
         """Receptor files the user also flagged as general ligands (dimer case)."""
@@ -678,6 +688,7 @@ class ReceptorImportPanel(QWidget):
         self._scan_worker.finished.connect(self._on_scan_finished)
         self._scan_worker.finished.connect(self._scan_thread.quit)
         self._scan_thread.finished.connect(self._scan_thread.deleteLater)
+        self._scan_thread.finished.connect(self._on_preview_thread_finished)
         self._scan_thread.start()
 
     @Slot(int, int, str, dict)
@@ -887,7 +898,12 @@ class ReceptorImportDialog(QDialog):
     def done(self, result: int) -> None:
         # Temporary downloads that will not be imported: on cancel all, on accept the removed ones.
         imported = set(self.panel.file_paths) if result == QDialog.Accepted else set()
-        discard_temporary(self.panel.downloaded - imported)
+        discarded = self.panel.downloaded - imported
+        if self.panel.preview_running:
+            self.panel.preview_finished.connect(lambda: discard_temporary(discarded),
+                                                Qt.ConnectionType.SingleShotConnection)
+        else:
+            discard_temporary(discarded)
         super().done(result)
 
     def workflow_submit(self, *, force: bool = False):
