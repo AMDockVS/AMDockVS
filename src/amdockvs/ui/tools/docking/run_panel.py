@@ -159,6 +159,10 @@ class RunPanel:
             "program": self._program(),
             "run_kind": self._run_kind(),
             "sharded": self._ligand_scope_is_sharded(),  # reads the source selector: GUI thread
+            "sources": tuple(sorted(self._ligand_sources())),
+            # The Ligands step lists both stores' counts whenever its "Ligands from" row shows.
+            "count_shards": step == 1 and not self.ligand_source_section.isHidden(),
+            "sel_shard": tuple(self._selected_shard_ids() or ()),
             "receptor_type": self._receptor_type(),
             "ligand_type": self._ligand_type(),
             "sel_lig": self._selected_ligand_ids,
@@ -169,8 +173,8 @@ class RunPanel:
             "programs_chosen": bool(self._selected_protocols()),
         }
         sig = (
-            step, inputs["program"], inputs["run_kind"], inputs["sharded"], inputs["receptor_type"], inputs["ligand_type"],
-            tuple(inputs["sel_lig"]), tuple(inputs["sel_rec"]),
+            step, inputs["program"], inputs["run_kind"], inputs["sources"], inputs["receptor_type"], inputs["ligand_type"],
+            tuple(inputs["sel_lig"]), tuple(inputs["sel_rec"]), inputs["count_shards"], inputs["sel_shard"],
             inputs["focused"], inputs["programs_chosen"], tuple(inputs["prep_engines"]), inputs["force_prep"],
         )
         if not force and sig == self._last_refresh_sig:
@@ -205,18 +209,23 @@ class RunPanel:
         # user isn't even looking at. molecules.count() materializes the set, so each call is
         # O(n) — only pay for what the visible step shows.
         step = inp["step"]
-        data: dict = {"step": step, "programs_chosen": inp["programs_chosen"]}
+        data: dict = {"step": step, "programs_chosen": inp["programs_chosen"], "sources": inp["sources"]}
         if step == 0:  # Programs — nothing in the DB to show here.
             return data
 
         if step == 1:  # Ligands — just the scope label.
-            if inp.get("sharded"):
-                # No molecule rows to count: the library is on disk, so count shards instead.
+            if inp.get("sharded") or inp.get("count_shards"):
+                # The library on disk: count shards (a small table), not molecule rows.
                 counts = self.runtime.molecules.shard_counts()
-                data["sharded"] = True
                 data["shards_total"] = counts["shards"]
                 data["shard_records"] = counts["records"]
                 data["shards_prepared"] = counts["prepared"]
+                data["shards_selected"] = len(inp["sel_shard"])
+            if inp.get("sharded"):
+                data["sharded"] = True
+                if inp.get("count_shards"):  # the Table box shows its count ticked or not
+                    data["ligands_total"] = self.runtime.molecules.count(
+                        self._resolve_ligand_scope(inp["sel_lig"], run_kind=inp.get("run_kind", "docking")))
                 return data
             lig_scope = self._resolve_ligand_scope(
                 inp["sel_lig"], run_kind=inp.get("run_kind", "docking")
@@ -320,6 +329,8 @@ class RunPanel:
         if token != self._refresh_token:
             return
         self.step_programs.set_done(bool(data.get("programs_chosen")))
+        if data.get("step") == 1:
+            self._set_prep_source_counts(data)
         if data.get("sharded"):
             total = int(data.get("shards_total") or 0)
             prepared = int(data.get("shards_prepared") or 0)
@@ -331,7 +342,7 @@ class RunPanel:
             # Per-engine family counts are a molecule-row idea: a shard is prepared for the
             # engine that rewrote it, and its row carries no engine breakdown.
             self._set_prep_family_counts({}, 0)
-            self.prepare_ligands_button.setEnabled(True)
+            self.prepare_ligands_button.setEnabled(bool(self._ligand_sources()))
             self._mark_step(self.step_ligands, prepared, total)
             return
         self.prepare_ligands_button.setEnabled(True)
@@ -340,16 +351,22 @@ class RunPanel:
             # Scope = which ligands (one, shared). "N prepared" is per family, so it lives on
             # the family rows, not here — a single number would be one family's count
             # presented as the total.
-            self._set_scope_summary(
-                self.ligand_bar,
-                f"{data['ligands_total']} ligand(s) in scope",
-                f"{ligand_failed} failed" if ligand_failed else "",
-            )
+            headline = f"{data['ligands_total']} ligand(s) in scope"
+            detail = f"{ligand_failed} failed" if ligand_failed else ""
+            # Checked only when ALL in scope are prepared.
+            done = data["ligands_total"] > 0 and data["ligands_prepared"] >= data["ligands_total"]
+            if "shards" in data["sources"] and "shards_total" in data:
+                # Both stores ticked, so the bar counts both: the button prepares both.
+                shards, prepared = int(data["shards_total"]), int(data["shards_prepared"])
+                headline = (f"{data['ligands_total']} ligand(s) in the table · {shards} shard(s) · "
+                            f"{data['shard_records']} molecule(s)")
+                detail = " · ".join(filter(None, (detail, f"{prepared} shard(s) prepared")))
+                done = done and shards > 0 and prepared >= shards
+            self._set_scope_summary(self.ligand_bar, headline, detail)
             self._set_prep_family_counts(
                 data.get("ligands_prepared_by_engine") or {}, int(data["ligands_total"])
             )
-            # Checked only when ALL in scope are prepared.
-            self._mark_step(self.step_ligands, data["ligands_prepared"], data["ligands_total"])
+            self.step_ligands.set_done(done)
         if "receptors_total" not in data:
             return
         receptor_failed = int(data.get("rec_scope_failed") or 0)
@@ -420,6 +437,7 @@ class RunPanel:
         # collapses to an empty "selected" scope after preparation cleared the table selection.
         return {
             "sharded": self._ligand_scope_is_sharded(),
+            "sources": tuple(sorted(self._ligand_sources())),
             "program": self._program(),
             "run_kind": self._run_kind(),
             "receptor_type": self._receptor_type(),
@@ -480,6 +498,10 @@ class RunPanel:
         ).as_mapping()
         result["ready_receptors"] = self._receptor_names(result.get("ready_receptor_ids") or ())
         result["offtarget_reference_id"] = inp.get("offtarget_reference_id")
+        if "shards" in (inp.get("sources") or ()):
+            # Both stores ticked: the run docks the table, then the shards, so both must be ready.
+            result["shards"] = self.runtime.molecules.shard_counts()
+            result["ready"] = bool(result.get("ready") and result["shards"]["prepared"])
         return result
 
     def _receptor_names(self, receptor_ids) -> list[tuple[int, str]]:
@@ -522,7 +544,8 @@ class RunPanel:
                 (int(receptor_id), str(name))
                 for receptor_id, name in (result.get("ready_receptors") or ())
             ])
-        self._set_sharded_run_mode(result.get("mode") == "sharded", docking=result.get("mode") != "redocking")
+        self._set_sharded_run_mode(result.get("mode") == "sharded" or "shards" in result,
+                                   docking=result.get("mode") != "redocking", rows=result.get("mode") != "sharded")
         if result.get("mode") == "sharded":
             records = int(result.get("records") or 0)
             self.req_ligands_count.setText(
@@ -574,13 +597,18 @@ class RunPanel:
                 else "; ".join(notes) + "."
             )
             return
-        self.req_ligands_count.setText(f"{lig['ready']} / {lig['total']} prepared")
+        shards = result.get("shards")
+        self.req_ligands_count.setText(f"{lig['ready']} / {lig['total']} prepared" + (
+            f" · {shards['prepared']} / {shards['shards']} shard(s) prepared · "
+            f"{shards['prepared_records']} molecule(s)" if shards else ""))
         self.req_receptors_count.setText(f"{rec['ready']} / {rec['total']} prepared")
         pairs = dict(result.get("pairs") or {})
         total_pairs = int(pairs.get("total") or 0)
         receptors = max(0, int(rec.get("ready") or 0))
+        # The shards run after the table: their dockings ride on the same line.
+        shard_text = f" + {int(shards['prepared_records']) * receptors} from shards" if shards else ""
         if not total_pairs:
-            self._pairs_text("No dockings in scope")
+            self._pairs_text("No dockings in scope" + shard_text)
         elif result.get("offtarget_reference_id") is not None and receptors > 1:
             ligands = int(lig.get("ready") or 0)
             self._pairs_text(
@@ -590,7 +618,7 @@ class RunPanel:
         else:
             done = int(pairs.get("already") or 0)
             text = f"{int(pairs.get('to_run') or 0)} of {total_pairs} docking(s) to run"
-            self._pairs_text(f"{text} ({done} already docked)" if done else text)
+            self._pairs_text((f"{text} ({done} already docked)" if done else text) + shard_text)
         self.step_run.set_done(result["ready"])
         notes = []
         failures = []
@@ -602,6 +630,8 @@ class RunPanel:
             notes.append("; ".join(failures))
         if int(rec.get("no_site") or 0):  # prepared or not, they are not docked: said, not dropped
             notes.append(f"{int(rec['no_site'])} receptor(s) have no binding site and are left out")
+        if shards and not int(shards["prepared"]):
+            notes.append("no shard is prepared yet")
         if notes:
             self.check_status_label.setText("; ".join(notes) + ".")
         else:
@@ -776,7 +806,7 @@ class RunPanel:
         )
         return (
             f"{docking_signature(request, identity)}:offtarget="
-            f"{params.get('offtarget_reference_id') or 'none'}"
+            f"{params.get('offtarget_reference_id') or 'none'}:sources={'+'.join(inp.get('sources') or ())}"
         )
 
     def _check_docking_conflict(self, signature: str) -> tuple[str, str]:
@@ -840,16 +870,18 @@ class RunPanel:
         self.offtarget_reference_combo.blockSignals(False)
         self._sync_hit_cap_label()
 
-    def _set_sharded_run_mode(self, sharded: bool, *, docking: bool = True) -> None:
+    def _set_sharded_run_mode(self, sharded: bool, *, docking: bool = True, rows: bool | None = None) -> None:
         # Rows keep everything they dock, so the selection only applies to them through the
         # off-target funnel, and only once there is a second receptor to funnel into.
+        # `rows`: the run docks table rows too (both stores), so their batch size still applies.
         self._sharded = sharded
         self.hits_box.setVisible(sharded or (docking and len(self._ready_receptor_options) > 1))
         if not docking and self.offtarget_reference_combo.currentIndex() != 0:
             self.offtarget_reference_combo.setCurrentIndex(0)
         self._sync_hit_cap_label()
-        self.batch_size_label.setVisible(not sharded)
-        self.batch_size.setVisible(not sharded)
+        batch = not sharded if rows is None else rows
+        self.batch_size_label.setVisible(batch)
+        self.batch_size.setVisible(batch)
 
     def _submit_shard_docking(self, inp: dict, params: dict) -> dict:
         """The sharded twin of `_submit_docking`: no ligand scope, a hit gate instead.
@@ -932,6 +964,9 @@ class RunPanel:
         if inp.get("sharded"):
             return self._submit_shard_docking(inp, params)
         counts = self._compute_requirement_counts(inp)
+        if "shards" in counts and not int(counts["shards"]["prepared"]):
+            # Refused before the table's jobs go: half a run is not what both boxes asked for.
+            return {"warning": "No prepared shards in the library — run ligand preparation first."}
         protocols = tuple(
             DockingProtocol.from_mapping(value)
             for value in (params.get("protocols") or ())
@@ -987,8 +1022,15 @@ class RunPanel:
             )
         except ValueError as exc:
             return {"warning": str(exc)}
+        job_ids, notice = dict(submission.job_ids), ""
+        if "shards" in counts:
+            # Beside the table's: the campaign runs at a lower priority and takes the workers left.
+            shard_run = self._submit_shard_docking({**inp, "sharded": True}, params)
+            job_ids.update({f"shards:{key}": job_id for key, job_id in shard_run.get("job_ids", {}).items()})
+            notice = shard_run.get("warning", "")
         return {
-            "job_ids": submission.job_ids,
+            "notice": notice,
+            "job_ids": job_ids,
             "interaction_job_id": submission.interaction_job_id,
             "receptor_ids": list(submission.receptor_ids),
             "complex_ids": list(submission.complex_ids),
@@ -1000,6 +1042,8 @@ class RunPanel:
         if "warning" in result:
             self._warn("Run Docking", result["warning"])
             return
+        if result.get("notice"):  # the table's run went; the shards' did not
+            self._warn("Run Docking", f"The shards were not docked: {result['notice']}")
         self.docking_submitted.emit(list(result["job_ids"].values()))
         # Remember each launched job's signature so a later launch can detect a duplicate.
         for job_id in result["job_ids"].values():

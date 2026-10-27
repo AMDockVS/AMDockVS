@@ -136,7 +136,6 @@ class ReceptorImportPanel(QWidget):
         # One grid: checkboxes in column 0, the Grid Box size beside the option it belongs to,
         # and the status line on the right.
         options = QGridLayout()
-        root.addLayout(options)
 
         # Docking mode (docking / redocking / rescoring) is chosen in the Docking Studio, not here.
         # At import, every cocrystal ligand is registered as a reference automatically.
@@ -200,9 +199,9 @@ class ReceptorImportPanel(QWidget):
         self.progress_bar.setFixedHeight(3)
         # Not laid out here: the host puts it in its footer, beside the Import/Cancel buttons.
 
-        self.table = QTableWidget(0, 10, self)
+        self.table = QTableWidget(0, 12, self)
         self.table.setHorizontalHeaderLabels(
-            ["File", "Unit", "Chains", "Ligands", "Metals", "Waters", "Status", "Selected Ligand", "Activity", "As Ligand"]
+            ["File", "Unit", "Chains", "Ligands", "Metals", "Waters", "Status", "Selected Ligand", "Activity", "As Ligand", "Format", "Path"]
         )
         header = self.table.horizontalHeader()
         # Every column is user-resizable (Interactive) with a sensible default width; Chains needs
@@ -223,7 +222,7 @@ class ReceptorImportPanel(QWidget):
         self.table.setColumnHidden(7, True)
         self.table.setColumnHidden(8, True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setVisible(self._enable_preview)
+        header.setSectionResizeMode(11, QHeaderView.ResizeMode.Stretch)
 
         # Vertical add/remove toolbar on the table's left (where the eye starts), with a drop hint.
         table_row = QHBoxLayout()
@@ -248,6 +247,7 @@ class ReceptorImportPanel(QWidget):
             table_row.addWidget(toolbar)
         table_row.addWidget(self.table, 1)
         root.addLayout(table_row, 1)
+        root.addLayout(options)
 
         self.info_label = QLabel(self)
         self.info_label.setWordWrap(True)
@@ -289,14 +289,12 @@ class ReceptorImportPanel(QWidget):
             self.status_label.setText("No receptor files selected.")
             self._sync_file_controls()
             return
+        self._prime_table()
+        self._apply_mode_visibility()
         if self._enable_preview:
-            self._prime_table()
-            self._apply_mode_visibility()
             self._sync_file_controls()
             QTimer.singleShot(0, self.start_scan)
         else:
-            self.table.setRowCount(0)
-            self._apply_mode_visibility()
             self.refresh_preview()
             self._emit_ready(True)
             self._sync_file_controls()
@@ -334,7 +332,15 @@ class ReceptorImportPanel(QWidget):
 
     def _apply_preview_visibility(self) -> None:
         self.progress_bar.setVisible(self._enable_preview and bool(self._file_paths))
-        self.table.setVisible(self._enable_preview)
+        for column in (1, 2, 3, 4, 5, 9):
+            self.table.setColumnHidden(column, not self._enable_preview)
+        for column in (10, 11):
+            self.table.setColumnHidden(column, self._enable_preview)
+        self.table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Interactive if self._enable_preview else QHeaderView.ResizeMode.Stretch
+        )
+        if self._enable_preview:
+            self.table.setColumnWidth(0, 90)
         self.info_label.setVisible(not self._enable_preview and bool(self._file_paths))
         if not self._enable_preview and self._file_paths:
             self.info_label.setText(
@@ -440,6 +446,10 @@ class ReceptorImportPanel(QWidget):
         if not self._file_paths:
             self.set_files([])
             return
+        if not self._enable_preview and len(self._file_paths) <= RECEPTOR_PREVIEW_MAX_FILES:
+            self.set_files(self._file_paths)
+            return
+        self._apply_preview_visibility()
         self.progress_bar.setRange(0, max(1, len(self._file_paths)))
         self.progress_bar.setValue(len(self._file_paths))
         self._sync_file_controls()
@@ -623,10 +633,14 @@ class ReceptorImportPanel(QWidget):
     def _prime_table(self) -> None:
         # Plain items only: the per-row widgets are built when that row's scan lands
         # (_ensure_row_widgets), so thousands of files don't stall before the first row shows.
+        self.table.clearContents()
         self.table.setRowCount(len(self._file_paths))
         for row_index, path in enumerate(self._file_paths):
             self._set_item(row_index, 0, file_label(path, Path(path).name), tip=file_tip(path))
             self._set_item(row_index, 6, "...")
+            if not self._enable_preview:
+                self._set_item(row_index, 10, Path(path).suffix[1:].upper())
+                self._set_item(row_index, 11, path, tip=file_tip(path))
 
     def _ensure_row_widgets(self, row_index: int) -> None:
         if self.table.cellWidget(row_index, 1) is not None:
@@ -678,7 +692,7 @@ class ReceptorImportPanel(QWidget):
                 activity_widget.setEnabled(mode == "rescoring")
 
     def start_scan(self) -> None:
-        if self._scan_thread is not None:
+        if not self._enable_preview or not self._file_paths or self._scan_thread is not None:
             return
         self.status_label.setText(f"Processing 0/{len(self._file_paths)} receptor(s)...")
         self.progress_bar.setVisible(True)

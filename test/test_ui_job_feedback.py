@@ -58,7 +58,7 @@ def test_dialog_on_submit_and_single_row_load_per_job_run(tmp_path, monkeypatch)
 
         window.jobs.on_project_snapshot_updated(SimpleNamespace(has_project=True, jobs_active=1, jobs=[]))
         assert window.jobs.view_refresh_timer.isActive()
-        window.pymol_dock = SimpleNamespace(_amdock_interacting=True)
+        window.pymol_dock = SimpleNamespace(scene_memory=SimpleNamespace(interacting=True))
         window.jobs.refresh_current_view_in_background()
         assert calls == {"rows": 0, "counts": 0}
         window.pymol_dock = None

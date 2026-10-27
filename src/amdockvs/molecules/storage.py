@@ -208,6 +208,52 @@ class ShardStore:
         """
         return sum(int(row.get("n_records") or 0) for row in self.iter_rows(spec, batch_size=1000))
 
+    def promote(self, keys) -> dict[int, int]:
+        """Library records, by `io.shards.shard_key`, into `molecules` rows: {key: molecule_id}.
+
+        No gate: what a reduction keeps is already bounded by the reduction. Only the shards of
+        the batches named are opened, and only the records asked for are loaded; a record that
+        no longer parses is left out of the answer.
+        """
+        from ms_flow.core.data.shard import Shard
+
+        from amdockvs.chemistry.descriptors import canonical_smiles
+        from amdockvs.chemistry.shards import _molblock
+        from amdockvs.core.payloads import structure_payload
+        from amdockvs.io.batches import library_names
+        from amdockvs.io.shards import FORMAT_FOR_KIND, mol_from_record, shard_key, split_shard_key
+        from amdockvs.screening.materialize import promote_records
+
+        wanted: dict[int, set[int]] = {}
+        for key in keys:
+            batch, record_id = split_shard_key(key)
+            wanted.setdefault(batch, set()).add(record_id)
+        libraries = library_names(self.project_db) if wanted else {}
+        records: list[dict[str, Any]] = []
+        for batch, record_ids in wanted.items():
+            spec = replace(shard_scope_spec(), filters={"import_batch_id": batch})
+            for row in self.iter_rows(spec, batch_size=1000):
+                if not record_ids:
+                    break
+                with Shard.open(Path(str(row["path"]))) as shard:
+                    input_format = FORMAT_FOR_KIND.get(shard.kind, "")
+                    for record_id in [value for value in record_ids if value in shard]:
+                        record_ids.discard(record_id)
+                        raw = shard[record_id].load()
+                        mol = mol_from_record(bytes(raw).decode() if isinstance(raw, (bytes, bytearray)) else raw,
+                                              input_format)
+                        if mol is None:
+                            continue
+                        records.append({
+                            "name": f"{libraries.get(batch, 'library')}:{record_id}",
+                            "import_batch_id": batch,
+                            "source_index": record_id,
+                            "smiles": canonical_smiles(mol),
+                            "structure": structure_payload(_molblock(mol), "sdf"),
+                        })
+        return {shard_key(batch, index): molecule_id
+                for (batch, index), molecule_id in promote_records(self.project_db, records).items()}
+
     def materialize(self, rows) -> list[dict[str, Any]]:
         """Promote hits into `molecules` + `docking_results`, threshold and cap enforced.
 

@@ -5,10 +5,10 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import math
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QWidget
+from ms_components.ms_pymol import clear_scene, frame, is_additive, prepare_scene, set_additive
 from ms_components.ms_table import TableInteraction
 from ms_components.ms_table.table_model import COLUMN_DEF_ROLE
 
@@ -23,34 +23,10 @@ from amdockvs.ui.tools.pymol_ribbon import (
     apply_scene_atom_coloring,
     fetch_structures,
     load_structure,
-    multiple_selection_enabled,
-    prepare_pymol_scene,
     set_pymol_scene_context,
 )
 
 _log = logging.getLogger(__name__)
-
-
-def _frame(cmd, selection: str, buffer: float = 2.0) -> None:
-    """Move the camera so `selection` fits the panel in both directions. PyMOL's zoom fits the
-    height only, so a tall, narrow dock cut the sides off and the molecule looked missing."""
-    import numpy as np
-
-    xyz = cmd.get_coords(selection)
-    width, height = cmd.get_viewport()
-    if xyz is None or width <= 0 or height <= 0:
-        return
-    view = list(cmd.get_view())
-    camera = (xyz - np.asarray(view[12:15])) @ np.reshape(view[:9], (3, 3))  # model -> camera axes
-    half_x, half_y = np.abs(camera[:, :2]).max(axis=0) + buffer
-    tan = math.tan(math.radians(float(cmd.get("field_of_view")) / 2))
-    distance = float(max(half_y, half_x * height / width) / tan + np.abs(camera[:, 2]).max())
-    shift = distance - abs(view[11])
-    view[11] = -distance  # negative: the camera looks down -z at the origin
-    view[15] += shift  # the clipping planes are measured from the camera
-    view[16] += shift
-    cmd.set_view(view)
-
 
 
 class MolecularViewerController:
@@ -75,7 +51,7 @@ class MolecularViewerController:
 
     def _later(self, work, then) -> None:
         """Read off the GUI thread; discard superseded single selections or a cleared scene."""
-        if not multiple_selection_enabled(self.w.pymol_dock):
+        if not is_additive(self.w.pymol_dock):
             self._request += 1
         request = self._request
 
@@ -93,19 +69,18 @@ class MolecularViewerController:
         if not additive:
             self.clear_scene()
         dock._amdock_selection_table = table
-        dock._amdock_multiple_selection = True  # Replacement already cleared the scene above.
+        set_additive(dock, True)  # Replacement already cleared the scene above.
 
     def clear_scene(self) -> None:
         self._request += 1
         dock = self.w.pymol_dock
         if dock is not None:
             dock._amdock_selection_table = None
-            dock._amdock_multiple_selection = False
+            set_additive(dock, False)
         if dock is not None and dock.cmd is not None:
             dock._amdock_scene_epoch = getattr(dock, "_amdock_scene_epoch", 0) + 1
             try:
-                dock.cmd.delete("all")
-                dock._amdock_replaced_slots = {}
+                clear_scene(dock)
                 set_pymol_scene_context(dock, "generic")
             except Exception as error:
                 _log.warning("PyMOL could not clear its scene: %s", error)
@@ -114,7 +89,7 @@ class MolecularViewerController:
         """`then({name: (bytes, kind)})` for the payload ids in `wanted` that are set."""
         ids = {name: int(payload_id) for name, payload_id in wanted.items() if payload_id}
         if not ids:
-            if not multiple_selection_enabled(self.w.pymol_dock):
+            if not is_additive(self.w.pymol_dock):
                 self._request += 1
             then({})
             return
@@ -164,7 +139,7 @@ class MolecularViewerController:
             name = self._receptor_pymol_name(receptor)
             try:
                 self.w.pymol_dock.show()
-                prepare_pymol_scene(self.w.pymol_dock, name)
+                prepare_scene(self.w.pymol_dock, name)
                 load_structure(cmd, found["receptor"], name)
                 apply_receptor_atom_coloring(cmd, name)
                 cmd.zoom("all", 3)
@@ -242,7 +217,7 @@ class MolecularViewerController:
     def _pose_objects(self, hit) -> tuple[str, str]:
         receptor = f"receptor_{hit.receptor_id}"
         ligand = "amdock_result_pose"
-        if multiple_selection_enabled(self.w.pymol_dock):
+        if is_additive(self.w.pymol_dock):
             suffix = f"_pose_{hit.pose_payload_id or hit.ligand_payload_id}"
             receptor += suffix
             ligand += f"_{hit.receptor_id}{suffix}"
@@ -304,7 +279,7 @@ class MolecularViewerController:
                         # Cleared while the pose was being read: ask again, receptor included.
                         self._load_docked_hit(dock, hit, with_receptor=True)
                         return
-                    prepare_pymol_scene(dock, receptor_obj, ligand_obj)
+                    prepare_scene(dock, receptor_obj, ligand_obj)
                     if "receptor" in found:
                         load_structure(cmd, found["receptor"], receptor_obj)
                         apply_receptor_atom_coloring(cmd, receptor_obj)
@@ -360,12 +335,12 @@ class MolecularViewerController:
             try:
                 dock.show()
                 suffix = (f"_{hit.pose_payload_id or hit.reference_ligand_payload_id or hit.ligand_payload_id}"
-                          if multiple_selection_enabled(dock) else "")
+                          if is_additive(dock) else "")
                 reference_receptor_obj = f"redock_reference_receptor{suffix}"
                 docking_receptor_obj = f"redock_docking_receptor{suffix}"
                 reference_ligand_obj = f"redock_reference_ligand{suffix}"
                 docked_pose_obj = f"redock_docked_pose{suffix}"
-                prepare_pymol_scene(dock, reference_receptor_obj, docking_receptor_obj,
+                prepare_scene(dock, reference_receptor_obj, docking_receptor_obj,
                                     reference_ligand_obj, docked_pose_obj)
                 receptor_objs: list[str] = []
                 if "reference_receptor" in found:
@@ -444,7 +419,7 @@ class MolecularViewerController:
             cmd = dock.cmd
             try:
                 dock.show()
-                prepare_pymol_scene(dock, loaded_object)
+                prepare_scene(dock, loaded_object)
                 load_structure(cmd, found["structure"], loaded_object)
                 apply_scene_atom_coloring(self.w)
                 cmd.zoom("all", 3)
@@ -529,7 +504,7 @@ class MolecularViewerController:
             cmd = dock.cmd
             try:
                 dock.show()
-                prepare_pymol_scene(dock, object_name)
+                prepare_scene(dock, object_name)
                 load_structure(cmd, found["structure"], object_name)
                 if bool(getattr(molecule, "is_ligand", False)):
                     context_kind = "ligand"
@@ -559,7 +534,7 @@ class MolecularViewerController:
                             cmd.turn("z", 90)  # orient lays the long axis across; a tall panel wants it upright
                     except Exception:
                         pass
-                _frame(cmd, object_name)
+                frame(cmd, object_name)
                 set_pymol_scene_context(
                     dock,
                     context_kind,
@@ -595,7 +570,7 @@ class MolecularViewerController:
                 return
             try:
                 dock.show()
-                prepare_pymol_scene(dock, receptor_name)
+                prepare_scene(dock, receptor_name)
                 load_structure(cmd, found["receptor"], receptor_name)
                 apply_receptor_atom_coloring(cmd, receptor_name)
                 cmd.zoom(receptor_name, 3)
@@ -652,7 +627,7 @@ class MolecularViewerController:
                 dock.show()
                 receptor_obj = f"complex_receptor_{pair_id}"
                 ligand_obj = f"complex_ligand_{pair_id}"
-                prepare_pymol_scene(dock, receptor_obj, ligand_obj)
+                prepare_scene(dock, receptor_obj, ligand_obj)
                 load_structure(cmd, found["receptor"], receptor_obj)
                 if "ligand" in found:
                     load_structure(cmd, found["ligand"], ligand_obj)

@@ -39,6 +39,7 @@ from PySide6.QtWidgets import (
 from pyqtgraph import ColorMap
 
 from ms_components.chips import FlowLayout
+from ms_components.ms_pymol import is_additive
 from ms_components.ms_table.table_model import COLUMN_DEF_ROLE
 from ms_components.theme import color as theme_color
 
@@ -52,7 +53,6 @@ from amdockvs.ui.tools.pymol_ribbon import (
     apply_receptor_atom_coloring,
     fetch_structures,
     load_structure,
-    multiple_selection_enabled,
     replace_comparison_structure,
     set_pymol_scene_context,
 )
@@ -515,7 +515,7 @@ class OffTargetResultsWidget(QWidget):
             cmd, dock = self._pymol()
             context = getattr(dock, "scene_context", None)
             if (self._grid_ligand_id is not None and context is not None and context.is_comparison
-                    and not multiple_selection_enabled(dock)):
+                    and not is_additive(dock)):
                 dock.set_scene_context("generic")
             self._grid_ligand_id = None
         super().hideEvent(event)
@@ -581,7 +581,7 @@ class OffTargetResultsWidget(QWidget):
 
     @staticmethod
     def _grid_objects(dock, ligand_id: int, receptor_id: int) -> tuple[str, str]:
-        suffix = f"_ligand_{ligand_id}" if multiple_selection_enabled(dock) else ""
+        suffix = f"_ligand_{ligand_id}" if is_additive(dock) else ""
         return f"rec_{receptor_id}{suffix}", f"lig_{receptor_id}{suffix}"
 
     def _show_ligand_grid(self, ligand_id: int) -> None:
@@ -600,7 +600,7 @@ class OffTargetResultsWidget(QWidget):
 
     def _grid_request_valid(self, dock, ligand_id: int, request: int, epoch: int) -> bool:
         return (epoch == getattr(dock, "_amdock_scene_epoch", 0)
-                and (request == self._grid_request or (multiple_selection_enabled(dock)
+                and (request == self._grid_request or (is_additive(dock)
                      and self._grid_requests_by_ligand.get(ligand_id) == request)))
 
     def _fetch_grid(self, cmd, dock, ligand_id: int, request: int) -> None:
@@ -632,7 +632,7 @@ class OffTargetResultsWidget(QWidget):
     ) -> None:
         try:
             dock.show()
-            multiple = multiple_selection_enabled(dock)
+            multiple = is_additive(dock)
             previous_slots = {}
             grid_labels = {}
             if multiple:

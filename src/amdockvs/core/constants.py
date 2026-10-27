@@ -132,3 +132,7 @@ AMDOCKVS_PROCESS_EXECUTORS = ("compute",)
 # (`hpc_adapter.consumes_local_cpu_tokens is False`), so a cluster run and a local run
 # proceed at the same time instead of taking turns.
 AMDOCKVS_OFFLOADABLE_EXECUTORS = ("thread", "compute", "hpc")
+
+# Shard jobs run beside the table's at a lower priority: the table's take the workers they
+# can use, the shards the rest, instead of waiting idle CPUs out or halving the table's.
+SHARDS_PRIORITY = -1

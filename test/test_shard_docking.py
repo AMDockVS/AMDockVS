@@ -754,3 +754,51 @@ def test_a_scheduled_receptor_is_visible_before_it_has_a_single_result(tmp_path)
         assert list_targets(project_db, active_only=True) == []
     finally:
         runtime.close_project()
+
+
+def test_both_stores_dock_the_table_then_the_shards():
+    """Both "Ligands from" boxes: the rows' docking goes first, the campaign waits on it."""
+    import pytest
+
+    pytest.importorskip("PySide6")
+    from amdockvs.docking.readiness import EntityReadiness
+    from amdockvs.ui.tools.docking.run_panel import RunPanel
+
+    shards = []
+
+    class _Panel(RunPanel):
+        def __init__(self):
+            self.runtime = SimpleNamespace(
+                molecules=SimpleNamespace(
+                    shard_counts=lambda: {"shards": 2, "records": 20, "prepared": 2, "prepared_records": 20},
+                    get=lambda receptor_id: SimpleNamespace(name=f"R{receptor_id}"),
+                ),
+                docking=SimpleNamespace(run_shards=lambda **kw: shards.append(kw) or "shard-job",
+                                        check_protocol=lambda **_kw: None),
+            )
+            rows = {"ligands": {"ready": 3, "total": 3}, "receptors": {"ready": 1, "total": 1},
+                    "ready_receptor_ids": [7], "ready": True, "pairs": {"total": 3}}
+            self.readiness_service = SimpleNamespace(
+                evaluate=lambda **_kw: SimpleNamespace(as_mapping=lambda: dict(rows)),
+                receptors=lambda _scope, program: EntityReadiness(total=1, ready=1, ready_ids=(7,)),
+            )
+            self.submission_service = SimpleNamespace(submit=lambda request, ready_receptor_ids: SimpleNamespace(
+                job_ids={"1:Vina:p": "row-job"}, interaction_job_id="", receptor_ids=(7,), complex_ids=()))
+
+        def _resolve_ligand_scope(self, ids, run_kind="docking"):
+            return ("ligands", tuple(ids or ()))
+
+        def _resolve_receptor_scope(self, ids):
+            return ("scope", tuple(ids or ()))
+
+    panel = _Panel()
+    inp = {"sharded": False, "sources": ("rows", "shards"), "program": "vina", "sel_lig": [], "sel_rec": []}
+    counts = panel._compute_requirement_counts(inp)
+    assert counts["ready"] is True and counts["shards"]["prepared_records"] == 20
+    result = panel._submit_docking(inp, {
+        "protocols": [{"program": "vina", "label": "Vina", "hash": "p"}], "sel_lig": [],
+        "batch_size": 8, "hit_threshold": 0.0, "hit_cap": 50, "executor_name": "local_cpu",
+        "skip_existing": True, "run_id": "run",
+    })
+    assert result["job_ids"] == {"1:Vina:p": "row-job", "shards:1:Vina:p": "shard-job"}
+    assert "depends_on" not in shards[0]  # side by side; run_shards gives them the lower priority

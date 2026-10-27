@@ -56,6 +56,7 @@ RUN_SAMPLE_LIMIT = 1000
 # the scale-free version is scope_ids() as a subquery (see BoundTableWidget.scope_ids).
 MAX_NARROWED_IDS = 30000
 _CURRENT_SELECTION = ("selection", None)  # Selection choice: the rows picked with Select
+_SHARDS = ("shards", None)  # Selection choice: the screening library, clustered in its shards
 
 # Cap the accumulated pile: each preview keeps points + render state alive, so an unbounded stack
 # balloons RAM (the whole point of #6/#4). Past this, Clear is required.
@@ -355,6 +356,8 @@ class DiversitySelectionWidget(QWidget):
             self.set_combo.addItem(
                 f"Set #{int(record.id or 0)}  {record.name or 'unnamed_set'}", ("set", int(record.id or 0))
             )
+        if self.runtime.molecules.library_shape()[0]:
+            self.set_combo.addItem("Screening library (shards)", _SHARDS)
         index = self.set_combo.findData(selected)
         self.set_combo.setCurrentIndex(index if index >= 0 else 0)
         self.set_combo.blockSignals(False)
@@ -391,6 +394,11 @@ class DiversitySelectionWidget(QWidget):
         if table is None:
             return
         kind, value = self.set_combo.currentData() or ("all", None)
+        if kind == "shards":
+            table.pop_scope(self._SCOPE_KEY)
+            self.scope_label.setText("Scope: the screening library, in its shards. Only the "
+                                     "representatives become ligand rows.")
+            return
         # The global selection applies only when it is what was asked for: any other choice is
         # a set of its own, so the table lets go of the id filter (the selection itself stays).
         table.bind_selection("ligand" if kind == "selection" else None)
@@ -413,7 +421,7 @@ class DiversitySelectionWidget(QWidget):
             self._on_scope_count(table.record_count)  # a push that changed nothing reloads nothing
 
     def _on_scope_count(self, count: int) -> None:
-        if not self.isVisible():
+        if not self.isVisible() or self.set_combo.currentData() == _SHARDS:
             return
         if self.set_combo.currentData() == _CURRENT_SELECTION and not self._selected_ligands():
             self.scope_label.setText(
@@ -528,6 +536,10 @@ class DiversitySelectionWidget(QWidget):
 
     def _run(self) -> None:
         if self._running:
+            return
+        if self.set_combo.currentData() == _SHARDS:
+            QMessageBox.information(self, "Diversity", "Preview samples the table's rows; "
+                                    "the shards are clustered with 'Cluster'.")
             return
         scope_kw = self._scope_params()
         if scope_kw is None:
@@ -659,6 +671,18 @@ class DiversitySelectionWidget(QWidget):
         user confirm/override the CPU count and submit the job."""
         if self._running or self._pending_cluster_job is not None:
             return
+        if self.set_combo.currentData() == _SHARDS:
+            self._running = True
+            self.run_button.setEnabled(False)
+            self.cluster_button.setEnabled(False)
+            scope_kw = {"fp_radius": int(self.radius_spin.value()), "fp_nbits": int(self.nbits_spin.value()),
+                        "with_activity": None, "molecule_set": None, "molecule_filters": {}, "shards": True}
+            cluster_kw = self._cluster_params()
+            self.stats_label.setText("Sizing the library…")
+            run_async(lambda: self.runtime.molecules.shard_counts()["records"],
+                      lambda n: self._confirm_and_submit(int(n), scope_kw, cluster_kw),
+                      on_error=self._on_error, busy=self)
+            return
         scope_kw = self._scope_params()
         if scope_kw is None:
             return
@@ -713,7 +737,7 @@ class DiversitySelectionWidget(QWidget):
                 method=method, threshold=threshold, with_activity=scope_kw["with_activity"],
                 molecule_set=scope_kw["molecule_set"], molecule_filters=scope_kw["molecule_filters"],
                 fp_radius=scope_kw["fp_radius"], fp_nbits=scope_kw["fp_nbits"],
-                cluster_run_id=run_id, num_cpus=cpus,
+                cluster_run_id=run_id, num_cpus=cpus, shards=bool(scope_kw.get("shards")),
             )
         except Exception as exc:  # noqa: BLE001 — submission failure must not wedge the button
             self.cluster_button.setEnabled(True)

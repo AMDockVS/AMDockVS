@@ -19,6 +19,7 @@ from amdockvs.core.constants import (
     DEFAULT_LOCAL_CPU_EXECUTOR,
     DEFAULT_VINA_BACKEND,
     DEFAULT_VINA_COMMAND,
+    SHARDS_PRIORITY,
 )
 from amdockvs.docking.repository import (
     count_entity_rows,
@@ -493,13 +494,14 @@ class DockingAPI:
             *,
             program: str = VINA_PROGRAM.key,
             force: bool = False,
+            shard_ids: list[int] | None = None,
             executor_name: str = DEFAULT_LOCAL_CPU_EXECUTOR,
             depends_on: list[str] | None = None,
     ) -> str:
         """`prepare_ligands` for a sharded library: the unit of work is a shard, not a row.
 
-        No scope argument on purpose — a sharded library has no rows to select from, so the
-        whole inventory is the scope and narrowing it happened at import. One shard is one task.
+        `shard_ids` narrows it to those shards (the Shards table selection); None = every
+        shard. One shard is one task.
         """
         self.runtime._require_active_project()
         program_spec = self.get_program_spec(program)
@@ -510,12 +512,14 @@ class DockingAPI:
         params = PrepareLigandShardsJobParams(
             engine=program_spec.preparation_engine,
             force=force,
+            shard_ids=None if shard_ids is None else [int(value) for value in shard_ids],
         )
         return self.runtime.submit_job(
             prepare_ligand_shards_job,
             params=params.model_dump(mode="python"),
             executor_name=executor_name,
             depends_on=depends_on,
+            priority=SHARDS_PRIORITY,
         )
 
     def run_shards(
@@ -624,6 +628,7 @@ class DockingAPI:
             params=params.model_dump(mode="python"),
             executor_name=executor_name,
             depends_on=depends_on,
+            priority=SHARDS_PRIORITY,
             cpu_required=program_spec.resource_requirements(resolved_engine_config)["cpu_required"],
             # The gate lives in the parent, like the shard queue at import: it counts across
             # chunks and it writes molecules, neither of which a worker can do.

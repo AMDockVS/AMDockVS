@@ -32,8 +32,9 @@ def _shard_table_config() -> TableConfig:
         columns=[
             ColumnDef("id", label="ID", width=60, sortable=True, align=AlignHint.RIGHT,
                       kind=ColumnKind.INTEGER),
-            ColumnDef("shard_index", label="Shard", width=80, sortable=True, align=AlignHint.RIGHT,
-                      kind=ColumnKind.INTEGER),
+            # Position in its import batch, like a molecule's source_index: hidden, the ID is global.
+            ColumnDef("shard_index", label="Index in batch", width=100, sortable=True, align=AlignHint.RIGHT,
+                      kind=ColumnKind.INTEGER, visible=False),
             ColumnDef("n_records", label="Records", width=90, sortable=True, align=AlignHint.RIGHT,
                       kind=ColumnKind.INTEGER),
             *batch_columns(ScreeningShard),
@@ -55,6 +56,10 @@ def _shard_table_config() -> TableConfig:
 
 class ShardsWidget(BoundTableWidget):
     """Behaves like Ligands/Receptors minus PyMOL: the details panel gets the shard's metadata."""
+
+    # Right-click > Select picks the shards Docking Studio prepares (see PreparationPanel).
+    selection_role = "shard"
+    selectable = True
 
     def __init__(self, *, runtime, parent=None):
         super().__init__(

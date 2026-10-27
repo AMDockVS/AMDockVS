@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.common.failures import show_failures
 from amdockvs.ui.common.job_follower import JobFollower
-from amdockvs.ui.common.widgets import RunDestinationCombo, gate_workflow_save, split_button
+from amdockvs.ui.common.widgets import LigandSources, RunDestinationCombo, gate_workflow_save, split_button
 from ms_components.tool_panel import ToolPanel
 from amdockvs.ui.catalog.common import BoundTableWidget
 from amdockvs.docking.api import MissingLigand3DError
@@ -33,7 +33,7 @@ from ms_components.ms_table import (
     TableConfig,
     TableLoadMode,
 )
-from amdockvs.ui.view_ids import BUILD_ID, LIGANDS_VIEW_ID, PREP_STATUS_VIEW_ID, RECEPTOR_VIEW_ID
+from amdockvs.ui.view_ids import BUILD_ID, LIGANDS_VIEW_ID, PREP_STATUS_VIEW_ID, RECEPTOR_VIEW_ID, SHARDS_VIEW_ID
 
 
 def _prep_table_config(*, role_type: str) -> TableConfig:
@@ -76,8 +76,39 @@ def _prep_table_config(*, role_type: str) -> TableConfig:
     )
 
 
+def _shard_prep_table_config() -> TableConfig:
+    """Per-(shard, family) preparation, from `shard_preps`: a row = that shard is prepared."""
+    from amdockvs.models import ShardPrep
+
+    return TableConfig(
+        model_class=ShardPrep,
+        columns=[
+            ColumnDef("shard_id", label="Shard", width=90, sortable=True, filterable=True, align=AlignHint.RIGHT),
+            ColumnDef("family", label="Family", width=120, sortable=True, filterable=True,
+                      kind=ColumnKind.CHOICE,
+                      choices=tuple(sorted({spec.preparation_engine for spec in list_docking_programs()}))),
+            ColumnDef("n_records", label="Prepared", width=90, sortable=True, align=AlignHint.RIGHT,
+                      kind=ColumnKind.INTEGER),
+            ColumnDef("n_failed", label="Failed", width=90, sortable=True, align=AlignHint.RIGHT,
+                      kind=ColumnKind.INTEGER),
+        ],
+        default_sort=[SortSpec("shard_id", descending=False)],
+        page_size=20,
+        page_size_options=[10, 20, 50, 100],
+        load_mode=TableLoadMode.INFINITE,
+        show_row_numbers=False,
+        show_vertical_header=True,
+        multi_select=False,
+        empty_message="No shard prepared yet",
+    )
+
+
 # One class per table: BoundTableWidget keys its saved column prefs by class.
 class _LigandPrepTable(BoundTableWidget):
+    pass
+
+
+class _ShardPrepTable(BoundTableWidget):
     pass
 
 
@@ -86,16 +117,19 @@ class _ReceptorPrepTable(BoundTableWidget):
 
 
 class PrepStatusView(QStackedWidget):
-    """Prepared/not per (molecule, family): one page per role, each over its own table. The
-    Docking Studio step picks the role (`set_role`); one population shows at a time."""
+    """Prepared/not per (molecule, family), or per (shard, family): one page per role, each over
+    its own table. The Docking Studio step and the tab on screen pick the role (`set_role`);
+    one population shows at a time."""
 
     def __init__(self, *, runtime, role_type: str = "ligand", parent=None):
         super().__init__(parent)
+        empty = "Open or create a project to inspect preparation status."
         self.pages = {
-            role: table(runtime=runtime, config=_prep_table_config(role_type=role),
-                        empty_text="Open or create a project to inspect preparation status.", parent=self)
+            role: table(runtime=runtime, config=_prep_table_config(role_type=role), empty_text=empty, parent=self)
             for role, table in (("ligand", _LigandPrepTable), ("receptor", _ReceptorPrepTable))
         }
+        self.pages["shard"] = _ShardPrepTable(runtime=runtime, config=_shard_prep_table_config(),
+                                              empty_text=empty, parent=self)
         for page in self.pages.values():
             self.addWidget(page)
         self.role = ""
@@ -134,6 +168,18 @@ class PreparationPanel:
         # gnina and AutoDock-GPU all write a single preparation row with family="ad4", so
         # listing them separately showed three targets for one job. Families not implied by
         # the Programs step are disabled in the list.
+        # Rows and shards are two stores of ligands, not two protocols: prepare from either or
+        # both. Shown once the project has shards (see _sync_ligand_source_choice); each count
+        # links to its table, so no tab has to be frozen on this step.
+        self.ligand_source_section = panel.add_section("Ligands from")
+        # Both ticked: one click prepares everything; the sync unticks the table while it is empty.
+        self.ligand_sources = LigandSources(self.ligand_source_section.body)
+        self.ligand_sources.changed.connect(self._on_prep_sources_changed)
+        self.ligand_sources.show_requested.connect(
+            lambda source: self._open_catalog_view(SHARDS_VIEW_ID if source == "shards" else LIGANDS_VIEW_ID))
+        self.ligand_source_section.add_row(self.ligand_sources)
+        self.ligand_source_section.setVisible(False)
+
         prep_section = panel.add_section("Ligand preparation")
         prep_box = QWidget(prep_section.body)
         prep_h = QHBoxLayout(prep_box)
@@ -186,6 +232,34 @@ class PreparationPanel:
         self.ligand_prep_jobs = JobFollower(self, self.ligand_bar, noun="Ligand preparation")
         self.ligand_prep_jobs.finished.connect(lambda _status: self._report_prep_failures(self.ligand_prep_jobs))
         return panel
+
+    def _on_prep_sources_changed(self) -> None:
+        self.prepare_ligands_button.setEnabled(bool(self._ligand_sources()))
+        self._sync_ligand_table_filter()
+        self._focus_ligand_view()
+        self._dispatch_refresh()
+
+    def _open_catalog_view(self, view_id: str) -> None:
+        opener = getattr(self.window(), "open_or_focus_view", None)
+        if callable(opener):
+            opener(view_id)
+
+    def _selected_shard_ids(self) -> list[int] | None:
+        """The shards picked in the Shards table (right-click > Select); None = every shard."""
+        store = getattr(self.window(), "selection", None)
+        return store.get("shard") if store is not None else None
+
+    def _set_prep_source_counts(self, data: dict) -> None:
+        """Each store's count beside its box, from whatever the last refresh computed."""
+        rows = f"{int(data['ligands_total']):,} ligand(s)" if "ligands_total" in data else "Ligand rows"
+        if "shards_total" in data:
+            shards = (f"{int(data['shards_total']):,} shard(s) · {int(data['shard_records']):,} molecule(s) · "
+                      f"{int(data['shards_prepared']):,} prepared")
+            if data.get("shards_selected"):
+                shards += f" · {int(data['shards_selected']):,} selected"
+        else:
+            shards = "Screening library"
+        self.ligand_sources.set_counts(rows, shards)
 
     def _prep_families(self, role: str = "ligand") -> dict[str, list]:
         """preparation_engine -> the programs that share it, for programs needing ligand prep.
@@ -600,15 +674,16 @@ class PreparationPanel:
         self._req_preview_timer.start()
 
     def _prepare_ligands(self) -> None:
-        if self._ligand_scope_is_sharded():
-            self._prepare_ligand_shards()
-            return
-        ligand_scope = self._prep_ligand_scope()
+        sources = self._ligand_sources()
         # The prep-target list picks scope: "General" → all selected engines, else just one.
         target = self._selected_prep_target()
         programs = self._distinct_prep_programs() if target is None else [target]
         job_ids: dict[str, str] = {}
-        before: list[tuple[str, str]] = []  # jobs the preparation waits for
+        before: list[tuple[str, str]] = []  # jobs that run ahead of the row preparation (3D)
+        if "rows" not in sources:
+            self._prepare_ligand_shards(programs, [])
+            return
+        ligand_scope = self._prep_ligand_scope()
 
         def submit(**deferred) -> None:
             for program in programs:
@@ -629,23 +704,29 @@ class PreparationPanel:
                 # The fix is one job away, so offer it here instead of sending the user off.
                 choice = self._ask_missing_3d(exc.count)
                 if choice == "build":
-                    self._follow_prep(self.ligand_prep_jobs, job_ids)
+                    self._follow_prep(self.ligand_prep_jobs, job_ids, before=before)
                     self.window().tools.open_tool(BUILD_ID)
                     return
                 if choice != "generate":
-                    self._follow_prep(self.ligand_prep_jobs, job_ids)
+                    self._follow_prep(self.ligand_prep_jobs, job_ids, before=before)
                     return
                 job_3d = self.runtime.chemistry.generate_3d_ligands(
                     ligands=self.runtime.molecules.filter(ligand_scope, filters={"has_3d": False}),
                     executor_name=self.ligand_prep_destination.executor_name(),
                 )
-                before = [("3D generation", str(job_3d))]
+                before.append(("3D generation", str(job_3d)))
                 # Submitted now, runs after: the preparation resolves its ligands once the 3D job
                 # is done, so the submit-time 3D check would refuse what is about to exist.
                 submit(depends_on=[str(job_3d)], check_required=False)
         except Exception as exc:
             self._follow_prep(self.ligand_prep_jobs, job_ids, before=before)
             self._error("Prepare Ligands", exc)
+            return
+        rows = [*before, *((self.ligand_prep_jobs.noun, job_id) for job_id in job_ids.values())]
+        if "shards" in sources:
+            # Side by side: the shard jobs run at a lower priority, so the table's take the
+            # workers they can use and the shards get the rest.
+            self._prepare_ligand_shards(programs, rows)
             return
         self._follow_prep(self.ligand_prep_jobs, job_ids, before=before)
         self.stepper.set_current_index(2)
@@ -689,27 +770,26 @@ class PreparationPanel:
         self.prepare_ligand_batch_label.setVisible(not sharded)
         self.prepare_ligand_batch_size.setVisible(not sharded)
 
-    def _prepare_ligand_shards(self) -> None:
-        """Same button, same programs, shard-sized work: no scope and no batch — one shard is one task.
+    def _prepare_ligand_shards(self, programs: list[str], before: list[tuple[str, str]]) -> None:
+        """Same button, same programs, shard-sized work: no batch — one shard is one task.
 
-        A sharded library has no rows to select — the "Force re-prepare" box still means what
-        it says.
+        The Shards selection narrows it; "Force re-prepare" still means what it says. `before`
+        are the row jobs already submitted, followed ahead of the shard jobs.
         """
-        target = self._selected_prep_target()
-        programs = self._distinct_prep_programs() if target is None else [target]
-        job_ids: dict[str, str] = {}
+        jobs: list[tuple[str, str, str]] = []
         try:
             for program in programs:
-                job_ids[program] = self.runtime.docking.prepare_ligand_shards(
+                jobs.append(("Shard preparation", self.runtime.docking.prepare_ligand_shards(
                     program=program,
                     force=self.force_prepare_ligands.isChecked(),
+                    shard_ids=self._selected_shard_ids(),
                     executor_name=self.ligand_prep_destination.executor_name(),
-                )
+                ), "shards"))
         except Exception as exc:
-            self._follow_prep(self.ligand_prep_jobs, job_ids, unit="shards")
+            self._follow_prep(self.ligand_prep_jobs, {}, before=[*before, *jobs])
             self._error("Prepare Ligands", exc)
             return
-        self._follow_prep(self.ligand_prep_jobs, job_ids, unit="shards")
+        self._follow_prep(self.ligand_prep_jobs, {}, before=[*before, *jobs])
         self.stepper.set_current_index(2)
 
     def _prepare_receptors(self) -> None:
@@ -744,7 +824,10 @@ class PreparationPanel:
 
         # Capture current config now (widget-free submit). check_required=False: in a workflow this
         # waits for the 3D step, so the submit-time has_3d gate would always fail.
-        scope = self._prep_ligand_scope()
+        # The "Ligands from" boxes too: a step saved with only Shards ticked prepares only shards.
+        sources = self._ligand_sources()
+        scope = self._prep_ligand_scope() if "rows" in sources else None
+        shard_ids = self._selected_shard_ids() if "shards" in sources else None
         target = self._selected_prep_target()
         programs = self._distinct_prep_programs() if target is None else [target]
         batch = max(1, int(self.prepare_ligand_batch_size.value()))
@@ -752,14 +835,24 @@ class PreparationPanel:
         # Captured now, not at run time: a workflow step keeps the destination it was saved with.
         executor = self.ligand_prep_destination.executor_name()
 
-        def submit(rt, programs=programs, scope=scope, batch=batch, force=force, executor=executor):
-            return [
-                rt.docking.prepare_ligands(
-                    program=p, ligand_set=scope, batch_size=batch, force=force,
-                    executor_name=executor, check_required=False,
-                )
-                for p in programs
-            ]
+        def submit(rt, programs=programs, sources=sources, scope=scope, shard_ids=shard_ids,
+                   batch=batch, force=force, executor=executor):
+            jobs = []
+            if "rows" in sources:
+                jobs += [
+                    rt.docking.prepare_ligands(
+                        program=p, ligand_set=scope, batch_size=batch, force=force,
+                        executor_name=executor, check_required=False,
+                    )
+                    for p in programs
+                ]
+            if "shards" in sources:  # beside the table's, at a lower priority, as from the button
+                jobs += [
+                    rt.docking.prepare_ligand_shards(program=p, force=force, shard_ids=shard_ids,
+                                                     executor_name=executor)
+                    for p in programs
+                ]
+            return jobs
 
         save_to_workflow(self.window(), kind="prepare_ligands", name="Prepare ligands", category="prepare", submit=submit)
 

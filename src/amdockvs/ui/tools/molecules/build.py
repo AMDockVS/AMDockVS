@@ -24,7 +24,7 @@ from amdockvs.core.user_env import is_remembered, remember_env_var, shell_profil
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.common.failures import show_failures
 from amdockvs.ui.common.job_follower import JobFollower
-from amdockvs.ui.common.widgets import RunDestinationCombo, gate_workflow_save
+from amdockvs.ui.common.widgets import LigandSources, RunDestinationCombo, gate_workflow_save
 from amdockvs.core.vocab import MoleculeType
 from ms_components.ms_table import FilterOperator, FilterSpec
 from ms_components.tool_panel import ToolPanel, format_count, hint_label
@@ -103,14 +103,13 @@ class MoleculeBuildWidget(QWidget):
         self.batch_size_ligands = _spinbox(minimum=1, maximum=4096, value=128)
         self.batch_size_receptors = _spinbox(minimum=1, maximum=256, value=8)
         small = self.small_molecules_tab
-        # Only a sharded project has two places small molecules live; elsewhere the top bar stays hidden.
-        self.ligand_target = QComboBox(small)
-        self.ligand_target.addItem("Screening library (shards)", "shards")
-        self.ligand_target.addItem("Reference molecules (rows)", "rows")
-        self.ligand_target.currentIndexChanged.connect(self._on_ligand_target_changed)
-        small.top_bar.add_label("Apply to", self.ligand_target)
-        small.top_bar.add_widget(self.ligand_target)
-        small.top_bar.add_stretch()
+        # Only a sharded project has two places small molecules live; elsewhere the section stays hidden.
+        self.ligand_source_section = small.add_section("Ligands from")
+        self.ligand_sources = LigandSources(self.ligand_source_section.body)
+        self.ligand_sources.changed.connect(self._on_ligand_target_changed)
+        self.ligand_sources.show_requested.connect(self._show_ligand_source)
+        self.ligand_source_section.add_row(self.ligand_sources)
+        self.ligand_source_section.setVisible(False)
 
         self.ligand_protonation_section = small.add_section("Protonation", checkable=True)
         self.ligand_protonation_method = QComboBox(small)
@@ -407,9 +406,11 @@ class MoleculeBuildWidget(QWidget):
         steps = self._build_steps()
         method = self._active_protonation_method()
         blocked = self.ligand_protonation_section.isChecked() and not self._protonation_tool_ready.get(method, False)
-        self.run_build_ligands_button.setEnabled(bool(steps) and not blocked)
+        sources = self._ligand_sources()
+        self.run_build_ligands_button.setEnabled(bool(steps) and bool(sources) and not blocked)
         self.run_build_ligands_button.setToolTip(
             f"{method} is not available in this environment." if blocked
+            else "Tick the table, the shards or both." if not sources
             else "" if steps else "Tick at least one step."
         )
 
@@ -422,12 +423,18 @@ class MoleculeBuildWidget(QWidget):
         self.run_proteins_button.setToolTip("" if ticked else "Tick at least one step.")
 
     # --- where small molecules live: rows everywhere, shards too in a sharded project ---
-    def _ligands_go_to_shards(self) -> bool:
-        return self._library_sharded and self.ligand_target.currentData() == "shards"
+    def _ligand_sources(self) -> set[str]:
+        """`{"rows", "shards"}` or a part of it; rows alone outside a sharded project."""
+        return self.ligand_sources.sources() if self._library_sharded else {"rows"}
 
     def _ligand_view_id(self) -> str:
         on_small = self.tabs.currentWidget() is self.small_molecules_tab
-        return SHARDS_VIEW_ID if on_small and self._ligands_go_to_shards() else MOLECULES_VIEW_ID
+        return SHARDS_VIEW_ID if on_small and "rows" not in self._ligand_sources() else MOLECULES_VIEW_ID
+
+    def _show_ligand_source(self, source: str) -> None:
+        opener = getattr(self.window(), "open_or_focus_view", None)
+        if callable(opener):
+            opener(SHARDS_VIEW_ID if source == "shards" else MOLECULES_VIEW_ID)
 
     def _sync_ligand_target(self) -> None:
         try:
@@ -435,20 +442,19 @@ class MoleculeBuildWidget(QWidget):
         except Exception:  # noqa: BLE001 - no project open yet
             self._library_sharded, ligand_rows = False, 0
         # Rows are only a choice when there are some: a sharded project may hold none yet.
-        self.ligand_target.model().item(1).setEnabled(bool(ligand_rows))
-        self.ligand_target.setToolTip("" if ligand_rows else "No reference molecules yet: import some as rows.")
-        if not ligand_rows and self.ligand_target.currentData() == "rows":
-            self.ligand_target.blockSignals(True)
-            self.ligand_target.setCurrentIndex(0)
-            self.ligand_target.blockSignals(False)
-        shards = self._ligands_go_to_shards()
-        self.small_molecules_tab.top_bar.setVisible(self._library_sharded)
+        self.ligand_sources.blockSignals(True)
+        self.ligand_sources.set_rows_available(bool(ligand_rows))
+        self.ligand_sources.blockSignals(False)
+        self.ligand_source_section.setVisible(self._library_sharded)
+        rows = "rows" in self._ligand_sources()
         # A shard is already the unit of work (one per task), so a batch size means nothing there.
-        self.small_molecules_tab.advanced.form.setRowVisible(self.batch_size_ligands, not shards)
+        self.small_molecules_tab.advanced.form.setRowVisible(self.batch_size_ligands, rows)
         # One shard record stores one structure: ensembles only exist for rows.
-        self.ligand_conformers_section.setEnabled(not shards)
+        self.ligand_conformers_section.setEnabled(rows)
         self.ligand_conformers_section.setToolTip(
-            "Conformer ensembles need rows: apply to Reference molecules." if shards else ""
+            "Conformer ensembles need rows: tick the table." if not rows
+            else "The shards get no ensembles: only the table's rows do." if self._library_sharded
+            and "shards" in self._ligand_sources() else ""
         )
         self._sync_build_button()
         self._refresh_build_summary()
@@ -458,21 +464,28 @@ class MoleculeBuildWidget(QWidget):
         bar = self.small_molecules_tab.action_bar
         if bar.is_running:
             return
-        shards = self._ligands_go_to_shards()
+        sources, sharded = self._ligand_sources(), self._library_sharded
         molecules = self.runtime.molecules
         try:
-            scope = None if shards else self._scope(MoleculeType.SMALL_MOLECULE)  # reads the table: GUI thread
+            scope = self._scope(MoleculeType.SMALL_MOLECULE)  # reads the table: GUI thread
         except Exception:  # noqa: BLE001 - no project open yet
             bar.set_summary("")
             return
 
-        def count() -> str:
-            if shards:
+        def count() -> dict[str, str]:
+            texts = {"rows": f"{format_count(molecules.count(scope))} molecules"}
+            if sharded:
                 counts = molecules.shard_counts()
-                return f"{format_count(counts['records'])} molecules in {format_count(counts['shards'])} shards"
-            return f"{format_count(molecules.count(scope))} molecules"
+                texts["shards"] = f"{format_count(counts['records'])} molecules in {format_count(counts['shards'])} shards"
+            return texts
 
-        self._summarize(bar, count)
+        def show(texts: dict[str, str]) -> None:
+            if "shards" in texts:
+                self.ligand_sources.set_counts(texts["rows"], texts["shards"])
+            if not bar.is_running:
+                bar.set_summary(" + ".join(texts[source] for source in ("rows", "shards") if source in sources))
+
+        run_async(count, show, on_error=lambda _exc: bar.set_summary(""), compact=True)
 
     def _refresh_protein_summary(self) -> None:
         bar = self.proteins_tab.action_bar
@@ -607,8 +620,9 @@ class MoleculeBuildWidget(QWidget):
 
     # Each op exposes its CURRENT config as a dict (kind == chemistry API method name), so Run and
     # Save-to-workflow share one source of truth and stay in sync.
-    def _build_steps(self) -> list[tuple[str, dict]]:
-        """The ticked sections, always in the order protonate -> 3D -> conformers -> minimize."""
+    def _build_steps(self, shards: bool = False) -> list[tuple[str, dict]]:
+        """The ticked sections, always in the order protonate -> 3D -> conformers -> minimize.
+        `shards`: the steps for the shard library, which takes no conformer ensembles."""
         steps: list[tuple[str, dict]] = []
         seed = int(self.ligand_random_seed.value())
         if self.ligand_protonation_section.isChecked():
@@ -631,7 +645,7 @@ class MoleculeBuildWidget(QWidget):
                 filter_simple_ions=False,
             )))
         # run_shard_pipeline refuses ensembles, and the section is disabled for shards anyway.
-        if self.ligand_conformers_section.isChecked() and not self._ligands_go_to_shards():
+        if self.ligand_conformers_section.isChecked() and not shards and "rows" in self._ligand_sources():
             steps.append(("conformers", dict(
                 num_conformers=int(self.ligand_num_conformers.value()),
                 random_seed=seed,
@@ -648,14 +662,15 @@ class MoleculeBuildWidget(QWidget):
             )))
         return steps
 
-    def _cfg_build_ligands(self) -> dict:
-        # ligands=None is how run_ligand_pipeline picks the shards; a row scope always means rows.
-        return dict(
-            steps=self._build_steps(),
-            ligands=None if self._ligands_go_to_shards() else self._scope(MoleculeType.SMALL_MOLECULE),
-            batch_size=int(self.batch_size_ligands.value()),
-            executor_name=self.ligand_destination.executor_name(),
-        )
+    def _cfg_build_ligands(self) -> list[dict]:
+        """One pipeline per ticked store, the table's first. ligands=None is how
+        run_ligand_pipeline picks the shards; a row scope always means rows."""
+        common = dict(batch_size=int(self.batch_size_ligands.value()), executor_name=self.ligand_destination.executor_name())
+        sources = self._ligand_sources()
+        runs = [dict(steps=self._build_steps(), ligands=self._scope(MoleculeType.SMALL_MOLECULE), **common)] if "rows" in sources else []
+        if "shards" in sources:
+            runs.append(dict(steps=self._build_steps(shards=True), ligands=None, **common))
+        return runs
 
     def _cfg_protonate_receptors(self) -> dict:
         return dict(
@@ -745,17 +760,22 @@ class MoleculeBuildWidget(QWidget):
         )
 
     def _run_build_ligands(self) -> None:
-        cfg = self._cfg_build_ligands()
         # Failures are the molecules this run excluded: the ones excluded after, but not before.
         excluded_before = self.runtime.molecules.excluded_ids()
+        stages = []
         try:
-            job_id = self.runtime.chemistry.run_ligand_pipeline(**cfg)
-        except Exception as exc:  # noqa: BLE001 - shown to the user, nothing was submitted
+            # Side by side: the shards' job runs at a lower priority and takes the workers left.
+            for cfg in self._cfg_build_ligands():
+                shards = cfg["ligands"] is None
+                stages.append(("Building shards" if shards else "Building",
+                               self.runtime.chemistry.run_ligand_pipeline(**cfg), "shards" if shards else "batches"))
+        except Exception as exc:  # noqa: BLE001 - shown to the user; what went is followed
             QMessageBox.critical(self, "Build Small Molecules", str(exc))
-            return
+            if not stages:
+                return
         self._ligand_run_started = excluded_before
         # No "submitted" popup: the action bar carries the run, the shell toast announces it.
-        self.ligand_jobs.follow([("Building", job_id)], unit="shards" if cfg["ligands"] is None else "batches")
+        self.ligand_jobs.follow(stages)
 
     def _report_ligand_failures(self, _status: str) -> None:
         since = self._ligand_run_started
@@ -767,8 +787,12 @@ class MoleculeBuildWidget(QWidget):
         self.failures_dialog = show_failures(self, "Build", rows) or self.failures_dialog
 
     def _save_build_ligands(self) -> None:
-        self._save_chem_to_workflow(
-            "run_ligand_pipeline", "Build small molecules", self._cfg_build_ligands()
+        from amdockvs.ui.tools.workflow_panel import save_to_workflow
+
+        runs = self._cfg_build_ligands()
+        save_to_workflow(
+            self.window(), kind="run_ligand_pipeline", name="Build small molecules", category="chemistry",
+            submit=lambda rt, runs=runs: [rt.chemistry.run_ligand_pipeline(**cfg) for cfg in runs],
         )
 
     # --- proteins: the ticked ops, chained ------------------------------------------------

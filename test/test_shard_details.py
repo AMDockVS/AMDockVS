@@ -56,11 +56,13 @@ def test_a_missing_file_explains_itself_instead_of_raising(tmp_path):
 def test_details_show_the_row_and_the_header(tmp_path):
     QApplication.instance() or QApplication(["amdockvs-shard-details-test"])
     path = _written_shard(tmp_path)
-    view = CatalogDetailsView(runtime=SimpleNamespace())
+    molecules = SimpleNamespace(shard_preps=lambda shard_id: {"ad4": (2, 1)} if shard_id == 4 else {})
+    view = CatalogDetailsView(runtime=SimpleNamespace(molecules=molecules))
     view.show_shard(ScreeningShard(id=4, source="lib.smi", shard_index=0, path=str(path),
                                    input_format="smi", n_records=3, state="ready"))
     text = _tree_text(view)
     assert "Records=3" in text and "Index=0" in text and "bytes" in text
+    assert "ad4=2 record(s) · 1 failed" in text  # prepared or not, like Ligands/Receptors
     assert view._current_kind == "shard"
     assert '"record_count": 3' in view.json_text.toPlainText()
     assert not view.show_primary_button.isEnabled()  # nothing to draw for a shard

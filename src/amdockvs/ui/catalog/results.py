@@ -699,9 +699,9 @@ class DockingResultsWidget(QWidget):
         if token[1] != getattr(dock, "_amdock_scene_epoch", 0):
             return
         if token[0] != self._hit_token:
-            from amdockvs.ui.tools.pymol_ribbon import multiple_selection_enabled
+            from ms_components.ms_pymol import is_additive
 
-            if hit is not None and self._load_hit_in_pymol is not None and multiple_selection_enabled(dock):
+            if hit is not None and self._load_hit_in_pymol is not None and is_additive(dock):
                 self._load_hit_in_pymol(hit, self._pose_rank(hit))
             return
         self._show_detail(hit)

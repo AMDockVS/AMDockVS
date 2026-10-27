@@ -267,3 +267,7 @@ scripts/*
 !scripts/README.md
 !scripts/build_tools_check.py
 !scripts/bootstrap_ray_worker.py
+
+# Scratch work and generated inspection dumps
+.tmp/
+*.inspect.ndjson

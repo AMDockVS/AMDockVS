@@ -1,5 +1,6 @@
 """The 2D editor's result: unchanged compound -> None, 2D stays 2D, 3D comes back where it was."""
 import numpy as np
+import pytest
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
@@ -80,9 +81,6 @@ def _project(tmp_path, monkeypatch):
     from amdockvs.models import LigandActivity, MoleculeRecord
     from amdockvs.molecules.api import MoleculeAPI
 
-    # clear_derived still reads the removed file columns until the deletion milestone (A7); an edit
-    # that replaces a molecule calls it, so the molecule-edit tests stand it in.
-    monkeypatch.setattr("amdockvs.project.deletion.clear_derived", lambda *_a, **_k: 0)
     db = ProjectStore.open_at(tmp_path / "project.db")
     imported = seed_payload(db, Chem.MolToMolBlock(_phenol_3d()).encode(), "sdf")
     with db.get_session() as s:
@@ -117,6 +115,34 @@ def test_replacing_drops_the_activity_and_keeps_the_original(tmp_path, monkeypat
     assert edited.stored_payload_id == imported and edited.current_payload_id != imported
     assert api.dependents(1) == {}
     assert _smiles_of(api, 1) == "Nc1ccccc1"
+
+
+@pytest.mark.parametrize("copy", [True, False])
+def test_edit_clears_results_only_when_replacing(tmp_path, monkeypatch, copy):
+    from sqlmodel import select
+
+    from amdockvs.models import DockingResultRecord, DockingRun, FingerprintRecord, MoleculeRecord
+
+    api, drawn, imported = _project(tmp_path, monkeypatch)
+    db = api.runtime.workspace.project_db
+    with db.get_session() as session:
+        session.add(MoleculeRecord(id=2, name="receptor", is_receptor=True))
+        session.add(DockingRun(id=1, engine="vina"))
+        session.commit()
+        session.add(DockingResultRecord(receptor_molecule_id=2, ligand_molecule_id=1, docking_run_id=1))
+        session.add(FingerprintRecord(molecule_id=1, fp_type="morgan", fp_binary=b"fingerprint"))
+        session.commit()
+
+    # Reading for the editor and applying the same compound leave all results intact.
+    assert api.edit(1, api.molblock(1)) is None
+    assert api.dependents(1) == {"activities": 1, "docking results": 1}
+    edited_id = api.edit(1, drawn, copy=copy)
+    assert (edited_id != 1) is copy
+    with db.get_session() as session:
+        assert len(session.exec(select(DockingResultRecord)).all()) == int(copy)
+        assert len(session.exec(select(FingerprintRecord)).all()) == int(copy)
+    assert api.get(1).stored_payload_id == imported
+    assert api.dependents(1) == ({"activities": 1, "docking results": 1} if copy else {})
 
 
 def test_editing_again_releases_the_earlier_edit_but_never_the_import(tmp_path, monkeypatch):

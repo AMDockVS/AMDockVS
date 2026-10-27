@@ -16,7 +16,7 @@ from sqlalchemy import func, update as sql_update
 from sqlalchemy.orm import aliased
 from sqlmodel import select
 
-from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR, RESOURCE_QSAR_MODELS
+from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR, RESOURCE_QSAR_MODELS, SHARDS_PRIORITY
 from amdockvs.core.vocab import ReprType
 from amdockvs.models import (
     ActivityRecord,
@@ -28,7 +28,13 @@ from amdockvs.models import (
 )
 from amdockvs.models.descriptors import FingerprintType
 from amdockvs.qsar.activities import ActivitiesMixin
-from amdockvs.qsar.jobs import DescriptorJobParams, calculate_molecule_alerts_job, calculate_molecule_descriptors_job
+from amdockvs.qsar.jobs import (
+    DescriptorJobParams,
+    ShardPredictJobParams,
+    calculate_molecule_alerts_job,
+    calculate_molecule_descriptors_job,
+    predict_shards_job,
+)
 from amdockvs.qsar.modeling import (
     DEFAULT_QSAR_FEATURES,
     FittedModel,
@@ -44,6 +50,7 @@ from amdockvs.qsar.modeling import (
 from amdockvs.core.normalize import PathLike
 from amdockvs.molecules.scopes import MoleculeScope, as_molecule_scope, is_molecule_scope, scope_payload
 from amdockvs.molecules.api import ensure_molecule_set_ref
+from amdockvs.molecules.storage import ShardStore
 from amdockvs.project.sets import MoleculeSetRef, QSARModelRef
 from amdockvs.workflows.rules import apply_workflow_filters
 
@@ -789,6 +796,97 @@ class QSARAPI(ActivitiesMixin):
                 "predicted": len(ids),
                 "skipped_missing_descriptor": len(ligands) - len(ids),
             }
+
+    def _shard_predictions_dir(self, model_id: int) -> Path:
+        return self._artifact_path(f"shard_predictions_{int(model_id)}")
+
+    def predict_shards(
+        self,
+        *,
+        model: QSARModelRef | int,
+        executor_name: str = DEFAULT_LOCAL_CPU_EXECUTOR,
+        depends_on: list[str] | None = None,
+    ) -> str:
+        """``predict`` over the library's shards, as a job at ``SHARDS_PRIORITY``. Every shard
+        is scored into a file of its own, keyed by ``io.shards.shard_key``; nothing enters the
+        database until ``promote_shard_predictions`` cuts it. Scoring again overwrites each
+        shard's file. Returns the job id."""
+        self.runtime._require_active_project()
+        model_id = int(model.id if hasattr(model, "id") else model)
+        with self.runtime.workspace.project_db.get_session() as session:
+            record = session.get(QSARModelRecord, model_id)
+            if record is None:
+                raise ValueError(f"Unknown QSAR model id: {model_id}")
+        params = ShardPredictJobParams(
+            model_path=str(self._project_root() / record.model_path),
+            output_dir=str(self._shard_predictions_dir(model_id)),
+        )
+        return self.runtime.submit_job(
+            predict_shards_job, params=params.model_dump(mode="python"), executor_name=executor_name,
+            depends_on=depends_on, priority=SHARDS_PRIORITY,
+        )
+
+    def shard_predictions(self, *, model: QSARModelRef | int):
+        """A model's predictions over the library's shards, as a frame (key, value, confidence).
+        Only the active generation's shards are read: an older one is no longer the library.
+
+        ponytail: the whole frame in RAM (~24 B/molecule, 2.4 GB at 10^8); a per-file top-N
+        before the concat when a library gets there."""
+        import pandas as pd
+
+        self.runtime._require_active_project()
+        directory = self._shard_predictions_dir(int(model.id if hasattr(model, "id") else model))
+        paths = [directory / f"{int(row['id'])}.parquet"
+                 for row in ShardStore(self.runtime.workspace.project_db).iter_rows(batch_size=1000)]
+        frames = [pd.read_parquet(path) for path in paths if path.is_file()]
+        if not frames:
+            return pd.DataFrame({"key": pd.Series(dtype="int64"), "value": pd.Series(dtype=float),
+                                 "confidence": pd.Series(dtype=float)})
+        return pd.concat(frames, ignore_index=True)
+
+    def promote_shard_predictions(
+        self,
+        *,
+        model: QSARModelRef | int,
+        top_n: int | None = None,
+        cutoff: float | None = None,
+        higher_is_better: bool = True,
+    ) -> dict[str, Any]:
+        """The cut of ``cut_predictions`` over the library's predictions: the records kept become
+        molecule rows carrying their prediction, so everything that reads rows (the Predictions
+        view, ``cut_predictions``, docking) has them. Ties break by key. Returns {"scored": n,
+        "kept": n, "molecule_ids": the kept, best first}."""
+        if top_n is None and cutoff is None:
+            raise ValueError("promote_shard_predictions needs top_n and/or cutoff.")
+        model_id = int(model.id if hasattr(model, "id") else model)
+        frame = self.shard_predictions(model=model_id)
+        scored = len(frame)
+        if cutoff is not None:
+            frame = frame[frame["value"] >= float(cutoff) if higher_is_better else frame["value"] <= float(cutoff)]
+        frame = frame.sort_values(["value", "key"], ascending=[not higher_is_better, True])
+        if top_n is not None:
+            frame = frame.head(max(0, int(top_n)))
+        kept = [(int(key), float(value), confidence) for key, value, confidence in frame.itertuples(index=False)]
+        promoted = ShardStore(self.runtime.workspace.project_db).promote(key for key, _value, _conf in kept)
+        ids = [promoted[key] for key, _value, _conf in kept if key in promoted]
+        with self.runtime.workspace.project_db.get_session() as session:
+            for start in range(0, len(ids), 900):
+                for row in session.exec(
+                    select(QSARPredictionRecord)
+                    .where(QSARPredictionRecord.model_id == model_id)
+                    .where(QSARPredictionRecord.molecule_id.in_(ids[start:start + 900]))
+                ).all():
+                    session.delete(row)
+            session.flush()
+            session.add_all(
+                QSARPredictionRecord(
+                    molecule_id=promoted[key], model_id=model_id, value=value,
+                    confidence=None if confidence != confidence else float(confidence),  # NaN = none
+                )
+                for key, value, confidence in kept if key in promoted
+            )
+            session.commit()
+        return {"scored": scored, "kept": len(ids), "molecule_ids": ids}
 
     def list_predictions(
         self,
