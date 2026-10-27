@@ -422,7 +422,8 @@ def test_identical_copies_are_accepted_and_wrong_contents_can_be_removed(practic
     tutorial.controller.stop()
 
 
-def test_welcome_tutorial_waits_for_user_project_creation(tmp_path, monkeypatch):
+@pytest.mark.parametrize("commit_key", [Qt.Key_Tab, Qt.Key_Return, Qt.Key_Enter])
+def test_welcome_tutorial_waits_for_user_project_creation(tmp_path, monkeypatch, commit_key):
     monkeypatch.setenv("AMDOCK_HOME", str(tmp_path / "amdock"))
     monkeypatch.setenv("MOLSUITE_HOME", str(tmp_path / "molsuite"))
     monkeypatch.setenv("AMDOCK_DISABLE_PYMOL", "1")
@@ -449,20 +450,33 @@ def test_welcome_tutorial_waits_for_user_project_creation(tmp_path, monkeypatch)
         app.processEvents()
         form = tutorial._project_form
         assert tutorial._project_target() is form.name_input
-        form.name_input.setText("Practice")
-        form.name_input.editingFinished.emit()
-        assert tutorial._project_target() is form.path_row
-        monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *args: "")
-        form.browse_button.click()
-        assert not tutorial._project_path_chosen
-        assert tutorial._project_target() is form.path_row
-        monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *args: str(tmp_path))
-        form.browse_button.click()
-        assert tutorial._project_path_chosen
+        form.name_input.setFocus()
+        QTest.keyClicks(form.name_input, "Practice")
+        QTest.keyClick(form.name_input, commit_key)
+        app.processEvents()
         assert tutorial._project_target() is form.save_button
+        assert form.isVisible()
+        assert runtime.active_context is None
+        assert "Click Save" in tutorial._instruction(tutorial.controller.current_step)
         tutorial.controller.stop()
         assert runtime.active_context is None
     finally:
         window.close()
         runtime.shutdown()
         app.processEvents()
+
+
+def test_close_control_follows_the_tutorial_into_import_dialog(practice):
+    app, _runtime, window, _messages = practice
+    tutorial = start_simple_docking_tutorial(window)
+    wait_until(app, tutorial.import_buttons["receptor"].isVisible)
+    tutorial.import_buttons["receptor"].click()
+    app.processEvents()
+    dialog = tutorial.dialogs["receptor"]
+    wait_until(app, lambda: tutorial.controller.overlay.parentWidget() is dialog)
+    overlay = tutorial.controller.overlay
+    assert overlay.exit_button.text() == "×" and overlay.exit_button.isVisible()
+    assert overlay.panel.rect().contains(overlay.exit_button.geometry())
+    assert not overlay.back_button.isVisible() and not overlay.next_button.isVisible()
+    QTest.mouseClick(overlay.exit_button, Qt.LeftButton)
+    assert not tutorial.controller.is_active and not dialog.isVisible()

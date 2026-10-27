@@ -14,7 +14,7 @@ Extracted from the supplied `Vps34_human_4oys.pdb` (PDB 4OYS).
   Grid Box controls, saves the site, and makes it active before preparation.
 
 The tutorial starts on the welcome page. The user opens Projects, clicks New
-project, enters a name, chooses a folder with Browse, and clicks Save. Only then
+project, enters a name, and clicks Save using the default folder. Only then
 are the bundled examples copied into the new project’s `inputs` folder.
 
 The import dialogs start empty. The user clicks Add files, chooses the receptor

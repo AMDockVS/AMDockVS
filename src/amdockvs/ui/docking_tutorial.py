@@ -7,7 +7,7 @@ from importlib.resources import files
 from pathlib import Path
 import shutil
 
-from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
 from PySide6.QtWidgets import QDialog, QMessageBox, QPushButton
 from ms_components.ms_tutorial import Tutorial, TutorialController, TutorialEvent, TutorialStep, TutorialTarget
 
@@ -82,7 +82,6 @@ class SimpleDockingTutorial(QObject):
         self._created_project_id = None
         self._project_browser = None
         self._project_form = None
-        self._project_path_chosen = False
         self._project_name_entered = False
         self._file_hashes = {}
         self._expected_hashes = {role: hashlib.sha256((example_data() / self.example[role]).read_bytes()).digest()
@@ -122,7 +121,7 @@ class SimpleDockingTutorial(QObject):
             "ligand_prepared": TutorialEvent(self.ligand_prepared, is_complete=lambda: "prepare_ligand" in self.completed_stages),
             "receptor_prepared": TutorialEvent(self.receptor_prepared, is_complete=lambda: "prepare_receptor" in self.completed_stages),
             "docking_finished": TutorialEvent(self.docking_finished, is_complete=lambda: "docking" in self.completed_stages),
-        }, parent=self, instruction_provider=self._instruction, dim_background=False)
+        }, parent=self, instruction_provider=self._instruction, dim_background=False, close_only=True)
         self.controller.step_changed.connect(lambda *_: setattr(self, "_feedback", ""))
         self.controller.finished.connect(self._finish)
         self.controller.cancelled.connect(self._cleanup)
@@ -136,7 +135,7 @@ class SimpleDockingTutorial(QObject):
         project_steps = () if self.inputs is not None else (
             TutorialStep("create-project", "project", "1. Create a project",
                 "Click Open or Create Project, then New project. Give your practice project a name, "
-                "choose its folder with Browse, and click Save.", "project_created"),
+                "then click Save to use the default project folder.", "project_created"),
         )
         steps = (
             TutorialStep("load-receptor", "receptor", "1. Load receptor",
@@ -182,10 +181,9 @@ class SimpleDockingTutorial(QObject):
         if not self.controller.is_active or form.mode != "create":
             return
         self._project_form = form
-        self._project_path_chosen = False
         self._project_name_entered = False
+        form.name_input.installEventFilter(self)
         form.name_committed.connect(self._project_name_finished)
-        form.path_selected.connect(self._project_path_changed)
         form.finished.connect(self.controller.refresh)
         QTimer.singleShot(0, self.controller.refresh)
 
@@ -219,8 +217,6 @@ class SimpleDockingTutorial(QObject):
             if form is not None and isValid(form) and form.isVisible():
                 if not self._project_name_entered or not form.name_input.text().strip():
                     return form.name_input
-                if not self._project_path_chosen:
-                    return form.path_row
                 return form.save_button
             if browser.isVisible():
                 return browser.new_button
@@ -229,8 +225,18 @@ class SimpleDockingTutorial(QObject):
     def _project_name_finished(self, name):
         self._project_name_entered = bool(name)
 
-    def _project_path_changed(self, *_):
-        self._project_path_chosen = True
+    def eventFilter(self, watched, event):
+        form = self._project_form
+        if (form is not None and watched is form.name_input and self.controller.is_active
+                and event.type() == QEvent.Type.KeyPress
+                and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)):
+            name = form.name_input.text().strip()
+            if name:
+                self._project_name_finished(name)
+                form.save_button.setFocus()
+                self.controller.refresh()
+            return True
+        return super().eventFilter(watched, event)
 
     def _import_target(self, role):
         dialog = self.dialogs.get(role)
@@ -397,15 +403,13 @@ class SimpleDockingTutorial(QObject):
             form = self._project_form
             if form is not None and form.isVisible():
                 if target is form.name_input:
-                    text = "Enter a name for your new practice project, for example Vps34 docking tutorial, then press Tab."
-                elif not self._project_path_chosen:
-                    text = "Click Browse and choose where to save your project. AMDockVS creates a folder with your project name there."
+                    text = "Enter a name for your new practice project, for example Vps34 docking tutorial, then press Tab or Enter."
                 else:
-                    text = "Review the project name and folder, then click Save to create and open your project."
+                    text = "Click Save to create and open your project."
             elif self.inputs is not None:
-                text = "Your practice project is created. Click Next to continue loading the receptor."
+                text = "Your practice project is created."
             elif self._project_browser is not None and self._project_browser.isVisible():
-                text = "Click New project. You will choose its name and location in the next window."
+                text = "Click New project. You will name it in the next window."
         elif role is not None:
             dialog = self.dialogs.get(role)
             filename = self.example[role]
@@ -549,6 +553,9 @@ class SimpleDockingTutorial(QObject):
     def _cleanup(self, *_):
         self._generation += 1
         self.pending.clear()
+        from shiboken6 import isValid
+        if self._project_form is not None and isValid(self._project_form):
+            self._project_form.name_input.removeEventFilter(self)
         for dialog in self.dialogs.values():
             if dialog.isVisible() or dialog.result() != QDialog.Accepted:
                 dialog.reject()
