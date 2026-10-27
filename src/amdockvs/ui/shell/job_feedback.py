@@ -10,6 +10,7 @@ import traceback
 
 from PySide6.QtCore import QThread, Qt, QTimer
 from PySide6.QtWidgets import QApplication, QMessageBox
+from ms_components.ms_pymol import is_interacting
 
 from amdockvs.ui.shell.notifications import (
     ERROR,
@@ -390,7 +391,7 @@ class JobFeedbackController:
         # PyMOL and these table reads share the GUI thread. A COUNT landing in the middle
         # of a drag is visible as a skipped frame, so defer it until the button is released.
         pymol = getattr(self.w, "pymol_dock", None)
-        if bool(getattr(pymol, "_amdock_interacting", False)):
+        if is_interacting(pymol):
             self.view_refresh_timer.start(self.FIRST_FILL_TICK_MS)
             return
         view_id, widget = self.w.views.current_view()
