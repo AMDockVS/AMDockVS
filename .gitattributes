@@ -1,0 +1,3 @@
+# Preserve fixed-column PDB padding and RDKit-generated SDF property headers.
+src/amdockvs/data/tutorials/simple_docking/*.pdb whitespace=-blank-at-eol
+src/amdockvs/data/tutorials/simple_docking/*.sdf whitespace=-blank-at-eol

@@ -103,4 +103,5 @@ amdockvs = [
     "ui/resources/styles/*.qss",
     "ui/resources/images/*",
     "data/*.json",
+    "data/tutorials/simple_docking/*",
 ]

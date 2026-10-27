@@ -1,0 +1,26 @@
+{
+  "id": "simple-docking",
+  "pdb_id": "4OYS",
+  "receptor": "Vps34_receptor.pdb",
+  "ligand": "SAR405.sdf",
+  "source_file": "Vps34_human_4oys.pdb",
+  "source_sha256": "c4a395c8d13cbff602fd50df33b0c1bfc571f90d73b8a990f851f4a4b9e886df",
+  "receptor_chain": "A",
+  "receptor_atom_count": 4469,
+  "ligand_residue": "1TT A 905",
+  "ligand_heavy_atoms": 30,
+  "bond_dictionary": "RCSB CCD 1TT",
+  "bond_dictionary_sha256": "28c95304c61bfb4ddf3d27d33f4f8ee6d1e029d574699ae35ca7942aa69b2d8e",
+  "grid_center": [
+    18.9295,
+    -14.9115,
+    -23.053
+  ],
+  "grid_size": [
+    22.0,
+    22.0,
+    22.0
+  ],
+  "coordinate_policy": "Retain deposited heavy-atom coordinates; add ligand hydrogens with RDKit.",
+  "source_caveat": "4OYS reports wrong chirality at atom C6 of 1TT A 905; deposited geometry is retained."
+}
