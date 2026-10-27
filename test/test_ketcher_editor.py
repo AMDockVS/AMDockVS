@@ -107,6 +107,6 @@ def test_editor_returns_only_chemical_changes(monkeypatch, smiles, changed):
     AllChem.Compute2DCoords(drawing)
     molblock = Chem.MolToMolBlock(drawing)
 
-    monkeypatch.setattr("ms_components.ms_ketcher.run_editor", lambda *_args, **_kwargs: molblock)
+    monkeypatch.setattr("ms_components.ketcher.run_editor", lambda *_args, **_kwargs: molblock)
     result = editor._run_editor(Path("/ketcher"), Chem.MolToMolBlock(original), "Edit")
     assert result == (molblock if changed else None)

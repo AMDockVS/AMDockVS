@@ -1,6 +1,6 @@
 """Edit a small molecule in Ketcher; after Apply, choose to replace it or create a copy.
 
-Ketcher is a web app installed from Settings > External tools; ms_components.ms_ketcher runs it
+Ketcher is a web app installed from Settings > External tools; ms_components.ketcher runs it
 in its own process."""
 from __future__ import annotations
 
@@ -109,7 +109,7 @@ def _run_editor(folder: Path, molblock: str, title: str) -> str | None:
 
     from amdockvs.molecules.editing import changed_molecule
     from amdockvs.ui.common.theme import saved_base_font_pt, saved_theme_name
-    from ms_components.ms_ketcher import run_editor
+    from ms_components.ketcher import run_editor
 
     drawn = run_editor(folder, molblock, title, note=_NOTE, theme=saved_theme_name(),
                        base_font_pt=saved_base_font_pt())
