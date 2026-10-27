@@ -19,6 +19,7 @@ from amdockvs.core.constants import (
     DEFAULT_LOCAL_CPU_EXECUTOR,
     DEFAULT_VINA_BACKEND,
     DEFAULT_VINA_COMMAND,
+    SHARDS_PRIORITY,
 )
 from amdockvs.docking.repository import (
     count_entity_rows,
@@ -518,6 +519,7 @@ class DockingAPI:
             params=params.model_dump(mode="python"),
             executor_name=executor_name,
             depends_on=depends_on,
+            priority=SHARDS_PRIORITY,
         )
 
     def run_shards(
@@ -626,6 +628,7 @@ class DockingAPI:
             params=params.model_dump(mode="python"),
             executor_name=executor_name,
             depends_on=depends_on,
+            priority=SHARDS_PRIORITY,
             cpu_required=program_spec.resource_requirements(resolved_engine_config)["cpu_required"],
             # The gate lives in the parent, like the shard queue at import: it counts across
             # chunks and it writes molecules, neither of which a worker can do.

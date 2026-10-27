@@ -145,7 +145,7 @@ def test_shard_replacement_clears_receipts_and_result_files(tmp_path, monkeypatc
     with store.get_session() as session:
         assert session.exec(select(ScreeningShardRun)).all() == []
         assert len(session.exec(select(ScreeningShard)).all()) == 1
-    assert len(calls) == 1
+    assert len(calls) == 1 and calls[0]["priority"] == -1  # beside the table's jobs, below them
     store.dispose()
 
 

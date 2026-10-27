@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.common.failures import show_failures
 from amdockvs.ui.common.job_follower import JobFollower
-from amdockvs.ui.common.widgets import RunDestinationCombo, gate_workflow_save, split_button
+from amdockvs.ui.common.widgets import LigandSources, RunDestinationCombo, gate_workflow_save, split_button
 from ms_components.tool_panel import ToolPanel
 from amdockvs.ui.catalog.common import BoundTableWidget
 from amdockvs.docking.api import MissingLigand3DError
@@ -172,23 +172,12 @@ class PreparationPanel:
         # both. Shown once the project has shards (see _sync_ligand_source_choice); each count
         # links to its table, so no tab has to be frozen on this step.
         self.ligand_source_section = panel.add_section("Ligands from")
-        self.prep_from_rows = QCheckBox("Table", self.ligand_source_section.body)
-        self.prep_from_shards = QCheckBox("Shards", self.ligand_source_section.body)
         # Both ticked: one click prepares everything; the sync unticks the table while it is empty.
-        self.prep_from_rows.setChecked(True)
-        self.prep_from_shards.setChecked(True)
-        self.prep_source_counts: dict[str, QLabel] = {}
-        for source, box, view_id in (("rows", self.prep_from_rows, LIGANDS_VIEW_ID),
-                                     ("shards", self.prep_from_shards, SHARDS_VIEW_ID)):
-            box.toggled.connect(lambda _=False: self._on_prep_sources_changed())
-            count = QLabel(self.ligand_source_section.body)
-            count.linkActivated.connect(lambda _href, view_id=view_id: self._open_catalog_view(view_id))
-            self.prep_source_counts[source] = count
-            row = QHBoxLayout()
-            row.addWidget(box)
-            row.addWidget(count, 1)
-            self.ligand_source_section.add_row(row)
-        self._set_prep_source_counts({})
+        self.ligand_sources = LigandSources(self.ligand_source_section.body)
+        self.ligand_sources.changed.connect(self._on_prep_sources_changed)
+        self.ligand_sources.show_requested.connect(
+            lambda source: self._open_catalog_view(SHARDS_VIEW_ID if source == "shards" else LIGANDS_VIEW_ID))
+        self.ligand_source_section.add_row(self.ligand_sources)
         self.ligand_source_section.setVisible(False)
 
         prep_section = panel.add_section("Ligand preparation")
@@ -262,9 +251,7 @@ class PreparationPanel:
 
     def _set_prep_source_counts(self, data: dict) -> None:
         """Each store's count beside its box, from whatever the last refresh computed."""
-        show = " · <a href='show'>Show</a>"
         rows = f"{int(data['ligands_total']):,} ligand(s)" if "ligands_total" in data else "Ligand rows"
-        self.prep_source_counts["rows"].setText(rows + show)
         if "shards_total" in data:
             shards = (f"{int(data['shards_total']):,} shard(s) · {int(data['shard_records']):,} molecule(s) · "
                       f"{int(data['shards_prepared']):,} prepared")
@@ -272,7 +259,7 @@ class PreparationPanel:
                 shards += f" · {int(data['shards_selected']):,} selected"
         else:
             shards = "Screening library"
-        self.prep_source_counts["shards"].setText(shards + show)
+        self.ligand_sources.set_counts(rows, shards)
 
     def _prep_families(self, role: str = "ligand") -> dict[str, list]:
         """preparation_engine -> the programs that share it, for programs needing ligand prep.
@@ -694,7 +681,7 @@ class PreparationPanel:
         job_ids: dict[str, str] = {}
         before: list[tuple[str, str]] = []  # jobs that run ahead of the row preparation (3D)
         if "rows" not in sources:
-            self._prepare_ligand_shards(programs, [], [])
+            self._prepare_ligand_shards(programs, [])
             return
         ligand_scope = self._prep_ligand_scope()
 
@@ -737,8 +724,9 @@ class PreparationPanel:
             return
         rows = [*before, *((self.ligand_prep_jobs.noun, job_id) for job_id in job_ids.values())]
         if "shards" in sources:
-            # The table first, then the shards: one after the other, never fighting for workers.
-            self._prepare_ligand_shards(programs, rows, [job_id for _stage, job_id in rows])
+            # Side by side: the shard jobs run at a lower priority, so the table's take the
+            # workers they can use and the shards get the rest.
+            self._prepare_ligand_shards(programs, rows)
             return
         self._follow_prep(self.ligand_prep_jobs, job_ids, before=before)
         self.stepper.set_current_index(2)
@@ -782,12 +770,11 @@ class PreparationPanel:
         self.prepare_ligand_batch_label.setVisible(not sharded)
         self.prepare_ligand_batch_size.setVisible(not sharded)
 
-    def _prepare_ligand_shards(self, programs: list[str], before: list[tuple[str, str]], depends_on: list[str]) -> None:
+    def _prepare_ligand_shards(self, programs: list[str], before: list[tuple[str, str]]) -> None:
         """Same button, same programs, shard-sized work: no batch — one shard is one task.
 
         The Shards selection narrows it; "Force re-prepare" still means what it says. `before`
-        are the row jobs already submitted: the shard jobs wait on `depends_on` and are followed
-        after them.
+        are the row jobs already submitted, followed ahead of the shard jobs.
         """
         jobs: list[tuple[str, str, str]] = []
         try:
@@ -797,7 +784,6 @@ class PreparationPanel:
                     force=self.force_prepare_ligands.isChecked(),
                     shard_ids=self._selected_shard_ids(),
                     executor_name=self.ligand_prep_destination.executor_name(),
-                    depends_on=depends_on or None,
                 ), "shards"))
         except Exception as exc:
             self._follow_prep(self.ligand_prep_jobs, {}, before=[*before, *jobs])
@@ -860,10 +846,10 @@ class PreparationPanel:
                     )
                     for p in programs
                 ]
-            if "shards" in sources:  # after the table, as from the button
+            if "shards" in sources:  # beside the table's, at a lower priority, as from the button
                 jobs += [
                     rt.docking.prepare_ligand_shards(program=p, force=force, shard_ids=shard_ids,
-                                                     executor_name=executor, depends_on=list(jobs) or None)
+                                                     executor_name=executor)
                     for p in programs
                 ]
             return jobs

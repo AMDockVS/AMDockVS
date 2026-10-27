@@ -815,16 +815,16 @@ def test_prepare_ligands_from_table_and_shards(tmp_path, monkeypatch):
         studio.refresh()
         app.processEvents()
 
-        assert not studio.ligand_source_section.isHidden() and studio.prep_from_rows.isEnabled()
+        assert not studio.ligand_source_section.isHidden() and studio.ligand_sources.boxes["rows"].isEnabled()
         assert studio._ligand_sources() == {"rows", "shards"}  # both stores by default
         window.selection.set("shard", shard_ids[:1])
         deadline = time.monotonic() + 10
-        while "1 selected" not in studio.prep_source_counts["shards"].text() and time.monotonic() < deadline:
+        while "1 selected" not in studio.ligand_sources.counts["shards"].text() and time.monotonic() < deadline:
             app.processEvents()
             time.sleep(0.01)
-        assert "2 shard(s)" in studio.prep_source_counts["shards"].text()
-        assert "1 selected" in studio.prep_source_counts["shards"].text()
-        assert "2 ligand(s)" in studio.prep_source_counts["rows"].text()
+        assert "2 shard(s)" in studio.ligand_sources.counts["shards"].text()
+        assert "1 selected" in studio.ligand_sources.counts["shards"].text()
+        assert "2 ligand(s)" in studio.ligand_sources.counts["rows"].text()
         headline = studio.ligand_bar.headline.text()  # the bar counts both stores
         assert "2 ligand(s) in the table" in headline and "2 shard(s)" in headline and "20 molecule(s)" in headline
 
@@ -836,7 +836,7 @@ def test_prepare_ligands_from_table_and_shards(tmp_path, monkeypatch):
         monkeypatch.setattr(studio.ligand_prep_jobs, "follow", lambda jobs, **_kw: calls.append(("follow", [j[1] for j in jobs])))
         studio._prepare_ligands()
         # The table first, then the shards, waiting on it: one job after the other.
-        assert calls == [("rows", None), ("shards", shard_ids[:1], ["row-job"]), ("follow", ["row-job", "shard-job"])]
+        assert calls == [("rows", None), ("shards", shard_ids[:1], None), ("follow", ["row-job", "shard-job"])]
 
         # Preview & Run counts both stores too: the boxes are the experiment's choice.
         studio.stepper.set_current_index(3)
@@ -851,7 +851,7 @@ def test_prepare_ligands_from_table_and_shards(tmp_path, monkeypatch):
         import amdockvs.ui.tools.workflow_panel as workflow_panel
         saved = []
         monkeypatch.setattr(workflow_panel, "save_to_workflow", lambda *_a, submit, **_kw: saved.append(submit))
-        studio.prep_from_rows.setChecked(False)
+        studio.ligand_sources.boxes["rows"].setChecked(False)
         studio._save_prepare_ligands_to_workflow()
         calls.clear()
         assert saved[-1](runtime)[-1] == "shard-job" and calls == [("shards", shard_ids[:1], None)]

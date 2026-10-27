@@ -883,9 +883,8 @@ class RunPanel:
         self.batch_size_label.setVisible(batch)
         self.batch_size.setVisible(batch)
 
-    def _submit_shard_docking(self, inp: dict, params: dict, depends_on: list[str] | None = None) -> dict:
+    def _submit_shard_docking(self, inp: dict, params: dict) -> dict:
         """The sharded twin of `_submit_docking`: no ligand scope, a hit gate instead.
-        `depends_on`: jobs the campaign waits for (the table's docking, with both stores).
 
         ponytail: it calls `runtime.docking.run_shards` directly rather than going through
         `DockingSubmissionService`, whose request object is built around ligand scopes and
@@ -935,14 +934,12 @@ class RunPanel:
             if reference_id is None or len(ready_receptor_ids) < 2:
                 job_ids[key] = self.runtime.docking.run_shards(
                     receptor_set=receptor_scope,
-                    depends_on=depends_on,
                     **common,
                 )
                 continue
             reference_id = int(reference_id)
             reference_job = self.runtime.docking.run_shards(
                 receptor_set=self._resolve_receptor_scope([reference_id]),
-                depends_on=depends_on,
                 **common,
             )
             job_ids[f"{key}:reference"] = reference_job
@@ -1027,9 +1024,8 @@ class RunPanel:
             return {"warning": str(exc)}
         job_ids, notice = dict(submission.job_ids), ""
         if "shards" in counts:
-            # The table first, then the shards: the campaign waits for the table's docking.
-            shard_run = self._submit_shard_docking(
-                {**inp, "sharded": True}, params, depends_on=list(submission.job_ids.values()))
+            # Beside the table's: the campaign runs at a lower priority and takes the workers left.
+            shard_run = self._submit_shard_docking({**inp, "sharded": True}, params)
             job_ids.update({f"shards:{key}": job_id for key, job_id in shard_run.get("job_ids", {}).items()})
             notice = shard_run.get("warning", "")
         return {

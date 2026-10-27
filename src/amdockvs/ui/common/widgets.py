@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRect, QSize, Qt
+from PySide6.QtCore import QRect, QSize, Qt, Signal
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QHBoxLayout,
+    QLabel,
     QMenu,
     QSizePolicy,
     QStyle,
     QStyleOptionComboBox,
     QStylePainter,
     QToolButton,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -129,3 +132,46 @@ class WrapCombo(QComboBox):
 
 
 __all__ = ["right_aligned", "RunDestinationCombo", "split_button", "WrapCombo"]
+
+
+class LigandSources(QWidget):
+    """"Ligands from": the table's rows, the shard library, or both — one box each, its count
+    beside it with a Show link. Both start ticked; the host shows it only in a sharded project.
+    """
+
+    changed = Signal()
+    show_requested = Signal(str)  # "rows" or "shards"
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.boxes = {"rows": QCheckBox("Table", self), "shards": QCheckBox("Shards", self)}
+        self.counts: dict[str, QLabel] = {}
+        for source, box in self.boxes.items():
+            box.setChecked(True)
+            box.toggled.connect(lambda _=False: self.changed.emit())
+            count = QLabel(self)
+            count.linkActivated.connect(lambda _href, source=source: self.show_requested.emit(source))
+            self.counts[source] = count
+            row = QHBoxLayout()
+            row.addWidget(box)
+            row.addWidget(count, 1)
+            layout.addLayout(row)
+        self.set_counts("Ligand rows", "Screening library")
+
+    def sources(self) -> set[str]:
+        return {source for source, box in self.boxes.items() if box.isChecked()}
+
+    def set_rows_available(self, available: bool) -> None:
+        """Ticked whenever the table turns available, unticked when it doesn't; the user's own
+        pick stands in between."""
+        box = self.boxes["rows"]
+        if box.isEnabled() != bool(available):
+            box.setChecked(bool(available))
+        box.setEnabled(bool(available))
+
+    def set_counts(self, rows: str, shards: str) -> None:
+        show = " · <a href='show'>Show</a>"
+        self.counts["rows"].setText(rows + show)
+        self.counts["shards"].setText(shards + show)
