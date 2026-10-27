@@ -19,9 +19,14 @@ def start_interface_tour(window: AMDockVSMainWindow) -> TutorialController:
     without a separate content bundle. Nothing is imported at application startup.
     """
     from PySide6.QtWidgets import QMessageBox, QToolButton
-    from ms_components.ms_tutorial import Tutorial, TutorialController, TutorialStep, TutorialTarget
+    from ms_components.ms_tutorial import Tutorial, TutorialStep, TutorialTarget
+    from amdockvs.ui.common.tutorial import TutorialController
 
     from amdockvs.ui.view_ids import DOCKING_VIEW_ID
+
+    hands_on = getattr(window, "_docking_tutorial", None)
+    if hands_on is not None:
+        hands_on.controller.stop()
 
     controller = getattr(window, "_interface_tutorial", None)
     if controller is None:
