@@ -104,3 +104,7 @@ amdockvs = [
     "ui/resources/images/*",
     "data/*.json",
 ]
+
+# docs/benchmarks holds *_test.py measurement scripts, not tests.
+[tool.pytest.ini_options]
+testpaths = ["test"]
