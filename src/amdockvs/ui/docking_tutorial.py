@@ -8,7 +8,7 @@ from pathlib import Path
 import shutil
 
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
-from PySide6.QtWidgets import QDialog, QMessageBox, QPushButton
+from PySide6.QtWidgets import QDialog, QFileDialog, QMessageBox, QPushButton
 from ms_components.ms_tutorial import Tutorial, TutorialController, TutorialEvent, TutorialStep, TutorialTarget
 
 from amdockvs.core.jobs import STATUS
@@ -293,9 +293,11 @@ class SimpleDockingTutorial(QObject):
         self.dialogs[role] = dialog
         if role == "receptor":
             dialog.panel.file_dialog_directory = str(self.inputs)
+            dialog.panel.file_dialog_options = QFileDialog.Option.DontUseNativeDialog
             dialog.panel.ready_changed.connect(lambda *_: self._validate_import_choice(role))
         else:
             dialog.file_dialog_directory = str(self.inputs)
+            dialog.file_dialog_options = QFileDialog.Option.DontUseNativeDialog
             dialog.table.rows_changed.connect(lambda: self._validate_import_choice(role))
         dialog.jobs_submitted.connect(lambda jobs: self._track(role, jobs))
         dialog.rejected.connect(self.controller.stop)

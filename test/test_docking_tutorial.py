@@ -150,17 +150,18 @@ def submit_import(tutorial, role, jobs, monkeypatch):
     add_button = tutorial.controller.targets[role].widget()
     assert add_button.text() == "Add files"
     # Cancelling the chooser must leave the dialog empty and keep this substep.
-    monkeypatch.setattr(QFileDialog, "getOpenFileNames", lambda *args: ([], ""))
+    monkeypatch.setattr(QFileDialog, "getOpenFileNames", lambda *args, **kwargs: ([], ""))
     QTest.mouseClick(add_button, Qt.LeftButton)
     assert tutorial._import_paths(role) == []
     chooser_calls = []
-    def choose(*args):
-        chooser_calls.append(args)
+    def choose(*args, **kwargs):
+        chooser_calls.append((args, kwargs))
         return [str(tutorial.inputs / tutorial.example[role])], ""
     monkeypatch.setattr(QFileDialog, "getOpenFileNames", choose)
     QTest.mouseClick(add_button, Qt.LeftButton)
     app.processEvents()
-    assert chooser_calls[0][2] == str(tutorial.inputs)
+    assert chooser_calls[0][0][2] == str(tutorial.inputs)
+    assert chooser_calls[0][1]["options"] & QFileDialog.Option.DontUseNativeDialog
     assert tutorial._import_paths(role) == [str(tutorial.inputs / tutorial.example[role])]
     assert tutorial.controller.targets[role].widget() is dialog.import_button
     monkeypatch.setattr(dialog, "workflow_submit", lambda **_: (lambda _rt: jobs, "Import"))

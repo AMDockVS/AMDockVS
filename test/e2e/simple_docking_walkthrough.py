@@ -54,25 +54,35 @@ def main(root, *, cancel_during_preview=False, native=False):
         window.resize(width, height)
         app.processEvents()
         window.grab().save(str(root / f"welcome-{width}.png"))
-    # The test chooses a temporary destination through the normal Browse action.
-    # File selection below uses a real Qt
-    # chooser, with no file selected until the test types and clicks Open.
-    QFileDialog.getExistingDirectory = lambda *_args: str(root)
+    # Give the form a temporary default without browsing or touching the user's projects.
+    from ms_components.ms_projects.browser import ProjectFormDialog
+    original_form_init = ProjectFormDialog.__init__
+    def isolated_form_init(self, *args, **kwargs):
+        if kwargs.get("mode") == "create":
+            kwargs["initial_data"] = {**kwargs.get("initial_data", {}), "path": str(root)}
+        original_form_init(self, *args, **kwargs)
+    ProjectFormDialog.__init__ = isolated_form_init
+    # Observe the actual chooser created by getOpenFileNames, with no file
+    # selected until the test types and clicks Open.
     pickers = []
-    def choose_files(parent, title, directory, name_filter):
-        chooser = QFileDialog(parent, title, directory, name_filter)
-        chooser.setOption(QFileDialog.DontUseNativeDialog)
-        chooser.setFileMode(QFileDialog.ExistingFiles)
+    original_choose_files = QFileDialog.getOpenFileNames
+    def choose_files(parent, title, directory, name_filter, **kwargs):
+        assert kwargs["options"] & QFileDialog.Option.DontUseNativeDialog
         role = "receptor" if "receptor" in title.lower() else "ligand"
-        assert chooser.findChild(QLineEdit, "fileNameEdit").text() == ""
-        pickers.append((role, chooser))
-        return (chooser.selectedFiles(), name_filter) if chooser.exec() == QDialog.Accepted else ([], "")
+        def observe_chooser():
+            chooser = QApplication.activeModalWidget()
+            assert isinstance(chooser, QFileDialog)
+            assert Path(chooser.directory().absolutePath()) == Path(directory)
+            assert chooser.findChild(QLineEdit, "fileNameEdit").text() == ""
+            pickers.append((role, chooser))
+        QTimer.singleShot(0, observe_chooser)
+        return original_choose_files(parent, title, directory, name_filter, **kwargs)
     QFileDialog.getOpenFileNames = choose_files
     messages, errors = [], []
     QMessageBox.information = lambda *args: messages.append(args[1])
     QMessageBox.warning = lambda *args: errors.append(str(args[1:3]))
     QMessageBox.critical = lambda *args: errors.append(str(args[1:3]))
-    window.central_widget.docking_tutorial_button.click()
+    window.tutorials_panel.start_button.click()
     tutorial = window._docking_tutorial
     started = time.monotonic()
     seen, clicked = set(), set()
@@ -112,7 +122,8 @@ def main(root, *, cancel_during_preview=False, native=False):
             if time.monotonic() - started > 240:
                 raise RuntimeError(f"Tutorial timed out: step {tutorial.controller.index}, {errors}")
             for role, chooser in pickers:
-                if chooser.isVisible() and f"choose-{role}" not in clicked:
+                from shiboken6 import isValid
+                if isValid(chooser) and chooser.isVisible() and f"choose-{role}" not in clicked:
                     clicked.add(f"choose-{role}")
                     chooser.grab().save(str(root / f"file-picker-{role}.png"))
                     def select(chooser=chooser, role=role):
@@ -138,11 +149,8 @@ def main(root, *, cancel_during_preview=False, native=False):
                         QTest.qWait(120)
                         assert tutorial._project_target() is form.name_input
                         QTest.keyClicks(form.name_input, "Vps34 tutorial")
-                        QTest.keyClick(form.name_input, Qt.Key_Tab)
-                    elif not tutorial._project_path_chosen:
-                        browse = next(button for button in target.findChildren(QPushButton) if button.text().startswith("Browse"))
-                        click(browse, "project-browse")
-                    else:
+                        QTest.keyClick(form.name_input, Qt.Key_Return)
+                    elif target is form.save_button:
                         form.grab().save(str(root / "project-ready.png"))
                         click(target, "project-save")
                 elif "project-open" not in clicked:

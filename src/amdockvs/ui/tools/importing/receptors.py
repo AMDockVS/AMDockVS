@@ -111,6 +111,7 @@ class ReceptorImportPanel(QWidget):
         super().__init__(parent)
         self._runtime = runtime
         self.file_dialog_directory = ""
+        self.file_dialog_options = QFileDialog.Option(0)
         self._show_file_controls = show_file_controls
         # Drag-and-drop feeds the same add path as the button, when file editing is available.
         self.setAcceptDrops(self._show_file_controls)
@@ -357,6 +358,7 @@ class ReceptorImportPanel(QWidget):
             "Add Receptor Files",
             self.file_dialog_directory,
             QT_FILE_FILTER,
+            options=self.file_dialog_options,
         )
         self._add_paths(paths)
 
