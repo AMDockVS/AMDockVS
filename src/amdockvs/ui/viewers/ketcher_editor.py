@@ -1,4 +1,4 @@
-"""Edit a small molecule in Ketcher; Apply replaces its current structure.
+"""Edit a small molecule in Ketcher; after Apply, choose to replace it or create a copy.
 
 Ketcher is a web app installed from Settings > External tools and run from its folder in a
 QWebEngineView. Its JS API answers with Promises, which runJavaScript cannot await: the settled
@@ -17,14 +17,19 @@ import tempfile
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import QCoreApplication, Qt, QTimer, QUrl
+from PySide6.QtCore import QCoreApplication, Qt, QTimer, QUrl, QUrlQuery
 from PySide6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QLabel, QMessageBox, QVBoxLayout
-
-from amdockvs.core.vocab import MoleculeType
-from amdockvs.ui.common.async_query import run_async
 
 # Resolves once Ketcher has built `window.ketcher`, some time after the page itself loads.
 _READY = "new Promise(r => { const t = setInterval(() => { if (window.ketcher) { clearInterval(t); r(true); } }, 100); })"
+
+# Ketcher 3.18 standalone's URL options configure the editor before it mounts.
+_HIDDEN_CONTROLS = (
+    "open", "save", "arrows", "reaction-plus", "reaction-mapping-tools", "reaction-map", "reaction-unmap",
+    "rgroup", "rgroup-label", "rgroup-fragment", "rgroup-attpoints", "sgroup", "create-monomer",
+    "shapes", "shape-ellipse", "shape-rectangle", "shape-line", "text", "images",
+    "recognize", "analyse", "miew", "settings", "help", "about", "fullscreen",
+)
 
 
 class KetcherDialog(QDialog):
@@ -46,10 +51,15 @@ class KetcherDialog(QDialog):
 
         self._view = QWebEngineView(self)
         self._view.loadFinished.connect(self._loaded)
-        self._view.load(QUrl.fromLocalFile(str(folder / "index.html")))
+        url = QUrl.fromLocalFile(str(folder / "index.html"))
+        query = QUrlQuery()
+        query.addQueryItem("hiddenControls", ",".join(_HIDDEN_CONTROLS))
+        query.addQueryItem("disableMacromoleculesEditor", "true")  # initialize without waiting for macromolecules
+        url.setQuery(query)
+        self._view.load(url)
         note = QLabel(
-            "Apply replaces the molecule's current structure. What was computed from it (conformers, "
-            "descriptors, fingerprints, docking results) is deleted; the imported original is kept.",
+            "Apply lets you create a copy or replace this molecule and delete its associated data. "
+            "Nothing in the project changes until you confirm. Cancel discards the drawing.",
             self,
         )
         note.setWordWrap(True)
@@ -89,6 +99,7 @@ class KetcherDialog(QDialog):
     def _ready(self, result: dict) -> None:
         if "error" in result:
             QMessageBox.warning(self, "Ketcher", f"Ketcher could not open the molecule:\n{result['error']}")
+            return
         self._buttons.button(QDialogButtonBox.StandardButton.Apply).setEnabled(True)
 
     def _apply(self) -> None:
@@ -107,6 +118,9 @@ class KetcherDialog(QDialog):
 def edit_molecule(parent, runtime, objects, *, done: Callable[[int], None]) -> None:
     """The "Edit…" row action: open the first of `objects` in Ketcher; `done(id)` after a change,
     with the id of the molecule holding the edit (a new one when the user edits a copy)."""
+    from amdockvs.core.vocab import MoleculeType
+    from amdockvs.ui.common.async_query import run_async
+
     molecule = next(iter(objects or ()), None)
     if molecule is None:
         return
@@ -120,14 +134,33 @@ def edit_molecule(parent, runtime, objects, *, done: Callable[[int], None]) -> N
 
         from amdockvs.integrations.registry import get_tool
 
-        return (locate(get_tool("ketcher").recipe(runtime)), runtime.molecules.molblock(molecule_id),
-                runtime.molecules.dependents(molecule_id))
+        return locate(get_tool("ketcher").recipe(runtime)), runtime.molecules.molblock(molecule_id)
+
+    def failed(exc) -> None:
+        QMessageBox.critical(parent, "Edit", f"Could not apply the edit:\n{exc}")
+
+    def drawn(molblock: str | None) -> None:
+        if molblock is None:
+            return
+
+        def confirm(dependents) -> None:
+            copy = _ask_copy(parent, name, dependents)
+            if copy is None:
+                return
+            run_async(
+                lambda: runtime.molecules.edit(molecule_id, molblock, copy=copy),
+                lambda edited_id: done(edited_id) if edited_id is not None else None,
+                on_error=failed,
+                busy=parent,
+            )
+
+        # Read the impact after Apply: results may have been added while the editor was open.
+        run_async(lambda: runtime.molecules.dependents(molecule_id), confirm, on_error=failed, busy=parent)
 
     def opened(found) -> None:
         from ms_env import READY
 
-        (state, index), molblock, dependents = found
-        folder = Path(index).parent
+        (state, index), molblock = found
         if state != READY:
             answer = QMessageBox.question(
                 parent, "Edit", "The molecule editor (Ketcher) is not installed.\n\nOpen Settings > External tools to install it?"
@@ -137,18 +170,10 @@ def edit_molecule(parent, runtime, objects, *, done: Callable[[int], None]) -> N
                 opener(node="page:External tools")
             return
 
-        copy = _ask_copy(parent, name, dependents) if dependents else False
-        if copy is None:
-            return
-
-        def edit() -> int | None:
-            drawn = _run_editor(Path(folder), molblock, f"Edit {name}")
-            return None if drawn is None else runtime.molecules.edit(molecule_id, drawn, copy=copy)
-
         run_async(
-            edit,
-            lambda edited_id: done(edited_id) if edited_id is not None else None,
-            on_error=lambda exc: QMessageBox.critical(parent, "Edit", f"Could not apply the edit:\n{exc}"),
+            lambda: _run_editor(Path(index).parent, molblock, f"Edit {name}"),
+            drawn,
+            on_error=failed,
             busy=parent,
         )
 
@@ -159,27 +184,27 @@ def _ask_copy(parent, name: str, dependents: dict[str, int]) -> bool | None:
     """An edit makes another compound: what was measured or computed on this one does not carry
     over. True = edit a copy, False = replace this one, None = cancel."""
     lost = ", ".join(f"{count} {label}" for label, count in dependents.items())
-    box = QMessageBox(QMessageBox.Icon.Question, "Edit", f"{name} has {lost}.", parent=parent)
+    box = QMessageBox(QMessageBox.Icon.Question, "Apply edit", f"Apply the edited structure of {name}?", parent=parent)
     box.setInformativeText(
-        "An edited structure is another compound. Edit a copy to keep this molecule as it is, "
-        f"or replace it and delete its {lost}."
+        "Create a copy to keep the original molecule and all its data. Replacing deletes its conformers, "
+        "preparations, descriptors, fingerprints, docking results and other associated data; "
+        "the imported original structure is kept."
+        + (f"\n\nAssociated data: {lost}." if lost else "")
     )
-    copy = box.addButton("Edit a copy", QMessageBox.ButtonRole.AcceptRole)
-    replace = box.addButton("Replace…", QMessageBox.ButtonRole.DestructiveRole)
+    copy = box.addButton("Create a copy", QMessageBox.ButtonRole.AcceptRole)
+    replace = box.addButton("Replace and delete associated data", QMessageBox.ButtonRole.DestructiveRole)
     box.addButton(QMessageBox.StandardButton.Cancel)
     box.setDefaultButton(copy)
     box.exec()
     if box.clickedButton() is copy:
         return True
     if box.clickedButton() is replace:
-        sure = QMessageBox.warning(parent, "Edit", f"Delete the {lost} of {name} when the edit is applied?",
-                                   QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
-        return False if sure == QMessageBox.StandardButton.Yes else None
+        return False
     return None
 
 
 def _run_editor(folder: Path, molblock: str, title: str) -> str | None:
-    """Open Ketcher in a child process and wait for it; the drawing, or None when cancelled."""
+    """Open Ketcher in a child process; the drawing, or None when cancelled or chemically unchanged."""
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "edited.mol"
         proc = subprocess.run(
@@ -188,7 +213,15 @@ def _run_editor(folder: Path, molblock: str, title: str) -> str | None:
         )
         if proc.returncode != 0:
             raise RuntimeError(f"The editor stopped (exit code {proc.returncode}):\n{proc.stderr[-2000:]}")
-        return out.read_text() if out.exists() else None
+        if not out.exists():
+            return None
+        from rdkit import Chem
+
+        from amdockvs.molecules.editing import changed_molecule
+
+        drawn = out.read_text()
+        original = Chem.MolFromMolBlock(molblock, removeHs=False)
+        return drawn if changed_molecule(drawn, original) is not None else None
 
 
 def _main(folder: str, title: str, out: str) -> int:
