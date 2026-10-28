@@ -1,6 +1,7 @@
 """Hands-on tutorial transitions must follow successful work, not button clicks alone."""
 import json
 import shutil
+import time
 import os
 from threading import Event
 from pathlib import Path
@@ -189,6 +190,10 @@ def submit_import(tutorial, role, jobs, monkeypatch):
     monkeypatch.setattr(dialog, "workflow_submit", lambda **_: (lambda _rt: jobs, "Import"))
     monkeypatch.setattr(tutorial.runtime.loader, "duplicate_imports", lambda _: [])
     dialog.import_button.click()
+    deadline = time.monotonic() + 10
+    while dialog.isVisible() and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
     assert not dialog.isVisible()
     assert tutorial.controller.is_active
     assert tutorial.controller.overlay.parentWidget() is tutorial.window
