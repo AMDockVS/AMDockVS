@@ -67,7 +67,7 @@ def edit_molecule(parent, runtime, objects, *, done: Callable[[int], None]) -> N
             )
             opener = getattr(parent.window(), "open_settings", None)
             if answer == QMessageBox.StandardButton.Yes and callable(opener):
-                opener(node="page:External tools")
+                opener(node="page:External tools", tool="ketcher")
             return
 
         run_async(

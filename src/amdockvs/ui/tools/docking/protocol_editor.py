@@ -676,7 +676,10 @@ class ProtocolEditorWidget:
         opener = getattr(self.window(), "open_settings", None)
         if callable(opener):
             managed = any(tool.tool_id == program for tool in MANAGED_TOOLS)
-            opener(node="page:External tools" if managed else "amdockvs/docking")
+            if managed:
+                opener(node="page:External tools", tool=program)
+            else:
+                opener(node="amdockvs/docking")
 
     def changeEvent(self, event) -> None:
         super().changeEvent(event)

@@ -52,9 +52,11 @@ class ApplicationWidget(QWidget):
         self._projects_widget.activateWindow()
         self.projects_opened.emit(self._projects_widget)
 
-    def open_settings(self, *, node: str | None = None) -> None:
+    def open_settings(self, *, node: str | None = None, tool: str | None = None) -> None:
+        """On `node` when given; `tool` narrows External tools to that one tool."""
         if self._settings_dialog is None:
             from amdockvs.ui.resources.icons import icon
+            from amdockvs.integrations.hosts import HOST_ENV, HOST_PACKAGES
             from amdockvs.ui.shell.settings_downloads import DownloadsPage
             from amdockvs.ui.shell.settings_tools import ExternalToolsPage
 
@@ -64,19 +66,19 @@ class ApplicationWidget(QWidget):
                 icon_provider=icon,
                 parent=self.parentWidget(),
             )
-            self._settings_dialog.panel.add_page(
-                ExternalToolsPage(self.runtime, parent=self._settings_dialog),
-                "External tools",
-            )
+            self._tools_page = ExternalToolsPage(self.runtime, parent=self._settings_dialog)
+            self._settings_dialog.panel.add_page(self._tools_page, "External tools")
             self._settings_dialog.panel.add_page(DownloadsPage(self.runtime, parent=self._settings_dialog), "Downloads")
             # The machines that run jobs and who runs them there; started from the bar, not here.
             for table in ("hosts", "executors"):
                 self._settings_dialog.panel.add_page(
-                    KeptPage(self.runtime.workspace, table, parent=self._settings_dialog), table.capitalize())
+                    KeptPage(self.runtime.workspace, table, parent=self._settings_dialog,
+                             packages=HOST_PACKAGES, default_env=HOST_ENV), table.capitalize())
             self._settings_dialog.settings_saved.connect(self.settings_saved.emit)
             self._settings_dialog.destroyed.connect(self._on_settings_dialog_destroyed)
         else:
             self._settings_dialog.panel.reload_values()
+        self._tools_page.show_only(tool)
         if node:
             self._settings_dialog.panel.select_node(node)
         self._settings_dialog.show()

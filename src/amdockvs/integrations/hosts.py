@@ -14,6 +14,10 @@ from amdockvs.integrations.registry import MANAGED_TOOLS
 # The app whole, its windows included: what the jobs import is not told apart from the rest.
 _PACKAGES = ("amdockvs[all]", "ms_flow[ray]", "ms_components", "ms_contactmap", "ms_env")
 _IMPORTS = ("ms_flow.runner", "amdockvs")
+# What Settings > Hosts > Check connection reads there: the environment the app prepares (under
+# the home of the account, where `ssh` starts) and the versions that matter in it.
+HOST_ENV = ".amdockvs/env"  # the `{home}/env` of `host_recipes`
+HOST_PACKAGES = ("amdockvs", "ms_flow", "ms_env", "ms_components", "ms_contactmap", "rdkit", "vina", "meeko", "ray")
 
 
 def host_recipes(host: Host, runtime=None) -> list[Recipe]:
@@ -59,4 +63,4 @@ def prepare_host(address: str, on_line: Callable[[str], None] = print, runtime=N
     return recipes[0].prefix
 
 
-__all__ = ["host_recipes", "prepare_host"]
+__all__ = ["HOST_ENV", "HOST_PACKAGES", "host_recipes", "prepare_host"]
