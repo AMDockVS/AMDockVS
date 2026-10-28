@@ -801,7 +801,7 @@ model options and return values are defined by the current implementation.</p>
 <span class="nb">print</span><span class="p">(</span><span class="n">runtime</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">result_stats</span><span class="p">())</span>
 </code></pre></div>
 <p><code>program</code> chooses the engine: <code>vina</code> (the default), <code>qvina</code> (QuickVina 2),
-<code>gnina</code> or <code>adgpu</code> (AutoDock-GPU). The options of any engine go in
+<code>gnina</code>, <code>adgpu</code> (AutoDock-GPU) or <code>unidock</code> (Uni-Dock). The options of any engine go in
 <code>engine_config</code>, which is validated against that engine's model; for engines
 other than <code>vina</code> the keyword arguments <code>exhaustiveness</code>, <code>num_modes</code> and
 <code>vina_cpu</code> are not read.</p>
@@ -835,6 +835,10 @@ other than <code>vina</code> the keyword arguments <code>exhaustiveness</code>, 
 <tr>
 <td><code>adgpu</code></td>
 <td><code>nrun</code>, <code>num_modes</code>, <code>parameter_file</code>, <code>derived_types</code>, <code>seed</code></td>
+</tr>
+<tr>
+<td><code>unidock</code></td>
+<td><code>scoring_function</code> (<code>vina</code>, <code>vinardo</code>), <code>search_mode</code> (<code>fast</code>, <code>balance</code>, <code>detail</code>), <code>num_modes</code>, <code>energy_range</code>, <code>seed</code></td>
 </tr>
 </tbody>
 </table>
