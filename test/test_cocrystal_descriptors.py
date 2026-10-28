@@ -150,3 +150,25 @@ def test_ccd_lookup_is_offline_safe(monkeypatch, tmp_path):
 
     (tmp_path / "JXM.cif").write_text("data_JXM\n")  # a cached copy is used without fetching
     assert ccd_component_file("JXM") == tmp_path / "JXM.cif"
+
+
+def test_ccd_lookup_gives_up_after_one_failed_fetch(monkeypatch, tmp_path):
+    """No network: one attempt per worker, not a timeout per ligand."""
+    import urllib.error
+    import urllib.request
+
+    from amdockvs.io import ccd_bonds
+
+    calls = []
+
+    def unreachable(*_args, **_kwargs):
+        calls.append(1)
+        raise urllib.error.URLError("no network")
+
+    monkeypatch.setenv("AMDOCK_CCD_CACHE", str(tmp_path))
+    monkeypatch.delenv("AMDOCK_OFFLINE", raising=False)
+    monkeypatch.setattr(ccd_bonds, "_offline", False)
+    monkeypatch.setattr(urllib.request, "urlopen", unreachable)
+    assert ccd_bonds.ccd_component_file("ATP") is None
+    assert ccd_bonds.ccd_component_file("ADP") is None
+    assert len(calls) == 1
