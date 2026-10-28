@@ -32,7 +32,11 @@ def test_the_dock_draws_saved_diagrams_and_never_builds_one(tmp_path):
     dock = InteractionDiagramDock("2D", DockManager(window), runtime=SimpleNamespace(contact_map_configuration=config),
                                   parent=window)
     dock.show_hit(hit, 1)
-    assert dock.stack.currentWidget() is dock.placeholder and "Build diagram" in dock.placeholder.text()
+    asked = []
+    dock.build_requested.connect(lambda: asked.append(True))
+    assert dock.stack.currentWidget() is dock.view and dock.view._pages.currentIndex() == 1  # the call to action
+    dock.view._build_button.click()
+    assert asked == [True]
     assert not diagram_path_for(pose, 1, suffix=".json").exists()  # nothing computed by the click
 
     from ms_contactmap import solve_layout
@@ -43,4 +47,5 @@ def test_the_dock_draws_saved_diagrams_and_never_builds_one(tmp_path):
     save_pose_diagram(pose, 1, diagram, solve_layout(diagram))  # what Build diagram does
     dock.reload()
     assert dock.stack.currentWidget() is dock.view and "interactions" in dock.status.text()
+    assert dock.view._pages.currentWidget() is dock.view._view  # the drawn diagram replaced it
     window.close()

@@ -7,7 +7,8 @@ recompute in its toolbar -- not a rendered image.
 
 The dock follows the ligand>pose selection and only shows a saved diagram document. It never
 builds one: interactions are computed when asked for (the interactions job, the docking chain,
-or "Build diagram" in Selected Result), never because a pose was clicked.
+"Build diagram" in Selected Result or the dock's own Build diagram call to action), never
+because a pose was clicked.
 """
 from __future__ import annotations
 
@@ -24,7 +25,6 @@ from amdockvs.project.summaries import DockingHitSummary
 from ms_components.ms_dockwidget.widget import DockManager, MSDockWidget
 
 _PLACEHOLDER = "Select a docking pose to see its 2D interaction diagram."
-_NOT_BUILT = "No diagram for this pose yet: press Build diagram in Selected Result."
 
 
 class InteractionDiagramDock(MSDockWidget):
@@ -34,6 +34,8 @@ class InteractionDiagramDock(MSDockWidget):
     settings_requested = Signal(str)
     #: (hit, residue key, diagram) -- a residue picked in the diagram, for PyMOL to show.
     residue_selected = Signal(object, str, object)
+    #: The selected pose has no diagram and the user pressed Build diagram here.
+    build_requested = Signal()
 
     def __init__(self, title: str, dock_manager: DockManager, *, runtime, parent: QWidget | None = None):
         super().__init__(title, dock_manager, parent)
@@ -76,9 +78,10 @@ class InteractionDiagramDock(MSDockWidget):
         cached = load_pose_diagram(str(hit.output_path), self._pose_rank)
         label = f"{hit.ligand_name} · pose {self._pose_rank}"
         if cached is None:
-            self.placeholder.setText(_NOT_BUILT)
-            self.stack.setCurrentWidget(self.placeholder)
-            self.status.setText(label)
+            self._diagram = None
+            self._ensure_view().show_build_prompt()
+            self.stack.setCurrentWidget(self.view)
+            self.status.setText(f"{label} — no diagram yet")
             return
         self._draw(*cached, label=label)
 
@@ -103,6 +106,7 @@ class InteractionDiagramDock(MSDockWidget):
                 "Defaults…", lambda: self.settings_requested.emit("ms_contactmap")
             )
             self.view.residueSelected.connect(self._on_residue_selected)
+            self.view.buildRequested.connect(self.build_requested)
             self.apply_settings()
             self.stack.addWidget(self.view)
         return self.view
