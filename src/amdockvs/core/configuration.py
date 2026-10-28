@@ -90,6 +90,16 @@ class AutoDockGPUSettings(BaseModel):
         title="Executable",
         description="Path to the AutoDock-GPU binary; empty uses $AMDOCK_ADGPU, the managed install, then PATH.",
     )
+    batch_size: int = Field(
+        32,
+        ge=1,
+        le=1_000,
+        title="Pairs per task (at least)",
+        description=(
+            "Pairs of a receptor docked by one AutoDock-GPU process. The GPU runs one task at a "
+            "time anyway, so a larger task only saves the program start-up and map loading."
+        ),
+    )
 
 
 class DockingConfiguration(BaseModel):
