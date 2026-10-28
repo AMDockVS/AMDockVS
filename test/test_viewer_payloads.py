@@ -11,7 +11,7 @@ class _Cmd:
         self.objects: list[str] = []
         self.loaded: list[tuple[bytes, str, str]] = []
 
-    def get_names(self, _kind):
+    def get_names(self, _kind, enabled_only=0):
         return list(self.objects)
 
     def delete(self, name):
@@ -106,3 +106,25 @@ def test_a_receptor_row_brings_its_active_site_box_with_it(monkeypatch):
     monkeypatch.setattr(molecular_viewer, "molecule_payload_id", lambda m: 5)
     viewer.show_molecule(receptor, "current")
     assert focused == [9]
+
+
+def test_a_structure_already_shown_is_not_read_again():
+    """A repeat click on the same row keeps the scene; another payload under that name reloads."""
+    pytest.importorskip("PySide6")
+    from amdockvs.ui.viewers.molecular_viewer import MolecularViewerController
+
+    cmd = _Cmd()
+    window = SimpleNamespace(pymol_dock=SimpleNamespace(cmd=cmd, show=lambda: None))
+    viewer = MolecularViewerController(window)
+    reads = []
+    viewer._read = lambda ids, then: reads.append(ids)
+    molecule = SimpleNamespace(id=5, current_payload_id=11, stored_payload_id=10)
+
+    viewer._show_molecule(molecule, source="current", object_prefix="molecule", orient=True)
+    assert len(reads) == 1  # nothing in the scene yet
+    cmd.objects.append("molecule_5")
+    viewer._loaded["molecule_5"] = 11  # what the read's callback records once loaded
+    viewer._show_molecule(molecule, source="current", object_prefix="molecule", orient=True)
+    assert len(reads) == 1
+    viewer._show_molecule(molecule, source="stored", object_prefix="molecule", orient=True)
+    assert len(reads) == 2  # same name, other structure
