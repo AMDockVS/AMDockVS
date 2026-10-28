@@ -42,7 +42,7 @@ from amdockvs.ui.common.drop_area import (
 )
 from amdockvs.io.formats import QT_FILE_FILTER as _LIGAND_FILTER
 from amdockvs.ui.view_ids import LIGANDS_VIEW_ID, SHARDS_VIEW_ID
-from amdockvs.ui.tools.importing.common import confirm_reimport, land_on_view, nudge_monitor
+from amdockvs.ui.tools.importing.common import land_on_view, nudge_monitor, submit_import
 from amdockvs.ui.tools.importing.download import download_into, file_label, file_tip
 from amdockvs.ui.tools.importing.ligand_forms import (
     ImportActivityForm,
@@ -589,25 +589,15 @@ class LigandImportDialog(QDialog):
         super().done(result)
 
     def _do_import(self) -> None:
-        files = [path for path, _kind in self.table.rows()]
-        force = confirm_reimport(self, "Import Ligands", self.runtime, files) if files else False
-        if force is None:
-            return
-        payload = self.workflow_submit(force=force)
-        if payload is None:
-            return
-        submit, _name = payload
-        try:
-            job_ids = submit(self.runtime)
-        except Exception as exc:
-            QMessageBox.critical(self, "Import Ligands", f"Could not submit ligand import job:\n{exc}")
-            return
-        # Land where the molecules are actually going: staying on an empty Ligands table
-        # while a shard import runs reads as "nothing happened".
-        self.jobs_submitted.emit(job_ids)
-        land_on_view(self.parent(), SHARDS_VIEW_ID if self._target_sharded else LIGANDS_VIEW_ID, job_ids)
-        nudge_monitor(self.parent())
-        self.accept()
+        def submitted(job_ids) -> None:
+            # Land where the molecules are actually going: staying on an empty Ligands table
+            # while a shard import runs reads as "nothing happened".
+            self.jobs_submitted.emit(job_ids)
+            land_on_view(self.parent(), SHARDS_VIEW_ID if self._target_sharded else LIGANDS_VIEW_ID, job_ids)
+            nudge_monitor(self.parent())
+            self.accept()
 
+        files = [path for path, _kind in self.table.rows()]
+        submit_import(self, "Import Ligands", self.runtime, files, submitted)
 
 __all__ = ["FileDropTable", "LigandImportDialog"]

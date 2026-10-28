@@ -54,7 +54,7 @@ class ImportBatch(SQLModel, table=True):
     """One imported file: where its rows or shards came from, and how far the import got.
 
     `quick_hash` finds a file imported before; `n_records` (records read) against the file's
-    record count tells a complete import from a partial one (`io.batches.previous_import`).
+    record count tells a complete import from a partial one (`io.batches.duplicate_imports`).
     """
 
     __tablename__ = TABLE_IMPORT_BATCHES

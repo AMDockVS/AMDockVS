@@ -5,6 +5,7 @@ Pure, dependency-free helpers: every public `api.py` accepts loose user input
 """
 from __future__ import annotations
 
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
@@ -37,8 +38,16 @@ def merge_filter_mappings(*parts: Mapping[str, Any] | None) -> dict[str, Any]:
     return merged
 
 
+@lru_cache(maxsize=1 << 18)
+def resolved_path(path: PathLike) -> str:
+    """`Path(path).expanduser().resolve()` as a str, memoized: one lstat per path component, and
+    an import of 25k files resolves each path several times (~7 s at 22k uncached).
+    ponytail: a symlink moved mid-session keeps its old target; cache_clear() if that matters."""
+    return str(Path(path).expanduser().resolve())
+
+
 def normalize_files(files: Iterable[PathLike], *, label: str) -> list[Path]:
-    resolved = [Path(item).expanduser().resolve() for item in files]
+    resolved = [Path(resolved_path(item)) for item in files]
     if not resolved:
         raise ValueError(f"{label} requires at least one file.")
     return resolved
@@ -56,4 +65,5 @@ __all__ = [
     "normalize_files",
     "normalize_ids",
     "normalize_set_name",
+    "resolved_path",
 ]
