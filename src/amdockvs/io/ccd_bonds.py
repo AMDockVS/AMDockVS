@@ -39,25 +39,39 @@ def ccd_component_file(resname: str, *, allow_fetch: bool = True) -> Path | None
     the CCD key — so the entry mmCIF is a convenience, not a requirement. Each component is ~10 KB
     and never changes, so one fetch per ligand code is cached forever.
     """
+    global _offline
     code = str(resname or "").strip().upper()
     if not code or not code.isalnum():
         return None
     cache = _ccd_cache_dir() / f"{code}.cif"
     if cache.exists():
         return cache
-    if not allow_fetch or os.environ.get("AMDOCK_OFFLINE"):
+    if not allow_fetch or os.environ.get("AMDOCK_OFFLINE") or _offline or code in _missing:
         return None
     try:
         request = urllib.request.Request(_CCD_URL.format(resname=code), headers={"User-Agent": "AMDockVS"})
-        with urllib.request.urlopen(request, timeout=15) as response:
+        with urllib.request.urlopen(request, timeout=5) as response:
             payload = response.read()
+    except urllib.error.HTTPError:
+        _missing.add(code)  # the RCSB answered: no such component
+        return None
     except (urllib.error.URLError, OSError, ValueError):
+        _offline = True  # one failed fetch: assume no network for the rest of this worker
         return None
     if not payload.startswith(b"data_"):
         return None
     cache.parent.mkdir(parents=True, exist_ok=True)
-    cache.write_bytes(payload)
+    # Atomic: import workers fetch the same code at once, and one that sees a half-written
+    # file would read a CIF with no block.
+    partial = cache.with_name(f"{cache.name}.{os.getpid()}.part")
+    partial.write_bytes(payload)
+    os.replace(partial, cache)
     return cache
+
+
+# Per process: without them an offline import of 1000 receptors waits a timeout per ligand.
+_offline = False
+_missing: set[str] = set()
 
 
 def _ccd_cache_dir() -> Path:

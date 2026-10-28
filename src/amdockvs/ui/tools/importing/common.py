@@ -25,21 +25,39 @@ def nudge_monitor(window) -> None:
         bridge.request_refresh()
 
 
-__all__ = ["land_on_view", "nudge_monitor"]
+__all__ = ["land_on_view", "nudge_monitor", "submit_import"]
 
 
-def confirm_reimport(parent, title: str, runtime, files) -> bool | None:
-    """None: cancel. True: some files were imported before and the user wants them again (the
-    import goes with `force=True`). False: nothing imported before."""
+def submit_import(dialog, title: str, runtime, files, on_submitted) -> None:
+    """The duplicate check, the reimport question if any, then `dialog.workflow_submit(force=)`'s
+    submit, with `on_submitted(job_ids)` back on the GUI thread. The check and the submit hash and
+    count every file — minutes for a proteome — so both run off the GUI thread."""
     from PySide6.QtWidgets import QMessageBox
 
-    done = runtime.loader.duplicate_imports(files)
-    if not done:
-        return False
-    names = "\n".join(Path(f).name for f in done[:10]) + ("\n…" if len(done) > 10 else "")
-    answer = QMessageBox.question(
-        parent, title,
-        f"Already imported into this project:\n\n{names}\n\nImport again? The molecules will be duplicated.",
-        QMessageBox.Yes | QMessageBox.Cancel,
-    )
-    return True if answer == QMessageBox.Yes else None
+    from amdockvs.ui.common.async_query import run_async
+
+    def failed(exc) -> None:
+        QMessageBox.critical(dialog, title, f"Could not submit the import job:\n{exc}")
+
+    def submit(force: bool) -> None:
+        payload = dialog.workflow_submit(force=force)
+        if payload is not None:
+            run_async(lambda: payload[0](runtime), on_submitted, failed, busy=dialog)
+
+    def checked(done: list[str]) -> None:
+        if done:
+            names = "\n".join(Path(f).name for f in done[:10]) + ("\n…" if len(done) > 10 else "")
+            answer = QMessageBox.question(
+                dialog, title,
+                f"{len(done)} file(s) already imported into this project:\n\n{names}\n\n"
+                "Import again? The molecules will be duplicated.",
+                QMessageBox.Yes | QMessageBox.Cancel,
+            )
+            if answer != QMessageBox.Yes:
+                return
+        submit(bool(done))
+
+    if not files:
+        submit(False)  # workflow_submit says what is missing
+        return
+    run_async(lambda: runtime.loader.duplicate_imports(files), checked, failed, busy=dialog)

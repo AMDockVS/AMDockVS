@@ -11,6 +11,7 @@ import gemmi
 import numpy as np
 
 from amdockvs.binding_sites.from_structure import binding_site_specs_from_components
+from amdockvs.core.normalize import resolved_path
 from amdockvs.core.configuration import DEFAULT_BINDING_SITE_BOX_SIZE
 
 
@@ -108,7 +109,7 @@ def build_receptor_import_maps(
     extra_data_patch_by_file: dict[str, dict] = {}
     binding_site_specs_by_file: dict[str, list[dict]] = {}
     for raw_path in file_paths:
-        path = str(Path(raw_path).expanduser().resolve())
+        path = resolved_path(raw_path)
         if not build_specs:
             extra_data_patch_by_file[path] = {
                 "structure": {

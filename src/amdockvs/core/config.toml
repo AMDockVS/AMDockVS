@@ -56,6 +56,7 @@ path = ""
 
 [docking.adgpu]
 path = ""
+batch_size = 32
 
 [shards]
 records_per_shard = 1000

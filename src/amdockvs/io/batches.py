@@ -6,19 +6,22 @@ into the same batches. `quick_hash` finds a file imported before without reading
 from __future__ import annotations
 
 import hashlib
+from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from sqlalchemy import func, select
+from sqlalchemy import func, insert, select, update
 from sqlmodel import col
 
+from amdockvs.core.normalize import resolved_path
 from amdockvs.core.vocab import CODES, FileFormat, ImportKind
 from amdockvs.io.parsers.readers import count_import_records
 from amdockvs.io.formats import normalized_suffix
 from amdockvs.models.molecules import ImportBatch, MoleculeRecord
 from amdockvs.models.screening import ScreeningShard
 
-_EDGE = 1 << 20  # bytes hashed at each end
+_EDGE = 64 << 10  # bytes hashed at each end: a whole PDB fits in 1 MB, a proteome is 25k of them
 _SMILES_SUFFIXES = {".smi", ".smiles", ".txt", ".csv", ".tsv"}
 
 
@@ -31,12 +34,17 @@ class DuplicateImportError(ValueError):
 
 
 def quick_hash(path: str | Path) -> str:
-    """Size + first MB + last MB: ~2 ms whatever the size. Two files that differ only in the
-    middle collide — `n_records` is checked as well before calling a file a duplicate."""
-    path = Path(path)
-    size = path.stat().st_size
+    """Size + first and last 64 KiB: constant time whatever the size. Two files that differ only in the
+    middle collide — `n_records` is checked as well before calling a file a duplicate.
+    Memoized on (path, size, mtime): one import asks for the same files more than once."""
+    stat = Path(path).stat()
+    return _quick_hash(str(path), stat.st_size, stat.st_mtime_ns)
+
+
+@lru_cache(maxsize=1 << 16)
+def _quick_hash(path: str, size: int, _mtime_ns: int) -> str:
     digest = hashlib.blake2b(str(size).encode(), digest_size=16)
-    with path.open("rb") as handle:
+    with open(path, "rb") as handle:
         digest.update(handle.read(_EDGE))
         if size > _EDGE:
             handle.seek(max(_EDGE, size - _EDGE))
@@ -50,21 +58,25 @@ def file_format_of(path: str | Path) -> str:
     return name if name in CODES["file_format"] else FileFormat.UNKNOWN
 
 
-def previous_import(project_db, path: str | Path, digest: str) -> str:
-    """"complete", "partial" or "" for a file whose hash a batch already has."""
-    with project_db.get_session() as session:
-        read = session.execute(
-            select(func.max(ImportBatch.n_records)).where(ImportBatch.quick_hash == digest)
-        ).scalar()
-    if read is None:
-        return ""
-    return "complete" if int(read) >= count_import_records(path) else "partial"
-
-
 def duplicate_imports(project_db, files: Iterable[str | Path]) -> list[str]:
-    """The files (resolved) that a batch already imported completely."""
-    resolved = [str(Path(f).expanduser().resolve()) for f in files]
-    return [f for f in resolved if previous_import(project_db, f, quick_hash(f)) == "complete"]
+    """The files (resolved) that a batch already imported completely: its hash is known and a
+    batch with it read at least as many records as the file has."""
+    digests = {f: quick_hash(f) for f in map(resolved_path, files)}
+    read: dict[str, int] = {}
+    with project_db.get_session() as session:
+        for part in _chunks(list(set(digests.values()))):
+            read.update(session.execute(
+                select(ImportBatch.quick_hash, func.max(ImportBatch.n_records))
+                .where(col(ImportBatch.quick_hash).in_(part))
+                .group_by(ImportBatch.quick_hash)
+            ).all())
+    return [f for f, d in digests.items() if d in read and int(read[d]) >= count_import_records(f)]
+
+
+def _chunks(values: list, size: int = 30_000):
+    """Pieces under SQLite's 32766 bound variables."""
+    for start in range(0, len(values), size):
+        yield values[start:start + size]
 
 
 def register_batches(
@@ -78,20 +90,25 @@ def register_batches(
 ) -> dict[str, int]:
     """One batch per file, keyed by its resolved path. Raises `DuplicateImportError` when any
     file was imported completely before, unless `force`; a partial import is not refused."""
-    files = list(files)
+    files = [resolved_path(f) for f in files]
     if not force and (done := duplicate_imports(project_db, files)):
         raise DuplicateImportError(done)
-    digests = {str(Path(f).expanduser().resolve()): quick_hash(Path(f).expanduser()) for f in files}
-    labels = {str(Path(k).expanduser().resolve()): str(v) for k, v in dict(labels or {}).items()}
-    batches = {
-        f: ImportBatch(source=labels.get(f) or f, quick_hash=d, format=file_format_of(f), kind=kind,
-                       extra=dict(extra or {}))
-        for f, d in digests.items()
-    }
+    labels = {resolved_path(k): str(v) for k, v in dict(labels or {}).items()}
+    # Core insert, not ORM objects: a proteome is 25k batches, ~20x faster this way.
+    rows = [
+        {"source": labels.get(f) or f, "quick_hash": quick_hash(f), "n_records": 0, "n_imported": 0,
+         "format": file_format_of(f), "kind": kind, "job_id": "", "extra": dict(extra or {}),
+         "created_at": datetime.now()}
+        for f in files
+    ]
+    ids: list[int] = []
     with project_db.get_session() as session:
-        session.add_all(batches.values())
+        for part in _chunks(rows, 5_000):
+            ids += session.execute(
+                insert(ImportBatch).returning(ImportBatch.id, sort_by_parameter_order=True), part
+            ).scalars().all()
         session.commit()
-        return {f: int(b.id) for f, b in batches.items()}
+    return dict(zip(files, map(int, ids)))
 
 
 def library_names(project_db) -> dict[int, str]:
@@ -102,16 +119,15 @@ def library_names(project_db) -> dict[int, str]:
 
 
 def stamp_job(project_db, batch_ids: Iterable[int], job_id: str) -> None:
-    ids = list(batch_ids)
     with project_db.get_session() as session:
-        for batch in session.execute(select(ImportBatch).where(col(ImportBatch.id).in_(ids))).scalars():
-            batch.job_id = str(job_id)
+        for part in _chunks(list(batch_ids)):
+            session.execute(update(ImportBatch).where(col(ImportBatch.id).in_(part)).values(job_id=str(job_id)))
         session.commit()
 
 
 def finish_batches(project_db, batch_ids: Mapping[str, int], *, completed: bool) -> None:
     """Count what each batch wrote. A completed job read the whole file; one that stopped read
-    up to its last written record — a floor, which is all `previous_import` needs."""
+    up to its last written record — a floor, which is all `duplicate_imports` needs."""
     with project_db.get_session() as session:
         for path, batch_id in dict(batch_ids or {}).items():
             batch = session.get(ImportBatch, int(batch_id))
@@ -146,7 +162,6 @@ __all__ = [
     "file_format_of",
     "finish_batches",
     "library_names",
-    "previous_import",
     "quick_hash",
     "register_batches",
     "stamp_job",

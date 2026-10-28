@@ -68,27 +68,42 @@ def test_maps_cover_flexible_types_and_follow_the_parameter_file(monkeypatch, tm
     assert prefix(parameters) not in {default, custom}  # edited in place: new maps
 
 
-def test_a_failed_job_is_an_error_although_the_exit_code_is_zero(monkeypatch, tmp_path):
+def test_a_failed_job_fails_its_own_pair_although_the_exit_code_is_zero(monkeypatch, tmp_path):
+    # AutoDock-GPU 1.6's own words for a --filelist where jobs 2 and 4 cannot start.
+    output = """(Thread 9 is setting up Job #2)
+Error: Can't open ligand data file /nonexistent.pdbqt.
+Error in init_liganddata, stopped job.
+Error in setup of Job #4:
+Error: No map file specified for atom type XX in fld and no derived type (--derivtype, -T) either.
+Error in parse_liganddata, stopped job.
+Error in setup of Job #2:
+Running Job #1:
+Running Job #3:
+Warning: The following jobs were not successful:
+"""
     seen: list[list[str]] = []
 
     def fake_run(command, **_kw):
         seen.append(command)
-        return subprocess.CompletedProcess(command, 0, "Error: Ligand includes atom with unknown type: XX.\n", "")
+        for name in ("a", "c"):
+            (tmp_path / f"{name}.dlg").write_text("")
+        return subprocess.CompletedProcess(command, 0, output, "")
 
     monkeypatch.setattr(adgpu, "run_program", fake_run)
-    with pytest.raises(RuntimeError, match="unknown type: XX"):
-        adgpu._run_adgpu(
-            executable="adgpu",
-            maps_prefix=str(tmp_path / "rec"),
-            ligand_path=tmp_path / "ligand.pdbqt",
-            flex_receptor_path=None,
-            output_dir=tmp_path,
-            name="1__2.adgpu",
-            nrun=20,
-            seed=0,
-            derived_types="XX=OA",
-        )
+    outcome = adgpu._run_adgpu(
+        executable="adgpu",
+        maps_prefix=str(tmp_path / "rec"),
+        ligands={name: tmp_path / f"{name}.pdbqt" for name in "abcd"},
+        flex_receptor_path=None,
+        output_dir=tmp_path,
+        nrun=20,
+        seed=0,
+        derived_types="XX=OA",
+    )
+    assert outcome["a"] == tmp_path / "a.dlg" and outcome["c"] == tmp_path / "c.dlg"
+    assert "atom type XX" in outcome["b"] and "/nonexistent.pdbqt" in outcome["d"]
     assert seen[0][seen[0].index("--derivtype") + 1] == "XX=OA" and "--seed" not in seen[0]
+    assert not list(tmp_path.glob("*.lst"))
 
 
 @pytest.mark.skipif(not _installed(), reason="AutoDock-GPU or autogrid4 not installed")
@@ -101,6 +116,9 @@ def test_adgpu_docks_1iep(tmp_path):
     assert ok, error
     ligand = tmp_path / "ligand.pdbqt"
     ligand.write_text(text)
+    broken = tmp_path / "broken.pdbqt"
+    first = next(line for line in text.splitlines() if line.startswith(("ATOM", "HETATM")))
+    broken.write_text(text.replace(first, first[:77] + "XX", 1))  # a type autogrid cannot map
 
     rows = adgpu.adgpu_dock_runner(
         {
@@ -111,7 +129,14 @@ def test_adgpu_docks_1iep(tmp_path):
                     "ligand_path": str(ligand),
                     "receptor_path": str(DATA / "1iep_receptor.pdbqt"),
                     **BOX,
-                }
+                },
+                {
+                    "ligand_id": 3,
+                    "receptor_id": 2,
+                    "ligand_path": str(broken),
+                    "receptor_path": str(DATA / "1iep_receptor.pdbqt"),
+                    **BOX,
+                },
             ],
             "output_dir": str(tmp_path / "out"),
             "nrun": 10,
@@ -119,9 +144,12 @@ def test_adgpu_docks_1iep(tmp_path):
             "seed": 42,
         }
     )
+    failed = [row for row in rows if row["ligand_molecule_id"] == 3]
+    rows = [row for row in rows if row["ligand_molecule_id"] == 1]
+    assert len(failed) == 1 and "XX" in failed[0]["error"], failed  # one process docked both
     assert 1 <= len(rows) <= 3
     best = rows[0]
-    assert (best["engine"], best["score_type"]) == ("adgpu", "ad4_score")
+    assert best["score_type"] == "ad4_score"
     assert best["score"] < -8.0, best["error"]  # imatinib in ABL: about -10.7 kcal/mol
     assert [row["score"] for row in rows] == sorted(row["score"] for row in rows)
     poses = (tmp_path / "out" / "1__2.adgpu.sdf").read_text()

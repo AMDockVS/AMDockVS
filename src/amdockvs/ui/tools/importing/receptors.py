@@ -56,7 +56,7 @@ from amdockvs.ui.view_ids import RECEPTOR_VIEW_ID
 from amdockvs.models.molecules import MoleculeType
 from amdockvs.ui.common.widgets import WrapCombo
 from ms_components.chips import ChipsSelect
-from amdockvs.ui.tools.importing.common import confirm_reimport, land_on_view, nudge_monitor
+from amdockvs.ui.tools.importing.common import land_on_view, nudge_monitor, submit_import
 from amdockvs.ui.tools.importing.download import download_into, file_label, file_tip
 
 
@@ -961,23 +961,12 @@ class ReceptorImportDialog(QDialog):
             self._do_import()
 
     def _do_import(self) -> None:
-        files = list(self.panel.file_paths)
-        force = confirm_reimport(self, "Import Receptors", self.runtime, files) if files else False
-        if force is None:
-            return
-        payload = self.workflow_submit(force=force)
-        if payload is None:
-            return
-        submit, _name = payload
-        try:
-            job_ids = submit(self.runtime)
-        except Exception as exc:
-            QMessageBox.critical(self, "Import Receptors", f"Could not submit receptor import job:\n{exc}")
-            return
-        self.jobs_submitted.emit(job_ids)
-        land_on_view(self.parent(), RECEPTOR_VIEW_ID, job_ids)
-        nudge_monitor(self.parent())
-        self.accept()
+        def submitted(job_ids) -> None:
+            self.jobs_submitted.emit(job_ids)
+            land_on_view(self.parent(), RECEPTOR_VIEW_ID, job_ids)
+            nudge_monitor(self.parent())
+            self.accept()
 
+        submit_import(self, "Import Receptors", self.runtime, list(self.panel.file_paths), submitted)
 
 __all__ = ["ReceptorImportDialog", "ReceptorImportPanel"]

@@ -42,10 +42,9 @@ class AuxiliaryPanelController:
         self._details_window: QDialog | None = None
 
     def install_action(self, action) -> None:
+        """`action`: the checkable toggle, already wired to `on_toggled`."""
         self.action = action
-        action.setCheckable(True)
         action.setToolTip("Show/hide the panel below the table (details of the selection).")
-        action.toggled.connect(self.on_toggled)
 
     def page_for(self, view_id: str) -> QWidget | None:
         """The auxiliary page a tool owns, built on first ask. It may be off screen: the page

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import math
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QWidget
@@ -34,6 +35,7 @@ class MolecularViewerController:
         self.w = window
         self.grid_preview_enabled = True
         self._request = 0  # single selection keeps only the latest read; multiple selection keeps all
+        self._loaded: dict[str, int] = {}  # PyMOL object name → payload id it was loaded from
         if isinstance(window, QWidget):
             self._table_input = TableInteraction(window)
             self._table_input.pressed.connect(self._on_table_pressed)
@@ -131,16 +133,20 @@ class MolecularViewerController:
         self.w.aux.show_catalog_selection_details("receptor", receptor)
         if self.w.pymol_dock is None:  # headless / PyMOL failed to load: details panel is enough
             return
+        if self._already_shown(self._receptor_pymol_name(receptor), molecule_payload_id(receptor)):
+            self._show_receptor(receptor, {})  # loaded already: only the box and its camera
+            return
         self._read({"receptor": molecule_payload_id(receptor)}, lambda found: self._show_receptor(receptor, found))
 
     def _show_receptor(self, receptor, found: dict) -> None:
         cmd = self.w.pymol_dock.cmd
+        name = self._receptor_pymol_name(receptor)
         if "receptor" in found:
-            name = self._receptor_pymol_name(receptor)
             try:
                 self.w.pymol_dock.show()
                 prepare_scene(self.w.pymol_dock, name)
                 load_structure(cmd, found["receptor"], name)
+                self._loaded[name] = molecule_payload_id(receptor)
                 apply_receptor_atom_coloring(cmd, name)
                 cmd.zoom("all", 3)
                 cmd.orient(name)
@@ -165,10 +171,12 @@ class MolecularViewerController:
     def _orient_camera_to_box(cmd, center, size, *, axis: str = "x") -> None:
         """Point the camera at the active box down one axis (default +x) so a box face fronts the
         viewer, framed to the box. ponytail: canonical +x view via set_view; if a face lands
-        mirrored, flip the sign row here — needs one visual check."""
+        mirrored, flip the sign row here — needs one visual check.
+
+        The distance is the one ms_components `frame()` picks: the box's half extent over
+        tan(fov/2), corrected for the panel's aspect, plus its half depth."""
         cx, cy, cz = (float(center[0]), float(center[1]), float(center[2]))
         span = max(1.0, float(max(size)))
-        distance = span * 2.0 + 5.0
         # Rotation looking down +x: world +x -> toward viewer (+z), +y right, +z up.
         rotations = {
             "x": (0.0, 0.0, -1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0),
@@ -176,6 +184,18 @@ class MolecularViewerController:
             "z": (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0),
         }
         rotation = rotations.get(str(axis).lower(), rotations["x"])
+        half = [float(value) / 2.0 for value in size]
+        # The box's half extent along each camera axis (+ frame()'s 2 Å buffer).
+        half_x, half_y, half_z = (
+            sum(half[i] * abs(rotation[3 * i + j]) for i in range(3)) + 2.0 for j in range(3)
+        )
+        width, height = 1, 1
+        fov = 20.0  # PyMOL's default
+        with contextlib.suppress(Exception):
+            width, height = cmd.get_viewport()
+            fov = float(cmd.get("field_of_view"))
+        tan = math.tan(math.radians(fov / 2.0))
+        distance = max(half_y, half_x * height / max(1, width)) / tan + half_z
         view = (
             *rotation,
             0.0, 0.0, -distance,
@@ -475,6 +495,16 @@ class MolecularViewerController:
             cmd.set_color(color_name, [value / 255 for value in rgb])
             cmd.color(color_name, f"{name} and {condition}")
 
+    def _already_shown(self, object_name: str, payload_id) -> bool:
+        """The same structure under the same name is still shown: a repeat click reloads nothing
+        and keeps the camera and representation the user left."""
+        cmd = self.w.pymol_dock.cmd
+        try:
+            enabled = set(cmd.get_names("objects", enabled_only=1))
+        except Exception:
+            return False
+        return self._loaded.get(object_name) == payload_id and object_name in enabled
+
     @staticmethod
     def _structure_id(molecule, source: str) -> int | None:
         """The payload a molecule shows for `source`: "stored" is the input as imported when the
@@ -499,6 +529,11 @@ class MolecularViewerController:
         if dock is None or getattr(dock, "cmd", None) is None:
             return
         object_name = f"{object_prefix}_{getattr(molecule, 'id', 'selected')}"
+        if self._already_shown(object_name, payload_id):
+            dock.show()
+            if then is not None:
+                then(molecule)
+            return
 
         def show(found: dict) -> None:
             cmd = dock.cmd
@@ -506,6 +541,7 @@ class MolecularViewerController:
                 dock.show()
                 prepare_scene(dock, object_name)
                 load_structure(cmd, found["structure"], object_name)
+                self._loaded[object_name] = payload_id
                 if bool(getattr(molecule, "is_ligand", False)):
                     context_kind = "ligand"
                     context_role = "ligand"
@@ -528,6 +564,9 @@ class MolecularViewerController:
                 cmd.zoom(object_name, 3)
                 if orient:
                     try:
+                        # orient keeps the axis signs nearest the current view: after the turn
+                        # below, a second click would land on the mirror solution (180° flip).
+                        cmd.reset()
                         cmd.orient(object_name)
                         width, height = cmd.get_viewport()
                         if height > width:

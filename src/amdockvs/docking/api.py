@@ -320,6 +320,13 @@ class DockingAPI:
     def get_program_spec(program: str | None = None) -> DockingProgramSpec:
         return get_docking_program(program)
 
+    def _pairs_per_task(self, program_spec: DockingProgramSpec, batch_size: int | None) -> int:
+        """Pairs per docking task. AutoDock-GPU docks a task's pairs in one process (see its
+        engine), so its tasks never go below `docking.adgpu.batch_size`."""
+        config = app_config(self.runtime).docking
+        pairs = max(1, int(batch_size or config.batch_size))
+        return max(pairs, config.adgpu.batch_size) if program_spec.docking_engine == "adgpu" else pairs
+
     @staticmethod
     def _entity_filters_for_workflow(
             scope: dict[str, Any],
@@ -1130,7 +1137,7 @@ class DockingAPI:
         )
         if reset_results and selected_from_receptor_id is not None:
             raise ValueError("Changing docking configuration requires rerunning the reference stage before off-target docking.")
-        resolved_batch_size = max(1, int(batch_size or app_config(self.runtime).docking.batch_size))
+        resolved_batch_size = self._pairs_per_task(program_spec, batch_size)
         ligand_set_ref = self._set_ref(ligand_set, name="docking_ligand_input")
         receptor_set_ref = self._set_ref(receptor_set, name="docking_receptor_input")
         ligand_scope = scope_payload(ligand_set) if is_molecule_scope(ligand_set) else {}
@@ -1345,8 +1352,9 @@ class DockingAPI:
             protocol_metadata=protocol_metadata,
             skip_existing=skip_existing,
         )
+        batch_size = self._pairs_per_task(program_spec, batch_size)
         total_chunks = (
-            -(-pending_pairs // max(1, int(batch_size))) if pending_pairs > 0 else 0
+            -(-pending_pairs // batch_size) if pending_pairs > 0 else 0
         )
         params = RedockingJobParams(
             output_dir=self._output_dir(output_dir),

@@ -3,7 +3,7 @@ completely before is refused unless forced."""
 import pytest
 from sqlmodel import select
 
-from amdockvs.io.batches import DuplicateImportError, library_names, previous_import, quick_hash
+from amdockvs.io.batches import DuplicateImportError, duplicate_imports, library_names
 from amdockvs.models import ImportBatch, MoleculeRecord
 from amdockvs.runtime import AMDockVSRuntime
 
@@ -39,7 +39,7 @@ def test_a_file_is_counted_and_not_imported_twice(runtime, tmp_path):
 
     # A file that grew since is a partial import, not a duplicate: it goes in without force.
     library.write_text("CCO a\nCCN b\nCCC c\nCCCC d\n")
-    assert previous_import(project_db, library, quick_hash(library)) == ""  # the hash changed too
+    assert duplicate_imports(project_db, [library]) == []  # the hash changed too
     runtime.wait_for_jobs(runtime.loader.load_ligands([library]), timeout_s=300)
 
 

@@ -13,7 +13,7 @@ from amdockvs.io.jobs import (
     load_ligands_multithreaded_sdf_job,
     load_receptors_file_job,
 )
-from amdockvs.core.normalize import PathLike, group_files, normalize_files
+from amdockvs.core.normalize import PathLike, group_files, normalize_files, resolved_path
 from amdockvs.core.configuration import app_config
 from amdockvs.core.constants import RESOURCE_IMPORT_STATS, RESOURCE_SHARDS
 from amdockvs.core.vocab import ImportKind
@@ -340,11 +340,11 @@ class LoaderAPI:
                 build_specs=bool(build_specs),
             )
         extra_data_patch_map = {
-            str(Path(path).expanduser().resolve()): dict(value or {})
+            resolved_path(path): dict(value or {})
             for path, value in dict(extra_data_patch_by_file or {}).items()
         }
         binding_site_specs_map = {
-            str(Path(path).expanduser().resolve()): [dict(item) for item in list(value or [])]
+            resolved_path(path): [dict(item) for item in list(value or [])]
             for path, value in dict(binding_site_specs_by_file or {}).items()
         }
         params = {

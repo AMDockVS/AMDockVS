@@ -125,7 +125,7 @@ def map_prefix(
     cache: dict[tuple, str],
     maps_dir: Path,
     receptor_path: Path,
-    ligand_path: Path,
+    ligand_path: Path | list[Path],
     box_center: list[float],
     box_size: list[float],
     spacing: float,
@@ -134,14 +134,15 @@ def map_prefix(
     zinc: bool = False,
 ) -> str:
     """Maps for one (receptor, box, atom types, parameters), returning their path prefix
-    ("<prefix>.maps.fld"). Cached so identical-typed ligands share maps. Flexible side chains
-    move through the same maps, so their atom types get a map too.
+    ("<prefix>.maps.fld"). Cached so identical-typed ligands share maps; a list of ligands gets
+    maps for all their types at once. Flexible side chains move through the same maps, so
+    their atom types get a map too.
     `zinc` builds AutoDock4Zn maps: TZ receptor, AD4Zn parameters and their pair terms.
-    ponytail: autogrid runs once per distinct atom-type set; union-per-receptor if it's too slow.
     """
     if zinc and parameter_file is not None:
         raise ValueError("The zinc method brings its own AD4Zn parameter file; leave the parameter file empty.")
-    moving = [ligand_path, *([flex_receptor_path] if flex_receptor_path is not None else [])]
+    ligands = [ligand_path] if isinstance(ligand_path, (str, Path)) else list(ligand_path)
+    moving = [*ligands, *([flex_receptor_path] if flex_receptor_path is not None else [])]
     ligand_types = tuple(sorted({atom_type for path in moving for atom_type in atom_types(path)}))
     key = (
         str(receptor_path),
