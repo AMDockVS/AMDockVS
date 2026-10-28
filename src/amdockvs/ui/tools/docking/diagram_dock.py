@@ -79,7 +79,7 @@ class InteractionDiagramDock(MSDockWidget):
         label = f"{hit.ligand_name} · pose {self._pose_rank}"
         if cached is None:
             self._diagram = None
-            self._ensure_view().show_build_prompt()
+            self._ensure_view().show_build_prompt(f"{label}\nNo interaction diagram has been computed for this pose yet.")
             self.stack.setCurrentWidget(self.view)
             self.status.setText(f"{label} — no diagram yet")
             return
