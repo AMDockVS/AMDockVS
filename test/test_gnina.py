@@ -1,4 +1,3 @@
-import shutil
 import sys
 from pathlib import Path
 
@@ -6,7 +5,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from amdockvs.docking.engines.gnina import GNINA, chunk_gpu_tokens, normalize_cnn_mode, run_gnina_docking_rows
+from amdockvs.docking.engines.gnina import chunk_gpu_tokens, gnina_binary, normalize_cnn_mode, run_gnina_docking_rows
 
 DATA = Path(__file__).resolve().parents[1] / "data" / "docking"
 
@@ -30,7 +29,14 @@ def test_two_protocols_of_a_pair_do_not_share_their_pose_file():
     assert pose_file_stem(pair, {"hash": "a" * 40}) != pose_file_stem(pair, {"hash": "b" * 40})
 
 
-@pytest.mark.skipif(not shutil.which(GNINA) and not Path(GNINA).exists(), reason="gnina binary not installed")
+def _gnina_installed() -> bool:
+    try:
+        return bool(gnina_binary())
+    except RuntimeError:
+        return False
+
+
+@pytest.mark.skipif(not _gnina_installed(), reason="gnina binary not installed")
 def test_gnina_docks_1iep(tmp_path):
     rows = run_gnina_docking_rows(
         {

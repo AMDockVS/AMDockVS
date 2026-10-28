@@ -53,11 +53,13 @@ def load_builtin_docking_engines() -> None:
     from amdockvs.docking.engines.vina import _vina_dock_runner
     from amdockvs.docking.engines.gnina import gnina_dock_runner
     from amdockvs.docking.engines.qvina import qvina_dock_runner
+    from amdockvs.docking.engines.unidock import unidock_dock_runner
 
     register_dock_runner("vina", _vina_dock_runner, replace=True)
     register_dock_runner("adgpu", adgpu_dock_runner, replace=True)
     register_dock_runner("gnina", gnina_dock_runner, replace=True)
     register_dock_runner("qvina", qvina_dock_runner, replace=True)
+    register_dock_runner("unidock", unidock_dock_runner, replace=True)
     _BUILTINS_LOADED = True
 
 

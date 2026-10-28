@@ -68,7 +68,7 @@ class GninaSettings(_VinaFamilySettings):
     path: str = Field(
         "",
         title="Executable",
-        description="Path to the gnina binary; empty uses $AMDOCK_GNINA, then PATH.",
+        description="Path to the gnina binary; empty uses $AMDOCK_GNINA, the managed install, then PATH.",
     )
 
 
@@ -98,6 +98,26 @@ class AutoDockGPUSettings(BaseModel):
         description=(
             "Pairs of a receptor docked by one AutoDock-GPU process. The GPU runs one task at a "
             "time anyway, so a larger task only saves the program start-up and map loading."
+        ),
+    )
+
+
+class UniDockSettings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str = Field(
+        "",
+        title="Executable",
+        description="Path to the Uni-Dock binary; empty uses $AMDOCK_UNIDOCK, the managed install, then PATH.",
+    )
+    batch_size: int = Field(
+        128,
+        ge=1,
+        le=10_000,
+        title="Pairs per task (at least)",
+        description=(
+            "Pairs of a receptor docked by one Uni-Dock process. Uni-Dock docks them in parallel "
+            "on the GPU, so larger tasks use the card better."
         ),
     )
 
@@ -135,6 +155,7 @@ class DockingConfiguration(BaseModel):
     gnina: GninaSettings = GninaSettings()
     qvina: QVinaSettings = QVinaSettings()
     adgpu: AutoDockGPUSettings = AutoDockGPUSettings()
+    unidock: UniDockSettings = UniDockSettings()
 
 
 class PreparationConfiguration(BaseModel):

@@ -72,6 +72,20 @@ class AutoDockGPUEngineConfig(BaseModel):
     method: str = "standard"  # docking/methods.py; picked in Experiment Setup, not in the program form
 
 
+class UniDockEngineConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scoring_function: Literal["vina", "vinardo"] = "vina"
+    search_mode: Literal["fast", "balance", "detail"] = Field(
+        default="fast",
+        title="Search mode",
+        description="Uni-Dock's search presets: fast for screening, balance or detail for fewer, harder ligands.",
+    )
+    num_modes: int = Field(default=9, ge=1, le=128)
+    energy_range: float = Field(default=3.0, ge=0.0, title="Energy range (kcal/mol)")
+    seed: int = 0
+
+
 @dataclass(frozen=True)
 class DockingProgramSpec:
     key: str
@@ -272,11 +286,25 @@ QVINA_PROGRAM = AutoDockLikeProgram(
     protocol_identity_keys=("exhaustiveness",),
 )
 
+# Uni-Dock shares the Vina PDBQT preparation and docks a task's pairs in parallel on the GPU:
+# one GPU token per chunk, like AutoDock-GPU. See docking/engines/unidock.py.
+UNIDOCK_PROGRAM = AutoDockLikeProgram(
+    key="unidock",
+    label="Uni-Dock",
+    workflow_key="vina",
+    preparation_engine="ad4",
+    docking_engine="unidock",
+    config_model=UniDockEngineConfig,
+    protocol_identity_keys=("scoring_function", "search_mode"),
+    resource_resolver=lambda _config: {"cpu_required": 1, "gpu_required": 1},
+)
+
 _PROGRAMS: dict[str, DockingProgramSpec] = {
     VINA_PROGRAM.key: VINA_PROGRAM,
     QVINA_PROGRAM.key: QVINA_PROGRAM,
     GNINA_PROGRAM.key: GNINA_PROGRAM,
     ADGPU_PROGRAM.key: ADGPU_PROGRAM,
+    UNIDOCK_PROGRAM.key: UNIDOCK_PROGRAM,
 }
 
 _PROGRAM_ALIASES: dict[str, str] = {
@@ -291,9 +319,14 @@ def list_docking_programs() -> tuple[DockingProgramSpec, ...]:
 
 def unavailable_programs() -> dict[str, str]:
     """The programs this platform cannot run whatever is installed, each with why."""
+    import sys
+
     from .autogrid import AUTOGRID_UNAVAILABLE
 
-    return {ADGPU_PROGRAM.key: f"AutoDock-GPU is not available: {AUTOGRID_UNAVAILABLE}"} if AUTOGRID_UNAVAILABLE else {}
+    missing = {ADGPU_PROGRAM.key: f"AutoDock-GPU is not available: {AUTOGRID_UNAVAILABLE}"} if AUTOGRID_UNAVAILABLE else {}
+    if not sys.platform.startswith("linux"):  # conda-forge builds it for linux-64 only
+        missing[UNIDOCK_PROGRAM.key] = "Uni-Dock is not available: it runs on Linux with an NVIDIA GPU only."
+    return missing
 
 
 def missing_programs(runtime=None) -> dict[str, str]:
@@ -306,9 +339,11 @@ def missing_programs(runtime=None) -> dict[str, str]:
     from .adgpu import adgpu_command
     from .gnina import gnina_binary
     from .qvina import qvina_command
+    from .unidock import unidock_command
 
     missing = unavailable_programs()
-    for key, find in (("qvina", qvina_command), ("adgpu", adgpu_command), ("gnina", lambda _runtime: gnina_binary())):
+    for key, find in (("qvina", qvina_command), ("adgpu", adgpu_command), ("gnina", gnina_binary),
+                      ("unidock", unidock_command)):
         if key in missing:
             continue
         try:

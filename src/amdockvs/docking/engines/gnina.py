@@ -21,14 +21,16 @@ from __future__ import annotations
 
 import glob
 import os
-import shutil
 from contextlib import suppress
 from pathlib import Path
 
+from ms_env import READY, Recipe, locate
+
 from amdockvs.docking.results.metrics import docking_row, pose_file_stem
 from amdockvs.docking.results.rmsd import pose_rmsd_detail
-from amdockvs.core.paths import get_default_project_root
+from amdockvs.core.paths import get_default_project_root, tools_home
 from amdockvs.core.worker_io import run_program
+from amdockvs.integrations.envs import tool_spec
 
 CNN_MODES = ("rescore", "none", "refinement", "all")
 GPU_BOUND_CNN_MODES = frozenset({"refinement", "all"})
@@ -50,32 +52,28 @@ def chunk_gpu_tokens(engine: str, scoring_function: str) -> dict:
     return {}
 
 
-def gnina_command() -> str:
-    """$AMDOCK_GNINA, then Settings > Docking > gnina path, then PATH.
+def gnina_recipe(runtime=None) -> Recipe:
+    """Where gnina is looked up: $AMDOCK_GNINA, Settings > Docking > gnina, the managed install,
+    then PATH."""
+    from amdockvs.core.configuration import app_config
 
-    Resolved per run, in the worker, so it reads the global config layer (not a project one).
-    """
-    configured = os.environ.get("AMDOCK_GNINA")
-    if not configured:
-        from amdockvs.core.configuration import app_config
-
-        configured = str(app_config().docking.gnina.path or "").strip()
-    return str(Path(configured).expanduser()) if configured else (shutil.which("gnina") or "gnina")
-
-
-GNINA = gnina_command()  # import-time snapshot; call gnina_command() at run time
+    registered = [os.environ.get("AMDOCK_GNINA"), app_config(runtime).docking.gnina.path]
+    return tool_spec("gnina").recipe(
+        str(tools_home(runtime)),
+        extra_paths=[str(Path(path).expanduser().resolve()) for path in registered if str(path or "").strip()],
+    )
 
 
-def gnina_binary() -> str:
-    """The usable executable, or why there is none."""
-    command_name = gnina_command()
-    binary = shutil.which(command_name) or (command_name if Path(command_name).exists() else None)
-    if not binary:
+def gnina_binary(runtime=None) -> str:
+    """The usable executable. Resolved per run, in the worker, so it reads the global config
+    layer (not a project one). Runs the recipe check in a subprocess: keep it off the GUI thread."""
+    state, executable = locate(gnina_recipe(runtime))
+    if state != READY:
         raise RuntimeError(
-            f"gnina binary not found ({command_name!r}). Set it in Settings > Docking > gnina, "
-            "$AMDOCK_GNINA, or put gnina on PATH."
+            "gnina is not installed. Install it from Settings > External tools, or set its path "
+            "in Settings > Docking > gnina or $AMDOCK_GNINA."
         )
-    return binary
+    return executable
 
 
 def _gnina_env(binary: str) -> dict:

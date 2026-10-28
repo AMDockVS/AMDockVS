@@ -50,14 +50,15 @@ Installed by AMDockVS on demand, from **Settings › External tools** or with
 | `p2rank` | Pocket prediction (needs Java: the `pockets` extra) |
 | `qvina` | QuickVina 2 docking |
 | `adgpu` | AutoDock-GPU docking |
+| `autogrid` | AutoDock4 maps: ad4 scoring, AutoDock-GPU, AutoDock4Zn (Linux, macOS) |
+| `gnina` | gnina docking with CNN rescoring (Linux x86_64, NVIDIA GPU) |
+| `unidock` | Uni-Dock GPU-batched docking (Linux, NVIDIA GPU with a CUDA 12.9+ driver) |
 | `openbabel`, `pkasso` | Ligand protonation |
 
 Found on `PATH` (or at the path given in the settings), not installed by AMDockVS:
 
 | Tool | What for | Installation |
 |---|---|---|
-| `autogrid4` | Maps for ad4 scoring and AutoDock-GPU | `conda install -c conda-forge autogrid` |
-| `gnina` | gnina docking (`$AMDOCK_GNINA`, or Settings › Docking) | gnina release binary |
 | `reduce` | `runtime.chemistry.protonate_receptors(method="reduce")` | `conda install -c conda-forge reduce` |
 | `pdb2pqr` | `runtime.chemistry.protonate_receptors(method="pdb2pqr")` | `pip install pdb2pqr` |
 

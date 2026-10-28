@@ -158,7 +158,7 @@ print(runtime.docking.result_stats())
 ```
 
 `program` chooses the engine: `vina` (the default), `qvina` (QuickVina 2),
-`gnina` or `adgpu` (AutoDock-GPU). The options of any engine go in
+`gnina`, `adgpu` (AutoDock-GPU) or `unidock` (Uni-Dock). The options of any engine go in
 `engine_config`, which is validated against that engine's model; for engines
 other than `vina` the keyword arguments `exhaustiveness`, `num_modes` and
 `vina_cpu` are not read.
@@ -178,6 +178,7 @@ job_id = runtime.docking.run(
 | `qvina` | `exhaustiveness`, `num_modes`, `vina_cpu`, `energy_range`, `seed` |
 | `gnina` | `exhaustiveness`, `num_modes`, `vina_cpu`, `scoring_function` (`rescore`, `none`, `refinement`, `all`), `seed` |
 | `adgpu` | `nrun`, `num_modes`, `parameter_file`, `derived_types`, `seed` |
+| `unidock` | `scoring_function` (`vina`, `vinardo`), `search_mode` (`fast`, `balance`, `detail`), `num_modes`, `energy_range`, `seed` |
 
 `runtime.docking.list_programs()` describes them. A pair already docked with
 the same protocol is skipped unless `skip_existing=False`.

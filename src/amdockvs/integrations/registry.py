@@ -18,9 +18,12 @@ from typing import Callable
 from ms_env import READY, Recipe, Step, StepFailed, locate, recipe_steps, remove
 
 from amdockvs.docking.engines.adgpu import adgpu_recipe
+from amdockvs.docking.engines.autogrid import autogrid_recipe
+from amdockvs.docking.engines.gnina import gnina_recipe
 from amdockvs.core.constants import vina_recipe
 from amdockvs.core.paths import tools_home
 from amdockvs.docking.engines.qvina import qvina_recipe
+from amdockvs.docking.engines.unidock import unidock_recipe
 from amdockvs.integrations.envs import (
     managed_prefix,
     protonation_install_steps,
@@ -129,7 +132,7 @@ def _protonation_steps(name: str) -> Callable[[object], list[Step]]:
     return steps
 
 
-# --- Docking binaries installed from a recipe (Vina, QuickVina 2, AutoDock-GPU) ---
+# --- Docking binaries installed from a recipe (Vina, QuickVina 2, AutoDock-GPU, ...) ---
 
 def _recipe_tool(name: str, recipe_for) -> ManagedTool:
     info = tool_spec(name).info
@@ -199,6 +202,9 @@ MANAGED_TOOLS: tuple[ManagedTool, ...] = (
     _recipe_tool("vina", vina_recipe),
     _recipe_tool("qvina", qvina_recipe),
     _recipe_tool("adgpu", adgpu_recipe),
+    _recipe_tool("autogrid", autogrid_recipe),
+    _recipe_tool("gnina", gnina_recipe),
+    _recipe_tool("unidock", unidock_recipe),
     _recipe_tool("ketcher", lambda runtime: tool_spec("ketcher").recipe(str(tools_home(runtime)))),
 )
 
