@@ -5,10 +5,9 @@ readings of the same thing, so they share the right column. The diagram is a liv
 (ms_contactmap's `InteractionDiagramWidget`) -- zoomable, draggable residues, rotate/mirror/
 recompute in its toolbar -- not a rendered image.
 
-The dock follows the ligand>pose selection and only shows a saved diagram document. It never
-builds one: interactions are computed when asked for (the interactions job, the docking chain,
-"Build diagram" in Selected Result or the dock's own Build diagram call to action), never
-because a pose was clicked.
+The dock follows the ligand>pose selection and shows its saved diagram document. A pose without
+one is handed to the widget as two paths, unread, behind its Build diagram button: the widget
+builds it when pressed and the dock saves what it returns. A click never computes anything.
 """
 from __future__ import annotations
 
@@ -34,8 +33,8 @@ class InteractionDiagramDock(MSDockWidget):
     settings_requested = Signal(str)
     #: (hit, residue key, diagram) -- a residue picked in the diagram, for PyMOL to show.
     residue_selected = Signal(object, str, object)
-    #: The selected pose has no diagram and the user pressed Build diagram here.
-    build_requested = Signal()
+    #: result_id -- Build diagram here saved a diagram, so a results page can show its interactions.
+    diagram_built = Signal(int)
 
     def __init__(self, title: str, dock_manager: DockManager, *, runtime, parent: QWidget | None = None):
         super().__init__(title, dock_manager, parent)
@@ -79,7 +78,10 @@ class InteractionDiagramDock(MSDockWidget):
         label = f"{hit.ligand_name} · pose {self._pose_rank}"
         if cached is None:
             self._diagram = None
-            self._ensure_view().show_build_prompt(f"{label}\nNo interaction diagram has been computed for this pose yet.")
+            self._ensure_view().set_complex(
+                hit.receptor_path, hit.output_path, label,
+                message=f"{label}\nNo interaction diagram has been computed for this pose yet.",
+            )
             self.stack.setCurrentWidget(self.view)
             self.status.setText(f"{label} — no diagram yet")
             return
@@ -106,10 +108,20 @@ class InteractionDiagramDock(MSDockWidget):
                 "Defaults…", lambda: self.settings_requested.emit("ms_contactmap")
             )
             self.view.residueSelected.connect(self._on_residue_selected)
-            self.view.buildRequested.connect(self.build_requested)
+            self.view.diagramBuilt.connect(self._on_built)
             self.apply_settings()
             self.stack.addWidget(self.view)
         return self.view
+
+    def _on_built(self, diagram, layout) -> None:
+        # The widget only reports the complex it holds now, which is the selected pose's.
+        from amdockvs.docking.results.diagram import save_pose_diagram
+
+        hit = self._hit
+        save_pose_diagram(hit.output_path, self._pose_rank, diagram, layout)
+        self._diagram = diagram
+        self.status.setText(f"{hit.ligand_name} · pose {self._pose_rank} — {len(diagram.interactions)} interactions")
+        self.diagram_built.emit(int(hit.result_id or 0))
 
     def _on_residue_selected(self, key: str) -> None:
         if key and self._hit is not None and self._diagram is not None:
