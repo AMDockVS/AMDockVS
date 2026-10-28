@@ -14,6 +14,17 @@ def test_a_vina_that_is_not_on_the_machine_that_runs_is_looked_for_again():
     assert _vina_here("binary", "/nowhere/vina") == (vina_backend(), vina_command())
 
 
+def test_docking_and_redocking_isolate_vina_and_unknown_engines():
+    from amdockvs.docking.jobs import DockingJobSpec, RedockingJobSpec
+
+    for job in (DockingJobSpec, RedockingJobSpec):
+        for params in ({}, {"engine": "vina", "vina_backend": "python"},
+                       {"engine": "vina", "vina_backend": "binary"}, {"engine": "custom"}):
+            assert not job.definition.on_thread(params)
+        for engine in ("qvina", "gnina", "adgpu", "unidock"):
+            assert job.definition.on_thread({"engine": engine})
+
+
 def test_a_host_gets_the_env_and_the_tools_under_its_amdockvs_home(monkeypatch):
     asked = {}
     monkeypatch.setattr(hosts, "app_recipe", lambda name, packages, imports, **where: asked.update(where) or "the env")

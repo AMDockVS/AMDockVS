@@ -678,11 +678,15 @@ def pairs_label(payload: dict) -> str:
 
 
 def _waits_for_program(params: dict) -> bool:
-    """Whether the tasks of these params only start a program and wait for it, telling the engine
-    of it: the engines that are programs. The Python bindings of Vina dock in the process itself,
-    and so may an engine registered from outside."""
+    """Use threads only for engines that always run an external program.
+
+    A Vina executable selected on the submitting host may be unavailable on
+    the worker, where Vina can fall back to Python bindings. Those bindings
+    may hold the GIL, so either Vina backend needs a process worker. Unknown
+    registered engines also use processes unless explicitly supported here.
+    """
     engine = str(params.get("engine") or "vina")
-    return engine in {"qvina", "gnina", "adgpu", "unidock"} or (engine == "vina" and str(params.get("vina_backend")) == "binary")
+    return engine in {"qvina", "gnina", "adgpu", "unidock"}
 
 
 def _supersede(params: dict, config: dict) -> None:
