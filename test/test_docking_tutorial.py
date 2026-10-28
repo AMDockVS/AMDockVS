@@ -562,10 +562,11 @@ def test_welcome_tutorial_waits_for_user_project_creation(tmp_path, monkeypatch,
         app.processEvents()
 
 
-def test_close_control_follows_the_tutorial_into_import_dialog(practice):
+def test_close_control_follows_the_tutorial_into_import_dialog(practice, monkeypatch):
     app, _runtime, window, _messages = practice
     tutorial = start_simple_docking_tutorial(window)
     wait_until(app, tutorial.import_buttons["receptor"].isVisible)
+    monkeypatch.setattr(QApplication, "activeWindow", lambda: None)
     tutorial.import_buttons["receptor"].click()
     app.processEvents()
     dialog = tutorial.dialogs["receptor"]
