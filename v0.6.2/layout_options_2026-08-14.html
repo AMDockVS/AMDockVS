@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>AMDockVS · opciones de layout</title>
+<style>
+  :root{
+    --bg:#1e1f22; --panel:#2b2d30; --panel2:#26282b; --line:#393b40;
+    --fg:#dfe1e5; --dim:#9aa0a6; --accent:#3574f0; --ok:#5fa85f; --warn:#d9a441; --bad:#d05c5c;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font:14px/1.55 -apple-system,Segoe UI,Roboto,Ubuntu,sans-serif}
+  header{padding:28px 32px 0;max-width:1180px;margin:0 auto}
+  h1{font-size:22px;margin:0 0 4px;font-weight:600}
+  .sub{color:var(--dim);margin:0 0 22px}
+  main{max-width:1180px;margin:0 auto;padding:0 32px 64px}
+
+  /* ---- selector de opción ---- */
+  nav{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:22px}
+  nav button{background:var(--panel);color:var(--dim);border:1px solid var(--line);
+             border-radius:7px;padding:8px 14px;font:inherit;cursor:pointer}
+  nav button:hover{color:var(--fg)}
+  nav button[aria-selected=true]{background:var(--accent);border-color:var(--accent);color:#fff}
+
+  .lead{margin:0 0 18px;max-width:78ch;color:var(--dim)}
+  .lead b{color:var(--fg);font-weight:600}
+
+  /* ---- maqueta ---- */
+  .app{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--panel2);
+       display:grid;grid-template-columns:auto 1fr auto;grid-template-rows:auto 1fr;
+       min-height:430px;box-shadow:0 10px 30px #0006}
+  .app.notop{grid-template-rows:1fr}   /* opción A: sin barra superior */
+  .topzone{grid-column:1/-1;background:var(--panel);border-bottom:1px solid var(--line)}
+  .bar{display:flex;align-items:center;gap:3px;padding:6px 8px;flex-wrap:wrap}
+  .bar + .bar{border-top:1px solid var(--line)}
+  .rail{background:var(--panel);display:flex;flex-direction:column;gap:3px;padding:8px 6px;
+        border-right:1px solid var(--line);width:130px}
+  .rail.right{border-right:0;border-left:1px solid var(--line);width:126px}
+  .rail hr{border:0;border-top:1px solid var(--line);margin:5px 2px;width:100%}
+
+  .btn{display:flex;align-items:center;gap:6px;background:transparent;border:1px solid transparent;
+       border-radius:6px;padding:5px 8px;color:var(--dim);font-size:12px;white-space:nowrap;cursor:default}
+  .btn .g{width:14px;text-align:center;opacity:.85;flex:none}
+  .btn.on{background:#3574f033;border-color:#3574f0aa;color:var(--fg)}
+  .btn.dup{border-color:var(--bad);color:#e79b9b}
+  .btn.ghost{opacity:.38}
+  .btn.new{border-color:var(--ok);color:#a7d3a7}
+  .sep{width:1px;align-self:stretch;background:var(--line);margin:2px 6px}
+
+  /* pestañas centrales */
+  .tabs{display:flex;align-items:center;gap:2px;padding:6px 8px;background:var(--panel2);
+        border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .ctx{display:flex;align-items:center;gap:9px;padding:7px 11px;background:#3574f01a;
+       border-bottom:1px solid var(--line);font-size:12px;color:var(--fg)}
+  .ctx .tag{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:#7f8790;
+            margin-left:auto}
+  .grouplbl{font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:#6f757c;
+            padding:0 7px 0 3px;align-self:center}
+  .tab{display:flex;align-items:center;gap:7px;padding:6px 11px;border-radius:6px 6px 0 0;
+       font-size:12px;color:var(--dim);border:1px solid transparent;border-bottom:0}
+  .tab.on{background:var(--bg);border-color:var(--line);color:var(--fg)}
+  .tab .x{opacity:.45}
+  .plus{margin-left:4px;border:1px dashed var(--ok);color:#a7d3a7;border-radius:6px;
+        padding:5px 10px;font-size:12px;position:relative}
+
+  .center{grid-column:2;display:flex;flex-direction:column;background:var(--bg);position:relative;min-width:0}
+  .canvas{flex:1;padding:14px;display:flex;gap:12px;min-height:0}
+  .card{flex:1;border:1px solid var(--line);border-radius:8px;background:var(--panel2);
+        padding:9px 11px;font-size:11px;color:var(--dim);min-width:0}
+  .card b{display:block;color:var(--fg);font-size:12px;font-weight:600;margin-bottom:7px}
+  .row{height:8px;background:#ffffff0e;border-radius:3px;margin-bottom:6px}
+  .row:nth-child(3){width:88%} .row:nth-child(4){width:72%} .row:nth-child(5){width:81%}
+
+  /* popup del [+] */
+  .pop{position:absolute;top:42px;left:348px;width:250px;background:var(--panel);
+       border:1px solid var(--line);border-radius:9px;padding:7px;z-index:5;box-shadow:0 14px 34px #000a}
+  .pop .search{background:var(--bg);border:1px solid var(--line);border-radius:6px;
+               padding:6px 9px;font-size:12px;color:var(--dim);margin-bottom:6px}
+  .pop .grp{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:#6f757c;
+            padding:7px 8px 3px}
+  .pop .it{padding:5px 9px;border-radius:5px;font-size:12px;color:var(--dim);
+           display:flex;gap:8px;align-items:center}
+  .pop .it .g{width:14px;text-align:center}
+  .pop .it.dim{opacity:.4}
+  .pop .it .cnt{margin-left:auto;font-size:10px;color:#6f757c}
+
+  /* modos */
+  .modes{display:flex;gap:5px;padding:8px;background:var(--panel);border-bottom:1px solid var(--line)}
+  .mode{padding:7px 18px;border-radius:7px;font-size:12.5px;color:var(--dim);
+        border:1px solid var(--line);background:var(--panel2)}
+  .mode.on{background:var(--accent);border-color:var(--accent);color:#fff}
+
+  /* selector de rol dentro de la vista */
+  .rolebar{display:flex;align-items:center;gap:8px;padding:8px 14px 0;font-size:11.5px;color:var(--dim)}
+  .combo{border:1px solid var(--line);background:var(--panel2);border-radius:5px;padding:3px 9px;
+         color:var(--fg);font-size:11.5px}
+
+  /* ---- tabla ampliada (mecanismo) ---- */
+  .substeps{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 16px}
+  .substeps button{background:var(--panel2);color:var(--dim);border:1px solid var(--line);
+                   border-radius:20px;padding:5px 13px;font:inherit;font-size:12.5px;cursor:pointer}
+  .substeps button[aria-selected=true]{border-color:var(--accent);color:var(--fg);background:#3574f022}
+  .tbl{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--panel2)}
+  .chip{display:flex;align-items:center;gap:8px;padding:7px 12px;font-size:12px;
+        background:#5fa85f1f;border-bottom:1px solid var(--line);color:#cfe6cf}
+  .chip .x{margin-left:auto;opacity:.6}
+  .tbar{display:flex;align-items:center;gap:4px;padding:7px 9px;background:var(--panel);
+        border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .act{border:1px solid var(--line);border-radius:5px;padding:4px 9px;font-size:11.5px;color:var(--dim)}
+  .act.tool{border-color:var(--ok);color:#a7d3a7;background:#5fa85f14}
+  .act.miss{border-style:dashed;border-color:var(--bad);color:#e79b9b}
+  .pills{display:flex;align-items:center;gap:5px;padding:8px 11px;flex-wrap:wrap;
+         border-bottom:1px solid var(--line);font-size:11px;color:var(--dim)}
+  .pill{border:1px solid var(--line);border-radius:12px;padding:2px 9px}
+  .pill.tool{border-color:var(--ok);color:#a7d3a7}
+  .thead,.trow{display:grid;grid-template-columns:24px 2.4fr 1fr 1fr 1fr;gap:10px;
+               padding:7px 12px;font-size:11.5px;align-items:center}
+  .thead{color:#8b9098;border-bottom:1px solid var(--line);background:#ffffff06}
+  .trow{border-bottom:1px solid #ffffff0a;color:var(--dim)}
+  .trow .bar{height:7px;background:#ffffff12;border-radius:3px;padding:0;display:block}
+  .count{padding:8px 12px;font-size:11.5px;color:#7f8790;text-align:right}
+  .emptybox{padding:34px 12px;text-align:center;font-size:12.5px;color:#a7d3a7;
+            border-bottom:1px solid var(--line)}
+  .owner{margin:14px 0 0;font-size:12.5px;color:var(--dim);border-left:3px solid var(--accent);
+         background:var(--panel2);border-radius:0 8px 8px 0;padding:10px 14px}
+  .owner b{color:var(--fg)}
+
+  /* notas */
+  .notes{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:18px}
+  .note{border:1px solid var(--line);border-left-width:3px;border-radius:8px;background:var(--panel2);
+        padding:11px 14px;font-size:13px}
+  .note h4{margin:0 0 6px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+  .note ul{margin:0;padding-left:17px} .note li{margin:3px 0}
+  .note.good{border-left-color:var(--ok)} .note.cost{border-left-color:var(--warn)}
+  .legend{margin-top:14px;font-size:12px;color:var(--dim);display:flex;gap:18px;flex-wrap:wrap}
+  .swatch{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+  code{background:#ffffff10;padding:1px 5px;border-radius:4px;font-size:12px}
+  @media(max-width:820px){.notes{grid-template-columns:1fr}}
+</style>
+
+<header>
+  <h1>AMDockVS · opciones de layout</h1>
+  <p class="sub">Maquetas de las recomendaciones del 2026-08-14. Nada de esto está implementado.</p>
+</header>
+<main>
+  <nav id="nav"></nav>
+  <p class="lead" id="lead"></p>
+  <div id="stage"></div>
+  <div class="notes" id="notes"></div>
+  <div class="legend">
+    <span><i class="swatch" style="background:#d05c5c"></i>duplicado en dos barras</span>
+    <span><i class="swatch" style="background:#5fa85f"></i>nuevo / cambia</span>
+    <span><i class="swatch" style="background:#3574f0"></i>activo</span>
+    <span><i class="swatch" style="background:#ffffff30"></i>sin datos (atenuado)</span>
+    <span><i class="swatch" style="background:transparent;border:1px dashed #d05c5c"></i>lo que hoy no se puede</span>
+  </div>
+</main>
+
+<script>
+const TOOLS = [
+  [["◈","Workflow"],["▤","Details"]],
+  [["⚗","Filter"],["❋","Diversity"],["⚒","Build"],["◎","Pocket Det."],["⌖","Docking Studio",1]],
+];
+const CATALOG = [["◇","Molecules"],["◆","Ligands"],["⬢","Receptors"],["◎","Binding Sites"],["⬡","Complexes"],["≡","Activity"]];
+const RESULTS = [["★","Results"],["⇄","Off-target"],["↻","Redocking"]];
+const QSAR    = [["▦","QSAR Models"],["∿","Predictions"]];
+const CTX     = [["▤","Prep Status"]];
+const VIS     = [["◉","PyMOL",1],["▁","Distribution"],["✦","Glowing mol."],["⌗","2D Interact."]];
+
+const dup = new Set(["Ligands","Receptors","Results"]);
+const btn = ([g,label,on],opt={}) => {
+  const cls = ["btn", on?"on":"", opt.dup&&dup.has(label)?"dup":"", opt.ghost?"ghost":"", opt.new?"new":""];
+  return `<div class="${cls.join(" ").trim()}"><span class="g">${g}</span>${label}</div>`;
+};
+const railHtml = (groups,side="") =>
+  `<div class="rail ${side}">${groups.map(g=>g.map(i=>btn(i)).join("")).join("<hr>")}</div>`;
+
+const canvas = `<div class="canvas">
+  <div class="card"><b>By Receptor</b><div class="row"></div><div class="row"></div><div class="row"></div><div class="row"></div></div>
+  <div class="card"><b>Ligands</b><div class="row"></div><div class="row"></div><div class="row"></div><div class="row"></div></div>
+  <div class="card"><b>Poses</b><div class="row"></div><div class="row"></div><div class="row"></div><div class="row"></div></div>
+</div>`;
+
+const tabs = (list,plus) => `<div class="tabs">${
+  list.map(([t,on])=>`<div class="tab ${on?"on":""}">${t}<span class="x">×</span></div>`).join("")
+}${plus?`<div class="plus">+ &nbsp;Abrir vista…</div>`:""}</div>`;
+
+const popup = `<div class="pop">
+  <div class="search">buscar vista…</div>
+  <div class="grp">Catalog</div>
+  <div class="it"><span class="g">◇</span>Molecules<span class="cnt">1 204</span></div>
+  <div class="it"><span class="g">◎</span>Binding Sites<span class="cnt">6</span></div>
+  <div class="it"><span class="g">≡</span>Activity<span class="cnt">340</span></div>
+  <div class="grp">Docking</div>
+  <div class="it"><span class="g">★</span>Results<span class="cnt">160</span></div>
+  <div class="it"><span class="g">▤</span>Prep Status<span class="cnt">1 204</span></div>
+  <div class="it dim"><span class="g">⇄</span>Off-target<span class="cnt">—</span></div>
+  <div class="it dim"><span class="g">↻</span>Redocking<span class="cnt">—</span></div>
+  <div class="grp">QSAR</div>
+  <div class="it dim"><span class="g">▦</span>QSAR Models<span class="cnt">—</span></div>
+  <div class="it dim"><span class="g">∿</span>Predictions<span class="cnt">—</span></div>
+</div>`;
+
+// pestañas derivadas del contrato de la tool: [[grupo, [[tab, activa]…]]…]
+const tabsOwned = groups => `<div class="tabs">${groups.map(([lbl,items]) =>
+  `<span class="grouplbl">${lbl}</span>` + items.map(([t,on]) =>
+    `<div class="tab ${on?"on":""}">${t}</div>`).join("")).join(`<span class="sep"></span>`)
+}<div class="plus" style="border-color:var(--line);color:var(--dim)">⌂ Browse…</div></div>`;
+
+const OPTIONS = {
+  now: {
+    label:"Hoy",
+    lead:"Cuatro superficies de navegación. <b>Ligands, Receptors y Results aparecen dos veces</b> en pantalla — una en la barra superior, otra en la tab bar. La barra superior lista todo lo registrado, así que crece con cada herramienta nueva.",
+    app: () => `
+      <div class="topzone"><div class="bar">
+        ${CATALOG.map(i=>btn(i,{dup:1})).join("")}<span class="sep"></span>
+        ${RESULTS.map(i=>btn(i,{dup:1})).join("")}<span class="sep"></span>
+        ${QSAR.map(i=>btn(i)).join("")}<span class="sep"></span>
+        ${CTX.map(i=>btn(i)).join("")}
+      </div></div>
+      ${railHtml(TOOLS)}
+      <div class="center">${tabs([["Ligands"],["Receptors"],["Docking Results",1]])}${canvas}</div>
+      ${railHtml([VIS],"right")}`,
+    good:["Todo alcanzable en un clic.","La separación tool / data / visualización es correcta."],
+    cost:["12 botones + 3 separadores en una fila plana.",
+          "Duplicación visible entre barra superior y tab bar.",
+          "Cada herramienta nueva añade botones permanentes.",
+          "<b>Tres patrones distintos de input</b>: Docking pisa la tabla del centro, Pocket incrusta la suya, Diversity no muestra ninguna."],
+  },
+
+  merge: {
+    label:"Paso 0 · fusionar el catálogo",
+    lead:"<code>ligands.py:67</code> y <code>receptors.py:797</code> son <b>la misma tabla</b> (<code>MoleculeRecord</code>) con un <code>default_filter</code> distinto. Se fusionan en <b>Molecules</b> con selector de rol, igual que hiciste con Prep Status: el catálogo pasa de 6 botones a 4.",
+    app: () => `
+      <div class="topzone"><div class="bar">
+        ${btn(["◇","Molecules",1],{new:1})}${btn(["◎","Binding Sites"])}${btn(["⬡","Complexes"])}${btn(["≡","Activity"])}
+        <span class="sep"></span>${RESULTS.map(i=>btn(i)).join("")}<span class="sep"></span>
+        ${QSAR.map(i=>btn(i)).join("")}<span class="sep"></span>${CTX.map(i=>btn(i)).join("")}
+      </div></div>
+      ${railHtml(TOOLS)}
+      <div class="center">${tabs([["Molecules",1],["Docking Results"]])}
+        <div class="rolebar">Role: <span class="combo">Ligands ▾</span><span style="opacity:.55">· All · Ligands · Receptors</span></div>
+        ${canvas}</div>
+      ${railHtml([VIS],"right")}`,
+    good:["−2 botones permanentes, −2 vistas registradas.","Reutiliza <code>set_base_filter</code>, ya existe.","~30 líneas; independiente de qué opción elijas después."],
+    cost:["Un clic extra para llegar a solo-receptores.","Las prefs de columnas por tabla se unifican (una sola clave)."],
+  },
+
+  d: {
+    label:"D · el centro es de la tool ★",
+    notop: 1,
+    lead:"Cada tool <b>declara sus inputs y sus results</b>; el centro se deriva de la tool activa en vez de enumerar todo lo registrado. No es una idea nueva: es tu propia frase «los tabs se sincronizan con los scopes de las tools», pero uniforme. Hoy solo Docking lo hace, y lo hace <b>alcanzando</b> la tabla del centro y restaurándola a mano (<code>docking.py:1977</code> / <code>:2050</code>).",
+    app: () => `
+      ${railHtml(TOOLS)}
+      <div class="center">
+        <div class="ctx"><span>⌖</span><b>Docking Studio</b>
+          <span style="color:var(--dim)">· 1 204 ligands × 4 receptors</span>
+          <span class="tag">el centro sigue a la tool</span></div>
+        ${tabsOwned([["input",[["Ligands",1],["Receptors"]]],
+                     ["results",[["Prep Status"],["Poses"],["Off-target"]]]])}
+        ${canvas}</div>
+      ${railHtml([VIS],"right")}`,
+    good:["El input siempre está en el mismo sitio, para todas las tools (hoy hay 3 patrones distintos).",
+          "Borra el reach-in de docking: <code>_sync/_bind/_release_*_table</code>, ~100 líneas de estado frágil que hay que restaurar a mano.",
+          "Una tool nueva no añade nada permanente: trae sus vistas y se las lleva.",
+          "Las tools que <i>anotan</i> el input (Filter, Diversity) declaran results vacíos — y por fin se explica por qué no tienen tabla propia."],
+    cost:["Hay que definir el contrato (<code>inputs</code> / <code>results</code>) y migrar las 5 tools.",
+          "Pocket Detection pierde su tabla incrustada: pasa al centro (mejor, pero es refactor).",
+          "Sin tool abierta hace falta un modo <b>Browse</b> para el catálogo suelto.",
+          "Comparar dos tools a la vez deja de ser posible — hoy tampoco lo es, las tools son EXCLUSIVE."],
+  },
+
+  mech: {
+    label:"Mecanismo · push_scope",
+    lead:"La misma tabla del centro en cinco momentos. <b>Verde = lo pone la tool</b>; los filtros verdes ya funcionan hoy (<code>set_base_filter</code>), los botones con borde rojo discontinuo son <b>lo único que falta</b>.",
+    steps:[
+      {label:"1 · sin tool",
+       note:"El catálogo es dueño de su tabla: sus filtros por defecto y sus acciones. Nadie más la toca.",
+       t:{pills:`<span class="pill">usage = general</span><span class="pill">excluded = false</span>`,
+          count:"5 000 registros"}},
+      {label:"2 · abro Docking → push_scope",
+       note:"La tool empuja su scope. Los filtros verdes <b>ya funcionan</b> (<code>docking.py:1977</code>) — y de paso pisan los del usuario, que no ve por qué: de ahí el chip de arriba. Los dos botones en rojo <b>no se pueden poner hoy</b>: <code>_add_zone</code> corre una vez al construir la tabla (<code>smart_table_view.py:726</code>).",
+       t:{chip:"⌖ Docking Studio · ligands · sin preparar",
+          tool:`<span class="act miss">⚠ Prepare selected</span><span class="act miss">⚠ Force re-prepare</span>`,
+          scoped:1, col2:["small mol.","small mol."],
+          pills:`<span class="pill tool">type = ligand</span><span class="pill tool">usage = general</span><span class="pill tool">sin preparar</span>`,
+          count:"1 204 de 5 000 registros"}},
+      {label:"3 · todo preparado",
+       note:"<code>set_empty_state</code> — ya existe y docking ya lo usa. El vacío significa «no queda nada que preparar», no «no hay ligandos», así que la acción <i>Import Ligands…</i> del catálogo se oculta. Cuarta cosa que hay que acordarse de deshacer.",
+       t:{chip:"⌖ Docking Studio · ligands · sin preparar",
+          tool:`<span class="act miss">⚠ Prepare selected</span><span class="act miss">⚠ Force re-prepare</span>`,
+          scoped:1, col2:["small mol.","small mol."],
+          pills:`<span class="pill tool">type = ligand</span><span class="pill tool">usage = general</span><span class="pill tool">sin preparar</span>`,
+          empty:"Every ligand in this scope is already prepared",
+          count:"0 de 5 000 registros"}},
+      {label:"4 · cierro Docking → pop_scope",
+       note:"Idéntico al paso 1. Un solo <code>pop_scope(\"docking\")</code> devuelve filtros, clause, empty state y acciones. Hoy son cuatro undos escritos a mano en <code>hideEvent</code> (<code>docking.py:2050</code>) — y si añades un quinto override, hay que acordarse.",
+       t:{pills:`<span class="pill">usage = general</span><span class="pill">excluded = false</span>`,
+          count:"5 000 registros"}},
+      {label:"5 · otra tool, misma tabla",
+       note:"Pocket Detection sobre Receptors: <b>su tabla incrustada desaparece</b>. El perfil de P2Rank por receptor deja de ser una columna editable dentro del panel y pasa a ser una acción sobre la selección — por eso no hacen falta columnas inyectables.",
+       t:{chip:"◎ Pocket Detection · receptores sin sitios definidos",
+          tool:`<span class="act miss">⚠ Aplicar perfil ▾</span>`,
+          head:["Name","Chains","Sites","Profile"],
+          rows:4, scoped:1, col2:["A, B","A"], col3:"0",
+          pills:`<span class="pill tool">is_receptor</span><span class="pill tool">sin sitios</span>`,
+          count:"4 de 4 registros"}},
+    ],
+    good:["Un solo contrato para las 5 tools: la tool pide prestada la tabla, la devuelve entera.",
+          "Lo que falta es <b>un setter</b> en <code>ms_table</code>, no un rediseño.",
+          "El chip hace visible quién manda sobre la tabla — hoy el usuario no lo sabe."],
+    cost:["Toca <code>molsuite_components</code>, no solo amdock.",
+          "Migrar docking a push/pop es reescribir código que ya funciona (a cambio de −80 líneas).",
+          "Con la tabla en el centro, la tool ya no puede asumir que está visible: si el usuario cierra la pestaña, el scope se queda sin dónde mostrarse."],
+  },
+
+  a: {
+    label:"A · tabs + [+]",
+    lead:"<b>La barra superior desaparece.</b> La tab bar es la navegación; un botón <b>[+]</b> abre una lista agrupada y buscable. Lo visible es lo que abriste, no lo que existe: añadir herramientas cuesta cero espacio permanente.",
+    notop: 1,
+    app: () => `
+      ${railHtml(TOOLS)}
+      <div class="center">
+        ${tabs([["Molecules"],["Prep Status"],["Docking Results",1]],true)}${popup}${canvas}</div>
+      ${railHtml([VIS],"right")}`,
+    good:["−12 botones y −1 fila de chrome.","Se acaba la duplicación: un solo sitio muestra qué hay abierto.","Escala infinito (modelo VS Code / navegador).","El popup puede ordenar por datos: lo vacío va abajo y en gris."],
+    cost:["Descubribilidad: hay que abrir el [+] para saber qué existe.","<b>Requiere persistir tabs</b> (<code>saveState/restoreState</code>, punto 8) o arrancas en blanco cada sesión.","Los <code>empty_action</code> de las tablas pasan a ser el otro camino de descubrimiento."],
+  },
+
+  b: {
+    label:"B · barra condicionada por datos",
+    lead:"Mantienes la barra superior, pero un botón <b>solo aparece si hay filas</b>. Proyecto recién creado: 1 botón. Tras el docking: aparece Results. Escala con <b>el proyecto</b>, no con la app.",
+    app: () => `
+      <div class="topzone"><div class="bar">
+        ${btn(["◇","Molecules",1])}${btn(["◎","Binding Sites"])}${btn(["⬡","Complexes"])}
+        <span class="sep"></span>${btn(["★","Results"],{new:1})}${btn(["▤","Prep Status"],{new:1})}
+        <span class="sep"></span>
+        ${btn(["⇄","Off-target"],{ghost:1})}${btn(["↻","Redocking"],{ghost:1})}${btn(["▦","QSAR Models"],{ghost:1})}${btn(["∿","Predictions"],{ghost:1})}
+      </div></div>
+      ${railHtml(TOOLS)}
+      <div class="center">${tabs([["Molecules"],["Docking Results",1]])}${canvas}</div>
+      ${railHtml([VIS],"right")}`,
+    good:["Ataca la saturación sin tocar la navegación.","Proyecto vacío = barra casi vacía; guía al usuario nuevo.","Se combina con A: es el criterio de orden del popup."],
+    cost:["Necesita una query de conteo al abrir proyecto y al terminar jobs.","Botones que aparecen/desaparecen despistan a algunos usuarios.","No elimina la duplicación con la tab bar."],
+  },
+
+  c: {
+    label:"C · modos",
+    lead:"Una fila fija de 4 modos. Cada uno <b>redefine la barra izquierda y las vistas ofrecidas</b>. La taxonomía ya existe en tu dominio y en los workflows preset, así que se deriva en vez de inventarse. Es el cambio grande: <b>solo si A no basta</b>.",
+    app: () => `
+      <div class="topzone">
+        <div class="modes">
+          <div class="mode">Prepare</div><div class="mode on">Screen</div>
+          <div class="mode">Analyze</div><div class="mode">Model</div>
+        </div>
+        <div class="bar">${btn(["◇","Molecules"])}${btn(["▤","Prep Status"])}${btn(["★","Results",1])}</div>
+      </div>
+      ${railHtml([[["◈","Workflow"]],[["◎","Pocket Det."],["⌖","Docking Studio",1]]])}
+      <div class="center">${tabs([["Results",1]])}${canvas}</div>
+      ${railHtml([VIS],"right")}`,
+    good:["Escala mejor que todo lo demás: una herramienta nueva entra en un modo.","Ambas barras quedan cortas por construcción.","Le da casa obvia a cada herramienta futura."],
+    cost:["El usuario debe aprender dónde vive cada cosa.","Cambiar de modo se siente pesado si el trabajo cruza fases.","Es el mayor coste de implementación de los cuatro."],
+  },
+};
+
+// --- tabla ampliada del paso a paso -----------------------------------------
+const trows = (n,t={}) => Array.from({length:n},(_,i)=>
+  `<div class="trow"><span>☐</span><span class="bar" style="width:${62+((i*17)%34)}%"></span>
+   <span>${(t.col2||["small mol.","peptide"])[i%2]}</span><span>${t.col3||"general"}</span>
+   <span>${t.scoped ? "—" : (i%3?"—":"✓")}</span></div>`).join("");
+
+const bigTable = t => `<div class="tbl">
+  ${t.chip?`<div class="chip"><span>${t.chip}</span><span style="opacity:.6">· impuesto por la tool</span><span class="x">×</span></div>`:""}
+  <div class="tbar">
+    <span class="act">⚙ Columns</span><span class="act">⭳ Export</span>
+    <span class="act">Import…</span><span class="act">Create Set…</span>
+    ${t.tool||""}
+    <span style="flex:1"></span><span class="act">↻ Reload</span><span class="act">⚙</span>
+  </div>
+  <div class="pills"><span style="opacity:.65">filtros activos:</span>${t.pills}</div>
+  <div class="thead"><span></span>${(t.head||["Name","Type","Usage","Prepared"])
+      .map(h=>`<span>${h}</span>`).join("")}</div>
+  ${t.empty ? `<div class="emptybox">${t.empty}</div>` : trows(t.rows||6, t)}
+  <div class="count">${t.count}</div>
+</div>`;
+
+const order = ["now","merge","d","mech","a","b","c"];
+const nav = document.getElementById("nav");
+const render = (k,s=0) => {
+  const o = OPTIONS[k];
+  [...nav.children].forEach(b=>b.setAttribute("aria-selected", b.dataset.k===k));
+  document.getElementById("lead").innerHTML = o.lead;
+  document.getElementById("stage").innerHTML = o.steps
+    ? `<div class="substeps">${o.steps.map((st,i)=>
+         `<button data-s="${i}" aria-selected="${i===s}">${st.label}</button>`).join("")}</div>
+       ${bigTable(o.steps[s].t)}
+       <p class="owner">${o.steps[s].note}</p>`
+    : `<div class="app ${o.notop?"notop":""}">${o.app()}</div>`;
+  if (o.steps) document.querySelectorAll(".substeps button")
+    .forEach(b=>b.onclick=()=>render(k, +b.dataset.s));
+  document.getElementById("notes").innerHTML =
+    `<div class="note good"><h4>A favor</h4><ul>${o.good.map(x=>`<li>${x}</li>`).join("")}</ul></div>
+     <div class="note cost"><h4>Coste</h4><ul>${o.cost.map(x=>`<li>${x}</li>`).join("")}</ul></div>`;
+};
+order.forEach(k=>{
+  const b=document.createElement("button"); b.textContent=OPTIONS[k].label; b.dataset.k=k;
+  b.onclick=()=>{location.hash=k; render(k);}; nav.appendChild(b);
+});
+const [h,hs] = location.hash.slice(1).split(".");   // #mech.2 → paso 2
+render(order.includes(h) ? h : "now", +hs || 0);
+</script>

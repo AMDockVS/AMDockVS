@@ -1,0 +1,837 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Virtual screening, molecular preparation, QSAR, and docking with MolSuite.">
+      
+      
+        <meta name="author" content="AMDockVS authors">
+      
+      
+        <link rel="canonical" href="https://amdockvs.github.io/AMDockVS/latest/plan_refactor_encapsulado_2026-10-14/">
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../images/favicon.svg">
+      <meta name="generator" content="zensical-0.0.73">
+    
+    
+      
+        <title>Plan de refactor por encapsulado (2026-10-14) - AMDockVS</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../assets/stylesheets/modern/main.4ab2de0c.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../assets/stylesheets/modern/palette.b60ce83d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-hidden="true"></label>
+    <div data-md-component="skip">
+      <a href="#__skip" class="md-skip">
+        Skip to content
+      </a>
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="./.." title="AMDockVS" class="md-header__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+      <span class="md-visually-hidden">Navigation</span>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AMDockVS
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Plan de refactor por encapsulado (2026-10-14)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+          <span class="md-visually-hidden">Search</span>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="./.." title="AMDockVS" class="md-nav__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    AMDockVS
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../runtime_api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API guide
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../data_and_export/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Data and export
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Examples
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#diagnostico" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Diagnóstico
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#r0-codigo-muerto-en-uitoolsmoleculesfilterpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        R0 — Código muerto en <code>ui/tools/molecules/filter.py</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#r1-ids-de-vistas-en-un-modulo-sin-qt" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        R1 — IDs de vistas en un módulo sin Qt
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#r2-la-importacion-en-un-solo-paquete" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        R2 — La importación en un solo paquete
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#r3-widgets-genericos-a-uicommonwidgetspy" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        R3 — Widgets genéricos a <code>ui/common/widgets.py</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#r4-dockingapipy-una-sola-resolucion-de-argumentos-de-ejecucion" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        R4 — <code>docking/api.py</code>: una sola resolución de argumentos de ejecución
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#r5-qsarapipy-la-ingestion-de-actividades-aparte" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        R5 — <code>qsar/api.py</code>: la ingestión de actividades aparte
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fuera-del-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fuera del plan
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#orden-y-tamano" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Orden y tamaño
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+              
+              <article class="md-content__inner md-typeset">
+                <a id="__skip" tabindex="-1"></a>
+                
+                  
+
+  
+  
+
+
+<h1 id="plan-de-refactor-por-encapsulado-2026-10-14">Plan de refactor por encapsulado (2026-10-14)<a class="headerlink" href="#plan-de-refactor-por-encapsulado-2026-10-14" title="Permanent link">&para;</a></h1>
+<p>Objetivo: que lo que cambia junto viva junto. No se corta por número de líneas: un archivo
+grande con una sola responsabilidad se queda como está.</p>
+<p>Reglas para todas las fases:</p>
+<ul>
+<li>Una fase = una rama + un PR. Ninguna fase cambia comportamiento.</li>
+<li>Commits de "mover" separados de commits de "arreglar". Un <code>git diff -M</code> de una fase de mover
+  debe mostrar sobre todo renombres.</li>
+<li>Sin shims de compatibilidad: se actualizan todos los imports en el mismo PR y se comprueba con
+  <code>grep -rn "&lt;nombre viejo&gt;" src test</code> → vacío.</li>
+<li>Guardia: suite completa (<code>pytest test</code>) + abrir cada vista tocada en offscreen.</li>
+</ul>
+<h2 id="diagnostico">Diagnóstico<a class="headerlink" href="#diagnostico" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Archivo</th>
+<th>LOC</th>
+<th>Commits desde 2026-07</th>
+<th>¿Problema real?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>docking/api.py</code></td>
+<td>1494</td>
+<td>10</td>
+<td>Sí: <code>run</code>, <code>redock</code> y <code>run_shards</code> repiten ~55 % de sus líneas</td>
+</tr>
+<tr>
+<td><code>qsar/api.py</code></td>
+<td>1475</td>
+<td>8</td>
+<td>Sí: ingestión de actividades (se usa al importar) mezclada con modelado</td>
+</tr>
+<tr>
+<td><code>ui/catalog/receptors.py</code></td>
+<td>1060</td>
+<td>8</td>
+<td>Sí: catálogo + panel de importación + widgets genéricos</td>
+</tr>
+<tr>
+<td><code>ui/tools/molecules/filter.py</code></td>
+<td>898</td>
+<td>—</td>
+<td>Sí: formularios de importación + código muerto dentro de "filtro"</td>
+</tr>
+<tr>
+<td><code>ui/tools/import_workspace.py</code></td>
+<td>616</td>
+<td>—</td>
+<td>Asimetría: ligandos aquí, receptores en el catálogo</td>
+</tr>
+<tr>
+<td>IDs de vistas</td>
+<td>—</td>
+<td>—</td>
+<td>Duplicados y acoplados a módulos Qt</td>
+</tr>
+<tr>
+<td><code>runtime.py</code></td>
+<td>679</td>
+<td>19</td>
+<td>No: es el punto central; métodos cortos (solo <code>submit_job</code> &gt; 40 líneas)</td>
+</tr>
+<tr>
+<td><code>ui/main_window.py</code></td>
+<td>616</td>
+<td>17</td>
+<td>No: punto central; cambia por ser el punto de registro</td>
+</tr>
+<tr>
+<td><code>docking/jobs.py</code></td>
+<td>806</td>
+<td>16</td>
+<td>No por ahora: docking + redocking, mismo tema</td>
+</tr>
+<tr>
+<td><code>run_panel.py</code>, <code>box.py</code>, <code>catalog/results.py</code></td>
+<td>950–1070</td>
+<td>—</td>
+<td>No: un widget cada uno; partir solo cuando se toque</td>
+</tr>
+<tr>
+<td><code>io/receptor_preview.py</code>, <code>engines/vina.py</code>, <code>diversity/clustering.py</code></td>
+<td>700–970</td>
+<td>—</td>
+<td>No: un solo tema, núcleo puro</td>
+</tr>
+</tbody>
+</table>
+<h2 id="r0-codigo-muerto-en-uitoolsmoleculesfilterpy">R0 — Código muerto en <code>ui/tools/molecules/filter.py</code><a class="headerlink" href="#r0-codigo-muerto-en-uitoolsmoleculesfilterpy" title="Permanent link">&para;</a></h2>
+<p>Solo se referencian entre ellos mismos, nadie desde fuera ni en <code>test/</code>:</p>
+<ul>
+<li><code>prompt_small_molecule_import_prefilter</code></li>
+<li><code>SmallMoleculeImportPrefilterDialog</code></li>
+<li><code>SmallMoleculeImportPrefilterForm</code></li>
+<li><code>ImportQSARFilterForm</code> (solo lo usa el formulario anterior)</li>
+</ul>
+<p>Se borran. Es la fase más barata y deja más limpio el terreno para R2.</p>
+<h2 id="r1-ids-de-vistas-en-un-modulo-sin-qt">R1 — IDs de vistas en un módulo sin Qt<a class="headerlink" href="#r1-ids-de-vistas-en-un-modulo-sin-qt" title="Permanent link">&para;</a></h2>
+<p>Nuevo <code>src/amdockvs/ui/view_ids.py</code>, solo constantes <code>str</code>, sin imports.</p>
+<p>Arregla:</p>
+<ul>
+<li><code>PREP_STATUS_VIEW_ID</code> definido en <code>ui/tools/docking/studio.py:18</code> y en <code>preparation_panel.py:36</code>.</li>
+<li><code>DOCKING_VIEW_ID</code> en <code>studio.py:17</code> y en <code>workflows/steps.py:22</code> ("kept in sync").</li>
+<li><code>"workspace.complexes"</code> con dos nombres: <code>RESULTS_PIVOT_VIEW_ID</code> (<code>results_pivot.py:32</code>) y
+  <code>COMPLEXES_VIEW_ID</code> (<code>catalog/domain_views.py:6</code>). Decidir: un nombre, o un alias explícito.</li>
+<li>Las tools importan el módulo Qt entero de <code>ui/catalog/receptors.py</code> solo para leer
+  <code>RECEPTOR_VIEW_ID</code> (<code>studio.py</code>, <code>preparation_panel.py</code>, <code>binding_sites/detection.py</code>).</li>
+</ul>
+<p>Los ~20 <code>*_VIEW_ID</code> pasan todos a <code>view_ids.py</code>; cada módulo los importa de ahí.</p>
+<h2 id="r2-la-importacion-en-un-solo-paquete">R2 — La importación en un solo paquete<a class="headerlink" href="#r2-la-importacion-en-un-solo-paquete" title="Permanent link">&para;</a></h2>
+<p>Hoy: <code>LigandImportDialog</code> en <code>ui/tools/import_workspace.py</code>, <code>ReceptorImportPanel</code> en
+<code>ui/catalog/receptors.py</code>, y los formularios de importación de ligandos en
+<code>ui/tools/molecules/filter.py</code>. Se usan juntos (pestaña Import) y nunca con el catálogo.</p>
+<p>Destino <code>src/amdockvs/ui/tools/importing/</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Archivo</th>
+<th>Contenido</th>
+<th>Viene de</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>__init__.py</code></td>
+<td><code>open_import_view</code></td>
+<td><code>import_workspace.py</code></td>
+</tr>
+<tr>
+<td><code>workspace.py</code></td>
+<td><code>FileDropTable</code>, <code>_land_on_view</code>, <code>_nudge_monitor</code>, <code>open_import_view</code></td>
+<td><code>import_workspace.py</code></td>
+</tr>
+<tr>
+<td><code>ligands.py</code></td>
+<td><code>LigandImportDialog</code></td>
+<td><code>import_workspace.py</code></td>
+</tr>
+<tr>
+<td><code>ligand_forms.py</code></td>
+<td><code>ImportFilterCriteriaForm</code>, <code>ImportPrepareForm</code>, <code>ImportActivityForm</code>, <code>_sniff_activity_columns</code>, <code>finalize_import_prefilter_policy</code></td>
+<td><code>molecules/filter.py</code></td>
+</tr>
+<tr>
+<td><code>receptors.py</code></td>
+<td><code>ReceptorImportPanel</code>, <code>ReceptorImportDialog</code>, <code>_ReceptorScanWorker</code>, <code>_as_ref_tuple</code></td>
+<td><code>catalog/receptors.py</code>, <code>import_workspace.py</code></td>
+</tr>
+</tbody>
+</table>
+<p>Imports a actualizar: <code>ui/catalog/{ligands,molecules,receptors}.py</code> (<code>open_import_view</code>),
+<code>ui/tools/workflow_panel.py:637,700</code>, <code>test/test_project_mode.py</code> (4 sitios).</p>
+<p>Resultado: <code>ui/catalog/receptors.py</code> ≈ 200 líneas (<code>ReceptorWidget</code>, <code>_receptor_table_config</code>,
+<code>register_receptors_workspace</code>, <code>import_receptors_from_file</code>, <code>_create_receptor_set</code>);
+<code>molecules/filter.py</code> ≈ 600, solo filtro.</p>
+<h2 id="r3-widgets-genericos-a-uicommonwidgetspy">R3 — Widgets genéricos a <code>ui/common/widgets.py</code><a class="headerlink" href="#r3-widgets-genericos-a-uicommonwidgetspy" title="Permanent link">&para;</a></h2>
+<p><code>_FlowLayout</code>, <code>_WrapCombo</code> y <code>_ChipsSelect</code> (hoy <code>ui/catalog/receptors.py:92-288</code>) no tienen
+nada de receptores. Pasan a <code>ui/common/widgets.py</code> como públicos (<code>FlowLayout</code>, <code>WrapCombo</code>,
+<code>ChipsSelect</code>). Se hace en el mismo PR que R2 (es el mismo archivo el que se vacía).</p>
+<p>Subirlos a <code>molsuite_components</code>: solo cuando un segundo paquete los necesite.</p>
+<h2 id="r4-dockingapipy-una-sola-resolucion-de-argumentos-de-ejecucion">R4 — <code>docking/api.py</code>: una sola resolución de argumentos de ejecución<a class="headerlink" href="#r4-dockingapipy-una-sola-resolucion-de-argumentos-de-ejecucion" title="Permanent link">&para;</a></h2>
+<p>No es mover: es quitar duplicación. Medido: <code>redock</code> comparte 58/103 líneas no triviales con
+<code>run</code>; <code>run_shards</code> 53/85. Lo repetido: validar <code>engine_config</code>, scopes → filtros por programa,
+validación del box, <code>batch_size</code>, conjuntos de moléculas, directorio de salida, <code>run_id</code>.</p>
+<p>Propuesta: un método privado (o una función en <code>docking/submission.py</code>) que devuelva un
+dataclass con todo eso resuelto; <code>run</code>, <code>redock</code> y <code>run_shards</code> solo añaden lo suyo
+(conteo de pares, parámetros del job). El resto de <code>DockingAPI</code> (consultas de resultados,
+grid, residuos) ya son delegaciones de una línea a <code>results/repository.py</code>, <code>readiness.py</code>,
+<code>residues.py</code>: se queda.</p>
+<p>Guardia extra: los tests de docking/redocking/shards existentes + comparar los
+<code>DockingJobParams</code> que salen antes y después para las mismas entradas.</p>
+<h2 id="r5-qsarapipy-la-ingestion-de-actividades-aparte">R5 — <code>qsar/api.py</code>: la ingestión de actividades aparte<a class="headerlink" href="#r5-qsarapipy-la-ingestion-de-actividades-aparte" title="Permanent link">&para;</a></h2>
+<p>Las actividades se escriben al importar (o desde el editor), los modelos se entrenan mucho
+después. Hoy están en la misma clase.</p>
+<p>A <code>src/amdockvs/qsar/activities.py</code> (funciones que reciben la sesión/proyecto):
+<code>_to_pchem</code>, <code>_UNIT_TO_MOLAR</code>, <code>_structural_keys_from_*</code>, el cuerpo de <code>load_activities</code> (134
+líneas), <code>_import_missing_molecules</code> (74), <code>load_activity_matrix</code>. <code>QSARAPI</code> conserva los
+métodos públicos (<code>set_activity</code>, <code>load_activities</code>, …) como llamadas cortas a ese módulo; la API
+pública no cambia.</p>
+<p>A revisar en la misma fase (no mover a ciegas): <code>_structural_keys_from_file</code> existe para
+moléculas importadas antes de las columnas <code>inchikey</code>/<code>canonical_smiles</code>. La migración de
+<code>runtime.py</code> añade las columnas pero no las rellena. O se rellena una vez en la migración y se
+borra el fallback, o se deja.</p>
+<h2 id="fuera-del-plan">Fuera del plan<a class="headerlink" href="#fuera-del-plan" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>runtime.py</code>, <code>ui/main_window.py</code>: muchos commits porque son el punto de registro, no por
+  mezclar temas. Partirlos reparte cada cambio entre más archivos.</li>
+<li><code>docking/jobs.py</code>: docking y redocking juntos es coherente. Revisar solo si R4 deja
+  el redocking claramente aparte.</li>
+<li>Widgets grandes de un solo tema (<code>run_panel.py</code>, <code>binding_sites/box.py</code>,
+  <code>catalog/results.py</code>): se parten cuando haya un cambio que lo pida, no antes.</li>
+</ul>
+<h2 id="orden-y-tamano">Orden y tamaño<a class="headerlink" href="#orden-y-tamano" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Fase</th>
+<th>Riesgo</th>
+<th>Tamaño aprox.</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>R0 código muerto</td>
+<td>Muy bajo</td>
+<td>−80 líneas aprox.</td>
+</tr>
+<tr>
+<td>R1 view_ids</td>
+<td>Bajo</td>
+<td>~20 archivos, 1-2 líneas cada uno</td>
+</tr>
+<tr>
+<td>R2 + R3 importación + widgets</td>
+<td>Bajo (solo mover)</td>
+<td>~1500 líneas movidas, 10 imports</td>
+</tr>
+<tr>
+<td>R4 docking run/redock/shards</td>
+<td>Medio (toca lógica)</td>
+<td>−150 líneas aprox.</td>
+</tr>
+<tr>
+<td>R5 actividades QSAR</td>
+<td>Bajo-medio</td>
+<td>~400 líneas movidas</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 AMDockVS authors
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["content.code.copy","navigation.footer","navigation.path","navigation.sections","navigation.top","search.highlight","search.suggest"],"redirect":null,"search":"../assets/javascripts/workers/search.c47bb847.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"provider":"mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.77dd0ce9.min.js"></script>
+      
+    
+  </body>
+</html>
