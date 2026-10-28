@@ -321,11 +321,12 @@ class DockingAPI:
         return get_docking_program(program)
 
     def _pairs_per_task(self, program_spec: DockingProgramSpec, batch_size: int | None) -> int:
-        """Pairs per docking task. AutoDock-GPU docks a task's pairs in one process (see its
-        engine), so its tasks never go below `docking.adgpu.batch_size`."""
+        """Pairs per docking task. AutoDock-GPU and Uni-Dock dock a task's pairs in one process
+        (see their engines), so their tasks never go below `docking.<engine>.batch_size`."""
         config = app_config(self.runtime).docking
         pairs = max(1, int(batch_size or config.batch_size))
-        return max(pairs, config.adgpu.batch_size) if program_spec.docking_engine == "adgpu" else pairs
+        floor = getattr(getattr(config, program_spec.docking_engine, None), "batch_size", 0)
+        return max(pairs, int(floor or 0))
 
     @staticmethod
     def _entity_filters_for_workflow(

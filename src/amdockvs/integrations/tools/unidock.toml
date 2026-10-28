@@ -1,0 +1,17 @@
+# Installed and looked up by ms_env (format documented there).
+[tool]
+name = "unidock"
+label = "Uni-Dock"
+purpose = "GPU-batched Vina/Vinardo/AD4 docking: one process docks many ligands on an NVIDIA GPU."
+footprint = "~1 GB (isolated conda environment with the CUDA runtime; NVIDIA driver for CUDA 12.9+)"
+version = "1.2.0"
+prefix = "{tools_home}/docking/{name}/{version}"
+
+[locate]
+paths = ["{bin}/unidock"]
+commands = ["unidock"]
+check = ["{exe}", "--version"]
+
+# conda-forge builds it for linux-64 only (CUDA).
+[env]
+conda = ["unidock={version}"]

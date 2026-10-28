@@ -65,7 +65,7 @@ The runtime groups operations by domain:
 | `runtime.complexes` | Explicit receptor-ligand relationships |
 | `runtime.qsar` | Activities, descriptors, models, and predictions |
 | `runtime.binding_sites` | Manual sites and P2Rank predictions |
-| `runtime.docking` | Preparation, grids, docking with Vina, QuickVina 2, gnina or AutoDock-GPU, and results |
+| `runtime.docking` | Preparation, grids, docking with Vina, QuickVina 2, gnina, AutoDock-GPU or Uni-Dock, and results |
 | `runtime.diversity` | Clustering and representative selection |
 | `runtime.tools` | External tools: status, install, repair |
 

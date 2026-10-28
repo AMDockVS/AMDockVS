@@ -1,0 +1,17 @@
+# Installed and looked up by ms_env (format documented there).
+[tool]
+name = "autogrid"
+label = "AutoGrid 4"
+purpose = "AutoDock4 maps: AutoDock-GPU, Vina's ad4 scoring and the AutoDock4Zn method need them."
+footprint = "~10 MB (isolated conda environment)"
+version = "4.2.9"
+prefix = "{tools_home}/docking/{name}/{version}"
+
+[locate]
+paths = ["{bin}/autogrid4"]
+commands = ["autogrid4"]
+check = ["{exe}", "--version"]
+
+# conda-forge builds it for Linux and macOS; there is no Windows build.
+[env]
+conda = ["autogrid={version}"]

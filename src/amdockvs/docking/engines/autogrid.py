@@ -12,7 +12,11 @@ import shutil
 import sys
 from pathlib import Path
 
+from ms_env import READY, Recipe, locate
+
+from amdockvs.core.paths import tools_home
 from amdockvs.core.worker_io import run_program
+from amdockvs.integrations.envs import tool_spec
 
 # $OVERRIDE, else PATH (e.g. `conda install -c conda-forge autogrid`), else the bare name so
 # the missing-binary error names the tool instead of a machine-specific path.
@@ -37,6 +41,24 @@ ZINC_PAIR_TERMS = (
     "nbp_r_eps 2.0 0.0060 12 6 NA Zn",
     "nbp_r_eps 2.0 0.2966 12 6 N Zn",
 )
+
+
+def autogrid_recipe(runtime=None) -> Recipe:
+    return tool_spec("autogrid").recipe(str(tools_home(runtime)))
+
+
+def autogrid_command(runtime=None) -> str:
+    """AUTOGRID4 ($AMDOCK_AUTOGRID4 or PATH), else the copy installed from Settings > External
+    tools. The managed lookup runs the recipe check in a subprocess: keep it off the GUI thread."""
+    if Path(AUTOGRID4).exists() or shutil.which(str(AUTOGRID4)):
+        return AUTOGRID4
+    state, executable = locate(autogrid_recipe(runtime))
+    if state != READY:
+        raise RuntimeError(
+            "The AutoDock4 force field needs autogrid4 but it was not found. Install AutoGrid 4 "
+            "from Settings > External tools, or set $AMDOCK_AUTOGRID4."
+        )
+    return executable
 
 
 def atom_types(pdbqt: Path) -> list[str]:
@@ -64,6 +86,7 @@ def autogrid(
     work: Path,
     parameter_file: Path | None = None,
     pair_terms: tuple[str, ...] = (),
+    executable: str | None = None,
 ) -> Path:
     """Write GPF, run autogrid4, return the .maps.fld path."""
     stem = receptor_pdbqt.stem
@@ -99,7 +122,7 @@ def autogrid(
         ),
         encoding="utf-8",
     )
-    command = [AUTOGRID4, "-p", gpf.name, "-l", f"{stem}.glg"]
+    command = [executable or autogrid_command(), "-p", gpf.name, "-l", f"{stem}.glg"]
     proc = run_program(command, cwd=str(work))
     if proc.returncode != 0:
         raise RuntimeError(f"autogrid4 failed ({proc.returncode}): {(proc.stderr or proc.stdout).strip()[:500]}")
@@ -157,21 +180,17 @@ def map_prefix(
     cached = cache.get(key)
     if cached is not None:
         return cached
-    if not (Path(AUTOGRID4).exists() or shutil.which(str(AUTOGRID4))):
-        raise RuntimeError(
-            f"The AutoDock4 force field needs autogrid4 but it was not found ({AUTOGRID4!r}). "
-            "Set $AMDOCK_AUTOGRID4 or run `conda install -c conda-forge autogrid`."
-        )
+    executable = autogrid_command()  # before any directory is made
     work = Path(maps_dir) / f"{receptor_path.stem}_{hashlib.md5(repr(key).encode()).hexdigest()[:8]}"
     work.mkdir(parents=True, exist_ok=True)
     receptor = zinc_receptor(receptor_path, work) if zinc else receptor_path
     autogrid(
         receptor, list(ligand_types), list(box_center), list(box_size), float(spacing), work,
-        ZINC_PARAMETERS if zinc else parameter_file, ZINC_PAIR_TERMS if zinc else (),
+        ZINC_PARAMETERS if zinc else parameter_file, ZINC_PAIR_TERMS if zinc else (), executable,
     )
     prefix = str(work / receptor.stem)
     cache[key] = prefix
     return prefix
 
 
-__all__ = ["AUTOGRID4", "atom_types", "autogrid", "map_prefix", "zinc_receptor"]
+__all__ = ["AUTOGRID4", "atom_types", "autogrid", "autogrid_command", "autogrid_recipe", "map_prefix", "zinc_receptor"]

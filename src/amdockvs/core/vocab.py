@@ -178,7 +178,7 @@ CODES: dict[str, dict[str, int]] = {
         400, "smiles_canonical", "smiles_isomeric", "inchi", "inchikey", "sequence_aa", "sequence_nt", "helm"
     ),
     "binding_site_source": _domain(500, "manual", "ligand", "fpocket", "p2rank", "pdb", "metal"),
-    "engine": _domain(600, "vina", "qvina", "gnina", "adgpu"),
+    "engine": _domain(600, "vina", "qvina", "gnina", "adgpu", "unidock"),
     "run_kind": _domain(700, "docking", "screening", "redocking"),
     "score_type": _domain(800, "vina_score", "ad4_score", "gnina_score"),
     "activity_kind": _domain(900, "continuous", "categorical"),

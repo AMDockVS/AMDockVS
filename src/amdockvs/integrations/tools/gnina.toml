@@ -1,0 +1,40 @@
+# Installed and looked up by ms_env (format documented there).
+[tool]
+name = "gnina"
+label = "gnina"
+purpose = "Vina-style docking with CNN rescoring of the poses on an NVIDIA GPU."
+footprint = "~4 GB (a 2 GB binary + the CUDA 12 and cuDNN 9 libraries; NVIDIA driver for CUDA 12.8+)"
+version = "1.3.3"
+prefix = "{tools_home}/docking/{name}/{version}"
+
+[locate]
+paths = ["{bin}/gnina"]
+commands = ["gnina"]
+check = ["{exe}", "--version"]
+
+# gnina is not on conda-forge. Its release binary is not static: it loads cuDNN 9 and the
+# CUDA 12 libraries, which the conda environment brings; patchelf points the binary at them
+# ({prefix}/lib), so it runs without LD_LIBRARY_PATH. Linux x86_64 is the only build released.
+[env]
+conda = [
+    "cuda-version>=12.8,<13",
+    "cuda-cudart",
+    "libcublas",
+    "libcufft",
+    "libcusolver",
+    "libcusparse",
+    "libnvjitlink",
+    "cudnn>=9,<10",
+    "patchelf",
+]
+
+[[install]]
+name = "download gnina 1.3.3"
+to = "{bin}/gnina"
+timeout = 3600
+download.linux-64 = { url = "https://github.com/gnina/gnina/releases/download/v1.3.3/gnina.cuda12.8.static", sha256 = "3340c1f49cd3c7c84d8699182a1c6af13c7fa2a22448d1204640446106f72172" }
+
+[[install]]
+name = "point gnina at the environment's CUDA libraries"
+argv = ["{bin}/patchelf", "--set-rpath", "$ORIGIN/../lib", "{bin}/gnina"]
+timeout = 300

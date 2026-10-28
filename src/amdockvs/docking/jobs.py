@@ -682,7 +682,7 @@ def _waits_for_program(params: dict) -> bool:
     of it: the engines that are programs. The Python bindings of Vina dock in the process itself,
     and so may an engine registered from outside."""
     engine = str(params.get("engine") or "vina")
-    return engine in {"qvina", "gnina", "adgpu"} or (engine == "vina" and str(params.get("vina_backend")) == "binary")
+    return engine in {"qvina", "gnina", "adgpu", "unidock"} or (engine == "vina" and str(params.get("vina_backend")) == "binary")
 
 
 def _supersede(params: dict, config: dict) -> None:

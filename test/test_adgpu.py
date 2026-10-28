@@ -17,7 +17,7 @@ ATOM = "ATOM      1  X   LIG A   1       0.000   0.000   0.000  1.00  0.00     0
 
 def _installed() -> bool:
     try:
-        return bool(adgpu.adgpu_command()) and bool(autogrid.shutil.which(autogrid.AUTOGRID4))
+        return bool(adgpu.adgpu_command()) and bool(autogrid.autogrid_command())
     except RuntimeError:
         return False
 
