@@ -584,6 +584,8 @@ def test_amdock_ui_can_create_ligand_set_from_table_selection(tmp_path, monkeypa
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
 def test_tool_buttons_are_flat_and_keep_result_views_available(tmp_path, monkeypatch):
     """Left bar = one checkable button per tool; result views remain available after close."""
+    from ms_components.ms_dockwidget.widget import Region
+
     _patch_fake_home(monkeypatch, tmp_path)
 
     app = QApplication.instance() or QApplication(["amdockvs-ui"])
@@ -601,6 +603,16 @@ def test_tool_buttons_are_flat_and_keep_result_views_available(tmp_path, monkeyp
         assert tool_ids == set(window.tools.action_buttons)
         assert not any(b.menu() for b in window.tools.action_buttons.values())  # no popups
         assert not window.dock_manager.buttons["tools"].isVisible()  # redundant button gone
+        # The auxiliary-zone toggle sits on the left bar too, after the tools, and drives it.
+        assert window.aux.action is window.dock_manager.action_buttons["aux_panel"]["button"]
+        bottom = window.dock_manager.left_toolbar.layout_for_region(Region.BOTTOM_LEFT)
+        widgets = [bottom.itemAt(i).widget() for i in range(bottom.count())]
+        line = window.dock_manager.action_separators["aux_panel_line"]["button"]
+        assert widgets.index(line) == widgets.index(window.aux.action) - 1  # a line after the tools
+        window.aux.action.setChecked(True)
+        assert window.central_widget.aux_widget.isVisible()
+        window.aux.action.setChecked(False)
+        assert not window.central_widget.aux_widget.isVisible()
 
         # Result views outlive the tool that produced them: reachable with every tool closed.
         standing = {v for group in STANDING_DATA_VIEWS for _l, v, _i in group}

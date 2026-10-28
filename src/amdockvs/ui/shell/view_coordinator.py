@@ -17,6 +17,7 @@ from amdockvs.ui.registry import (
     PREVIEW_VIEW_IDS,
     STANDING_DATA_VIEWS,
     TOOL_VIEW_IDS,
+    TOOLS,
 )
 from amdockvs.ui.resources.icons import icon as load_icon
 from ms_components.ms_dockwidget.widget import Region
@@ -78,8 +79,8 @@ class ViewCoordinator:
         whether the view's central tab is open (synced both ways); clicking the current
         view closes it, any other click opens/focuses it. The pressed state is the cue.
 
-        Sections: catalog tables | standing result views | contextual views | auxiliary-panel
-        toggle. Groups sit apart behind a wide gap; the plain `|` is for the bar's chrome."""
+        Sections: catalog tables | standing result views | contextual views. Groups sit apart
+        behind a wide gap; the plain `|` is for the bar's chrome."""
         from PySide6.QtWidgets import QToolBar
 
         self.catalog_actions = {}  # view_id -> checkable QAction
@@ -106,17 +107,26 @@ class ViewCoordinator:
         self.contextual_chrome = (*gap, bar.addSeparator())
         for view_id in EPHEMERAL_VIEW_IDS:  # only there while its tab is
             self.catalog_actions[view_id].setVisible(self.catalog_actions[view_id].isChecked())
-        # The auxiliary-zone toggle is not a table: it floats right, past a stretch, so the
-        # catalog actions never push it around.
+        # The auxiliary-zone toggle sits on the left bar, after the last tool: the panel is
+        # where the tools put their output. Neutral label on purpose: the toggle owns the band,
+        # not what lands in it. The button belongs to the auxiliary zone; the bar only hosts it.
+        last_tool = max(tool.order for tool in TOOLS)
+        self.w.dock_manager.add_action_separator("aux_panel_line", region=Region.BOTTOM_LEFT, order=last_tool + 1)
+        self.w.aux.install_action(self.w.dock_manager.add_action_button(
+            "aux_panel",
+            region=Region.BOTTOM_LEFT,
+            order=last_tool + 2,
+            title="Panel",
+            icon=load_icon("details.svg"),
+            checkable=True,
+            on_click=self.w.aux.on_toggled,
+        ))
+        # Jobs and Executors float right, past a stretch, so the catalog actions never push
+        # them around. Jobs opens a window, not a region: the tools show their own progress,
+        # so the full monitor is on demand. Disabled with no project like the rest of the bar.
         spacer = QWidget(bar)
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         bar.addWidget(spacer)
-        # Neutral label on purpose: the toggle owns the band, not what lands in it.
-        # The action itself belongs to the auxiliary zone; the bar only hosts it.
-        self.w.aux.install_action(bar.addAction(load_icon("details.svg"), "Panel"))
-        # Jobs opens a window, not a region: the tools show their own progress, so the full
-        # monitor is on demand. Disabled with no project like the rest of the bar.
-        bar.addSeparator()
         self.jobs_action = bar.addAction(load_icon("cpu.svg"), "Jobs")
         self.jobs_action.setToolTip("Open the Jobs monitor.")
         self.jobs_action.triggered.connect(self.w.open_jobs_monitor)
