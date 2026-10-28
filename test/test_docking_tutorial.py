@@ -17,7 +17,7 @@ from PySide6.QtWidgets import QApplication, QDialog, QDockWidget, QFileDialog, Q
 from amdockvs.ui.docking_tutorial import copy_example_inputs, example_data, start_simple_docking_tutorial
 from amdockvs.ui.main_window import AMDockVSMainWindow
 from amdockvs.ui.shell.tutorials_panel import TutorialsPanel
-from amdockvs.ui.view_ids import DOCKING_VIEW_ID
+from amdockvs.ui.view_ids import COMPLEXES_VIEW_ID, DOCKING_VIEW_ID, LIGANDS_VIEW_ID, RECEPTOR_VIEW_ID, SHARDS_VIEW_ID
 
 
 def create_practice_project(runtime, parent):
@@ -191,6 +191,68 @@ def test_tutorials_panel_is_hidden_in_project_workspace(practice):
     assert not second.tutorials_panel.isVisible()
     assert not second.tutorials_panel_action.isEnabled()
     second.close()
+    app.processEvents()
+
+
+def test_existing_project_opens_tabs_for_its_shards_and_results(practice):
+    from amdockvs.models import DockingResultRecord, DockingRun, MoleculeRecord, ScreeningShard
+
+    app, runtime, window, _messages = practice
+    assert window.central_widget.open_view(RECEPTOR_VIEW_ID) is not None
+    assert window.central_widget.open_view(LIGANDS_VIEW_ID) is not None
+    assert window.central_widget.open_view(SHARDS_VIEW_ID) is None
+    assert window.central_widget.open_view(COMPLEXES_VIEW_ID) is None
+    with runtime.workspace.project_db.get_session() as session:
+        session.add_all([
+            ScreeningShard(id=1, path="example.mshard", n_records=1),
+            DockingRun(id=1, engine="vina", protocol_hash="test"),
+            MoleculeRecord(id=1, name="Receptor", is_receptor=True),
+            MoleculeRecord(id=2, name="Ligand", is_ligand=True),
+        ])
+        session.flush()
+        session.add(DockingResultRecord(docking_run_id=1, receptor_molecule_id=1, ligand_molecule_id=2, score=-7.0))
+        session.commit()
+    window.views.sync_catalog_availability()
+    window._open_default_views()
+    assert window.central_widget.open_view(SHARDS_VIEW_ID) is not None
+    assert window.central_widget.open_view(COMPLEXES_VIEW_ID) is not None
+    second = AMDockVSMainWindow(runtime=runtime)
+    second.show()
+    app.processEvents()
+    for view_id in (RECEPTOR_VIEW_ID, LIGANDS_VIEW_ID, SHARDS_VIEW_ID, COMPLEXES_VIEW_ID):
+        assert second.central_widget.open_view(view_id) is not None
+    assert second.central_widget.main_content_tabs.currentWidget() is second.central_widget.open_view(RECEPTOR_VIEW_ID)
+    second.close()
+    app.processEvents()
+
+
+def test_sharded_project_without_ligand_rows_opens_shards_instead(practice):
+    from amdockvs.models import DockingRun, ScreeningShard, ScreeningShardRun
+
+    app, runtime, _window, _messages = practice
+    with runtime.workspace.project_db.get_session() as session:
+        session.add(ScreeningShard(id=1, path="example.mshard", n_records=1))
+        session.commit()
+    second = AMDockVSMainWindow(runtime=runtime)
+    second.show()
+    app.processEvents()
+    assert second.central_widget.open_view(SHARDS_VIEW_ID) is not None
+    assert second.central_widget.open_view(LIGANDS_VIEW_ID) is None
+    assert second.central_widget.open_view(COMPLEXES_VIEW_ID) is None
+    second.close()
+    app.processEvents()
+    with runtime.workspace.project_db.get_session() as session:
+        session.add(DockingRun(id=1, engine="vina", protocol_hash="test"))
+        session.flush()
+        session.add(ScreeningShardRun(docking_run_id=1, shard_id=1, receptor_molecule_id=1,
+                                      engine="vina", state="done", result_path="runs/result.parquet"))
+        session.commit()
+    assert runtime.docking.has_results()
+    third = AMDockVSMainWindow(runtime=runtime)
+    third.show()
+    app.processEvents()
+    assert third.central_widget.open_view(COMPLEXES_VIEW_ID) is not None
+    third.close()
     app.processEvents()
 
 

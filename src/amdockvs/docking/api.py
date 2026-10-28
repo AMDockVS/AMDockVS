@@ -1390,6 +1390,10 @@ class DockingAPI:
     def result_stats(self):
         return results_repo.get_docking_results_stats(self._project_db())
 
+    def has_results(self) -> bool:
+        """Whether the project has docking results or completed screening fragments."""
+        return results_repo.has_docking_results(self._project_db())
+
     def top_hits(self, *, limit: int = 25, receptor_id: int | None = None, only_completed: bool = True):
         return results_repo.list_top_hits(
             self._project_db(),
