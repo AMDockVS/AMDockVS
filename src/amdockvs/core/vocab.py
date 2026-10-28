@@ -52,6 +52,7 @@ class BindingSiteSource:
     FPOCKET = "fpocket"  # detected pocket (rank in source_ref)
     P2RANK = "p2rank"    # P2Rank pocket (rank in source_ref)
     PDB = "pdb"          # site annotation from the PDB
+    METAL = "metal"      # a coordinated metal ion of the structure
 
 class ComplexPurpose:
     REDOCKING = "redocking"
@@ -176,7 +177,7 @@ CODES: dict[str, dict[str, int]] = {
     "repr_type": _domain(
         400, "smiles_canonical", "smiles_isomeric", "inchi", "inchikey", "sequence_aa", "sequence_nt", "helm"
     ),
-    "binding_site_source": _domain(500, "manual", "ligand", "fpocket", "p2rank", "pdb"),
+    "binding_site_source": _domain(500, "manual", "ligand", "fpocket", "p2rank", "pdb", "metal"),
     "engine": _domain(600, "vina", "qvina", "gnina", "adgpu"),
     "run_kind": _domain(700, "docking", "screening", "redocking"),
     "score_type": _domain(800, "vina_score", "ad4_score", "gnina_score"),

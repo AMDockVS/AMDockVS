@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
+from amdockvs.core.vocab import BindingSiteSource
+
 
 def binding_site_specs_from_components(
     components: Iterable[dict[str, Any]],
@@ -46,7 +48,7 @@ def binding_site_specs_from_components(
         specs.append(
             {
                 "name": name,
-                "source": "ligand" if component_class == "ligand" else "metal",
+                "source": BindingSiteSource.LIGAND if component_class == "ligand" else BindingSiteSource.METAL,
                 "source_ref": component["selector"],
                 "center": component["center"],
                 "size": size,
