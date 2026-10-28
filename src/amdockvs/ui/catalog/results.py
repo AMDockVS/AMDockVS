@@ -845,6 +845,12 @@ class DockingResultsWidget(QWidget):
             return
         self._load_hit_in_pymol(self._selected_hit, self._pose_rank(self._selected_hit))
 
+    def show_active_in_pymol(self) -> None:
+        """Restore the highlighted pose when this results view becomes active."""
+        selected = self.pose_table.get_selected_objects()
+        if selected:
+            self._on_pose_selection_changed(selected)
+
     def _loaded_result_ids(self) -> list[int]:
         # The best pose of every ligand on screen, plus the poses of the selected one. Interactions
         # and diagrams for a whole screening are a job with its own SQL filters, not a click here.
