@@ -9843,14 +9843,7 @@ shard. One shard is one task.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/docking/api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">492</span>
-<span class="normal">493</span>
-<span class="normal">494</span>
-<span class="normal">495</span>
-<span class="normal">496</span>
-<span class="normal">497</span>
-<span class="normal">498</span>
-<span class="normal">499</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">499</span>
 <span class="normal">500</span>
 <span class="normal">501</span>
 <span class="normal">502</span>
@@ -9874,7 +9867,14 @@ shard. One shard is one task.</p>
 <span class="normal">520</span>
 <span class="normal">521</span>
 <span class="normal">522</span>
-<span class="normal">523</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">prepare_ligand_shards</span><span class="p">(</span>
+<span class="normal">523</span>
+<span class="normal">524</span>
+<span class="normal">525</span>
+<span class="normal">526</span>
+<span class="normal">527</span>
+<span class="normal">528</span>
+<span class="normal">529</span>
+<span class="normal">530</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">prepare_ligand_shards</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="o">*</span><span class="p">,</span>
         <span class="n">program</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">VINA_PROGRAM</span><span class="o">.</span><span class="n">key</span><span class="p">,</span>
@@ -9936,14 +9936,7 @@ durable Top-N and extracts only those records from the source shards.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/docking/api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">525</span>
-<span class="normal">526</span>
-<span class="normal">527</span>
-<span class="normal">528</span>
-<span class="normal">529</span>
-<span class="normal">530</span>
-<span class="normal">531</span>
-<span class="normal">532</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">532</span>
 <span class="normal">533</span>
 <span class="normal">534</span>
 <span class="normal">535</span>
@@ -10056,7 +10049,14 @@ durable Top-N and extracts only those records from the source shards.</p>
 <span class="normal">642</span>
 <span class="normal">643</span>
 <span class="normal">644</span>
-<span class="normal">645</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">run_shards</span><span class="p">(</span>
+<span class="normal">645</span>
+<span class="normal">646</span>
+<span class="normal">647</span>
+<span class="normal">648</span>
+<span class="normal">649</span>
+<span class="normal">650</span>
+<span class="normal">651</span>
+<span class="normal">652</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">run_shards</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="o">*</span><span class="p">,</span>
         <span class="n">program</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">VINA_PROGRAM</span><span class="o">.</span><span class="n">key</span><span class="p">,</span>
@@ -10203,14 +10203,7 @@ structure is read: preparation keeps its metals.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/docking/api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">754</span>
-<span class="normal">755</span>
-<span class="normal">756</span>
-<span class="normal">757</span>
-<span class="normal">758</span>
-<span class="normal">759</span>
-<span class="normal">760</span>
-<span class="normal">761</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">761</span>
 <span class="normal">762</span>
 <span class="normal">763</span>
 <span class="normal">764</span>
@@ -10224,7 +10217,14 @@ structure is read: preparation keeps its metals.</p>
 <span class="normal">772</span>
 <span class="normal">773</span>
 <span class="normal">774</span>
-<span class="normal">775</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">method_misfit_receptor_ids</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">method</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]:</span>
+<span class="normal">775</span>
+<span class="normal">776</span>
+<span class="normal">777</span>
+<span class="normal">778</span>
+<span class="normal">779</span>
+<span class="normal">780</span>
+<span class="normal">781</span>
+<span class="normal">782</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">method_misfit_receptor_ids</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">method</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">"""Receptors whose active box does not fit the docking `method` (methods.py).</span>
 <span class="sd">    Receptors without a box are not judged: the user still has to define one. The source</span>
 <span class="sd">    structure is read: preparation keeps its metals."""</span>
@@ -10272,14 +10272,7 @@ Returns [] when there's no active grid or the structure file is unavailable.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/docking/api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">867</span>
-<span class="normal">868</span>
-<span class="normal">869</span>
-<span class="normal">870</span>
-<span class="normal">871</span>
-<span class="normal">872</span>
-<span class="normal">873</span>
-<span class="normal">874</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">874</span>
 <span class="normal">875</span>
 <span class="normal">876</span>
 <span class="normal">877</span>
@@ -10301,7 +10294,14 @@ Returns [] when there's no active grid or the structure file is unavailable.</p>
 <span class="normal">893</span>
 <span class="normal">894</span>
 <span class="normal">895</span>
-<span class="normal">896</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">list_box_residues</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">receptor_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">engine</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"vina"</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="normal">896</span>
+<span class="normal">897</span>
+<span class="normal">898</span>
+<span class="normal">899</span>
+<span class="normal">900</span>
+<span class="normal">901</span>
+<span class="normal">902</span>
+<span class="normal">903</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">list_box_residues</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">receptor_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">engine</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"vina"</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">"""Residues with at least one atom inside the receptor's active binding-site box.</span>
 
 <span class="sd">    Candidate set for flexible-residue selection — short because the box filters it.</span>
@@ -10358,14 +10358,7 @@ skips ligands entirely (receptor sets are small).</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/docking/api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">922</span>
-<span class="normal">923</span>
-<span class="normal">924</span>
-<span class="normal">925</span>
-<span class="normal">926</span>
-<span class="normal">927</span>
-<span class="normal">928</span>
-<span class="normal">929</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">929</span>
 <span class="normal">930</span>
 <span class="normal">931</span>
 <span class="normal">932</span>
@@ -10410,7 +10403,14 @@ skips ligands entirely (receptor sets are small).</p>
 <span class="normal">971</span>
 <span class="normal">972</span>
 <span class="normal">973</span>
-<span class="normal">974</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">check_receptors</span><span class="p">(</span>
+<span class="normal">974</span>
+<span class="normal">975</span>
+<span class="normal">976</span>
+<span class="normal">977</span>
+<span class="normal">978</span>
+<span class="normal">979</span>
+<span class="normal">980</span>
+<span class="normal">981</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">check_receptors</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="o">*</span><span class="p">,</span>
         <span class="n">program</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">VINA_PROGRAM</span><span class="o">.</span><span class="n">key</span><span class="p">,</span>
@@ -10494,14 +10494,7 @@ or below it (a sharded library uses <code>hit_threshold</code> for that).</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/docking/api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1013</span>
-<span class="normal">1014</span>
-<span class="normal">1015</span>
-<span class="normal">1016</span>
-<span class="normal">1017</span>
-<span class="normal">1018</span>
-<span class="normal">1019</span>
-<span class="normal">1020</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1020</span>
 <span class="normal">1021</span>
 <span class="normal">1022</span>
 <span class="normal">1023</span>
@@ -10715,7 +10708,14 @@ or below it (a sharded library uses <code>hit_threshold</code> for that).</p>
 <span class="normal">1231</span>
 <span class="normal">1232</span>
 <span class="normal">1233</span>
-<span class="normal">1234</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span>
+<span class="normal">1234</span>
+<span class="normal">1235</span>
+<span class="normal">1236</span>
+<span class="normal">1237</span>
+<span class="normal">1238</span>
+<span class="normal">1239</span>
+<span class="normal">1240</span>
+<span class="normal">1241</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="o">*</span><span class="p">,</span>
         <span class="n">program</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">VINA_PROGRAM</span><span class="o">.</span><span class="n">key</span><span class="p">,</span>
@@ -10835,7 +10835,7 @@ or below it (a sharded library uses <code>hit_threshold</code> for that).</p>
     <span class="p">)</span>
     <span class="k">if</span> <span class="n">reset_results</span> <span class="ow">and</span> <span class="n">selected_from_receptor_id</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"Changing docking configuration requires rerunning the reference stage before off-target docking."</span><span class="p">)</span>
-    <span class="n">resolved_batch_size</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">batch_size</span> <span class="ow">or</span> <span class="n">app_config</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="p">)</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">batch_size</span><span class="p">))</span>
+    <span class="n">resolved_batch_size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pairs_per_task</span><span class="p">(</span><span class="n">program_spec</span><span class="p">,</span> <span class="n">batch_size</span><span class="p">)</span>
     <span class="n">ligand_set_ref</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_set_ref</span><span class="p">(</span><span class="n">ligand_set</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">"docking_ligand_input"</span><span class="p">)</span>
     <span class="n">receptor_set_ref</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_set_ref</span><span class="p">(</span><span class="n">receptor_set</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">"docking_receptor_input"</span><span class="p">)</span>
     <span class="n">ligand_scope</span> <span class="o">=</span> <span class="n">scope_payload</span><span class="p">(</span><span class="n">ligand_set</span><span class="p">)</span> <span class="k">if</span> <span class="n">is_molecule_scope</span><span class="p">(</span><span class="n">ligand_set</span><span class="p">)</span> <span class="k">else</span> <span class="p">{}</span>
@@ -10961,15 +10961,7 @@ or below it (a sharded library uses <code>hit_threshold</code> for that).</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/docking/api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1392</span>
-<span class="normal">1393</span>
-<span class="normal">1394</span>
-<span class="normal">1395</span>
-<span class="normal">1396</span>
-<span class="normal">1397</span>
-<span class="normal">1398</span>
-<span class="normal">1399</span>
-<span class="normal">1400</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1400</span>
 <span class="normal">1401</span>
 <span class="normal">1402</span>
 <span class="normal">1403</span>
@@ -10990,7 +10982,15 @@ or below it (a sharded library uses <code>hit_threshold</code> for that).</p>
 <span class="normal">1418</span>
 <span class="normal">1419</span>
 <span class="normal">1420</span>
-<span class="normal">1421</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">ligand_summaries</span><span class="p">(</span>
+<span class="normal">1421</span>
+<span class="normal">1422</span>
+<span class="normal">1423</span>
+<span class="normal">1424</span>
+<span class="normal">1425</span>
+<span class="normal">1426</span>
+<span class="normal">1427</span>
+<span class="normal">1428</span>
+<span class="normal">1429</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">ligand_summaries</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="o">*</span><span class="p">,</span>
         <span class="n">limit</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">200</span><span class="p">,</span>
@@ -11046,15 +11046,7 @@ is written to the DB, so re-run with <code>replace_existing=True</code> to refre
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/docking/api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1499</span>
-<span class="normal">1500</span>
-<span class="normal">1501</span>
-<span class="normal">1502</span>
-<span class="normal">1503</span>
-<span class="normal">1504</span>
-<span class="normal">1505</span>
-<span class="normal">1506</span>
-<span class="normal">1507</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1507</span>
 <span class="normal">1508</span>
 <span class="normal">1509</span>
 <span class="normal">1510</span>
@@ -11081,7 +11073,15 @@ is written to the DB, so re-run with <code>replace_existing=True</code> to refre
 <span class="normal">1531</span>
 <span class="normal">1532</span>
 <span class="normal">1533</span>
-<span class="normal">1534</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">compute_diagrams</span><span class="p">(</span>
+<span class="normal">1534</span>
+<span class="normal">1535</span>
+<span class="normal">1536</span>
+<span class="normal">1537</span>
+<span class="normal">1538</span>
+<span class="normal">1539</span>
+<span class="normal">1540</span>
+<span class="normal">1541</span>
+<span class="normal">1542</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">compute_diagrams</span><span class="p">(</span>
         <span class="bp">self</span><span class="p">,</span>
         <span class="o">*</span><span class="p">,</span>
         <span class="n">result_ids</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -11141,12 +11141,12 @@ is written to the DB, so re-run with <code>replace_existing=True</code> to refre
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/docking/api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1536</span>
-<span class="normal">1537</span>
-<span class="normal">1538</span>
-<span class="normal">1539</span>
-<span class="normal">1540</span>
-<span class="normal">1541</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">diagram_path</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">pose_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pose_rank</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span> <span class="n">fmt</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"png"</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">1544</span>
+<span class="normal">1545</span>
+<span class="normal">1546</span>
+<span class="normal">1547</span>
+<span class="normal">1548</span>
+<span class="normal">1549</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">diagram_path</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">pose_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">pose_rank</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span> <span class="n">fmt</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"png"</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""Convention path for a pose's diagram (may not exist yet)."""</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">amdockvs.docking.results.diagram</span><span class="w"> </span><span class="kn">import</span> <span class="n">diagram_path_for</span>
 
