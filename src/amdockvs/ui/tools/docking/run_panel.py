@@ -829,6 +829,7 @@ class RunPanel:
         # this takes seconds. Feedback is the status line + the disabled Run button, not an
         # overlay over counts that stay valid the whole time.
         self.check_status_label.setText("Submitting docking job…")
+        self.docking_submission_started.emit()
         run_async(
             lambda: self._submit_docking(inp, params),
             lambda result: self._on_docking_submitted(result, signature),
