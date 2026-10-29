@@ -18,10 +18,13 @@ _IMPORTS = ("ms_flow.runner", "amdockvs")
 # the home of the account, where `ssh` starts) and the versions that matter in it.
 HOST_ENV = ".amdockvs/env"  # the `{home}/env` of `host_recipes`
 HOST_PACKAGES = ("amdockvs", "ms_flow", "ms_env", "ms_components", "ms_contactmap", "rdkit", "vina", "meeko", "ray")
+# What Settings > Hosts lets one tick for each host: the programs the jobs call (`HostConfig.install`).
+HOST_PROGRAMS = tuple(tool.tool_id for tool in MANAGED_TOOLS if tool.recipe is not None and tool.on_hosts)
 
 
-def host_recipes(host: Host, runtime=None) -> list[Recipe]:
-    """The environment of the app there, then every tool with a recipe that works here.
+def host_recipes(host: Host, runtime=None, install: list[str] | None = None) -> list[Recipe]:
+    """The environment of the app there, then the programs in `install`, or with None each
+    program the jobs call that works here.
 
     Builds the wheels of what runs here from a checkout and runs each tool's check: not on the GUI thread.
     """
@@ -33,7 +36,8 @@ def host_recipes(host: Host, runtime=None) -> list[Recipe]:
     ]
     platform = host.platform()
     for tool in MANAGED_TOOLS:
-        if tool.recipe is not None and tool.status(runtime).installed:
+        if tool.tool_id in HOST_PROGRAMS and (tool.tool_id in install if install is not None
+                                              else tool.status(runtime).installed):
             recipes.append(tool_spec(tool.tool_id).recipe(f"{home}/tools", platform=platform))
     return recipes
 
@@ -47,7 +51,9 @@ def prepare_host(address: str, on_line: Callable[[str], None] = print, runtime=N
     them is that something there would be changed while `busy` says jobs run from it.
     """
     host = Host(address)
-    recipes = host_recipes(host, runtime)
+    kept = runtime.workspace.settings_manager.settings.hosts.values() if runtime is not None else ()
+    install = next((getattr(kept_host, "install", None) for kept_host in kept if kept_host.address == address), None)
+    recipes = host_recipes(host, runtime, install)
     for recipe in recipes:
         install, said = ensure(recipe, host, busy), 0
         while True:
@@ -63,4 +69,4 @@ def prepare_host(address: str, on_line: Callable[[str], None] = print, runtime=N
     return recipes[0].prefix
 
 
-__all__ = ["HOST_ENV", "HOST_PACKAGES", "host_recipes", "prepare_host"]
+__all__ = ["HOST_ENV", "HOST_PACKAGES", "HOST_PROGRAMS", "host_recipes", "prepare_host"]

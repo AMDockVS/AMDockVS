@@ -56,7 +56,7 @@ class ApplicationWidget(QWidget):
         """On `node` when given; `tool` narrows External tools to that one tool."""
         if self._settings_dialog is None:
             from amdockvs.ui.resources.icons import icon
-            from amdockvs.integrations.hosts import HOST_ENV, HOST_PACKAGES
+            from amdockvs.integrations.hosts import HOST_ENV, HOST_PACKAGES, HOST_PROGRAMS
             from amdockvs.ui.shell.settings_downloads import DownloadsPage
             from amdockvs.ui.shell.settings_tools import ExternalToolsPage
 
@@ -73,7 +73,7 @@ class ApplicationWidget(QWidget):
             for table in ("hosts", "executors"):
                 self._settings_dialog.panel.add_page(
                     KeptPage(self.runtime.workspace, table, parent=self._settings_dialog,
-                             packages=HOST_PACKAGES, default_env=HOST_ENV), table.capitalize())
+                             packages=HOST_PACKAGES, default_env=HOST_ENV, programs=HOST_PROGRAMS), table.capitalize())
             self._settings_dialog.settings_saved.connect(self.settings_saved.emit)
             self._settings_dialog.destroyed.connect(self._on_settings_dialog_destroyed)
         else:
