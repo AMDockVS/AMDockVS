@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from typing import Callable
 
-from ms_env import Host, Recipe, app_recipe, ensure
+from ms_env import READY, Host, Recipe, app_recipe, ensure, locate
 
 from amdockvs.core.home import amdock_home
 from amdockvs.integrations.envs import tool_spec
@@ -37,7 +37,7 @@ def host_recipes(host: Host, runtime=None, install: list[str] | None = None) -> 
     platform = host.platform()
     for tool in MANAGED_TOOLS:
         if tool.tool_id in HOST_PROGRAMS and (tool.tool_id in install if install is not None
-                                              else tool.status(runtime).installed):
+                                              else locate(tool.recipe(runtime))[0] == READY):
             recipes.append(tool_spec(tool.tool_id).recipe(f"{home}/tools", platform=platform))
     return recipes
 
