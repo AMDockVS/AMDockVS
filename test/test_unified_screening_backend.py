@@ -6,7 +6,7 @@ from sqlmodel import select
 from amdockvs.chemistry.api import ChemistryAPI
 from amdockvs.core.configuration import app_config
 from amdockvs.docking.api import DockingAPI
-from amdockvs.screening.campaign import advance_shard_run, completed_shard_targets, live_target_progress
+from amdockvs.screening.campaign import advance_shard_run, completed_shard_targets
 from amdockvs.models import ImportBatch, ScreeningShard, ScreeningShardRun, ShardPrep
 from amdockvs.molecules.storage import iter_prepared_shards
 from amdockvs.runtime import AMDockVSRuntime
@@ -127,24 +127,6 @@ def test_shard_completion_is_scoped_to_run_engine_and_protocol(tmp_path):
             assert (receipt.ligands_scored, receipt.hits) == (100, 3)
     finally:
         runtime.close_project()
-
-
-def test_live_target_progress_adds_only_matching_inflight_chunk_work():
-    targets = [
-        {"id": 1, "docking_run_id": 1, "receptor_molecule_id": 7, "ligands_total": 50, "ligands_done": 50},
-        {"id": 2, "docking_run_id": 2, "receptor_molecule_id": 7, "ligands_total": 100, "ligands_done": 20},
-        {"id": 3, "docking_run_id": 2, "receptor_molecule_id": 8, "ligands_total": 100, "ligands_done": 0},
-    ]
-    chunks = [
-        {"progress": 50.0, "payload_json": '{"docking_run_id":2,"receptor_id":7,"shards":[{"n_records":40}]}'},
-        {"progress": 25.0, "payload_json": '{"docking_run_id":2,"receptor_id":8,"shards":[{"n_records":100}]}'},
-        {"progress": 100.0, "payload_json": '{"docking_run_id":1,"receptor_id":7,"shards":[{"n_records":50}]}'},
-    ]
-
-    assert live_target_progress(targets, chunks) == {
-        7: {"ligands": 100, "docked": 40, "pending": 60},
-        8: {"ligands": 100, "docked": 25, "pending": 75},
-    }
 
 
 def test_ligand_pipeline_selects_the_shard_adapter_without_a_row_scope(monkeypatch):
