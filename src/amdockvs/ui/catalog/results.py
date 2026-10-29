@@ -38,6 +38,7 @@ from amdockvs.docking.results.tables import (
     fmt_float,
     results_ligand_config,
     results_pose_config,
+    receptor_progress_columns,
     results_receptor_config,
 )
 from amdockvs.project.summaries import DockingHitSummary
@@ -167,6 +168,8 @@ class DockingResultsWidget(QWidget):
         self._auto_select_pose = False
         self._active_shard_job_ids: tuple[str, ...] = ()
         self._known_campaign_target_ids: set[int] = set()
+        self._receptor_program = ""  # the program the receptor counts are scoped to
+        self._together: tuple = (None, set(), 0)  # (table, result ids, scene epoch) shown side by side
         self.filters_changed.connect(lambda: self._refresh_ligands(auto_select=True))
 
         outer = QVBoxLayout(self)
@@ -201,7 +204,7 @@ class DockingResultsWidget(QWidget):
         self.receptor_table = project_table(runtime, receptor_config, receptor_box)
         self.receptor_table.setMinimumHeight(150)
         self.receptor_table.selection_changed.connect(self._on_receptor_selection_changed)
-        self.receptor_table.row_reselected.connect(lambda _obj: self._load_selected_hit_in_pymol())
+        self.receptor_table.row_reselected.connect(lambda _obj: self._reselected(self.receptor_table))
         self.receptor_table.data_refreshed.connect(self._on_receptors_loaded)
         receptor_layout.addWidget(self.receptor_table)
         splitter.addWidget(receptor_box)
@@ -222,7 +225,7 @@ class DockingResultsWidget(QWidget):
         self.ligand_table = project_table(runtime, ligand_config, ligand_box)
         self.ligand_table.setMinimumHeight(150)
         self.ligand_table.selection_changed.connect(self._on_ligand_selection_changed)
-        self.ligand_table.row_reselected.connect(lambda _obj: self._load_selected_hit_in_pymol())
+        self.ligand_table.row_reselected.connect(lambda _obj: self._reselected(self.ligand_table))
         self.ligand_table.data_refreshed.connect(self._on_ligands_loaded)
         ligand_layout.addWidget(self.ligand_table)
         splitter.addWidget(ligand_box)
@@ -239,7 +242,7 @@ class DockingResultsWidget(QWidget):
         self.pose_table = project_table(runtime, pose_config, pose_box)
         self.pose_table.setMinimumHeight(150)
         self.pose_table.selection_changed.connect(self._on_pose_selection_changed)
-        self.pose_table.row_reselected.connect(lambda _obj: self._load_selected_hit_in_pymol())
+        self.pose_table.row_reselected.connect(lambda _obj: self._reselected(self.pose_table))
         self.pose_table.data_refreshed.connect(self._on_poses_loaded)
         pose_layout.addWidget(self.pose_table)
         splitter.addWidget(pose_box)
@@ -587,7 +590,26 @@ class DockingResultsWidget(QWidget):
         )
         return filters
 
+    def _scope_receptors_to_program(self) -> None:
+        """Ligands/Docked count the chosen program, or every program summed under "All"; only
+        there do the ligand rows need a Program column, since one ligand can be several rows."""
+        protocol_hash = str(self.protocol_combo.currentData() or "")
+        if protocol_hash == self._receptor_program:
+            return
+        self._receptor_program = protocol_hash
+        columns = receptor_progress_columns(protocol_hash)
+        for column in self.receptor_table._model._config.columns:
+            if column.field in columns:
+                column.expr = columns[column.field]
+        self.ligand_table._model.set_column_visible("protocol_label", not protocol_hash)
+        self._receptor_refreshing = True
+        try:
+            self.receptor_table.refresh_preserving_view()
+        finally:
+            self._receptor_refreshing = False
+
     def _refresh_ligands(self, *, auto_select: bool = False, preserve_context: bool = False) -> None:
+        self._scope_receptors_to_program()
         if not preserve_context:
             self._selected_ligand_id = None
             self._show_detail(None)
@@ -637,6 +659,12 @@ class DockingResultsWidget(QWidget):
         return True
 
     def _on_protocol_changed(self, _index: int) -> None:
+        # Another program is another list: the scene starts over on its first ligand, never
+        # adds it to what the last one showed.
+        viewer = getattr(self.window(), "viewer", None)
+        if viewer is not None:
+            viewer.clear_scene()
+        self._together = (None, set(), 0)
         self._refresh_ligands(auto_select=True)
 
     def _on_receptor_selection_changed(self, objects: list) -> None:
@@ -652,12 +680,51 @@ class DockingResultsWidget(QWidget):
         self._refresh_ligands(auto_select=True)
         self._reload_protocols(auto_select=True)
 
+    @staticmethod
+    def _current(table: SmartTableView, objects: list):
+        """The row last clicked among the selected ones: detail and poses follow it."""
+        current = table._model.get_raw_object(table._table.currentIndex().row())
+        return current if any(obj is current for obj in objects) else objects[0]
+
+    def _scene_epoch(self) -> int:
+        return getattr(getattr(self.window(), "pymol_dock", None), "_amdock_scene_epoch", 0)
+
+    def _showing_together(self) -> bool:
+        """A multi-row selection owns the scene (until anything clears it)."""
+        _table, ids, epoch = self._together
+        return bool(ids) and epoch == self._scene_epoch()
+
+    def _show_together(self, table: SmartTableView, objects: list) -> None:
+        """Several rows selected: every one's pose shares the scene, to compare them. Each row
+        of these tables is one result (a ligand row is its best pose)."""
+        ids = {int(getattr(obj, "id", 0) or 0) for obj in objects} - {0}
+        shown = self._together[1] if self._together[0] is table and self._showing_together() else set()
+        viewer = getattr(self.window(), "viewer", None)
+        if len(ids) < 2 or self._load_hit_in_pymol is None:
+            if self._together[0] is table:
+                self._together = (None, set(), 0)
+            if shown and viewer is not None:
+                viewer.select_table_row(table._table)  # back to one row: the others leave the scene
+            return
+        if viewer is not None and not shown <= ids:
+            viewer.select_table_row(table._table)  # a row left the selection: start the scene over
+        epoch = self._scene_epoch()
+        self._together = (table, ids, epoch)
+
+        def load(hit) -> None:
+            if hit is not None and epoch == self._scene_epoch():
+                self._load_hit_in_pymol(hit, self._pose_rank(hit))
+
+        for result_id in sorted(ids):
+            run_async(lambda result_id=result_id: self.runtime.docking.hit(result_id=result_id), load)
+
     def _on_ligand_selection_changed(self, objects: list) -> None:
         if not objects:
             if not self._ligand_refreshing:
                 self._selected_ligand_id = None
             return
-        result = objects[0]
+        self._show_together(self.ligand_table, objects)
+        result = self._current(self.ligand_table, objects)
         ligand_id = int(getattr(result, "ligand_molecule_id", 0) or 0)
         self._selected_ligand_id = ligand_id or None
         filters = [
@@ -682,7 +749,8 @@ class DockingResultsWidget(QWidget):
     def _on_pose_selection_changed(self, objects: list) -> None:
         if not objects:
             return
-        result_id = int(getattr(objects[0], "id", 0) or 0)
+        self._show_together(self.pose_table, objects)
+        result_id = int(getattr(self._current(self.pose_table, objects), "id", 0) or 0)
         if result_id <= 0:
             return
         self._hit_token += 1
@@ -705,7 +773,8 @@ class DockingResultsWidget(QWidget):
                 self._load_hit_in_pymol(hit, self._pose_rank(hit))
             return
         self._show_detail(hit)
-        self._load_selected_hit_in_pymol()
+        if not self._showing_together():  # those rows load it themselves
+            self._load_selected_hit_in_pymol()
 
     def ensure_viewport_filled(self, force: bool = False) -> bool:
         """During a job it only refreshes the first window until Ligands is filled."""
@@ -742,17 +811,20 @@ class DockingResultsWidget(QWidget):
             return bool(self.ligand_table.refresh_counts())
         # Patch only the aggregate cells. A model reset here used to repaint the table
         # and reselect its row every three seconds while docking was running.
-        progress = self.runtime.docking.live_campaign_progress(job_ids=self._active_shard_job_ids)
+        loaded_ids = {
+            int(getattr(row, "id", 0) or 0)
+            for row in self._loaded_objects(self.receptor_table)
+        }
+        progress = self.runtime.docking.live_campaign_progress(
+            job_ids=self._active_shard_job_ids, protocol_hash=self._receptor_program,
+        )
         patches = {
             receptor_id: {
                 "ligands": values["ligands"],
                 "progress": values["docked"],
+                **{key: values[key] for key in ("run_state", "per_program") if key in values},
             }
             for receptor_id, values in progress.items()
-        }
-        loaded_ids = {
-            int(getattr(row, "id", 0) or 0)
-            for row in self._loaded_objects(self.receptor_table)
         }
         new_ids = set(patches).difference(self._known_campaign_target_ids)
         self._known_campaign_target_ids.update(patches)
@@ -839,6 +911,13 @@ class DockingResultsWidget(QWidget):
         }
         self.detail_more.setPlainText(json.dumps(more, indent=2, default=str))
         self._load_interactions(hit)
+
+    def _reselected(self, table: SmartTableView) -> None:
+        """A click on the selected row brings its pose back if the scene lost it (loading what
+        is still shown is a no-op). Not when that click narrows several rows down to one: the
+        selection change that follows loads that row."""
+        if len(table.get_selected_objects()) == 1:
+            self._load_selected_hit_in_pymol()
 
     def _load_selected_hit_in_pymol(self) -> None:
         if self._selected_hit is None or self._load_hit_in_pymol is None:

@@ -167,6 +167,7 @@ def test_pending_result_hits_accumulate_but_do_not_reappear_after_a_table_change
     page = SimpleNamespace(
         _hit_token=2, window=lambda: window, _show_detail=selected.append,
         _pose_rank=lambda hit: 1, _load_hit_in_pymol=lambda hit, rank: shown.append(hit),
+        _showing_together=lambda: False,
         _load_selected_hit_in_pymol=lambda: shown.append(selected[-1]))
     DockingResultsWidget._apply_selected_hit(page, "latest", (2, epoch))
     DockingResultsWidget._apply_selected_hit(page, "earlier_shift_click", (1, epoch))
@@ -252,3 +253,85 @@ def test_reselecting_a_structure_keeps_its_existing_comparison_panel(viewer_scen
     assert cmd.get_setting_int("grid_slot", "molecule_4") == 4
     assert set(window.pymol_dock.scene_context.grid_labels) == {1, 2, 3, 4}
     assert "panel_text5" not in cmd.get_names("objects")
+
+
+def test_a_repeat_click_on_the_shown_pose_reloads_nothing(viewer_scene, monkeypatch):
+    """Clicking the selected row again used to clear PyMOL and load it back: the camera and
+    styles jumped. Now it is a no-op, unless Shift had added more to the scene."""
+    from amdockvs.models import MoleculeRecord
+    from amdockvs.ui.catalog.common import project_table
+    from ms_components.ms_table import ColumnDef, SmartTableView, TableConfig
+
+    viewer, window, cmd = viewer_scene
+    monkeypatch.setattr(SmartTableView, "refresh", lambda self: None)
+    reads, read = [], viewer._read
+    viewer._read = lambda wanted, then: (reads.append(dict(wanted)), read(wanted, then))
+    hits = [SimpleNamespace(run_kind="screening", receptor_id=7, receptor_payload_id=7,
+                            pose_payload_id=p, ligand_payload_id=None) for p in (11, 12)]
+    table = project_table(
+        SimpleNamespace(workspace=SimpleNamespace(project_db=object())),
+        TableConfig(model_class=MoleculeRecord, columns=[ColumnDef("id")], show_row_numbers=False),
+        window)
+    table._model.load_data([{"id": row, "__raw__": SimpleNamespace(id=row)} for row in range(2)], 2, 1)
+    show = lambda obj: viewer.shows_hit(hits[obj.id]) or viewer.load_hit(hits[obj.id])  # as the window does
+    table.row_clicked.connect(show)
+    table.row_reselected.connect(show)
+    QHBoxLayout(window).addWidget(table)
+    window.show()
+    QApplication.processEvents()
+
+    def click(row, modifiers=Qt.NoModifier):
+        QTest.mouseClick(table.view.viewport(), Qt.LeftButton, modifiers,
+                         table.view.visualRect(table._model.index(row, 0)).center())
+
+    click(0)
+    assert len(reads) == 1
+    click(0)
+    assert len(reads) == 1 and set(cmd.get_names("objects")) == set(viewer._pose_objects(hits[0]))
+    click(1, Qt.ShiftModifier)
+    assert len(cmd.get_names("objects")) == 4
+    click(1)  # the scene holds two poses, the click asks for one
+    assert set(cmd.get_names("objects")) == set(viewer._pose_objects(hits[1]))
+
+
+def test_selected_ligands_share_the_scene_and_leave_it_when_deselected(viewer_scene, monkeypatch):
+    from PySide6.QtCore import QItemSelectionModel
+    from amdockvs.ui.catalog import results
+    from ms_components.ms_table import SmartTableView
+
+    viewer, window, cmd = viewer_scene
+    monkeypatch.setattr(SmartTableView, "refresh", lambda self: None)
+    monkeypatch.setattr(results, "run_async", lambda work, done, on_error=None: done(work()))
+    hits = {rid: SimpleNamespace(run_kind="screening", receptor_id=7, receptor_payload_id=7, result_id=rid,
+                                 pose_payload_id=100 + rid, ligand_payload_id=None, pose_rank=1)
+            for rid in (1, 2, 3)}
+    page = results.DockingResultsWidget(runtime=SimpleNamespace(
+        workspace=SimpleNamespace(project_db=object()),
+        docking=SimpleNamespace(result_protocols=lambda **_kwargs: [], hit=lambda result_id: hits[result_id]),
+    ), load_hit_in_pymol=viewer.load_hit, parent=window)
+    page.pose_table.set_filters = lambda filters: None
+    page._show_detail = lambda hit: None
+    page.ligand_table._model.load_data([
+        {"id": rid, "__raw__": SimpleNamespace(id=rid, ligand_molecule_id=50 + rid, docking_run_id=1, score=-7.0)}
+        for rid in hits], 3, 1)
+    selection = page.ligand_table._table.selectionModel()
+
+    def pick(row, command):
+        viewer.select_table_row(page.ligand_table._table, additive=command != QItemSelectionModel.ClearAndSelect)
+        selection.select(page.ligand_table._model.index(row, 0), command | QItemSelectionModel.Rows)
+
+    pick(0, QItemSelectionModel.ClearAndSelect)
+    pick(1, QItemSelectionModel.Select)
+    pick(2, QItemSelectionModel.Select)
+    poses = {obj for obj in cmd.get_names("objects") if obj.startswith("amdock_result_pose")}
+    assert poses == {viewer._pose_objects(hits[rid])[1] for rid in hits}
+    pick(1, QItemSelectionModel.Deselect)
+    poses = {obj for obj in cmd.get_names("objects") if obj.startswith("amdock_result_pose")}
+    assert poses == {viewer._pose_objects(hits[rid])[1] for rid in (1, 3)}
+    # Another program: the scene starts over on the first ligand of its list.
+    page._populate_protocol_combo([("q", "QuickVina")])
+    page.protocol_combo.setCurrentIndex(0)  # All programs
+    assert not {obj for obj in cmd.get_names("objects") if obj.startswith("amdock_result_pose")}
+    viewer.load_hit(hits[1], 1)  # what the first row's pose loads, once the list is back
+    assert {obj for obj in cmd.get_names("objects") if obj.startswith("amdock_result_pose")} == {
+        "amdock_result_pose"}

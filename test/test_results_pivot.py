@@ -606,3 +606,46 @@ def test_launching_a_redocking_goes_to_its_pivot_before_the_first_row():
     assert widget.pivot_combo.currentData() == "redocking" and not widget.reason_label.text()
     widget.show_run("docking")  # and a docking launched after it brings the hits back
     assert widget.pivot_combo.currentData() == widget._current_key == "hits"
+
+
+def test_receptor_counts_follow_the_program_filter():
+    """One program alone reads its own total and progress; "All" sums each program's latest
+    plan and says which program is which; only there the ligands carry a Program column."""
+    QApplication.instance() or QApplication(["amdockvs-per-program-test"])
+    db = _Db()
+    with db.get_session() as session:
+        session.add_all([
+            DockingRun(id=1, run_id="a", engine="vina", protocol_hash="v", protocol_label="Vina"),
+            DockingRun(id=2, run_id="a", engine="qvina", protocol_hash="q", protocol_label="QuickVina"),
+            DockingRun(id=3, run_id="b", engine="qvina", protocol_hash="q", protocol_label="QuickVina"),
+            MoleculeRecord(id=8, name="4UWG", is_receptor=True),
+            ScreeningTarget(docking_run_id=1, receptor_molecule_id=8, ligands_total=3, state="done"),
+            ScreeningTarget(docking_run_id=2, receptor_molecule_id=8, ligands_total=500, ligands_done=5,
+                            state="failed"),
+            ScreeningTarget(docking_run_id=3, receptor_molecule_id=8, ligands_total=100, ligands_done=40,
+                            state="running"),
+            *[DockingResultRecord(receptor_molecule_id=8, ligand_molecule_id=100 + i,
+                                  docking_run_id=1, pose_rank=1, score=-7.0) for i in range(3)],
+        ])
+        session.commit()
+    protocols = [("q", "QuickVina"), ("v", "Vina")]
+    widget = DockingResultsWidget(runtime=SimpleNamespace(
+        workspace=SimpleNamespace(project_db=db),
+        docking=SimpleNamespace(result_protocols=lambda **_kwargs: protocols, hit=lambda **_kwargs: None),
+    ))
+
+    def counts(protocol_hash):
+        widget._apply_protocols(protocols, auto_select=False)
+        widget.protocol_combo.setCurrentIndex(widget.protocol_combo.findData(protocol_hash))
+        row = widget.receptor_table._model.get_row_data(0)
+        return row["ligands"], row["progress"], row["run_state"]
+
+    assert counts("v") == (3, 3, "done")  # finished: its own total, full bar
+    assert counts("q") == (100, 40, "running")  # the latest QuickVina run, where it is now
+    assert counts("") == (103, 43, "running")
+    from amdockvs.docking.results.tables import _progress_tooltip
+    assert _progress_tooltip(widget.receptor_table._model.get_row_data(0)).endswith(
+        "pending\n\nQuickVina: 40 of 100\nVina: 3 of 3")
+    assert widget.ligand_table._model._config.column_by_field("protocol_label").visible is True
+    widget.protocol_combo.setCurrentIndex(widget.protocol_combo.findData("v"))
+    assert widget.ligand_table._model._config.column_by_field("protocol_label").visible is False

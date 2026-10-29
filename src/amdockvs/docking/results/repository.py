@@ -486,11 +486,15 @@ def list_result_protocols(
     receptor_id: int | None = None,
     exclude_run_kind: str | None = "redocking",
 ) -> list[tuple[str, str]]:
-    """Distinct (protocol_hash, label) present in results — cheap combo source so the
+    """Distinct (protocol_hash, label) present in results or plans — cheap combo source so the
     results view filters by protocol in SQL instead of scanning a client-side window."""
-    # The runs that have a result (for that receptor): a run with none has nothing to filter.
+    # The runs that have a result or a plan (for that receptor): a campaign still running has
+    # no rows yet, but its program must be pickable to watch how far it got.
     of_receptor = "" if receptor_id is None else f"AND r.receptor_molecule_id = {int(receptor_id)} "
-    clauses = [f"EXISTS (SELECT 1 FROM {TABLE_DOCKING_RESULTS} r WHERE r.docking_run_id = dr.id {of_receptor})"]
+    clauses = [
+        f"(EXISTS (SELECT 1 FROM {TABLE_DOCKING_RESULTS} r WHERE r.docking_run_id = dr.id {of_receptor})"
+        f" OR EXISTS (SELECT 1 FROM {TABLE_SCREENING_TARGETS} r WHERE r.docking_run_id = dr.id {of_receptor}))"
+    ]
     if exclude_run_kind:
         clauses.append(f"dr.run_kind != {code_id('run_kind', exclude_run_kind)}")
     rows = db_rows(
