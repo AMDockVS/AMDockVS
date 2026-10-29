@@ -62,6 +62,7 @@ class ManagedTool:
     location: Callable[[object], Path]
     recipe: Callable[[object], Recipe] | None = None  # installed by ms_env, which also removes it
     category: str = "Other"  # the heading Settings > External tools lists it under
+    on_hosts: bool = True  # a program the jobs call, so another machine that runs them needs it too
 
 
 def _directory_size(path: Path) -> int:
@@ -135,7 +136,7 @@ def _protonation_steps(name: str) -> Callable[[object], list[Step]]:
 
 # --- Docking binaries installed from a recipe (Vina, QuickVina 2, AutoDock-GPU, ...) ---
 
-def _recipe_tool(name: str, recipe_for, category: str) -> ManagedTool:
+def _recipe_tool(name: str, recipe_for, category: str, on_hosts: bool = True) -> ManagedTool:
     info = tool_spec(name).info
 
     def status(runtime) -> ToolStatus:
@@ -168,6 +169,7 @@ def _recipe_tool(name: str, recipe_for, category: str) -> ManagedTool:
         location=lambda runtime: Path(recipe_for(runtime).prefix),
         recipe=recipe_for,
         category=category,
+        on_hosts=on_hosts,
     )
 
 
@@ -210,7 +212,8 @@ MANAGED_TOOLS: tuple[ManagedTool, ...] = (
     _recipe_tool("autogrid", autogrid_recipe, "Docking preparation"),
     _recipe_tool("gnina", gnina_recipe, "Docking engines"),
     _recipe_tool("unidock", unidock_recipe, "Docking engines"),
-    _recipe_tool("ketcher", lambda runtime: tool_spec("ketcher").recipe(str(tools_home(runtime))), "Editors"),
+    # only the windows of this machine use it
+    _recipe_tool("ketcher", lambda runtime: tool_spec("ketcher").recipe(str(tools_home(runtime))), "Editors", False),
 )
 
 
