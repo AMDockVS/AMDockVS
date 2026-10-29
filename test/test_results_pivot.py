@@ -93,6 +93,26 @@ def test_a_pivot_opens_by_itself_once_its_data_lands():
     assert _rows(widget)["offtarget"] == (True, "Off-target (ligand × receptor)")
 
 
+def test_restoring_results_uses_the_highlighted_pose():
+    selected = [SimpleNamespace(id=7)]
+    called = []
+    page = SimpleNamespace(pose_table=SimpleNamespace(get_selected_objects=lambda: selected),
+                           _on_pose_selection_changed=lambda rows: called.append(rows[0].id))
+    DockingResultsWidget.show_active_in_pymol(page)
+    selected[0] = SimpleNamespace(id=8)
+    DockingResultsWidget.show_active_in_pymol(page)
+    selected.clear()
+    DockingResultsWidget.show_active_in_pymol(page)
+    assert called == [7, 8]
+
+
+def test_results_view_delegates_scene_restoration_to_active_pivot():
+    shown = []
+    page = SimpleNamespace(show_active_in_pymol=lambda: shown.append(True))
+    ResultsPivotWidget.show_active_in_pymol(SimpleNamespace(current_page=lambda: page))
+    assert shown == [True]
+
+
 def _job(task_type, *, done, total, status="running", progress=0.0):
     return SimpleNamespace(
         job_id=f"job-{task_type}",

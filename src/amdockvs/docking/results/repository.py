@@ -24,7 +24,8 @@ from amdockvs.core.constants import (
     TABLE_INTERACTION_RESULTS,
     TABLE_SCREENING_TARGETS,
 )
-from amdockvs.models import DockingResultRecord, DockingRun
+from amdockvs.models import DockingResultRecord, DockingRun, ScreeningShardRun
+from amdockvs.core.vocab import TargetState
 from amdockvs.models.codes import code_id, code_name_sql
 from amdockvs.docking.repository import project_db_path
 from amdockvs.docking.results.metrics import SCORE_METRICS
@@ -90,6 +91,19 @@ def existing_result_pairs(
             for receptor_id, ligand_id in session.exec(statement.distinct()).all():
                 pairs.add((int(receptor_id), int(ligand_id)))
     return pairs
+
+
+def has_docking_results(project_db) -> bool:
+    """Check for a result row or a completed screening fragment without counting the library."""
+    with project_db.get_session() as session:
+        if session.exec(select(DockingResultRecord.id).limit(1)).first() is not None:
+            return True
+        return session.exec(
+            select(ScreeningShardRun.id).where(
+                ScreeningShardRun.state == TargetState.DONE,
+                ScreeningShardRun.result_path != "",
+            ).limit(1)
+        ).first() is not None
 
 
 def count_docking_results(project_db, *, run_id: str = "", score_lte: float | None = None) -> int:

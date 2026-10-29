@@ -454,6 +454,11 @@ class ResultsPivotWidget(QWidget):
         """The pivot on screen — what a caller holding "the results view" actually wants."""
         return self.stack.currentWidget()
 
+    def show_active_in_pymol(self) -> None:
+        show = getattr(self.current_page(), "show_active_in_pymol", None)
+        if callable(show):
+            show()
+
     def refresh(self) -> None:
         # Jobs finished: the gates may have just opened, and only the pivot on screen reloads.
         self._reload_availability(force=True)
