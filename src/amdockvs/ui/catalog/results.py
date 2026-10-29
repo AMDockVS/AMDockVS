@@ -1018,6 +1018,12 @@ class DockingResultsWidget(QWidget):
             on_error=lambda exc: self._on_diagram_built(result_id, str(exc)),
         )
 
+    def diagram_saved(self, result_id: int) -> None:
+        """A diagram for ``result_id`` was saved elsewhere (the 2D dock): show its interactions."""
+        hit = self._selected_hit
+        if hit is not None and int(hit.result_id or 0) == result_id:
+            self._load_interactions(hit)
+
     def _on_diagram_built(self, result_id: int, error: str) -> None:
         self.build_diagram_btn.setEnabled(True)
         hit = self._selected_hit

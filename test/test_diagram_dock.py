@@ -1,5 +1,5 @@
-"""The 2D dock only shows saved diagrams: a click computes nothing. Once Build diagram (or a
-job) saved one beside the pose, reload() draws it."""
+"""The 2D dock shows saved diagrams: a click computes nothing. A pose without one waits in the
+widget behind Build diagram, which builds it; the dock saves what comes back."""
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -32,15 +32,22 @@ def test_the_dock_draws_saved_diagrams_and_never_builds_one(tmp_path):
     dock = InteractionDiagramDock("2D", DockManager(window), runtime=SimpleNamespace(contact_map_configuration=config),
                                   parent=window)
     dock.show_hit(hit, 1)
-    assert dock.stack.currentWidget() is dock.placeholder and "Build diagram" in dock.placeholder.text()
+    view = dock.view
+    assert dock.stack.currentWidget() is view and view._pages.currentIndex() == 1  # the call to action
+    assert "pose 1" in view._prompt_label.text() and view.diagram is None  # held, not read
     assert not diagram_path_for(pose, 1, suffix=".json").exists()  # nothing computed by the click
 
-    from ms_contactmap import solve_layout
+    built = []
+    dock.diagram_built.connect(built.append)
+    view._build_button.click()  # the widget builds; the dock saves what it returns
+    import time
 
-    from amdockvs.docking.results.diagram import build_pose_diagram, save_pose_diagram
-
-    diagram = build_pose_diagram(pose_path=pose, receptor_path=hit.receptor_path, name="lig")
-    save_pose_diagram(pose, 1, diagram, solve_layout(diagram))  # what Build diagram does
-    dock.reload()
-    assert dock.stack.currentWidget() is dock.view and "interactions" in dock.status.text()
+    deadline = time.monotonic() + 60
+    while not built and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+    assert built == [1] and diagram_path_for(pose, 1, suffix=".json").exists()
+    assert view._pages.currentWidget() is view._view and "interactions" in dock.status.text()
+    dock.reload()  # the saved document draws again without building
+    assert dock.stack.currentWidget() is view and view._pages.currentWidget() is view._view
     window.close()
