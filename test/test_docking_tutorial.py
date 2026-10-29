@@ -3,7 +3,7 @@ import json
 import shutil
 import time
 import os
-from threading import Event
+from threading import Event, get_ident
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -462,6 +462,89 @@ def test_tutorial_close_requires_a_click(practice):
         assert tutorial.controller.is_active
     QTest.mouseClick(close, Qt.LeftButton)
     assert not tutorial.controller.is_active
+
+
+@pytest.mark.parametrize("stage", ["receptor", "ligand", "prepare_ligand", "prepare_receptor", "grid"])
+def test_tutorial_readiness_waits_leave_the_gui_responsive(practice, stage):
+    app, _runtime, window, _messages = practice
+    tutorial = start_simple_docking_tutorial(window)
+    entered, release = Event(), Event()
+    gui_thread = get_ident()
+
+    def read(value):
+        assert get_ident() != gui_thread
+        entered.set()
+        assert release.wait(5), "Readiness query was not released"
+        return value
+
+    scope = SimpleNamespace(scope=object(), count=lambda: read(1))
+    site = SimpleNamespace(is_active=True, **dict(zip(
+        ("center_x", "center_y", "center_z", "size_x", "size_y", "size_z"),
+        (*tutorial.example["grid_center"], *tutorial.example["grid_size"]))))
+    tutorial.runtime = SimpleNamespace(
+        molecules=SimpleNamespace(select=lambda **_: scope),
+        docking=SimpleNamespace(
+            preparation_summary=lambda *a, **k: read({"total": 1, "ready": 1})),
+        binding_sites=SimpleNamespace(select=lambda: read([site])),
+    )
+    tutorial._grid_ready = stage != "grid"
+    try:
+        if stage == "grid":
+            tutorial._grid_changed()
+        else:
+            tutorial._check(stage)
+        wait_until(app, entered.is_set)
+        heartbeat = []
+        QTimer.singleShot(0, lambda: heartbeat.append(True))
+        wait_until(app, lambda: bool(heartbeat))
+        assert not release.is_set()
+        assert stage not in tutorial.completed_stages
+        assert tutorial.controller.is_active
+    finally:
+        release.set()
+        wait_until(app, lambda: not tutorial._checking and not tutorial._grid_checking)
+    assert tutorial._grid_ready if stage == "grid" else stage in tutorial.completed_stages
+
+
+@pytest.mark.parametrize("slow_step", ["conflict", "submit"])
+def test_run_docking_and_job_wait_leave_the_tutorial_responsive(practice, monkeypatch, slow_step):
+    app, _runtime, window, messages = practice
+    tutorial = start_simple_docking_tutorial(window)
+    window.tools.open_tool(DOCKING_VIEW_ID)
+    tutorial.controller._show_step(6)
+    studio = tutorial.studio
+    studio.stepper.set_current_index(3)
+    entered, release = Event(), Event()
+    gui_thread = get_ident()
+    _inp, params = studio._docking_params()
+
+    def worker(step, value):
+        assert get_ident() != gui_thread
+        if step == slow_step:
+            entered.set()
+            assert release.wait(5), "Docking submission was not released"
+        return value
+
+    monkeypatch.setattr(studio, "_check_docking_conflict", lambda _: worker("conflict", ("", "")))
+    monkeypatch.setattr(studio, "_submit_docking", lambda *_: worker("submit", {
+        "job_ids": {"vina": "slow-docking"}, "params": params, "receptor_ids": [1],
+    }))
+    try:
+        QTest.mouseClick(studio.run_button, Qt.LeftButton)
+        wait_until(app, entered.is_set)
+        heartbeat = []
+        QTimer.singleShot(0, lambda: heartbeat.append(True))
+        wait_until(app, lambda: bool(heartbeat))
+        assert not studio.run_button.isEnabled()
+        # Submission ends the tutorial; only the conflict check runs before it.
+        assert tutorial.controller.is_active == (slow_step == "conflict")
+    finally:
+        release.set()
+        wait_until(app, lambda: studio.run_button.isEnabled())
+    wait_until(app, lambda: bool(messages))
+    assert not tutorial.controller.is_active and tutorial.pending == {}
+    assert window.central_widget.current_view_id() == COMPLEXES_VIEW_ID
+    assert messages == ["Tutorial completed"]
 
 
 def test_import_finishing_while_on_the_previous_step_is_not_lost(practice, monkeypatch):
