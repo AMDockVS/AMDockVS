@@ -2,7 +2,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QStatusBar, QWidget
 
-from ms_components.ms_monitor.job_cards import GlowBar
+from ms_components.ms_monitor.jobs import GlowBar
 from ms_components.theme import color
 
 
