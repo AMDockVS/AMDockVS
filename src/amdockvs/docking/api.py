@@ -75,7 +75,7 @@ from amdockvs.docking.shard_jobs import (
 )
 from amdockvs.molecules.storage import has_shards
 from amdockvs.screening.materialize import PAYLOAD_LIGHT
-from amdockvs.screening.campaign import list_targets, live_target_progress
+from amdockvs.docking.results.tables import receptor_progress
 from amdockvs.docking.preparation.jobs import (
     PreparationJobParams,
     PrepareLigandShardsJobParams,
@@ -186,12 +186,15 @@ class DockingAPI:
         self,
         *,
         job_ids: list[str] | tuple[str, ...] = (),
-    ) -> dict[int, dict[str, int]]:
-        """Current per-receptor totals of what is written."""
+        receptor_ids: list[int] | tuple[int, ...] = (),
+        protocol_hash: str = "",
+    ) -> dict[int, dict[str, Any]]:
+        """Ligands/docked/state of these receptors for one program ("" = summed over all)."""
         self.runtime._require_active_project()
         # ponytail: the engine does not list the chunks a job has in flight, so the totals count
         # what is written; `job_ids` comes back when it does.
-        return live_target_progress(list_targets(self.runtime.workspace.project_db), [])
+        cells = receptor_progress(self.runtime.workspace.project_db, receptor_ids, protocol_hash)
+        return {receptor_id: {**values, "docked": values.pop("progress")} for receptor_id, values in cells.items()}
 
     def recoverable_ranked_runs(self) -> list[dict[str, Any]]:
         """Interrupted top-N campaigns recoverable from completed result shards."""

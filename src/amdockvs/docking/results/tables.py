@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from functools import partial
 
-from sqlalchemy import distinct, exists, func, or_, select
+from sqlalchemy import String, cast, distinct, exists, func, literal, or_, select
 from sqlalchemy.orm import aliased
 
 from ms_components.ms_table.table_config import (
@@ -73,11 +73,6 @@ def _receptor_result_count(*, completed: bool = False):
 
 _RECEPTOR_DOCKED = _receptor_result_count()
 _RECEPTOR_DONE = _receptor_result_count(completed=True)
-_EXPECTED_LIGANDS = (
-    select(func.count(distinct(DockingResultRecord.ligand_molecule_id)))
-    .where(_run_kind() != "redocking")
-    .scalar_subquery()
-)
 _RECEPTOR_HAS_RESULTS = exists(
     select(DockingResultRecord.id).where(
         DockingResultRecord.receptor_molecule_id == MoleculeRecord.id,
@@ -86,34 +81,126 @@ _RECEPTOR_HAS_RESULTS = exists(
 )
 
 
-def _plan_field(column: str):
-    """A column of this receptor's latest campaign plan row, or NULL if it never had one.
+def _docked_of(receptor_id, protocol_hash):
+    """Distinct ligands with a result for this receptor from any run of this program.
+
+    By program, not by run: a later run skips the pairs an earlier one already docked."""
+    result, run = aliased(DockingResultRecord), aliased(DockingRun)
+    return (
+        select(func.count(distinct(result.ligand_molecule_id)))
+        .where(
+            result.receptor_molecule_id == receptor_id,
+            result.docking_run_id.in_(
+                select(run.id).where(run.protocol_hash == protocol_hash, run.run_kind != "redocking")
+            ),
+        )
+        .scalar_subquery()
+    )
+
+
+def _latest_plans(protocol_hash: str):
+    """Ids of this receptor's latest plan row of each program, or of the one program given.
 
     The plan is one row per (run, receptor) written when the run is submitted and counted up
-    by the parent — so "how many ligands, how many done" is a single indexed lookup instead
-    of counting distinct ligands in `docking_results` for every receptor on screen.
+    by the parent — so "how many ligands, how many done" is an indexed lookup instead of
+    counting distinct ligands in `docking_results` for every receptor on screen.
     """
-    target = aliased(ScreeningTarget)
+    target, run = aliased(ScreeningTarget), aliased(DockingRun)
+    statement = (
+        select(func.max(target.id))
+        .select_from(target)
+        .join(run, run.id == target.docking_run_id)
+        .where(target.receptor_molecule_id == MoleculeRecord.id, run.run_kind != "redocking")
+    )
+    if protocol_hash:
+        statement = statement.where(run.protocol_hash == protocol_hash)
+    return statement.group_by(run.protocol_hash).correlate(MoleculeRecord)
+
+
+def _over_plans(protocol_hash: str, value, aggregate=func.sum):
+    """`aggregate(value(plan, run))` over the latest plans; NULL when the receptor has none."""
+    target, run = aliased(ScreeningTarget), aliased(DockingRun)
     return (
-        select(getattr(target, column))
-        .where(target.receptor_molecule_id == MoleculeRecord.id)
-        .order_by(target.id.desc())
+        select(aggregate(value(target, run)))
+        .select_from(target)
+        .join(run, run.id == target.docking_run_id)
+        .where(target.id.in_(_latest_plans(protocol_hash)))
+        .correlate(MoleculeRecord)
+        .scalar_subquery()
+    )
+
+
+def _plan_docked(target, run):
+    # Campaigns count `ligands_done` (their non-hits leave no row); row-mode runs plan with 0
+    # and write a row per docked pair, so the larger of the two is right for both.
+    return func.max(target.ligands_done, _docked_of(target.receptor_molecule_id, run.protocol_hash))
+
+
+_STOPPED = (TargetState.FAILED, TargetState.CANCELED)
+
+
+def _plan_state(protocol_hash: str):
+    """The latest plan's state; over several programs a stopped one wins, so the bar is red."""
+    target, run = aliased(ScreeningTarget), aliased(DockingRun)
+    return (
+        select(target.state)
+        .where(target.id.in_(_latest_plans(protocol_hash)))
+        .order_by(target.state.in_(_STOPPED).desc(), target.id.desc())
         .limit(1)
         .correlate(MoleculeRecord)
         .scalar_subquery()
     )
 
 
+def _results_of(protocol_hash: str):
+    """Distinct ligands with a result for this receptor (of one program)."""
+    if protocol_hash:
+        return _docked_of(MoleculeRecord.id, protocol_hash).correlate(MoleculeRecord)
+    return _RECEPTOR_DOCKED
+
+
+def receptor_progress_columns(protocol_hash: str = "") -> dict:
+    """The receptor pane's Ligands/Docked/state of one program, or summed over every program.
+
+    Each program counts its own latest plan, so "All" is the sum of what each program planned
+    and docked and a finished program alone reads 100 %.
+    """
+    # ponytail: plan first, results second. A run knows its own totals; a project docked the
+    # old way has no plan rows, and there the result counts are what it already paid.
+    expected = (
+        select(func.count(distinct(DockingResultRecord.ligand_molecule_id)))
+        .where(_run_kind() != "redocking",
+               *([_run_field("protocol_hash") == protocol_hash] if protocol_hash else []))
+        .scalar_subquery()
+    )
+    columns = {
+        "ligands": func.coalesce(_over_plans(protocol_hash, lambda target, _run: target.ligands_total), expected),
+        "progress": func.coalesce(_over_plans(protocol_hash, _plan_docked), _results_of(protocol_hash)),
+        "run_state": _plan_state(protocol_hash),
+        "per_program": literal(None, String),
+    }
+    if not protocol_hash:
+        columns["per_program"] = _over_plans("", lambda target, run: (
+            run.protocol_label + "\t" + cast(_plan_docked(target, run), String)
+            + "\t" + cast(target.ligands_total, String)
+        ), aggregate=lambda line: func.group_concat(line, "\n"))
+    return columns
+
+
+def receptor_progress(project_db, receptor_ids=(), protocol_hash: str = "") -> dict[int, dict]:
+    """The same Ligands/Docked/state cells, to patch a live table in place: of these receptors,
+    or of every receptor a run planned (how a newly planned one is noticed)."""
+    columns = receptor_progress_columns(protocol_hash)
+    statement = select(MoleculeRecord.id, *(expr.label(name) for name, expr in columns.items())).where(
+        MoleculeRecord.id.in_([int(value) for value in receptor_ids]) if receptor_ids else _RECEPTOR_SCHEDULED)
+    with project_db.get_session() as session:
+        return {int(row.id): {name: getattr(row, name) for name in columns}
+                for row in session.execute(statement)}
+
+
 _RECEPTOR_SCHEDULED = exists(
     select(ScreeningTarget.id).where(ScreeningTarget.receptor_molecule_id == MoleculeRecord.id)
 )
-# ponytail: plan first, results second. A campaign knows its own totals; a project docked the
-# old way has no plan rows, and there the correlated counts above are what it already paid.
-_LIGANDS = func.coalesce(_plan_field("ligands_total"), _EXPECTED_LIGANDS)
-# Campaigns count `ligands_done` (their non-hits leave no row); row-mode runs plan with 0 and
-# write a row per docked pair, so the larger of the two is right for both.
-# ponytail: pays the per-receptor result count on campaign rows too; cheap while hits are capped.
-_DOCKED = func.max(func.coalesce(_plan_field("ligands_done"), 0), _RECEPTOR_DOCKED)
 
 
 def _pose_count_expr():
@@ -133,25 +220,33 @@ def _pose_count_expr():
 def _progress_tooltip(row: dict) -> str:
     ligands = int(row.get("ligands") or 0)
     docked = int(row.get("progress") or 0)
-    return f"{docked:,} of {ligands:,} ligands docked, {max(ligands - docked, 0):,} pending"
+    text = f"{docked:,} of {ligands:,} ligands docked, {max(ligands - docked, 0):,} pending"
+    each = [line.split("\t") for line in str(row.get("per_program") or "").splitlines()]
+    if len(each) < 2:
+        return text
+    return text + "\n" + "".join(f"\n{label}: {int(done):,} of {int(total):,}" for label, done, total in sorted(each))
 
 
 def _progress_tone(row: dict) -> str:
     """Red when this receptor's latest run stopped before the end, failed or canceled."""
-    return "red" if row.get("run_state") in (TargetState.FAILED, TargetState.CANCELED) else "green"
+    return "red" if row.get("run_state") in _STOPPED else "green"
 
 
-def results_receptor_config() -> TableConfig:
+def results_receptor_config(protocol_hash: str = "") -> TableConfig:
+    """`protocol_hash` scopes Ligands/Docked to one program; swap them with
+    `receptor_progress_columns` when the program filter changes."""
+    progress = receptor_progress_columns(protocol_hash)
     return TableConfig(
         model_class=MoleculeRecord,
         columns=[
             ColumnDef("name", label="Receptor", width=120),
             ColumnDef("ligands", label="Ligands", kind=ColumnKind.INTEGER, align=AlignHint.RIGHT,
-                      expr=_LIGANDS, width=75, sortable=False),
+                      expr=progress["ligands"], width=75, sortable=False),
             ColumnDef("progress", label="Docked", kind=ColumnKind.PROGRESS, progress_max="ligands",
-                      expr=_DOCKED, width=160, sortable=False, filterable=False, tooltip=_progress_tooltip,
-                      progress_tone=_progress_tone),
-            ColumnDef("run_state", visible=False, expr=_plan_field("state"), sortable=False),
+                      expr=progress["progress"], width=160, sortable=False, filterable=False,
+                      tooltip=_progress_tooltip, progress_tone=_progress_tone),
+            ColumnDef("run_state", visible=False, expr=progress["run_state"], sortable=False),
+            ColumnDef("per_program", visible=False, expr=progress["per_program"], sortable=False),
             ColumnDef("scored", label="Scored", visible=False, kind=ColumnKind.INTEGER,
                       align=AlignHint.RIGHT, expr=_RECEPTOR_DONE, width=65, sortable=False),
             # A receptor a run scheduled belongs here from the moment it is scheduled: in a
@@ -198,7 +293,9 @@ def results_ligand_config() -> TableConfig:
                       align=AlignHint.RIGHT, formatter=fmt_float, width=65),
             ColumnDef("pose_count", label="Poses", kind=ColumnKind.INTEGER, align=AlignHint.RIGHT,
                       expr=_pose_count_expr(), width=65),
-            ColumnDef("protocol_label", label="Protocol", visible=False, expr=_run_field("protocol_label")),
+            # Shown only under "All programs": a ligand docked by two programs is two rows.
+            ColumnDef("protocol_label", label="Program", visible=False, expr=_run_field("protocol_label"),
+                      width=110),
             ColumnDef("protocol_hash", visible=False, expr=_run_field("protocol_hash")),
             ColumnDef("run_id", visible=False, expr=_run_field("run_id")),
             ColumnDef("run_kind", visible=False, expr=_run_kind()),
@@ -214,7 +311,7 @@ def results_ligand_config() -> TableConfig:
         page_size=100,
         load_mode=TableLoadMode.INFINITE,
         infinite_cache_pages=2,
-        multi_select=False,
+        multi_select=True,  # several rows side by side in PyMOL
         show_filters=False,
         show_search=False,
         empty_message="No ligands for this receptor and filter scope",
@@ -347,7 +444,7 @@ def results_pose_config() -> TableConfig:
         page_size=20,
         load_mode=TableLoadMode.INFINITE,
         infinite_cache_pages=2,
-        multi_select=False,
+        multi_select=True,  # several rows side by side in PyMOL
         show_filters=False,
         show_search=False,
         empty_message="No poses for this ligand",

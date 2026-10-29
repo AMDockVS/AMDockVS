@@ -47,7 +47,22 @@ class MolecularViewerController:
                 return
         elif column.field == "target_score" or column.field.startswith("ddg_"):
             return  # Off-target score cells edit a pose inside the existing comparison.
-        self.select_table_row(view, additive=bool(modifiers & Qt.ShiftModifier))
+        # Shift (a range) and Ctrl (one more row) add to the selection, so they add to the scene.
+        additive = bool(modifiers & (Qt.ShiftModifier | Qt.ControlModifier))
+        if not additive and self._repeat_click(view, index):
+            return
+        self.select_table_row(view, additive=additive)
+
+    def _repeat_click(self, view, index) -> bool:
+        """The row pressed is the one row selected, the scene shows only what that row put there
+        and still shows it: nothing will change, so the scene, camera and styles stay."""
+        dock = self.w.pymol_dock
+        cmd = getattr(dock, "cmd", None)
+        if (cmd is None or view is not getattr(dock, "_amdock_selection_table", None)
+                or getattr(dock, "_amdock_accumulated", False)):
+            return False
+        rows = view.selectionModel().selectedRows()
+        return len(rows) == 1 and rows[0].row() == index.row() and bool(cmd.get_names("objects"))
 
     # -- reading structures --------------------------------------------------------
 
@@ -71,6 +86,7 @@ class MolecularViewerController:
         if not additive:
             self.clear_scene()
         dock._amdock_selection_table = table
+        dock._amdock_accumulated = additive
         set_additive(dock, True)  # Replacement already cleared the scene above.
 
     def clear_scene(self) -> None:
@@ -243,6 +259,14 @@ class MolecularViewerController:
             ligand += f"_{hit.receptor_id}{suffix}"
         return receptor, ligand
 
+    def shows_hit(self, hit: DockingHitSummary) -> bool:
+        """This pose is on screen already, with its receptor: loading it again would only reset
+        the camera and the styles."""
+        cmd = getattr(self.w.pymol_dock, "cmd", None)
+        receptor_obj, ligand_obj = self._pose_objects(hit)
+        return (cmd is not None and self._holds(cmd, receptor_obj) and self._holds(cmd, ligand_obj)
+                and self._loaded.get(ligand_obj) == (hit.pose_payload_id or hit.ligand_payload_id))
+
     def _on_pose(self, hit: DockingHitSummary, draw) -> None:
         cmd = getattr(self.w.pymol_dock, "cmd", None)
         receptor_obj, ligand_obj = self._pose_objects(hit)
@@ -310,6 +334,7 @@ class MolecularViewerController:
                     cmd.delete(interaction_group(receptor_obj, ligand_obj))
                 if "pose" in found:
                     load_structure(cmd, found["pose"], ligand_obj)  # each pose is its own payload: one state
+                    self._loaded[ligand_obj] = wanted["pose"]
                     try:
                         cmd.show("sticks", ligand_obj)
                         apply_ligand_atom_coloring(cmd, ligand_obj)

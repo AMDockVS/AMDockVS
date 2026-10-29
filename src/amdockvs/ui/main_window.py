@@ -593,6 +593,8 @@ class AMDockVSMainWindow(QMainWindow):
     # -- PyMOL viewer ---------------------------------------------------------------
 
     def load_hit_in_pymol(self, hit: DockingHitSummary, pose_rank: int = 1) -> None:
+        if self.viewer.shows_hit(hit):
+            return  # a repeat click: keep the camera, the styles and the diagram's view
         self.viewer.load_hit(hit, pose_rank)
         # The 2D diagram follows the same selection; it only reads a file path, so this is free
         # even when the dock is hidden.
