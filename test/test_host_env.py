@@ -37,12 +37,13 @@ def test_the_engine_asks_the_app_for_the_env_of_a_host_and_a_busy_one_is_not_cha
     def ensure(recipe, host, busy):
         ended = Future()
         ended.set_exception(RuntimeError(busy())) if busy and busy() else ended.set_result(None)
-        return type("Install", (), {"future": ended, "lines": ["a line"], "done": 1, "total": 1})
+        return type("Install", (), {"future": ended, "lines": ["a line"], "done": 1, "total": 1, "step": ""})
 
     said = []
     monkeypatch.setattr(hosts, "host_recipes", lambda host, runtime, install: [Recipe])
     monkeypatch.setattr(hosts, "ensure", ensure)
-    assert hosts.prepare_host("pc2", said.append) == "/there/env" and said == ["a line", "[1/1] preparing pc2"]
+    assert hosts.prepare_host("pc2", said.append) == "/there/env" and said == [
+        "[0/0] pc2: reading what runs here", "a line", "[1/1] pc2: ready"]
     try:
         hosts.prepare_host("pc2", said.append, busy=lambda: "2 jobs run there")
         raise AssertionError("changed under its jobs")

@@ -47,11 +47,12 @@ def prepare_host(address: str, on_line: Callable[[str], None] = print, runtime=N
     """Give the machine `ssh` reaches at `address` what it needs to run the jobs of this app,
     making or updating only what is not as it is here. Returns the path of the environment there.
 
-    Every recipe is checked at once (ms_env installs them one at a time); a line `[done/total] …`
-    says how far it got, in steps. Blocks, for minutes the first time. Raises what the first
+    Every recipe is checked at once (ms_env installs them one at a time); a line `[done/total] what`
+    says how far it got, in steps, and what it is doing (`[0/0] …`: nothing to count yet). Blocks, for minutes the first time. Raises what the first
     recipe that failed raised: one of them is that something there would be changed while
     `busy` says jobs run from it.
     """
+    on_line(f"[0/0] {address}: reading what runs here")  # building its wheels takes seconds
     host = Host(address)
     kept = runtime.workspace.settings_manager.settings.hosts.values() if runtime is not None else ()
     install = next((getattr(kept_host, "install", None) for kept_host in kept if kept_host.address == address), None)
@@ -65,10 +66,11 @@ def prepare_host(address: str, on_line: Callable[[str], None] = print, runtime=N
             said[index] += len(lines)
             for line in lines:
                 on_line(line)
-        progress = (sum(each.done for each in installs), sum(each.total for each in installs))
+        doing = next((each.step for each in installs if each.step), f"{address}: " + ("ready" if ended else "checking"))
+        progress = (sum(each.done for each in installs), sum(each.total for each in installs), doing)
         if progress != shown:
             shown = progress
-            on_line(f"[{progress[0]}/{progress[1]}] preparing {address}")
+            on_line("[{}/{}] {}".format(*progress))
         if ended:
             break
         time.sleep(0.5)
