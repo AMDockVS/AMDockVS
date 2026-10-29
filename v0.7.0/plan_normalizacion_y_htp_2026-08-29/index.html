@@ -1,0 +1,1408 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Virtual screening, molecular preparation, QSAR, and docking with MolSuite.">
+      
+      
+        <meta name="author" content="AMDockVS authors">
+      
+      
+        <link rel="canonical" href="https://amdockvs.github.io/AMDockVS/latest/plan_normalizacion_y_htp_2026-08-29/">
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../images/favicon.svg">
+      <meta name="generator" content="zensical-0.0.73">
+    
+    
+      
+        <title>Plan: normalización de jobs + modo HTP - AMDockVS</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../assets/stylesheets/modern/main.4ab2de0c.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../assets/stylesheets/modern/palette.b60ce83d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-hidden="true"></label>
+    <div data-md-component="skip">
+      <a href="#__skip" class="md-skip">
+        Skip to content
+      </a>
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="./.." title="AMDockVS" class="md-header__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+      <span class="md-visually-hidden">Navigation</span>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AMDockVS
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Plan: normalización de jobs + modo HTP
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+          <span class="md-visually-hidden">Search</span>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="./.." title="AMDockVS" class="md-nav__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    AMDockVS
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../runtime_api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API guide
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../data_and_export/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Data and export
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Examples
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#estado-de-partida-lo-ya-cerrado-no-repetir" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Estado de partida (lo ya cerrado, no repetir)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-normalizar-la-fuente-de-chunks-inputsource-y-variantes" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        §1 — Normalizar la fuente de chunks (<code>InputSource</code> y variantes)
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="§1 — Normalizar la fuente de chunks (InputSource y variantes)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#el-problema" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        El problema
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#el-patron-unico" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        El patrón único
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#el-trabajo-real-hay-dos-puertas-de-iteracion-no-una" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        El trabajo real: hay dos puertas de iteración, no una
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#el-nombre" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        El nombre
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tareas-1-cerrado-2026-08-29" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Tareas — <strong>§1 CERRADO (2026-08-29)</strong>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-nucleos-puros" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        §2 — Núcleos puros
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="§2 — Núcleos puros">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#por-que-importa-palabras-del-usuario" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Por qué importa (palabras del usuario)
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#referencias-que-ya-cumplen" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Referencias que ya cumplen
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cerrado" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Cerrado
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-salidas-table_sink-y-graph_sink-se-quedan-separados" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        §3 — Salidas: <code>table_sink</code> y <code>graph_sink</code> se quedan separados
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="§3 — Salidas: table_sink y graph_sink se quedan separados">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#3a-pockets-si-declara-un-sink-lo-que-sobraba-era-la-reconciliacion" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        3.a — pockets sí declara un sink; lo que sobraba era la reconciliación
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#file_sink-y-el-modo-htp" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>file_sink</code> y el modo HTP
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-shards-con-offsets-preparacion-y-resultados-intermedios" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        §4 — Shards con offsets (preparación y resultados intermedios)
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="§4 — Shards con offsets (preparación y resultados intermedios)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#la-idea-de-donde-viene" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        La idea, de dónde viene
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#el-formato" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        El formato
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#la-regla-que-lo-hace-funcionar-sin-locks" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        La regla que lo hace funcionar sin locks
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tareas" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Tareas
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-modo-htp" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        §5 — Modo HTP
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="§5 — Modo HTP">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#decision-del-usuario-literal" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Decisión del usuario, literal
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#arquitectura-un-embudo-con-punto-de-promocion" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Arquitectura: un embudo con punto de promoción
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tareas_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Tareas
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lo-que-no-se-hace-aqui" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Lo que NO se hace aquí
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-clustering-como-mapreduce-cuando-5-exista" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        §6 — Clustering como map/reduce (cuando 5 exista)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#orden-de-ejecucion-sugerido" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Orden de ejecución sugerido
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#referencias" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Referencias
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+              
+              <article class="md-content__inner md-typeset">
+                <a id="__skip" tabindex="-1"></a>
+                
+                  
+
+  
+  
+
+
+<h1 id="plan-normalizacion-de-jobs-modo-htp">Plan: normalización de jobs + modo HTP<a class="headerlink" href="#plan-normalizacion-de-jobs-modo-htp" title="Permanent link">&para;</a></h1>
+<p>Fecha: 2026-08-29
+Origen: continuación de <code>plan_acceso_datos_2026-08-27.md</code> (Fases 1 y 2 cerradas) y de la revisión
+de memoria del 2026-08-28/29.</p>
+<h2 id="estado-de-partida-lo-ya-cerrado-no-repetir">Estado de partida (lo ya cerrado, no repetir)<a class="headerlink" href="#estado-de-partida-lo-ya-cerrado-no-repetir" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Hecho</th>
+<th>Dónde</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Subconsultas en <strong>los dos</strong> compiladores de filtros de ms_flow</td>
+<td><code>sqlite_utils.compile_filters</code>, <code>project._model_filter_expressions</code> vía <code>subquery_clause()</code></td>
+</tr>
+<tr>
+<td><code>NOT IN</code> NULL-safe (envoltura sin correlacionar)</td>
+<td><code>sqlite_utils.compile_subquery_sql(null_safe=True)</code></td>
+</tr>
+<tr>
+<td>Los 4 sitios que materializaban ids → subconsultas</td>
+<td><code>chemistry/repository.py</code>, <code>qsar/jobs.py</code>, <code>filtering/sql.py</code>, <code>molecules/api.py</code></td>
+</tr>
+<tr>
+<td>Specs de scope en hogar neutral</td>
+<td><code>amdock/scopes.py::molecule_set_spec</code>, <code>prepared_molecules_spec</code></td>
+</tr>
+<tr>
+<td>Payload de clustering por referencia (69 GB → ~300 B)</td>
+<td><code>selection/jobs.py::_write_packed_fingerprints</code>, <code>clustering.PackedFingerprints</code></td>
+</tr>
+</tbody>
+</table>
+<p>Techo declarado que <strong>no</strong> se toca en este plan: el task de clustering devuelve <code>assignments</code>
+como lista (~300 B/mol) porque ese es el contrato de un task. Se resuelve con §3, no antes.</p>
+<p>Regla que sigue vigente y gobierna todo lo de abajo:</p>
+<blockquote>
+<p><strong>AMDock declara <code>QuerySpec</code>. Solo ms_flow traduce a SQL.</strong>
+<strong>Nada se materializa en Python si la db lo resuelve.</strong>
+<strong>La memoria de un job no depende del número total de elementos programados.</strong></p>
+</blockquote>
+<hr />
+<h2 id="1-normalizar-la-fuente-de-chunks-inputsource-y-variantes">§1 — Normalizar la fuente de chunks (<code>InputSource</code> y variantes)<a class="headerlink" href="#1-normalizar-la-fuente-de-chunks-inputsource-y-variantes" title="Permanent link">&para;</a></h2>
+<h3 id="el-problema">El problema<a class="headerlink" href="#el-problema" title="Permanent link">&para;</a></h3>
+<p>Cada herramienta inventó su feed. Hoy conviven cinco formas de hacer lo mismo:</p>
+<table>
+<thead>
+<tr>
+<th>Herramienta</th>
+<th>Feed actual</th>
+<th>Estado</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>docking</td>
+<td><code>molecule_scope_spec</code> + <code>db_pages</code> + <code>iter_docking_batches</code></td>
+<td><strong>patrón de referencia</strong></td>
+</tr>
+<tr>
+<td>selection</td>
+<td><code>_scope_spec</code> + <code>db_pages</code> + <code>batched</code></td>
+<td>conforme (desde 2026-08-29)</td>
+</tr>
+<tr>
+<td>qsar</td>
+<td><code>stream_keyset</code> + <code>batched</code></td>
+<td>conforme (desde 2026-08-29)</td>
+</tr>
+<tr>
+<td>chemistry</td>
+<td><code>stream_keyset</code> + bucle de lotes a mano ×2</td>
+<td>a alinear</td>
+</tr>
+<tr>
+<td>preparación</td>
+<td><code>_rows_for_preparation</code> + <code>batched</code> + chunk a mano</td>
+<td>a alinear</td>
+</tr>
+<tr>
+<td>pockets</td>
+<td>recorrido propio, sin spec</td>
+<td>a alinear</td>
+</tr>
+<tr>
+<td>import</td>
+<td><code>iter_import_chunks</code> (archivos, no db)</td>
+<td>caso aparte, ver §4</td>
+</tr>
+</tbody>
+</table>
+<h3 id="el-patron-unico">El patrón único<a class="headerlink" href="#el-patron-unico" title="Permanent link">&para;</a></h3>
+<p><strong>Una sola función por herramienta.</strong> El iterador ya existe y es global; no se envuelve:</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">scope_spec</span><span class="p">(</span><span class="n">params</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">QuerySpec</span><span class="p">:</span>   <span class="c1"># qué filas: todo el WHERE, subconsultas incluidas</span>
+</code></pre></div>
+<p>y el job hace <code>for batch in batched(db_pages(db, scope_spec(p), page_size=n), n): ...</code>.</p>
+<p>Lo único específico de cada herramienta es <strong>el WHERE</strong>. Iterar y contar no lo son: son
+<code>db_pages</code> / <code>db_count</code>, ya en <code>ms_flow.query</code>. <code>selection</code> sí tiene hoy
+<code>scope_molecule_rows</code> / <code>scope_molecule_count</code>, pero eso es una conveniencia local (tres
+llamantes en <code>selection/api.py</code> que comparten <code>page_size</code>), <strong>no un patrón a replicar</strong>.</p>
+<h3 id="el-trabajo-real-hay-dos-puertas-de-iteracion-no-una">El trabajo real: hay dos puertas de iteración, no una<a class="headerlink" href="#el-trabajo-real-hay-dos-puertas-de-iteracion-no-una" title="Permanent link">&para;</a></h3>
+<p>Este es el problema de fondo que el §1 anterior no nombraba:</p>
+<table>
+<thead>
+<tr>
+<th>Puerta</th>
+<th>Firma</th>
+<th>Quién la usa</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ms_flow.query.db_pages</code></td>
+<td><code>QuerySpec</code> (declarativa, serializable)</td>
+<td>docking, selection, molecules</td>
+</tr>
+<tr>
+<td><code>ProjectStore.stream_keyset</code></td>
+<td>modelo SQLModel + <code>filters</code> sueltos</td>
+<td>qsar, chemistry</td>
+</tr>
+</tbody>
+</table>
+<p>Las dos hacen keyset y las dos consumen memoria constante, así que ninguna está <em>mal</em>. Pero son
+dos compiladores de filtros distintos — es exactamente la duplicación que obligó a parchear los
+dos (<code>compile_filters</code> y <code>_model_filter_expressions</code>) para las subconsultas. <strong>Converger en
+<code>QuerySpec</code></strong>, que es la que la regla exige (declarativa, sin SQL en AMDock, serializable a un
+payload). <code>stream_keyset</code> se queda como la implementación interna, no como API para las
+herramientas.</p>
+<h3 id="el-nombre">El nombre<a class="headerlink" href="#el-nombre" title="Permanent link">&para;</a></h3>
+<p>Los nombres viejos (<code>project_rows</code> / <code>project_count</code> / <code>project_pages</code> / <code>project_stream</code>) leían
+como si operaran sobre <em>proyectos de mf</em>, cuando lo que hacen es leer de la base del proyecto.
+Renombrados a <code>db_rows</code> / <code>db_count</code> / <code>db_pages</code> / <code>db_stream</code> en <code>ms_flow/query.py</code>. Son 81 llamadas en los
+tres repos, mecánico, un solo commit.</p>
+<h3 id="tareas-1-cerrado-2026-08-29">Tareas — <strong>§1 CERRADO (2026-08-29)</strong><a class="headerlink" href="#tareas-1-cerrado-2026-08-29" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Archivo</th>
+<th>Acción</th>
+<th>Estado</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1.a</td>
+<td><code>chemistry/jobs.py</code></td>
+<td>Las dos feeds acumulaban a mano y duplicaban el bloque de vaciado final. Colapsadas en <code>_chemistry_batches</code> con <code>itertools.batched</code>. ~105 → ~70 líneas.</td>
+<td>hecho</td>
+</tr>
+<tr>
+<td>1.b</td>
+<td><code>docking/preparation_jobs.py</code></td>
+<td>Expone <code>scope_spec(params, entity_kind=...)</code>. Documenta por qué su conteo es un <strong>techo</strong> y no un total: el feed descarta además lo ya preparado <em>en disco</em>, que no es una consulta. Por eso no declara <code>total_chunks</code>.</td>
+<td>hecho</td>
+</tr>
+<tr>
+<td>1.c</td>
+<td><code>pockets/jobs.py</code></td>
+<td>Expone <code>scope_spec(params)</code>; el feed pasa de <code>db_rows</code> (materializaba todo) a <code>db_pages</code>.</td>
+<td>hecho</td>
+</tr>
+<tr>
+<td>1.d</td>
+<td><code>qsar/jobs.py</code>, <code>chemistry/repository.py</code></td>
+<td>De <code>stream_keyset</code> a <code>scope_spec</code> + <code>db_pages</code>. <strong>Cierra la segunda puerta</strong>: ya no queda ninguna herramienta sobre el compilador SQLModel.</td>
+<td>hecho</td>
+</tr>
+<tr>
+<td>1.e</td>
+<td><code>ms_flow/query.py</code> + 14 archivos</td>
+<td><code>project_*</code> → <code>db_*</code>.</td>
+<td>hecho</td>
+</tr>
+</tbody>
+</table>
+<p>Estado final: <strong>todas las herramientas declaran <code>scope_spec(...) -&gt; QuerySpec</code> y nada más.</strong>
+Contar es <code>db_count(db, scope_spec(p))</code>; iterar es <code>db_pages(db, scope_spec(p), page_size=n)</code>;
+trocear es <code>itertools.batched</code>. <code>stream_keyset</code> queda como implementación interna de ms_flow.</p>
+<p><strong>Check:</strong> <code>test/test_scope_feed_agreement.py</code> — por herramienta, <code>db_count(db, scope_spec(p))</code>
+contra <code>sum(len(chunk[...]) for chunk in feed(...))</code>. Si divergen, el scope y el feed no dicen
+lo mismo y <code>total_chunks</code> quedaría mal declarado.</p>
+<hr />
+<h2 id="2-nucleos-puros">§2 — Núcleos puros<a class="headerlink" href="#2-nucleos-puros" title="Permanent link">&para;</a></h2>
+<h3 id="por-que-importa-palabras-del-usuario">Por qué importa (palabras del usuario)<a class="headerlink" href="#por-que-importa-palabras-del-usuario" title="Permanent link">&para;</a></h3>
+<blockquote>
+<p><em>"esto es crítico, porque esto está relacionado con desarrollo, mantenimiento, aislamiento, uso
+en jobs multipasos. las funciones puras son independientes de la mecánica de funcionamiento,
+solo les importa el input y output."</em></p>
+</blockquote>
+<h3 id="referencias-que-ya-cumplen">Referencias que ya cumplen<a class="headerlink" href="#referencias-que-ya-cumplen" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>selection/clustering.py</code> — consume matrices 0/1, devuelve labels + reps + stats. Sin DB.</li>
+<li><code>htp/screening.py</code> — <code>HTPFilterConfig</code> + <code>evaluate_mol</code>, cadena barato→caro.</li>
+</ul>
+<h3 id="cerrado">Cerrado<a class="headerlink" href="#cerrado" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Módulo</th>
+<th>Qué se hizo</th>
+<th>Estado</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2.a</td>
+<td>~~<code>pockets/reconcile.py</code> (nuevo)~~</td>
+<td>Existió y <strong>se borró entero</strong>: la predicción pasó a ser aditiva, así que no hay nada que reconciliar. Ver §3.a.</td>
+<td>superado</td>
+</tr>
+<tr>
+<td>2.b</td>
+<td><code>io/rows.py</code> (nuevo)</td>
+<td><code>evaluate_ligand_mol</code> + <code>ligand_row_fields</code>: fragmentación, prep y criterios en memoria. <code>materializers.py</code> 1290 → 1170 líneas, ya solo escribe — un rechazo tardío cuesta cero ficheros.</td>
+<td>hecho</td>
+</tr>
+<tr>
+<td>2.c</td>
+<td><code>test_import_rows.py</code>, <code>test_standardization.py</code></td>
+<td>La comprobación de cada núcleo, en <code>test/</code>. (<code>test_pocket_reconcile.py</code> se borró con su módulo.)</td>
+<td>hecho</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Corrección sobre 2.c.</strong> El plan pedía un <code>_demo()</code> con <code>assert</code> dentro del módulo. Se hizo así y
+<strong>estaba mal</strong>: este repo tiene pytest y un <code>test/</code>, así que meter la comprobación en <code>src/</code> deja
+código de prueba en el paquete que se instala, y encima duplicaba lo que ya cubría
+<code>test_p2rank.py</code>. Los tres <code>_demo()</code> se convirtieron en tests de verdad y se borraron de <code>src/</code>
+(<code>reconcile.py</code> 166→105, <code>io/rows.py</code> 295→232, <code>standardization.py</code> 146→96 líneas).</p>
+<p>La regla que queda: <strong>la comprobación de un núcleo puro va en <code>test/</code>, siempre.</strong> El <code>_demo()</code>
+solo tiene sentido donde no hay suite. Queda uno pre-existente en <code>selection/clustering.py</code>
+(líneas 539-613); mismo caso, sin migrar.</p>
+<hr />
+<h2 id="3-salidas-table_sink-y-graph_sink-se-quedan-separados">§3 — Salidas: <code>table_sink</code> y <code>graph_sink</code> se quedan separados<a class="headerlink" href="#3-salidas-table_sink-y-graph_sink-se-quedan-separados" title="Permanent link">&para;</a></h2>
+<p><strong>Corrección.</strong> Una versión anterior de este plan proponía unificarlos. Estaba mal, y contradecía
+lo que ya se había mirado en el código. Se mantiene la lectura original: <strong>no se unifican.</strong></p>
+<p>Comparten <code>DbOutputSpec</code>, sí, pero <strong>el contrato de retorno del task es distinto</strong>:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th><code>table_sink</code></th>
+<th><code>graph_sink</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>devuelve el task</td>
+<td><code>list[dict]</code> (filas planas)</td>
+<td><code>dict[str, list[dict]]</code> (filas por nodo)</td>
+</tr>
+<tr>
+<td><code>DbOutputSpec</code></td>
+<td><code>table</code>, <code>columns</code>, <code>model_path</code>, <code>write_mode</code>, <code>conflict_keys</code></td>
+<td>todo eso vacío; <code>mode="graph"</code>, nodos/relaciones en <code>meta["graph"]</code></td>
+</tr>
+<tr>
+<td>ramas dedicadas</td>
+<td>—</td>
+<td><code>tasking.py:61</code>, <code>backends.py:587</code>, <code>result_handlers.py:303,310,479</code></td>
+</tr>
+</tbody>
+</table>
+<p>Los campos que usa cada uno son <strong>disjuntos</strong>, y el desvío empieza en el propio task. Un
+<code>table_sink(model=..., children=[...])</code> no borraría ninguna de esas cinco ramas: seguiría
+habiendo dos formas de retorno, solo que ahora escondidas tras una firma que finge una sola.
+Sería renombrar, no simplificar. Y forzaría a docking a declarar un grafo de un nodo.</p>
+<p>Lo que sí falta normalizar es otra cosa:</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Acción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>3.a</td>
+<td>Dar sink a <code>pockets/jobs.py</code> — <strong>hecho</strong>, pero no como estaba planteado. Ver abajo.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="3a-pockets-si-declara-un-sink-lo-que-sobraba-era-la-reconciliacion">3.a — pockets sí declara un sink; lo que sobraba era la reconciliación<a class="headerlink" href="#3a-pockets-si-declara-un-sink-lo-que-sobraba-era-la-reconciliacion" title="Permanent link">&para;</a></h3>
+<p>Este apartado decía antes que era inviable. Lo era mientras la predicción <strong>reemplazara</strong> la corrida
+anterior: había que borrar, conservar el <code>bs_index</code> de los que seguían, buscar el primer índice libre
+para los nuevos y mover el sitio activo si desaparecía el suyo. Nada de eso lo hace un sink, que solo
+escribe hacia delante.</p>
+<p>La decisión que lo deshizo no fue técnica: <strong>la predicción es aditiva</strong>. Una corrida nueva se pone al
+lado de la vieja y es el usuario quien borra lo que no quiere (<code>pockets.delete_binding_sites</code>, que
+limpia antes <code>MoleculeRecord.active_binding_site_id</code> y <code>ComplexRecord.binding_site_id</code> para no dejar
+punteros colgando). Sin borrado no hay que reservar índices; sin reservar índices no hace falta el
+<code>bs_index</code>; y sin <code>bs_index</code> la identidad de un sitio es su <code>id</code> de la db, que es lo que era desde el
+principio. Se fueron: <code>bs_index</code> y su <code>UniqueConstraint(molecule_id, bs_index)</code>,
+<code>MoleculeRecord.active_binding_site_index</code> (duplicaba la FK que ya existía),
+<code>ComplexRecord.binding_site_index</code> → <code>binding_site_id</code> (FK de verdad), <code>pockets/reconcile.py</code> entero
+y las 105 líneas de <code>_replace_receptor_predictions</code> / <code>_cleanup_output_dirs</code>.</p>
+<p><code>amdock_pocket_prediction_job</code> declara hoy <code>output_spec=table_sink(model=BindingSite,
+write_mode="bulk")</code>. El task ya devolvía las filas parseadas, así que el sink las escribe tal cual.
+En <code>finalize</code> solo queda tirar los directorios de una corrida que falló.</p>
+<p><strong>Lo que hubo que añadir en ms_flow: relaciones diferidas.</strong> El único punto donde el <code>bs_index</code> era
+imprescindible era la importación: un receptor designa su sitio activo, pero los sitios se insertan
+<em>después</em> que la molécula (necesitan su <code>molecule_id</code>), así que la FK apunta "hacia atrás" y el orden
+topológico del <code>graph_sink</code> la veía como un ciclo. Ahora una relación puede declararse
+<code>deferred: True</code>: queda fuera del orden topológico, el <code>$ref</code> se guarda durante el insert y se cierra
+con <strong>un <code>UPDATE</code> por relación dentro de la misma transacción</strong>, ya con los ids de ambos lados. El
+payload de importación designa el sitio activo por <strong>posición</strong> en su propia lista de specs
+(<code>materializers._site_ref</code>), que es el único handle que existe antes de que haya ids.</p>
+<p><strong>Checks:</strong> <code>tests/test_graph_deferred_relation.py</code> (ms_flow, mecanismo genérico + que sin <code>deferred</code>
+sigue siendo un ciclo), <code>test/test_import_binding_sites.py</code> (AMDock, el import real cierra
+<code>molecules.active_binding_site_id</code> y <code>complexes.binding_site_id</code>, y el sitio del complejo es el del
+<strong>receptor</strong> aunque el <code>complex_spec</code> viaje en la fila del ligando), <code>test/test_p2rank.py</code> (una
+segunda corrida se añade sin tocar la primera ni el sitio activo) y <code>test_job_output_specs.py</code>, cuya
+lista blanca de jobs sin sink queda ya solo con <code>amdock_diagram_job</code>.</p>
+<p><strong>Pendiente:</strong> ninguna vista llama a <code>pockets.delete_binding_sites</code> todavía; el modelo aditivo depende
+de que el usuario pueda podar corridas viejas desde la UI.</p>
+<p>| 3.b | ~~Documentar <code>file_sink(append/per_batch)</code>~~ — <strong>ya está hecho</strong>: los dos modos existen, son <strong>mutuamente excluyentes</strong> (<code>FileOutputSpec</code> lo valida), están en el docstring de <code>file_sink</code> y cubiertos por <code>tests/test_file_sink_append.py</code> (6 tests). Ver abajo. |</p>
+<h3 id="file_sink-y-el-modo-htp"><code>file_sink</code> y el modo HTP<a class="headerlink" href="#file_sink-y-el-modo-htp" title="Permanent link">&para;</a></h3>
+<p><code>file_sink</code> es el tercer sink: <code>FileOutputSpec</code> → <code>LocalFileBackend</code>. Es "una fila en la db, pero
+en disco" — su entrada es el valor de retorno del task. <strong>Un artefacto por job, no un fichero por
+elemento</strong>: los <code>.sdf</code>/<code>.pdbqt</code>/poses los siguen escribiendo los workers directos al directorio del
+proyecto. AMDock hoy no lo declara en ningún job.</p>
+<table>
+<thead>
+<tr>
+<th>Modo</th>
+<th>Qué escribe cada flush</th>
+<th>Memoria del handler</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>por defecto</td>
+<td>reescribe el fichero entero</td>
+<td><code>_file_history</code> = todo lo producido → O(N) RAM, O(N²) IO</td>
+</tr>
+<tr>
+<td><code>append=True</code></td>
+<td>solo su tanda, al final del fichero</td>
+<td>nada acumulado</td>
+</tr>
+<tr>
+<td><code>per_batch=True</code></td>
+<td><code>out.000000.sdf</code>, <code>out.000001.sdf</code>, …</td>
+<td>solo el manifiesto de rutas</td>
+</tr>
+</tbody>
+</table>
+<p><code>append</code> no admite <code>fmt="json"</code> (dos arrays JSON no concatenan) y no combina con <code>per_batch</code>.
+<code>per_batch</code> es la forma natural de un shard de §4/§5.</p>
+<p><strong>Dos huecos antes de apoyarse en esto para HTP:</strong></p>
+<ol>
+<li><code>_file_batch_index</code> es un contador del handler que <strong>arranca en 0 en cada run</strong>. Un re-run tras
+   crash reescribe <code>out.000000.sdf</code> con contenido distinto. Sirve si el re-run recomputa todo;
+   rompe en cuanto haya skip-existing por chunk. Para HTP el nombre del shard tiene que salir del
+   chunk, no del contador de flush.</li>
+<li>El manifiesto (<code>batch_paths</code>) solo viaja en el recibo del <strong>último</strong> flush y en RAM del handler.
+   Nadie lo persiste. Si el resultado del job <em>es</em> el conjunto de shards, hay que poder listarlos
+   después — glob del directorio, o una fila por shard.</li>
+</ol>
+<p><strong>§3 CERRADO (2026-08-29).</strong></p>
+<hr />
+<h2 id="4-shards-con-offsets-preparacion-y-resultados-intermedios">§4 — Shards con offsets (preparación y resultados intermedios)<a class="headerlink" href="#4-shards-con-offsets-preparacion-y-resultados-intermedios" title="Permanent link">&para;</a></h2>
+<h3 id="la-idea-de-donde-viene">La idea, de dónde viene<a class="headerlink" href="#la-idea-de-donde-viene" title="Permanent link">&para;</a></h3>
+<p>De AdaptiveFlow-VS / VirtualFlow, tomando lo bueno y descartando lo malo:</p>
+<ul>
+<li><strong>Lo bueno</strong>: la unidad de registro es la <strong>colección/shard</strong> (~1000 ligandos), <strong>no</strong> la
+  molécula. Así indexan 10⁹–10¹¹ moléculas con ficheros planos. Aplicado a nosotros: un cribado
+  de 10⁹ = 10⁶ filas de shard en SQLite (medido: ~1 s, 24 MB). <code>molecules</code> no necesita cambiar.</li>
+<li><strong>Lo malo, que no copiamos</strong>: borran y comprimen en tar por presión de espacio y de inodos. Un
+  <code>.tar.gz</code> no se puede mapear. Nosotros queremos indexación memmap <strong>sin</strong> compresión.</li>
+</ul>
+<h3 id="el-formato">El formato<a class="headerlink" href="#el-formato" title="Permanent link">&para;</a></h3>
+<p>Dos casos, dos formatos, nada más:</p>
+<table>
+<thead>
+<tr>
+<th>Dato</th>
+<th>Formato</th>
+<th>Por qué</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Ancho fijo (huellas, vectores de descriptores)</td>
+<td><code>.npy</code> bit-empaquetado + memmap</td>
+<td>medido: 0,22 s escritura / 256 MB / 18 ms para 10k filas al azar sobre 1M×2048</td>
+</tr>
+<tr>
+<td>Ancho variable (PDBQT, SDF, salidas de texto)</td>
+<td>fichero plano concatenado + <code>.idx.npy</code> de offsets int64</td>
+<td><code>read_record_span</code> ya lo lee; sin compresión, acceso O(1)</td>
+</tr>
+</tbody>
+</table>
+<p>Arrow IPC queda solo para tablas de resultados con columnas mixtas. <code>pkl</code> se descarta: no es
+mapeable y ata el formato a la versión de Python.</p>
+<h3 id="la-regla-que-lo-hace-funcionar-sin-locks">La regla que lo hace funcionar sin locks<a class="headerlink" href="#la-regla-que-lo-hace-funcionar-sin-locks" title="Permanent link">&para;</a></h3>
+<blockquote>
+<p><strong>Frontera de shard = frontera de chunk.</strong></p>
+</blockquote>
+<p>El worker es dueño de su shard: escribe su <code>.pdbqt</code> concatenado y su <code>.idx.npy</code>, y nadie más los
+toca. Sin lock, sin cola central, sin merge. Y <strong>33 M de ficheros individuales no existen nunca</strong>
+— que era la objeción real de meter un fichero por molécula.</p>
+<p>El <em>commit</em> de un shard es un <code>rename</code> de <code>shard-00042.incomplete</code> a <code>shard-00042</code> (atómico en el
+mismo filesystem). Un shard a medio escribir por una caída nunca se lee.</p>
+<h3 id="tareas">Tareas<a class="headerlink" href="#tareas" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Acción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>4.a</td>
+<td>Primitivas de shard: <code>write_record_shard(path, records) -&gt; (data_path, idx_path)</code> junto a <code>iter_record_spans</code>/<code>read_record_span</code> en <code>io/parsers/readers.py</code>.</td>
+</tr>
+<tr>
+<td>4.b</td>
+<td>Preparación (<code>docking/preparation_jobs.py</code>) escribe shards en vez de un <code>.pdbqt</code> por molécula. El chunk de docking recibe <code>(shard_path, idx_path, rango)</code>.</td>
+</tr>
+<tr>
+<td>4.c</td>
+<td><code>engines.py:474</code> (ruta python de Vina): <code>vina_obj.set_ligand_from_string(pdbqt)</code> en vez de <code>set_ligand_from_file</code>. Quita el temporal por completo. <strong>Una línea.</strong></td>
+</tr>
+<tr>
+<td>4.d</td>
+<td><code>engines.py:287</code> (ruta binaria): el temporal se queda, pero es una escritura <em>movida</em> (~3 KB a tmpfs frente a un dock de segundos). No se toca.</td>
+</tr>
+<tr>
+<td>4.e</td>
+<td>Verificar antes de 4.b si gnina/smina aceptan multi-ligando por stdin. Si sí, misma ruta que 4.c.</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Check:</strong> escribir un shard de N registros, releer cada uno por <code>read_record_span</code> y comparar
+byte a byte con el original; y matar el proceso a mitad para comprobar que el <code>.incomplete</code> no
+se lee.</p>
+<hr />
+<h2 id="5-modo-htp">§5 — Modo HTP<a class="headerlink" href="#5-modo-htp" title="Permanent link">&para;</a></h2>
+<h3 id="decision-del-usuario-literal">Decisión del usuario, literal<a class="headerlink" href="#decision-del-usuario-literal" title="Permanent link">&para;</a></h3>
+<blockquote>
+<p><em>"es mejor separar el modo htp que tiene características diferentes que adaptar todo para ese
+modo que se usará relativamente poco."</em></p>
+</blockquote>
+<p>Así que <strong>no</strong> se toca <code>molecules</code> ni el modo normal. HTP es un camino aparte que converge con el
+normal en un solo punto.</p>
+<h3 id="arquitectura-un-embudo-con-punto-de-promocion">Arquitectura: un embudo con punto de promoción<a class="headerlink" href="#arquitectura-un-embudo-con-punto-de-promocion" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>  entrada 10⁶–10⁹ mols
+        │
+        ▼
+  [shards en disco]  ← §4. La db NO ve moléculas individuales.
+        │             Registro en db = 1 fila por shard (~10⁶ filas para 10⁹ mols).
+        ▼
+  [filtro HTP]  ← htp/screening.py, barato→caro (§2 lo tiene ya)
+        │
+        ▼
+  [docking rápido sobre shards]
+        │
+        ▼
+  ══ PUNTO DE PROMOCIÓN ══   los hits (10³–10⁵) entran en `molecules` como filas normales
+        │
+        ▼
+  modo normal: rescoring, PLIP, QSAR, selección, UI
+</code></pre></div>
+<p>Lo que se registra en la db durante la fase HTP es el <strong>shard</strong>, no la molécula:</p>
+<table>
+<thead>
+<tr>
+<th>Columna</th>
+<th>Para qué</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>shard_id</code>, <code>path</code>, <code>idx_path</code></td>
+<td>dónde está</td>
+</tr>
+<tr>
+<td><code>n_records</code></td>
+<td>cuántas moléculas lleva</td>
+</tr>
+<tr>
+<td><code>state</code> (<code>pending</code>/<code>running</code>/<code>done</code>/<code>failed</code>)</td>
+<td>reanudación e idempotencia</td>
+</tr>
+<tr>
+<td><code>source_ref</code></td>
+<td>de qué fichero/lote salió</td>
+</tr>
+</tbody>
+</table>
+<p>La identidad de una molécula en fase HTP es <code>(shard_id, record_index)</code>, no un <code>molecules.id</code>.
+Un <code>molecules.id</code> solo se crea al promover. Esto es coherente con lo ya acordado: <strong>hash de
+contenido = identidad, <code>id</code> de db = localidad</strong>.</p>
+<h3 id="tareas_1">Tareas<a class="headerlink" href="#tareas_1" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Acción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>5.a</td>
+<td>Tabla <code>screening_shards</code> + su repository con <code>QuerySpec</code> (nada de SQL a mano).</td>
+</tr>
+<tr>
+<td>5.b</td>
+<td>Feed HTP = <code>db_pages</code> sobre <code>screening_shards</code> con <code>state='pending'</code>. Mismo patrón del §1: el scope es un WHERE.</td>
+</tr>
+<tr>
+<td>5.c</td>
+<td>Idempotencia por shard: un shard <code>done</code> no se recalcula. Es el mismo patrón "¿existen ya las salidas?" que <code>docking-skip-existing</code>, subido de granularidad. <strong>Necesario</strong>: MF ya no lleva recibos por chunk.</td>
+</tr>
+<tr>
+<td>5.d</td>
+<td>Promoción: job que toma los hits de N shards y los inserta en <code>molecules</code> por el importador normal. A partir de ahí, todo el resto de AMDock funciona sin saber que hubo HTP.</td>
+</tr>
+<tr>
+<td>5.e</td>
+<td>La UI de HTP muestra shards y agregados, no una tabla de 10⁹ filas.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="lo-que-no-se-hace-aqui">Lo que NO se hace aquí<a class="headerlink" href="#lo-que-no-se-hace-aqui" title="Permanent link">&para;</a></h3>
+<p>Los dos casos son <strong>aplazamiento, no incompatibilidad</strong>:</p>
+<ul>
+<li><strong>Ray / HPC multinodo.</strong> Ray ya es un backend de ms_flow (<code>core/executor/ray_adapter.py</code>,
+  <code>backend_selector.py</code>), y el diseño de shards lo favorece: el payload de un chunk es una ruta,
+  no datos, que es justo lo que un backend distribuido necesita. Lo que falta no es arquitectura
+  sino operación — sistema de ficheros compartido y envío de lotes a varios nodos. Se hace
+  después de 5.a–5.c porque hasta entonces no hay shards que repartir.</li>
+<li><strong>Esquema de <code>molecules</code>.</strong> No se toca precisamente porque no hace falta: <code>screening_shards</code>
+  absorbe la escala y solo lo promovido llega a <code>molecules</code>. Si el embudo funciona, <code>molecules</code>
+  nunca ve 10⁸ filas y sus 40 campos no son un problema. Es la decisión de "separar el modo HTP"
+  llevada a su conclusión, no una limitación pendiente.</li>
+</ul>
+<hr />
+<h2 id="6-clustering-como-mapreduce-cuando-5-exista">§6 — Clustering como map/reduce (cuando 5 exista)<a class="headerlink" href="#6-clustering-como-mapreduce-cuando-5-exista" title="Permanent link">&para;</a></h2>
+<p>Hoy el clustering es un job de un chunk que referencia un <code>.npy</code> — correcto y suficiente. Cuando
+haya que clusterizar por encima de lo que cabe en un nodo, la descomposición es la que ya está
+documentada en <code>bitbirch_lean_parallel</code>:</p>
+<ol>
+<li>Job A: clusteriza cada shard por separado (paralelo real, un chunk por shard) y emite centroides.</li>
+<li>Job B: clusteriza los centroides de A.</li>
+</ol>
+<p>Se encadenan con <code>submit_job(depends_on=[job_a])</code>, <strong>no</strong> con <code>finalize</code>: <code>finalize</code> corre en el
+proceso del manager y no lo programa el planificador de tokens CPU/GPU. No hay DAG de tareas
+dentro de un job; <code>depends_on</code> es el mecanismo nativo (<code>job-auto-dependencies</code>).</p>
+<hr />
+<h2 id="orden-de-ejecucion-sugerido">Orden de ejecución sugerido<a class="headerlink" href="#orden-de-ejecucion-sugerido" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code>§1 (mecánico, desbloquea el resto)
+ └─ §2 (núcleos puros; 2.b es precondición de §4)
+     └─ §3 (sinks; 3.b necesita 2.a)
+         └─ §4 (shards; 4.c es independiente y se puede hacer ya)
+             └─ §5 (HTP)
+                 └─ §6 (clustering distribuido)
+</code></pre></div>
+<p><code>4.c</code> (<code>set_ligand_from_string</code>) no depende de nada y es una línea: se puede hacer en cualquier
+momento.</p>
+<h2 id="referencias">Referencias<a class="headerlink" href="#referencias" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>docs/plan_acceso_datos_2026-08-27.md</code> — fases 1 y 2, cerradas.</li>
+<li>Memoria: <code>subquery-scopes-everywhere</code>, <code>clustering-payload-by-reference</code>,
+  <code>htp-file-centric-plan</code>, <code>job-auto-dependencies</code>, <code>docking-skip-existing</code>,
+  <code>declared-total-chunks-is-a-floor</code>, <code>mf-domain-idempotency-contract</code>.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 AMDockVS authors
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["content.code.copy","navigation.footer","navigation.path","navigation.sections","navigation.top","search.highlight","search.suggest"],"redirect":null,"search":"../assets/javascripts/workers/search.c47bb847.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"provider":"mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.77dd0ce9.min.js"></script>
+      
+    
+  </body>
+</html>

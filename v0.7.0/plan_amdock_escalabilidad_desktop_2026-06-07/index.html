@@ -1,0 +1,1575 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Virtual screening, molecular preparation, QSAR, and docking with MolSuite.">
+      
+      
+        <meta name="author" content="AMDockVS authors">
+      
+      
+        <link rel="canonical" href="https://amdockvs.github.io/AMDockVS/latest/plan_amdock_escalabilidad_desktop_2026-06-07/">
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../images/favicon.svg">
+      <meta name="generator" content="zensical-0.0.73">
+    
+    
+      
+        <title>Plan de Escalabilidad Desktop para AMDockVS - AMDockVS</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../assets/stylesheets/modern/main.4ab2de0c.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../assets/stylesheets/modern/palette.b60ce83d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-hidden="true"></label>
+    <div data-md-component="skip">
+      <a href="#__skip" class="md-skip">
+        Skip to content
+      </a>
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="./.." title="AMDockVS" class="md-header__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+      <span class="md-visually-hidden">Navigation</span>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AMDockVS
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Plan de Escalabilidad Desktop para AMDockVS
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+          <span class="md-visually-hidden">Search</span>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="./.." title="AMDockVS" class="md-nav__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    AMDockVS
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../runtime_api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API guide
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../data_and_export/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Data and export
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Examples
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#objetivo" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Objetivo
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#alcance" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Alcance
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#restricciones-de-operacion" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Restricciones de operación
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#diagnostico-resumido" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Diagnóstico resumido
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#principios-rectores" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Principios rectores
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Principios rectores">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-query-hot-path-pequeno-y-explicito" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1. Query hot path pequeño y explícito
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-metadata-fria-compactada" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        2. Metadata fría compactada
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-artefactos-grandes-fuera-de-la-db-principal" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        3. Artefactos grandes fuera de la DB principal
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-ingestion-por-etapas" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        4. Ingestión por etapas
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-desktop-first" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        5. Desktop-first
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#6-sqlite-no-se-descarta-pero-se-usa-con-disciplina" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        6. <code>SQLite</code> no se descarta, pero se usa con disciplina
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#7-dos-flujos-explicitos" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        7. Dos flujos explícitos
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#arquitectura-objetivo" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Arquitectura objetivo
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Arquitectura objetivo">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-tabla-principal-compacta-de-moleculas" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        A. Tabla principal compacta de moléculas
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#b-metadata-fria-consolidada" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        B. Metadata fría consolidada
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#c-enriquecimiento-diferido" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        C. Enriquecimiento diferido
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#d-contrato-de-query-estricto" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        D. Contrato de query estricto
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#e-artifacts-como-primer-ciudadano" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        E. Artifacts como primer ciudadano
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#f-flujo-dual-de-datos" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        F. Flujo dual de datos
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="F. Flujo dual de datos">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#flujo-1-materializado" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Flujo 1. Materializado
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flujo-2-masivo-y-diferido" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Flujo 2. Masivo y diferido
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#datos-calientes-y-frios" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Datos calientes y fríos
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Datos calientes y fríos">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#datos-calientes-recomendados" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Datos calientes recomendados
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#datos-frios-recomendados" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Datos fríos recomendados
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decisiones-de-arquitectura-que-deben-cerrarse" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Decisiones de arquitectura que deben cerrarse
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fase-0-contrato-de-datos-y-consultas" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 0 - Contrato de datos y consultas
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Fase 0 - Contrato de datos y consultas">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#objetivo_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Objetivo
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#trabajo" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Trabajo
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#criterio-de-salida" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Criterio de salida
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fase-1-compactacion-del-esquema-de-moleculas" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 1 - Compactación del esquema de moléculas
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Fase 1 - Compactación del esquema de moléculas">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#objetivo_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Objetivo
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#trabajo_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Trabajo
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#criterio-de-salida_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Criterio de salida
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fase-2-rediseno-del-pipeline-de-importacion" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 2 - Rediseño del pipeline de importación
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Fase 2 - Rediseño del pipeline de importación">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#objetivo_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Objetivo
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#trabajo_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Trabajo
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#criterio-de-salida_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Criterio de salida
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fase-3-eliminacion-de-io-redundante-por-molecula" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 3 - Eliminación de IO redundante por molécula
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Fase 3 - Eliminación de IO redundante por molécula">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#objetivo_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Objetivo
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#trabajo_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Trabajo
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#criterio-de-salida_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Criterio de salida
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fase-4-enriquecimiento-diferido-y-perfiles-de-importacion" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 4 - Enriquecimiento diferido y perfiles de importación
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Fase 4 - Enriquecimiento diferido y perfiles de importación">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#objetivo_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Objetivo
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#trabajo_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Trabajo
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#criterio-de-salida_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Criterio de salida
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fase-5-estrategia-de-artifacts-y-metadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 5 - Estrategia de artifacts y metadata
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Fase 5 - Estrategia de artifacts y metadata">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#objetivo_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Objetivo
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#trabajo_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Trabajo
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#criterio-de-salida_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Criterio de salida
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fase-6-estrategia-de-backend" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 6 - Estrategia de backend
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Fase 6 - Estrategia de backend">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#objetivo_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Objetivo
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#trabajo_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Trabajo
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#criterio-de-salida_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Criterio de salida
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#benchmarks-obligatorios" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Benchmarks obligatorios
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#criterios-de-salida-globales" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Criterios de salida globales
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#riesgos-a-vigilar" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Riesgos a vigilar
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#resultado-esperado" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Resultado esperado
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+              
+              <article class="md-content__inner md-typeset">
+                <a id="__skip" tabindex="-1"></a>
+                
+                  
+
+  
+  
+
+
+<h1 id="plan-de-escalabilidad-desktop-para-amdockvs">Plan de Escalabilidad Desktop para AMDockVS<a class="headerlink" href="#plan-de-escalabilidad-desktop-para-amdockvs" title="Permanent link">&para;</a></h1>
+<p>Fecha: <code>2026-06-07</code></p>
+<h2 id="objetivo">Objetivo<a class="headerlink" href="#objetivo" title="Permanent link">&para;</a></h2>
+<p>Rediseñar la arquitectura de datos e ingestión de <code>AMDockVS</code> para soportar millones de moléculas en un entorno desktop con recursos limitados, manteniendo:</p>
+<ul>
+<li>uso de memoria acotado</li>
+<li>costo de ingestión por lote estable</li>
+<li>tamaño de <code>project.db</code> controlado</li>
+<li>rutas de query rápidas sobre un subconjunto pequeño y explícito de campos</li>
+</ul>
+<p>La meta no es conservar toda la riqueza del dominio en forma totalmente relacional. La meta es separar claramente:</p>
+<ul>
+<li>datos calientes para query</li>
+<li>metadata fría para inspección</li>
+<li>artefactos pesados para almacenamiento externo</li>
+</ul>
+<h2 id="alcance">Alcance<a class="headerlink" href="#alcance" title="Permanent link">&para;</a></h2>
+<p>Este plan cubre <code>AMDockVS</code> como app química construida sobre <code>MolSuite</code>.</p>
+<p>Cubre:</p>
+<ul>
+<li>modelo de persistencia en <code>project.db</code></li>
+<li>pipeline de importación</li>
+<li>materialización de ligandos y receptores</li>
+<li>estrategia de metadata/artifacts</li>
+<li>contrato de query y selección</li>
+</ul>
+<p>No cubre rediseños amplios de UI salvo donde dependan de la forma de los datos.</p>
+<h2 id="restricciones-de-operacion">Restricciones de operación<a class="headerlink" href="#restricciones-de-operacion" title="Permanent link">&para;</a></h2>
+<p><code>AMDockVS</code> seguirá funcionando como una app local sobre un <code>MolSuite</code> single-app e in-process.</p>
+<p>Esto implica:</p>
+<ul>
+<li>un único dueño operativo del proyecto</li>
+<li>ausencia de multiusuario concurrente</li>
+<li>posibilidad futura de backend local <code>PostgreSQL</code> sin convertir la app en servicio compartido</li>
+</ul>
+<p>El objetivo no es servir múltiples clientes. El objetivo es escalar mejor dentro de una sola sesión de trabajo local.</p>
+<h2 id="diagnostico-resumido">Diagnóstico resumido<a class="headerlink" href="#diagnostico-resumido" title="Permanent link">&para;</a></h2>
+<p>El estado actual muestra varios problemas de escalabilidad de dominio:</p>
+<ol>
+<li>Cada molécula puede explotar en muchas rows relacionales de bajo valor operativo, especialmente en <code>molecule_source_properties</code>.</li>
+<li>La importación hace demasiado IO por molécula:</li>
+<li>escribir molécula original</li>
+<li>fragmentar</li>
+<li>escribir fragmentos</li>
+<li>releer fragmento seleccionado</li>
+<li>recalcular filtros sobre esa lectura</li>
+<li>El pipeline mezcla ingestión, normalización, fragmentación, enriquecimiento y persistencia final en una sola ruta pesada.</li>
+<li>Se están modelando como tablas detalles que no son parte del path principal de query.</li>
+<li>El crecimiento del dataset amenaza tanto el tamaño de <code>project.db</code> como el costo del import.</li>
+<li>El flujo actual es demasiado molecule-céntrico para escenarios de millones donde la mayoría de entidades terminarán descartadas y nunca se inspeccionarán individualmente.</li>
+</ol>
+<p>La consecuencia es clara: si se mantiene el diseño actual, llegar a millones de registros degradará:</p>
+<ul>
+<li>tiempo de ingestión</li>
+<li>tamaño de DB</li>
+<li>mantenimiento de índices</li>
+<li>rendimiento de backup/migración</li>
+</ul>
+<h2 id="principios-rectores">Principios rectores<a class="headerlink" href="#principios-rectores" title="Permanent link">&para;</a></h2>
+<h3 id="1-query-hot-path-pequeno-y-explicito">1. Query hot path pequeño y explícito<a class="headerlink" href="#1-query-hot-path-pequeno-y-explicito" title="Permanent link">&para;</a></h3>
+<p>Solo un subconjunto reducido de datos debe vivir como columnas indexables.</p>
+<p>Ese subconjunto debe cubrir:</p>
+<ul>
+<li>selección de ligandos/receptores</li>
+<li>filtros fisicoquímicos frecuentes</li>
+<li>estado operacional del dataset</li>
+<li>joins de primer orden realmente necesarios</li>
+</ul>
+<h3 id="2-metadata-fria-compactada">2. Metadata fría compactada<a class="headerlink" href="#2-metadata-fria-compactada" title="Permanent link">&para;</a></h3>
+<p>La metadata que no participa en queries frecuentes debe compactarse en:</p>
+<ul>
+<li>JSON en una columna</li>
+<li>artifact sidecar en archivo</li>
+</ul>
+<p>y debe evitarse modelarla como muchas rows relacionales.</p>
+<h3 id="3-artefactos-grandes-fuera-de-la-db-principal">3. Artefactos grandes fuera de la DB principal<a class="headerlink" href="#3-artefactos-grandes-fuera-de-la-db-principal" title="Permanent link">&para;</a></h3>
+<p>No conviene usar <code>project.db</code> como contenedor de todo el detalle químico o de importación. La DB debe apuntar a artifacts, no absorberlos indiscriminadamente.</p>
+<h3 id="4-ingestion-por-etapas">4. Ingestión por etapas<a class="headerlink" href="#4-ingestion-por-etapas" title="Permanent link">&para;</a></h3>
+<p>Importar no debe significar "hacer todo". Debe separarse:</p>
+<ol>
+<li>captura mínima</li>
+<li>persistencia base</li>
+<li>enriquecimiento diferido</li>
+</ol>
+<h3 id="5-desktop-first">5. Desktop-first<a class="headerlink" href="#5-desktop-first" title="Permanent link">&para;</a></h3>
+<p>El costo del sistema debe depender del lote activo y no del volumen histórico completo del proyecto.</p>
+<h3 id="6-sqlite-no-se-descarta-pero-se-usa-con-disciplina">6. <code>SQLite</code> no se descarta, pero se usa con disciplina<a class="headerlink" href="#6-sqlite-no-se-descarta-pero-se-usa-con-disciplina" title="Permanent link">&para;</a></h3>
+<p>Si el esquema y el pipeline son compactos, <code>SQLite</code> puede seguir siendo útil. Si el diseño sigue explotando una molécula en decenas de filas frías, ningún backend arreglará el problema de fondo.</p>
+<h3 id="7-dos-flujos-explicitos">7. Dos flujos explícitos<a class="headerlink" href="#7-dos-flujos-explicitos" title="Permanent link">&para;</a></h3>
+<p><code>AMDockVS</code> no debe forzar un solo modelo de trabajo.</p>
+<p>Debe soportar dos flujos distintos:</p>
+<ul>
+<li>flujo materializado y molecule-céntrico</li>
+<li>flujo masivo, operation-céntrico y de materialización diferida</li>
+</ul>
+<p>El primero optimiza trazabilidad e inspección. El segundo optimiza descarte temprano y throughput.</p>
+<h2 id="arquitectura-objetivo">Arquitectura objetivo<a class="headerlink" href="#arquitectura-objetivo" title="Permanent link">&para;</a></h2>
+<h3 id="a-tabla-principal-compacta-de-moleculas">A. Tabla principal compacta de moléculas<a class="headerlink" href="#a-tabla-principal-compacta-de-moleculas" title="Permanent link">&para;</a></h3>
+<p>La tabla principal debe conservar solo:</p>
+<ul>
+<li>identidad y tipo</li>
+<li>paths principales</li>
+<li>estado operativo</li>
+<li>columnas fisicoquímicas calientes</li>
+<li>flags de exclusión/uso</li>
+<li>contexto primario</li>
+<li>referencias a artifacts</li>
+</ul>
+<h3 id="b-metadata-fria-consolidada">B. Metadata fría consolidada<a class="headerlink" href="#b-metadata-fria-consolidada" title="Permanent link">&para;</a></h3>
+<p><code>source_properties</code> debe dejar de ser una tabla fila-a-fila para el caso general.</p>
+<p>Debe consolidarse en una de estas formas:</p>
+<ol>
+<li>JSON por molécula</li>
+<li>JSON por import record</li>
+<li>artifact externo con referencia desde la molécula</li>
+</ol>
+<p>La recomendación principal es:</p>
+<ul>
+<li>JSON compacto por molécula para metadata mediana</li>
+<li>artifact externo para payloads grandes o heterogéneos</li>
+</ul>
+<p>En el flujo materializado, un JSON por molécula es aceptable si se almacena en un esquema shardeado de artifacts y no en una carpeta por molécula.</p>
+<p>La prioridad es eficiencia, no agrupación manual del contenido en disco.</p>
+<h3 id="c-enriquecimiento-diferido">C. Enriquecimiento diferido<a class="headerlink" href="#c-enriquecimiento-diferido" title="Permanent link">&para;</a></h3>
+<p>La fragmentación, selección de fragmento y cálculos derivados no deben bloquear toda la persistencia base del import si no son imprescindibles para que la molécula exista en el catálogo.</p>
+<h3 id="d-contrato-de-query-estricto">D. Contrato de query estricto<a class="headerlink" href="#d-contrato-de-query-estricto" title="Permanent link">&para;</a></h3>
+<p>Las queries normales de catálogo no deben depender de:</p>
+<ul>
+<li>inspeccionar JSON arbitrario</li>
+<li>expandir tablas enormes de propiedades frías</li>
+<li>rehidratar artifacts para filtrar</li>
+</ul>
+<h3 id="e-artifacts-como-primer-ciudadano">E. Artifacts como primer ciudadano<a class="headerlink" href="#e-artifacts-como-primer-ciudadano" title="Permanent link">&para;</a></h3>
+<p><code>AMDockVS</code> ya maneja archivos moleculares; debe abrazar un modelo donde:</p>
+<ul>
+<li>la DB indexa</li>
+<li>los archivos almacenan detalle pesado</li>
+<li>la metadata fría solo conserva una referencia compacta</li>
+</ul>
+<p>La organización física de artifacts debe ser:</p>
+<ul>
+<li>estable</li>
+<li>shardeada</li>
+<li>apta para millones de archivos</li>
+</ul>
+<p>y no debe asumir navegación manual por carpetas como operación normal del usuario.</p>
+<h3 id="f-flujo-dual-de-datos">F. Flujo dual de datos<a class="headerlink" href="#f-flujo-dual-de-datos" title="Permanent link">&para;</a></h3>
+<h4 id="flujo-1-materializado">Flujo 1. Materializado<a class="headerlink" href="#flujo-1-materializado" title="Permanent link">&para;</a></h4>
+<p>Pensado para:</p>
+<ul>
+<li>miles o decenas de miles</li>
+<li>exploración interactiva</li>
+<li>inspección individual</li>
+<li>trazabilidad rica</li>
+</ul>
+<p>Aquí cada molécula puede tener representación completa y metadata fría propia.</p>
+<h4 id="flujo-2-masivo-y-diferido">Flujo 2. Masivo y diferido<a class="headerlink" href="#flujo-2-masivo-y-diferido" title="Permanent link">&para;</a></h4>
+<p>Pensado para:</p>
+<ul>
+<li>cientos de miles o millones</li>
+<li>filtros tempranos</li>
+<li>scoring o descarte a gran escala</li>
+<li>promoción posterior de subconjuntos</li>
+</ul>
+<p>Aquí el sistema debe poder operar sin materializar cada molécula como entidad rica desde el inicio.</p>
+<p>La promoción posterior debe permitir que el usuario diga:</p>
+<ul>
+<li>"hasta aquí operé a gran escala"</li>
+<li>"a partir de este subconjunto sí quiero materialización completa"</li>
+</ul>
+<h2 id="datos-calientes-y-frios">Datos calientes y fríos<a class="headerlink" href="#datos-calientes-y-frios" title="Permanent link">&para;</a></h2>
+<h3 id="datos-calientes-recomendados">Datos calientes recomendados<a class="headerlink" href="#datos-calientes-recomendados" title="Permanent link">&para;</a></h3>
+<p>Deben permanecer como columnas utilizables para query:</p>
+<ul>
+<li><code>is_ligand</code></li>
+<li><code>is_receptor</code></li>
+<li><code>molecule_type</code></li>
+<li><code>usage_class</code></li>
+<li><code>primary_context</code></li>
+<li><code>excluded</code></li>
+<li><code>in_set</code></li>
+<li><code>n_atoms</code></li>
+<li><code>mw</code></li>
+<li><code>exact_mw</code></li>
+<li><code>logp</code></li>
+<li><code>hbd</code></li>
+<li><code>hba</code></li>
+<li><code>tpsa</code></li>
+<li><code>rotatable_bonds</code></li>
+<li><code>fragment_count</code></li>
+<li><code>ring_count</code></li>
+<li><code>aromatic_ring_count</code></li>
+<li><code>hetero_atom_count</code></li>
+<li><code>heavy_atom_count</code></li>
+<li><code>formal_charge</code></li>
+<li><code>fraction_csp3</code></li>
+<li><code>has_3d</code></li>
+<li><code>has_hs</code></li>
+<li><code>is_minimized</code></li>
+<li><code>has_activity</code></li>
+</ul>
+<h3 id="datos-frios-recomendados">Datos fríos recomendados<a class="headerlink" href="#datos-frios-recomendados" title="Permanent link">&para;</a></h3>
+<p>Deben migrar a JSON o artifact:</p>
+<ul>
+<li>propiedades de origen crudas</li>
+<li>detalle completo de fragmentación</li>
+<li>metadata rica de importación</li>
+<li>campos opcionales específicos de un formato</li>
+<li>observaciones de parser/procesamiento</li>
+</ul>
+<p>En flujo masivo, incluso parte de esta metadata puede no materializarse por molécula salvo que la entidad sea promovida.</p>
+<h2 id="decisiones-de-arquitectura-que-deben-cerrarse">Decisiones de arquitectura que deben cerrarse<a class="headerlink" href="#decisiones-de-arquitectura-que-deben-cerrarse" title="Permanent link">&para;</a></h2>
+<ol>
+<li><code>molecule_source_properties</code> deja de ser la representación principal de metadata de importación.</li>
+<li>El catálogo usará un contrato de query centrado en columnas calientes.</li>
+<li>La importación pasará a un esquema multi-etapa.</li>
+<li>La fragmentación y otros enriquecimientos pesados podrán diferirse.</li>
+<li><code>project.db</code> no debe absorber payloads grandes cuando un artifact externo es suficiente.</li>
+<li>Debe existir un modo masivo donde no se materialice cada molécula completa desde el inicio.</li>
+<li>Las operaciones críticas sobre <code>project.db</code> deben pasar por la API de <code>MolSuite</code> y una capa basada en <code>SQLModel</code>, no por accesos específicos a <code>SQLite</code>.</li>
+</ol>
+<h2 id="fase-0-contrato-de-datos-y-consultas">Fase 0 - Contrato de datos y consultas<a class="headerlink" href="#fase-0-contrato-de-datos-y-consultas" title="Permanent link">&para;</a></h2>
+<h3 id="objetivo_1">Objetivo<a class="headerlink" href="#objetivo_1" title="Permanent link">&para;</a></h3>
+<p>Definir qué se consulta de verdad y qué solo se conserva por trazabilidad.</p>
+<h3 id="trabajo">Trabajo<a class="headerlink" href="#trabajo" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Inventariar filtros y queries reales del catálogo.</li>
+<li>Clasificar campos en:</li>
+<li>hot</li>
+<li>warm</li>
+<li>cold</li>
+<li>Formalizar qué columnas deben seguir indexadas.</li>
+<li>Formalizar qué metadata queda explícitamente fuera del path de query.</li>
+<li>Separar explícitamente el contrato de datos para:</li>
+<li>flujo materializado</li>
+<li>flujo masivo diferido</li>
+</ol>
+<h3 id="criterio-de-salida">Criterio de salida<a class="headerlink" href="#criterio-de-salida" title="Permanent link">&para;</a></h3>
+<p>Existe un contrato de query que justifica el esquema compacto.</p>
+<h2 id="fase-1-compactacion-del-esquema-de-moleculas">Fase 1 - Compactación del esquema de moléculas<a class="headerlink" href="#fase-1-compactacion-del-esquema-de-moleculas" title="Permanent link">&para;</a></h2>
+<h3 id="objetivo_2">Objetivo<a class="headerlink" href="#objetivo_2" title="Permanent link">&para;</a></h3>
+<p>Reducir el fan-out por molécula en <code>project.db</code>.</p>
+<h3 id="trabajo_1">Trabajo<a class="headerlink" href="#trabajo_1" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Rediseñar la persistencia de <code>source_properties</code>.</li>
+<li>Introducir un campo consolidado de metadata fría por molécula o por import record.</li>
+<li>Definir storage externo shardeado para metadata/artifacts por molécula.</li>
+<li>Revisar si <code>molecule_models</code> debe mantenerse separado siempre o solo cuando existe multiplicidad real de modelos.</li>
+<li>Minimizar índices durante ingestión masiva y revisar cuáles son realmente necesarios.</li>
+<li>Diseñar el esquema nuevo de forma paralela al actual para facilitar integración progresiva y rescatar la mayor parte del flujo existente.</li>
+</ol>
+<h3 id="criterio-de-salida_1">Criterio de salida<a class="headerlink" href="#criterio-de-salida_1" title="Permanent link">&para;</a></h3>
+<p>El número de rows generadas por molécula deja de crecer con la cantidad de propiedades frías.</p>
+<h2 id="fase-2-rediseno-del-pipeline-de-importacion">Fase 2 - Rediseño del pipeline de importación<a class="headerlink" href="#fase-2-rediseno-del-pipeline-de-importacion" title="Permanent link">&para;</a></h2>
+<h3 id="objetivo_3">Objetivo<a class="headerlink" href="#objetivo_3" title="Permanent link">&para;</a></h3>
+<p>Separar importación base de enriquecimiento pesado.</p>
+<h3 id="trabajo_2">Trabajo<a class="headerlink" href="#trabajo_2" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Dividir el pipeline en:</li>
+<li>parse/import base</li>
+<li>persistencia mínima</li>
+<li>enriquecimiento opcional o diferido</li>
+<li>Asegurar que una molécula pueda entrar al catálogo sin requerir toda la cadena de fragmentación/derivación.</li>
+<li>Reducir el número de escrituras a disco por molécula durante el camino base.</li>
+<li>Definir explícitamente el flujo masivo donde la entidad completa solo se materializa tras promoción.</li>
+</ol>
+<h3 id="criterio-de-salida_2">Criterio de salida<a class="headerlink" href="#criterio-de-salida_2" title="Permanent link">&para;</a></h3>
+<p>El tiempo de ingestión base deja de depender de toda la química derivada opcional.</p>
+<h2 id="fase-3-eliminacion-de-io-redundante-por-molecula">Fase 3 - Eliminación de IO redundante por molécula<a class="headerlink" href="#fase-3-eliminacion-de-io-redundante-por-molecula" title="Permanent link">&para;</a></h2>
+<h3 id="objetivo_4">Objetivo<a class="headerlink" href="#objetivo_4" title="Permanent link">&para;</a></h3>
+<p>Reducir el costo fijo del materializador.</p>
+<h3 id="trabajo_3">Trabajo<a class="headerlink" href="#trabajo_3" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Evitar secuencias del tipo:</li>
+<li>escribir</li>
+<li>releer</li>
+<li>recalcular</li>
+<li>Mantener el objeto/mol/estado en memoria dentro del lote activo cuando sea viable.</li>
+<li>Revisar si el fragmento seleccionado puede resolverse sin round-trip a archivo.</li>
+<li>Mover a artifacts solo lo que deba sobrevivir al lote, no lo que solo se necesita para decidir.</li>
+<li>Permitir que en flujo masivo parte de este costo ni siquiera se ejecute hasta la promoción.</li>
+</ol>
+<h3 id="criterio-de-salida_3">Criterio de salida<a class="headerlink" href="#criterio-de-salida_3" title="Permanent link">&para;</a></h3>
+<p>El costo de IO por molécula durante importación disminuye de forma sustancial.</p>
+<h2 id="fase-4-enriquecimiento-diferido-y-perfiles-de-importacion">Fase 4 - Enriquecimiento diferido y perfiles de importación<a class="headerlink" href="#fase-4-enriquecimiento-diferido-y-perfiles-de-importacion" title="Permanent link">&para;</a></h2>
+<h3 id="objetivo_5">Objetivo<a class="headerlink" href="#objetivo_5" title="Permanent link">&para;</a></h3>
+<p>Permitir imports rápidos y imports ricos sin forzar el peor caso siempre.</p>
+<h3 id="trabajo_4">Trabajo<a class="headerlink" href="#trabajo_4" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Definir perfiles de importación:</li>
+<li>mínimo</li>
+<li>estándar</li>
+<li>enriquecido</li>
+<li>masivo diferido</li>
+<li>Permitir que fragmentación, descriptorización o filtros ricos corran como jobs posteriores.</li>
+<li>Marcar explícitamente la disponibilidad de capacidades derivadas por molécula o por lote promovible.</li>
+</ol>
+<h3 id="criterio-de-salida_4">Criterio de salida<a class="headerlink" href="#criterio-de-salida_4" title="Permanent link">&para;</a></h3>
+<p>El usuario puede elegir entre throughput alto y enriquecimiento profundo sin cambiar de arquitectura.</p>
+<h2 id="fase-5-estrategia-de-artifacts-y-metadata">Fase 5 - Estrategia de artifacts y metadata<a class="headerlink" href="#fase-5-estrategia-de-artifacts-y-metadata" title="Permanent link">&para;</a></h2>
+<h3 id="objetivo_6">Objetivo<a class="headerlink" href="#objetivo_6" title="Permanent link">&para;</a></h3>
+<p>Poner límites claros entre DB y filesystem.</p>
+<h3 id="trabajo_5">Trabajo<a class="headerlink" href="#trabajo_5" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Definir qué vive en:</li>
+<li>columna</li>
+<li>JSON compacto</li>
+<li>artifact sidecar</li>
+<li>Asegurar que la recuperación de artifacts sea trazable y estable.</li>
+<li>Evitar duplicación innecesaria entre:</li>
+<li>paths</li>
+<li>metadata JSON</li>
+<li>tablas auxiliares</li>
+<li>Definir un layout shardeado para evitar directorios gigantes y permitir millones de artifacts.</li>
+<li>Asegurar que la colocalización lógica por molécula no dependa de estructura manual de carpetas, sino de la API.</li>
+</ol>
+<h3 id="criterio-de-salida_5">Criterio de salida<a class="headerlink" href="#criterio-de-salida_5" title="Permanent link">&para;</a></h3>
+<p><code>project.db</code> queda como índice operativo del proyecto, no como contenedor indiscriminado de todo el detalle químico.</p>
+<h2 id="fase-6-estrategia-de-backend">Fase 6 - Estrategia de backend<a class="headerlink" href="#fase-6-estrategia-de-backend" title="Permanent link">&para;</a></h2>
+<h3 id="objetivo_7">Objetivo<a class="headerlink" href="#objetivo_7" title="Permanent link">&para;</a></h3>
+<p>Decidir racionalmente hasta dónde llevar <code>SQLite</code> y cuándo abrir la puerta a otro backend.</p>
+<h3 id="trabajo_6">Trabajo<a class="headerlink" href="#trabajo_6" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Medir el esquema compacto bajo volumen alto.</li>
+<li>Establecer límites observables para:</li>
+<li>tamaño aceptable de <code>project.db</code></li>
+<li>tiempos de insert por lote</li>
+<li>tiempos de query del catálogo</li>
+<li>Desacoplar la capa crítica de <code>project.db</code> de <code>SQLite</code> usando la API de <code>MolSuite</code> y una base <code>SQLModel</code>/SQLAlchemy portable.</li>
+<li>Solo después evaluar si hace falta:</li>
+<li>backend alterno</li>
+<li>estrategia híbrida</li>
+<li>separación adicional de stores</li>
+</ol>
+<h3 id="criterio-de-salida_6">Criterio de salida<a class="headerlink" href="#criterio-de-salida_6" title="Permanent link">&para;</a></h3>
+<p>La decisión sobre <code>SQLite</code> se toma con benchmarks del diseño corregido, no con síntomas del diseño actual, y <code>project.db</code> deja de estar estructuralmente atada a rutas SQLite-específicas.</p>
+<h2 id="benchmarks-obligatorios">Benchmarks obligatorios<a class="headerlink" href="#benchmarks-obligatorios" title="Permanent link">&para;</a></h2>
+<p>Antes de cerrar esta línea deben existir benchmarks al menos para:</p>
+<ol>
+<li>ingestión de 100k, 500k y 1M moléculas</li>
+<li>tamaño de <code>project.db</code> en esquema actual vs esquema compacto</li>
+<li>tiempo de import base vs import enriquecido</li>
+<li>tiempo de flujo materializado vs flujo masivo diferido</li>
+<li>latencia de queries de catálogo sobre campos calientes</li>
+<li>consumo máximo de memoria durante ingestión prolongada</li>
+</ol>
+<h2 id="criterios-de-salida-globales">Criterios de salida globales<a class="headerlink" href="#criterios-de-salida-globales" title="Permanent link">&para;</a></h2>
+<p><code>AMDockVS</code> puede considerarse bien encaminado para millones de moléculas en desktop cuando:</p>
+<ol>
+<li>la cantidad de rows por molécula es esencialmente constante y baja</li>
+<li>la metadata fría no domina el tamaño de <code>project.db</code></li>
+<li>el import base no obliga a ejecutar todo el enriquecimiento químico</li>
+<li>el catálogo consulta columnas calientes y no depende de JSON ni tablas frías</li>
+<li>los artifacts pesados viven fuera de la DB principal</li>
+<li>existe un flujo masivo que puede operar sin materialización completa por molécula</li>
+<li>el consumo de memoria y procesos se mantiene acotado por lote</li>
+</ol>
+<h2 id="riesgos-a-vigilar">Riesgos a vigilar<a class="headerlink" href="#riesgos-a-vigilar" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Compactar en JSON y luego volver a usar ese JSON para query frecuente.</li>
+<li>Mover demasiado pronto datos relacionales útiles a artifacts opacos.</li>
+<li>Romper compatibilidad con vistas o widgets que hoy asumen tablas auxiliares detalladas.</li>
+<li>Mantener el pipeline monolítico y solo cambiar el esquema, dejando intacto el costo químico/IO.</li>
+<li>Diseñar el flujo masivo sin un mecanismo claro de promoción posterior hacia el flujo materializado.</li>
+</ol>
+<h2 id="resultado-esperado">Resultado esperado<a class="headerlink" href="#resultado-esperado" title="Permanent link">&para;</a></h2>
+<p><code>AMDockVS</code> queda con una arquitectura de datos apta para desktop masivo:</p>
+<ul>
+<li>catálogo compacto</li>
+<li>metadata fría consolidada</li>
+<li>storage shardeado de metadata/artifacts</li>
+<li>ingestión por etapas</li>
+<li>flujo dual: materializado y masivo diferido</li>
+<li>artifacts pesados fuera de la DB principal</li>
+<li>crecimiento sostenible hacia millones de moléculas</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 AMDockVS authors
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["content.code.copy","navigation.footer","navigation.path","navigation.sections","navigation.top","search.highlight","search.suggest"],"redirect":null,"search":"../assets/javascripts/workers/search.c47bb847.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"provider":"mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.77dd0ce9.min.js"></script>
+      
+    
+  </body>
+</html>

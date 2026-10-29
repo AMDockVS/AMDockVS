@@ -1,0 +1,2208 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Virtual screening, molecular preparation, QSAR, and docking with MolSuite.">
+      
+      
+        <meta name="author" content="AMDockVS authors">
+      
+      
+        <link rel="canonical" href="https://amdockvs.github.io/AMDockVS/latest/notebook_api_and_workflows/">
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../images/favicon.svg">
+      <meta name="generator" content="zensical-0.0.73">
+    
+    
+      
+        <title>API de notebook y workflows canónicos de AMDock - AMDockVS</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../assets/stylesheets/modern/main.4ab2de0c.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../assets/stylesheets/modern/palette.b60ce83d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-hidden="true"></label>
+    <div data-md-component="skip">
+      <a href="#__skip" class="md-skip">
+        Skip to content
+      </a>
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="./.." title="AMDockVS" class="md-header__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+      <span class="md-visually-hidden">Navigation</span>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AMDockVS
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              API de notebook y workflows canónicos de AMDock
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+          <span class="md-visually-hidden">Search</span>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="./.." title="AMDockVS" class="md-nav__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    AMDockVS
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../runtime_api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API guide
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../data_and_export/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Data and export
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Examples
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-principio-rector" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1. Principio rector
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-que-no-conviene-hacer" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        2. Qué no conviene hacer
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-propuesta-de-forma-general" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        3. Propuesta de forma general
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Propuesta de forma general">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-responsabilidad-de-cada-componente" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        3.1 Responsabilidad de cada componente
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3.1 Responsabilidad de cada componente">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#amdockloader" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>amdock.loader</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#amdockligands" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>amdock.ligands</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#amdockreceptors" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>amdock.receptors</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#amdockdocking" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>amdock.docking</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#amdockqsar" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>amdock.qsar</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#amdockstructure" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>amdock.structure</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#amdockanalysis" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>amdock.analysis</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-decisiones-de-modelado-de-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        4. Decisiones de modelado de API
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Decisiones de modelado de API">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-loader-general-wrappers-especializados" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        4.1 <code>loader</code> general + wrappers especializados
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-las-propiedades-basicas-del-ligando-se-calculan-al-cargar" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        4.2 Las propiedades básicas del ligando se calculan al cargar
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-actividades-qsar" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        4.3 Actividades QSAR
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4.3 Actividades QSAR">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#interpretacion-operativa" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Interpretación operativa
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sobre-train-test-y-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Sobre <code>train</code>, <code>test</code> y <code>validation</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sobre-complejos-y-redocking" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Sobre complejos y redocking
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#implicacion-de-rendimiento" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Implicación de rendimiento
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#44-preparacion-global-vs-preparacion-especifica-por-motor" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        4.4 Preparación global vs preparación específica por motor
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-workflow-canonico-docking-simple" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        5. Workflow canónico: docking simple
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-workflow-canonico-reverse-docking" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        6. Workflow canónico: reverse docking
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-workflow-canonico-redocking" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        7. Workflow canónico: redocking
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-workflow-canonico-qsar-simple" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        8. Workflow canónico: QSAR simple
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-workflow-canonico-qsar-antes-de-docking" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        9. Workflow canónico: QSAR antes de docking
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-workflow-canonico-modelado-estructural" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        10. Workflow canónico: modelado estructural
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-recomendacion-concreta-para-la-implementacion" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        11. Recomendación concreta para la implementación
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12-consecuencia-arquitectonica" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        12. Consecuencia arquitectónica
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#13-tareas-derivadas" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        13. Tareas derivadas
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="13. Tareas derivadas">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fase-1-fijar-la-fachada-publica" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 1. Fijar la fachada pública
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fase-2-alinear-el-loader" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 2. Alinear el loader
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fase-3-alinear-docking" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 3. Alinear docking
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fase-4-alinear-qsar" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 4. Alinear QSAR
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fase-5-alinear-estructura-y-analisis" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 5. Alinear estructura y análisis
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#14-esquema-sql-minimo-para-chartdb" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        14. Esquema SQL mínimo para ChartDB
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#15-plan-de-implementacion" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        15. Plan de implementación
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="15. Plan de implementación">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#151-regla-de-implementacion" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        15.1 Regla de implementación
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#152-tipos-de-referencia-minimos" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        15.2 Tipos de referencia mínimos
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#153-snapshot-vs-dynamic" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        15.3 <code>snapshot</code> vs <code>dynamic</code>
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="15.3 snapshot vs dynamic">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dynamic" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>dynamic</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#snapshot" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>snapshot</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#154-fases-recomendadas" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        15.4 Fases recomendadas
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="15.4 Fases recomendadas">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fase-0-congelar-el-contrato-publico" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 0. Congelar el contrato público
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fase-1-implementar-sets-persistidos" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 1. Implementar sets persistidos
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fase-2-implementar-facades-minimos-en-amdockruntime" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 2. Implementar facades mínimos en <code>AMDockRuntime</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fase-3-migrar-operaciones-de-seleccion" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 3. Migrar operaciones de selección
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fase-4-hacer-que-los-jobs-consuman-sets" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 4. Hacer que los jobs consuman sets
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fase-5-alinear-qsar-con-datasets-explicitos" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 5. Alinear QSAR con datasets explícitos
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fase-6-alinear-docking-y-redocking-con-estados-moleculares" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 6. Alinear docking y redocking con estados moleculares
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#155-orden-recomendado-de-ejecucion" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        15.5 Orden recomendado de ejecución
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#156-que-no-hacer-durante-esta-migracion" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        15.6 Qué no hacer durante esta migración
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#157-criterio-de-exito" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        15.7 Criterio de éxito
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+              
+              <article class="md-content__inner md-typeset">
+                <a id="__skip" tabindex="-1"></a>
+                
+                  
+
+  
+  
+
+
+<h1 id="api-de-notebook-y-workflows-canonicos-de-amdock">API de notebook y workflows canónicos de AMDock<a class="headerlink" href="#api-de-notebook-y-workflows-canonicos-de-amdock" title="Permanent link">&para;</a></h1>
+<p>Este documento fija una guía de uso de AMDock como backend programable.</p>
+<p>Nota de vigencia:</p>
+<ul>
+<li>el runtime público actual es <code>AMDockVSRuntime</code></li>
+<li>la ruta de import soportada es <code>from amdock import AMDockVSRuntime</code></li>
+<li>los ejemplos viejos que mencionen <code>AMDockRuntime</code> deben leerse como <code>AMDockVSRuntime</code></li>
+<li><code>docking.screen(...)</code> es async por defecto; la espera se pide explícitamente</li>
+</ul>
+<p>No describe la UI. Describe cómo debería sentirse AMDock desde Python, por ejemplo
+en un notebook, script o pipeline reproducible.</p>
+<p>La intención es:</p>
+<ul>
+<li>evitar que el diseño interno siga creciendo sin un contrato de uso claro;</li>
+<li>fijar operaciones de alto nivel antes de seguir agregando métodos aislados;</li>
+<li>decidir qué vive en <code>AMDockVSRuntime</code> y qué vive en herramientas/subcomponentes;</li>
+<li>tener workflows canónicos que sirvan de referencia para backend y UI.</li>
+</ul>
+<h2 id="1-principio-rector">1. Principio rector<a class="headerlink" href="#1-principio-rector" title="Permanent link">&para;</a></h2>
+<p><code>AMDockVSRuntime</code> no debería convertirse en una clase gigantesca con decenas de
+métodos globales.</p>
+<p>Su responsabilidad principal debería ser:</p>
+<ul>
+<li>manejar el proyecto activo;</li>
+<li>coordinar ejecución con MolSuite;</li>
+<li>exponer el estado del runtime;</li>
+<li>servir como punto de entrada a herramientas de dominio.</li>
+</ul>
+<p>La lógica operativa de dominio debería agruparse en componentes como:</p>
+<ul>
+<li><code>loader</code></li>
+<li><code>ligands</code></li>
+<li><code>receptors</code></li>
+<li><code>docking</code></li>
+<li><code>qsar</code></li>
+<li><code>structure</code></li>
+<li><code>analysis</code></li>
+</ul>
+<p>Es decir:</p>
+<div class="highlight"><pre><span></span><code><span class="n">amdock</span> <span class="o">=</span> <span class="n">AMDockVSRuntime</span><span class="p">()</span>
+
+<span class="n">amdock</span><span class="o">.</span><span class="n">loader</span><span class="o">.</span><span class="n">load_ligands</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">ligands</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">prepare_ligands</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">qsar</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+</code></pre></div>
+<p>Esto deja a <code>AMDockVSRuntime</code> como fachada y coordinador, no como bolsa de
+funciones heterogéneas.</p>
+<h2 id="2-que-no-conviene-hacer">2. Qué no conviene hacer<a class="headerlink" href="#2-que-no-conviene-hacer" title="Permanent link">&para;</a></h2>
+<p>No conviene una API plana de este tipo:</p>
+<div class="highlight"><pre><span></span><code><span class="n">amdock</span><span class="o">.</span><span class="n">load_files</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">load_ligands</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">filter_ligands</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">prepare_ligands</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">prepare_receptors</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">compute_descriptors</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">qsar_train</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">cluster_ligands</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking_reverse</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+</code></pre></div>
+<p>Problemas:</p>
+<ul>
+<li>escala mal;</li>
+<li>mezcla dominios distintos en el mismo namespace;</li>
+<li>vuelve difícil descubrir capacidades;</li>
+<li>hace que <code>AMDockVSRuntime</code> cargue demasiada semántica de negocio;</li>
+<li>complica la documentación y la UI, porque todo parece una acción global.</li>
+</ul>
+<h2 id="3-propuesta-de-forma-general">3. Propuesta de forma general<a class="headerlink" href="#3-propuesta-de-forma-general" title="Permanent link">&para;</a></h2>
+<p>La forma recomendada es esta:</p>
+<div class="highlight"><pre><span></span><code><span class="n">amdock</span> <span class="o">=</span> <span class="n">AMDockVSRuntime</span><span class="p">()</span>
+
+<span class="n">amdock</span><span class="o">.</span><span class="n">loader</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">ligands</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">receptors</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">qsar</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">structure</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">analysis</span>
+<span class="n">amdock</span><span class="o">.&lt;</span><span class="n">domain</span><span class="o">&gt;.</span><span class="n">jobs</span>
+</code></pre></div>
+<h3 id="31-responsabilidad-de-cada-componente">3.1 Responsabilidad de cada componente<a class="headerlink" href="#31-responsabilidad-de-cada-componente" title="Permanent link">&para;</a></h3>
+<h4 id="amdockloader"><code>amdock.loader</code><a class="headerlink" href="#amdockloader" title="Permanent link">&para;</a></h4>
+<p>Entrada de datos externos.</p>
+<p>Responsabilidades:</p>
+<ul>
+<li>cargar desde archivos locales;</li>
+<li>cargar desde texto;</li>
+<li>cargar desde URL o recursos remotos, si aplica;</li>
+<li>clasificar el tipo de artefacto de entrada;</li>
+<li>delegar a <code>ligands</code> o <code>receptors</code> cuando el tipo ya es explícito.</li>
+</ul>
+<p>API ejemplo:</p>
+<div class="highlight"><pre><span></span><code><span class="n">amdock</span><span class="o">.</span><span class="n">loader</span><span class="o">.</span><span class="n">load_files</span><span class="p">(</span><span class="n">files</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">],</span> <span class="n">as_</span><span class="o">=</span><span class="s2">"ligands"</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">loader</span><span class="o">.</span><span class="n">load_text</span><span class="p">(</span><span class="n">text</span><span class="o">=...</span><span class="p">,</span> <span class="nb">format</span><span class="o">=</span><span class="s2">"smiles"</span><span class="p">,</span> <span class="n">as_</span><span class="o">=</span><span class="s2">"ligands"</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">loader</span><span class="o">.</span><span class="n">load_url</span><span class="p">(</span><span class="n">url</span><span class="o">=...</span><span class="p">,</span> <span class="n">as_</span><span class="o">=</span><span class="s2">"receptors"</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">loader</span><span class="o">.</span><span class="n">load_ligands</span><span class="p">(</span><span class="n">files</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">])</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">loader</span><span class="o">.</span><span class="n">load_receptors</span><span class="p">(</span><span class="n">files</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">])</span>
+</code></pre></div>
+<p>Regla:</p>
+<ul>
+<li><code>load_files(..., as_=...)</code> puede existir como API general</li>
+<li><code>load_ligands(...)</code> y <code>load_receptors(...)</code> deben existir como wrappers claros</li>
+</ul>
+<p>Eso permite flexibilidad sin volver obligatoria la API genérica para el usuario.</p>
+<h4 id="amdockligands"><code>amdock.ligands</code><a class="headerlink" href="#amdockligands" title="Permanent link">&para;</a></h4>
+<p>Operaciones de dominio sobre el inventario de ligandos.</p>
+<p>Responsabilidades:</p>
+<ul>
+<li>filtrado;</li>
+<li>deduplicación;</li>
+<li>selección;</li>
+<li>validación química básica;</li>
+<li>cálculo de propiedades comunes de tabla principal;</li>
+<li>agrupación de colecciones y conjuntos de trabajo.</li>
+</ul>
+<p>API ejemplo:</p>
+<div class="highlight"><pre><span></span><code><span class="n">scope</span> <span class="o">=</span> <span class="n">amdock</span><span class="o">.</span><span class="n">ligands</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+<span class="n">scope</span> <span class="o">=</span> <span class="n">amdock</span><span class="o">.</span><span class="n">ligands</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">scope</span><span class="p">,</span> <span class="n">filters</span><span class="o">=</span><span class="p">{</span><span class="s2">"is_valid"</span><span class="p">:</span> <span class="kc">True</span><span class="p">})</span>
+<span class="k">for</span> <span class="n">ligand</span> <span class="ow">in</span> <span class="n">amdock</span><span class="o">.</span><span class="n">ligands</span><span class="o">.</span><span class="n">stream</span><span class="p">(</span><span class="n">scope</span><span class="p">):</span>
+    <span class="o">...</span>
+<span class="n">ligand_set</span> <span class="o">=</span> <span class="n">amdock</span><span class="o">.</span><span class="n">ligands</span><span class="o">.</span><span class="n">snapshot</span><span class="p">(</span><span class="n">scope</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">"screening_round_1"</span><span class="p">)</span>
+</code></pre></div>
+<h4 id="amdockreceptors"><code>amdock.receptors</code><a class="headerlink" href="#amdockreceptors" title="Permanent link">&para;</a></h4>
+<p>Operaciones de dominio sobre receptores.</p>
+<p>Responsabilidades:</p>
+<ul>
+<li>filtrado;</li>
+<li>validación de estructura;</li>
+<li>selección de receptor activo;</li>
+<li>configuración de residuos flexibles;</li>
+<li>definición de sitio o caja si aplica al motor.</li>
+</ul>
+<p>API ejemplo:</p>
+<div class="highlight"><pre><span></span><code><span class="n">scope</span> <span class="o">=</span> <span class="n">amdock</span><span class="o">.</span><span class="n">receptors</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+<span class="n">scope</span> <span class="o">=</span> <span class="n">amdock</span><span class="o">.</span><span class="n">receptors</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">scope</span><span class="p">,</span> <span class="n">filters</span><span class="o">=</span><span class="p">{</span><span class="s2">"active"</span><span class="p">:</span> <span class="kc">True</span><span class="p">})</span>
+<span class="n">receptor_set</span> <span class="o">=</span> <span class="n">amdock</span><span class="o">.</span><span class="n">receptors</span><span class="o">.</span><span class="n">snapshot</span><span class="p">(</span><span class="n">scope</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">"active_panel"</span><span class="p">)</span>
+</code></pre></div>
+<h4 id="amdockdocking"><code>amdock.docking</code><a class="headerlink" href="#amdockdocking" title="Permanent link">&para;</a></h4>
+<p>Capacidades específicas de docking y redocking.</p>
+<p>Responsabilidades:</p>
+<ul>
+<li>preparación de ligandos para motores de docking;</li>
+<li>preparación de receptores para motores de docking;</li>
+<li>definición y validación de cajas;</li>
+<li>ejecución de docking;</li>
+<li>ejecución de reverse docking;</li>
+<li>redocking;</li>
+<li>análisis de interacciones;</li>
+<li>ranking de poses.</li>
+</ul>
+<p>API ejemplo:</p>
+<div class="highlight"><pre><span></span><code><span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">prepare_ligands</span><span class="p">(</span><span class="n">engine</span><span class="o">=</span><span class="s2">"vina"</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">prepare_receptors</span><span class="p">(</span><span class="n">engine</span><span class="o">=</span><span class="s2">"vina"</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">set_grid</span><span class="p">(</span><span class="n">receptor_id</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">center</span><span class="o">=</span><span class="p">(</span><span class="o">...</span><span class="p">),</span> <span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="o">...</span><span class="p">),</span> <span class="n">spacing</span><span class="o">=</span><span class="mf">0.375</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">engine</span><span class="o">=</span><span class="s2">"vina"</span><span class="p">,</span> <span class="n">receptor_id</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">ligand_ids</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">])</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">reverse</span><span class="p">(</span><span class="n">engine</span><span class="o">=</span><span class="s2">"vina"</span><span class="p">,</span> <span class="n">ligand_id</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">receptor_ids</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">])</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">redock</span><span class="p">(</span><span class="n">engine</span><span class="o">=</span><span class="s2">"vina"</span><span class="p">,</span> <span class="n">complex_id</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">interactions</span><span class="p">(</span><span class="n">result_id</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
+</code></pre></div>
+<h4 id="amdockqsar"><code>amdock.qsar</code><a class="headerlink" href="#amdockqsar" title="Permanent link">&para;</a></h4>
+<p>Capacidades específicas de QSAR.</p>
+<p>Responsabilidades:</p>
+<ul>
+<li>actividades y endpoints;</li>
+<li>cálculo de matrices de descriptores/fingerprints;</li>
+<li>selección de features;</li>
+<li>entrenamiento;</li>
+<li>validación;</li>
+<li>predicción;</li>
+<li>evaluación y applicability domain.</li>
+</ul>
+<p>API ejemplo:</p>
+<div class="highlight"><pre><span></span><code><span class="n">amdock</span><span class="o">.</span><span class="n">qsar</span><span class="o">.</span><span class="n">load_activities</span><span class="p">(</span><span class="n">file</span><span class="o">=...</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">qsar</span><span class="o">.</span><span class="n">compute_descriptors</span><span class="p">(</span><span class="n">family</span><span class="o">=</span><span class="s2">"rdkit_2d"</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">qsar</span><span class="o">.</span><span class="n">compute_fingerprints</span><span class="p">(</span><span class="n">kind</span><span class="o">=</span><span class="s2">"morgan"</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">qsar</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="s2">"random_forest"</span><span class="p">,</span> <span class="n">target</span><span class="o">=</span><span class="s2">"pIC50"</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">qsar</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">model_id</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">ligand_ids</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">])</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">qsar</span><span class="o">.</span><span class="n">evaluate</span><span class="p">(</span><span class="n">model_id</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+</code></pre></div>
+<h4 id="amdockstructure"><code>amdock.structure</code><a class="headerlink" href="#amdockstructure" title="Permanent link">&para;</a></h4>
+<p>Capacidades de modelado y transformación estructural.</p>
+<p>Responsabilidades:</p>
+<ul>
+<li>generación de 3D en pequeñas moléculas;</li>
+<li>modelado de proteínas;</li>
+<li>minimización;</li>
+<li>relajación estructural;</li>
+<li>conformeros;</li>
+<li>alineamiento y RMSD.</li>
+</ul>
+<p>API ejemplo:</p>
+<div class="highlight"><pre><span></span><code><span class="n">amdock</span><span class="o">.</span><span class="n">structure</span><span class="o">.</span><span class="n">small_generate_3d</span><span class="p">(</span><span class="n">ligand_ids</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">])</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">structure</span><span class="o">.</span><span class="n">small_minimize</span><span class="p">(</span><span class="n">ligand_ids</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">])</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">structure</span><span class="o">.</span><span class="n">protein_modeling</span><span class="p">(</span><span class="n">engine</span><span class="o">=</span><span class="s2">"esmfold"</span><span class="p">,</span> <span class="n">sequences</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">])</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">structure</span><span class="o">.</span><span class="n">protein_minimize</span><span class="p">(</span><span class="n">receptor_ids</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">])</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">structure</span><span class="o">.</span><span class="n">align</span><span class="p">(</span><span class="n">reference_id</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">probe_ids</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">])</span>
+</code></pre></div>
+<h4 id="amdockanalysis"><code>amdock.analysis</code><a class="headerlink" href="#amdockanalysis" title="Permanent link">&para;</a></h4>
+<p>Capacidades analíticas transversales.</p>
+<p>Responsabilidades:</p>
+<ul>
+<li>clustering;</li>
+<li>PCA;</li>
+<li>diversity selection;</li>
+<li>similitud;</li>
+<li>subestructura;</li>
+<li>análisis exploratorio de resultados.</li>
+</ul>
+<p>API ejemplo:</p>
+<div class="highlight"><pre><span></span><code><span class="n">amdock</span><span class="o">.</span><span class="n">analysis</span><span class="o">.</span><span class="n">pca</span><span class="p">(</span><span class="n">source</span><span class="o">=</span><span class="s2">"descriptor_set:12"</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">analysis</span><span class="o">.</span><span class="n">cluster</span><span class="p">(</span><span class="n">source</span><span class="o">=</span><span class="s2">"ligands"</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s2">"bitbirch"</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">analysis</span><span class="o">.</span><span class="n">similarity</span><span class="p">(</span><span class="n">query</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">against</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">],</span> <span class="n">kind</span><span class="o">=</span><span class="s2">"morgan"</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">analysis</span><span class="o">.</span><span class="n">substructure</span><span class="p">(</span><span class="n">smarts</span><span class="o">=</span><span class="s2">"c1ccccc1"</span><span class="p">)</span>
+</code></pre></div>
+<h2 id="4-decisiones-de-modelado-de-api">4. Decisiones de modelado de API<a class="headerlink" href="#4-decisiones-de-modelado-de-api" title="Permanent link">&para;</a></h2>
+<h3 id="41-loader-general-wrappers-especializados">4.1 <code>loader</code> general + wrappers especializados<a class="headerlink" href="#41-loader-general-wrappers-especializados" title="Permanent link">&para;</a></h3>
+<p>Recomendación:</p>
+<ul>
+<li>sí tener <code>loader.load_files(..., as_=...)</code></li>
+<li>sí tener <code>loader.load_ligands(...)</code> y <code>loader.load_receptors(...)</code></li>
+</ul>
+<p>Razón:</p>
+<ul>
+<li>el método general sirve para flujos programáticos o futuros inputs heterogéneos;</li>
+<li>los wrappers especializados dan una API clara, corta y fácil de descubrir.</li>
+</ul>
+<h3 id="42-las-propiedades-basicas-del-ligando-se-calculan-al-cargar">4.2 Las propiedades básicas del ligando se calculan al cargar<a class="headerlink" href="#42-las-propiedades-basicas-del-ligando-se-calculan-al-cargar" title="Permanent link">&para;</a></h3>
+<p>Esto sí conviene como comportamiento por defecto para ligandos:</p>
+<ul>
+<li>descriptores simples tipo Lipinski;</li>
+<li><code>n_atoms</code>;</li>
+<li><code>rotatable_bonds</code>;</li>
+<li>quizá <code>mw</code>, <code>logp</code>, <code>hbd</code>, <code>hba</code>, <code>tpsa</code>.</li>
+</ul>
+<p>Razón:</p>
+<ul>
+<li>son necesarias para la tabla principal;</li>
+<li>también sirven para filtrado temprano;</li>
+<li>su costo es bajo comparado con otras etapas.</li>
+</ul>
+<p>Esto no sustituye <code>qsar.compute_descriptors(...)</code>. Son dos niveles distintos:</p>
+<ul>
+<li>propiedades básicas de inventario;</li>
+<li>matrices de features para modelado.</li>
+</ul>
+<h3 id="43-actividades-qsar">4.3 Actividades QSAR<a class="headerlink" href="#43-actividades-qsar" title="Permanent link">&para;</a></h3>
+<p>No conviene mezclar “ligandos con actividad” como una entidad separada si químicamente
+son los mismos ligandos.</p>
+<p>Recomendación:</p>
+<ul>
+<li><code>ligands</code> sigue siendo la entidad química central;</li>
+<li>la actividad vive en una tabla aparte (<code>activities</code>);</li>
+<li>la pertenencia a workflows vive en conjuntos materializados (<code>ligand_sets</code>, <code>ligand_set_items</code>);</li>
+<li><code>qsar_datasets</code> representa datasets de modelado más explícitos y reutilizables.</li>
+</ul>
+<p>Es decir:</p>
+<ul>
+<li>el ligando y su estructura siguen existiendo una sola vez;</li>
+<li>la actividad es una anotación o medición asociada;</li>
+<li>el hecho de que ese ligando participe en QSAR, docking o ambos no debería
+  contaminar la entidad química base.</li>
+</ul>
+<h4 id="interpretacion-operativa">Interpretación operativa<a class="headerlink" href="#interpretacion-operativa" title="Permanent link">&para;</a></h4>
+<p>Para estos escenarios:</p>
+<ol>
+<li>ligandos de docking sin actividad;</li>
+<li>ligandos de QSAR con actividad;</li>
+<li>ligandos de referencia usados en complejos/redocking;</li>
+</ol>
+<p>la arquitectura recomendada es:</p>
+<ul>
+<li><code>ligands</code>: inventario químico único;</li>
+<li><code>activities</code>: valores experimentales asociados a algunos ligandos;</li>
+<li><code>ligand_sets</code>: subconjuntos materializados como <code>screening_library</code>,
+  <code>qsar_train</code>, <code>qsar_test</code>, <code>qsar_validation</code>, <code>reference_ligands</code>;</li>
+<li><code>complexes</code>: relación estructural receptor-ligando de referencia;</li>
+<li><code>complex_sets</code>: subconjuntos de complejos, por ejemplo <code>redocking_validation</code>.</li>
+</ul>
+<p>Consecuencia:</p>
+<ul>
+<li>un ligando con actividad sigue siendo un ligando;</li>
+<li>no por eso debe entrar automáticamente a docking;</li>
+<li>un ligando de referencia para redocking también sigue siendo un ligando;</li>
+<li>su rol en redocking debe salir del set o del complejo, no de flags ambiguos
+  dentro de <code>ligands</code>.</li>
+</ul>
+<h4 id="sobre-train-test-y-validation">Sobre <code>train</code>, <code>test</code> y <code>validation</code><a class="headerlink" href="#sobre-train-test-y-validation" title="Permanent link">&para;</a></h4>
+<p>No conviene meter <code>train/test/validation</code> como columnas fijas en <code>ligands</code>.</p>
+<p>Conviene materializarlo como pertenencia a conjuntos:</p>
+<ul>
+<li><code>qsar_train</code></li>
+<li><code>qsar_test</code></li>
+<li><code>qsar_validation</code></li>
+</ul>
+<p>o, si se quiere algo más formal para modelado:</p>
+<ul>
+<li><code>qsar_datasets</code></li>
+<li><code>qsar_dataset_items</code></li>
+</ul>
+<p>Esto permite regenerar splits dinámicos y a la vez congelar snapshots cuando se
+necesita reproducibilidad.</p>
+<h4 id="sobre-complejos-y-redocking">Sobre complejos y redocking<a class="headerlink" href="#sobre-complejos-y-redocking" title="Permanent link">&para;</a></h4>
+<p>Los complejos de referencia tampoco deberían duplicar al ligando base.</p>
+<p>La estructura recomendada es:</p>
+<ul>
+<li><code>complexes</code> guarda la relación <code>receptor_id + ligand_id + reference_state</code>;</li>
+<li><code>complex_sets</code> agrupa subconjuntos como <code>redocking_reference_set</code>;</li>
+<li>si un ligando de complejo además tiene actividad, eso sigue viviendo en
+  <code>activities</code>, no en una segunda tabla de ligandos.</li>
+</ul>
+<h4 id="implicacion-de-rendimiento">Implicación de rendimiento<a class="headerlink" href="#implicacion-de-rendimiento" title="Permanent link">&para;</a></h4>
+<p>Sí, esta arquitectura es viable también desde rendimiento si se hace de esta forma:</p>
+<ul>
+<li>no guardar listas enormes de ids en JSON;</li>
+<li>sí materializar pertenencias como filas en <code>ligand_set_items</code> y <code>complex_set_items</code>;</li>
+<li>indexar por <code>(set_id, ligand_id)</code> y <code>(ligand_id, set_id)</code>.</li>
+</ul>
+<p>Eso es mejor que:</p>
+<ul>
+<li>filtrar constantemente por flags mezclados en <code>ligands</code>;</li>
+<li>o construir <code>WHERE id IN (...)</code> gigantes para cada operación.</li>
+</ul>
+<p>En resumen:</p>
+<ul>
+<li><code>ligands</code> = identidad química;</li>
+<li><code>activities</code> = medición experimental;</li>
+<li><code>ligand_sets</code> = contexto de uso;</li>
+<li><code>complexes</code> = artefacto estructural receptor-ligando;</li>
+<li><code>complex_sets</code> = contexto de uso de complejos.</li>
+</ul>
+<h3 id="44-preparacion-global-vs-preparacion-especifica-por-motor">4.4 Preparación global vs preparación específica por motor<a class="headerlink" href="#44-preparacion-global-vs-preparacion-especifica-por-motor" title="Permanent link">&para;</a></h3>
+<p>Conviene separar:</p>
+<ul>
+<li>preparación global:</li>
+<li>validación</li>
+<li>protonación</li>
+<li>generación 3D</li>
+<li>
+<p>minimización</p>
+</li>
+<li>
+<p>preparación específica por motor:</p>
+</li>
+<li>PDBQT para Vina/AutoDock</li>
+<li>formatos/artefactos específicos para DOCK</li>
+<li>inputs distintos para DiffDock</li>
+</ul>
+<p>Esto permite una API como:</p>
+<div class="highlight"><pre><span></span><code><span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">prepare_ligands</span><span class="p">(</span><span class="n">global_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">prepare_ligands</span><span class="p">(</span><span class="n">engine</span><span class="o">=</span><span class="s2">"vina"</span><span class="p">)</span>
+</code></pre></div>
+<p>o más explícita:</p>
+<div class="highlight"><pre><span></span><code><span class="n">amdock</span><span class="o">.</span><span class="n">structure</span><span class="o">.</span><span class="n">small_generate_3d</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">prepare_ligands</span><span class="p">(</span><span class="n">engine</span><span class="o">=</span><span class="s2">"vina"</span><span class="p">)</span>
+</code></pre></div>
+<p>La segunda forma es más clara y más alineada con una arquitectura limpia.</p>
+<h2 id="5-workflow-canonico-docking-simple">5. Workflow canónico: docking simple<a class="headerlink" href="#5-workflow-canonico-docking-simple" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><span class="n">amdock</span> <span class="o">=</span> <span class="n">AMDockVSRuntime</span><span class="p">()</span>
+
+<span class="c1"># 1. Carga</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">loader</span><span class="o">.</span><span class="n">load_ligands</span><span class="p">(</span><span class="n">files</span><span class="o">=</span><span class="p">[</span><span class="s2">"library.sdf"</span><span class="p">])</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">loader</span><span class="o">.</span><span class="n">load_receptors</span><span class="p">(</span><span class="n">files</span><span class="o">=</span><span class="p">[</span><span class="s2">"receptor.pdb"</span><span class="p">])</span>
+
+<span class="c1"># 2. Curación de ligandos</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">ligands</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">by</span><span class="o">=</span><span class="p">[</span><span class="s2">"valid"</span><span class="p">,</span> <span class="s2">"organic"</span><span class="p">,</span> <span class="s2">"mw &lt; 700"</span><span class="p">,</span> <span class="s2">"rotatable_bonds &lt;= 12"</span><span class="p">])</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">ligands</span><span class="o">.</span><span class="n">deduplicate</span><span class="p">(</span><span class="n">method</span><span class="o">=</span><span class="s2">"canonical_smiles"</span><span class="p">)</span>
+
+<span class="c1"># 3. Preparación global</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">structure</span><span class="o">.</span><span class="n">small_generate_3d</span><span class="p">(</span><span class="n">ligand_ids</span><span class="o">=</span><span class="s2">"current"</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">structure</span><span class="o">.</span><span class="n">small_minimize</span><span class="p">(</span><span class="n">ligand_ids</span><span class="o">=</span><span class="s2">"current"</span><span class="p">)</span>
+
+<span class="c1"># 4. Preparación específica para docking</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">prepare_ligands</span><span class="p">(</span><span class="n">engine</span><span class="o">=</span><span class="s2">"vina"</span><span class="p">,</span> <span class="n">ligand_ids</span><span class="o">=</span><span class="s2">"current"</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">prepare_receptors</span><span class="p">(</span><span class="n">engine</span><span class="o">=</span><span class="s2">"vina"</span><span class="p">,</span> <span class="n">receptor_ids</span><span class="o">=</span><span class="s2">"current"</span><span class="p">)</span>
+
+<span class="c1"># 5. Definición del sitio</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">set_grid</span><span class="p">(</span>
+    <span class="n">receptor_id</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">center</span><span class="o">=</span><span class="p">(</span><span class="mf">12.0</span><span class="p">,</span> <span class="mf">13.0</span><span class="p">,</span> <span class="mf">10.0</span><span class="p">),</span>
+    <span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="mf">20.0</span><span class="p">,</span> <span class="mf">20.0</span><span class="p">,</span> <span class="mf">20.0</span><span class="p">),</span>
+    <span class="n">spacing</span><span class="o">=</span><span class="mf">0.375</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># 6. Docking</span>
+<span class="n">job</span> <span class="o">=</span> <span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
+    <span class="n">engine</span><span class="o">=</span><span class="s2">"vina"</span><span class="p">,</span>
+    <span class="n">receptor_id</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">ligand_ids</span><span class="o">=</span><span class="s2">"current"</span><span class="p">,</span>
+    <span class="n">exhaustiveness</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
+    <span class="n">num_modes</span><span class="o">=</span><span class="mi">9</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># 7. Post-análisis</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">interactions</span><span class="p">(</span><span class="n">results</span><span class="o">=</span><span class="s2">"last"</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">analysis</span><span class="o">.</span><span class="n">cluster</span><span class="p">(</span><span class="n">source</span><span class="o">=</span><span class="s2">"docking:last"</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s2">"fingerprint"</span><span class="p">)</span>
+</code></pre></div>
+<h2 id="6-workflow-canonico-reverse-docking">6. Workflow canónico: reverse docking<a class="headerlink" href="#6-workflow-canonico-reverse-docking" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><span class="n">amdock</span> <span class="o">=</span> <span class="n">AMDockVSRuntime</span><span class="p">()</span>
+
+<span class="n">amdock</span><span class="o">.</span><span class="n">loader</span><span class="o">.</span><span class="n">load_ligands</span><span class="p">(</span><span class="n">files</span><span class="o">=</span><span class="p">[</span><span class="s2">"query_ligand.sdf"</span><span class="p">])</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">loader</span><span class="o">.</span><span class="n">load_receptors</span><span class="p">(</span><span class="n">files</span><span class="o">=</span><span class="p">[</span><span class="s2">"panel/*.pdb"</span><span class="p">])</span>
+
+<span class="n">amdock</span><span class="o">.</span><span class="n">structure</span><span class="o">.</span><span class="n">small_generate_3d</span><span class="p">(</span><span class="n">ligand_ids</span><span class="o">=</span><span class="s2">"current"</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">prepare_ligands</span><span class="p">(</span><span class="n">engine</span><span class="o">=</span><span class="s2">"vina"</span><span class="p">,</span> <span class="n">ligand_ids</span><span class="o">=</span><span class="s2">"current"</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">prepare_receptors</span><span class="p">(</span><span class="n">engine</span><span class="o">=</span><span class="s2">"vina"</span><span class="p">,</span> <span class="n">receptor_ids</span><span class="o">=</span><span class="s2">"all"</span><span class="p">)</span>
+
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">set_grid</span><span class="p">(</span><span class="n">receptor_id</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">center</span><span class="o">=</span><span class="p">(</span><span class="o">...</span><span class="p">),</span> <span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="o">...</span><span class="p">),</span> <span class="n">spacing</span><span class="o">=</span><span class="mf">0.375</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">set_grid</span><span class="p">(</span><span class="n">receptor_id</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">center</span><span class="o">=</span><span class="p">(</span><span class="o">...</span><span class="p">),</span> <span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="o">...</span><span class="p">),</span> <span class="n">spacing</span><span class="o">=</span><span class="mf">0.375</span><span class="p">)</span>
+
+<span class="n">job</span> <span class="o">=</span> <span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">reverse</span><span class="p">(</span>
+    <span class="n">engine</span><span class="o">=</span><span class="s2">"vina"</span><span class="p">,</span>
+    <span class="n">ligand_id</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">receptor_ids</span><span class="o">=</span><span class="s2">"all"</span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div>
+<h2 id="7-workflow-canonico-redocking">7. Workflow canónico: redocking<a class="headerlink" href="#7-workflow-canonico-redocking" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><span class="n">amdock</span> <span class="o">=</span> <span class="n">AMDockVSRuntime</span><span class="p">()</span>
+
+<span class="n">amdock</span><span class="o">.</span><span class="n">loader</span><span class="o">.</span><span class="n">load_receptors</span><span class="p">(</span><span class="n">files</span><span class="o">=</span><span class="p">[</span><span class="s2">"complex_receptor.pdb"</span><span class="p">])</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">loader</span><span class="o">.</span><span class="n">load_ligands</span><span class="p">(</span><span class="n">files</span><span class="o">=</span><span class="p">[</span><span class="s2">"native_ligand.sdf"</span><span class="p">])</span>
+
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">prepare_ligands</span><span class="p">(</span><span class="n">engine</span><span class="o">=</span><span class="s2">"vina"</span><span class="p">,</span> <span class="n">ligand_ids</span><span class="o">=</span><span class="s2">"current"</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">prepare_receptors</span><span class="p">(</span><span class="n">engine</span><span class="o">=</span><span class="s2">"vina"</span><span class="p">,</span> <span class="n">receptor_ids</span><span class="o">=</span><span class="s2">"current"</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">set_grid</span><span class="p">(</span><span class="n">receptor_id</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">center</span><span class="o">=</span><span class="p">(</span><span class="o">...</span><span class="p">),</span> <span class="n">size</span><span class="o">=</span><span class="p">(</span><span class="o">...</span><span class="p">),</span> <span class="n">spacing</span><span class="o">=</span><span class="mf">0.375</span><span class="p">)</span>
+
+<span class="n">job</span> <span class="o">=</span> <span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">redock</span><span class="p">(</span>
+    <span class="n">engine</span><span class="o">=</span><span class="s2">"vina"</span><span class="p">,</span>
+    <span class="n">receptor_id</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">ligand_id</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">randomize_pose</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">amdock</span><span class="o">.</span><span class="n">analysis</span><span class="o">.</span><span class="n">pose_rmsd</span><span class="p">(</span><span class="n">result</span><span class="o">=</span><span class="s2">"last"</span><span class="p">,</span> <span class="n">reference</span><span class="o">=</span><span class="s2">"native"</span><span class="p">)</span>
+</code></pre></div>
+<h2 id="8-workflow-canonico-qsar-simple">8. Workflow canónico: QSAR simple<a class="headerlink" href="#8-workflow-canonico-qsar-simple" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><span class="n">amdock</span> <span class="o">=</span> <span class="n">AMDockVSRuntime</span><span class="p">()</span>
+
+<span class="c1"># 1. Carga de ligandos</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">loader</span><span class="o">.</span><span class="n">load_ligands</span><span class="p">(</span><span class="n">files</span><span class="o">=</span><span class="p">[</span><span class="s2">"training_set.sdf"</span><span class="p">])</span>
+
+<span class="c1"># 2. Curación</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">ligands</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">by</span><span class="o">=</span><span class="p">[</span><span class="s2">"valid"</span><span class="p">,</span> <span class="s2">"organic"</span><span class="p">])</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">ligands</span><span class="o">.</span><span class="n">deduplicate</span><span class="p">(</span><span class="n">method</span><span class="o">=</span><span class="s2">"canonical_smiles"</span><span class="p">)</span>
+
+<span class="c1"># 3. Carga de actividades</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">qsar</span><span class="o">.</span><span class="n">load_activities</span><span class="p">(</span><span class="n">file</span><span class="o">=</span><span class="s2">"activities.csv"</span><span class="p">,</span> <span class="n">ligand_key</span><span class="o">=</span><span class="s2">"name"</span><span class="p">,</span> <span class="n">target</span><span class="o">=</span><span class="s2">"IC50"</span><span class="p">)</span>
+
+<span class="c1"># 4. Features</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">qsar</span><span class="o">.</span><span class="n">compute_descriptors</span><span class="p">(</span><span class="n">family</span><span class="o">=</span><span class="s2">"rdkit_2d"</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">qsar</span><span class="o">.</span><span class="n">compute_fingerprints</span><span class="p">(</span><span class="n">kind</span><span class="o">=</span><span class="s2">"morgan"</span><span class="p">,</span> <span class="n">radius</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">n_bits</span><span class="o">=</span><span class="mi">2048</span><span class="p">)</span>
+
+<span class="c1"># 5. Dataset y entrenamiento</span>
+<span class="n">dataset</span> <span class="o">=</span> <span class="n">amdock</span><span class="o">.</span><span class="n">qsar</span><span class="o">.</span><span class="n">create_dataset</span><span class="p">(</span>
+    <span class="n">ligands</span><span class="o">=</span><span class="s2">"with_activity"</span><span class="p">,</span>
+    <span class="n">features</span><span class="o">=</span><span class="p">[</span><span class="s2">"rdkit_2d"</span><span class="p">,</span> <span class="s2">"morgan"</span><span class="p">],</span>
+    <span class="n">target</span><span class="o">=</span><span class="s2">"pIC50"</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="n">model</span> <span class="o">=</span> <span class="n">amdock</span><span class="o">.</span><span class="n">qsar</span><span class="o">.</span><span class="n">train</span><span class="p">(</span>
+    <span class="n">dataset</span><span class="o">=</span><span class="n">dataset</span><span class="p">,</span>
+    <span class="n">model</span><span class="o">=</span><span class="s2">"random_forest"</span><span class="p">,</span>
+    <span class="n">validation</span><span class="o">=</span><span class="s2">"kfold"</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="c1"># 6. Predicción y análisis</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">qsar</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">,</span> <span class="n">ligands</span><span class="o">=</span><span class="s2">"all"</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">qsar</span><span class="o">.</span><span class="n">evaluate</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="n">model</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">analysis</span><span class="o">.</span><span class="n">pca</span><span class="p">(</span><span class="n">source</span><span class="o">=</span><span class="n">dataset</span><span class="p">)</span>
+</code></pre></div>
+<h2 id="9-workflow-canonico-qsar-antes-de-docking">9. Workflow canónico: QSAR antes de docking<a class="headerlink" href="#9-workflow-canonico-qsar-antes-de-docking" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><span class="n">amdock</span> <span class="o">=</span> <span class="n">AMDockVSRuntime</span><span class="p">()</span>
+
+<span class="n">amdock</span><span class="o">.</span><span class="n">loader</span><span class="o">.</span><span class="n">load_ligands</span><span class="p">(</span><span class="n">files</span><span class="o">=</span><span class="p">[</span><span class="s2">"library.sdf"</span><span class="p">])</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">ligands</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">by</span><span class="o">=</span><span class="p">[</span><span class="s2">"valid"</span><span class="p">,</span> <span class="s2">"organic"</span><span class="p">])</span>
+
+<span class="n">amdock</span><span class="o">.</span><span class="n">qsar</span><span class="o">.</span><span class="n">compute_descriptors</span><span class="p">(</span><span class="n">family</span><span class="o">=</span><span class="s2">"rdkit_2d"</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">qsar</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="s2">"admet_v1"</span><span class="p">,</span> <span class="n">ligands</span><span class="o">=</span><span class="s2">"current"</span><span class="p">)</span>
+
+<span class="n">amdock</span><span class="o">.</span><span class="n">ligands</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">by</span><span class="o">=</span><span class="p">[</span><span class="s2">"pred_admet_ok"</span><span class="p">,</span> <span class="s2">"pred_activity &gt; threshold"</span><span class="p">])</span>
+
+<span class="n">amdock</span><span class="o">.</span><span class="n">structure</span><span class="o">.</span><span class="n">small_generate_3d</span><span class="p">(</span><span class="n">ligand_ids</span><span class="o">=</span><span class="s2">"current"</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">prepare_ligands</span><span class="p">(</span><span class="n">engine</span><span class="o">=</span><span class="s2">"vina"</span><span class="p">,</span> <span class="n">ligand_ids</span><span class="o">=</span><span class="s2">"current"</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">engine</span><span class="o">=</span><span class="s2">"vina"</span><span class="p">,</span> <span class="n">receptor_id</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">ligand_ids</span><span class="o">=</span><span class="s2">"current"</span><span class="p">)</span>
+</code></pre></div>
+<h2 id="10-workflow-canonico-modelado-estructural">10. Workflow canónico: modelado estructural<a class="headerlink" href="#10-workflow-canonico-modelado-estructural" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><span class="n">amdock</span> <span class="o">=</span> <span class="n">AMDockVSRuntime</span><span class="p">()</span>
+
+<span class="n">amdock</span><span class="o">.</span><span class="n">structure</span><span class="o">.</span><span class="n">protein_modeling</span><span class="p">(</span>
+    <span class="n">engine</span><span class="o">=</span><span class="s2">"esmfold"</span><span class="p">,</span>
+    <span class="n">sequences</span><span class="o">=</span><span class="p">[</span><span class="s2">"MKT..."</span><span class="p">],</span>
+<span class="p">)</span>
+
+<span class="n">amdock</span><span class="o">.</span><span class="n">structure</span><span class="o">.</span><span class="n">protein_minimize</span><span class="p">(</span><span class="n">receptor_ids</span><span class="o">=</span><span class="s2">"last"</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">prepare_receptors</span><span class="p">(</span><span class="n">engine</span><span class="o">=</span><span class="s2">"vina"</span><span class="p">,</span> <span class="n">receptor_ids</span><span class="o">=</span><span class="s2">"last"</span><span class="p">)</span>
+</code></pre></div>
+<h2 id="11-recomendacion-concreta-para-la-implementacion">11. Recomendación concreta para la implementación<a class="headerlink" href="#11-recomendacion-concreta-para-la-implementacion" title="Permanent link">&para;</a></h2>
+<p>La propuesta recomendada es esta:</p>
+<div class="highlight"><pre><span></span><code><span class="n">amdock</span> <span class="o">=</span> <span class="n">AMDockVSRuntime</span><span class="p">()</span>
+
+<span class="n">amdock</span><span class="o">.</span><span class="n">loader</span><span class="o">.</span><span class="n">load_ligands</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">loader</span><span class="o">.</span><span class="n">load_receptors</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+
+<span class="n">amdock</span><span class="o">.</span><span class="n">ligands</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">ligands</span><span class="o">.</span><span class="n">deduplicate</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+
+<span class="n">amdock</span><span class="o">.</span><span class="n">structure</span><span class="o">.</span><span class="n">small_generate_3d</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">structure</span><span class="o">.</span><span class="n">small_minimize</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">prepare_ligands</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">prepare_receptors</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">set_grid</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">reverse</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">redock</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+
+<span class="n">amdock</span><span class="o">.</span><span class="n">qsar</span><span class="o">.</span><span class="n">load_activities</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">qsar</span><span class="o">.</span><span class="n">compute_descriptors</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">qsar</span><span class="o">.</span><span class="n">compute_fingerprints</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">qsar</span><span class="o">.</span><span class="n">train</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">qsar</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+
+<span class="n">amdock</span><span class="o">.</span><span class="n">analysis</span><span class="o">.</span><span class="n">cluster</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<span class="n">amdock</span><span class="o">.</span><span class="n">analysis</span><span class="o">.</span><span class="n">pca</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+</code></pre></div>
+<p>Razón:</p>
+<ul>
+<li>reduce la sobrecarga conceptual de <code>AMDockRuntime</code>;</li>
+<li>agrupa semánticamente las operaciones;</li>
+<li>deja una API más fácil de usar desde notebook;</li>
+<li>alinea backend, runtime y UI con los mismos dominios;</li>
+<li>permite que cada subcomponente crezca sin volver ilegible la fachada principal.</li>
+</ul>
+<h2 id="12-consecuencia-arquitectonica">12. Consecuencia arquitectónica<a class="headerlink" href="#12-consecuencia-arquitectonica" title="Permanent link">&para;</a></h2>
+<p>Sí: esto implica que <code>AMDockRuntime</code> debería tener pocos métodos directos nuevos.</p>
+<p>En vez de crecer horizontalmente, debería exponer facades o toolkits:</p>
+<ul>
+<li><code>LoaderAPI</code></li>
+<li><code>LigandAPI</code></li>
+<li><code>ReceptorAPI</code></li>
+<li><code>DockingAPI</code></li>
+<li><code>QSARAPI</code></li>
+<li><code>StructureAPI</code></li>
+<li><code>AnalysisAPI</code></li>
+</ul>
+<p>Eso segmenta el código y hace más explícita la separación por dominio.</p>
+<p>También alinea bien con la estructura de módulos ya propuesta:</p>
+<ul>
+<li><code>chemistry/</code></li>
+<li><code>docking/</code></li>
+<li><code>qsar/</code></li>
+<li><code>analysis/</code></li>
+<li><code>io/</code></li>
+<li><code>jobs/</code></li>
+</ul>
+<h2 id="13-tareas-derivadas">13. Tareas derivadas<a class="headerlink" href="#13-tareas-derivadas" title="Permanent link">&para;</a></h2>
+<h3 id="fase-1-fijar-la-fachada-publica">Fase 1. Fijar la fachada pública<a class="headerlink" href="#fase-1-fijar-la-fachada-publica" title="Permanent link">&para;</a></h3>
+<ul>
+<li>[ ] Definir el shape base de <code>AMDockRuntime</code></li>
+<li>[ ] Añadir subcomponentes <code>loader</code>, <code>ligands</code>, <code>receptors</code>, <code>docking</code>, <code>qsar</code>, <code>structure</code>, <code>analysis</code></li>
+<li>[ ] Decidir si esos subcomponentes son atributos persistentes o factories ligeras</li>
+</ul>
+<h3 id="fase-2-alinear-el-loader">Fase 2. Alinear el loader<a class="headerlink" href="#fase-2-alinear-el-loader" title="Permanent link">&para;</a></h3>
+<ul>
+<li>[ ] Mantener <code>load_ligands(...)</code> y <code>load_receptors(...)</code></li>
+<li>[ ] Diseñar <code>load_files(..., as_=...)</code> como API opcional, no obligatoria</li>
+<li>[ ] Decidir qué metadatos y propiedades básicas se calculan al cargar</li>
+</ul>
+<h3 id="fase-3-alinear-docking">Fase 3. Alinear docking<a class="headerlink" href="#fase-3-alinear-docking" title="Permanent link">&para;</a></h3>
+<ul>
+<li>[ ] Separar preparación global de preparación específica por motor</li>
+<li>[ ] Definir contrato común para <code>set_grid(...)</code></li>
+<li>[ ] Definir <code>run(...)</code>, <code>reverse(...)</code> y <code>redock(...)</code></li>
+<li>[ ] Implementar preparación real a <code>PDBQT</code> para Vina/AutoDock</li>
+</ul>
+<h3 id="fase-4-alinear-qsar">Fase 4. Alinear QSAR<a class="headerlink" href="#fase-4-alinear-qsar" title="Permanent link">&para;</a></h3>
+<ul>
+<li>[ ] Definir carga de actividades</li>
+<li>[ ] Definir cálculo de descriptores y fingerprints por familias</li>
+<li>[ ] Definir dataset/model/prediction como artefactos explícitos</li>
+</ul>
+<h3 id="fase-5-alinear-estructura-y-analisis">Fase 5. Alinear estructura y análisis<a class="headerlink" href="#fase-5-alinear-estructura-y-analisis" title="Permanent link">&para;</a></h3>
+<ul>
+<li>[ ] Definir <code>structure.small_*</code> y <code>structure.protein_*</code></li>
+<li>[ ] Definir <code>analysis.cluster</code>, <code>analysis.pca</code>, <code>analysis.similarity</code></li>
+<li>[ ] Evitar que análisis transversales terminen escondidos dentro de <code>ligands</code> o <code>qsar</code></li>
+</ul>
+<h2 id="14-esquema-sql-minimo-para-chartdb">14. Esquema SQL mínimo para ChartDB<a class="headerlink" href="#14-esquema-sql-minimo-para-chartdb" title="Permanent link">&para;</a></h2>
+<p>Este bloque no intenta cubrir todo AMDock. Muestra la parte de modelo que mejor
+encaja con:</p>
+<ul>
+<li>docking vs QSAR;</li>
+<li>splits dinámicos de QSAR;</li>
+<li>complejos de referencia para redocking;</li>
+<li>actividades separadas de la identidad química;</li>
+<li>conjuntos materializados para evitar filtros ambiguos;</li>
+<li>estados moleculares mínimos para preparación y ejecución.</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">ligands</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="n">id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">PRIMARY</span><span class="w"> </span><span class="k">KEY</span><span class="p">,</span>
+<span class="w">    </span><span class="n">name</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">source_path</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">source_kind</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">source_hash</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">stored_path</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">canonical_smiles</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">input_format</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">n_atoms</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">    </span><span class="n">mw</span><span class="w"> </span><span class="nb">REAL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">logp</span><span class="w"> </span><span class="nb">REAL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">hbd</span><span class="w"> </span><span class="nb">INTEGER</span><span class="p">,</span>
+<span class="w">    </span><span class="n">hba</span><span class="w"> </span><span class="nb">INTEGER</span><span class="p">,</span>
+<span class="w">    </span><span class="n">tpsa</span><span class="w"> </span><span class="nb">REAL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">rotatable_bonds</span><span class="w"> </span><span class="nb">INTEGER</span><span class="p">,</span>
+<span class="w">    </span><span class="n">is_valid</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">    </span><span class="n">metadata_json</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">'{}'</span><span class="p">,</span>
+<span class="w">    </span><span class="n">created_at</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">updated_at</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span>
+<span class="p">);</span>
+
+<span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">receptors</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="n">id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">PRIMARY</span><span class="w"> </span><span class="k">KEY</span><span class="p">,</span>
+<span class="w">    </span><span class="n">name</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">source_path</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">source_kind</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">source_hash</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">stored_path</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">input_format</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">n_atoms</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">    </span><span class="n">metadata_json</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">'{}'</span><span class="p">,</span>
+<span class="w">    </span><span class="n">created_at</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">updated_at</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span>
+<span class="p">);</span>
+
+<span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">receptor_sets</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="n">id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">PRIMARY</span><span class="w"> </span><span class="k">KEY</span><span class="p">,</span>
+<span class="w">    </span><span class="n">name</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">kind</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">is_snapshot</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">    </span><span class="n">filter_spec_json</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">'{}'</span><span class="p">,</span>
+<span class="w">    </span><span class="n">metadata_json</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">'{}'</span><span class="p">,</span>
+<span class="w">    </span><span class="n">created_at</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span>
+<span class="p">);</span>
+
+<span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">receptor_set_items</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="n">set_id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">receptor_id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="k">PRIMARY</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="n">set_id</span><span class="p">,</span><span class="w"> </span><span class="n">receptor_id</span><span class="p">),</span>
+<span class="w">    </span><span class="k">FOREIGN</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="n">set_id</span><span class="p">)</span><span class="w"> </span><span class="k">REFERENCES</span><span class="w"> </span><span class="n">receptor_sets</span><span class="p">(</span><span class="n">id</span><span class="p">),</span>
+<span class="w">    </span><span class="k">FOREIGN</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="n">receptor_id</span><span class="p">)</span><span class="w"> </span><span class="k">REFERENCES</span><span class="w"> </span><span class="n">receptors</span><span class="p">(</span><span class="n">id</span><span class="p">)</span>
+<span class="p">);</span>
+
+<span class="k">CREATE</span><span class="w"> </span><span class="k">INDEX</span><span class="w"> </span><span class="n">idx_receptor_set_items_receptor_id_set_id</span>
+<span class="w">    </span><span class="k">ON</span><span class="w"> </span><span class="n">receptor_set_items</span><span class="p">(</span><span class="n">receptor_id</span><span class="p">,</span><span class="w"> </span><span class="n">set_id</span><span class="p">);</span>
+
+<span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">molecule_states</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="n">id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">PRIMARY</span><span class="w"> </span><span class="k">KEY</span><span class="p">,</span>
+<span class="w">    </span><span class="n">entity_kind</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">entity_id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">state_kind</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">'raw'</span><span class="p">,</span>
+<span class="w">    </span><span class="n">parent_state_id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="p">,</span>
+<span class="w">    </span><span class="n">has_hs</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">    </span><span class="n">has_3d</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">    </span><span class="n">is_minimized</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">    </span><span class="n">conformer_count</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="mi">0</span><span class="p">,</span>
+<span class="w">    </span><span class="n">selected_conformer</span><span class="w"> </span><span class="nb">INTEGER</span><span class="p">,</span>
+<span class="w">    </span><span class="n">binary_ref</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">build_signature</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">metadata_json</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">'{}'</span><span class="p">,</span>
+<span class="w">    </span><span class="n">created_at</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="k">FOREIGN</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="n">parent_state_id</span><span class="p">)</span><span class="w"> </span><span class="k">REFERENCES</span><span class="w"> </span><span class="n">molecule_states</span><span class="p">(</span><span class="n">id</span><span class="p">)</span>
+<span class="p">);</span>
+
+<span class="k">CREATE</span><span class="w"> </span><span class="k">INDEX</span><span class="w"> </span><span class="n">idx_molecule_states_entity_kind_entity_id</span>
+<span class="w">    </span><span class="k">ON</span><span class="w"> </span><span class="n">molecule_states</span><span class="p">(</span><span class="n">entity_kind</span><span class="p">,</span><span class="w"> </span><span class="n">entity_id</span><span class="p">);</span>
+
+<span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">activities</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="n">id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">PRIMARY</span><span class="w"> </span><span class="k">KEY</span><span class="p">,</span>
+<span class="w">    </span><span class="n">ligand_id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">assay_name</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">endpoint</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">value</span><span class="w"> </span><span class="nb">REAL</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">unit</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">relation</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">'='</span><span class="p">,</span>
+<span class="w">    </span><span class="n">transform_kind</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="k">source</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">metadata_json</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">'{}'</span><span class="p">,</span>
+<span class="w">    </span><span class="n">created_at</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="k">FOREIGN</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="n">ligand_id</span><span class="p">)</span><span class="w"> </span><span class="k">REFERENCES</span><span class="w"> </span><span class="n">ligands</span><span class="p">(</span><span class="n">id</span><span class="p">)</span>
+<span class="p">);</span>
+
+<span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">ligand_sets</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="n">id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">PRIMARY</span><span class="w"> </span><span class="k">KEY</span><span class="p">,</span>
+<span class="w">    </span><span class="n">name</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">kind</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">is_snapshot</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">    </span><span class="n">filter_spec_json</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">'{}'</span><span class="p">,</span>
+<span class="w">    </span><span class="n">metadata_json</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">'{}'</span><span class="p">,</span>
+<span class="w">    </span><span class="n">created_at</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span>
+<span class="p">);</span>
+
+<span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">ligand_set_items</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="n">set_id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">ligand_id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="k">PRIMARY</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="n">set_id</span><span class="p">,</span><span class="w"> </span><span class="n">ligand_id</span><span class="p">),</span>
+<span class="w">    </span><span class="k">FOREIGN</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="n">set_id</span><span class="p">)</span><span class="w"> </span><span class="k">REFERENCES</span><span class="w"> </span><span class="n">ligand_sets</span><span class="p">(</span><span class="n">id</span><span class="p">),</span>
+<span class="w">    </span><span class="k">FOREIGN</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="n">ligand_id</span><span class="p">)</span><span class="w"> </span><span class="k">REFERENCES</span><span class="w"> </span><span class="n">ligands</span><span class="p">(</span><span class="n">id</span><span class="p">)</span>
+<span class="p">);</span>
+
+<span class="k">CREATE</span><span class="w"> </span><span class="k">INDEX</span><span class="w"> </span><span class="n">idx_ligand_set_items_ligand_id_set_id</span>
+<span class="w">    </span><span class="k">ON</span><span class="w"> </span><span class="n">ligand_set_items</span><span class="p">(</span><span class="n">ligand_id</span><span class="p">,</span><span class="w"> </span><span class="n">set_id</span><span class="p">);</span>
+
+<span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">qsar_datasets</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="n">id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">PRIMARY</span><span class="w"> </span><span class="k">KEY</span><span class="p">,</span>
+<span class="w">    </span><span class="n">name</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">endpoint</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">activity_transform</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">split_strategy</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">metadata_json</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">'{}'</span><span class="p">,</span>
+<span class="w">    </span><span class="n">created_at</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span>
+<span class="p">);</span>
+
+<span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">qsar_dataset_items</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="n">id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">PRIMARY</span><span class="w"> </span><span class="k">KEY</span><span class="p">,</span>
+<span class="w">    </span><span class="n">dataset_id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">ligand_id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">activity_id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="p">,</span>
+<span class="w">    </span><span class="k">role</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">'train'</span><span class="p">,</span>
+<span class="w">    </span><span class="k">FOREIGN</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="n">dataset_id</span><span class="p">)</span><span class="w"> </span><span class="k">REFERENCES</span><span class="w"> </span><span class="n">qsar_datasets</span><span class="p">(</span><span class="n">id</span><span class="p">),</span>
+<span class="w">    </span><span class="k">FOREIGN</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="n">ligand_id</span><span class="p">)</span><span class="w"> </span><span class="k">REFERENCES</span><span class="w"> </span><span class="n">ligands</span><span class="p">(</span><span class="n">id</span><span class="p">),</span>
+<span class="w">    </span><span class="k">FOREIGN</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="n">activity_id</span><span class="p">)</span><span class="w"> </span><span class="k">REFERENCES</span><span class="w"> </span><span class="n">activities</span><span class="p">(</span><span class="n">id</span><span class="p">)</span>
+<span class="p">);</span>
+
+<span class="k">CREATE</span><span class="w"> </span><span class="k">INDEX</span><span class="w"> </span><span class="n">idx_qsar_dataset_items_dataset_role</span>
+<span class="w">    </span><span class="k">ON</span><span class="w"> </span><span class="n">qsar_dataset_items</span><span class="p">(</span><span class="n">dataset_id</span><span class="p">,</span><span class="w"> </span><span class="k">role</span><span class="p">);</span>
+
+<span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">complexes</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="n">id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">PRIMARY</span><span class="w"> </span><span class="k">KEY</span><span class="p">,</span>
+<span class="w">    </span><span class="n">name</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">receptor_id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">ligand_id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">reference_state_ref</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">metadata_json</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">'{}'</span><span class="p">,</span>
+<span class="w">    </span><span class="n">created_at</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">updated_at</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="k">FOREIGN</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="n">receptor_id</span><span class="p">)</span><span class="w"> </span><span class="k">REFERENCES</span><span class="w"> </span><span class="n">receptors</span><span class="p">(</span><span class="n">id</span><span class="p">),</span>
+<span class="w">    </span><span class="k">FOREIGN</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="n">ligand_id</span><span class="p">)</span><span class="w"> </span><span class="k">REFERENCES</span><span class="w"> </span><span class="n">ligands</span><span class="p">(</span><span class="n">id</span><span class="p">)</span>
+<span class="p">);</span>
+
+<span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">complex_sets</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="n">id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">PRIMARY</span><span class="w"> </span><span class="k">KEY</span><span class="p">,</span>
+<span class="w">    </span><span class="n">name</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">kind</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">is_snapshot</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
+<span class="w">    </span><span class="n">filter_spec_json</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">'{}'</span><span class="p">,</span>
+<span class="w">    </span><span class="n">metadata_json</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">'{}'</span><span class="p">,</span>
+<span class="w">    </span><span class="n">created_at</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span>
+<span class="p">);</span>
+
+<span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">complex_set_items</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="n">set_id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">complex_id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="k">PRIMARY</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="n">set_id</span><span class="p">,</span><span class="w"> </span><span class="n">complex_id</span><span class="p">),</span>
+<span class="w">    </span><span class="k">FOREIGN</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="n">set_id</span><span class="p">)</span><span class="w"> </span><span class="k">REFERENCES</span><span class="w"> </span><span class="n">complex_sets</span><span class="p">(</span><span class="n">id</span><span class="p">),</span>
+<span class="w">    </span><span class="k">FOREIGN</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="n">complex_id</span><span class="p">)</span><span class="w"> </span><span class="k">REFERENCES</span><span class="w"> </span><span class="n">complexes</span><span class="p">(</span><span class="n">id</span><span class="p">)</span>
+<span class="p">);</span>
+
+<span class="k">CREATE</span><span class="w"> </span><span class="k">INDEX</span><span class="w"> </span><span class="n">idx_complex_set_items_complex_id_set_id</span>
+<span class="w">    </span><span class="k">ON</span><span class="w"> </span><span class="n">complex_set_items</span><span class="p">(</span><span class="n">complex_id</span><span class="p">,</span><span class="w"> </span><span class="n">set_id</span><span class="p">);</span>
+
+<span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">docking_runs</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="n">id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">PRIMARY</span><span class="w"> </span><span class="k">KEY</span><span class="p">,</span>
+<span class="w">    </span><span class="n">name</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">engine</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">receptor_id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="p">,</span>
+<span class="w">    </span><span class="n">receptor_set_id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="p">,</span>
+<span class="w">    </span><span class="n">ligand_set_id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="p">,</span>
+<span class="w">    </span><span class="n">box_center_json</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">'[]'</span><span class="p">,</span>
+<span class="w">    </span><span class="n">box_size_json</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">'[]'</span><span class="p">,</span>
+<span class="w">    </span><span class="n">params_json</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">'{}'</span><span class="p">,</span>
+<span class="w">    </span><span class="n">status</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">'pending'</span><span class="p">,</span>
+<span class="w">    </span><span class="n">created_at</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">finished_at</span><span class="w"> </span><span class="nb">TEXT</span><span class="p">,</span>
+<span class="w">    </span><span class="k">FOREIGN</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="n">receptor_id</span><span class="p">)</span><span class="w"> </span><span class="k">REFERENCES</span><span class="w"> </span><span class="n">receptors</span><span class="p">(</span><span class="n">id</span><span class="p">),</span>
+<span class="w">    </span><span class="k">FOREIGN</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="n">receptor_set_id</span><span class="p">)</span><span class="w"> </span><span class="k">REFERENCES</span><span class="w"> </span><span class="n">receptor_sets</span><span class="p">(</span><span class="n">id</span><span class="p">),</span>
+<span class="w">    </span><span class="k">FOREIGN</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="n">ligand_set_id</span><span class="p">)</span><span class="w"> </span><span class="k">REFERENCES</span><span class="w"> </span><span class="n">ligand_sets</span><span class="p">(</span><span class="n">id</span><span class="p">)</span>
+<span class="p">);</span>
+
+<span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">docking_results</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="n">id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">PRIMARY</span><span class="w"> </span><span class="k">KEY</span><span class="p">,</span>
+<span class="w">    </span><span class="n">run_id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">ligand_id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">receptor_id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">output_path</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">score</span><span class="w"> </span><span class="nb">REAL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">rank</span><span class="w"> </span><span class="nb">INTEGER</span><span class="p">,</span>
+<span class="w">    </span><span class="n">status</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">'completed'</span><span class="p">,</span>
+<span class="w">    </span><span class="n">metadata_json</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">'{}'</span><span class="p">,</span>
+<span class="w">    </span><span class="n">created_at</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">updated_at</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="k">FOREIGN</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="n">run_id</span><span class="p">)</span><span class="w"> </span><span class="k">REFERENCES</span><span class="w"> </span><span class="n">docking_runs</span><span class="p">(</span><span class="n">id</span><span class="p">),</span>
+<span class="w">    </span><span class="k">FOREIGN</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="n">ligand_id</span><span class="p">)</span><span class="w"> </span><span class="k">REFERENCES</span><span class="w"> </span><span class="n">ligands</span><span class="p">(</span><span class="n">id</span><span class="p">),</span>
+<span class="w">    </span><span class="k">FOREIGN</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="n">receptor_id</span><span class="p">)</span><span class="w"> </span><span class="k">REFERENCES</span><span class="w"> </span><span class="n">receptors</span><span class="p">(</span><span class="n">id</span><span class="p">)</span>
+<span class="p">);</span>
+
+<span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">redocking_runs</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="n">id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">PRIMARY</span><span class="w"> </span><span class="k">KEY</span><span class="p">,</span>
+<span class="w">    </span><span class="n">name</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">engine</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">''</span><span class="p">,</span>
+<span class="w">    </span><span class="n">complex_set_id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="p">,</span>
+<span class="w">    </span><span class="n">params_json</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">'{}'</span><span class="p">,</span>
+<span class="w">    </span><span class="n">status</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">'pending'</span><span class="p">,</span>
+<span class="w">    </span><span class="n">created_at</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">finished_at</span><span class="w"> </span><span class="nb">TEXT</span><span class="p">,</span>
+<span class="w">    </span><span class="k">FOREIGN</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="n">complex_set_id</span><span class="p">)</span><span class="w"> </span><span class="k">REFERENCES</span><span class="w"> </span><span class="n">complex_sets</span><span class="p">(</span><span class="n">id</span><span class="p">)</span>
+<span class="p">);</span>
+
+<span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">redocking_results</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="n">id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">PRIMARY</span><span class="w"> </span><span class="k">KEY</span><span class="p">,</span>
+<span class="w">    </span><span class="n">run_id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">complex_id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">docking_result_id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="p">,</span>
+<span class="w">    </span><span class="n">best_rmsd</span><span class="w"> </span><span class="nb">REAL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">heavy_atom_rmsd</span><span class="w"> </span><span class="nb">REAL</span><span class="p">,</span>
+<span class="w">    </span><span class="n">is_success</span><span class="w"> </span><span class="nb">INTEGER</span><span class="p">,</span>
+<span class="w">    </span><span class="n">metadata_json</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">'{}'</span><span class="p">,</span>
+<span class="w">    </span><span class="n">created_at</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+<span class="w">    </span><span class="k">FOREIGN</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="n">run_id</span><span class="p">)</span><span class="w"> </span><span class="k">REFERENCES</span><span class="w"> </span><span class="n">redocking_runs</span><span class="p">(</span><span class="n">id</span><span class="p">),</span>
+<span class="w">    </span><span class="k">FOREIGN</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="n">complex_id</span><span class="p">)</span><span class="w"> </span><span class="k">REFERENCES</span><span class="w"> </span><span class="n">complexes</span><span class="p">(</span><span class="n">id</span><span class="p">),</span>
+<span class="w">    </span><span class="k">FOREIGN</span><span class="w"> </span><span class="k">KEY</span><span class="w"> </span><span class="p">(</span><span class="n">docking_result_id</span><span class="p">)</span><span class="w"> </span><span class="k">REFERENCES</span><span class="w"> </span><span class="n">docking_results</span><span class="p">(</span><span class="n">id</span><span class="p">)</span>
+<span class="p">);</span>
+</code></pre></div>
+<p>Notas:</p>
+<ul>
+<li><code>ligand_sets</code>, <code>receptor_sets</code> y <code>complex_sets</code> son la pieza que evita mezclar
+  roles de workflow dentro de <code>ligands</code>, <code>receptors</code> o <code>complexes</code>;</li>
+<li><code>activities</code> queda separada porque un mismo ligando puede tener múltiples
+  mediciones;</li>
+<li><code>qsar_dataset_items.role</code> permite <code>train</code>, <code>test</code> y <code>validation</code> dinámicos;</li>
+<li><code>complexes</code> resuelve el caso de redocking sin duplicar ligandos ni receptores;</li>
+<li><code>molecule_states</code> cubre el mínimo útil para saber si una entidad tiene H,
+  3D, minimización o conformeros sin meter todavía trazabilidad detallada.</li>
+</ul>
+<h2 id="15-plan-de-implementacion">15. Plan de implementación<a class="headerlink" href="#15-plan-de-implementacion" title="Permanent link">&para;</a></h2>
+<p>Esta sección traduce la propuesta anterior a una hoja de ruta concreta.</p>
+<h3 id="151-regla-de-implementacion">15.1 Regla de implementación<a class="headerlink" href="#151-regla-de-implementacion" title="Permanent link">&para;</a></h3>
+<p>Cada operación pública de AMDock debe seguir este patrón:</p>
+<ol>
+<li>validar y normalizar parámetros;</li>
+<li>resolver un <code>scope</code> explícito (<code>ligand_set</code>, <code>receptor_set</code>, <code>complex_set</code>, <code>dataset</code>);</li>
+<li>delegar la ejecución real a MolSuite;</li>
+<li>devolver una referencia persistente (<code>*Ref</code>) o un <code>job_id</code>.</li>
+</ol>
+<p>Eso implica:</p>
+<ul>
+<li>la fachada pública no ejecuta cálculos pesados inline;</li>
+<li>la UI y el notebook llaman la misma fachada;</li>
+<li>los jobs viven en MolSuite y AMDock sólo compone intención de dominio.</li>
+</ul>
+<h3 id="152-tipos-de-referencia-minimos">15.2 Tipos de referencia mínimos<a class="headerlink" href="#152-tipos-de-referencia-minimos" title="Permanent link">&para;</a></h3>
+<p>Primera versión recomendada:</p>
+<ul>
+<li><code>LigandSetRef(id: int, kind: str = "snapshot")</code></li>
+<li><code>ReceptorSetRef(id: int, kind: str = "snapshot")</code></li>
+<li><code>ComplexSetRef(id: int, kind: str = "snapshot")</code></li>
+<li><code>QSARDatasetRef(id: int)</code></li>
+<li><code>DockingRunRef(id: int | None = None, job_id: str | None = None)</code></li>
+<li><code>LigandScope(filters: ..., source_set_id: ... )</code></li>
+<li><code>ReceptorScope(filters: ..., source_set_id: ... )</code></li>
+</ul>
+<p>Regla:</p>
+<ul>
+<li>los <code>*SetRef</code> son handles ligeros;</li>
+<li>no guardan listas de ids en memoria;</li>
+<li>la membresía real vive en <code>*_sets</code> y <code>*_set_items</code>.</li>
+<li>los <code>*Scope</code> son selecciones perezosas sobre <code>project.db</code>;</li>
+<li><code>all()</code> y <code>filter()</code> construyen scopes;</li>
+<li><code>snapshot()</code> es el paso explícito de materialización.</li>
+</ul>
+<h3 id="153-snapshot-vs-dynamic">15.3 <code>snapshot</code> vs <code>dynamic</code><a class="headerlink" href="#153-snapshot-vs-dynamic" title="Permanent link">&para;</a></h3>
+<p>Se deben soportar dos modos de selección:</p>
+<h4 id="dynamic"><code>dynamic</code><a class="headerlink" href="#dynamic" title="Permanent link">&para;</a></h4>
+<ul>
+<li>representa un filtro guardado;</li>
+<li>útil para exploración de notebook/UI;</li>
+<li>no debe usarse como contrato principal de ejecución pesada.</li>
+</ul>
+<h4 id="snapshot"><code>snapshot</code><a class="headerlink" href="#snapshot" title="Permanent link">&para;</a></h4>
+<ul>
+<li>materializa membresía en <code>*_set_items</code>;</li>
+<li>se usa para jobs reproducibles;</li>
+<li>es el modo recomendado antes de ejecutar docking, QSAR o modelado.</li>
+</ul>
+<p>Regla operativa:</p>
+<ul>
+<li>una operación exploratoria puede devolver <code>dynamic</code>;</li>
+<li>cualquier operación costosa debe materializar primero o exigir <code>snapshot</code>.</li>
+</ul>
+<h3 id="154-fases-recomendadas">15.4 Fases recomendadas<a class="headerlink" href="#154-fases-recomendadas" title="Permanent link">&para;</a></h3>
+<h4 id="fase-0-congelar-el-contrato-publico">Fase 0. Congelar el contrato público<a class="headerlink" href="#fase-0-congelar-el-contrato-publico" title="Permanent link">&para;</a></h4>
+<p>Objetivo:</p>
+<ul>
+<li>dejar fija la forma de la API antes de mover demasiado código interno.</li>
+</ul>
+<p>Tareas:</p>
+<ul>
+<li>[x] definir los <code>*Ref</code> mínimos;</li>
+<li>[x] definir el concepto de <code>scope</code> explícito;</li>
+<li>[ ] quitar <code>current</code> del contrato principal y dejarlo sólo como conveniencia efímera si se mantiene.</li>
+</ul>
+<p>Resultado esperado:</p>
+<ul>
+<li>un documento de tipos/refs estable;</li>
+<li>ejemplos de notebook ya alineados con <code>LigandSetRef</code>, <code>ReceptorSetRef</code>, etc.</li>
+</ul>
+<h4 id="fase-1-implementar-sets-persistidos">Fase 1. Implementar sets persistidos<a class="headerlink" href="#fase-1-implementar-sets-persistidos" title="Permanent link">&para;</a></h4>
+<p>Objetivo:</p>
+<ul>
+<li>introducir el mecanismo base de selección reproducible.</li>
+</ul>
+<p>Tareas:</p>
+<ul>
+<li>[x] implementar modelos reales:</li>
+<li><code>LigandSetRecord</code></li>
+<li><code>LigandSetItemRecord</code></li>
+<li><code>ReceptorSetRecord</code></li>
+<li><code>ReceptorSetItemRecord</code></li>
+<li><code>ComplexSetRecord</code></li>
+<li><code>ComplexSetItemRecord</code></li>
+<li>[x] añadir índices de membresía simples a nivel de columnas/PK compuesta;</li>
+<li>[x] implementar helpers mínimos para crear, poblar y consultar sets;</li>
+<li>[ ] revisar si hacen falta índices compuestos adicionales según carga real;</li>
+<li>[ ] integrar estos helpers al runtime/facades públicos.</li>
+</ul>
+<p>Resultado esperado:</p>
+<ul>
+<li>cualquier selección relevante puede persistirse como set.</li>
+</ul>
+<h4 id="fase-2-implementar-facades-minimos-en-amdockruntime">Fase 2. Implementar facades mínimos en <code>AMDockRuntime</code><a class="headerlink" href="#fase-2-implementar-facades-minimos-en-amdockruntime" title="Permanent link">&para;</a></h4>
+<p>Objetivo:</p>
+<ul>
+<li>convertir el runtime en fachada real de dominio.</li>
+</ul>
+<p>Tareas:</p>
+<ul>
+<li>[x] añadir:</li>
+<li><code>amdock.loader</code></li>
+<li><code>amdock.ligands</code></li>
+<li><code>amdock.receptors</code></li>
+<li><code>amdock.docking</code> (hecho, con <code>run(...)</code> y <code>screen(...)</code>)</li>
+<li><code>amdock.qsar</code> (hecho, con <code>compute_descriptors(...)</code>)</li>
+<li><code>amdock.structure</code> (pendiente)</li>
+<li><code>amdock.analysis</code> (pendiente)</li>
+<li>[ ] mantener compatibilidad transitoria con algunos métodos legacy del runtime;</li>
+<li>[x] decidir si estos facades son atributos persistentes o wrappers ligeros construidos al vuelo.</li>
+<li>[x] hacer que <code>all()</code> y <code>filter()</code> construyan scopes perezosos;</li>
+<li>[x] hacer que <code>snapshot()</code> materialice explícitamente la selección.</li>
+</ul>
+<p>Resultado esperado:</p>
+<ul>
+<li>el notebook puede usar la API nueva sin tocar directamente <code>jobs/</code>.</li>
+</ul>
+<h4 id="fase-3-migrar-operaciones-de-seleccion">Fase 3. Migrar operaciones de selección<a class="headerlink" href="#fase-3-migrar-operaciones-de-seleccion" title="Permanent link">&para;</a></h4>
+<p>Objetivo:</p>
+<ul>
+<li>hacer que el flujo real opere sobre scopes explícitos.</li>
+</ul>
+<p>Tareas:</p>
+<ul>
+<li>[ ] <code>loader.load_ligands(...)</code> y <code>loader.load_receptors(...)</code> deben devolver refs útiles;</li>
+<li>[x] <code>ligands.filter(...)</code> debe devolver un <code>LigandScope</code> perezoso;</li>
+<li>[x] <code>ligands.snapshot(...)</code> debe producir <code>LigandSetRef</code>;</li>
+<li>[ ] <code>ligands.deduplicate(...)</code> debe devolver <code>LigandSetRef</code>;</li>
+<li>[ ] <code>qsar.create_dataset(...)</code> debe producir <code>QSARDatasetRef</code>.</li>
+<li>[x] <code>qsar.compute_descriptors(ligand_set=...)</code> acepta <code>LigandSetRef</code> o <code>LigandScope</code>.</li>
+<li>[x] <code>docking.run(ligand_set=..., receptor_set=...)</code> acepta <code>LigandSetRef</code> / <code>ReceptorSetRef</code> o <code>Scope</code>.</li>
+</ul>
+<p>Resultado esperado:</p>
+<ul>
+<li>ya no se depende de un estado implícito como <code>current</code>.</li>
+</ul>
+<h4 id="fase-4-hacer-que-los-jobs-consuman-sets">Fase 4. Hacer que los jobs consuman sets<a class="headerlink" href="#fase-4-hacer-que-los-jobs-consuman-sets" title="Permanent link">&para;</a></h4>
+<p>Objetivo:</p>
+<ul>
+<li>alinear el backend real con el modelo de selección persistida.</li>
+</ul>
+<p>Tareas:</p>
+<ul>
+<li>[x] cambiar jobs para aceptar <code>ligand_set_id</code>, <code>receptor_set_id</code>, <code>complex_set_id</code> o <code>dataset_id</code>;</li>
+<li>[x] reducir el uso de filtros globales del estilo <code>only_active</code> como mecanismo principal;</li>
+<li>[x] quitar <code>only_active</code> / <code>only_selected</code> del contrato público de <code>qsar</code> y <code>docking</code>.</li>
+</ul>
+<p>Resultado esperado:</p>
+<ul>
+<li>MolSuite ejecuta trabajos sobre scopes explícitos y reproducibles.</li>
+</ul>
+<h4 id="fase-5-alinear-qsar-con-datasets-explicitos">Fase 5. Alinear QSAR con datasets explícitos<a class="headerlink" href="#fase-5-alinear-qsar-con-datasets-explicitos" title="Permanent link">&para;</a></h4>
+<p>Objetivo:</p>
+<ul>
+<li>modelar el pipeline QSAR sin contaminar <code>ligands</code>.</li>
+</ul>
+<p>Tareas:</p>
+<ul>
+<li>[x] implementar <code>activities</code>;</li>
+<li>[x] implementar <code>qsar_datasets</code> y <code>qsar_dataset_items</code>;</li>
+<li>[x] soportar <code>train/test/validation/predict</code> a nivel de dataset o role;</li>
+<li>[x] implementar artefactos mínimos de modelo si AMDock va a persistirlos por su cuenta.</li>
+</ul>
+<p>Resultado esperado:</p>
+<ul>
+<li>el flujo QSAR puede ejecutarse antes o después de docking sin ambigüedad.</li>
+</ul>
+<h4 id="fase-6-alinear-docking-y-redocking-con-estados-moleculares">Fase 6. Alinear docking y redocking con estados moleculares<a class="headerlink" href="#fase-6-alinear-docking-y-redocking-con-estados-moleculares" title="Permanent link">&para;</a></h4>
+<p>Objetivo:</p>
+<ul>
+<li>capturar preparación y ejecución sin romper la simplicidad del modelo.</li>
+</ul>
+<p>Tareas:</p>
+<ul>
+<li>[x] usar <code>molecule_states</code> para registrar al menos:</li>
+<li>[x] raw</li>
+<li>[ ] prepared_3d</li>
+<li>[x] prepared_for_vina</li>
+<li>[x] docked_pose</li>
+<li>[x] añadir <code>ligand_state_id</code> y <code>receptor_state_id</code> en resultados si se requiere reproducibilidad estricta;</li>
+<li>[ ] conectar <code>complexes</code> y <code>complex_sets</code> al flujo de redocking.</li>
+</ul>
+<p>Resultado esperado:</p>
+<ul>
+<li>docking y redocking pueden reproducir qué estructura preparada se usó realmente.</li>
+</ul>
+<h3 id="155-orden-recomendado-de-ejecucion">15.5 Orden recomendado de ejecución<a class="headerlink" href="#155-orden-recomendado-de-ejecucion" title="Permanent link">&para;</a></h3>
+<p>Orden práctico:</p>
+<ol>
+<li><code>*SetRef</code> + modelos <code>*_sets</code></li>
+<li>facades mínimos del runtime</li>
+<li>filtros/selecciones que devuelvan sets</li>
+<li>jobs que consuman <code>set_id</code></li>
+<li>datasets QSAR</li>
+<li>estados moleculares conectados a docking/redocking</li>
+</ol>
+<p>Razón:</p>
+<ul>
+<li>primero se estabiliza el contrato público;</li>
+<li>luego se introduce el mecanismo de scope;</li>
+<li>después se adapta la ejecución real en MolSuite;</li>
+<li>por último se endurece trazabilidad estructural.</li>
+</ul>
+<h3 id="156-que-no-hacer-durante-esta-migracion">15.6 Qué no hacer durante esta migración<a class="headerlink" href="#156-que-no-hacer-durante-esta-migracion" title="Permanent link">&para;</a></h3>
+<ul>
+<li>no meter lógica pesada dentro de los facades;</li>
+<li>no depender de <code>current</code> como contrato persistente;</li>
+<li>no guardar listas grandes de ids en JSON;</li>
+<li>no volver a meter semántica de workflow en <code>ligands</code> o <code>receptors</code>;</li>
+<li>no duplicar rutas de ejecución entre notebook y UI.</li>
+</ul>
+<h3 id="157-criterio-de-exito">15.7 Criterio de éxito<a class="headerlink" href="#157-criterio-de-exito" title="Permanent link">&para;</a></h3>
+<p>Se puede considerar lograda la primera iteración cuando:</p>
+<ul>
+<li>un notebook puede hacer:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="n">amdock</span> <span class="o">=</span> <span class="n">AMDockVSRuntime</span><span class="p">()</span>
+
+<span class="n">screening</span> <span class="o">=</span> <span class="n">amdock</span><span class="o">.</span><span class="n">loader</span><span class="o">.</span><span class="n">load_ligands</span><span class="p">(</span><span class="n">files</span><span class="o">=</span><span class="p">[</span><span class="o">...</span><span class="p">])</span>
+<span class="n">filtered</span> <span class="o">=</span> <span class="n">amdock</span><span class="o">.</span><span class="n">ligands</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">screening</span><span class="p">,</span> <span class="n">by</span><span class="o">=</span><span class="p">[</span><span class="s2">"valid"</span><span class="p">,</span> <span class="s2">"organic"</span><span class="p">])</span>
+<span class="n">prepared</span> <span class="o">=</span> <span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">prepare_ligands</span><span class="p">(</span><span class="n">engine</span><span class="o">=</span><span class="s2">"vina"</span><span class="p">,</span> <span class="n">ligand_set</span><span class="o">=</span><span class="n">filtered</span><span class="p">)</span>
+<span class="n">job</span> <span class="o">=</span> <span class="n">amdock</span><span class="o">.</span><span class="n">docking</span><span class="o">.</span><span class="n">run</span><span class="p">(</span>
+    <span class="n">engine</span><span class="o">=</span><span class="s2">"vina"</span><span class="p">,</span>
+    <span class="n">receptor_set</span><span class="o">=</span><span class="n">receptors</span><span class="p">,</span>
+    <span class="n">ligand_set</span><span class="o">=</span><span class="n">prepared</span><span class="p">,</span>
+    <span class="n">grid</span><span class="o">=</span><span class="n">grid_ref</span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div>
+<p>y ese flujo:</p>
+<ul>
+<li>no depende de <code>current</code>;</li>
+<li>materializa scopes persistidos;</li>
+<li>delega a MolSuite;</li>
+<li>puede ser llamado igual desde notebook o desde UI.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 AMDockVS authors
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["content.code.copy","navigation.footer","navigation.path","navigation.sections","navigation.top","search.highlight","search.suggest"],"redirect":null,"search":"../assets/javascripts/workers/search.c47bb847.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"provider":"mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.77dd0ce9.min.js"></script>
+      
+    
+  </body>
+</html>

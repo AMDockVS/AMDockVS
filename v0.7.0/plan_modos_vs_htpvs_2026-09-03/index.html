@@ -1,0 +1,2610 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Virtual screening, molecular preparation, QSAR, and docking with MolSuite.">
+      
+      
+        <meta name="author" content="AMDockVS authors">
+      
+      
+        <link rel="canonical" href="https://amdockvs.github.io/AMDockVS/latest/plan_modos_vs_htpvs_2026-09-03/">
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../images/favicon.svg">
+      <meta name="generator" content="zensical-0.0.73">
+    
+    
+      
+        <title>Plan: modos vs / htpvs, constructor de pasos y campaña HPC - AMDockVS</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../assets/stylesheets/modern/main.4ab2de0c.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../assets/stylesheets/modern/palette.b60ce83d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-hidden="true"></label>
+    <div data-md-component="skip">
+      <a href="#__skip" class="md-skip">
+        Skip to content
+      </a>
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="./.." title="AMDockVS" class="md-header__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+      <span class="md-visually-hidden">Navigation</span>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AMDockVS
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Plan: modos vs / htpvs, constructor de pasos y campaña HPC
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+          <span class="md-visually-hidden">Search</span>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="./.." title="AMDockVS" class="md-nav__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    AMDockVS
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../runtime_api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API guide
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../data_and_export/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Data and export
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Examples
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#que-anade-sobre-el-plan-anterior" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Qué añade sobre el plan anterior
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#regla-que-gobierna-este-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Regla que gobierna este plan
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#0-el-modo-como-parametro-de-proyecto-superado-por-0-bis-2026-09-03" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        §0 — El modo como parámetro de proyecto  ⛔ superado por §0-bis (2026-09-03)
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="§0 — El modo como parámetro de proyecto ⛔ superado por §0-bis (2026-09-03)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Decisión
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tareas" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Tareas
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#0-bis-el-modo-se-deriva-de-los-datos-se-decide-en-la-importacion-hecho-2026-09-03" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        §0-bis — El modo se deriva de los datos, se decide en la importación ✅ hecho (2026-09-03)
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="§0-bis — El modo se deriva de los datos, se decide en la importación ✅ hecho (2026-09-03)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#por-que-se-retiro-0" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Por qué se retiró §0
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#la-invariante" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        La invariante
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tareas_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Tareas
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#decisiones-tomadas-al-implementar" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Decisiones tomadas al implementar
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-constructor-de-pasos-chemistrypipelinepy" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        §1 — Constructor de pasos (<code>chemistry/pipeline.py</code>) ✅
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="§1 — Constructor de pasos (chemistry&#x2f;pipeline.py) ✅">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#la-idea" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        La idea
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#restriccion-no-negociable-lote-lote" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Restricción no negociable: lote → lote
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#por-que-sirve-a-los-dos-modos" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Por qué sirve a los dos modos
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tareas_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Tareas
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#decisiones-tomadas-al-implementar_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Decisiones tomadas al implementar
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-ligandstore-solo-con-dbstore-hecho-2026-09-03" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        §2 — <code>LigandStore</code>, solo con <code>DbStore</code> ✅ hecho (2026-09-03)
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="§2 — LigandStore, solo con DbStore ✅ hecho (2026-09-03)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#la-costura" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        La costura
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#esta-fase-no-introduce-shardstore" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Esta fase NO introduce <code>ShardStore</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tareas_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Tareas
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#decisiones-tomadas-al-implementar_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Decisiones tomadas al implementar
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-shardstore-y-el-punto-donde-se-fragmenta-hecho-2026-09-03" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        §3 — <code>ShardStore</code> y el punto donde se fragmenta ✅ hecho (2026-09-03)
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="§3 — ShardStore y el punto donde se fragmenta ✅ hecho (2026-09-03)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#donde-se-parte-la-libreria" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Dónde se parte la librería
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#la-tabla-de-envios" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        La tabla de envíos
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#el-shardstore" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        El <code>ShardStore</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tareas_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Tareas
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#decisiones-tomadas-al-implementar_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Decisiones tomadas al implementar
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-bis-el-shard-es-un-contenedor-mshard-no-un-tramo-de-bytes-hecho-2026-09-04" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        §3-bis — El shard es un contenedor <code>.mshard</code>, no un tramo de bytes ✅ hecho (2026-09-04)
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="§3-bis — El shard es un contenedor .mshard, no un tramo de bytes ✅ hecho (2026-09-04)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#que-problema-resuelven-de-verdad" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Qué problema resuelven de verdad
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#el-contenedor" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        El contenedor
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tamano-registros-primero-bytes-como-tope" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Tamaño: registros primero, bytes como tope
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tareas_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Tareas
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#decisiones-tomadas-al-implementar_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Decisiones tomadas al implementar
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-ter-la-cola-de-shards-los-workers-filtran-el-padre-corta-hecho-2026-09-04" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        §3-ter — La cola de shards: los workers filtran, el padre corta ✅ hecho (2026-09-04)
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="§3-ter — La cola de shards: los workers filtran, el padre corta ✅ hecho (2026-09-04)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#el-problema-que-cierra" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        El problema que cierra
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#el-reparto" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        El reparto
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-es-idempotente-por-decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        No es idempotente, por decisión
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tareas_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Tareas
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-sink-de-materializacion-con-tope-hecho-2026-09-03" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        §4 — Sink de materialización con tope ✅ hecho (2026-09-03)
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="§4 — Sink de materialización con tope ✅ hecho (2026-09-03)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#el-riesgo-que-cierra" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        El riesgo que cierra
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#la-regla" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        La regla
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#que-se-trae-de-vuelta" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Qué se trae de vuelta
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tareas_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Tareas
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#decisiones-tomadas-al-implementar_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Decisiones tomadas al implementar
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-precondiciones-declarativas-habilita-diffdock-af3" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        §5 — Precondiciones declarativas (habilita DiffDock / AF3)
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="§5 — Precondiciones declarativas (habilita DiffDock &#x2f; AF3)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#tareas_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Tareas
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-bundle-hpc-sin-transporte" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        §6 — Bundle HPC (sin transporte)
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="§6 — Bundle HPC (sin transporte)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#lo-que-se-entrega" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Lo que se entrega
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#por-que-no-se-reutiliza-el-sistema-de-jobs-para-la-pata-remota" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Por qué no se reutiliza el sistema de jobs para la pata remota
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tareas_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Tareas
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-bis-ejecutor-hpc-de-verdad-diseno-sin-implementar-2026-09-05" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        §6-bis — Ejecutor HPC de verdad (diseño, sin implementar · 2026-09-05)
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="§6-bis — Ejecutor HPC de verdad (diseño, sin implementar · 2026-09-05)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#lo-que-mf-ya-trae" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Lo que MF ya trae
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lo-que-falta-de-nuestro-lado" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Lo que falta de nuestro lado
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#diseno-de-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Diseño de UI
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Diseño de UI">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#el-principio" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        El principio
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#que-pasa-con-build" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Qué pasa con Build
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pantalla-de-campana-htpvs-zona-central" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Pantalla de campaña (<code>htpvs</code>, zona central)
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#las-tres-zonas-en-htpvs" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Las tres zonas en <code>htpvs</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#shards-y-envios-dos-tablas-cero-mecanismo-nuevo" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Shards y envíos: dos tablas, cero mecanismo nuevo
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lo-que-ya-esta-cableado-2026-09-04-05" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Lo que ya está cableado (2026-09-04 / 05)
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#seleccion-del-modo" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Selección del modo
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#orden-de-ejecucion" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Orden de ejecución
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#lo-que-no-se-hace-en-este-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Lo que NO se hace en este plan
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+              
+              <article class="md-content__inner md-typeset">
+                <a id="__skip" tabindex="-1"></a>
+                
+                  
+
+  
+  
+
+
+<h1 id="plan-modos-vs-htpvs-constructor-de-pasos-y-campana-hpc">Plan: modos <code>vs</code> / <code>htpvs</code>, constructor de pasos y campaña HPC<a class="headerlink" href="#plan-modos-vs-htpvs-constructor-de-pasos-y-campana-hpc" title="Permanent link">&para;</a></h1>
+<p>Fecha: 2026-09-03
+Origen: conversación de revisión de flujo y layout (2026-09-03).
+Continúa <code>plan_normalizacion_y_htp_2026-08-29.md</code> §4 y §5, que ya fijaron los shards y el
+embudo con punto de promoción. <strong>Este plan no los reemplaza: los completa</strong> con lo que allí no
+existía — el modo como contrato de proyecto, la costura única de lectura/escritura, el
+constructor de pasos, el tope de materialización, el bundle HPC y el diseño de UI.</p>
+<h2 id="que-anade-sobre-el-plan-anterior">Qué añade sobre el plan anterior<a class="headerlink" href="#que-anade-sobre-el-plan-anterior" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Ya decidido en 2026-08-29 (§4/§5)</th>
+<th>Nuevo aquí</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Shards en disco, <code>screening_shards</code> en db, identidad <code>(shard_id, record_index)</code></td>
+<td>El <strong>modo</strong> como parámetro inmutable del proyecto</td>
+</tr>
+<tr>
+<td>Punto de promoción: solo los hits entran en <code>molecules</code></td>
+<td><strong>Tope duro</strong> además del umbral en la promoción</td>
+</tr>
+<tr>
+<td>Idempotencia por shard (<code>state='done'</code> no se recalcula)</td>
+<td><code>LigandStore</code>: <strong>una costura</strong>, dos backends, cero <code>if mode</code> disperso</td>
+</tr>
+<tr>
+<td>"Separar el modo HTP" antes que adaptarlo todo</td>
+<td>El <strong>constructor de pasos</strong> (pipeline puro), que sirve a los dos modos</td>
+</tr>
+<tr>
+<td>Ray/HPC aplazado a después de 5.a–5.c</td>
+<td><strong>Bundle HPC sin transporte</strong> como primera entrega útil</td>
+</tr>
+<tr>
+<td>"La UI de HTP muestra shards y agregados" (5.e)</td>
+<td>El diseño concreto de esa UI</td>
+</tr>
+<tr>
+<td>—</td>
+<td><strong>Se fragmenta en el cluster</strong>, no en local: viaja la fuente cruda, y <code>screening_dispatches</code> cubre el hueco hasta que vuelven los shards</td>
+</tr>
+</tbody>
+</table>
+<h2 id="regla-que-gobierna-este-plan">Regla que gobierna este plan<a class="headerlink" href="#regla-que-gobierna-este-plan" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p><strong>El modo es un contrato de almacenamiento, no una preferencia.</strong>
+Determina dónde viven los ligandos. Por eso es inmutable, y por eso su única consecuencia
+en el código es <em>qué objeto lee y escribe</em>, no <em>qué hace cada función</em>.</p>
+</blockquote>
+<p>Corolario operativo, que es el criterio de revisión de todo lo de abajo:</p>
+<blockquote>
+<p><strong><code>if mode == ...</code> no aparece en ningún sitio.</strong> El modo no se pregunta: cada herramienta
+declara qué store consume (filas o shards) y el contrato lo garantiza la invariante de
+§0-bis. Un <code>if mode</code> indica que la costura está mal puesta.</p>
+</blockquote>
+<hr />
+<h2 id="0-el-modo-como-parametro-de-proyecto-superado-por-0-bis-2026-09-03">§0 — El modo como parámetro de proyecto  ⛔ superado por §0-bis (2026-09-03)<a class="headerlink" href="#0-el-modo-como-parametro-de-proyecto-superado-por-0-bis-2026-09-03" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p>Implementado y luego <strong>retirado</strong> el mismo día. Se conserva porque el mecanismo
+genérico que trajo a MolSuite (<code>projects.app_data</code>, <code>AppManifest.project_fields</code>,
+el diálogo que los pinta) sigue en pie y sigue siendo útil para otras apps; lo que
+se retiró es el uso que AMDock hacía de él. El porqué, en §0-bis.</p>
+</blockquote>
+<h3 id="decision">Decisión<a class="headerlink" href="#decision" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="n">rt</span><span class="o">.</span><span class="n">create_project</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">folder</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">"vs"</span><span class="p">)</span>   <span class="c1"># "vs" | "htpvs", default "vs"</span>
+<span class="n">rt</span><span class="o">.</span><span class="n">mode</span>                                       <span class="c1"># property de solo lectura</span>
+</code></pre></div>
+<p><strong>Sin setter.</strong> Un setter que solo puede llamarse una vez es una trampa: existe, luego alguien
+lo llama, y hay que manejar "ya estaba puesto", "se puso con datos dentro", "se puso sin
+proyecto activo" — tres errores para algo que no debería poder ocurrir. Como parámetro de
+creación, esos estados no existen.</p>
+<p>Persistido en el <strong>registro de proyecto de MolSuite</strong>, en una columna <code>projects.app_data</code> (JSON).
+No en <code>AMDockConfiguration</code>: ese es un esquema de <em>preferencias</em>, y todo lo que vive ahí lo expone
+la UI de ajustes como editable — justo lo que el modo no puede ser. Los proyectos existentes, con
+<code>app_data</code> vacío, son <code>"vs"</code>.</p>
+<p>El modo no es el único campo así, y por eso <code>app_data</code> es un dict y no una columna <code>mode</code>: es la
+respuesta genérica a <strong>lo que una app necesita saber de un proyecto antes de que exista</strong>. Quién
+pregunta y con qué widget lo declara el propio manifiesto de la app:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># amdockvs/manifest.py</span>
+<span class="n">manifest</span> <span class="o">=</span> <span class="n">AppManifest</span><span class="p">(</span>
+    <span class="o">...</span><span class="p">,</span>
+    <span class="n">project_fields</span><span class="o">=</span><span class="p">(</span>
+        <span class="n">AppSettingSpec</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="s2">"mode"</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="s2">"vs"</span><span class="p">,</span> <span class="n">value_type</span><span class="o">=</span><span class="s2">"string"</span><span class="p">,</span>
+                       <span class="n">choices</span><span class="o">=</span><span class="p">(</span><span class="s2">"vs"</span><span class="p">,</span> <span class="s2">"htpvs"</span><span class="p">),</span> <span class="n">label</span><span class="o">=</span><span class="s2">"Mode"</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="s2">"..."</span><span class="p">),</span>
+    <span class="p">),</span>
+<span class="p">)</span>
+</code></pre></div>
+<p>El diálogo <em>New Project</em> de <code>ms_projects</code> lee <code>manifest.project_fields</code> de la app seleccionada y
+pinta una fila por spec (combo si hay <code>choices</code>, checkbox si es <code>boolean</code>, spin si es numérico,
+línea si no) — se repinta al cambiar de app en el combo. Las respuestas viajan como
+<code>app_data</code> hasta <code>Project.app_data</code>, y <code>ProjectCatalogEditor</code> rellena defaults y <strong>rechaza claves
+que la app no declaró</strong>. Solo en modo <em>create</em>: son contratos fijos, no preferencias, así que el
+diálogo de edición no los ofrece. AMDock no toca la UI de proyectos: declara el campo y lee
+<code>context.app_data["mode"]</code>.</p>
+<h3 id="tareas">Tareas<a class="headerlink" href="#tareas" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Archivo</th>
+<th>Acción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>En AMDock</strong></td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Archivo</th>
+<th>Acción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0.a</td>
+<td>✅ <code>vocab.py</code></td>
+<td><code>class ProjectMode</code> + <code>PROJECT_MODES</code> (constantes, no Enum)</td>
+</tr>
+<tr>
+<td>0.b</td>
+<td>✅ <code>manifest.py</code></td>
+<td><code>project_fields</code> con el spec de <code>mode</code></td>
+</tr>
+<tr>
+<td>0.c</td>
+<td>✅ <code>runtime.py</code></td>
+<td><code>mode</code> en <code>create_project</code> / <code>create_or_open_project</code>, validado; viaja como <code>app_data</code></td>
+</tr>
+<tr>
+<td>0.d</td>
+<td>✅ <code>runtime.py</code></td>
+<td><code>on_project_activated</code> lee <code>context.app_data</code> — el <strong>único</strong> sitio que lo hace; ausente → <code>"vs"</code></td>
+</tr>
+<tr>
+<td>0.e</td>
+<td>✅ <code>runtime.py</code></td>
+<td><code>Runtime.mode</code> como property; sin setter público</td>
+</tr>
+</tbody>
+</table>
+<p><strong>En MolSuite</strong> (<code>ms_flow</code>), el mecanismo genérico que faltaba:</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Archivo</th>
+<th>Acción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0.f</td>
+<td>✅ <code>core/app_settings.py</code></td>
+<td><code>AppSettingSpec.choices</code> (un modo es una elección entre dos; sin esto el diálogo pinta un campo de texto)</td>
+</tr>
+<tr>
+<td>0.g</td>
+<td>✅ <code>core/apps.py</code></td>
+<td><code>AppManifest.project_fields</code>, copiado también en <code>AppRegistry.register</code> (reconstruye el manifiesto: lo que no se copia se pierde en silencio)</td>
+</tr>
+<tr>
+<td>0.h</td>
+<td>✅ <code>core/database/master_models.py</code> + <code>master.py</code></td>
+<td>columna <code>projects.app_data</code>; migración v6 → v7 con <code>_ensure_columns</code></td>
+</tr>
+<tr>
+<td>0.i</td>
+<td>✅ <code>core/project/repository.py</code></td>
+<td><code>parse_app_data</code> / <code>serialize_app_data</code> (mismo patrón que <code>tags</code>; un JSON corrupto a mano no puede tumbar el listado)</td>
+</tr>
+<tr>
+<td>0.j</td>
+<td>✅ <code>context.py</code>, <code>manager.py</code>, <code>catalog.py</code>, <code>_api_impl/</code>, <code>runtime.py</code></td>
+<td><code>app_data</code> de punta a punta, en crear y en cargar</td>
+</tr>
+<tr>
+<td>0.k</td>
+<td>✅ <code>core/project/catalog.py</code></td>
+<td><code>_validated_app_data</code>: rellena defaults del manifiesto y rechaza claves no declaradas</td>
+</tr>
+</tbody>
+</table>
+<p><strong>En <code>ms_components</code>:</strong></p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Archivo</th>
+<th>Acción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0.l</td>
+<td>✅ <code>ms_projects/browser.py</code></td>
+<td><code>ProjectFormDialog</code> pinta <code>manifest.project_fields</code>, se repinta al cambiar de app, y devuelve <code>app_data</code>; solo en <em>create</em></td>
+</tr>
+<tr>
+<td>0.m</td>
+<td>✅ <code>ms_projects/browser.py</code>, <code>widget.py</code></td>
+<td>los dos caminos de creación pasan <code>app_data</code> al backend</td>
+</tr>
+</tbody>
+</table>
+<p><code>create_or_open_project</code> con un <code>mode</code> que contradice el guardado lanza <code>ValueError</code> en vez de
+reinterpretar el proyecto en silencio.</p>
+<p><strong>Check:</strong> <code>test/test_project_mode.py</code> — 4 pruebas, pasan: ida y vuelta <code>htpvs</code>, proyecto sin <code>mode</code>
+guardado → <code>"vs"</code>, modo desconocido rechazado, y <code>create_or_open_project</code> que se niega a
+reinterpretar. Suite de AMDock: 299 pasan. Suite de <code>ms_flow</code>: 331 pasan (dos aserciones de versión
+de esquema actualizadas a 7). La migración corrió sobre <code>~/.molsuite/projects.db</code> real: la columna
+está y los proyectos viejos leen <code>vs</code>.</p>
+<hr />
+<h2 id="0-bis-el-modo-se-deriva-de-los-datos-se-decide-en-la-importacion-hecho-2026-09-03">§0-bis — El modo se deriva de los datos, se decide en la importación ✅ hecho (2026-09-03)<a class="headerlink" href="#0-bis-el-modo-se-deriva-de-los-datos-se-decide-en-la-importacion-hecho-2026-09-03" title="Permanent link">&para;</a></h2>
+<h3 id="por-que-se-retiro-0">Por qué se retiró §0<a class="headerlink" href="#por-que-se-retiro-0" title="Permanent link">&para;</a></h3>
+<p>La bandera de proyecto solo compraba <strong>una</strong> cosa: la garantía de que un proyecto no acaba con
+dos bibliotecas de cribado (filas <em>y</em> shards), porque ningún scope puede nombrar las dos. Pero
+esa garantía no necesita una bandera: <strong><code>screening_shards</code> no vacío ya la contesta</strong>, y la
+contesta sin pedirle al usuario una decisión de almacenamiento <em>antes de que exista un solo
+dato</em>, que es cuando menos información tiene para tomarla.</p>
+<p>Lo que sí hacía falta era mover la decisión al momento en que es informada — la importación,
+donde se sabe cuántos gigabytes entran — y convertir la garantía en una comprobación real.</p>
+<h3 id="la-invariante">La invariante<a class="headerlink" href="#la-invariante" title="Permanent link">&para;</a></h3>
+<blockquote>
+<p><strong>Una biblioteca de cribado por proyecto, en un solo store.</strong>
+Las moléculas curadas (receptores, ligandos de referencia, un set de entrenamiento QSAR) son
+siempre filas y conviven con una biblioteca en shards sin ambigüedad. La biblioteca de
+cribado — <code>is_ligand</code>, <code>usage_class='general'</code>, <code>small_molecule</code> — es filas <strong>o</strong> shards.</p>
+</blockquote>
+<p>Eso es exactamente lo que evita que un scope tenga que unir db y archivos, y lo que hace que
+las salidas nunca haya que manejarlas por separado.</p>
+<h3 id="tareas_1">Tareas<a class="headerlink" href="#tareas_1" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Archivo</th>
+<th>Acción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0bis.a</td>
+<td>✅ <code>molecules/store.py</code></td>
+<td><code>has_shards</code> / <code>library_kind</code> (derivación), <code>general_ligand_count</code>, <code>check_library_target</code> (la invariante, comprobada)</td>
+</tr>
+<tr>
+<td>0bis.b</td>
+<td>✅ <code>runtime.py</code></td>
+<td>fuera <code>mode=</code> de <code>create_project</code>/<code>create_or_open_project</code>, <code>_validate_mode</code>, <code>_project_mode</code>; <code>rt.mode</code> = <code>library_kind(project_db)</code>; <code>+ rt.general_ligand_count()</code> para la UI</td>
+</tr>
+<tr>
+<td>0bis.c</td>
+<td>✅ <code>manifest.py</code></td>
+<td>sin <code>project_fields</code></td>
+</tr>
+<tr>
+<td>0bis.d</td>
+<td>✅ <code>io/api.py</code></td>
+<td><code>check_library_target</code> en <code>load_ligands</code> (solo ligandos generales small-molecule) y en <code>shard_ligands</code></td>
+</tr>
+<tr>
+<td>0bis.e</td>
+<td>✅ <code>io/jobs.py</code></td>
+<td><code>SHARD_SUGGEST_BYTES</code> (200 MB, <code>AMDOCK_SHARD_SUGGEST_BYTES</code>) — el umbral con el que la UI sugiere</td>
+</tr>
+<tr>
+<td>0bis.f</td>
+<td>✅ <code>ui/tools/import_workspace.py</code></td>
+<td>casilla <em>"Screening library: keep on disk as shards"</em>, sugerencia automática por tamaño, aviso duro si se insiste en filas, casilla bloqueada si el proyecto ya tiene biblioteca, y ruteo a <code>shard_ligands</code> solo del grupo small-molecule</td>
+</tr>
+<tr>
+<td>0bis.g</td>
+<td>✅ <code>ui/shell/job_feedback.py</code>, <code>view_coordinator.py</code></td>
+<td>la insignia se refresca al acabar cada job (una importación de shards convierte el proyecto en campaña) y su tooltip dice de dónde sale</td>
+</tr>
+</tbody>
+</table>
+<h3 id="decisiones-tomadas-al-implementar">Decisiones tomadas al implementar<a class="headerlink" href="#decisiones-tomadas-al-implementar" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>ProjectMode</code> sigue existiendo</strong> como vocabulario ("vs"/"htpvs" son las etiquetas de la
+  insignia), pero ya no se persiste ni se valida en ningún sitio: es el valor de retorno de
+  <code>library_kind</code>, no un estado.</li>
+<li><strong><code>store_from_config</code> siempre devuelve filas.</strong> Las herramientas de fila leen filas; las de
+  shard construyen su <code>ShardStore</code> explícitamente. No hay despacho por modo. <code>ligand_store()</code>,
+  que sí lo hacía, se borró (no tenía llamantes).</li>
+<li><strong>El aviso por tamaño mide bytes en disco, no registros</strong> (<code>ponytail</code>: un <code>stat()</code> por
+  archivo frente a contar moléculas). El techo: un <code>.smi</code> de 200 MB son ~4 M de moléculas y un
+  <code>.sdf</code> de 200 MB unas 60 k — el umbral acierta en el caso que importa (evitar millones de
+  filas) y en el otro solo sugiere de más.</li>
+<li><strong>La UI no toca <code>project_db</code>.</strong> Pregunta <code>rt.mode</code> y <code>rt.general_ligand_count()</code>; el test de
+  frontera <code>test_ui_api_boundary.py</code> lo obliga.</li>
+</ul>
+<p><strong>Check:</strong> <code>test/test_project_mode.py</code> — 6 pruebas: la derivación (<code>vs</code> → <code>htpvs</code> al aparecer un
+shard), que sobrevive a cerrar/abrir sin persistir nada, que <code>check_library_target</code> rechaza la
+segunda biblioteca, y dos de UI (el diálogo rutea small-molecule a <code>shard_ligands</code> y proteína a
+<code>load_ligands</code>; la casilla queda bloqueada si el proyecto ya está en shards). Suite completa:
+<strong>327 pasan, 2 se saltan</strong>.</p>
+<hr />
+<h2 id="1-constructor-de-pasos-chemistrypipelinepy">§1 — Constructor de pasos (<code>chemistry/pipeline.py</code>) ✅<a class="headerlink" href="#1-constructor-de-pasos-chemistrypipelinepy" title="Permanent link">&para;</a></h2>
+<h3 id="la-idea">La idea<a class="headerlink" href="#la-idea" title="Permanent link">&para;</a></h3>
+<blockquote>
+<p><em>"me gusta la idea de tener una especie de constructor de procesos configurando pasos."</em></p>
+</blockquote>
+<p>Un módulo puro nuevo, sin db ni rutas, que compone los núcleos que ya existen:</p>
+<div class="highlight"><pre><span></span><code><span class="n">LIGAND_STEPS</span> <span class="o">=</span> <span class="p">{</span>                 <span class="c1"># nombre -&gt; callable(mols, **params) -&gt; mols</span>
+    <span class="s2">"standardize"</span><span class="p">:</span> <span class="o">...</span><span class="p">,</span> <span class="s2">"protonate"</span><span class="p">:</span> <span class="o">...</span><span class="p">,</span> <span class="s2">"generate_3d"</span><span class="p">:</span> <span class="o">...</span><span class="p">,</span>
+    <span class="s2">"minimize"</span><span class="p">:</span> <span class="o">...</span><span class="p">,</span> <span class="s2">"conformers"</span><span class="p">:</span> <span class="o">...</span><span class="p">,</span>
+<span class="p">}</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">run_pipeline</span><span class="p">(</span><span class="n">mols</span><span class="p">:</span> <span class="nb">list</span><span class="p">,</span> <span class="n">steps</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">]])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">:</span>
+    <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">params</span> <span class="ow">in</span> <span class="n">steps</span><span class="p">:</span>
+        <span class="n">mols</span> <span class="o">=</span> <span class="n">LIGAND_STEPS</span><span class="p">[</span><span class="n">name</span><span class="p">](</span><span class="n">mols</span><span class="p">,</span> <span class="o">**</span><span class="n">params</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">mols</span>
+</code></pre></div>
+<h3 id="restriccion-no-negociable-lote-lote">Restricción no negociable: lote → lote<a class="headerlink" href="#restriccion-no-negociable-lote-lote" title="Permanent link">&para;</a></h3>
+<p><strong>No</strong> molécula → molécula. Sale del código actual: <code>chemistry/service.py:176-190</code> hace una
+pre-pasada de lote para <code>protonate</code>, porque Dimorphite y OpenBabel operan sobre un conjunto,
+no sobre una molécula. Un pipeline per-molécula rompería la protonación.</p>
+<h3 id="por-que-sirve-a-los-dos-modos">Por qué sirve a los dos modos<a class="headerlink" href="#por-que-sirve-a-los-dos-modos" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>htpvs</code>: los pasos van fusionados en un job porque el usuario no busca granularidad.</li>
+<li><code>vs</code>: el auto-encadenado (generar 3D → preparar sin viaje a Build) pasa a ser <strong>un</strong> job en
+  lugar de N encadenados.</li>
+</ul>
+<p>Que sirva a los dos sin condicional es la señal de que la abstracción está en el sitio correcto.</p>
+<h3 id="tareas_2">Tareas<a class="headerlink" href="#tareas_2" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Archivo</th>
+<th>Acción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1.a</td>
+<td>✅ <code>chemistry/pipeline.py</code> (nuevo)</td>
+<td><code>LIGAND_STEPS</code> + <code>run_pipeline</code> + <code>normalize_steps</code> + <code>kwargs_for</code>. Puro: sin <code>Path</code>, sin db, sin <code>output_dir</code></td>
+</tr>
+<tr>
+<td>1.b</td>
+<td>✅ <code>chemistry/service.py</code></td>
+<td><code>transform_ligand_rows(operations=...)</code> acepta lista de pasos o un <code>str</code> suelto; carga el lote entero, llama a <code>run_pipeline</code> una vez y escribe <strong>un</strong> artefacto por ligando</td>
+</tr>
+<tr>
+<td>1.c</td>
+<td>✅ <code>chemistry/jobs.py</code>, <code>chemistry/api.py</code></td>
+<td><code>LigandChemistryJobParams.operation: str \| list</code>; nuevo <code>runtime.chemistry.run_ligand_pipeline([...])</code>; <code>protonate_ligands()</code> etc. intactos</td>
+</tr>
+<tr>
+<td>1.d</td>
+<td>✅ <code>docking/programs.py</code>, <code>docking/api.py</code></td>
+<td><code>requires_ligand_3d: bool = True</code> en <code>DockingProgramSpec</code>; el gate lo lee (= tareas 5.a y 5.b)</td>
+</tr>
+<tr>
+<td>1.e</td>
+<td>✅ <code>constants.py</code>, <code>chemistry/jobs.py</code>, <code>docking/preparation_jobs.py</code>, <code>io/jobs.py</code></td>
+<td><code>OUTPUT_FLUSH_EVERY</code> (env <code>AMDOCK_OUTPUT_FLUSH_EVERY</code>, def. 16) sustituye a <code>output_flush_every=1</code> y absorbe <code>IMPORT_OUTPUT_FLUSH_EVERY</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="decisiones-tomadas-al-implementar_1">Decisiones tomadas al implementar<a class="headerlink" href="#decisiones-tomadas-al-implementar_1" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>La posición es la identidad.</strong> <code>run_pipeline</code> devuelve una lista de la misma longitud y
+  orden que la de entrada; una molécula que falla deja su <strong>excepción en su hueco</strong> y los pasos
+  siguientes la dejan pasar. Sin eso el llamador no puede volver a casar resultados con filas, y
+  una molécula rota tiraría el lote entero.</li>
+<li><strong>Cada paso toma solo los parámetros que declara</strong> (<code>kwargs_for</code>, por firma). Eso borró el
+  <code>if/elif</code> de ~200 líneas que en <code>service.py</code> elegía claves a mano por operación. Un parámetro
+  desconocido se ignora, igual que antes.</li>
+<li><strong>Un artefacto, no N.</strong> standardize+protonate+3D escribía tres ficheros por ligando (un job
+  cada uno); ahora escribe uno. El nombre y los <code>model_rows</code> los decide el <strong>último</strong> paso; el
+  estado (<code>has_hs</code>/<code>is_minimized</code>) se pliega sobre todos.</li>
+</ul>
+<p><strong>Checks (en <code>test/test_chemistry_pipeline.py</code>, <code>test/test_docking_preconditions.py</code>):</strong>
+<code>run_pipeline</code> == las tres llamadas encadenadas a mano; el hueco de una molécula rota se
+conserva; un lote multi-paso escribe un fichero por ligando; una fila ilegible no tumba a las
+demás; un spec con <code>requires_ligand_3d=False</code> da <code>ready</code> sin 3D.</p>
+<hr />
+<h2 id="2-ligandstore-solo-con-dbstore-hecho-2026-09-03">§2 — <code>LigandStore</code>, solo con <code>DbStore</code> ✅ hecho (2026-09-03)<a class="headerlink" href="#2-ligandstore-solo-con-dbstore-hecho-2026-09-03" title="Permanent link">&para;</a></h2>
+<h3 id="la-costura">La costura<a class="headerlink" href="#la-costura" title="Permanent link">&para;</a></h3>
+<p>Las diferencias entre modos, enumeradas una a una, son todas la misma pregunta:</p>
+<table>
+<thead>
+<tr>
+<th>Etapa</th>
+<th>Qué cambia realmente</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Importación</td>
+<td>dónde escribo (filas / shards)</td>
+</tr>
+<tr>
+<td>Preprocesamiento</td>
+<td>de dónde leo (scope db / lista de ficheros)</td>
+</tr>
+<tr>
+<td>Diversidad</td>
+<td>de dónde leo (lotes db / shards)</td>
+</tr>
+<tr>
+<td>Preparación</td>
+<td>de dónde leo</td>
+</tr>
+<tr>
+<td>Docking</td>
+<td>de dónde leo</td>
+</tr>
+<tr>
+<td>Análisis</td>
+<td>cuándo escribo (siempre / al pasar el umbral)</td>
+</tr>
+</tbody>
+</table>
+<p>Seis viñetas, <strong>una</strong> costura. Y como los receptores se materializan en los dos modos, la
+costura es <strong>solo de ligandos</strong>.</p>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">LigandStore</span><span class="p">(</span><span class="n">Protocol</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">iter_rows</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">spec</span><span class="p">:</span> <span class="n">QuerySpec</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">128</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Iterator</span><span class="p">[</span><span class="nb">dict</span><span class="p">]</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">count</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">spec</span><span class="p">:</span> <span class="n">QuerySpec</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">materialize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">rows</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]</span>   <span class="c1"># no-op en DbStore: ya está materializado</span>
+</code></pre></div>
+<p><code>ingest()</code> se quedó fuera: la importación no escribe por una llamada, escribe por los
+<code>graph_sink</code> de ms_flow. No hay costura invocable que envolver hasta que §3 la necesite.</p>
+<p><code>materialize()</code> como no-op en <code>vs</code> es lo que permite que el código de análisis sea idéntico en
+los dos modos.</p>
+<h3 id="esta-fase-no-introduce-shardstore">Esta fase NO introduce <code>ShardStore</code><a class="headerlink" href="#esta-fase-no-introduce-shardstore" title="Permanent link">&para;</a></h3>
+<p>Deliberado. Si entran los dos backends a la vez y algo se rompe, no se sabe cuál fue. Con solo
+<code>DbStore</code> —que envuelve lo que ya existe, sin comportamiento nuevo— el criterio de éxito es
+trivial y mecánico.</p>
+<h3 id="tareas_3">Tareas<a class="headerlink" href="#tareas_3" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Archivo</th>
+<th>Acción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2.a ✅</td>
+<td><code>molecules/store.py</code> (nuevo)</td>
+<td><code>LigandStore</code> (Protocol) + <code>DbStore</code> (= <code>db_pages</code>/<code>db_count</code> sobre el <code>scope_spec</code> del tool) + <code>ligand_store(project_db, mode=)</code> + <code>store_from_config(config)</code> + <code>as_store(source)</code></td>
+</tr>
+<tr>
+<td>2.b ✅</td>
+<td><code>runtime.py::on_project_activated</code></td>
+<td><strong>La única ramificación por modo del código.</strong> Instancia el store y lo expone como <code>runtime.ligands_store</code>; se anula en <code>close_project</code></td>
+</tr>
+<tr>
+<td>2.c ✅</td>
+<td><code>chemistry/</code>, <code>selection/</code>, <code>qsar/</code></td>
+<td><code>iter_ligand_rows</code>, <code>scope_molecule_rows</code>/<code>scope_molecule_count</code> y <code>_iter_descriptor_batches</code> leen del store; los tres jobs resuelven el suyo con <code>store_from_config(config_map)</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="decisiones-tomadas-al-implementar_2">Decisiones tomadas al implementar<a class="headerlink" href="#decisiones-tomadas-al-implementar_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>El modo llega al worker gratis.</strong> <code>ms_flow/_api_impl/job_api.py</code> ya inyecta <code>project_context</code>
+  en el config de todo job, y §0 le puso <code>app_data</code>. <code>store_from_config</code> lo lee de ahí: ningún
+  parámetro de job transporta el modo.</li>
+<li><strong><code>as_store(source)</code>: se acepta un store o un <code>project_db</code> a secas.</strong> Los feeds se llaman
+  también desde la UI (<code>selection/api.py</code> para el preview inline), que no tiene config. Un
+  <code>project_db</code> significa <code>vs</code>, que es exactamente lo que ya hacía. Cero cambios en esos sitios.</li>
+<li><strong>Fuera de la costura, a propósito:</strong> <code>docking/repository.py</code> (<code>iter_entity_rows</code>,
+  <code>count_entity_rows</code>, <code>_iter_entity_ids</code>) y <code>MoleculesAPI.stream/stream_ids/count</code> siguen en
+  <code>db_pages</code>. Son genéricos sobre ligandos <strong>y</strong> receptores e hidratan por lote contra la db; y
+  en <code>htpvs</code> el docking no lee la librería local, porque §6 le manda un bundle. Meterlos ahora
+  sería costura sin usuario.</li>
+<li><strong><code>ligand_store</code> no rompe todavía con <code>htpvs</code>.</strong> Devuelve <code>DbStore</code> en los dos modos, porque
+  hoy nada fragmenta: la importación sigue escribiendo filas. Que reventara al abrir el proyecto
+  haría inusable el selector de modo de §0 hasta que llegue §3. La rama existe para que §3
+  cambie <strong>una</strong> línea.</li>
+</ul>
+<p><strong>Check:</strong> <code>test/test_ligand_store.py</code> — un <code>FakeStore</code> sin base de datos detrás alimenta los
+tres feeds, y un <code>project_db</code> pelado sigue funcionando. La suite entera pasa sin cambios (315
+tests): en modo <code>vs</code> esta fase no es observable.</p>
+<hr />
+<h2 id="3-shardstore-y-el-punto-donde-se-fragmenta-hecho-2026-09-03">§3 — <code>ShardStore</code> y el punto donde se fragmenta ✅ hecho (2026-09-03)<a class="headerlink" href="#3-shardstore-y-el-punto-donde-se-fragmenta-hecho-2026-09-03" title="Permanent link">&para;</a></h2>
+<p>Implementa sobre lo ya decidido en §4/§5 del plan anterior: shards con offsets, tabla
+<code>screening_shards</code>, identidad <code>(shard_id, record_index)</code>, idempotencia por <code>state</code>.</p>
+<h3 id="donde-se-parte-la-libreria">Dónde se parte la librería<a class="headerlink" href="#donde-se-parte-la-libreria" title="Permanent link">&para;</a></h3>
+<p><strong>No siempre en local.</strong> Mover un fichero de 40 GB por la red cuesta menos que mover los 4.000
+shards en que se parte: una conexión contra cuatro mil. Así que en una campaña con HPC lo que
+viaja es la <strong>fuente cruda</strong>, y el <code>ShardStore</code> remoto la fragmenta allí, junto a los CPUs que van
+a leerla.</p>
+<p>De eso se sigue lo que de verdad importa para la UI: <strong>el número de shards no se conoce antes de
+despachar.</strong> No se puede preconstruir la tabla, ni con filas en <code>pending</code>, ni con un conteo
+estimado. <code>screening_shards</code> empieza vacía y se puebla con la retroalimentación.</p>
+<p>Dos orígenes, un mismo esquema:</p>
+<table>
+<thead>
+<tr>
+<th>Campaña</th>
+<th>Quién fragmenta</th>
+<th>Cuándo aparecen las filas de <code>screening_shards</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>htpvs</code> local</td>
+<td>el <code>ShardStore</code> local, en el import</td>
+<td>al importar</td>
+</tr>
+<tr>
+<td><code>htpvs</code> + HPC</td>
+<td>el bundle, en el cluster</td>
+<td>al ingerir la retroalimentación</td>
+</tr>
+</tbody>
+</table>
+<h3 id="la-tabla-de-envios">La tabla de envíos<a class="headerlink" href="#la-tabla-de-envios" title="Permanent link">&para;</a></h3>
+<p>Lo que sí existe desde el momento de despachar es <strong>lo que mandaste</strong>. Eso va en su propia tabla,
+<code>screening_dispatches</code>, y <strong>no</strong> dentro de <code>screening_shards</code>: son cosas distintas por los tres
+criterios que importan.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Envíos</th>
+<th>Shards</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>cardinalidad</td>
+<td>decenas</td>
+<td>miles</td>
+</tr>
+<tr>
+<td>vida</td>
+<td>la campaña acaba</td>
+<td>el inventario queda</td>
+</tr>
+<tr>
+<td>pregunta que responde</td>
+<td>¿dónde va mi trabajo?</td>
+<td>¿qué tengo?</td>
+</tr>
+</tbody>
+</table>
+<p>Meterlas en una tabla obliga a filas padre con <code>n_shards</code> y <code>n_records</code> nulos — columnas nulas en
+el inventario para ahorrarse un widget. No se hace.</p>
+<p>Una fila por fuente despachada: <code>path</code>, <code>bytes</code>, <code>submitted_at</code>, <code>state</code>
+(<code>uploaded</code>/<code>running</code>/<code>returned</code>/<code>failed</code>), <code>n_shards_returned</code>. Es tabla de base de datos y no
+estado en memoria porque es lo que permite <strong>reanudar una ingesta a medias</strong>.</p>
+<h3 id="el-shardstore">El <code>ShardStore</code><a class="headerlink" href="#el-shardstore" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Método</th>
+<th>Implementación</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ingest</code></td>
+<td>Parte los ficheros en shards de N moléculas aplicando el prefiltro al vuelo. <strong>No toca <code>molecules</code>.</strong> Registra una fila por shard en <code>screening_shards</code></td>
+</tr>
+<tr>
+<td><code>iter_batches</code></td>
+<td>Un shard por lote; feed = <code>db_pages</code> sobre <code>screening_shards</code> con <code>state='pending'</code></td>
+</tr>
+<tr>
+<td><code>count</code></td>
+<td><code>db_count</code> sobre <code>screening_shards</code>, sumando <code>n_records</code>. Sin abrir ficheros</td>
+</tr>
+<tr>
+<td><code>materialize</code></td>
+<td>Promoción: inserta filas en <code>molecules</code> por el importador normal (5.d del plan anterior)</td>
+</tr>
+</tbody>
+</table>
+<p>Más el adaptador hermano de <code>transform_ligand_rows</code>, sin <code>entity_id</code>, sin <code>extra_data</code>, sin
+updates de grafo:</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">transform_ligand_shard</span><span class="p">(</span><span class="n">shard_in</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">shard_out</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">steps</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">write_sdf</span><span class="p">(</span><span class="n">shard_out</span><span class="p">,</span> <span class="n">run_pipeline</span><span class="p">(</span><span class="n">read_sdf</span><span class="p">(</span><span class="n">shard_in</span><span class="p">),</span> <span class="n">steps</span><span class="p">))</span>
+</code></pre></div>
+<p>Un shard entra, un shard sale, 1 fichero/CPU. Lo corre igual el job local que el script del
+cluster: es la misma función pura, y esa es toda la razón de que exista.</p>
+<h3 id="tareas_4">Tareas<a class="headerlink" href="#tareas_4" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Archivo</th>
+<th>Acción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>3.a</td>
+<td><code>models/</code> + repository</td>
+<td>Tabla <code>screening_shards</code> con <code>QuerySpec</code> (tarea 5.a del plan anterior)</td>
+</tr>
+<tr>
+<td>3.b</td>
+<td><code>models/</code> + repository</td>
+<td>Tabla <code>screening_dispatches</code> con <code>QuerySpec</code></td>
+</tr>
+<tr>
+<td>3.c</td>
+<td><code>molecules/store.py</code></td>
+<td><code>ShardStore</code> con los cuatro métodos</td>
+</tr>
+<tr>
+<td>3.d</td>
+<td><code>chemistry/shards.py</code> (nuevo)</td>
+<td><code>transform_ligand_shard</code> sobre <code>run_pipeline</code></td>
+</tr>
+<tr>
+<td>3.e</td>
+<td><code>io/jobs.py</code></td>
+<td>En <code>htpvs</code> local, el import no materializa: escribe shards y registra filas de shard</td>
+</tr>
+<tr>
+<td>3.f</td>
+<td>—</td>
+<td>Idempotencia: un shard <code>done</code> no se recalcula (tarea 5.c del plan anterior)</td>
+</tr>
+</tbody>
+</table>
+<p>Todas hechas. <code>models/screening.py</code> (3.a/3.b), <code>molecules/store.py::ShardStore</code> +
+<code>shard_scope_spec</code> (3.c), <code>chemistry/shards.py::transform_ligand_shard</code> (3.d), <code>io/shards.py</code> +
+<code>shard_ligands_job</code> + <code>LoaderAPI.shard_ligands</code> (3.e), y el par
+<code>shard_scope_spec(state='pending')</code> + upsert sobre <code>(source, shard_index)</code> (3.f).</p>
+<p><strong>Check:</strong> proyecto <code>htpvs</code> local, 3 SDF de entrada, pipeline de 3 pasos → verificar shards de
+salida, conteos y que <code>molecules</code> sigue vacía. Y en el camino HPC: tras despachar,
+<code>screening_dispatches</code> tiene 3 filas y <code>screening_shards</code> <strong>cero</strong> — el vacío es correcto.</p>
+<p>La mitad local del check pasa en <code>test/e2e/test_htpvs_shard_pipeline.py</code>: 3 SDF × 20 moléculas con
+<code>shard_size=8</code> → 9 shards en disco, <code>record_count() == 60</code>, <code>molecules</code> vacía; luego
+<code>run_shard_pipeline(["standardize", "generate_3d", "minimize"])</code> deja las 9 filas en <code>done</code> con los
+ficheros bajo <code>standardize+generate_3d+minimize/</code>, y una segunda pasada no encuentra nada
+<code>pending</code>. La mitad HPC depende de §6.</p>
+<h3 id="decisiones-tomadas-al-implementar_3">Decisiones tomadas al implementar<a class="headerlink" href="#decisiones-tomadas-al-implementar_3" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>El import ya fragmentaba.</strong> <code>stream_import_payload_batches</code> parte el fichero en <em>tramos de
+  bytes</em> y el worker parsea; para shardear solo cambia el worker: en vez de convertir el tramo en
+  filas, lo vuelve a escribir a fichero. El shard es una copia de bytes salvo que haya prefiltro
+  activo — esa es la única razón por la que un shard llega a parsear moléculas.</li>
+<li><strong><code>ingest</code> no es un método del store.</strong> El import escribe por <code>table_sink</code>, no por una llamada,
+  así que el Protocol de §2 no lo lista; el shardeo es un job (<code>shard_ligands_job</code>), no un método.</li>
+<li><strong><code>record_count</code> suma en Python</strong>, no en SQL: <code>ms_flow.query</code> no tiene <code>db_sum</code> y el inventario
+  son miles de filas, no millones. Techo anotado con <code>ponytail:</code> en el propio método.</li>
+<li><strong><code>ligand_store()</code> sigue devolviendo <code>DbStore</code> en los dos modos.</strong> Cambiarlo a <code>ShardStore</code> es
+  el interruptor de §4: hasta que exista la materialización con tope, un proyecto <code>htpvs</code> que
+  devolviera <code>ShardStore</code> no podría ni abrir la vista de Ligands.</li>
+<li><strong><code>ShardStore.materialize</code> lanzaba <code>NotImplementedError</code></strong> apuntando a §4, en vez de existir a
+  medias; §4 lo implementó (compuerta con umbral y tope).</li>
+<li><strong><code>screening_dispatches</code> existe pero nadie la escribe</strong> hasta §6. La tabla es de §3 porque el
+  esquema es de §3; el productor es de §6.</li>
+<li><strong>La UNIQUE <code>(source, shard_index)</code> es obligatoria</strong>, no decorativa: sin ella el <code>write_mode
+  ="upsert"</code> del sink falla en SQLite ("ON CONFLICT clause does not match any ... constraint").</li>
+<li><code>RESOURCE_SHARDS</code> = <code>data/shards</code> se resuelve del manifiesto contra la raíz del proyecto, así
+  que los proyectos ya creados también lo tienen.</li>
+</ul>
+<hr />
+<h2 id="3-bis-el-shard-es-un-contenedor-mshard-no-un-tramo-de-bytes-hecho-2026-09-04">§3-bis — El shard es un contenedor <code>.mshard</code>, no un tramo de bytes ✅ hecho (2026-09-04)<a class="headerlink" href="#3-bis-el-shard-es-un-contenedor-mshard-no-un-tramo-de-bytes-hecho-2026-09-04" title="Permanent link">&para;</a></h2>
+<p>§3 dejó el shard como <em>copia de un tramo de bytes</em> del fichero original, con su extensión
+(<code>_0000.sdf</code>). Funciona, pero no resuelve el problema por el que existen los shards.</p>
+<h3 id="que-problema-resuelven-de-verdad">Qué problema resuelven de verdad<a class="headerlink" href="#que-problema-resuelven-de-verdad" title="Permanent link">&para;</a></h3>
+<p>No es SMILES. Un <code>.smi</code> de un millón de líneas ya es un fichero compacto y barato de mover. El
+problema son los formatos <strong>no apilables</strong>: PDB y sobre todo PDBQT, donde cada molécula tiende a
+ser un fichero. Cientos de miles de ficheros de 3 KB es lo que mata un filesystem de HPC: inodos,
+<code>rsync</code>, cuota. El shard es entonces <strong>un contenedor fiable, compacto y de acceso indexado</strong> —
+no un fichero que deba seguir siendo legible por RDKit u Open Babel. No conserva la identidad del
+formato de origen y no debe intentarlo.</p>
+<h3 id="el-contenedor">El contenedor<a class="headerlink" href="#el-contenedor" title="Permanent link">&para;</a></h3>
+<p><code>ms_flow.core.data.shard</code> (<code>.mshard</code>): cabecera de 58 B + registros de ancho variable + tabla de
+offsets + huella BLAKE2b-256 al pie; lectura por <code>mmap</code> con vistas sin copia; commit atómico
+(<code>.tmp</code> + <code>os.replace</code> + <code>fsync</code> del directorio).</p>
+<p>Lo que importa aguas arriba:</p>
+<ul>
+<li><strong>Direccionado por id lógico</strong>, no por posición: <code>base_id .. base_id+slot_count-1</code>. Un registro
+  descartado por el prefiltro deja un <strong>hueco</strong> (<code>NOT_PRESENT</code>), no renumera a los siguientes. Los
+  ids de entrada sobreviven a toda la cadena de transformaciones.</li>
+<li><strong>El formato vive en la cabecera</strong> (<code>PayloadKind</code>), no en el nombre. Se acabó el <code>_SUFFIX</code> por
+  extensión de origen: todo shard es <code>.mshard</code>.</li>
+<li><strong>Tope de registros</strong>: <code>MAX_RECORDS = 65535</code> por shard, verificado al construir el escritor.</li>
+</ul>
+<h3 id="tamano-registros-primero-bytes-como-tope">Tamaño: registros primero, bytes como tope<a class="headerlink" href="#tamano-registros-primero-bytes-como-tope" title="Permanent link">&para;</a></h3>
+<p>Un lote de trabajo escribe <strong>un</strong> shard: hay exactamente un escritor por fichero y no existe el
+problema de escritura concurrente. Para que un lote no se derrame en dos ficheros, el corte
+primario tiene que ser el que define el lote — <strong>el número de registros</strong>.</p>
+<table>
+<thead>
+<tr>
+<th>Knob</th>
+<th>Valor</th>
+<th>Papel</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DEFAULT_SHARD_SIZE</code></td>
+<td>1 000</td>
+<td>corte primario para SDF/PDB/PDBQT</td>
+</tr>
+<tr>
+<td><code>DEFAULT_SMILES_SHARD_SIZE</code></td>
+<td><code>MAX_RECORDS</code></td>
+<td>SMILES no tiene el problema; que llene el shard</td>
+</tr>
+<tr>
+<td><code>SHARD_MAX_BYTES</code></td>
+<td>256 MiB</td>
+<td>tope de seguridad, no criterio de diseño</td>
+</tr>
+</tbody>
+</table>
+<p>1 000 y no 10 000 por <strong>granularidad de fallo</strong>: lo que se reintenta tras un crash es un shard
+entero.</p>
+<p>El feed del import corta por <code>bytes OR registros</code>, lo primero que llegue; los valores del llamante
+deciden cuál manda. La importación a filas sigue cortando por bytes (<code>ramp</code> de arranque incluido);
+la de shards pasa <code>chunk_bytes=SHARD_MAX_BYTES, ramp=False</code> para que mande el conteo. <code>ramp</code> se
+propaga hasta <code>estimate_import_chunks</code> porque el <code>total_chunks</code> declarado es un <strong>suelo</strong>: si no
+coincide con el feed real, el job no termina nunca.</p>
+<h3 id="tareas_5">Tareas<a class="headerlink" href="#tareas_5" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Archivo</th>
+<th>Acción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>3bis.a</td>
+<td><code>ms_flow/core/data/shard.py</code></td>
+<td>Contenedor + <code>tests/test_shard_container.py</code> (9 tests)</td>
+</tr>
+<tr>
+<td>3bis.b</td>
+<td><code>io/parsers/readers.py</code></td>
+<td><code>iter_record_span</code> / <code>read_record_span</code>: leer N registros, en streaming</td>
+</tr>
+<tr>
+<td>3bis.c</td>
+<td><code>io/loaders.py</code></td>
+<td>Corte por bytes <strong>o</strong> registros; <code>estimate_record_chunks(..., ramp=)</code></td>
+</tr>
+<tr>
+<td>3bis.d</td>
+<td><code>io/shards.py</code></td>
+<td>Escribe <code>.mshard</code> (huecos donde el prefiltro descarta — <strong>sustituido por §3-ter</strong>)</td>
+</tr>
+<tr>
+<td>3bis.e</td>
+<td><code>chemistry/shards.py</code></td>
+<td><code>read_shard</code>/<code>write_shard</code>; <code>transform_ligand_shard</code> preserva <code>base_id</code>/<code>slot_count</code></td>
+</tr>
+<tr>
+<td>3bis.f</td>
+<td><code>io/api.py</code> + <code>io/jobs.py</code></td>
+<td><code>shard_size</code> por formato, clamp a <code>MAX_RECORDS</code>, <code>total_chunks</code> sin <code>ramp</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Check:</strong> <code>test/e2e/test_htpvs_shard_pipeline.py</code> lee ahora <strong>por el contenedor</strong>
+(<code>read_shard</code>), no con <code>SDMolSupplier</code> — con la lectura anterior el test pasaba por accidente,
+porque el parser de SDF se resincroniza en el primer <code>$$$$</code> y se saltaba la cabecera binaria.
+Verifica que los ids de salida son un subconjunto de los de entrada.</p>
+<h3 id="decisiones-tomadas-al-implementar_4">Decisiones tomadas al implementar<a class="headerlink" href="#decisiones-tomadas-al-implementar_4" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Los proyectos ya shardeados hay que reimportarlos.</strong> No hay migración: los shards viejos son
+  tramos SDF crudos. <code>p1</code> incluido.</li>
+<li><strong>No se anota por qué se cerró un shard</strong> (<code>closed_by="bytes"</code>). Se contempló y se descartó: el
+  tope de bytes es una red de seguridad, y una metadata que nadie lee es peso muerto. Se añade el
+  día que alguien pregunte por qué un shard trae 300 registros.</li>
+<li><strong><code>original_size</code> se queda en el registro</strong> aunque hoy <code>Codec.NONE</code> lo hace igual a
+  <code>stored_size</code>: está en el formato en disco, quitarlo cuesta una v2.</li>
+</ul>
+<hr />
+<h2 id="3-ter-la-cola-de-shards-los-workers-filtran-el-padre-corta-hecho-2026-09-04">§3-ter — La cola de shards: los workers filtran, el padre corta ✅ hecho (2026-09-04)<a class="headerlink" href="#3-ter-la-cola-de-shards-los-workers-filtran-el-padre-corta-hecho-2026-09-04" title="Permanent link">&para;</a></h2>
+<h3 id="el-problema-que-cierra">El problema que cierra<a class="headerlink" href="#el-problema-que-cierra" title="Permanent link">&para;</a></h3>
+<p>Con el worker escribiendo su propio shard, el tamaño del shard lo decidía el <em>span</em> del fichero,
+no los supervivientes: con un prefiltro activo un shard de 1000 huecos traía 880 registros, y con
+13 spans salían 13 shards desiguales. Empaquetar denso en el worker es imposible: para saber en
+qué id empieza mi shard necesito cuántos sobrevivieron en los anteriores, que es justo lo que
+ningún worker sabe.</p>
+<h3 id="el-reparto">El reparto<a class="headerlink" href="#el-reparto" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Worker</strong> (<code>filter_ligand_span</code>): parsea su span sólo si hay prefiltro, aplica el filtro y
+  devuelve los supervivientes en crudo <code>[(source_index, raw), ...]</code>. Sin estado, sin disco.</li>
+<li><strong>Padre</strong> (<code>ShardQueueWriter</code>): una cola única, en el hilo de resultados del executor. Acumula
+  por <code>(fichero, formato)</code>, corta cada <code>shard_size</code> registros, escribe el <code>.mshard</code> y su fila de
+  <code>screening_shards</code>. Sustituye al <code>output_spec</code> del job (<code>result_handler_factory=</code>): un shard es
+  fichero <strong>y</strong> fila, y sólo este lado del proceso decide qué registro va con cuál.</li>
+</ul>
+<p>Lo que se gana: exactamente <code>shard_size</code> registros por shard (sólo el último de cada fichero es
+parcial), ids correlativos en toda la importación y un único escritor de disco. Lo que se paga:
+cada registro superviviente viaja de vuelta del worker al padre.</p>
+<h3 id="no-es-idempotente-por-decision">No es idempotente, por decisión<a class="headerlink" href="#no-es-idempotente-por-decision" title="Permanent link">&para;</a></h3>
+<p>Un span reintentado se vuelve a filtrar y aterriza donde esté la cola en ese momento, así que los
+límites de shard cambian entre ejecuciones y una reimportación <strong>añade</strong> en vez de hacer upsert
+sobre <code>(source, shard_index)</code>. Acordado: una importación fallida se relanza desde cero, no se
+reanuda. Reanudar exigiría que la cola persistiera recibos <code>span -&gt; shard</code>, que es exactamente el
+registro por chunk que MF dejó de llevar (ver <code>mf-domain-idempotency-contract</code>).</p>
+<h3 id="tareas_6">Tareas<a class="headerlink" href="#tareas_6" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Archivo</th>
+<th>Acción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>3ter.a</td>
+<td><code>io/shards.py</code></td>
+<td><code>write_ligand_shard</code> → <code>filter_ligand_span</code> + <code>ShardQueueWriter</code></td>
+</tr>
+<tr>
+<td>3ter.b</td>
+<td><code>io/jobs.py</code></td>
+<td><code>result_handler_factory=shard_queue_writer</code>; el chunk pasa a ser unidad de parseo</td>
+</tr>
+<tr>
+<td>3ter.c</td>
+<td><code>io/api.py</code></td>
+<td><code>result_handler_kwargs</code>: <code>project_db</code>, <code>shard_dir</code>, <code>shard_size</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Check:</strong> <code>test/test_shard_queue.py</code> — trozos de 3/6/1 registros producen shards de 4/4/2 con
+ids <code>0..9</code>; los <code>source_index</code> originales sobreviven en <code>metadata["source_indices"]</code> aunque los
+ids se cierren; dos ficheros nunca comparten shard.</p>
+<hr />
+<h2 id="4-sink-de-materializacion-con-tope-hecho-2026-09-03">§4 — Sink de materialización con tope ✅ hecho (2026-09-03)<a class="headerlink" href="#4-sink-de-materializacion-con-tope-hecho-2026-09-03" title="Permanent link">&para;</a></h2>
+<h3 id="el-riesgo-que-cierra">El riesgo que cierra<a class="headerlink" href="#el-riesgo-que-cierra" title="Permanent link">&para;</a></h3>
+<p>Del planteamiento original: <em>"aquellos que pasen de &lt;-8.5 kcal/mol ... aquí no hay control del
+número final"</em>. Un receptor que puntúa generoso, o una librería sesgada, y se materializan
+millones de filas en SQLite a la hora 30 de una corrida, sin nadie mirando y sin forma de
+pararlo salvo matar el proceso.</p>
+<h3 id="la-regla">La regla<a class="headerlink" href="#la-regla" title="Permanent link">&para;</a></h3>
+<blockquote>
+<p><strong>Umbral Y tope, lo que ate primero.</strong> El umbral es el criterio científico; el tope es lo que
+hace que la campaña termine.</p>
+</blockquote>
+<p>Es una variante de los tres sinks que ya existen: predicado + contador. La materialización es
+incremental — se promueve conforme se acumula, no al final.</p>
+<h3 id="que-se-trae-de-vuelta">Qué se trae de vuelta<a class="headerlink" href="#que-se-trae-de-vuelta" title="Permanent link">&para;</a></h3>
+<p>La línea no es "ligero vs completo" sino <strong>qué es irrecuperable</strong>:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Contenido</th>
+<th>Por qué</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>ligero</strong> (defecto)</td>
+<td>geometría de las poses + puntuaciones + SMILES</td>
+<td>Lo que no se puede recomputar, más la identidad que hace recomputable el resto</td>
+</tr>
+<tr>
+<td><strong>completo</strong></td>
+<td>lo anterior + pdbqt preparado, confórmeros, descriptores</td>
+<td>Solo cuando recomputar en local es más lento que transferir</td>
+</tr>
+</tbody>
+</table>
+<p>El SMILES no es opcional aunque parezca "solo un identificador más". Una fila en <code>ligands</code> con
+únicamente el <code>id</code> no se dibuja en 2D, no se busca, no se exporta y no se deduplica — es decir,
+no sirve para lo único que justifica <code>htpvs</code>, que es mirar los hits. Con el SMILES (~60 bytes)
+la fila es renderizable, y descriptores, huellas y 3D salen en local en segundos para 1.000
+moléculas.</p>
+<p>Por eso el defecto es ligero: "completo" solo gana cuando transferir sale más barato que
+recomputar, y con un top-N eso casi nunca pasa. Va como flag en la llamada de ingesta, sin modo
+ni UI propios hasta que un caso real lo pida.</p>
+<p>Y el tope importa más en modo completo: con umbral y sin tope, una diana generosa vuelve a llenar
+la base de datos que <code>htpvs</code> existe para mantener vacía — y ahí, además, con artefactos.</p>
+<h3 id="tareas_7">Tareas<a class="headerlink" href="#tareas_7" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Archivo</th>
+<th>Acción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>4.a</td>
+<td><code>htp/screening.py</code></td>
+<td>Sink con <code>predicate</code> (umbral sobre la métrica) y <code>cap</code> (top-N duro)</td>
+</tr>
+<tr>
+<td>4.b</td>
+<td><code>docking/api.py</code></td>
+<td>El run en <code>htpvs</code> escribe por ese sink</td>
+</tr>
+<tr>
+<td>4.c</td>
+<td><code>htp/bundle.py</code></td>
+<td>Flag <code>payload="light"\|"full"</code> en la ingesta; <code>light</code> por defecto</td>
+</tr>
+<tr>
+<td>4.d</td>
+<td>UI/config</td>
+<td>El tope es obligatorio en el formulario de campaña, no opcional</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Check:</strong> sink con predicado que deja pasar todo y <code>cap=10</code> → exactamente 10 filas
+materializadas. Y una ingesta <code>light</code> deja filas con SMILES y pose, sin descriptores.</p>
+<p>Ambas mitades pasan en <code>test/test_hit_materialization.py</code>, incluida la parte incremental: dos
+llamadas de 40 filas con la misma <code>HitGate(cap=10)</code> materializan 10 en total, no 10 por llamada.</p>
+<h3 id="decisiones-tomadas-al-implementar_5">Decisiones tomadas al implementar<a class="headerlink" href="#decisiones-tomadas-al-implementar_5" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>La compuerta es pura y vive en <code>htp/materialize.py</code></strong> (<code>HitGate</code>), separada de quien escribe
+  (<code>ingest_hits</code>). El tope es estado — cuenta —, así que la misma instancia se pasa a todas las
+  ingestas de una campaña; es lo que hace que el tope sea del <em>run</em> y no de la llamada.</li>
+<li><strong>No es un <code>output_spec</code>.</strong> Los sinks de MF son declarativos y no admiten un predicado del
+  usuario, y aquí no hace falta: por construcción llegan como mucho <code>cap</code> filas, y la ingesta
+  corre en el proceso que recibe, no en un worker. <code>ponytail:</code> anotado en <code>ingest_hits</code>.</li>
+<li><strong><code>cap</code> primeros que pasan el umbral, no top-N ordenado.</strong> Un top-N real exige ordenar la
+  corrida entera, que es justamente el "acumular todo" que §4 existe para evitar. Las filas
+  materializadas son ≤ <code>cap</code>: ordénalas después.</li>
+<li><strong>En docking la compuerta se parte en dos</strong> porque el sink no es un sitio donde enchufar nada:
+  el <em>umbral</em> va en el worker (<code>DockingVinaJobSpec.run_chunk</code>, sin estado, las no-hits ni
+  vuelven) y el <em>tope</em> va en el feed (<code>build_chunks</code> cuenta las filas ya escritas de la corrida y
+  deja de repartir trabajo). El tope del feed es aproximado por los chunks en vuelo — acota la
+  campaña; el techo exacto es la compuerta de ingesta.</li>
+<li><strong><code>docking.run(hit_cap=...)</code> exige <code>hit_threshold</code></strong>: un tope sin umbral solo trunca la
+  librería en el orden del feed, que no es un criterio.</li>
+<li><strong>Las no-hits no dejan fila</strong>, así que un re-run con <code>skip_existing</code> las vuelve a dockear. Con
+  la campaña acotada no importa; si reanudar una corrida capada llega a importar, hace falta una
+  tabla de "ya cribadas". Anotado en el código.</li>
+<li><strong>4.c: el flag <code>payload</code> está en <code>ingest_hits</code> / <code>ShardStore(payload=...)</code>, no en
+  <code>htp/bundle.py</code></strong>, que es de §6 y aún no existe. <code>light</code> (defecto) = SMILES + pose + score;
+  <code>full</code> añade descriptores a las columnas y confórmeros a <code>molecule_models</code>.</li>
+<li><strong>4.d está a medias, y a propósito</strong>: el tope es obligatorio donde hoy se puede hacer cumplir —
+  <code>HitGate</code> revienta con <code>cap&lt;=0</code> y <code>ShardStore.materialize</code> sin <code>gate</code> — pero la pantalla de
+  campaña no existe todavía, así que el campo del formulario es UI pendiente.</li>
+</ul>
+<hr />
+<h2 id="5-precondiciones-declarativas-habilita-diffdock-af3">§5 — Precondiciones declarativas (habilita DiffDock / AF3)<a class="headerlink" href="#5-precondiciones-declarativas-habilita-diffdock-af3" title="Permanent link">&para;</a></h2>
+<p>Pequeño pero bloquea a los demás: hoy el gate <code>has_3d</code> está cableado en
+<code>docking/api.py:328-345</code>, incondicional, ignorando el spec del programa. Eso hace imposible
+DiffDock (le basta el SMILES) y AF3 (sin preparación de receptor).</p>
+<p><code>DockingProgramSpec</code> (<code>docking/programs.py:10-36</code>) ya tiene <code>receptor_types</code>, <code>ligand_types</code>,
+<code>experiment_kinds</code>, <code>requires_binding_site</code>, <code>requires_ligand_preparation</code>,
+<code>requires_receptor_preparation</code> y <code>supports()</code>. Falta un campo y quitar el cableado.</p>
+<h3 id="tareas_8">Tareas<a class="headerlink" href="#tareas_8" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Archivo</th>
+<th>Acción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>5.a</td>
+<td>✅ <code>docking/programs.py</code></td>
+<td><code>requires_ligand_3d: bool = True</code> (hecho en §1)</td>
+</tr>
+<tr>
+<td>5.b</td>
+<td>✅ <code>docking/api.py</code></td>
+<td>El gate lee el spec en lugar de asumir <code>has_3d</code> (hecho en §1)</td>
+</tr>
+<tr>
+<td>5.c</td>
+<td><code>docking/programs.py</code></td>
+<td>Registrar los forks de Vina (QuickVina2, Q-Vina-W, GWOVina, DVina/DVinaRF20): mismo <code>preparation_engine="ad4"</code>, son datos</td>
+</tr>
+<tr>
+<td>5.d</td>
+<td><code>docking/programs.py</code> + <code>protocol_editor.py:152</code></td>
+<td><code>crossdocking</code> en <code>experiment_kinds</code> y en el combo</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Check:</strong> un spec con <code>requires_ligand_3d=False</code> permite <code>prepare</code>/<code>run</code> sobre ligandos sin 3D.</p>
+<hr />
+<h2 id="6-bundle-hpc-sin-transporte">§6 — Bundle HPC (sin transporte)<a class="headerlink" href="#6-bundle-hpc-sin-transporte" title="Permanent link">&para;</a></h2>
+<h3 id="lo-que-se-entrega">Lo que se entrega<a class="headerlink" href="#lo-que-se-entrega" title="Permanent link">&para;</a></h3>
+<p>Un directorio autocontenido: <strong>las fuentes crudas</strong> + config + script de submit del job array. El
+usuario lo copia al cluster. La ingesta lee un directorio de resultados que el usuario trae de
+vuelta.</p>
+<p>Fuentes, no shards (§3): mover un fichero grande cuesta menos que mover los miles en que se parte,
+así que <strong>el script fragmenta en el cluster</strong> como primera etapa, y el job array se dimensiona
+después, con el número de shards ya conocido allí. El bundle no puede declarar cuántas tareas
+tiene: las cuenta el propio script.</p>
+<p><strong>Sin SSH, sin credenciales, sin polling remoto.</strong> Eso es esencialmente lo que hace VirtualFlow,
+y deja estable el formato de bundle, que es la parte que de verdad cuesta acertar. Si más
+adelante el copy-paste molesta, el transporte se añade encima de un formato ya probado.</p>
+<h3 id="por-que-no-se-reutiliza-el-sistema-de-jobs-para-la-pata-remota">Por qué no se reutiliza el sistema de jobs para la pata remota<a class="headerlink" href="#por-que-no-se-reutiliza-el-sistema-de-jobs-para-la-pata-remota" title="Permanent link">&para;</a></h3>
+<p><code>AMDOCKVS_LOCAL_EXECUTORS = ("thread", "compute")</code> (<code>constants.py:95</code>) y <strong>cada job la declara
+explícitamente</strong> — <code>supported_executors=AMDOCKVS_LOCAL_EXECUTORS</code> aparece en ~20 sitios
+(<code>docking/jobs.py:668,790,884,936</code>, <code>chemistry/jobs.py</code>, <code>io/jobs.py</code>…). Esos jobs asumen que
+corren en proceso y contra la db del proyecto; la ejecución remota no hace ninguna de las dos.</p>
+<p>La campaña <strong>sale</strong> del sistema de jobs para la pata remota y <strong>vuelve a entrar</strong> en el ingest
+del top-N, que sí es un job local normal contra la db. Dos puntos de contacto definidos, cero
+cambios en las ~20 declaraciones existentes.</p>
+<h3 id="tareas_9">Tareas<a class="headerlink" href="#tareas_9" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Archivo</th>
+<th>Acción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>6.a</td>
+<td><code>htp/bundle.py</code> (nuevo)</td>
+<td>Generar directorio: fuentes, <code>config.json</code>, script de job array que fragmenta y luego dockea</td>
+</tr>
+<tr>
+<td>6.b</td>
+<td><code>htp/bundle.py</code></td>
+<td>Registrar una fila en <code>screening_dispatches</code> por fuente al generar el bundle</td>
+</tr>
+<tr>
+<td>6.c</td>
+<td><code>htp/bundle.py</code></td>
+<td>Ingesta desde directorio de resultados: puebla <code>screening_shards</code>, cierra el envío y escribe por el sink de §4</td>
+</tr>
+<tr>
+<td>6.d</td>
+<td>—</td>
+<td>Documentar el formato de bundle (es el contrato que hay que estabilizar)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Check:</strong> bundle generado sobre 3 fuentes, ejecutado a mano en local con el script (que produce N
+shards que el bundle no conocía), resultados ingeridos, <code>screening_shards</code> poblada con esos N y
+materialización respetando umbral y tope.</p>
+<hr />
+<h2 id="6-bis-ejecutor-hpc-de-verdad-diseno-sin-implementar-2026-09-05">§6-bis — Ejecutor HPC de verdad (diseño, sin implementar · 2026-09-05)<a class="headerlink" href="#6-bis-ejecutor-hpc-de-verdad-diseno-sin-implementar-2026-09-05" title="Permanent link">&para;</a></h2>
+<p>§6 evita el transporte a propósito (bundle + copy-paste). Esto es lo otro que se pidió: <strong>elegir
+HPC como ejecutor</strong>, o para toda la campaña o solo para el docking.</p>
+<h3 id="lo-que-mf-ya-trae">Lo que MF ya trae<a class="headerlink" href="#lo-que-mf-ya-trae" title="Permanent link">&para;</a></h3>
+<p><code>ExecutorRegistry.register_hpc(name, submit_command, poll_command, cancel_command, shared_fs,
+command_context, command_env, python_executable)</code> monta un <code>HPCCommandExecutorAdapter</code>: por cada
+chunk escribe un directorio de trabajo con <code>manifest.json</code> + <code>submit.sh</code> (que ejecuta
+<code>python -m ms_flow.core.executor.hpc_runtime</code>), lanza <code>submit_command</code>, sondea con <code>poll_command</code>
+y lee <code>result.json</code> / <code>status.json</code>. <code>submit_job(..., executor_name="hpc")</code> ya valida contra
+<code>job.supported_executors</code>. Es decir: <strong>el despacho por job existe y no hay que escribirlo</strong>.</p>
+<p>Dos límites que hay que aceptar de entrada:</p>
+<ol>
+<li><strong>El staging es <code>shutil.copy2</code>.</strong> MF no tiene SSH ni rsync: da por hecho que el directorio de
+   trabajo remoto se ve desde aquí (NFS, sshfs, lo que sea). Si no se monta, el transporte se
+   mete en la plantilla del comando — que es shell libre: <code>rsync -a {job_dir} host:… &amp;&amp; ssh host
+   sbatch …</code>. Funciona, pero entonces el bundle de §6 es el camino honesto.</li>
+<li><strong>El <code>PYTHONPATH</code> remoto es el <code>sys.path</code> local.</strong> El cluster necesita el mismo entorno visible
+   en las mismas rutas, o pasar <code>python_executable</code> + <code>command_env</code> apuntando al suyo.</li>
+</ol>
+<h3 id="lo-que-falta-de-nuestro-lado">Lo que falta de nuestro lado<a class="headerlink" href="#lo-que-falta-de-nuestro-lado" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Archivo</th>
+<th>Acción</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>6bis.a</td>
+<td><code>constants.py</code> + jobs de shard</td>
+<td>Añadir <code>"hpc"</code> a <code>supported_executors</code> <strong>solo</strong> en los jobs fichero→fichero (<code>shard_chemistry_job</code>, <code>prepare_ligand_shards_job</code>, y el docking de shards de §4). Los jobs de filas no: tocan <code>project.db</code>, que allá no existe</td>
+</tr>
+<tr>
+<td>6bis.b</td>
+<td><code>configuration.py</code></td>
+<td>Bloque <code>hpc:</code> (host, comandos submit/poll/cancel, raíz remota, partición, módulos, python) por el patrón de reconciliación de config</td>
+</tr>
+<tr>
+<td>6bis.c</td>
+<td><code>ui/…/hpc_dialog.py</code> (nuevo)</td>
+<td>Diálogo "Configurar HPC": campos, <strong>Probar conexión</strong> (lanza <code>poll_command</code> contra un job inexistente y espera un fallo <em>limpio</em>), guardar</td>
+</tr>
+<tr>
+<td>6bis.d</td>
+<td>Import + Docking</td>
+<td>Botón "Configurar HPC…" en los dos sitios, y un <code>executor_name</code> por campaña que por defecto es local</td>
+</tr>
+<tr>
+<td>6bis.e</td>
+<td><code>runtime</code></td>
+<td>Registrar el ejecutor al abrir proyecto si hay config</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Por qué la preparación sobre shards era el requisito previo:</strong> un job solo puede irse al cluster
+si su entrada y su salida son ficheros. <code>prepare_ligand_shards_job</code> lee un <code>.mshard</code> y escribe otro
+— nada más. Ese es exactamente el trozo de la campaña que puede viajar, y "todo en local menos el
+docking" es entonces un <code>executor_name</code> distinto en un job, no una rama nueva.</p>
+<p><strong>El regreso sigue siendo local.</strong> El top-N vuelve como ficheros y entra por el ingest de §4
+(<code>molecules</code> + <code>docking_results</code>), que es un job local normal contra la db. Dos puntos de contacto,
+igual que en §6.</p>
+<hr />
+<h2 id="diseno-de-ui">Diseño de UI<a class="headerlink" href="#diseno-de-ui" title="Permanent link">&para;</a></h2>
+<h3 id="el-principio">El principio<a class="headerlink" href="#el-principio" title="Permanent link">&para;</a></h3>
+<blockquote>
+<p><strong>En <code>htpvs</code>, una molécula se gana su fila puntuando bien.</strong></p>
+</blockquote>
+<p>La tabla de ligandos está vacía durante toda la campaña; la de Docking Results se va llenando.
+No es una carencia que disimular: es lo que el modo significa, y se explica en una frase.</p>
+<h3 id="que-pasa-con-build">Qué pasa con Build<a class="headerlink" href="#que-pasa-con-build" title="Permanent link">&para;</a></h3>
+<p>El <strong>panel</strong> desaparece; los <strong>widgets de configuración</strong> de <code>build.py</code> (~754 líneas) se
+convierten en los editores de paso del constructor. No se tira nada, se reubica.</p>
+<div class="highlight"><pre><span></span><code>Pipeline de preprocesamiento              [+ Añadir paso ▾]
+┌──────────────────────────────────────────────┐
+│ ⠿  1. Standardize      neutralize, fragmento  │  ⚙  ✕
+│ ⠿  2. Protonate        Dimorphite-DL · pH 7,4 │  ⚙  ✕
+│ ⠿  3. Generate 3D      ETKDG                  │  ⚙  ✕
+└──────────────────────────────────────────────┘
+1 job · ~14 min estimados sobre 1.243.891 moléculas
+</code></pre></div>
+<p>Arrastrar reordena; <code>⚙</code> abre el groupbox que ya existe, ahora como diálogo del paso.</p>
+<p><strong>Es un componente, no una pantalla.</strong> En <code>vs</code> el mismo constructor aparece detrás del "Fix ▾"
+del checklist de requisitos, mostrando exactamente qué se va a ejecutar. Un componente, dos
+consumidores — que es lo que justifica que exista.</p>
+<h3 id="pantalla-de-campana-htpvs-zona-central">Pantalla de campaña (<code>htpvs</code>, zona central)<a class="headerlink" href="#pantalla-de-campana-htpvs-zona-central" title="Permanent link">&para;</a></h3>
+<p>Mismo esqueleto de 4 pasos que el wizard de <code>vs</code>; la consistencia es gratis.</p>
+<table>
+<thead>
+<tr>
+<th>Paso</th>
+<th>Contenido</th>
+<th>Reutiliza</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1 · Fuente</td>
+<td>Ficheros/directorios + prefiltro + tamaño de shard. Muestra lo que se sabe sin abrir nada: <em>"3 ficheros · 37,3 GB"</em>. El conteo de shards <strong>no</strong> se estima: en HPC lo decide el cluster (§3)</td>
+<td><code>ImportFilterCriteriaForm</code> (<code>filter.py:298</code>)</td>
+</tr>
+<tr>
+<td>2 · Preprocesamiento</td>
+<td>El constructor de pasos. <strong>Puede quedar vacío</strong> (DiffDock desde SMILES)</td>
+<td>widgets de <code>build.py</code></td>
+</tr>
+<tr>
+<td>3 · Diana y programa</td>
+<td>Receptor del proyecto (preparado en local con las herramientas normales), grid, programa + parámetros</td>
+<td><code>protocol_editor.py</code>, <code>grid_box.py</code></td>
+</tr>
+<tr>
+<td>4 · Salida y lanzamiento</td>
+<td>Umbral, <strong>tope obligatorio</strong>, destino (local / bundle) → <em>Generar bundle</em></td>
+<td>nuevo, pequeño</td>
+</tr>
+</tbody>
+</table>
+<h3 id="las-tres-zonas-en-htpvs">Las tres zonas en <code>htpvs</code><a class="headerlink" href="#las-tres-zonas-en-htpvs" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Zona</th>
+<th>Qué cambia</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Barra superior (sustantivos)</td>
+<td>Se antepone la <strong>insignia de modo</strong> y se añade <strong>Shards</strong>. Receptors, Binding Sites, Docking Results: igual. Ligands pasa a llamarse <strong>Hits</strong>. Molecules y Activity: <strong>ocultas</strong></td>
+</tr>
+<tr>
+<td>Rail izquierdo (verbos)</td>
+<td>Filter y Build desaparecen (viven dentro de la campaña). Quedan Pocket Detection y Diversity: ambos funcionan, los receptores están materializados y la diversidad lee shards</td>
+</tr>
+<tr>
+<td>Centro</td>
+<td>La campaña y, después, el <strong>monitor de campaña</strong>: shards hechos/total, throughput, hits materializados, errores. Sustituye a la tabla como "la cosa que miras"</td>
+</tr>
+<tr>
+<td>Zona auxiliar</td>
+<td>La tabla de <strong>envíos</strong>, reclamada por la pestaña Shards</td>
+</tr>
+<tr>
+<td>Derecha</td>
+<td>PyMOL sirve igual para receptor y grid; al final, para los hits materializados</td>
+</tr>
+</tbody>
+</table>
+<p><strong>La insignia ya está</strong> (2026-09-03): <code>QLabel</code> con <code>objectName="mode_badge"</code> al principio de
+<code>build_catalog_toolbar</code>, antes de Molecules, seguida de un separador. Texto de
+<code>vocab.PROJECT_MODE_BADGES</code> (<code>VS</code> / <code>HTP-VS</code>), tooltip con el nombre largo, y una sola línea de
+estilo separa los dos modos: <code>palette(text)</code> en <code>vs</code>, <code>palette(highlight)</code> en <code>htpvs</code>. Se
+refresca desde <code>_sync_window_title</code>, que es el único sitio que corre tanto al arrancar como al
+abrir un proyecto después. Check: <code>test/test_mode_badge.py</code>.</p>
+<p><strong>La insignia va como etiqueta, no como acción.</strong> En <code>build_catalog_toolbar</code> toda la barra son
+<code>QAction</code> <em>checkables</em> donde marcado = pestaña abierta; un indicador de modo no abre nada y nunca
+se desmarca. Un <code>bar.addWidget(QLabel)</code> antes del primer bucle ocupa la misma posición sin
+prometer un toggle que no existe.</p>
+<p>Y se muestra <strong>en los dos modos</strong>. Si solo apareciera en <code>htpvs</code>, su ausencia sería ambigua: no
+distingues "proyecto vs" de "la insignia no se pintó". Que <code>vs</code> se vea callado y <code>htpvs</code> con
+acento es una línea de estilo, no una rama.</p>
+<p><strong>Ligands → Hits.</strong> En <code>htpvs</code> la pestaña está casi siempre vacía hasta la promoción, y eso es
+correcto — es la tabla de hits. Pero la etiqueta miente: ahí "Ligands" significa "lo que puntuó lo
+bastante bien para ganarse una fila". El renombrado explica el vacío mejor que ninguna insignia.
+Es filtro base, no tabla nueva: <code>MoleculeWidget</code> no tiene <code>default_filters</code> y Ligands/Receptors ya
+son esa misma tabla filtrada (<code>ligands.py:69-71</code>).</p>
+<h3 id="shards-y-envios-dos-tablas-cero-mecanismo-nuevo">Shards y envíos: dos tablas, cero mecanismo nuevo<a class="headerlink" href="#shards-y-envios-dos-tablas-cero-mecanismo-nuevo" title="Permanent link">&para;</a></h3>
+<p><code>screening_shards</code> empieza vacía y solo se puebla con la retroalimentación del cluster (§3). Eso
+está bien <strong>siempre que haya quien explique el vacío</strong>, y ese es el trabajo de la tabla de envíos:</p>
+<div class="highlight"><pre><span></span><code>┌─ Shards ──────────────────────────────────────────────┐
+│                                                        │
+│         Fragmentando en el cluster.                    │
+│         Aún no hay shards que mostrar.                 │
+│                                                        │
+├─ Envíos ──────────────────────────────────────────────┤
+│ zinc_in_stock_01.smi   12,4 GB   running    — shards  │
+│ zinc_in_stock_02.smi   11,8 GB   running    — shards  │
+│ zinc_in_stock_03.smi   13,1 GB   returned  1.204      │
+└────────────────────────────────────────────────────────┘
+</code></pre></div>
+<p>Doce filas diciendo qué subiste y en qué estado convierten un vacío ambiguo en uno informativo.</p>
+<p>No hace falta registrar nada nuevo para colocarlo: la zona auxiliar ya tiene este contrato — una
+vista central reclama el hueco exponiendo <code>aux_panel()</code>, y el panel <em>pertenece a la tabla que
+estás mirando</em> y se devuelve al salir de la pestaña (<code>auxiliary_panel.py:20-23</code>). Es el mismo
+patrón que Docking Results con su "Selected Result". <code>ShardsWidget.aux_panel()</code> devuelve la tabla
+de envíos y ya está: sin registro nuevo, sin toggle nuevo.</p>
+<p><em>Seguimiento que no va en la v1:</em> seleccionar un envío y acotar los shards a los suyos. Es
+<code>push_scope</code>, que ya existe, pero invierte la dirección habitual (centro → aux) y no hace falta
+hasta que haya varias campañas vivas a la vez.</p>
+<h3 id="lo-que-ya-esta-cableado-2026-09-04-05">Lo que ya está cableado (2026-09-04 / 05)<a class="headerlink" href="#lo-que-ya-esta-cableado-2026-09-04-05" title="Permanent link">&para;</a></h3>
+<p><strong>La barra de catálogo depende de los datos, no del modo</strong> (<code>ui/shell/view_coordinator.py</code>,
+<code>sync_catalog_availability</code>). Una tabla significa siempre lo mismo: <strong>no se renombra ninguna</strong>.</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>proyecto normal</th>
+<th>librería shardeada</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Molecules / Activity</td>
+<td>visible</td>
+<td>visible (nada se oculta)</td>
+</tr>
+<tr>
+<td>Ligands</td>
+<td>visible</td>
+<td>visible, <strong>gris</strong> mientras no haya ninguna fila de ligando</td>
+</tr>
+<tr>
+<td>Shards</td>
+<td>ausente</td>
+<td>visible</td>
+</tr>
+</tbody>
+</table>
+<p>Dos acciones independientes, no una renombrada: los ligandos de un HTP no encajan ni en
+<code>molecules</code> ni en <code>ligands</code> — por eso existe <code>screening_shards</code>. Ligands sigue siendo lo que
+siempre fue (cocristales de referencia para redocking/QSAR, y los hits promocionados cuando se
+materializan) y se enciende sola en cuanto existe una de esas dos cosas; <code>ligand_row_count</code>
+(<code>molecules/store.py</code>) es esa cuenta.</p>
+<p><strong>El estudio de docking distingue las dos preguntas</strong> (<code>tools/docking/scope_panel.py</code>): <em>qué</em>
+ligandos los decide el experimento (docking → librería general, redocking → cocristales de
+referencia) y <em>dónde</em> viven lo decide el proyecto (filas en <code>vs</code>, shards en <code>htpvs</code>). Solo la
+combinación htpvs+docking apunta el paso a Shards; cambiar el experimento a redocking cambia la
+pestaña bajo el usuario (<code>_focus_ligand_view</code>, solo mientras está en el paso de ligandos).
+<code>_selected_ligand_ids</code> devuelve <code>[]</code> con scope shardeado — los ids de shard no son ids de
+molécula. Run Docking todavía se niega: dockear shards enteros es la campaña (§6).</p>
+<p><strong>Detalle de shard</strong> (<code>ui/catalog/details.py::show_shard</code>): la fila más lo que declara la
+cabecera del <code>.mshard</code> (<code>_shard_header</code>: <code>record_count</code>, <code>base_id</code>, <code>slot_count</code>, <code>metadata</code>).
+Solo metadatos, por decisión — listar los registros sería el paseo por la librería que <code>htpvs</code>
+existe para evitar. Sin PyMOL y sin rejilla: <code>AuxiliaryPanelController</code> limpia las dos para el
+kind <code>"shard"</code>.</p>
+<p><strong>Preparación sobre shards</strong> (<code>docking/shards.py</code> + <code>PrepareLigandShardsJobSpec</code>). Mismo botón,
+misma lista de programas; el trabajo es un shard, no una fila:</p>
+<ul>
+<li>un <code>.mshard</code> de moléculas entra, un <code>.mshard</code> de kind <code>PDBQT</code> sale, <strong>en la carpeta hermana</strong>
+  <code>prepared_&lt;engine&gt;/</code> — misma forma que la etapa de química, así una campaña se lee como una
+  cadena de carpetas;</li>
+<li>el texto PDBQT va <strong>dentro</strong> del shard, en el <strong>mismo id</strong> que la molécula de origen: ni un
+  fichero por ligando ni una fila de <code>EngineState</code>. Si algún paso futuro solo sabe escribir un
+  fichero, <code>result_text()</code> lo lee y lo borra — nada queda al lado del shard;</li>
+<li>el 3D se genera <strong>solo donde falta</strong> (<code>_with_3d</code>): una librería SMILES no tiene coordenadas y
+  Meeko las exige, pero re-embeber todo tiraría el confórmero de la etapa de química;</li>
+<li>la fila de <code>screening_shards</code> se hace upsert con <code>path</code> → shard preparado e <code>input_format</code> →
+  <code>pdbqt</code>. Eso <strong>es</strong> el flag de "ya preparado": el feed salta esos shards salvo <code>force</code>, y para
+  re-preparar se vuelve al origen por <code>metadata["prepared_from"]</code>;</li>
+<li>una molécula que no se puede preparar deja un hueco en su id, no renumera.</li>
+</ul>
+<p>Comprobación: <code>test/test_mode_badge.py</code>, <code>test/test_docking_ligand_scope.py</code>,
+<code>test/test_shard_details.py</code>, <code>test/test_shard_preparation.py</code>.</p>
+<h3 id="seleccion-del-modo">Selección del modo<a class="headerlink" href="#seleccion-del-modo" title="Permanent link">&para;</a></h3>
+<p>Radio en la creación de proyecto, con la consecuencia escrita:</p>
+<div class="highlight"><pre><span></span><code>○ Cribado virtual (VS)
+  Las moléculas viven en el proyecto. Puedes filtrarlas, inspeccionarlas y
+  reprocesarlas en cualquier momento. Hasta ~1M.
+
+○ Alto rendimiento (HTP-VS)
+  Las moléculas viajan como shards y nunca entran en el proyecto; solo vuelven
+  los mejores resultados. Pensado para HPC. No podrás inspeccionar ligandos
+  individuales hasta que la campaña termine.
+
+  Esta elección no se puede cambiar después.
+</code></pre></div>
+<p>Como es inmutable, es <strong>identidad</strong>: la insignia de la barra de datos y el nombre del proyecto en
+la barra de estado. No aparece como interruptor en ningún otro sitio.</p>
+<hr />
+<h2 id="orden-de-ejecucion">Orden de ejecución<a class="headerlink" href="#orden-de-ejecucion" title="Permanent link">&para;</a></h2>
+<p><strong>§0 → §1 → §2, y parar a mirar.</strong> Con eso está arreglado el auto-encadenado, el constructor de
+pasos funciona en modo normal y el store queda ordenado — todo verificable con lo que ya hay, y
+todo útil aunque HTP no se haga nunca.</p>
+<p>§5 puede entrar en paralelo con §1 (es independiente y pequeño).</p>
+<p>§3, §4 y §6 son la campaña propiamente dicha. Para entonces ya se sabrá si el constructor de
+pasos se siente como se quería, antes de haber apostado nada por HTP.</p>
+<h2 id="lo-que-no-se-hace-en-este-plan">Lo que NO se hace en este plan<a class="headerlink" href="#lo-que-no-se-hace-en-este-plan" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Transporte remoto</strong> (SSH, credenciales, polling). §6 entrega bundle + ingesta manual.</li>
+<li><strong>Reparto multinodo con Ray.</strong> Sigue aplazado igual que en el plan anterior: falta operación
+  (sistema de ficheros compartido), no arquitectura.</li>
+<li><strong>Esquema de <code>molecules</code>.</strong> No se toca, por la misma razón de §5 del plan anterior: el embudo
+  hace que nunca vea 10⁸ filas.</li>
+<li><strong>El rediseño de layout de modo <code>vs</code></strong> (docking al centro, rail de 5→3, accesorios del visor
+  plegados). Es independiente de todo lo anterior y va en su propio documento.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 AMDockVS authors
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["content.code.copy","navigation.footer","navigation.path","navigation.sections","navigation.top","search.highlight","search.suggest"],"redirect":null,"search":"../assets/javascripts/workers/search.c47bb847.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"provider":"mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.77dd0ce9.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,1155 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Virtual screening, molecular preparation, QSAR, and docking with MolSuite.">
+      
+      
+        <meta name="author" content="AMDockVS authors">
+      
+      
+        <link rel="canonical" href="https://amdockvs.github.io/AMDockVS/latest/refactor_structure_plan/">
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../images/favicon.svg">
+      <meta name="generator" content="zensical-0.0.73">
+    
+    
+      
+        <title>Plan de Refactor de Estructura para AMDockVS - AMDockVS</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../assets/stylesheets/modern/main.4ab2de0c.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../assets/stylesheets/modern/palette.b60ce83d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-hidden="true"></label>
+    <div data-md-component="skip">
+      <a href="#__skip" class="md-skip">
+        Skip to content
+      </a>
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="./.." title="AMDockVS" class="md-header__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+      <span class="md-visually-hidden">Navigation</span>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AMDockVS
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Plan de Refactor de Estructura para AMDockVS
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+          <span class="md-visually-hidden">Search</span>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="./.." title="AMDockVS" class="md-nav__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    AMDockVS
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../runtime_api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API guide
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../data_and_export/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Data and export
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Examples
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-diagnostico-actual" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1. Diagnostico actual
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-principios-de-diseno" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        2. Principios de diseno
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-problemas-estructurales-concretos" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        3. Problemas estructurales concretos
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Problemas estructurales concretos">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-repo-raiz-ruidoso" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        3.1. Repo raiz ruidoso
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-runtime-demasiado-grande" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        3.2. Runtime demasiado grande
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-duplicacion-conceptual-con-molsuite" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        3.3. Duplicacion conceptual con MolSuite
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#34-acoplamiento-innecesario-a-internals-de-molsuite" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        3.4. Acoplamiento innecesario a internals de MolSuite
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-estructura-objetivo-recomendada" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        4. Estructura objetivo recomendada
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#41-por-que-estructura-por-feature" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        4.1. Por que estructura por feature
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#42-regla-de-naming" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        4.2. Regla de naming
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-reglas-por-capa" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        5. Reglas por capa
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Reglas por capa">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        5.1. <code>api/</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-modelspy-summariespy-y-features-ingestion-descriptors-docking" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        5.2. <code>models.py</code>, <code>summaries.py</code> y features (<code>ingestion/</code>, <code>descriptors/</code>, <code>docking/</code>)
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#53-tasks" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        5.3. <code>tasks/</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#54-io" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        5.4. <code>io/</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#55-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        5.5. <code>ui/</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#56-_internal" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        5.6. <code>_internal/</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-decision-importante-eliminar-domainspecs" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        6. Decision importante: eliminar <code>domain/specs/</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-decision-importante-separar-producto-demo-y-legado" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        7. Decision importante: separar producto, demo y legado
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-fases-recomendadas" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        8. Fases recomendadas
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="8. Fases recomendadas">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fase-1-limpiar-la-narrativa-del-repo" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 1. Limpiar la narrativa del repo
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fase-2-partir-el-runtime" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 2. Partir el runtime
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fase-3-reorganizar-workflows-por-feature" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 3. Reorganizar workflows por feature
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fase-4-eliminar-capas-duplicadas" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 4. Eliminar capas duplicadas
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fase-5-endurecer-el-boundary-ui-runtime" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 5. Endurecer el boundary UI-runtime
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-criterios-de-exito" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        9. Criterios de exito
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+              
+              <article class="md-content__inner md-typeset">
+                <a id="__skip" tabindex="-1"></a>
+                
+                  
+
+  
+  
+
+
+<h1 id="plan-de-refactor-de-estructura-para-amdockvs">Plan de Refactor de Estructura para AMDockVS<a class="headerlink" href="#plan-de-refactor-de-estructura-para-amdockvs" title="Permanent link">&para;</a></h1>
+<p>Nota:</p>
+<ul>
+<li>este plan es histórico como guía estructural</li>
+<li>donde diga <code>AMDockRuntime</code>, la implementación vigente es <code>AMDockVSRuntime</code></li>
+<li>la ruta pública vigente es <code>from amdock import AMDockVSRuntime</code></li>
+</ul>
+<p>Este documento define la reorganizacion recomendada para <code>AMDockVS</code> a partir de lo aprendido en la evolucion de <code>MolSuite</code>.</p>
+<p>La idea central es simple:</p>
+<ul>
+<li><code>MolSuite</code> es el engine reusable</li>
+<li><code>AMDockVS</code> es una app de producto</li>
+<li>la arquitectura de <code>AMDockVS</code> debe ser mas delgada, mas orientada a casos de uso y menos duplicada</li>
+</ul>
+<p>Tambien hay una decision de lenguaje:</p>
+<ul>
+<li>no forzar nomenclatura tipo <code>domain</code>, <code>infra</code> o <code>runtime</code> si el equipo no habla asi</li>
+<li>preferir nombres simples y literales cuando comuniquen mejor</li>
+</ul>
+<h2 id="1-diagnostico-actual">1. Diagnostico actual<a class="headerlink" href="#1-diagnostico-actual" title="Permanent link">&para;</a></h2>
+<p>La direccion general del paquete <code>src/amdockvs</code> es correcta:</p>
+<ul>
+<li>existe una frontera publica de producto en <code>AMDockRuntime</code></li>
+<li>la logica de dominio ya esta separada de la GUI</li>
+<li>los workflows viven como backend interno</li>
+</ul>
+<p>Pero el repo completo todavia mezcla varias capas y epocas:</p>
+<ul>
+<li>raiz con material de producto, demo, scratch y legado</li>
+<li><code>old/</code> y <code>src/amdockvs_old/</code> conviven con la implementacion activa</li>
+<li><code>runtime.py</code> concentra demasiada responsabilidad</li>
+<li><code>domain/specs/</code> duplica abstracciones que ya existen en <code>MolSuite</code></li>
+<li>algunos imports siguen acoplados a <code>molsuite.core.*</code></li>
+<li>la GUI actual todavia tiene caracter de experimento</li>
+</ul>
+<h2 id="2-principios-de-diseno">2. Principios de diseno<a class="headerlink" href="#2-principios-de-diseno" title="Permanent link">&para;</a></h2>
+<p>Principios que deberian gobernar la estructura objetivo:</p>
+<ul>
+<li>la API publica de AMDockVS es de producto, no de engine</li>
+<li><code>AMDockRuntime</code> es la frontera estable para GUI, scripts y notebooks</li>
+<li>los jobs son backend interno, no interfaz primaria</li>
+<li><code>AMDockVS</code> no debe recrear una mini-version de <code>MolSuite</code></li>
+<li>los detalles de storage y engine deben bajar de nivel</li>
+<li>el repo raiz debe mostrar con claridad cual es la ruta oficial</li>
+</ul>
+<h2 id="3-problemas-estructurales-concretos">3. Problemas estructurales concretos<a class="headerlink" href="#3-problemas-estructurales-concretos" title="Permanent link">&para;</a></h2>
+<h3 id="31-repo-raiz-ruidoso">3.1. Repo raiz ruidoso<a class="headerlink" href="#31-repo-raiz-ruidoso" title="Permanent link">&para;</a></h3>
+<p>Hoy el repo mezcla:</p>
+<ul>
+<li>codigo activo</li>
+<li>codigo legado</li>
+<li>demos</li>
+<li>datos pesados</li>
+<li>notebooks sueltos</li>
+<li>scratch scripts</li>
+</ul>
+<p>Eso hace mas dificil:</p>
+<ul>
+<li>entender el entrypoint oficial</li>
+<li>navegar el codigo</li>
+<li>empaquetar la app</li>
+<li>mantener una narrativa clara para nuevos cambios</li>
+</ul>
+<h3 id="32-runtime-demasiado-grande">3.2. Runtime demasiado grande<a class="headerlink" href="#32-runtime-demasiado-grande" title="Permanent link">&para;</a></h3>
+<p><code>src/amdockvs/runtime.py</code> hoy concentra:</p>
+<ul>
+<li>DTO mapping</li>
+<li>advanced API</li>
+<li>layout del proyecto</li>
+<li>submit de jobs</li>
+<li>coordinacion de casos de uso</li>
+<li>waiting y polling</li>
+<li>queries de lectura</li>
+</ul>
+<p>Eso no es grave en MVP, pero ya es una señal de que hay que modularizar.</p>
+<h3 id="33-duplicacion-conceptual-con-molsuite">3.3. Duplicacion conceptual con MolSuite<a class="headerlink" href="#33-duplicacion-conceptual-con-molsuite" title="Permanent link">&para;</a></h3>
+<p><code>domain/specs/</code> hoy replica ideas que ya resuelve <code>MolSuite</code>:</p>
+<ul>
+<li>input source</li>
+<li>output sink</li>
+<li>workflow spec</li>
+<li>workflow launcher</li>
+</ul>
+<p>Eso agrega una capa extra sin aportar una identidad de producto clara.</p>
+<h3 id="34-acoplamiento-innecesario-a-internals-de-molsuite">3.4. Acoplamiento innecesario a internals de MolSuite<a class="headerlink" href="#34-acoplamiento-innecesario-a-internals-de-molsuite" title="Permanent link">&para;</a></h3>
+<p><code>AMDockVS</code> deberia consumir preferentemente la superficie publica de <code>MolSuite</code>.</p>
+<p>Importar desde <code>molsuite.core.*</code> debe quedar restringido a casos realmente inevitables.</p>
+<h2 id="4-estructura-objetivo-recomendada">4. Estructura objetivo recomendada<a class="headerlink" href="#4-estructura-objetivo-recomendada" title="Permanent link">&para;</a></h2>
+<p>Estructura objetivo para el paquete activo:</p>
+<div class="highlight"><pre><span></span><code>src/amdockvs/
+  __init__.py
+  __main__.py
+  app.py
+  constants.py
+  api/
+    __init__.py
+    facade.py
+    projects.py
+    jobs.py
+    queries.py
+    _advanced.py
+  models.py
+  summaries.py
+  ingestion/
+    __init__.py
+    service.py
+    job.py
+    task.py
+  descriptors/
+    __init__.py
+    service.py
+    job.py
+    task.py
+  docking/
+    __init__.py
+    service.py
+    job.py
+    task.py
+  tasks/
+    __init__.py
+    registry.py
+    shared.py
+  io/
+    __init__.py
+    project_layout.py
+    loaders.py
+  ui/
+    __init__.py
+    main.py
+  _internal/
+    __init__.py
+    adapters.py
+</code></pre></div>
+<p>Alternativa valida si una feature no necesita <code>task.py</code> propio:</p>
+<div class="highlight"><pre><span></span><code>src/amdockvs/docking/
+  __init__.py
+  service.py
+  job.py
+</code></pre></div>
+<p>La regla no es forzar archivos vacios. La regla es que la feature tenga una carpeta clara.</p>
+<h2 id="41-por-que-estructura-por-feature">4.1. Por que estructura por feature<a class="headerlink" href="#41-por-que-estructura-por-feature" title="Permanent link">&para;</a></h2>
+<p>Ventajas de esta opcion:</p>
+<ul>
+<li>evita carpetas paralelas con archivos del mismo nombre</li>
+<li>hace mas facil navegar una feature completa</li>
+<li>junta en un mismo lugar la logica de negocio y su wiring de ejecucion</li>
+<li>suena mas natural para un equipo pequeno o mediano</li>
+</ul>
+<p>La lectura queda asi:</p>
+<ul>
+<li><code>docking/service.py</code>: logica de negocio de docking</li>
+<li><code>docking/job.py</code>: job del engine para docking</li>
+<li><code>docking/task.py</code>: task importable si hace falta separarla</li>
+</ul>
+<h2 id="42-regla-de-naming">4.2. Regla de naming<a class="headerlink" href="#42-regla-de-naming" title="Permanent link">&para;</a></h2>
+<p>Dentro de cada feature:</p>
+<ul>
+<li><code>service.py</code> hace trabajo de negocio reutilizable</li>
+<li><code>job.py</code> define el job o jobs de esa feature</li>
+<li><code>task.py</code> define tasks del engine solo si realmente hace falta</li>
+</ul>
+<p>Evitar:</p>
+<ul>
+<li><code>services/docking.py</code> y <code>jobs/docking.py</code> en paralelo</li>
+<li>carpetas abstractas si la feature puede explicarse sola</li>
+<li>introducir mas de una ruta “oficial” para la misma feature</li>
+</ul>
+<p>Decision para desarrollo activo:</p>
+<ul>
+<li>usar <code>amdockvs.api</code> como unica ruta oficial del runtime</li>
+<li>mantener <code>AMDockRuntime</code> como nombre de la fachada publica</li>
+</ul>
+<h2 id="5-reglas-por-capa">5. Reglas por capa<a class="headerlink" href="#5-reglas-por-capa" title="Permanent link">&para;</a></h2>
+<h3 id="51-api">5.1. <code>api/</code><a class="headerlink" href="#51-api" title="Permanent link">&para;</a></h3>
+<p>Responsabilidad:</p>
+<ul>
+<li>exponer la API publica de producto</li>
+<li>coordinar casos de uso</li>
+<li>devolver DTOs y estados amigables</li>
+</ul>
+<p>No debe contener:</p>
+<ul>
+<li>definiciones reales de jobs</li>
+<li>logica quimica pesada</li>
+<li>SQL directo disperso</li>
+</ul>
+<p>Nota:</p>
+<ul>
+<li>si <code>AMDockRuntime</code> se conserva como nombre publico, puede vivir dentro de <code>api/facade.py</code></li>
+</ul>
+<h3 id="52-modelspy-summariespy-y-features-ingestion-descriptors-docking">5.2. <code>models.py</code>, <code>summaries.py</code> y features (<code>ingestion/</code>, <code>descriptors/</code>, <code>docking/</code>)<a class="headerlink" href="#52-modelspy-summariespy-y-features-ingestion-descriptors-docking" title="Permanent link">&para;</a></h3>
+<p>Responsabilidad:</p>
+<ul>
+<li>tipos de negocio</li>
+<li>logica pura o casi pura</li>
+<li>servicios reutilizables por jobs y runtime</li>
+<li>wiring local de cada feature cuando mejora la navegacion</li>
+</ul>
+<p>No debe contener:</p>
+<ul>
+<li>widgets</li>
+<li>polling de jobs</li>
+<li>wiring del engine</li>
+</ul>
+<p>Nota:</p>
+<ul>
+<li>el wiring de job puede vivir dentro de la carpeta de feature si eso evita saltos innecesarios</li>
+</ul>
+<h3 id="53-tasks">5.3. <code>tasks/</code><a class="headerlink" href="#53-tasks" title="Permanent link">&para;</a></h3>
+<p>Responsabilidad:</p>
+<ul>
+<li>registro compartido de tasks o helpers comunes del engine</li>
+<li>piezas transversales que no pertenecen a una sola feature</li>
+</ul>
+<p>No debe ser:</p>
+<ul>
+<li>la superficie publica principal del producto</li>
+<li>una segunda capa paralela a las features sin necesidad real</li>
+</ul>
+<h3 id="54-io">5.4. <code>io/</code><a class="headerlink" href="#54-io" title="Permanent link">&para;</a></h3>
+<p>Responsabilidad:</p>
+<ul>
+<li>loaders de archivos</li>
+<li>layout de carpetas</li>
+<li>adaptadores de IO</li>
+</ul>
+<h3 id="55-ui">5.5. <code>ui/</code><a class="headerlink" href="#55-ui" title="Permanent link">&para;</a></h3>
+<p>Responsabilidad:</p>
+<ul>
+<li>interfaz</li>
+<li>coordinacion de eventos de usuario</li>
+<li>consumo de <code>AMDockRuntime</code></li>
+</ul>
+<p>No debe contener:</p>
+<ul>
+<li>reglas de negocio</li>
+<li>lectura directa de tablas del proyecto si el runtime ya cubre el caso</li>
+</ul>
+<h3 id="56-_internal">5.6. <code>_internal/</code><a class="headerlink" href="#56-_internal" title="Permanent link">&para;</a></h3>
+<p>Responsabilidad:</p>
+<ul>
+<li>adaptadores internos</li>
+<li>piezas que no son parte de la API oficial</li>
+</ul>
+<p>Regla:</p>
+<ul>
+<li>cualquier cosa en <code>_internal/</code> se asume no estable</li>
+</ul>
+<h2 id="6-decision-importante-eliminar-domainspecs">6. Decision importante: eliminar <code>domain/specs/</code><a class="headerlink" href="#6-decision-importante-eliminar-domainspecs" title="Permanent link">&para;</a></h2>
+<p>Recomendacion:</p>
+<ul>
+<li>no seguir expandiendo <code>domain/specs/</code></li>
+<li>migrar los workflows activos a definiciones directas con <code>molsuite.api</code>, <code>molsuite.job_templates</code> o <code>molsuite.tasking</code></li>
+<li>dejar que <code>MolSuite</code> sea la unica capa de especificacion de workflows</li>
+</ul>
+<p>Motivo:</p>
+<ul>
+<li>evita duplicacion</li>
+<li>reduce acoplamiento conceptual</li>
+<li>simplifica onboarding</li>
+</ul>
+<p>Recomendacion de nomenclatura:</p>
+<ul>
+<li>si esa carpeta sigue viva un tiempo, renombrarla luego a algo menos abstracto o directamente eliminarla</li>
+<li>no introducir nuevas carpetas llamadas <code>specs</code> salvo que sean realmente parte del vocabulario del producto</li>
+</ul>
+<h2 id="7-decision-importante-separar-producto-demo-y-legado">7. Decision importante: separar producto, demo y legado<a class="headerlink" href="#7-decision-importante-separar-producto-demo-y-legado" title="Permanent link">&para;</a></h2>
+<p>Recomendacion de raiz:</p>
+<ul>
+<li>mover demos a <code>examples/</code></li>
+<li>mover notebooks a <code>notebooks/</code></li>
+<li>mover scripts temporales a <code>scripts/</code> o eliminarlos</li>
+<li>sacar <code>old/</code> y <code>src/amdockvs_old/</code> del arbol principal de trabajo</li>
+<li>no versionar datasets pesados dentro del repo de producto salvo muestras pequenas</li>
+</ul>
+<h2 id="8-fases-recomendadas">8. Fases recomendadas<a class="headerlink" href="#8-fases-recomendadas" title="Permanent link">&para;</a></h2>
+<h3 id="fase-1-limpiar-la-narrativa-del-repo">Fase 1. Limpiar la narrativa del repo<a class="headerlink" href="#fase-1-limpiar-la-narrativa-del-repo" title="Permanent link">&para;</a></h3>
+<p>Objetivo:</p>
+<ul>
+<li>hacer evidente cual es la implementacion oficial</li>
+</ul>
+<p>Incluye:</p>
+<ul>
+<li>catalogar y aislar legacy</li>
+<li>mover demos y scratch fuera de la ruta principal</li>
+<li>crear entrypoints consistentes</li>
+</ul>
+<h3 id="fase-2-partir-el-runtime">Fase 2. Partir el runtime<a class="headerlink" href="#fase-2-partir-el-runtime" title="Permanent link">&para;</a></h3>
+<p>Objetivo:</p>
+<ul>
+<li>mantener <code>AMDockRuntime</code> como fachada, pero dividir internamente por responsabilidad</li>
+</ul>
+<p>Incluye:</p>
+<ul>
+<li>sacar advanced API</li>
+<li>sacar queries de lectura</li>
+<li>sacar coordinacion de proyectos y jobs</li>
+<li>mover la implementacion interna a <code>api/</code></li>
+<li>usar <code>amdockvs.api</code> como unica ruta oficial del runtime</li>
+<li>retirar <code>runtime.py</code></li>
+</ul>
+<h3 id="fase-3-reorganizar-workflows-por-feature">Fase 3. Reorganizar workflows por feature<a class="headerlink" href="#fase-3-reorganizar-workflows-por-feature" title="Permanent link">&para;</a></h3>
+<p>Objetivo:</p>
+<ul>
+<li>dejar claro que el backend interno se organiza por feature y no por carpetas paralelas</li>
+</ul>
+<p>Incluye:</p>
+<ul>
+<li>mover <code>workflows/ingestion.py</code> a <code>ingestion/job.py</code></li>
+<li>mover <code>workflows/descriptors.py</code> a <code>descriptors/job.py</code></li>
+<li>mover <code>workflows/docking.py</code> a <code>docking/job.py</code></li>
+<li>mover la logica de negocio asociada a <code>service.py</code> dentro de cada feature</li>
+<li>dejar un <code>tasks/registry.py</code> solo para piezas compartidas si sigue haciendo falta</li>
+</ul>
+<h3 id="fase-4-eliminar-capas-duplicadas">Fase 4. Eliminar capas duplicadas<a class="headerlink" href="#fase-4-eliminar-capas-duplicadas" title="Permanent link">&para;</a></h3>
+<p>Objetivo:</p>
+<ul>
+<li>reducir abstracciones paralelas a <code>MolSuite</code></li>
+</ul>
+<p>Incluye:</p>
+<ul>
+<li>retirar <code>domain/specs/</code></li>
+<li>migrar sus consumidores a primitivas publicas de <code>MolSuite</code></li>
+</ul>
+<h3 id="fase-5-endurecer-el-boundary-ui-runtime">Fase 5. Endurecer el boundary UI-runtime<a class="headerlink" href="#fase-5-endurecer-el-boundary-ui-runtime" title="Permanent link">&para;</a></h3>
+<p>Objetivo:</p>
+<ul>
+<li>hacer que la UI dependa solo del runtime</li>
+</ul>
+<p>Incluye:</p>
+<ul>
+<li>definir contrato de operacion de jobs para GUI</li>
+<li>usar helpers publicos de <code>MolSuite</code> a traves de <code>AMDockRuntime</code></li>
+</ul>
+<h2 id="9-criterios-de-exito">9. Criterios de exito<a class="headerlink" href="#9-criterios-de-exito" title="Permanent link">&para;</a></h2>
+<p>La reorganizacion se considera lograda cuando:</p>
+<ul>
+<li>el repo muestra una unica ruta oficial de producto</li>
+<li><code>AMDockRuntime</code> sigue siendo la fachada publica, pero con implementacion modular en <code>api/</code></li>
+<li><code>domain/specs/</code> deja de ser necesario</li>
+<li>cada feature vive en su propia carpeta y no en dos arboles paralelos</li>
+<li>la GUI deja de depender de wiring experimental</li>
+<li>los scripts y notebooks consumen la misma API de producto</li>
+<li>los nombres del arbol principal suenan naturales para el equipo</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 AMDockVS authors
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["content.code.copy","navigation.footer","navigation.path","navigation.sections","navigation.top","search.highlight","search.suggest"],"redirect":null,"search":"../assets/javascripts/workers/search.c47bb847.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"provider":"mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.77dd0ce9.min.js"></script>
+      
+    
+  </body>
+</html>

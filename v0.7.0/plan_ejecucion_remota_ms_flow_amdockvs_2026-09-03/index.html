@@ -1,0 +1,1139 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Virtual screening, molecular preparation, QSAR, and docking with MolSuite.">
+      
+      
+        <meta name="author" content="AMDockVS authors">
+      
+      
+        <link rel="canonical" href="https://amdockvs.github.io/AMDockVS/latest/plan_ejecucion_remota_ms_flow_amdockvs_2026-09-03/">
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../images/favicon.svg">
+      <meta name="generator" content="zensical-0.0.73">
+    
+    
+      
+        <title>Plan de ejecución remota: responsabilidades de ms_flow y AMDockVS - AMDockVS</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../assets/stylesheets/modern/main.4ab2de0c.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../assets/stylesheets/modern/palette.b60ce83d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-hidden="true"></label>
+    <div data-md-component="skip">
+      <a href="#__skip" class="md-skip">
+        Skip to content
+      </a>
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="./.." title="AMDockVS" class="md-header__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+      <span class="md-visually-hidden">Navigation</span>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AMDockVS
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Plan de ejecución remota: responsabilidades de ms_flow y AMDockVS
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+          <span class="md-visually-hidden">Search</span>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="./.." title="AMDockVS" class="md-nav__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    AMDockVS
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../runtime_api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API guide
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../data_and_export/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Data and export
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Examples
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#resumen-ejecutivo" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Resumen ejecutivo
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+              
+              <article class="md-content__inner md-typeset">
+                <a id="__skip" tabindex="-1"></a>
+                
+                  
+
+  
+  
+
+
+<h1 id="plan-de-ejecucion-remota-responsabilidades-de-ms_flow-y-amdockvs">Plan de ejecución remota: responsabilidades de <code>ms_flow</code> y AMDockVS<a class="headerlink" href="#plan-de-ejecucion-remota-responsabilidades-de-ms_flow-y-amdockvs" title="Permanent link">&para;</a></h1>
+<p>Fecha: 2026-09-03<br />
+Estado: propuesta revisada contra el código actual.</p>
+<p>Este documento define cómo AMDockVS debe ejecutar trabajo en máquinas locales mediante Ray y
+en HPC mediante SSH y un scheduler. Separa explícitamente la infraestructura genérica que
+pertenece a <code>ms_flow</code> del dominio químico y los perfiles de instalación que pertenecen a
+AMDockVS.</p>
+<p>Complementa:</p>
+<ul>
+<li><code>plan_modos_vs_htpvs_2026-09-03.md</code>, que define los modos <code>vs</code> y <code>htpvs</code>, los shards y el
+  punto de promoción.</li>
+<li><code>plan_normalizacion_y_htp_2026-08-29.md</code>, que define la base del almacenamiento HTP.</li>
+</ul>
+<p>No modifica la decisión fundamental del modo HTP: durante la campaña los ligandos se manejan
+como shards y agregados; únicamente los hits promovidos se materializan como moléculas normales
+de AMDockVS.</p>
+<hr />
+<h2 id="resumen-ejecutivo">Resumen ejecutivo<a class="headerlink" href="#resumen-ejecutivo" title="Permanent link">&para;</a></h2>
+<p>El soporte actual no parte de cero:</p>
+<table>
+<thead>
+<tr>
+<th>Escenario</th>
+<th>Estado actual</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Ray LAN sin carpeta compartida</td>
+<td>El arranque de Ray y la transferencia de archivos mediante objetos Ray ya existen</td>
+</tr>
+<tr>
+<td>Ray LAN con carpeta compartida</td>
+<td>Existe <code>shared_fs</code>, pero no se instala, monta ni valida SSHFS</td>
+</tr>
+<tr>
+<td>HPC mediante SSH y scheduler</td>
+<td>Existe el contrato genérico submit/poll/cancel y estado por chunk, pero no el transporte remoto completo</td>
+</tr>
+<tr>
+<td>Ray multinodo dentro de una asignación HPC</td>
+<td>No está implementado</td>
+</tr>
+</tbody>
+</table>
+<p>La dirección propuesta es correcta, pero debe mantenerse esta frontera:</p>
+<blockquote>
+<p><code>ms_flow</code> posee conexiones, transporte, aprovisionamiento, ejecutores, persistencia operativa,
+polling y limpieza. AMDockVS posee pipelines químicos, shards, perfiles de software químico,
+selección de hits y presentación de resultados.</p>
+</blockquote>
+<hr />
+<h1 id="parte-i-ms_flow">Parte I — <code>ms_flow</code><a class="headerlink" href="#parte-i-ms_flow" title="Permanent link">&para;</a></h1>
+<h2 id="1-responsabilidad-de-ms_flow">1. Responsabilidad de <code>ms_flow</code><a class="headerlink" href="#1-responsabilidad-de-ms_flow" title="Permanent link">&para;</a></h2>
+<p><code>ms_flow</code> debe ofrecer una API genérica para:</p>
+<ol>
+<li>Describir y comprobar hosts remotos.</li>
+<li>Ejecutar comandos por SSH sin interacción.</li>
+<li>Comprobar o reconstruir entornos de ejecución según una política explícita.</li>
+<li>Iniciar y detener clusters Ray administrados.</li>
+<li>Transportar entradas y resultados cuando no existe un filesystem compartido.</li>
+<li>Montar y validar opcionalmente una carpeta SSHFS en una LAN.</li>
+<li>Preparar, enviar, consultar, recuperar y cancelar campañas de un scheduler HPC.</li>
+<li>Persistir suficiente información para recuperar una campaña después de reiniciar la
+   aplicación.</li>
+<li>Limpiar datos temporales sin eliminar resultados que aún no hayan sido recuperados.</li>
+</ol>
+<p>No debe conocer ligandos, receptores, motores de docking, fingerprints, descriptores ni criterios
+de selección química.</p>
+<h2 id="2-lo-que-ya-existe">2. Lo que ya existe<a class="headerlink" href="#2-lo-que-ya-existe" title="Permanent link">&para;</a></h2>
+<h3 id="21-aprovisionamiento-y-ray">2.1 Aprovisionamiento y Ray<a class="headerlink" href="#21-aprovisionamiento-y-ray" title="Permanent link">&para;</a></h3>
+<p><code>core/executor/provisioning.py</code> ya proporciona:</p>
+<ul>
+<li>SSH mediante el cliente del sistema.</li>
+<li><code>BatchMode=yes</code>, timeout y comprobación de host.</li>
+<li>pruebas de conectividad y <code>ray --version</code>.</li>
+<li>generación de configuración de cluster Ray.</li>
+<li>comandos <code>ray up</code> y <code>ray down</code>.</li>
+</ul>
+<p>Esto debe ampliarse; no debe crearse un segundo subsistema de aprovisionamiento.</p>
+<h3 id="22-transporte-ray">2.2 Transporte Ray<a class="headerlink" href="#22-transporte-ray" title="Permanent link">&para;</a></h3>
+<p><code>core/data/planner.py</code>, <code>core/data/bridge.py</code> y <code>core/executor/ray_adapter.py</code> ya distinguen:</p>
+<ul>
+<li>ruta compartida cuando <code>shared_fs=True</code>;</li>
+<li>transporte mediante Ray cuando no hay filesystem compartido;</li>
+<li>entrega por valor para objetos pequeños;</li>
+<li>entradas y directorios de salida declarados mediante los contratos de datos de <code>ms_flow</code>.</li>
+</ul>
+<p>Los temporales normales de cada tarea se eliminan, pero el caché remoto de archivos en
+<code>/tmp/ms_flow_ray_cache</code> permanece durante la vida del nodo y actualmente no tiene TTL ni límite
+de tamaño.</p>
+<h3 id="23-hpc">2.3 HPC<a class="headerlink" href="#23-hpc" title="Permanent link">&para;</a></h3>
+<p><code>core/executor/hpc_adapter.py</code> y <code>core/executor/hpc_runtime.py</code> ya implementan una base genérica:</p>
+<ul>
+<li><code>submit</code>, <code>poll</code> y <code>cancel</code> mediante comandos configurables;</li>
+<li><code>manifest.json</code>, <code>status.json</code>, <code>result.json</code> y <code>submit.sh</code> por chunk;</li>
+<li>escritura atómica del estado de la ejecución;</li>
+<li>ejecución de un callable serializado.</li>
+</ul>
+<p>Esto todavía presupone que los archivos son visibles localmente. El staging actual usa copia
+local y no SSH/rsync. Tampoco se levanta Ray dentro de los nodos asignados.</p>
+<h2 id="3-configuracion-ssh-comun">3. Configuración SSH común<a class="headerlink" href="#3-configuracion-ssh-comun" title="Permanent link">&para;</a></h2>
+<p>Debe existir una sola configuración de host remoto, reutilizada por Ray LAN y HPC. El modelo
+<code>SSHHost</code> existente debe integrarse o evolucionar, no duplicarse.</p>
+<p>Campos mínimos:</p>
+<div class="highlight"><pre><span></span><code>address
+user
+port
+identity_file
+working_directory
+conda_executable
+conda_environment
+environment_policy
+connect_timeout
+</code></pre></div>
+<p><code>environment_policy</code> inicialmente sólo necesita dos valores:</p>
+<ul>
+<li><code>require</code>: política predeterminada. Si el entorno no existe o no funciona, se informa el
+  fallo y no se modifica el host.</li>
+<li><code>recreate</code>: elimina y reconstruye explícitamente el entorno.</li>
+</ul>
+<p>No se deben almacenar contraseñas. La conexión debe exigir claves SSH funcionales y conservar
+<code>BatchMode=yes</code> para evitar bloqueos esperando entrada interactiva.</p>
+<h3 id="31-secuencia-de-preparacion">3.1 Secuencia de preparación<a class="headerlink" href="#31-secuencia-de-preparacion" title="Permanent link">&para;</a></h3>
+<p>Para cada host:</p>
+<ol>
+<li>Comprobar la conexión SSH.</li>
+<li>Crear el <code>working_directory</code> si no existe y comprobar que es escribible.</li>
+<li>Resolver el ejecutable Conda o Micromamba configurado.</li>
+<li>Comprobar el entorno con <code>conda run -n &lt;env&gt; python -V</code>.</li>
+<li>Fallar si no existe y la política es <code>require</code>.</li>
+<li>Reconstruirlo únicamente si la política es <code>recreate</code>.</li>
+<li>Instalar el wheel y los extras solicitados por la aplicación.</li>
+<li>Comprobar imports y ejecutables declarados por el perfil de aplicación.</li>
+<li>Ejecutar una tarea mínima real en el worker.</li>
+</ol>
+<p><code>ms_flow</code> gestiona esta secuencia, pero AMDockVS proporciona el perfil concreto de paquetes,
+imports y programas que debe comprobarse.</p>
+<h2 id="4-maquinas-lan-con-ray">4. Máquinas LAN con Ray<a class="headerlink" href="#4-maquinas-lan-con-ray" title="Permanent link">&para;</a></h2>
+<h3 id="41-sin-filesystem-compartido">4.1 Sin filesystem compartido<a class="headerlink" href="#41-sin-filesystem-compartido" title="Permanent link">&para;</a></h3>
+<p>Debe mantenerse la ruta actual de transferencia por Ray:</p>
+<div class="highlight"><pre><span></span><code>PC principal -&gt; Ray object store -&gt; temporal/cache del worker
+worker -&gt; artefacto de salida -&gt; PC principal
+</code></pre></div>
+<p>Reglas:</p>
+<ul>
+<li>Los archivos deben viajar mediante <code>FileInputSpec</code>, <code>FileArtifact</code> y
+  <code>ProjectOutputDirSpec</code>; una ruta Python sin contrato no implica transferencia.</li>
+<li>Debe definirse un tamaño máximo recomendado por objeto o shard.</li>
+<li>Los archivos grandes no deben duplicarse innecesariamente en memoria.</li>
+<li>Los resultados sólo se consideran entregados cuando se han persistido en el destino local.</li>
+</ul>
+<p>Limpieza mínima:</p>
+<div class="highlight"><pre><span></span><code>max_cache_bytes
+cache_ttl
+prune_on_cluster_down
+</code></pre></div>
+<p>Los temporales no cacheados se eliminan al finalizar cada tarea. Los elementos cacheados se
+eliminan por TTL, presión de espacio o apagado administrado del cluster.</p>
+<h3 id="42-con-sshfs">4.2 Con SSHFS<a class="headerlink" href="#42-con-sshfs" title="Permanent link">&para;</a></h3>
+<p><code>shared_fs=True</code> debe pasar de ser una afirmación a ser una condición comprobada.</p>
+<p>Configuración mínima:</p>
+<div class="highlight"><pre><span></span><code>local_path
+remote_mount_path
+mount_options
+mount_on_prepare
+unmount_on_cluster_down
+</code></pre></div>
+<p>Para la primera versión se recomienda exigir la misma ruta absoluta en el controlador y los
+workers. Un mapeo arbitrario de rutas puede añadirse cuando exista un caso real que lo necesite.</p>
+<p>El flujo de preparación debe:</p>
+<ol>
+<li>Comprobar que <code>sshfs</code> y FUSE están disponibles.</li>
+<li>Instalar SSHFS sólo cuando exista un gestor soportado y autorización no interactiva.</li>
+<li>Crear el punto de montaje.</li>
+<li>Montar la carpeta.</li>
+<li>Ejecutar una prueba bidireccional de lectura y escritura.</li>
+<li>Confirmar que las rutas entregadas a Ray son visibles desde el worker.</li>
+</ol>
+<p>Si la instalación requiere contraseña de <code>sudo</code>, la preparación debe detenerse con una
+instrucción concreta; no debe abrir una petición interactiva oculta.</p>
+<p>Con SSHFS los artefactos persistentes quedan físicamente en la PC principal, pero Ray puede
+seguir creando metadatos y temporales de ejecución en los workers.</p>
+<h2 id="5-hpc-mediante-ssh-y-scheduler">5. HPC mediante SSH y scheduler<a class="headerlink" href="#5-hpc-mediante-ssh-y-scheduler" title="Permanent link">&para;</a></h2>
+<p>La frontera real es:</p>
+<div class="highlight"><pre><span></span><code>PC principal --SSH/rsync--&gt; login node HPC
+                               |
+                               +-- scheduler allocation
+                                     |-- nodo Ray head
+                                     |-- nodo Ray worker
+                                     |-- nodo Ray worker
+                                     +-- filesystem HPC compartido
+</code></pre></div>
+<p>La PC principal y el HPC no comparten filesystem. Los nodos de una misma asignación HPC sí
+comparten las rutas del cluster.</p>
+<h3 id="51-transporte-remoto">5.1 Transporte remoto<a class="headerlink" href="#51-transporte-remoto" title="Permanent link">&para;</a></h3>
+<p>Debe incorporarse una capa SSH/rsync reutilizando la configuración común. Sus operaciones
+mínimas son:</p>
+<ul>
+<li>ejecutar un comando remoto;</li>
+<li>crear un directorio remoto;</li>
+<li>enviar un manifiesto o archivo;</li>
+<li>recuperar un archivo o conjunto de resultados;</li>
+<li>comprobar hash y tamaño;</li>
+<li>consultar existencia;</li>
+<li>eliminar únicamente rutas resueltas dentro del directorio de campaña.</li>
+</ul>
+<p>No hace falta introducir una librería SSH si el cliente <code>ssh</code> y <code>rsync</code> del sistema cubren el
+contrato.</p>
+<p>El staging debe estar basado en un manifiesto de contenido. Sólo se copian archivos ausentes o
+cuyo hash sea diferente.</p>
+<h3 id="52-directorio-remoto-de-campana">5.2 Directorio remoto de campaña<a class="headerlink" href="#52-directorio-remoto-de-campana" title="Permanent link">&para;</a></h3>
+<p>Cada campaña debe tener una raíz estable:</p>
+<div class="highlight"><pre><span></span><code>&lt;working_directory&gt;/campaigns/&lt;campaign_id&gt;/
+    campaign.json
+    input/
+    runtime/
+    status/
+    results/
+    logs/
+</code></pre></div>
+<p>El identificador del scheduler y esta ruta deben persistirse en la base local de ejecutores. No
+pueden existir únicamente en la memoria del proceso.</p>
+<h3 id="53-script-del-scheduler">5.3 Script del scheduler<a class="headerlink" href="#53-script-del-scheduler" title="Permanent link">&para;</a></h3>
+<p>La primera implementación concreta debe ser Slurm. El script debe:</p>
+<ol>
+<li>Activar el entorno validado.</li>
+<li>Descubrir los nodos asignados.</li>
+<li>Ejecutar la campaña por job array o iniciar un Ray head y sus workers.</li>
+<li>Ejecutar un runner remoto basado en las APIs de <code>ms_flow</code>.</li>
+<li>Escribir estado y resultados atómicamente.</li>
+<li>Detener Ray al terminar o al recibir una señal del scheduler.</li>
+</ol>
+<p>En un solo nodo puede utilizarse el modo Ray local actual. Para varios nodos, el cluster Ray es
+administrado por el script dentro de la asignación; no es el <code>mode="local"</code> del controlador de
+escritorio.</p>
+<p>La PC principal no debe intentar conectarse directamente al puerto GCS de Ray en los nodos de
+cómputo. El runner vive en el HPC y la PC se comunica exclusivamente por scheduler, SSH y
+archivos de estado.</p>
+<h3 id="54-job-arrays-primero-ray-pilot-despues">5.4 Job arrays primero; Ray pilot después<a class="headerlink" href="#54-job-arrays-primero-ray-pilot-despues" title="Permanent link">&para;</a></h3>
+<p>Para shards de docking independientes, Slurm job arrays ofrecen el primer backend más simple y
+robusto. Ray multinodo debe añadirse como modo opcional cuando una campaña adaptativa, una carga
+irregular o mediciones de rendimiento demuestren su utilidad.</p>
+<p>Ambos modos deben compartir:</p>
+<ul>
+<li>transporte;</li>
+<li>manifiesto;</li>
+<li>directorio de campaña;</li>
+<li>polling;</li>
+<li>recuperación;</li>
+<li>estado persistente;</li>
+<li>limpieza.</li>
+</ul>
+<h3 id="55-polling-y-recuperacion">5.5 Polling y recuperación<a class="headerlink" href="#55-polling-y-recuperacion" title="Permanent link">&para;</a></h3>
+<p>El polling consulta dos fuentes:</p>
+<ol>
+<li>El scheduler, para conocer el estado de la asignación.</li>
+<li>Un estado remoto pequeño, para conocer el progreso de la campaña.</li>
+</ol>
+<p>Estado mínimo:</p>
+<div class="highlight"><pre><span></span><code>campaign_id
+remote_root
+scheduler
+scheduler_job_id
+submitted_at
+state
+completed_shards
+failed_shards
+result_manifests
+environment_fingerprint
+last_update
+</code></pre></div>
+<p><code>state.json</code> puede contener el resumen y debe escribirse mediante reemplazo atómico. Los
+resultados por shard deben mantenerse separados o consolidarse en formatos adecuados como
+JSONL o Parquet. No debe descargarse repetidamente un único JSON creciente.</p>
+<p>La aplicación puede recuperar incrementalmente:</p>
+<ul>
+<li>estado y logs pequeños;</li>
+<li>manifiestos nuevos;</li>
+<li>paquetes de resultados terminados;</li>
+<li>resultados finales de la campaña.</li>
+</ul>
+<p>Después de reiniciar AMDockVS, <code>ms_flow</code> debe reconstruir la vigilancia a partir del
+<code>scheduler_job_id</code> y <code>remote_root</code> persistidos.</p>
+<h3 id="56-limpieza-remota">5.6 Limpieza remota<a class="headerlink" href="#56-limpieza-remota" title="Permanent link">&para;</a></h3>
+<p>Nunca se elimina un resultado remoto antes de:</p>
+<ol>
+<li>copiarlo al destino local;</li>
+<li>comprobar tamaño o hash;</li>
+<li>confirmar que el sink local lo persistió.</li>
+</ol>
+<p>Las políticas mínimas son:</p>
+<ul>
+<li>conservar campañas activas;</li>
+<li>conservar campañas fallidas durante un TTL configurable;</li>
+<li>eliminar temporales de campañas completadas después de su recuperación verificada;</li>
+<li>permitir limpieza manual por <code>campaign_id</code>.</li>
+</ul>
+<h2 id="6-problemas-concretos-que-deben-corregirse-en-ms_flow">6. Problemas concretos que deben corregirse en <code>ms_flow</code><a class="headerlink" href="#6-problemas-concretos-que-deben-corregirse-en-ms_flow" title="Permanent link">&para;</a></h2>
+<ol>
+<li><code>conda_bootstrap_command()</code> crea el entorno automáticamente; debe obedecer la política
+   estricta.</li>
+<li><code>SSHHost</code> no forma parte efectiva del flujo de aprovisionamiento.</li>
+<li><code>RayWorkerConfig</code> no representa puerto, clave, directorio, montaje ni política del entorno.</li>
+<li><code>shared_fs</code> no instala, monta ni verifica SSHFS.</li>
+<li>El caché Ray persistente no tiene límites ni pruning administrado.</li>
+<li>El staging HPC usa copia local en lugar de transporte remoto.</li>
+<li>El backend HPC no recupera artefactos como lo hace Ray.</li>
+<li>Los handles del scheduler no son suficientemente persistentes para adoptar una campaña tras
+   reiniciar.</li>
+<li><code>HPCWorkerConfig</code> no declara <code>command_context</code>, aunque el runtime intenta leerlo; Pydantic lo
+   descarta.</li>
+<li>HPC se registra separado de <code>compute</code>, mientras los jobs AMDock usan normalmente
+    <code>executor="compute"</code>; debe existir una selección coherente de backend.</li>
+<li>El runtime HPC actual ejecuta un callable por chunk y no levanta Ray multinodo.</li>
+</ol>
+<h2 id="7-fases-de-implementacion-de-ms_flow">7. Fases de implementación de <code>ms_flow</code><a class="headerlink" href="#7-fases-de-implementacion-de-ms_flow" title="Permanent link">&para;</a></h2>
+<h3 id="fase-mf-1-lan-reproducible">Fase MF-1 — LAN reproducible<a class="headerlink" href="#fase-mf-1-lan-reproducible" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Integrar el modelo SSH común.</li>
+<li>Añadir la política <code>require</code>/<code>recreate</code>.</li>
+<li>Incorporar <code>working_directory</code>, puerto y clave.</li>
+<li>Validar imports y comandos declarados por la aplicación.</li>
+<li>Añadir pruning del caché Ray.</li>
+</ul>
+<h3 id="fase-mf-2-sshfs-opcional">Fase MF-2 — SSHFS opcional<a class="headerlink" href="#fase-mf-2-sshfs-opcional" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Configurar montaje y desmontaje.</li>
+<li>Detectar dependencias y permisos.</li>
+<li>Hacer la prueba bidireccional.</li>
+<li>Rechazar rutas no compartidas antes de iniciar Ray.</li>
+</ul>
+<h3 id="fase-mf-3-hpc-remoto-minimo">Fase MF-3 — HPC remoto mínimo<a class="headerlink" href="#fase-mf-3-hpc-remoto-minimo" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Implementar transporte SSH/rsync.</li>
+<li>Persistir <code>scheduler_job_id</code> y raíz remota.</li>
+<li>Añadir un perfil Slurm.</li>
+<li>Enviar manifiestos y recuperar resultados incrementalmente.</li>
+<li>Recuperar la vigilancia después de reiniciar.</li>
+<li>Implementar limpieza segura.</li>
+</ul>
+<h3 id="fase-mf-4-ray-pilot-en-hpc">Fase MF-4 — Ray pilot en HPC<a class="headerlink" href="#fase-mf-4-ray-pilot-en-hpc" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Generar script Ray multinodo desde la asignación.</li>
+<li>Lanzar el runner remoto.</li>
+<li>Integrar cancelación y apagado del cluster.</li>
+<li>Comparar rendimiento contra job arrays antes de declararlo predeterminado.</li>
+</ul>
+<h2 id="8-criterios-de-aceptacion-de-ms_flow">8. Criterios de aceptación de <code>ms_flow</code><a class="headerlink" href="#8-criterios-de-aceptacion-de-ms_flow" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Un host sin el entorno solicitado falla sin modificarlo.</li>
+<li><code>recreate</code> reconstruye el entorno sólo cuando se solicita explícitamente.</li>
+<li>Ninguna contraseña queda guardada en configuración o logs.</li>
+<li>Una prueba remota ejecuta Python y un callable mínimo mediante Ray.</li>
+<li>El modo sin shared folder entrega entradas y devuelve resultados.</li>
+<li>El modo SSHFS detecta un montaje inexistente o roto antes de ejecutar tareas.</li>
+<li><code>cluster_down</code> detiene workers y aplica la política de pruning.</li>
+<li>Una campaña Slurm continúa y puede ser adoptada después de reiniciar la aplicación.</li>
+<li>Los resultados HPC sólo se eliminan después de una recuperación verificada.</li>
+<li>Las pruebas no dependen únicamente de un scheduler simulado local: existe al menos una prueba
+  de integración remota documentada.</li>
+</ul>
+<hr />
+<h1 id="parte-ii-amdockvs">Parte II — AMDockVS<a class="headerlink" href="#parte-ii-amdockvs" title="Permanent link">&para;</a></h1>
+<h2 id="9-responsabilidad-de-amdockvs">9. Responsabilidad de AMDockVS<a class="headerlink" href="#9-responsabilidad-de-amdockvs" title="Permanent link">&para;</a></h2>
+<p>AMDockVS debe definir:</p>
+<ol>
+<li>Qué paquetes y programas necesita un worker químico.</li>
+<li>Cómo se construyen los pipelines de preparación, docking y análisis.</li>
+<li>Cómo se representan, dividen y consolidan los shards HTP.</li>
+<li>Qué entradas y salidas se declaran mediante los contratos de datos de <code>ms_flow</code>.</li>
+<li>Qué motores de docking y perfiles químicos están disponibles.</li>
+<li>Cómo se calculan progreso, rankings, diversidad y selección de hits.</li>
+<li>Cuándo los hits HTP se materializan en el modo normal.</li>
+<li>Qué información se presenta en la UI.</li>
+</ol>
+<p>AMDockVS no debe implementar su propio SSH, rsync, SSHFS, scheduler, base de jobs o gestión de
+clusters Ray.</p>
+<h2 id="10-modos-vs-y-htpvs">10. Modos <code>vs</code> y <code>htpvs</code><a class="headerlink" href="#10-modos-vs-y-htpvs" title="Permanent link">&para;</a></h2>
+<h3 id="101-modo-vs">10.1 Modo <code>vs</code><a class="headerlink" href="#101-modo-vs" title="Permanent link">&para;</a></h3>
+<p>Debe conservar la experiencia actual para una o varios miles de moléculas:</p>
+<ul>
+<li>moléculas materializadas;</li>
+<li>selección individual;</li>
+<li>tablas centrales;</li>
+<li>visualización 2D y 3D;</li>
+<li>preparación y docking interactivos;</li>
+<li>inspección de poses e interacciones.</li>
+</ul>
+<p>Este modo representa el uso principal de AMDockVS y no debe degradarse para acomodar HTP.</p>
+<h3 id="102-modo-htpvs">10.2 Modo <code>htpvs</code><a class="headerlink" href="#102-modo-htpvs" title="Permanent link">&para;</a></h3>
+<p>Debe operar con:</p>
+<ul>
+<li>archivos fuente;</li>
+<li>shards o minibibliotecas;</li>
+<li>índices <code>(shard_id, record_index)</code>;</li>
+<li>estadísticas agregadas;</li>
+<li>histogramas y distribuciones;</li>
+<li>progreso por etapa;</li>
+<li>resultados compactos;</li>
+<li>materialización únicamente en el punto de promoción.</li>
+</ul>
+<p>La ejecución remota recibe shards, no miles o millones de objetos de molécula independientes.
+Esto disminuye inodos y aprovecha mejor las operaciones por lote de RDKit y otras herramientas.</p>
+<h2 id="11-perfil-de-instalacion-del-worker">11. Perfil de instalación del worker<a class="headerlink" href="#11-perfil-de-instalacion-del-worker" title="Permanent link">&para;</a></h2>
+<p>No se recomienda crear todavía una distribución independiente <code>amdockvs-core</code>.</p>
+<p>El worker sí necesita <code>ms_flow</code> porque:</p>
+<ul>
+<li>el runtime Ray ejecuta código de <code>ms_flow</code>;</li>
+<li>las tareas AMDock importan sus contratos de tasking, sinks y datos;</li>
+<li>el pipeline y los jobs deben seguir usando las APIs de Molsuite.</li>
+</ul>
+<p>El worker no necesita <code>ms_components</code>. Actualmente existe una dependencia accidental porque
+<code>amdockvs.configuration</code> importa <code>MonitorConfig</code> y <code>THEMES</code> desde <code>ms_components</code>, y algunos jobs
+de dominio importan ese módulo de configuración. Esa unión debe eliminarse.</p>
+<p><code>ms_contactmap</code> sólo debe instalarse cuando se ejecuten etapas de interacciones o diagramas. Su
+nucleo químico debe poder instalarse sin PySide6.</p>
+<h3 id="111-extras-propuestos">11.1 Extras propuestos<a class="headerlink" href="#111-extras-propuestos" title="Permanent link">&para;</a></h3>
+<p>Una sola distribución puede ofrecer:</p>
+<div class="highlight"><pre><span></span><code>amdock-vs                  dominio químico esencial
+amdock-vs[ray-worker]      ms_flow[ray] y ejecución distribuida
+amdock-vs[interactions]    núcleo headless de ms_contactmap
+amdock-vs[ui]              PySide6, ms_components y visualización
+amdock-vs[all]             instalación completa de escritorio
+</code></pre></div>
+<p>La separación requiere:</p>
+<ol>
+<li>Mover tipos de configuración neutrales fuera de <code>ms_components</code>.</li>
+<li>Evitar imports UI al cargar jobs o servicios de dominio.</li>
+<li>Separar las dependencias core/UI de <code>ms_contactmap</code>.</li>
+<li>Probar que el perfil <code>ray-worker</code> importa y ejecuta tareas sin servidor gráfico.</li>
+</ol>
+<p>Una distribución <code>amdockvs-core</code> sólo se justifica si en el futuro tiene versionado, API o
+consumidores independientes. Los extras resuelven el problema actual con menos complejidad.</p>
+<h2 id="12-contrato-que-amdockvs-entrega-a-ms_flow">12. Contrato que AMDockVS entrega a <code>ms_flow</code><a class="headerlink" href="#12-contrato-que-amdockvs-entrega-a-ms_flow" title="Permanent link">&para;</a></h2>
+<p>Por campaña, AMDockVS debe producir un manifiesto declarativo con:</p>
+<div class="highlight"><pre><span></span><code>campaign_id
+application_version
+worker_install_profile
+environment_lock_or_spec
+required_imports
+required_executables
+pipeline_steps
+input_artifacts
+output_contract
+resource_requirements
+retry_policy
+</code></pre></div>
+<p>Los parámetros químicos deben ser serializables. Las rutas deben declararse mediante los
+contratos <code>FileInputSpec</code>, <code>FileArtifact</code> o <code>ProjectOutputDirSpec</code>, no como strings cuya
+transferencia quede implícita.</p>
+<p>El perfil de instalación debe identificar el wheel exacto o un repositorio de wheels. Instalar
+simplemente “la última versión” no permite reproducir una campaña.</p>
+<h2 id="13-ejecucion-htp-sobre-lan">13. Ejecución HTP sobre LAN<a class="headerlink" href="#13-ejecucion-htp-sobre-lan" title="Permanent link">&para;</a></h2>
+<p>AMDockVS debe:</p>
+<ol>
+<li>Importar o fragmentar la fuente en shards.</li>
+<li>Construir el pipeline de pasos químicos.</li>
+<li>Declarar cada shard como artefacto de entrada.</li>
+<li>Enviar jobs por shard o por grupos de shards.</li>
+<li>Consolidar estado y resultados sin materializar moléculas individuales.</li>
+<li>Aplicar ranking, filtros, diversidad o clustering sobre representaciones compactas.</li>
+<li>Promover únicamente los hits finales al almacenamiento normal.</li>
+</ol>
+<p>Con SSHFS, los jobs pueden operar sobre rutas compartidas. Sin SSHFS, los shards viajan mediante
+el transporte Ray ya proporcionado por <code>ms_flow</code>.</p>
+<p>El tamaño del shard debe ser configurable y medirse con los motores reales. No debe fijarse un
+número universal antes de tener benchmarks de I/O, memoria y tiempo por molécula.</p>
+<h2 id="14-ejecucion-htp-sobre-hpc">14. Ejecución HTP sobre HPC<a class="headerlink" href="#14-ejecucion-htp-sobre-hpc" title="Permanent link">&para;</a></h2>
+<p>AMDockVS debe construir una campaña autocontenida para el runner remoto:</p>
+<ul>
+<li>receptores y grids;</li>
+<li>shards de ligandos;</li>
+<li>pipeline normalizado;</li>
+<li>configuración de motores;</li>
+<li>semillas y parámetros reproducibles;</li>
+<li>contrato de resultados;</li>
+<li>metadatos para consolidación y promoción.</li>
+</ul>
+<p>Dentro del HPC el runner utiliza las APIs de <code>ms_flow</code> y el filesystem compartido del cluster.
+La aplicación de escritorio no controla directamente cada tarea Ray; consulta la campaña y
+recupera sus productos mediante el backend HPC de <code>ms_flow</code>.</p>
+<p>Para docking independiente, AMDockVS debe soportar primero job arrays. El modo Ray pilot puede
+usar el mismo manifiesto y pipeline cuando se implemente.</p>
+<h2 id="15-resultados-y-promocion">15. Resultados y promoción<a class="headerlink" href="#15-resultados-y-promocion" title="Permanent link">&para;</a></h2>
+<p>Mientras la campaña sea HTP, AMDockVS conserva por shard:</p>
+<ul>
+<li>identificador estable;</li>
+<li>estado;</li>
+<li>número de registros válidos y fallidos;</li>
+<li>scores y columnas mínimas de ranking;</li>
+<li>descriptores o embeddings necesarios;</li>
+<li>referencias a poses o artefactos;</li>
+<li>procedencia y parámetros del protocolo.</li>
+</ul>
+<p>Los resultados pueden consolidarse en tablas compactas. Sólo al seleccionar los hits finales se
+crean las entidades normales de molécula, docking result y pose necesarias para la UI actual.</p>
+<p>El tamaño de promoción debe ser configurable —por ejemplo 500, 1000 o más— y tener una
+confirmación explícita antes de crear un número grande de registros y archivos individuales.</p>
+<h2 id="16-ui">16. UI<a class="headerlink" href="#16-ui" title="Permanent link">&para;</a></h2>
+<p>El modo <code>vs</code> conserva el layout actual y puede mejorarse sin convertirlo en una UI de campañas
+masivas.</p>
+<p>El modo <code>htpvs</code> debe mostrar principalmente:</p>
+<ul>
+<li>fuentes y shards;</li>
+<li>progreso global y por etapa;</li>
+<li>uso de workers o scheduler;</li>
+<li>distribuciones de propiedades y scores;</li>
+<li>clustering, diversidad y espacio químico;</li>
+<li>errores agregados;</li>
+<li>reglas de selección;</li>
+<li>punto de promoción al modo materializado.</li>
+</ul>
+<p>No debe intentar mostrar una fila o una estructura renderizada por cada ligando de la biblioteca.
+La visualización molecular detallada aparece después de seleccionar o promover un subconjunto.</p>
+<h2 id="17-cambios-concretos-necesarios-en-amdockvs">17. Cambios concretos necesarios en AMDockVS<a class="headerlink" href="#17-cambios-concretos-necesarios-en-amdockvs" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Separar configuración de dominio y configuración UI.</li>
+<li>Eliminar <code>ms_components</code> del camino de imports de los jobs.</li>
+<li>Separar o hacer opcional la UI de <code>ms_contactmap</code>.</li>
+<li>Definir extras de instalación para escritorio y worker.</li>
+<li>Generar un perfil verificable de herramientas químicas por campaña.</li>
+<li>Asegurar que todas las entradas/salidas remotas usan contratos de datos de <code>ms_flow</code>.</li>
+<li>Terminar el modelo de shards y el pipeline HTP antes de optimizar el scheduler.</li>
+<li>Implementar consolidación incremental de resultados por shard.</li>
+<li>Implementar materialización/promoción final con límite configurable.</li>
+<li>Permitir seleccionar <code>compute</code> local, Ray LAN o campaña HPC sin que los jobs químicos
+    conozcan los detalles del transporte.</li>
+</ol>
+<h2 id="18-fases-de-implementacion-de-amdockvs">18. Fases de implementación de AMDockVS<a class="headerlink" href="#18-fases-de-implementacion-de-amdockvs" title="Permanent link">&para;</a></h2>
+<h3 id="fase-amd-1-worker-headless">Fase AMD-1 — Worker headless<a class="headerlink" href="#fase-amd-1-worker-headless" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Desacoplar configuración y UI.</li>
+<li>Definir extras <code>ray-worker</code>, <code>interactions</code> y <code>ui</code>.</li>
+<li>Crear una prueba de instalación e import headless.</li>
+<li>Definir el manifiesto de requisitos del worker.</li>
+</ul>
+<h3 id="fase-amd-2-htp-localray">Fase AMD-2 — HTP local/Ray<a class="headerlink" href="#fase-amd-2-htp-localray" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Completar shards y pipeline por lotes.</li>
+<li>Ejecutar shards mediante <code>executor="compute"</code>.</li>
+<li>Consolidar resultados compactos.</li>
+<li>Probar LAN con y sin carpeta compartida.</li>
+<li>Promover un conjunto pequeño de hits al modo normal.</li>
+</ul>
+<h3 id="fase-amd-3-bundle-hpc">Fase AMD-3 — Bundle HPC<a class="headerlink" href="#fase-amd-3-bundle-hpc" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Generar el manifiesto autocontenido de campaña.</li>
+<li>Declarar inputs y outputs transferibles.</li>
+<li>Ejecutar mediante el perfil Slurm de <code>ms_flow</code>.</li>
+<li>Recuperar progreso y resultados por shard.</li>
+<li>Reanudar la monitorización después de reiniciar AMDockVS.</li>
+</ul>
+<h3 id="fase-amd-4-estrategias-adaptativas">Fase AMD-4 — Estrategias adaptativas<a class="headerlink" href="#fase-amd-4-estrategias-adaptativas" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Aplicar clustering, similitud, propiedades o descriptores para seleccionar nuevas rondas.</li>
+<li>Comparar job arrays y Ray pilot.</li>
+<li>Añadir automodelado con hits iniciales únicamente cuando el flujo anterior sea estable.</li>
+</ul>
+<h2 id="19-criterios-de-aceptacion-de-amdockvs">19. Criterios de aceptación de AMDockVS<a class="headerlink" href="#19-criterios-de-aceptacion-de-amdockvs" title="Permanent link">&para;</a></h2>
+<ul>
+<li>El modo normal sigue funcionando con una o varios miles de moléculas y conserva la inspección
+  individual.</li>
+<li>El perfil de worker se instala sin PySide6 ni <code>ms_components</code>.</li>
+<li>Una tarea de docking headless funciona en un worker Ray.</li>
+<li>HTP no crea entidades individuales para toda la biblioteca.</li>
+<li>Un shard puede reintentarse sin duplicar resultados.</li>
+<li>La misma campaña puede usar Ray con transferencia o con carpeta compartida.</li>
+<li>El bundle HPC contiene todo lo necesario para ejecutar sin la UI.</li>
+<li>Los resultados recuperados conservan procedencia, protocolo y correspondencia con el registro
+  original del shard.</li>
+<li>La promoción crea únicamente el subconjunto seleccionado y lo hace visible en la UI normal.</li>
+</ul>
+<hr />
+<h1 id="parte-iii-orden-conjunto-y-decisiones-cerradas">Parte III — Orden conjunto y decisiones cerradas<a class="headerlink" href="#parte-iii-orden-conjunto-y-decisiones-cerradas" title="Permanent link">&para;</a></h1>
+<h2 id="20-orden-recomendado">20. Orden recomendado<a class="headerlink" href="#20-orden-recomendado" title="Permanent link">&para;</a></h2>
+<ol>
+<li><code>ms_flow</code>: modelo SSH y política estricta del entorno.</li>
+<li>AMDockVS: perfil headless sin dependencias UI.</li>
+<li><code>ms_flow</code>: completar Ray LAN sin shared folder y pruning.</li>
+<li>AMDockVS: campaña HTP por shards sobre Ray.</li>
+<li><code>ms_flow</code>: SSHFS opcional con validación real.</li>
+<li><code>ms_flow</code>: transporte SSH/rsync, persistencia y perfil Slurm.</li>
+<li>AMDockVS: bundle HPC, polling y recuperación integrados.</li>
+<li><code>ms_flow</code>: Ray pilot multinodo opcional.</li>
+<li>AMDockVS: selección adaptativa y automodelado posteriores.</li>
+</ol>
+<h2 id="21-decisiones-cerradas-para-la-primera-implementacion">21. Decisiones cerradas para la primera implementación<a class="headerlink" href="#21-decisiones-cerradas-para-la-primera-implementacion" title="Permanent link">&para;</a></h2>
+<ul>
+<li>No almacenar contraseñas SSH.</li>
+<li>No crear automáticamente entornos salvo que el usuario seleccione <code>recreate</code>.</li>
+<li>No crear todavía una distribución <code>amdockvs-core</code>.</li>
+<li>Mantener <code>ms_flow</code> en los workers.</li>
+<li>Excluir <code>ms_components</code> de los workers.</li>
+<li>Hacer <code>ms_contactmap</code> opcional y headless cuando corresponda.</li>
+<li>No usar SSHFS en HPC.</li>
+<li>No conectar la UI directamente al cluster Ray interno del HPC.</li>
+<li>Implementar Slurm job arrays antes del Ray pilot multinodo.</li>
+<li>No eliminar resultados remotos sin recuperación verificada.</li>
+<li>Mantener el modo <code>vs</code> y su experiencia actual separados del almacenamiento HTP.</li>
+</ul>
+<h2 id="22-resultado-esperado">22. Resultado esperado<a class="headerlink" href="#22-resultado-esperado" title="Permanent link">&para;</a></h2>
+<p>Al completar estas fases, AMDockVS tendrá tres rutas coherentes sin duplicar la lógica química:</p>
+<div class="highlight"><pre><span></span><code>Modo VS
+  -&gt; ejecución local o Ray
+  -&gt; moléculas materializadas
+  -&gt; análisis visual individual
+
+Modo HTP LAN
+  -&gt; shards
+  -&gt; Ray con transferencia o SSHFS
+  -&gt; selección compacta
+  -&gt; promoción de hits a VS
+
+Modo HTP HPC
+  -&gt; bundle remoto
+  -&gt; scheduler + job arrays o Ray pilot
+  -&gt; polling y recuperación incremental
+  -&gt; promoción de hits a VS
+</code></pre></div>
+<p>La diferencia entre estas rutas está en almacenamiento, transporte y ejecución. Los pasos de
+dominio químico deben seguir siendo los mismos y estar expuestos mediante las APIs de Molsuite.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 AMDockVS authors
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["content.code.copy","navigation.footer","navigation.path","navigation.sections","navigation.top","search.highlight","search.suggest"],"redirect":null,"search":"../assets/javascripts/workers/search.c47bb847.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"provider":"mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.77dd0ce9.min.js"></script>
+      
+    
+  </body>
+</html>
