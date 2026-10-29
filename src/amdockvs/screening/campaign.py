@@ -8,7 +8,6 @@ the run is submitted and the counters move once per returned chunk, both in the 
 
 from __future__ import annotations
 
-import json
 from typing import Any, Iterable, Mapping
 
 from sqlmodel import select
@@ -173,57 +172,12 @@ def list_targets(project_db, *, run_id: str | None = None, active_only: bool = F
         ]
 
 
-def live_target_progress(
-    targets: Iterable[Mapping[str, Any]],
-    chunks: Iterable[Mapping[str, Any]],
-) -> dict[int, dict[str, int]]:
-    """Overlay in-flight MF chunk progress on the latest persisted target per receptor.
-
-    Completed chunks are already included in ``ligands_done`` by the result handler. Only
-    pending/running/staging chunks arrive here, so the overlay neither writes per-ligand DB
-    rows nor double-counts completed work.
-    """
-    latest: dict[int, Mapping[str, Any]] = {}
-    for target in targets:
-        receptor_id = int(target.get("receptor_molecule_id") or 0)
-        if receptor_id and int(target.get("id") or 0) >= int(latest.get(receptor_id, {}).get("id") or 0):
-            latest[receptor_id] = target
-
-    in_flight: dict[tuple[int, int], int] = {}
-    for chunk in chunks:
-        raw = chunk.get("payload_json") or ""
-        try:
-            payload = json.loads(raw) if isinstance(raw, str) else dict(raw or {})
-        except (TypeError, ValueError):
-            continue
-        if not isinstance(payload, dict):
-            continue
-        receptor_id = int(payload.get("receptor_id") or 0)
-        run = int(payload.get("docking_run_id") or 0)
-        target = latest.get(receptor_id)
-        if target is None or int(target.get("docking_run_id") or 0) != run:
-            continue
-        units = sum(max(0, int(shard.get("n_records") or 0)) for shard in payload.get("shards") or ())
-        progress = min(100.0, max(0.0, float(chunk.get("progress") or 0.0)))
-        key = (run, receptor_id)
-        in_flight[key] = in_flight.get(key, 0) + round(units * progress / 100.0)
-
-    result: dict[int, dict[str, int]] = {}
-    for receptor_id, target in latest.items():
-        total = max(0, int(target.get("ligands_total") or 0))
-        persisted = max(0, int(target.get("ligands_done") or 0))
-        done = min(total, persisted + in_flight.get((int(target.get("docking_run_id") or 0), receptor_id), 0))
-        result[receptor_id] = {"ligands": total, "docked": done, "pending": max(0, total - done)}
-    return result
-
-
 __all__ = [
     "advance_shard_run",
     "advance_target",
     "completed_shard_targets",
     "finish_run",
     "list_targets",
-    "live_target_progress",
     "plan_targets",
     "stop_run",
 ]
