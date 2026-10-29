@@ -17,7 +17,7 @@ class JobsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Jobs")
         self.setModal(False)
-        self.resize(1000, 650)
+        self.resize(1440, 880)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         self.monitor_widget = MolSuiteMonitorWidget(bridge=bridge, parent=self)
