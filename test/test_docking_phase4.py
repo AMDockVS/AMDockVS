@@ -85,7 +85,8 @@ def test_readiness_service_counts_protocol_aware_existing_pairs():
         protocols=protocols,
         skip_existing=True,
     )
-    assert result.as_mapping() == {"total": 12, "already": 2, "to_run": 10}
+    assert result.as_mapping() == {"total": 12, "already": 2, "to_run": 10,
+                                   "by_program": [("vina", 5), ("vina", 5)]}
     assert service.conflict("sig", {}) == ("none", "")
     assert runtime.requested_statuses == ("pending", "running", "staging", "cancel_requested")
 

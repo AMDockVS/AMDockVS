@@ -53,6 +53,14 @@ class RunPanel:
         self.req_box.add_row("Ligands", self.req_ligands_count)
         self.req_receptors_count = QLabel("—", self.req_box)  # prepared / total
         self.req_box.add_row("Receptors", self.req_receptors_count)
+        # Per program: GPU programs never go below their own pairs per task (Settings).
+        self.req_tasks = QLabel("—", self.req_box)
+        self.req_tasks.setToolTip(
+            "Pairs each docking task carries, per program. CPU programs take Batch size; "
+            "AutoDock-GPU and Uni-Dock take at least the pairs per task set in Settings."
+        )
+        self.req_box.add_row("Tasks", self.req_tasks)
+        self._pairs_by_program: list = []
         self.check_status_label = QLabel("Open this step to check.", self.req_box)
         self.check_status_label.setWordWrap(True)
         self.req_box.add_row(self.check_status_label)
@@ -100,6 +108,7 @@ class RunPanel:
         self.batch_size = _spinbox(minimum=1, maximum=1024, value=1)
         self.batch_size_label = QLabel("Batch size", advanced)
         advanced.add_row(self.batch_size_label, self.batch_size)
+        self.batch_size.valueChanged.connect(lambda _value: self._show_tasks())
         self.run_destination = RunDestinationCombo(advanced, self.runtime)
         advanced.add_row("Run on", self.run_destination)
         # Hide the label too, not just the combo: a lone "Run on" caption is worse than nothing.
@@ -539,6 +548,9 @@ class RunPanel:
             self.check_status_label.setText(result["error"])
             return
         lig, rec = result["ligands"], result["receptors"]
+        # Table pairs only: shards are docked one shard per task, redocking one complex.
+        self._pairs_by_program = list(dict(result.get("pairs") or {}).get("by_program") or ())
+        self._show_tasks()
         if result.get("mode") != "redocking":
             self._set_offtarget_receptors([
                 (int(receptor_id), str(name))
@@ -671,6 +683,15 @@ class RunPanel:
         """The Ligands/Receptors bars still following a preparation launched here."""
         return [bar for follower, bar in ((self.ligand_prep_jobs, self.ligand_bar),
                                           (self.receptor_prep_jobs, self.receptor_bar)) if follower.job_ids]
+
+    def _show_tasks(self) -> None:
+        """Pairs per task and tasks of each program, for the pairs it has to run."""
+        lines = []
+        for program, to_run in self._pairs_by_program:
+            spec = self.runtime.docking.get_program_spec(program)
+            per_task = self.runtime.docking.pairs_per_task(spec, int(self.batch_size.value()))
+            lines.append(f"{spec.label}: {per_task} pair(s)/task · {-(-int(to_run) // per_task):,} task(s)")
+        self.req_tasks.setText("\n".join(lines) or "—")
 
     def _pairs_text(self, text: str) -> None:
         if not self.run_bar.is_running:  # the running docking owns the headline

@@ -40,9 +40,11 @@ class PairReadiness:
     total: int = 0
     already: int = 0
     to_run: int = 0
+    by_program: tuple[tuple[str, int], ...] = ()  # (program, pairs to run) per selected protocol
 
-    def as_mapping(self) -> dict[str, int]:
-        return {"total": self.total, "already": self.already, "to_run": self.to_run}
+    def as_mapping(self) -> dict[str, Any]:
+        return {"total": self.total, "already": self.already, "to_run": self.to_run,
+                "by_program": list(self.by_program)}
 
 
 @dataclass(frozen=True)
@@ -129,20 +131,25 @@ class DockingReadinessService:
         receptors = tuple(sorted({int(value) for value in receptor_ids if int(value) > 0}))
         selected_protocols = tuple(protocols)
         total = max(0, int(ligand_count)) * len(receptors) * max(1, len(selected_protocols))
-        already = 0
-        if receptors and total:
-            for protocol in selected_protocols:
+        each = max(0, int(ligand_count)) * len(receptors)
+        already, by_program = 0, []
+        for protocol in selected_protocols:
+            docked = 0
+            if receptors and total:
                 engine = str(get_docking_program(protocol.program).docking_engine)
-                already += self.runtime.docking.count_docked_pairs(
+                docked = min(each, self.runtime.docking.count_docked_pairs(
                     engine=engine,
                     receptor_ids=list(receptors),
                     protocol_hash=protocol.hash or None,
-                )
+                ))
+            already += docked
+            by_program.append((protocol.program, each - docked if skip_existing else each))
         already = min(already, total)
         return PairReadiness(
             total=total,
             already=already,
             to_run=max(0, total - already) if skip_existing else total,
+            by_program=tuple(by_program),
         )
 
     def evaluate(
