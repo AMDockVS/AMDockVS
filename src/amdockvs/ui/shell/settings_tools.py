@@ -9,6 +9,7 @@ half-installed tool is a failure that costs more to clean up than the wait.
 from __future__ import annotations
 
 from PySide6.QtCore import QObject, Signal
+from shiboken6 import isValid
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -165,8 +166,8 @@ class ExternalToolsPage(QWidget):
     def refresh(self) -> None:
         run_async(
             lambda: tool_statuses(self.runtime),
-            self._apply,
-            on_error=lambda exc: self._apply_error(exc),
+            lambda statuses: isValid(self) and self._apply(statuses),
+            on_error=lambda exc: isValid(self) and self._apply_error(exc),
             compact=True,
         )
 
