@@ -464,7 +464,7 @@ def test_amdock_ui_domain_views_show_docking_summaries(tmp_path, monkeypatch):
         hit = runtime.docking.top_hits(limit=1)[0]
         window.load_hit_in_pymol(hit, 1)
         # A click computes nothing: the dock asks for Build diagram instead.
-        assert "Build diagram" in window.diagram_dock.placeholder.text()
+        assert window.diagram_dock.view._pages.currentIndex() == 1  # its Build diagram call to action
         assert not hasattr(window.diagram_dock, "render_button")
         hits_page = results_view.current_page()
         assert hits_page.build_diagram_btn.text() == "Build diagram"

@@ -129,6 +129,7 @@ class AMDockVSMainWindow(QMainWindow):
         self.diagram_dock = InteractionDiagramDock("2D Interactions", self.dock_manager, runtime=runtime, parent=self)
         self.diagram_dock.settings_requested.connect(lambda node: self.open_settings(node=node))
         self.diagram_dock.residue_selected.connect(lambda *pick: self.viewer.show_diagram_residue(*pick))
+        self.diagram_dock.diagram_built.connect(self._on_dock_diagram_built)
         self.dock_manager.add_dock(
             self.diagram_dock,
             dock_id="diagram",
@@ -536,6 +537,13 @@ class AMDockVSMainWindow(QMainWindow):
         # Switching tabs changes whether a jobs surface is on screen, so the status
         # bar indicator (the always-visible fallback) has to be re-evaluated.
         self.jobs.update_jobs_statusbar()
+
+    def _on_dock_diagram_built(self, result_id: int) -> None:
+        # Selected Result of whichever results page shows that pose lists its new interactions.
+        from amdockvs.ui.catalog.results import DockingResultsWidget
+
+        for page in self.findChildren(DockingResultsWidget):
+            page.diagram_saved(result_id)
 
     def _sync_diagram_to_view(self, view_id: str) -> None:
         """The 2D diagram follows the results views: it hides when the user leaves them and

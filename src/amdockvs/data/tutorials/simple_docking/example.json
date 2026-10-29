@@ -12,14 +12,14 @@
   "bond_dictionary": "RCSB CCD 1TT",
   "bond_dictionary_sha256": "28c95304c61bfb4ddf3d27d33f4f8ee6d1e029d574699ae35ca7942aa69b2d8e",
   "grid_center": [
-    18.9295,
-    -14.9115,
-    -23.053
+    19,
+    -15,
+    -23
   ],
   "grid_size": [
-    22.0,
-    22.0,
-    22.0
+    22,
+    22,
+    22
   ],
   "coordinate_policy": "Retain deposited heavy-atom coordinates; add ligand hydrogens with RDKit.",
   "source_caveat": "4OYS reports wrong chirality at atom C6 of 1TT A 905; deposited geometry is retained."

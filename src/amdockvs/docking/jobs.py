@@ -6,6 +6,7 @@ reached through :mod:`amdockvs.docking.engines.registry`. Post-processing jobs
 """
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
@@ -680,9 +681,15 @@ def pairs_label(payload: dict) -> str:
 def _waits_for_program(params: dict) -> bool:
     """Whether the tasks of these params only start a program and wait for it, telling the engine
     of it: the engines that are programs. The Python bindings of Vina dock in the process itself,
-    and so may an engine registered from outside."""
+    and so may an engine registered from outside. A Vina binary that is not found here falls back
+    to the bindings in the task (`_vina_here`), which would hold the GIL of the app for the whole
+    dock: only a binary that resolves goes on a thread."""
     engine = str(params.get("engine") or "vina")
-    return engine in {"qvina", "gnina", "adgpu", "unidock"} or (engine == "vina" and str(params.get("vina_backend")) == "binary")
+    if engine == "vina":
+        command = str(params.get("vina_command") or "vina")
+        return str(params.get("vina_backend")) == "binary" and bool(
+            Path(command).expanduser().exists() or shutil.which(command))
+    return engine in {"qvina", "gnina", "adgpu", "unidock"}
 
 
 def _supersede(params: dict, config: dict) -> None:
