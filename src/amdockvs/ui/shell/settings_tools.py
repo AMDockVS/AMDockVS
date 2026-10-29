@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -103,6 +104,12 @@ class ExternalToolsPage(QWidget):
         intro.setWordWrap(True)
         root.addWidget(intro)
 
+        self.search = QLineEdit(self)
+        self.search.setPlaceholderText("Filter by name, purpose or category…")
+        self.search.setClearButtonEnabled(True)
+        self.search.textChanged.connect(self._filter)
+        root.addWidget(self.search)
+
         scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -111,8 +118,14 @@ class ExternalToolsPage(QWidget):
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(8)
         self._rows = {tool.tool_id: _ToolRow(tool, self) for tool in MANAGED_TOOLS}
-        for row in self._rows.values():
-            content_layout.addWidget(row)
+        self._headings: dict[str, QLabel] = {}
+        for category in dict.fromkeys(tool.category for tool in MANAGED_TOOLS):  # in the order first listed
+            heading = self._headings[category] = QLabel(f"<b>{category}</b>", content)
+            heading.setContentsMargins(0, 6, 0, 0)
+            content_layout.addWidget(heading)
+            for row in self._rows.values():
+                if row.tool.category == category:
+                    content_layout.addWidget(row)
         content_layout.addStretch(1)
         scroll.setWidget(content)
         root.addWidget(scroll, 1)
@@ -128,6 +141,26 @@ class ExternalToolsPage(QWidget):
         root.addLayout(actions)
 
         self.refresh()
+
+    def _filter(self, text: str) -> None:
+        words = text.lower().split()
+        for row in self._rows.values():
+            tool = row.tool
+            haystack = f"{tool.tool_id} {tool.label} {tool.purpose} {tool.category}".lower()
+            row.setVisible(all(word in haystack for word in words))
+        for category, heading in self._headings.items():
+            heading.setVisible(any(not row.isHidden() for row in self._rows.values() if row.tool.category == category))
+
+    def show_only(self, tool_id: str | None) -> None:
+        """Only the tool a panel sent the user here for, or all of them again; the filter box
+        says which, and clearing it brings the rest back."""
+        row = self._rows.get(tool_id or "")
+        self.search.setText(row.tool.label if row is not None else "")
+        if row is not None:  # the text alone matches more than it ("Vina" is in "QuickVina 2")
+            for other in self._rows.values():
+                other.setVisible(other is row)
+            for category, heading in self._headings.items():
+                heading.setVisible(category == row.tool.category)
 
     def refresh(self) -> None:
         run_async(

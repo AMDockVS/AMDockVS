@@ -429,10 +429,11 @@ class AMDockVSMainWindow(QMainWindow):
         corner_row.addWidget(theme_btn)
         menu_bar.setCornerWidget(corner, Qt.TopRightCorner)
 
-    def open_settings(self, *, node: str | None = None) -> None:
-        """Open the Settings dialog, on ``node`` when a feature panel points at its own page."""
+    def open_settings(self, *, node: str | None = None, tool: str | None = None) -> None:
+        """Open the Settings dialog, on ``node`` when a feature panel points at its own page;
+        ``tool`` leaves only that one in External tools."""
         if self._app_widget is not None:
-            self._app_widget.open_settings(node=node)
+            self._app_widget.open_settings(node=node, tool=tool)
 
     def _on_app_settings_saved(self) -> None:
         # Refresh what's open; saving settings shouldn't pop tabs the user didn't ask for.

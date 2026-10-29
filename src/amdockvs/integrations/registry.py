@@ -61,6 +61,7 @@ class ManagedTool:
     install_steps: Callable[[object], list[Step]]
     location: Callable[[object], Path]
     recipe: Callable[[object], Recipe] | None = None  # installed by ms_env, which also removes it
+    category: str = "Other"  # the heading Settings > External tools lists it under
 
 
 def _directory_size(path: Path) -> int:
@@ -134,7 +135,7 @@ def _protonation_steps(name: str) -> Callable[[object], list[Step]]:
 
 # --- Docking binaries installed from a recipe (Vina, QuickVina 2, AutoDock-GPU, ...) ---
 
-def _recipe_tool(name: str, recipe_for) -> ManagedTool:
+def _recipe_tool(name: str, recipe_for, category: str) -> ManagedTool:
     info = tool_spec(name).info
 
     def status(runtime) -> ToolStatus:
@@ -166,6 +167,7 @@ def _recipe_tool(name: str, recipe_for) -> ManagedTool:
         install_steps=lambda runtime: recipe_steps(recipe_for(runtime)),
         location=lambda runtime: Path(recipe_for(runtime).prefix),
         recipe=recipe_for,
+        category=category,
     )
 
 
@@ -178,6 +180,7 @@ MANAGED_TOOLS: tuple[ManagedTool, ...] = (
         status=_p2rank_status,
         install_steps=_p2rank_steps,
         location=lambda _runtime: p2rank_home(),
+        category="Binding sites",
     ),
     ManagedTool(
         tool_id="openbabel",
@@ -188,6 +191,7 @@ MANAGED_TOOLS: tuple[ManagedTool, ...] = (
         install_steps=_protonation_steps("openbabel"),
         location=lambda runtime: managed_prefix(runtime, "openbabel"),
         recipe=lambda runtime: protonation_recipe(runtime, "openbabel"),
+        category="Ligand preparation",
     ),
     ManagedTool(
         tool_id="pkasso",
@@ -198,14 +202,15 @@ MANAGED_TOOLS: tuple[ManagedTool, ...] = (
         install_steps=_protonation_steps("pkasso"),
         location=lambda runtime: managed_prefix(runtime, "pkasso"),
         recipe=lambda runtime: protonation_recipe(runtime, "pkasso"),
+        category="Ligand preparation",
     ),
-    _recipe_tool("vina", vina_recipe),
-    _recipe_tool("qvina", qvina_recipe),
-    _recipe_tool("adgpu", adgpu_recipe),
-    _recipe_tool("autogrid", autogrid_recipe),
-    _recipe_tool("gnina", gnina_recipe),
-    _recipe_tool("unidock", unidock_recipe),
-    _recipe_tool("ketcher", lambda runtime: tool_spec("ketcher").recipe(str(tools_home(runtime)))),
+    _recipe_tool("vina", vina_recipe, "Docking engines"),
+    _recipe_tool("qvina", qvina_recipe, "Docking engines"),
+    _recipe_tool("adgpu", adgpu_recipe, "Docking engines"),
+    _recipe_tool("autogrid", autogrid_recipe, "Docking preparation"),
+    _recipe_tool("gnina", gnina_recipe, "Docking engines"),
+    _recipe_tool("unidock", unidock_recipe, "Docking engines"),
+    _recipe_tool("ketcher", lambda runtime: tool_spec("ketcher").recipe(str(tools_home(runtime))), "Editors"),
 )
 
 
