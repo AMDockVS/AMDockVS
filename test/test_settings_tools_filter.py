@@ -1,7 +1,10 @@
 """Settings > External tools: grouped by category, filtered by text, narrowed to one tool."""
+import pytest
+
 # Before PySide6: its import hook breaks pydantic's lazy shim while ms_flow is being imported.
 from amdockvs.runtime import AMDockVSRuntime  # noqa: F401
 from PySide6.QtWidgets import QApplication
+import shiboken6
 
 
 def test_tools_are_grouped_filtered_and_narrowed_to_one(monkeypatch):
@@ -21,3 +24,28 @@ def test_tools_are_grouped_filtered_and_narrowed_to_one(monkeypatch):
     assert shown() == {"vina"} and page.search.text() == "AutoDock Vina"
     page.show_only(None)
     assert shown() == set(page._rows)
+
+
+@pytest.mark.parametrize("failed", [False, True])
+def test_status_reply_after_closing_settings_is_ignored(monkeypatch, failed):
+    from amdockvs.ui.shell import settings_tools
+
+    app = QApplication.instance() or QApplication([])
+    callbacks = {}
+    monkeypatch.setattr(
+        settings_tools, "run_async",
+        lambda work, done, on_error=None, **kwargs: callbacks.update(done=done, error=on_error),
+    )
+    page = settings_tools.ExternalToolsPage(runtime=None)
+    if failed:
+        reply = lambda: callbacks["error"](RuntimeError("status check failed"))
+        reply()
+        assert "status check failed" in next(iter(page._rows.values())).status_label.text()
+    else:
+        reply = lambda: callbacks["done"]([])
+        reply()
+        assert not page.install_all_button.isEnabled()
+
+    shiboken6.delete(page)
+    reply()
+    app.processEvents()
