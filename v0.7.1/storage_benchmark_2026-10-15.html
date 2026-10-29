@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Benchmark de almacenamiento de payloads — 2026-10-15</title>
+<style>
+.viz-root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface-1: #fcfcfb;
+  --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10);
+  --accent: #2a78d6; --context: #a3a19a;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) .viz-root {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface-1: #1a1a19;
+    --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+    --accent: #3987e5; --context: #6b6a65;
+  }
+}
+:root[data-theme="dark"] .viz-root {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface-1: #1a1a19;
+  --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+  --accent: #3987e5; --context: #6b6a65;
+}
+body { margin: 0; }
+.viz-root { background: var(--page); color: var(--text-primary); min-height: 100vh;
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 32px; box-sizing: border-box; }
+h1 { font-size: 22px; margin: 0 0 4px; font-weight: 600; }
+h2 { font-size: 17px; margin: 40px 0 4px; font-weight: 600; }
+.sub { color: var(--text-secondary); margin: 0 0 20px; max-width: 980px; }
+.controls { display: flex; gap: 8px; align-items: center; margin-bottom: 20px; }
+.controls button { font: inherit; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--surface-1); color: var(--text-primary); cursor: pointer; }
+.controls button[aria-pressed="true"] { border-color: var(--accent); }
+.legend { display: flex; gap: 16px; color: var(--text-secondary); margin-left: auto; }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+  margin-right: 6px; vertical-align: -1px; background: var(--c); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(460px, 1fr)); gap: 16px; }
+.card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 16px 16px 8px; }
+.card h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.card p { margin: 2px 0 8px; color: var(--text-muted); font-size: 12px; }
+svg text { font: 12px system-ui, -apple-system, "Segoe UI", sans-serif; }
+.tick { fill: var(--text-muted); font-variant-numeric: tabular-nums; }
+.rowlabel { fill: var(--text-secondary); }
+.value { fill: var(--text-primary); font-variant-numeric: tabular-nums; }
+.bar:focus { outline: none; }
+.bar:focus rect.mark, .bar:hover rect.mark { opacity: .8; }
+table { border-collapse: collapse; background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px;
+  overflow: hidden; font-variant-numeric: tabular-nums; }
+th, td { padding: 6px 12px; text-align: right; border-bottom: 1px solid var(--grid); }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--text-secondary); font-weight: 600; }
+tr.best td:first-child { font-weight: 600; }
+#tip { position: fixed; pointer-events: none; background: var(--surface-1); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 12px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.12); display: none; max-width: 280px; }
+#tip b { display: block; margin-bottom: 2px; }
+.notes { color: var(--text-secondary); max-width: 980px; }
+.notes li { margin: 4px 0; }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="viz-root">
+  <h1>¿Dónde guardar los payloads de cada molécula?</h1>
+  <p class="sub">100 000 moléculas, 320 000 payloads (original, current, pdbqt y pose para el 20 %), ~1.3 GB, NVMe, caché caliente.
+    En todas las gráficas, <b>menos es mejor</b>. Resaltada en azul la opción recomendada: índice en SQLite + volúmenes append-only (estilo SeaweedFS / Haystack).</p>
+
+  <div class="controls">
+    <button id="bt-chart" aria-pressed="true">Gráficas</button>
+    <button id="bt-table" aria-pressed="false">Tabla</button>
+    <div class="legend">
+      <span style="--c: var(--accent)">Índice + volúmenes append (recomendada)</span>
+      <span style="--c: var(--context)">Resto de opciones</span>
+    </div>
+  </div>
+
+  <div id="charts" class="grid"></div>
+  <div id="table" hidden></div>
+
+  <h2>¿Aguanta SQLite una fila por molécula a escala HTP?</h2>
+  <p class="sub">Tabla de índice con 10 columnas (propiedades + score + SMILES), escrita por lotes de 50 000 desde un solo escritor.</p>
+  <div id="index-table"></div>
+
+  <h2>Progresión 100k → 700k: Ringtail frente a volúmenes</h2>
+  <p class="sub">Segunda ronda (<code>bench2.py</code>): solo importar, ordenar/filtrar y acceder a moléculas; sin VACUUM, borrado ni copia.
+    Dos variantes por diseño: con fsync/WAL por defecto y con la misma durabilidad relajada (<code>synchronous=OFF</code>, caché 256 MB) para comparar en igualdad.
+    A 700k (9–11.5 GB) el proyecto ya no cabe en la caché de páginas: las gráficas son a 700k.</p>
+  <div class="controls">
+    <div class="legend" style="margin-left:0">
+      <span style="--c: var(--accent)">Índice + volúmenes</span>
+      <span style="--c: var(--context)">SQLite blobs (Ringtail)</span>
+    </div>
+  </div>
+  <div id="charts700" class="grid"></div>
+  <h2 style="margin-top:24px; font-size:15px">Progresión por métrica</h2>
+  <div id="prog-table"></div>
+
+  <h2>Análisis</h2>
+  <ul class="notes">
+    <li><b>Ringtail no es lento por diseño, sino por configuración.</b> Con la durabilidad por defecto (WAL + <code>synchronous=NORMAL</code>, checkpoint por lote) importa 700k en 427 s;
+      con <code>synchronous=OFF</code> y caché grande, en 204 s. La ventaja de 3× de la primera ronda era sobre todo eso.</li>
+    <li><b>En igualdad de condiciones, los volúmenes nunca pierden en lo que importa:</b> importar 1.4× (144 s vs 204 s), disco −21 % (9.1 vs 11.5 GB),
+      traer una molécula p50 1.7× (26 vs 45 µs), recorrer todo 1.3× (36 vs 49 s). Ordenar y filtrar es idéntico: es la misma tabla de índice.
+      Ringtail solo gana en re-preparar 5000 (0.16 vs 0.28 s), irrelevante.</li>
+    <li><b>Por qué:</b> un volumen escribe secuencialmente cada byte una vez; SQLite escribe cada página dos veces con WAL, desperdicia hueco en páginas de 4 KB
+      (un blob de 3 KB ocupa una página) y lee las poses de 20 KB recorriendo una cadena de páginas de desborde.
+      A 100k, con todo en RAM, la diferencia casi desaparece; aparece cuando manda el disco.</li>
+    <li><b>Los tiempos absolutos de 700k están limitados por el disco, no por el procesamiento:</b> el NVMe actual (XPG S40G, 95–98 % lleno) escribió a 43 MB/s con
+      <code>dd oflag=direct</code> (lectura 781 MB/s). Generar los payloads va a ≥460 MB/s. Repetir en el disco nuevo para números absolutos; lo relativo debería mantenerse o crecer a favor de los volúmenes.</li>
+    <li><b>¿Cuál es el estándar?</b> No hay uno único; ambos son patrones establecidos.
+      SQLite recomienda blobs internos por debajo de ~100 KB (<a href="https://www.sqlite.org/intern-v-extern-blob.html">intern-v-extern-blob</a>,
+      <a href="https://www.sqlite.org/fasterthanfs.html">fasterthanfs</a>, comparando contra un fichero por blob, no contra volúmenes).
+      Índice + volúmenes append-only es el patrón de los almacenes de objetos y KV: Haystack, SeaweedFS, Bitcask,
+      <a href="https://rocksdb.org/blog/2021/05/26/integrated-blob-db.html">RocksDB BlobDB</a>, <a href="https://usenix.org/system/files/conference/fast16/fast16-papers-lu.pdf">WiscKey</a>, packfiles de git.
+      En el dominio: <a href="https://github.com/forlilab/Ringtail">Ringtail</a> guarda coordenadas como texto en SQLite;
+      <a href="https://openfold.readthedocs.io/en/latest/OpenFold_Training_Setup.html">OpenFold <code>alignment_db</code></a> es casi idéntico a los volúmenes (ficheros concatenados + índice db/offset/length);
+      ATOM3D, OC20 y Uni-Mol usan LMDB; WebDataset y ZINC22 empaquetan en shards. No hay un benchmark independiente cara a cara a 1–30 KB; esta medición es la más específica disponible.</li>
+    <li><b>Lo que decide para AMDockVS no es la velocidad, es la variedad futura de datos:</b> SMILES generados (bytes) → PDBQT/poses (2–30 KB) → proteínas, anticuerpos y complejos mmCIF (100 KB–10 MB)
+      → embeddings de DrugCLIP/SPRINT (matrices N×512–1280) → rejillas y trayectorias (MB–GB). Con blobs haría falta un segundo mecanismo para lo grande;
+      con volúmenes, uno solo cubre de 2 KB a decenas de MB, y además permite que cada worker escriba su propio volumen y devuelva solo <code>(vol, off, len)</code>.</li>
+    <li><b>Modelo propuesto, tres niveles por forma del dato:</b>
+      (1) <i>filas</i> en SQLite para todo lo que se ordena o filtra, una por molécula en cualquier modo (adiós a la bifurcación VS/HTPVS de almacenamiento);
+      (2) <i>volúmenes</i> para payloads por entidad, con fila <code>(vol, off, len, codec)</code> y cabecera por aguja <code>(key, kind, len, checksum)</code> para reconstruir el índice si se pierde;
+      (3) <i>ficheros de array</i> (<code>.npy</code> / índice ANN) para embeddings y huellas. El <code>.mshard</code> queda como formato de transporte/HPC, si acaso.</li>
+    <li><b>El precio de los volúmenes:</b> compactación, detección de huérfanos (bytes escritos sin commit: cola inofensiva) y su prueba son código propio.
+      Las herramientas externas (Vina, gnina, PyMOL) siguen necesitando un fichero real: materialización temporal, igual con cualquier opción.
+      Dirección acordada el 2026-10-15; sin implementar.</li>
+  </ul>
+
+  <h2>Condiciones y límites</h2>
+  <ul class="notes">
+    <li>Caché de páginas caliente (el dataset cabe en RAM; no se puede vaciar sin root). En frío, HDD o FS de red, los ficheros sueltos empeoran.</li>
+    <li>«Ficheros en disco» usa escala logarítmica: va de 1 a 320 001.</li>
+    <li>Índice + <code>.mshard</code>: re-preparar necesita una tabla de <i>overrides</i> porque el shard es inmutable; recuperar espacio = reescribir todos los shards.</li>
+    <li>Volúmenes: «leer todo en orden» hace hoy un SELECT por lectura; pidiendo las referencias por rango debería acercarse a los 0.15 s del <code>.mshard</code>.</li>
+    <li>10M filas: el recuento Ro5 tardó 14 s porque el planificador eligió el índice de <code>mw</code>; se arregla con <code>ANALYZE</code> o <code>+mw</code>.</li>
+    <li>Primera ronda: caché caliente (100k). Segunda ronda: a 700k el dataset supera la caché disponible, por eso «recorrer todo» pasa de 0.7 s a 33–49 s.</li>
+    <li>Las gráficas de la primera ronda usan Ringtail con la durabilidad por defecto; ver la segunda ronda para la comparación en igualdad.</li>
+    <li>Scripts: <code>/tmp/bench_store_script/bench.py</code>, <code>bench2.py</code> e <code>index_scale.py</code>; resultados en <code>results_700k.jsonl</code>.</li>
+  </ul>
+  <div id="tip" role="tooltip"></div>
+</div>
+
+<script>
+const VARIANTS = [
+  { key: "F",   label: "Ficheros sueltos (hoy)" },
+  { key: "R",   label: "SQLite blobs (Ringtail)" },
+  { key: "R64", label: "SQLite blobs, pág. 64K" },
+  { key: "S",   label: "Índice + .mshard" },
+  { key: "H",   label: "Índice + volúmenes", best: true },
+];
+const RAW = {
+  F:   { files: 320001, import_s: 24.555, read_top1000_current_s: 0.029, stream_all_current_s: 2.671, parallel_8x10k_random_s: 0.508, update_5000_s: 0.375, delete_10pct_s: 2.82,  reclaim_s: 0,      copy_project_s: 26.037, rm_project_s: 7.149 },
+  R:   { files: 1,      import_s: 73.403, read_top1000_current_s: 0.017, stream_all_current_s: 0.698, parallel_8x10k_random_s: 0.216, update_5000_s: 0.611, delete_10pct_s: 6.138, reclaim_s: 74.146, copy_project_s: 2.298,  rm_project_s: 0.597 },
+  R64: { files: 1,      import_s: 73.226, read_top1000_current_s: 0.022, stream_all_current_s: 0.722, parallel_8x10k_random_s: 0.372, update_5000_s: 14.976, delete_10pct_s: 28.483, reclaim_s: 66.408, copy_project_s: 1.878, rm_project_s: 0.486 },
+  S:   { files: 401,    import_s: 41.491, read_top1000_current_s: 0.067, stream_all_current_s: 0.151, parallel_8x10k_random_s: 0.33,  update_5000_s: 0.568, delete_10pct_s: 0.355, reclaim_s: 41.648, copy_project_s: 0.933,  rm_project_s: 0.249 },
+  H:   { files: 6,      import_s: 28.93,  read_top1000_current_s: 0.019, stream_all_current_s: 0.712, parallel_8x10k_random_s: 0.217, update_5000_s: 1.028, delete_10pct_s: 0.824, reclaim_s: 4.33,   copy_project_s: 0.872,  rm_project_s: 0.226 },
+};
+const fmtS = v => v >= 10 ? v.toFixed(0) + " s" : v >= 1 ? v.toFixed(1) + " s" : (v * 1000).toFixed(0) + " ms";
+const fmtN = v => v.toLocaleString("es");
+const PANELS = [
+  { title: "Ficheros en disco", sub: "inodos que ocupa el proyecto · escala log", get: r => r.files, fmt: fmtN, log: true },
+  { title: "Importar", sub: "escribir payloads + índice, un solo escritor por lotes", get: r => r.import_s, fmt: fmtS },
+  { title: "Borrar 10 % y recuperar espacio", sub: "borrado + VACUUM / compactación / reescritura", get: r => r.delete_10pct_s + r.reclaim_s, fmt: fmtS,
+    detail: r => `borrar ${fmtS(r.delete_10pct_s)} + recuperar ${fmtS(r.reclaim_s)}` },
+  { title: "Copiar el proyecto", sub: "copytree tras sync (backup, mover, rsync)", get: r => r.copy_project_s, fmt: fmtS,
+    detail: r => `borrar el proyecto: ${fmtS(r.rm_project_s)}` },
+  { title: "Leer todos los «current» en orden", sub: "lo que hace un job de preparación o docking", get: r => r.stream_all_current_s, fmt: fmtS },
+  { title: "80 000 lecturas aleatorias, 8 procesos", sub: "workers leyendo en paralelo", get: r => r.parallel_8x10k_random_s, fmt: fmtS },
+  { title: "Leer el top-1000 tras filtrar", sub: "SQL filtra y ordena; luego se leen los payloads", get: r => r.read_top1000_current_s, fmt: fmtS },
+  { title: "Re-preparar 5 000 moléculas", sub: "sustituir el payload «current»", get: r => r.update_5000_s, fmt: fmtS },
+];
+
+const NS = "http://www.w3.org/2000/svg";
+const el = (tag, attrs = {}, parent) => {
+  const n = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+  if (parent) parent.appendChild(n);
+  return n;
+};
+const tip = document.getElementById("tip");
+function showTip(evt, html) {
+  tip.innerHTML = html; tip.style.display = "block";
+  const r = evt.target.getBoundingClientRect ? evt.target.getBoundingClientRect() : null;
+  const x = evt.clientX ?? (r.left + r.width), y = evt.clientY ?? r.top;
+  tip.style.left = Math.min(x + 12, innerWidth - tip.offsetWidth - 8) + "px";
+  tip.style.top = (y + 12) + "px";
+}
+const hideTip = () => tip.style.display = "none";
+
+function niceTicks(max) {
+  const step0 = max / 4, mag = 10 ** Math.floor(Math.log10(step0));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => s >= step0);
+  const ticks = []; for (let t = 0; t <= max + 1e-9; t += step) ticks.push(t);
+  if (ticks[ticks.length - 1] < max) ticks.push(ticks[ticks.length - 1] + step);
+  return ticks;
+}
+
+function drawPanel(p, VARIANTS = window.VARIANTS0, RAW = window.RAW0) {
+  const card = document.createElement("div"); card.className = "card";
+  card.innerHTML = `<h3>${p.title}</h3><p>${p.sub}</p>`;
+  const W = 440, L = 150, R = 64, T = 4, ROW = 30, BAR = 18, AX = 22;
+  const H = T + ROW * VARIANTS.length + AX;
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, width: "100%", role: "img", "aria-label": p.title }, card);
+  const vals = VARIANTS.map(v => p.get(RAW[v.key]));
+  const plotW = W - L - R;
+  let x, ticks;
+  if (p.log) {
+    const maxExp = Math.ceil(Math.log10(Math.max(...vals)));
+    ticks = Array.from({ length: maxExp + 1 }, (_, i) => 10 ** i);
+    x = v => L + (Math.log10(Math.max(v, 1)) / maxExp) * plotW;
+  } else {
+    ticks = niceTicks(Math.max(...vals));
+    const max = ticks[ticks.length - 1];
+    x = v => L + (v / max) * plotW;
+  }
+  const yEnd = T + ROW * VARIANTS.length;
+  for (const t of ticks) {
+    el("line", { x1: x(t), x2: x(t), y1: T, y2: yEnd, stroke: "var(--grid)", "stroke-width": 1 }, svg);
+    const lbl = p.log ? (t >= 1e6 ? t / 1e6 + "M" : t >= 1000 ? t / 1000 + "K" : t) : (p.fmt === fmtS ? (t >= 1 || t === 0 ? +t.toFixed(2) + "" : (t * 1000).toFixed(0) + "ms") : t);
+    el("text", { x: x(t), y: yEnd + 15, "text-anchor": "middle", class: "tick" }, svg).textContent = lbl;
+  }
+  el("line", { x1: L, x2: L, y1: T, y2: yEnd, stroke: "var(--axis)", "stroke-width": 1 }, svg);
+  VARIANTS.forEach((v, i) => {
+    const val = vals[i], y0 = T + i * ROW + (ROW - BAR) / 2;
+    const g = el("g", { class: "bar", tabindex: 0, "aria-label": `${v.label}: ${p.fmt(val)}` }, svg);
+    el("rect", { x: 0, y: T + i * ROW, width: W, height: ROW, fill: "transparent" }, g); // hit target = full row
+    el("text", { x: L - 8, y: y0 + BAR / 2 + 4, "text-anchor": "end", class: "rowlabel",
+      "font-weight": v.best ? 600 : 400 }, g).textContent = v.label;
+    const w = Math.max(x(val) - L, 1), r = Math.min(4, w / 2);
+    // square at the baseline, 4px rounded data-end
+    el("path", { class: "mark", fill: v.best ? "var(--accent)" : "var(--context)",
+      d: `M${L},${y0} H${L + w - r} Q${L + w},${y0} ${L + w},${y0 + r} V${y0 + BAR - r} Q${L + w},${y0 + BAR} ${L + w - r},${y0 + BAR} H${L} Z` }, g)
+      .classList.add("mark");
+    el("text", { x: L + w + 6, y: y0 + BAR / 2 + 4, class: "value" }, g).textContent = p.fmt(val);
+    const html = `<b>${v.label}</b>${p.title}: ${p.fmt(val)}${p.detail ? "<br>" + p.detail(RAW[v.key]) : ""}`;
+    g.addEventListener("mousemove", e => showTip(e, html));
+    g.addEventListener("mouseleave", hideTip);
+    g.addEventListener("focus", e => { const b = g.getBoundingClientRect(); showTip({ clientX: b.left + L, clientY: b.top }, html); });
+    g.addEventListener("blur", hideTip);
+  });
+  return card;
+}
+
+window.VARIANTS0 = VARIANTS; window.RAW0 = RAW;
+const charts = document.getElementById("charts");
+PANELS.forEach(p => charts.appendChild(drawPanel(p)));
+
+// table view twin
+const tbl = document.createElement("table");
+tbl.innerHTML = `<thead><tr><th>Métrica (menos es mejor)</th>${VARIANTS.map(v => `<th>${v.label}</th>`).join("")}</tr></thead>` +
+  "<tbody>" + PANELS.map(p => `<tr><td>${p.title}</td>${VARIANTS.map(v => {
+    const r = RAW[v.key]; return `<td>${p.fmt(p.get(r))}${p.detail ? `<br><small>${p.detail(r)}</small>` : ""}</td>`;
+  }).join("")}</tr>`).join("") + "</tbody>";
+document.getElementById("table").appendChild(tbl);
+
+const toggle = showTable => {
+  document.getElementById("charts").hidden = showTable;
+  document.getElementById("table").hidden = !showTable;
+  document.getElementById("bt-chart").setAttribute("aria-pressed", !showTable);
+  document.getElementById("bt-table").setAttribute("aria-pressed", showTable);
+};
+document.getElementById("bt-chart").onclick = () => toggle(false);
+document.getElementById("bt-table").onclick = () => toggle(true);
+
+// index scale
+const IDX = [
+  ["Tamaño de la DB", "110 MB", "1.1 GB"],
+  ["Insertar (lotes de 50k)", "3.4 s", "33 s"],
+  ["Crear 2 índices", "1.3 s", "13 s"],
+  ["Top-1000 por score filtrado (indexado)", "6 ms", "8 ms"],
+  ["Página ordenada por mw, offset 1M (indexado)", "12 ms", "12 ms"],
+  ["Ordenar por columna sin índice (escaneo completo)", "87 ms", "0.86 s"],
+  ["Recuento Ro5 (planificador eligió mal el índice)", "0.92 s", "14 s"],
+];
+const it = document.createElement("table");
+it.innerHTML = "<thead><tr><th>Operación</th><th>1M filas</th><th>10M filas</th></tr></thead><tbody>" +
+  IDX.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join("") + "</tbody>";
+document.getElementById("index-table").appendChild(it);
+
+// second round: 100k -> 700k, Ringtail vs volumes
+const V2 = [
+  { key: "HT", label: "Volúmenes, sync off", best: true },
+  { key: "H",  label: "Volúmenes, fsync", best: true },
+  { key: "RT", label: "Ringtail, sync off" },
+  { key: "R",  label: "Ringtail, por defecto" },
+];
+const R2 = {
+  "HT_100": {import_s: 2.765, size_mb: 1299, query_top1000_s: 0.003, sort_unindexed_logp_top1000_s: 0.01, count_filter_s: 0.006, open_and_get_mol_x_ms: 0.25, get_mol_p50_us: 21.611, get_mol_p99_us: 34.721, read_top1000_current_s: 0.008, stream_all_current_s: 0.675, parallel_8x10k_random_s: 0.208, update_5000_s: 0.612},
+  "H_100": {import_s: 41.313, size_mb: 1299, query_top1000_s: 0.006, sort_unindexed_logp_top1000_s: 0.009, count_filter_s: 0.006, open_and_get_mol_x_ms: 0.263, get_mol_p50_us: 21.001, get_mol_p99_us: 34.631, read_top1000_current_s: 0.018, stream_all_current_s: 0.67, parallel_8x10k_random_s: 0.212, update_5000_s: 0.625},
+  "RT_100": {import_s: 5.104, size_mb: 1649, query_top1000_s: 0.003, sort_unindexed_logp_top1000_s: 0.01, count_filter_s: 0.006, open_and_get_mol_x_ms: 0.229, get_mol_p50_us: 21.471, get_mol_p99_us: 36.331, read_top1000_current_s: 0.008, stream_all_current_s: 0.658, parallel_8x10k_random_s: 0.217, update_5000_s: 2.101},
+  "R_100": {import_s: 57.807, size_mb: 1647, query_top1000_s: 0.006, sort_unindexed_logp_top1000_s: 0.01, count_filter_s: 0.006, open_and_get_mol_x_ms: 0.24, get_mol_p50_us: 21.261, get_mol_p99_us: 36.311, read_top1000_current_s: 0.015, stream_all_current_s: 0.671, parallel_8x10k_random_s: 0.214, update_5000_s: 0.46},
+  "HT_700": {import_s: 143.9, size_mb: 9099, query_top1000_s: 0.885, sort_unindexed_logp_top1000_s: 0.235, count_filter_s: 0.044, open_and_get_mol_x_ms: 0.365, get_mol_p50_us: 26.121, get_mol_p99_us: 609.021, read_top1000_current_s: 1.07, stream_all_current_s: 36.501, parallel_8x10k_random_s: 0.556, update_5000_s: 0.284},
+  "H_700": {import_s: 274.82, size_mb: 9099, query_top1000_s: 0.082, sort_unindexed_logp_top1000_s: 0.147, count_filter_s: 0.045, open_and_get_mol_x_ms: 0.388, get_mol_p50_us: 24.5, get_mol_p99_us: 555.815, read_top1000_current_s: 0.834, stream_all_current_s: 32.533, parallel_8x10k_random_s: 0.465, update_5000_s: 0.282},
+  "RT_700": {import_s: 203.79, size_mb: 11548, query_top1000_s: 0.276, sort_unindexed_logp_top1000_s: 0.192, count_filter_s: 0.041, open_and_get_mol_x_ms: 0.352, get_mol_p50_us: 44.71, get_mol_p99_us: 579.971, read_top1000_current_s: 1.103, stream_all_current_s: 48.656, parallel_8x10k_random_s: 0.61, update_5000_s: 0.158},
+  "R_700": {import_s: 427.38, size_mb: 11534, query_top1000_s: 0.615, sort_unindexed_logp_top1000_s: 0.197, count_filter_s: 0.044, open_and_get_mol_x_ms: 0.227, get_mol_p50_us: 44.46, get_mol_p99_us: 543.289, read_top1000_current_s: 0.736, stream_all_current_s: 38.27, parallel_8x10k_random_s: 0.627, update_5000_s: 0.154},
+};
+const fmtUs = v => v >= 1000 ? (v / 1000).toFixed(2) + " ms" : v.toFixed(0) + " µs";
+const fmtMb = v => v >= 1000 ? (v / 1000).toFixed(1) + " GB" : v + " MB";
+const P2 = [
+  { title: "Importar", sub: "payloads + índice, un solo escritor por lotes de 1000", get: r => r.import_s, fmt: fmtS },
+  { title: "Tamaño en disco", sub: "mismo contenido", get: r => r.size_mb, fmt: fmtMb },
+  { title: "Traer la molécula X (p50)", sub: "todos sus payloads por id; 2000 moléculas al azar", get: r => r.get_mol_p50_us, fmt: fmtUs,
+    detail: r => `p99: ${fmtUs(r.get_mol_p99_us)} · abrir proyecto + primera molécula: ${r.open_and_get_mol_x_ms.toFixed(2)} ms` },
+  { title: "Leer todos los «current» en orden", sub: "un job de preparación o docking", get: r => r.stream_all_current_s, fmt: fmtS },
+  { title: "Ordenar por columna sin índice", sub: "WHERE mw<500 ORDER BY logp LIMIT 1000 (solo SQL)", get: r => r.sort_unindexed_logp_top1000_s, fmt: fmtS,
+    detail: r => `recuento filtrado: ${fmtS(r.count_filter_s)}` },
+  { title: "80 000 lecturas aleatorias, 8 procesos", sub: "workers leyendo en paralelo", get: r => r.parallel_8x10k_random_s, fmt: fmtS },
+  { title: "Leer el top-1000 tras filtrar", sub: "SQL filtra y ordena; luego se leen los payloads", get: r => r.read_top1000_current_s, fmt: fmtS },
+  { title: "Re-preparar 5 000 moléculas", sub: "sustituir el payload «current»", get: r => r.update_5000_s, fmt: fmtS },
+];
+const R700 = Object.fromEntries(V2.map(v => [v.key, R2[v.key + "_700"]]));
+const c700 = document.getElementById("charts700");
+P2.forEach(p => c700.appendChild(drawPanel(p, V2, R700)));
+
+const pt = document.createElement("table");
+pt.innerHTML = `<thead><tr><th>Métrica (menos es mejor)</th>${V2.map(v => `<th>${v.label}<br><small>100k → 700k</small></th>`).join("")}</tr></thead><tbody>` +
+  P2.map(p => `<tr><td>${p.title}</td>${V2.map(v =>
+    `<td>${p.fmt(p.get(R2[v.key + "_100"]))} → ${p.fmt(p.get(R2[v.key + "_700"]))}</td>`).join("")}</tr>`).join("") + "</tbody>";
+document.getElementById("prog-table").appendChild(pt);
+</script>
+</body>
+</html>

@@ -1,0 +1,1011 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Virtual screening, molecular preparation, QSAR, and docking with MolSuite.">
+      
+      
+        <meta name="author" content="AMDockVS authors">
+      
+      
+        <link rel="canonical" href="https://amdockvs.github.io/AMDockVS/latest/esquema_propuesto_2026-10-24/">
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../images/favicon.svg">
+      <meta name="generator" content="zensical-0.0.73">
+    
+    
+      
+        <title>Esquema propuesto (fase 1) — 2026-10-24 - AMDockVS</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../assets/stylesheets/modern/main.4ab2de0c.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../assets/stylesheets/modern/palette.b60ce83d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-hidden="true"></label>
+    <div data-md-component="skip">
+      <a href="#__skip" class="md-skip">
+        Skip to content
+      </a>
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="./.." title="AMDockVS" class="md-header__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+      <span class="md-visually-hidden">Navigation</span>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AMDockVS
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Esquema propuesto (fase 1) — 2026-10-24
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+          <span class="md-visually-hidden">Search</span>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="./.." title="AMDockVS" class="md-nav__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    AMDockVS
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../runtime_api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API guide
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../data_and_export/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Data and export
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Examples
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-importacion-y-moleculas" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1. Importación y moléculas
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-preparacion-y-docking" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        2. Preparación y docking
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-cribado-shards" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        3. Cribado (shards)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-analisis-y-ms_flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        4. Análisis y ms_flow
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-codes" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        5. <code>codes</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#orden-de-implementacion-fase-1-un-commit-por-punto-en-dbsqlite" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Orden de implementación (fase 1, un commit por punto en db/sqlite)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+              
+              <article class="md-content__inner md-typeset">
+                <a id="__skip" tabindex="-1"></a>
+                
+                  
+
+  
+  
+
+
+<h1 id="esquema-propuesto-fase-1-2026-10-24">Esquema propuesto (fase 1) — 2026-10-24<a class="headerlink" href="#esquema-propuesto-fase-1-2026-10-24" title="Permanent link">&para;</a></h1>
+<p>Propuesta acordada con Mario; nada implementado. Proyectos nuevos solamente: no hay migración.</p>
+<p>Leyenda en los atributos:
+- <code>code</code> = FK entera a <code>codes</code> (ver §5);
+- <strong>(fecha)</strong> = la tabla conserva sus fechas: es corrida, job o <code>projects</code>;
+- la lista "Se va" de cada sección es lo que desaparece respecto al esquema actual.</p>
+<h2 id="1-importacion-y-moleculas">1. Importación y moléculas<a class="headerlink" href="#1-importacion-y-moleculas" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code>erDiagram
+    project_job_index ||--o{ import_batches : "job_id"
+    import_batches ||--o{ molecules : "import_batch_id"
+    import_batches ||--o{ screening_shards : "import_batch_id"
+    ms_volumes ||--o{ ms_payloads : "volume_id"
+    ms_payloads ||--o{ molecules : "stored / current / properties / extra"
+    molecules ||--o{ molecule_models : "molecule_id"
+    ms_payloads ||--o{ molecule_models : "payload (group part) / data"
+    molecules ||--o{ molecule_representations : "molecule_id"
+    molecules ||--o{ binding_sites : "molecule_id"
+    codes ||--o{ molecules : "molecule_type, usage_class"
+
+    import_batches {
+        int id PK
+        text source "download URL; local path when local"
+        text quick_hash "size + first 1 MB + last 1 MB"
+        int n_records "records read (last index + 1)"
+        int n_imported "rows written"
+        int format "code: file_format"
+        int kind "code: rows | shards"
+        text job_id "no FK: the job index lives in the master db"
+        json extra "import options, old 'context'"
+        datetime created_at "(fecha)"
+    }
+    molecules {
+        int id PK
+        text name "no index: searches run async"
+        int import_batch_id FK
+        int source_index "position in the batch"
+        int molecule_type "code"
+        int usage_class "code"
+        bool is_receptor
+        bool is_ligand
+        int stored_payload_id FK
+        int current_payload_id FK "NULL = stored; may be a part of a model group"
+        int properties_payload_id FK "SDF tags of the batch (Parquet)"
+        int extra_payload_id FK "NULL when empty"
+        real descriptors "mw, logp, hbd, hba, tpsa, ... unchanged"
+        int ro5_violations "int, computed in SQL"
+        bool has_3d_has_hs_is_minimized
+        bool excluded
+        text exclusion_reason
+        bool in_set
+    }
+    molecule_models {
+        int id PK "order = id"
+        int molecule_id FK
+        int payload_id FK "a part of the step's PayloadGroup"
+        int source "code: model_source"
+        int data_payload_id FK "JSON: energy, plddt, ptm, PAE, ...; NULL if none"
+    }
+    molecule_representations {
+        int molecule_id PK "PK (molecule_id, repr_type) WITHOUT ROWID"
+        int repr_type PK "code: smiles_canonical, inchikey, sequence_aa, sequence_nt, target, selfies"
+        text value "index (repr_type, value) for dedup"
+    }
+    binding_sites {
+        int id PK
+        int molecule_id FK
+        int source "code"
+        bool is_active "UNIQUE(molecule_id) WHERE is_active"
+    }
+</code></pre></div>
+<p><strong>Se va de <code>molecules</code>:</strong>
+- <code>created_at</code>, <code>updated_at</code>, <code>source</code>, <code>input_format</code>, <code>primary_context</code>: los cubre el lote;
+- <code>current_model_index</code>: el modelo activo es el que tiene <code>payload_id = current_payload_id</code>;
+- <code>has_activity</code>: pasa a ser un <code>EXISTS</code> sobre <code>ligand_activities</code>;
+- <code>active_binding_site_id</code>: pasa a <code>binding_sites.is_active</code>;
+- <code>canonical_smiles</code> e <code>inchikey</code>: pasan a representaciones;
+- <code>extra_data</code>: se reparte así:
+  - <code>smiles</code> y <code>sequence_1d</code>: eran duplicados y se eliminan;
+  - <code>flexible_residues</code>: pasa a <code>receptor_preps</code>;
+  - el resto: pasa a <code>extra_payload_id</code>.</p>
+<p><strong>Se van como tablas:</strong> <code>molecule_source_properties</code> (muerta desde el payload Parquet de propiedades).</p>
+<p><strong>Modelos:</strong> cada paso que genera varios modelos de una molécula (conformeros, modelos ESMFold/AF, NMR) los escribe como un solo <code>PayloadGroup</code>, para que compriman juntos, como las poses. El modelo actual no se duplica: leerlo descomprime su grupo, que cuesta &lt; 1 ms con 20 conformeros y ~2 ms con 5 modelos de proteína. Un paso con un solo modelo escribe un payload normal.</p>
+<p><strong>Diana:</strong> <code>repr_type = 'target'</code> (UniProt, ChEMBL o un nombre), solo cuando aplica. Un polímero o un nanotubo no lleva fila. El cross-docking agrupa receptores por ese valor.</p>
+<p><strong>¿Ya se importó?</strong>
+1. Al empezar se calcula <code>quick_hash</code>, unos 2 ms para cualquier tamaño, y se busca un lote con ese mismo hash.
+2. Si existe y <code>n_records</code> coincide → importación completa: se avisa y no se escribe nada salvo que el usuario lo fuerce.
+3. Si existe con <code>n_records</code> menor → importación parcial: se avisa. Reanudar queda para después.</p>
+<p><strong>Implementado (paso 6):</strong></p>
+<ul>
+<li>El lote se registra al enviar el job (<code>LoaderAPI</code> → <code>io/batches.py::register_batches</code>), no dentro de él: el job lleva <code>import_batch_ids</code> (ruta resuelta → id) en sus params, así que un job reanudado escribe en los mismos lotes. <code>stamp_job</code> pone <code>job_id</code> tras el envío.</li>
+<li><code>job_id</code> es texto sin FK: <code>project_job_index</code> vive en la base maestra, no en <code>project.db</code>.</li>
+<li>Duplicado: solo si el hash coincide se cuentan los registros del archivo (<code>count_import_records</code>). Completo → <code>DuplicateImportError</code>, salvo <code>force=True</code>; la UI pregunta antes de enviar (<code>confirm_reimport</code>). Parcial → entra sin preguntar.</li>
+<li>El <code>finalize</code> del job (<code>finish_import</code>) cuenta lo escrito: <code>n_imported</code> = filas en <code>molecules</code>, o la suma de <code>n_records</code> de los shards; <code>n_records</code> = el conteo exacto si el job terminó, o el último <code>source_index + 1</code> si no.</li>
+<li><code>context</code>, <code>role</code> y las opciones van en <code>extra</code>. El formato del shard sale del tipo de payload del <code>.mshard</code>.</li>
+<li>Los hits de shards se llaman <code>&lt;stem del lote&gt;:&lt;record id&gt;</code> (<code>library_names</code>), y la reutilización de hits ya promovidos usa <code>(import_batch_id, source_index)</code>.</li>
+<li>Catálogo: Source/Format son subconsultas sobre el lote (<code>batch_columns</code>), ordenables pero no filtrables: un filtro sobre una expresión no tiene forma <code>QuerySpec</code>. Se filtra por la columna oculta <code>import_batch_id</code>.</li>
+<li>Filas y shards conviven (Mario, 2026-10-25): se quitó <code>check_library_target</code>, y una importación de filas en un proyecto con shards ya no se marca <code>reference</code> sola.</li>
+<li>Sin migración: un proyecto anterior se vuelve a importar.</li>
+</ul>
+<p><strong>Implementado (pasos 7-8):</strong></p>
+<ul>
+<li>Modelo activo: el que tiene <code>payload_id = molecule_payload_id(molecule)</code>, es decir <code>current_payload_id</code> o, si es NULL, <code>stored_payload_id</code> (paso 2).</li>
+<li><code>has_activity</code> es una subconsulta <code>EXISTS</code> sobre <code>ligand_activities</code>, ordenable en el catálogo.</li>
+<li><code>binding_sites.is_active</code> con índice único parcial <code>uq_binding_site_active</code>; activar un sitio apaga los demás de la molécula en la misma transacción.</li>
+<li>Identidad (<code>inchikey</code>, <code>smiles_canonical</code>) en <code>molecule_representations</code>, PK <code>(molecule_id, repr_type)</code> WITHOUT ROWID; el import, el job de alertas, la edición y <code>select_fragment</code> escriben esas filas (upsert).</li>
+<li><code>extra_data</code> pierde <code>smiles</code> y <code>sequence_1d</code>. El SMILES de un hit promovido desde un shard va como <code>smiles_isomeric</code>.</li>
+<li><strong>Aplazado:</strong> <code>extra_data</code> → <code>extra_payload_id</code>. Toca ~24 archivos, y una fila de librería ya guarda <code>{}</code>, así que el ahorro es pequeño. Se hace cuando moleste.</li>
+<li><code>molecule_models</code> pierde <code>model_index</code>, <code>energy</code>, <code>metrics</code> y <code>pae_payload_id</code>: el orden es el <code>id</code>. <code>energy</code> nunca se escribía. ESMFold guarda métricas + PAE (lista) en <code>data_payload_id</code> como JSON, que el panel de detalles muestra sin el PAE.</li>
+<li>Un ensamble de conformeros es un <code>PayloadGroup</code> (<code>sdf</code>, una parte por conformero); el modelo actual es la primera parte. Un paso con un solo modelo (protonar, ESMFold) escribe un payload normal.</li>
+</ul>
+<h2 id="2-preparacion-y-docking">2. Preparación y docking<a class="headerlink" href="#2-preparacion-y-docking" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code>erDiagram
+    codes ||--o{ receptor_preps : "family"
+    codes ||--o{ ligand_preps : "family"
+    codes ||--o{ shard_preps : "family"
+    molecules ||--o{ receptor_preps : "receptor"
+    molecules ||--o{ ligand_preps : "ligand (rows mode)"
+    screening_shards ||--o{ shard_preps : "shard (shards mode)"
+    ms_payloads ||--o{ receptor_preps : "rigid / flex"
+    ms_payloads ||--o{ ligand_preps : "payload"
+    docking_runs ||--o{ docking_results : "docking_run_id"
+    molecules ||--o{ docking_results : "receptor / ligand"
+    ms_payloads ||--o{ docking_results : "pose (group part)"
+    ms_payloads ||--o{ interaction_results : "pose"
+    molecules ||--o{ ligand_activities : "ligand"
+    ligand_activities |o--o{ complexes : "activity_id"
+    molecules ||--o{ complexes : "receptor / ligand"
+    binding_sites |o--o{ complexes : "binding_site_id"
+
+    receptor_preps {
+        int id PK "UNIQUE(receptor_molecule_id, family)"
+        int receptor_molecule_id FK
+        int family "code: ad4, dock6, ..."
+        int rigid_payload_id FK
+        int flex_payload_id FK "NULL = rigid only"
+        text flex_residues "from extra_data"
+        json files "engine extras; few rows"
+        text error "NULL = ready"
+    }
+    ligand_preps {
+        int molecule_id PK "PK (molecule_id, family) WITHOUT ROWID"
+        int family PK
+        int payload_id FK "NULL = failed"
+        text error "NULL = ok"
+    }
+    shard_preps {
+        int shard_id PK "PK (shard_id, family); row exists = prepared"
+        int family PK
+        int n_records "written"
+        int n_failed "&gt; 0 = partial; detail in the failure log beside the shard"
+    }
+    docking_runs {
+        int id PK
+        text run_id
+        int engine "code"
+        int run_kind "code"
+        text protocol_hash
+        text protocol_label
+        json protocol
+        datetime created_at "(fecha)"
+    }
+    docking_results {
+        int id PK
+        int docking_run_id FK
+        int receptor_molecule_id FK
+        int ligand_molecule_id FK
+        int pose_payload_id FK
+        real score
+        int score_type "code"
+        int status "code"
+    }
+    ligand_activities {
+        int id PK
+        int molecule_id FK
+        text target "NULL = general"
+        real value
+        int activity_type "code"
+        int unit "code"
+        int kind "code"
+        text source
+    }
+    complexes {
+        int id PK
+        int receptor_molecule_id FK
+        int ligand_molecule_id FK
+        int binding_site_id FK
+        int activity_id FK
+        int purpose "code"
+    }
+</code></pre></div>
+<p><strong>Preparación:</strong>
+- Se registra por familia (<code>ProgramSpec.preparation_engine</code>): Vina, QuickVina, gnina y AutoDock-GPU comparten <code>ad4</code>.
+- <strong>Bypass:</strong> las familias con <code>requires_*_preparation = False</code> (DiffDock, Boltz, ESMFold…) no crean filas; el docking lee el SMILES o la secuencia del payload almacenado.
+- <strong>Rejillas:</strong> no tienen tabla. "Rejilla lista" significa que el receptor tiene un sitio activo, y los mapas AD4 se generan por tarea.</p>
+<p><strong>Se va:</strong>
+- <code>engines</code>: sustituida por <code>receptor_preps</code> y <code>ligand_preps</code>;
+- <code>shard_engine_states</code>: sustituida por <code>shard_preps</code>. Su ruta se deriva (<code>&lt;carpeta del shard&gt;/prepared_&lt;familia&gt;/&lt;mismo nombre&gt;</code>); <code>is_ready</code>, <code>files</code> y <code>error</code> desaparecen;
+- <code>consensus_scores</code>;
+- las fechas de <code>engines</code>, <code>complexes</code>, <code>ligand_activities</code> e <code>interaction_results</code>.</p>
+<p><strong>Actividades:</strong> una misma fila sirve a la vez para QSAR general, para QSAR/LBVS por diana (filtrando <code>target</code>) y para los complejos (redocking o evaluación de programas). Distinguir un uso de otro corresponde a los filtros de cada herramienta; se analiza más adelante.</p>
+<p><strong>Implementado (paso 9):</strong></p>
+<ul>
+<li>Una fila de preparación por (molécula, familia). <code>family</code> es un <code>code</code> (<code>prep_family</code>); el motor de docking se resuelve a su familia con <code>get_docking_program(engine).preparation_engine</code>.</li>
+<li><code>receptor_preps</code>: <code>rigid_payload_id</code>, <code>flex_payload_id</code>, <code>flex_residues</code> (la selección de cadenas laterales flexibles, que una re-preparación conserva) y <code>error</code>. El JSON <code>files</code> desaparece. <code>clear_derived</code> borra también la selección flexible.</li>
+<li><code>ligand_preps</code> es WITHOUT ROWID, PK <code>(molecule_id, family)</code>: lista = <code>payload_id</code> no NULL; si falla, NULL con <code>error</code>.</li>
+<li><code>shard_preps</code>: una fila por shard preparado, con la ruta derivada.</li>
+<li>Sin migración: un proyecto anterior se vuelve a preparar.</li>
+</ul>
+<h2 id="3-cribado-shards">3. Cribado (shards)<a class="headerlink" href="#3-cribado-shards" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code>erDiagram
+    import_batches ||--o{ screening_shards : "import_batch_id"
+    shard_generations ||--o{ shard_generations : "parent_id"
+    shard_generations ||--o{ screening_shards : "generation_id"
+    screening_dispatches |o--o{ screening_shards : "dispatch_id"
+    docking_runs ||--o{ screening_targets : "run (int FK)"
+    docking_runs ||--o{ screening_shard_runs : "run (int FK)"
+    screening_shards ||--o{ screening_shard_runs : "shard_id"
+
+    screening_shards {
+        int id PK
+        int generation_id FK
+        int import_batch_id FK
+        int shard_index
+        text path
+        int n_records
+        int dispatch_id FK
+    }
+    shard_generations {
+        int id PK
+        int parent_id FK
+        int step "code"
+        text shard_dir
+        int job_id
+        bool is_active
+        datetime created_at "(fecha)"
+    }
+    screening_dispatches {
+        int id PK
+        text path
+        int bytes
+        int state "code"
+        int n_shards_returned
+        text note
+        datetime submitted_at "(fecha)"
+        datetime updated_at "(fecha)"
+    }
+    screening_targets {
+        int id PK
+        int docking_run_id FK
+        int receptor_molecule_id "no FK on purpose: history survives a deleted receptor"
+        text receptor_name
+        int engine "code"
+        int ligands_total
+        int ligands_done
+        int hits "passed the prefilter"
+        int imported "NEW: rows materialized (top-N)"
+        int state "code"
+    }
+    screening_shard_runs {
+        int id PK
+        int docking_run_id FK
+        int shard_id FK
+        int receptor_molecule_id
+        int engine "code"
+        text protocol_hash
+        int ligands_scored
+        int hits
+        text result_path
+        int state "code"
+        text error
+    }
+</code></pre></div>
+<p><strong>Se va de <code>screening_shards</code>:</strong> <code>source</code> e <code>input_format</code> (pasan al lote), <code>state</code> (<code>set_shard_state</code> no tiene llamadas: nunca cambia) y las fechas.
+<strong>Se va de <code>screening_targets</code> y <code>screening_shard_runs</code>:</strong> las fechas (la corrida ya tiene la suya) y el <code>run_id</code> de texto, que pasa a FK entera.</p>
+<p><strong>Hits:</strong>
+- Solo existe el top-N ranked: los N mejores <strong>por receptor</strong>, elegidos al final de la corrida desde los fragmentos. Si la corrida se cancela, <code>recover_ranked_hits</code> recupera un top-N parcial.
+- El modo umbral (los primeros N que pasan) se elimina. El umbral queda solo como prefiltro opcional.
+- Tope de la UI: <strong>10.000</strong> (antes 1.000.000).</p>
+<p><strong>Tareas de docking:</strong>
+- Una tarea toma uno o más shards <strong>completos</strong> y escribe un fragmento por cada (shard de entrada, receptor). Nunca se parte un shard.
+- El número de shards por tarea es solo un ajuste de reparto de trabajo.
+- El número de archivos se controla con el tamaño de shard al importar y con la compactación de la fase 3.</p>
+<p><strong>Cancelación a mitad:</strong>
+- Ni el shard preparado ni el fragmento de resultados quedan como hechos. Los archivos se escriben como <code>.tmp</code> y se renombran al cerrar.
+- La fila o el recibo se escriben después del archivo.
+- Ventana restante: si el archivo se cerró pero la fila seguía en el buffer del sink, el shard se rehace y sobrescribe el archivo con el mismo contenido.</p>
+<p><strong>Implementado (pasos 10-11):</strong></p>
+<ul>
+<li><code>screening_targets</code> y <code>screening_shard_runs</code> llevan <code>docking_run_id</code> (FK a <code>docking_runs.id</code>): un envío con dos protocolos ya no comparte filas de diana. <code>find_docking_run(...)</code> (<code>docking/results/repository.py</code>) encuentra la corrida; <code>docking_run_id(...)</code> la crea.</li>
+<li><code>screening_targets.imported</code> cuenta los hits materializados como filas.</li>
+<li><code>screening_shards.state</code> y <code>ShardState</code> fuera.</li>
+<li>Solo top-N: el umbral es un prefiltro (por defecto 0,0) y el tope de la UI es 10.000. El modo umbral/streaming y su techo se eliminaron. <code>ShardHitWriter</code> solo materializa hits sobre la marcha en el embudo off-target (<code>selected_from_receptor_id</code>).</li>
+<li><code>shards.hit_cap</code> y <code>DEFAULT_HIT_SAFETY_CAP</code> quedan en la config sin uso: la config es <code>extra="forbid"</code> y quitarlos rompería las configs guardadas.</li>
+<li>Paso 11: <code>consensus_scores</code> y <code>molecule_source_properties</code> fuera. Las propiedades de origen siempre van al payload Parquet (se quitó la variable <code>AMDOCK_OFFLOAD_IMPORT_PROPERTIES</code>).</li>
+</ul>
+<h2 id="4-analisis-y-ms_flow">4. Análisis y ms_flow<a class="headerlink" href="#4-analisis-y-ms_flow" title="Permanent link">&para;</a></h2>
+<p>Las relaciones no cambian. Las fechas solo se quedan en las corridas:</p>
+<table>
+<thead>
+<tr>
+<th>Tabla</th>
+<th>Fechas</th>
+<th>Categóricas → <code>code</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>clustering_runs</code></td>
+<td>se quedan</td>
+<td><code>method</code></td>
+</tr>
+<tr>
+<td><code>qsar_models</code></td>
+<td>se quedan</td>
+<td><code>algorithm</code>, <code>feature_type</code></td>
+</tr>
+<tr>
+<td><code>clustering_results</code>, <code>similarity_results</code>, <code>fingerprint_records</code>, <code>descriptor_blocks</code>, <code>descriptor_schemas</code>, <code>qsar_predictions</code>, <code>molecule_sets</code>, <code>molecule_set_members</code></td>
+<td>se van</td>
+<td><code>molecule_sets.purpose</code></td>
+</tr>
+<tr>
+<td>ms_flow <code>projects</code>, <code>project_job_index</code>, <code>project_operation_runs</code></td>
+<td>se quedan</td>
+<td>—</td>
+</tr>
+<tr>
+<td>ms_flow <code>project_artifacts</code>, <code>project_artifact_capabilities</code>, <code>ms_volumes</code>, <code>ms_payload_dicts</code></td>
+<td>se van</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<h2 id="5-codes">5. <code>codes</code><a class="headerlink" href="#5-codes" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code>codes(id INTEGER PRIMARY KEY, domain TEXT, name TEXT, UNIQUE(domain, name))
+</code></pre></div>
+<ul>
+<li>Se siembra desde <code>core/vocab.py</code> al crear el proyecto y se carga a un dict al abrirlo, así que las consultas de la app no pagan ningún join.</li>
+<li>Python resuelve siempre por <code>(domain, name)</code> y nunca escribe enteros a mano. Cada proyecto lleva su propio mapa.</li>
+<li>Un valor nuevo es un <code>INSERT</code> al abrir el proyecto, sin migración.</li>
+<li>Hace que el <code>.db</code> sea legible desde fuera (web, pandas, DuckDB).</li>
+<li>La FK no impide guardar un código de otro dominio en la columna equivocada. Eso lo evita que la app solo resuelva códigos dentro del dominio de cada columna.</li>
+</ul>
+<p><strong>Implementado (paso 5):</strong></p>
+<ul>
+<li>El mapa es estático: <code>vocab.CODES</code> es el mismo en todos los proyectos y solo se le añade al final de cada dominio; un id nunca se renumera ni se reutiliza. No hace falta cargar nada al abrir el proyecto. <code>codes</code> se siembra con <code>after_create</code> y <code>ensure_codes</code> añade al abrir lo que falte.</li>
+<li><code>models/codes.py::CodeType</code> (TypeDecorator) convierte nombre ↔ id: '' se guarda NULL, un nombre desconocido lanza <code>ValueError</code>. ms_flow aplica el tipo en filtros y lecturas declarativas (<code>QuerySpec</code>, subconsultas incluidas). En SQL crudo se usan <code>code_id(domain, name)</code> y <code>code_name_sql(column)</code>.</li>
+<li>Se quedan en texto: <code>activity_type</code> y <code>unit</code>, que son endpoints que define el usuario, y <code>shard_generations.step</code>, que es una etiqueta compuesta (<code>protonate+3d</code>).</li>
+<li>Pasan a otro paso: <code>file_format</code> e <code>import_kind</code> (paso 6, <code>import_batches</code>), <code>prep_family</code> (paso 9) y <code>result_status</code> (no existe columna: se deriva de <code>score IS NULL</code>).</li>
+<li><code>clustering_method</code> incluye <code>bitbirch</code>, el único método registrado hoy.</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Dominio</th>
+<th>Columnas</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>molecule_type</code></td>
+<td><code>molecules.molecule_type</code></td>
+</tr>
+<tr>
+<td><code>usage_class</code></td>
+<td><code>molecules.usage_class</code></td>
+</tr>
+<tr>
+<td><code>file_format</code></td>
+<td><code>import_batches.format</code></td>
+</tr>
+<tr>
+<td><code>import_kind</code></td>
+<td><code>import_batches.kind</code></td>
+</tr>
+<tr>
+<td><code>model_source</code></td>
+<td><code>molecule_models.source</code></td>
+</tr>
+<tr>
+<td><code>repr_type</code></td>
+<td><code>molecule_representations.repr_type</code></td>
+</tr>
+<tr>
+<td><code>binding_site_source</code></td>
+<td><code>binding_sites.source</code></td>
+</tr>
+<tr>
+<td><code>prep_family</code></td>
+<td><code>receptor_preps.family</code>, <code>ligand_preps.family</code>, <code>shard_preps.family</code></td>
+</tr>
+<tr>
+<td><code>engine</code></td>
+<td><code>docking_runs.engine</code>, <code>screening_targets.engine</code>, <code>screening_shard_runs.engine</code></td>
+</tr>
+<tr>
+<td><code>run_kind</code></td>
+<td><code>docking_runs.run_kind</code></td>
+</tr>
+<tr>
+<td><code>score_type</code>, <code>result_status</code></td>
+<td><code>docking_results</code></td>
+</tr>
+<tr>
+<td><code>activity_type</code>, <code>activity_unit</code>, <code>activity_kind</code></td>
+<td><code>ligand_activities</code></td>
+</tr>
+<tr>
+<td><code>complex_purpose</code></td>
+<td><code>complexes.purpose</code></td>
+</tr>
+<tr>
+<td><code>run_state</code>, <code>dispatch_state</code></td>
+<td><code>screening_targets</code> / <code>screening_shard_runs</code>, <code>screening_dispatches</code></td>
+</tr>
+<tr>
+<td><code>generation_step</code></td>
+<td><code>shard_generations.step</code></td>
+</tr>
+<tr>
+<td><code>clustering_method</code>, <code>qsar_algorithm</code>, <code>feature_type</code>, <code>set_purpose</code></td>
+<td>análisis</td>
+</tr>
+</tbody>
+</table>
+<h2 id="orden-de-implementacion-fase-1-un-commit-por-punto-en-dbsqlite">Orden de implementación (fase 1, un commit por punto en db/sqlite)<a class="headerlink" href="#orden-de-implementacion-fase-1-un-commit-por-punto-en-dbsqlite" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Índices: quitar <code>ix_molecules_name</code>; índices parciales para current/properties. <code>ix_molecules_usage_class</code> se queda: sin él una página por rol ordena la tabla entera (medido: 0,1 ms → 65 ms en 1M filas).</li>
+<li><code>current_payload_id</code> NULL = stored.</li>
+<li>Ro5 en SQL.</li>
+<li>Fechas fuera (diálogos de fallos devuelven ids; <code>engines</code> ordenado por id; columnas de fecha de la UI fuera).</li>
+<li><code>codes</code> + columnas categóricas a entero.</li>
+<li><code>import_batches</code> (+ <code>quick_hash</code>, aviso de duplicado) y las columnas de origen fuera de <code>molecules</code> / <code>screening_shards</code>.</li>
+<li><code>molecules</code> adelgaza: <code>current_model_index</code>, <code>has_activity</code>, <code>active_binding_site_id</code> → <code>binding_sites.is_active</code>, identidad → representaciones, <code>extra_data</code> → <code>extra_payload_id</code>.</li>
+<li>Modelos: <code>PayloadGroup</code> por paso + <code>data_payload_id</code>.</li>
+<li>Preparación: <code>receptor_preps</code> / <code>ligand_preps</code> / <code>shard_preps</code>; fuera <code>engines</code> y <code>shard_engine_states</code>.</li>
+<li>Cribado: <code>run_id</code> → FK entera, <code>imported</code>, fuera <code>screening_shards.state</code>; solo top-N con tope 10k.</li>
+<li>Bajas: <code>consensus_scores</code>, <code>molecule_source_properties</code>.</li>
+</ol>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 AMDockVS authors
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["content.code.copy","navigation.footer","navigation.path","navigation.sections","navigation.top","search.highlight","search.suggest"],"redirect":null,"search":"../assets/javascripts/workers/search.c47bb847.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"provider":"mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.77dd0ce9.min.js"></script>
+      
+    
+  </body>
+</html>
