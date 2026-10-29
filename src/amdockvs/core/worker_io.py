@@ -12,7 +12,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from ms_flow.engine import Dir, File, launched
+from ms_flow.engine import Dir, File
 
 from amdockvs.core.paths import get_default_project_root
 
@@ -95,9 +95,5 @@ __all__ = [
 
 
 def run_program(command: list[str], **options) -> subprocess.CompletedProcess:
-    """`subprocess.run` keeping what the program wrote, and telling the engine of it: when the
-    task is on a thread of the engine's process, the program is all a cancel can stop."""
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, **options)
-    launched(process)
-    output, errors = process.communicate()
-    return subprocess.CompletedProcess(command, process.returncode, output, errors)
+    """`subprocess.run` keeping what the program wrote."""
+    return subprocess.run(command, capture_output=True, text=True, **options)

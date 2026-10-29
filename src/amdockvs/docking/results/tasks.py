@@ -10,7 +10,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from ms_flow.engine import launched
 
 from amdockvs.core.rows import interaction_rows
 
@@ -24,7 +23,6 @@ def detect_interactions(work: list[tuple[bytes, bytes, str]]) -> list[list[dict]
         return []
     program = subprocess.Popen([sys.executable, "-m", "amdockvs.docking.results.interactions"],
                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    launched(program)
     out, err = program.communicate(pickle.dumps(work))
     if program.returncode:
         raise RuntimeError(f"Interaction detection exited with {program.returncode}: "
