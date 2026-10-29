@@ -10,7 +10,7 @@ import sys
 import time
 
 
-def main(root, *, cancel_during_preview=False, native=False):
+def main(root, *, cancel_during_preview=False, native=False, slow_submission=False):
     root.mkdir(parents=True, exist_ok=True)
     os.environ.update(AMDOCK_HOME=str(root / "amdock"), MOLSUITE_HOME=str(root / "molsuite"),
                       AMDOCK_CCD_CACHE=str(root / "ccd"))
@@ -19,7 +19,7 @@ def main(root, *, cancel_during_preview=False, native=False):
     else:
         os.environ.update(QT_QPA_PLATFORM="offscreen", AMDOCK_DISABLE_PYMOL="1")
     from amdockvs.runtime import AMDockVSRuntime
-    from PySide6.QtCore import QTimer, Qt
+    from PySide6.QtCore import QPoint, QTimer, Qt
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import (QApplication, QDialog, QDialogButtonBox, QDockWidget,
                                   QFileDialog, QLineEdit, QMessageBox, QPushButton)
@@ -54,6 +54,9 @@ def main(root, *, cancel_during_preview=False, native=False):
         window.resize(width, height)
         app.processEvents()
         window.grab().save(str(root / f"welcome-{width}.png"))
+    if native:
+        window.resize(1920, 936)
+        app.processEvents()
     # Give the form a temporary default without browsing or touching the user's projects.
     from ms_components.ms_projects.browser import ProjectFormDialog
     original_form_init = ProjectFormDialog.__init__
@@ -114,7 +117,23 @@ def main(root, *, cancel_during_preview=False, native=False):
             clicked.add(index)
             # Catalog Import enters QDialog.exec(). Schedule outside this timer
             # callback so subsequent ticks can operate that modal dialog.
-            QTimer.singleShot(0, lambda: QTest.mouseClick(button, Qt.LeftButton, pos=pos or button.rect().center()))
+            def perform_click():
+                if index == 6:
+                    run_clicked_at = time.monotonic()
+                    def check_after_run():
+                        try:
+                            elapsed = time.monotonic() - run_clicked_at
+                            assert elapsed < 4.5, f"UI did not respond for {elapsed:.1f} seconds"
+                            assert not window.tools_dock.isVisible()
+                            assert window.central_widget.mapTo(window, QPoint()).x() < 150
+                            window.grab().save(str(root / "after-run-2.5s.png"))
+                            seen.add("after-run-2.5s")
+                        except Exception as exc:
+                            errors.append(str(exc))
+                            app.quit()
+                    QTimer.singleShot(2500, check_after_run)
+                QTest.mouseClick(button, Qt.LeftButton, pos=pos or button.rect().center())
+            QTimer.singleShot(0, perform_click)
 
     def tick():
         nonlocal inspection_started
@@ -152,7 +171,10 @@ def main(root, *, cancel_during_preview=False, native=False):
                         QTest.keyClick(form.name_input, Qt.Key_Return)
                     elif target is form.save_button:
                         form.grab().save(str(root / "project-ready.png"))
-                        click(target, "project-save")
+                        if "project-save" not in clicked:
+                            assert QApplication.focusWidget() is form.save_button
+                            clicked.add("project-save")
+                            QTimer.singleShot(0, lambda: QTest.keyClick(form.save_button, Qt.Key_Return))
                 elif "project-open" not in clicked:
                     click(target, "project-open")
                 elif "project-new" not in clicked:
@@ -183,10 +205,32 @@ def main(root, *, cancel_during_preview=False, native=False):
                 stats = runtime.docking.result_stats()
                 if errors:
                     print(errors, file=sys.stderr, flush=True)
+                    raise RuntimeError("Docking submission failed")
+                if stats.completed_results != 1:
+                    if messages == ["Tutorial completed"]:
+                        from amdockvs.ui.view_ids import COMPLEXES_VIEW_ID
+
+                        assert not window.tools_dock.isVisible()
+                        assert window.central_widget.current_view_id() == COMPLEXES_VIEW_ID
+                        assert window.central_widget.mapTo(window, QPoint()).x() < 150, "Hidden Docking Studio left an empty column"
+                        if "finished-before-result" not in seen:
+                            window.grab().save(str(root / "submitting.png"))
+                        seen.add("finished-before-result")
+                    return
+                if "after-run-2.5s" not in seen:
+                    return
+                if slow_submission:
+                    assert "finished-before-result" in seen, "Tutorial did not finish before the calculation"
+                assert not window.tools_dock.isVisible(), "Docking Studio should close after submission"
                 if native:
                     from amdockvs.ui.view_ids import COMPLEXES_VIEW_ID
 
-                    results = window.central_widget.open_view(COMPLEXES_VIEW_ID).stack.currentWidget()
+                    results_view = window.central_widget.open_view(COMPLEXES_VIEW_ID)
+                    results = results_view.stack.currentWidget()
+                    if "refresh-completed-results" not in seen:
+                        seen.add("refresh-completed-results")
+                        results_view.refresh()
+                        return
                     state = {"receptor": results._selected_receptor_id, "ligand": results._selected_ligand_id,
                              "program": results.protocol_combo.currentData(),
                              "counts": {name: getattr(results, f"{name}_table").record_total
@@ -322,7 +366,7 @@ def main(root, *, cancel_during_preview=False, native=False):
                                            (*tutorial.example["grid_center"], *tutorial.example["grid_size"])):
                         spin.setFocus()
                         QTest.keyClick(spin, Qt.Key_A, Qt.ControlModifier)
-                        QTest.keyClicks(spin, spin.locale().toString(float(value), "f", 2))
+                        QTest.keyClicks(spin, spin.locale().toString(int(value)))
                         QTest.keyClick(spin, Qt.Key_Tab)
                     grid.grab().save(str(root / "box-values.png"))
                 elif "box-saved" not in clicked:
@@ -333,6 +377,13 @@ def main(root, *, cancel_during_preview=False, native=False):
                 else:
                     click(tutorial.studio.prepare_receptor_button, index)
             elif index == 6 and "Ready to run" in tutorial.studio.check_status_label.text():
+                if slow_submission and "slow-submission" not in seen:
+                    seen.add("slow-submission")
+                    submit = tutorial.studio._submit_docking
+                    def delayed_submit(*args, **kwargs):
+                        time.sleep(5)
+                        return submit(*args, **kwargs)
+                    tutorial.studio._submit_docking = delayed_submit
                 click(tutorial.studio.run_button, index)
         except Exception:
             import traceback
@@ -361,4 +412,4 @@ def main(root, *, cancel_during_preview=False, native=False):
 
 if __name__ == "__main__":
     raise SystemExit(main(Path(sys.argv[1]).resolve(), cancel_during_preview="--cancel-during-preview" in sys.argv[2:],
-                         native="--native" in sys.argv[2:]))
+                         native="--native" in sys.argv[2:], slow_submission="--slow-submission" in sys.argv[2:]))

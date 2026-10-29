@@ -12,12 +12,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from amdockvs.runtime import AMDockVSRuntime
 from PySide6.QtTest import QTest
-from PySide6.QtCore import QLocale, Qt, QThread, QTimer
-from PySide6.QtWidgets import QApplication, QDialog, QDockWidget, QFileDialog, QFrame, QMessageBox, QTableWidgetItem
+from PySide6.QtCore import QEvent, QLocale, QObject, Qt, QThread, QTimer
+from PySide6.QtWidgets import QApplication, QDialog, QDockWidget, QFileDialog, QFrame, QLineEdit, QMessageBox, QPushButton, QTableWidgetItem
 from amdockvs.ui.docking_tutorial import copy_example_inputs, example_data, start_simple_docking_tutorial
 from amdockvs.ui.main_window import AMDockVSMainWindow
 from amdockvs.ui.shell.tutorials_panel import TutorialsPanel
-from amdockvs.ui.view_ids import DOCKING_VIEW_ID
+from amdockvs.ui.view_ids import COMPLEXES_VIEW_ID, DOCKING_VIEW_ID
 
 
 def create_practice_project(runtime, parent):
@@ -42,6 +42,27 @@ def wait_until(app, predicate):
             return
         QTest.qWait(10)
     pytest.fail("Tutorial did not reach the expected state")
+
+
+def assert_tutorial_blocks_tab(target):
+    class KeyObserver(QObject):
+        def __init__(self):
+            super().__init__()
+            self.keys = []
+
+        def eventFilter(self, watched, event):
+            if event.type() == QEvent.Type.KeyPress and event.key() in (Qt.Key_Tab, Qt.Key_Backtab):
+                self.keys.append(event.key())
+            return False
+
+    observer = KeyObserver()
+    target.installEventFilter(observer)
+    try:
+        QTest.keyClick(target, Qt.Key_Tab)
+        QTest.keyClick(target, Qt.Key_Tab, Qt.ShiftModifier)
+        assert not observer.keys
+    finally:
+        target.removeEventFilter(observer)
 
 
 def test_tutorial_panel_starts_a_tutorial():
@@ -150,6 +171,7 @@ def submit_import(tutorial, role, jobs, monkeypatch):
     assert not dialog.import_button.isEnabled()
     add_button = tutorial.controller.targets[role].widget()
     assert add_button.text() == "Add files"
+    assert_tutorial_blocks_tab(add_button)
     # Cancelling the chooser must leave the dialog empty and keep this substep.
     monkeypatch.setattr(QFileDialog, "getOpenFileNames", lambda *args, **kwargs: ([], ""))
     QTest.mouseClick(add_button, Qt.LeftButton)
@@ -168,7 +190,7 @@ def submit_import(tutorial, role, jobs, monkeypatch):
     monkeypatch.setattr(dialog, "workflow_submit", lambda **_: (lambda _rt: jobs, "Import"))
     monkeypatch.setattr(tutorial.runtime.loader, "duplicate_imports", lambda _: [])
     dialog.import_button.click()
-    deadline = time.monotonic() + 10  # the duplicate check and the submit run off the GUI thread
+    deadline = time.monotonic() + 10
     while dialog.isVisible() and time.monotonic() < deadline:
         app.processEvents()
         time.sleep(0.01)
@@ -224,6 +246,12 @@ def test_seven_steps_wait_for_successful_jobs_and_prepared_data(practice, monkey
     assert tutorial.dialogs == {}  # starting the tutorial must not open an import dialog
     seen = [tutorial.controller.current_step.id]
     tutorial.controller.step_changed.connect(lambda step, _: seen.append(step))
+    tab_checked = [tutorial.controller.current_step.id]
+    assert_tutorial_blocks_tab(tutorial.controller._target)
+    def check_tab(step, _index):
+        assert_tutorial_blocks_tab(tutorial.controller._target)
+        tab_checked.append(step)
+    tutorial.controller.step_changed.connect(check_tab)
     # Check stage readiness synchronously here; GUI/queued signal transitions stay real.
     import amdockvs.ui.docking_tutorial as module
     monkeypatch.setattr(module, "run_async", lambda fn, done, on_error=None: done(fn()))
@@ -294,7 +322,8 @@ def test_seven_steps_wait_for_successful_jobs_and_prepared_data(practice, monkey
     for spin in (grid.cx, grid.cy, grid.cz, grid.sx, grid.sy, grid.sz):
         spin.setLocale(QLocale(QLocale.Language.Spanish, QLocale.Country.Colombia))
     # The box values are written the way the spin boxes parse them.
-    assert "18,93 / -14,91 / -23,05" in tutorial._instruction(tutorial.controller.current_step)
+    assert "19 / -15 / -23" in tutorial._instruction(tutorial.controller.current_step)
+    assert "22 / 22 / 22" in tutorial._instruction(tutorial.controller.current_step)
     for spin, value in zip((grid.cx, grid.cy, grid.cz, grid.sx, grid.sy, grid.sz),
                            (*tutorial.example["grid_center"], *tutorial.example["grid_size"])):
         spin.setValue(value)
@@ -304,14 +333,16 @@ def test_seven_steps_wait_for_successful_jobs_and_prepared_data(practice, monkey
     wait_until(app, lambda: tutorial._grid_ready)
     tutorial.studio.receptor_prep_jobs.finished.emit("completed")
     wait_until(app, lambda: tutorial.controller.index == 6)
-    tutorial._track("docking", ["dock-1"])
-    monkeypatch.setattr(runtime.docking, "result_stats", lambda: SimpleNamespace(completed_results=1))
-    tutorial._job_finished("dock-1", "completed")
+    tutorial.studio.docking_submission_started.emit()
     wait_until(app, lambda: not tutorial.controller.is_active)
+    assert not window.tools_dock.isVisible()
+    assert window.central_widget.current_view_id() == COMPLEXES_VIEW_ID
+    wait_until(app, lambda: bool(messages))
     assert messages == ["Tutorial completed"]
     assert seen == ["load-receptor", "load-ligand", "load-receptor", "load-ligand",
                     "docking-studio", "programs", "prepare-ligand",
                     "prepare-receptor", "run-docking"]
+    assert tab_checked == seen
 
 
 def test_cancel_disconnects_and_ignores_late_job_submission(practice, monkeypatch):
@@ -328,6 +359,47 @@ def test_cancel_disconnects_and_ignores_late_job_submission(practice, monkeypatc
     assert not tutorial.controller.is_active and tutorial.pending == {}
     assert not tutorial.dialogs["receptor"].isVisible()
     assert messages == []
+
+
+def test_tab_is_restored_after_tutorial_closes(practice):
+    app, _runtime, window, _messages = practice
+    tutorial = start_simple_docking_tutorial(window)
+    target = tutorial.controller._target
+    assert_tutorial_blocks_tab(target)
+    chooser = QFileDialog(window)
+    chooser.setOption(QFileDialog.Option.DontUseNativeDialog)
+    chooser.show()
+    app.processEvents()
+    filename = chooser.findChild(QLineEdit, "fileNameEdit")
+    assert filename is not None
+    assert_tutorial_blocks_tab(filename)
+    chooser.close()
+    tutorial.controller.stop()
+    button = QPushButton("Ordinary control")
+    button.show()
+    app.processEvents()
+    keys = []
+    class KeyObserver(QObject):
+        def eventFilter(self, watched, event):
+            if event.type() == QEvent.Type.KeyPress:
+                keys.append(event.key())
+            return False
+    observer = KeyObserver()
+    button.installEventFilter(observer)
+    QTest.keyClick(button, Qt.Key_Tab)
+    assert keys == [Qt.Key_Tab]
+    button.close()
+
+
+def test_tutorial_close_requires_a_click(practice):
+    _app, _runtime, window, _messages = practice
+    tutorial = start_simple_docking_tutorial(window)
+    close = tutorial.controller.overlay.exit_button
+    for key in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space, Qt.Key_Escape):
+        QTest.keyClick(close, key)
+        assert tutorial.controller.is_active
+    QTest.mouseClick(close, Qt.LeftButton)
+    assert not tutorial.controller.is_active
 
 
 def test_import_finishing_while_on_the_previous_step_is_not_lost(practice, monkeypatch):
@@ -434,7 +506,7 @@ def test_identical_copies_are_accepted_and_wrong_contents_can_be_removed(practic
     tutorial.controller.stop()
 
 
-@pytest.mark.parametrize("commit_key", [Qt.Key_Tab, Qt.Key_Return, Qt.Key_Enter])
+@pytest.mark.parametrize("commit_key", [Qt.Key_Return, Qt.Key_Enter])
 def test_welcome_tutorial_waits_for_user_project_creation(tmp_path, monkeypatch, commit_key):
     monkeypatch.setenv("AMDOCK_HOME", str(tmp_path / "amdock"))
     monkeypatch.setenv("MOLSUITE_HOME", str(tmp_path / "molsuite"))
@@ -462,14 +534,26 @@ def test_welcome_tutorial_waits_for_user_project_creation(tmp_path, monkeypatch,
         app.processEvents()
         form = tutorial._project_form
         assert tutorial._project_target() is form.name_input
+        form.activateWindow()
         form.name_input.setFocus()
+        app.processEvents()
         QTest.keyClicks(form.name_input, "Practice")
+        QTest.keyClick(form.name_input, Qt.Key_Tab)
+        form.name_input.editingFinished.emit()
+        app.processEvents()
+        assert tutorial._project_target() is form.name_input
+        assert not tutorial._project_name_entered
         QTest.keyClick(form.name_input, commit_key)
         app.processEvents()
         assert tutorial._project_target() is form.save_button
+        assert QApplication.focusWidget() is form.save_button
         assert form.isVisible()
         assert runtime.active_context is None
         assert "Click Save" in tutorial._instruction(tutorial.controller.current_step)
+        QTest.keyClick(QApplication.focusWidget(), Qt.Key_Return)
+        app.processEvents()
+        assert form.result() == QDialog.Accepted
+        assert tutorial.controller.is_active
         tutorial.controller.stop()
         assert runtime.active_context is None
     finally:
@@ -478,10 +562,11 @@ def test_welcome_tutorial_waits_for_user_project_creation(tmp_path, monkeypatch,
         app.processEvents()
 
 
-def test_close_control_follows_the_tutorial_into_import_dialog(practice):
+def test_close_control_follows_the_tutorial_into_import_dialog(practice, monkeypatch):
     app, _runtime, window, _messages = practice
     tutorial = start_simple_docking_tutorial(window)
     wait_until(app, tutorial.import_buttons["receptor"].isVisible)
+    monkeypatch.setattr(QApplication, "activeWindow", lambda: None)
     tutorial.import_buttons["receptor"].click()
     app.processEvents()
     dialog = tutorial.dialogs["receptor"]
