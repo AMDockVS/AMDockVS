@@ -67,7 +67,6 @@ class SimpleDockingTutorial(QObject):
     ligand_loaded = Signal()
     ligand_prepared = Signal()
     receptor_prepared = Signal()
-    docking_finished = Signal()
 
     def __init__(self, window):
         super().__init__(window)
@@ -120,8 +119,9 @@ class SimpleDockingTutorial(QObject):
                     and self.studio._ligand_type() == "small_molecule"),
             "ligand_prepared": TutorialEvent(self.ligand_prepared, is_complete=lambda: "prepare_ligand" in self.completed_stages),
             "receptor_prepared": TutorialEvent(self.receptor_prepared, is_complete=lambda: "prepare_receptor" in self.completed_stages),
-            "docking_finished": TutorialEvent(self.docking_finished, is_complete=lambda: "docking" in self.completed_stages),
-        }, parent=self, instruction_provider=self._instruction, dim_background=False, close_only=True)
+            "docking_started": TutorialEvent(lambda: self.studio.docking_submission_started),
+        }, parent=self, instruction_provider=self._instruction, dim_background=False, close_only=True,
+           click_only_close=True, block_tab=True)
         self.controller.step_changed.connect(lambda *_: setattr(self, "_feedback", ""))
         self.controller.finished.connect(self._finish)
         self.controller.cancelled.connect(self._cleanup)
@@ -159,7 +159,7 @@ class SimpleDockingTutorial(QObject):
             TutorialStep("run-docking", "run", "7. Run docking",
                 "Review Preview & Run: one prepared ligand and one prepared receptor. "
                 "Once the checks say Ready to run, click Run Docking. "
-                "Wait for the calculation to complete; its poses and scores appear in Docking Results.", "docking_finished"),
+                "The tutorial ends when submission starts; poses and scores appear in Docking Results when the calculation finishes.", "docking_started"),
         )
         if project_steps:
             from dataclasses import replace
@@ -183,7 +183,6 @@ class SimpleDockingTutorial(QObject):
         self._project_form = form
         self._project_name_entered = False
         form.name_input.installEventFilter(self)
-        form.name_committed.connect(self._project_name_finished)
         form.finished.connect(self.controller.refresh)
         QTimer.singleShot(0, self.controller.refresh)
 
@@ -228,14 +227,15 @@ class SimpleDockingTutorial(QObject):
     def eventFilter(self, watched, event):
         form = self._project_form
         if (form is not None and watched is form.name_input and self.controller.is_active
-                and event.type() == QEvent.Type.KeyPress
-                and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)):
-            name = form.name_input.text().strip()
-            if name:
-                self._project_name_finished(name)
-                form.save_button.setFocus()
-                self.controller.refresh()
-            return True
+                and event.type() == QEvent.Type.KeyPress):
+            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                name = form.name_input.text().strip()
+                if name:
+                    self._project_name_finished(name)
+                    self.controller.refresh()
+                    if self.controller.is_active:
+                        form.save_button.setFocus()
+                return True
         return super().eventFilter(watched, event)
 
     def _import_target(self, role):
@@ -311,7 +311,6 @@ class SimpleDockingTutorial(QObject):
             self.studio = self.window.tools.widgets[DOCKING_VIEW_ID]
             self.studio.ligand_prep_jobs.finished.connect(lambda status: self._prepared("ligand", status))
             self.studio.receptor_prep_jobs.finished.connect(lambda status: self._prepared("receptor", status))
-            self.studio.docking_submitted.connect(lambda jobs: self._track("docking", jobs))
             grid = self.window.grid_dock
             if grid is not None:
                 grid.binding_site_changed.connect(self._grid_changed)
@@ -369,8 +368,7 @@ class SimpleDockingTutorial(QObject):
 
     def _run_target(self):
         if not self.studio.isVisible():
-            return (self.window.central_widget if "docking" in self.pending
-                    else self.window.tools.action_buttons[DOCKING_VIEW_ID])
+            return self.window.tools.action_buttons[DOCKING_VIEW_ID]
         return self.studio.run_button if self.studio.stepper.current_index == 3 else self.studio.stepper
 
     def _grid_changed(self, *_):
@@ -405,7 +403,7 @@ class SimpleDockingTutorial(QObject):
             form = self._project_form
             if form is not None and form.isVisible():
                 if target is form.name_input:
-                    text = "Enter a name for your new practice project, for example Vps34 docking tutorial, then press Tab or Enter."
+                    text = "Enter a name for your new practice project, for example Vps34 docking tutorial, then press Enter."
                 else:
                     text = "Click Save to create and open your project."
             elif self.inputs is not None:
@@ -455,7 +453,7 @@ class SimpleDockingTutorial(QObject):
                 text = "Click New in the Grid Box panel to create a working docking box."
             elif not self._box_values_match(grid):
                 # The spin boxes parse the user's locale: 18,93 where the decimal mark is a comma.
-                number = lambda value: grid.cx.locale().toString(float(value), "f", 2)
+                number = lambda value: grid.cx.locale().toString(int(value))
                 center = " / ".join(map(number, self.example["grid_center"]))
                 size = " / ".join(map(number, self.example["grid_size"]))
                 text = (f"Enter Center X / Y / Z = {center} Å and Size X / Y / Z = {size} Å. "
@@ -469,7 +467,7 @@ class SimpleDockingTutorial(QObject):
             else:
                 text = "Checking the saved active box. Then click Prepare Receptors in Docking Studio."
         elif step.id == "run-docking":
-            if not self.studio.isVisible() and "docking" not in self.pending:
+            if not self.studio.isVisible():
                 text = "Click Docking Studio to review the run and try again."
             elif self.studio.isVisible() and self.studio.stepper.current_index != 3:
                 text = "Click Preview & Run in the Docking Studio header. Review the checks, then click Run Docking."
@@ -502,8 +500,6 @@ class SimpleDockingTutorial(QObject):
                 self._note("This job did not complete successfully. Open Jobs for details, then retry the step.")
                 if stage in self.dialogs:
                     self.dialogs[stage].show()
-                elif stage == "docking":
-                    self._bind_studio()
                 continue
             self._check(stage)
 
@@ -520,8 +516,6 @@ class SimpleDockingTutorial(QObject):
         generation = self._generation
 
         def read():
-            if stage == "docking":
-                return self.runtime.docking.result_stats().completed_results == 1
             role = stage.removeprefix("prepare_")
             scope = self.runtime.molecules.select(role=role)
             if stage.startswith("prepare_"):
@@ -539,8 +533,7 @@ class SimpleDockingTutorial(QObject):
                 self._note("The expected molecule or result is not ready. Review the job details and retry this step.")
                 return
             signal = {"receptor": self.receptor_loaded, "ligand": self.ligand_loaded,
-                      "prepare_ligand": self.ligand_prepared, "prepare_receptor": self.receptor_prepared,
-                      "docking": self.docking_finished}[stage]
+                      "prepare_ligand": self.ligand_prepared, "prepare_receptor": self.receptor_prepared}[stage]
             self.completed_stages.add(stage)
             signal.emit()
 
@@ -577,11 +570,12 @@ class SimpleDockingTutorial(QObject):
 
     def _finish(self, *_):
         self._cleanup()
-        results = self.window.open_or_focus_view(COMPLEXES_VIEW_ID)
-        results.refresh()
-        QMessageBox.information(self.window, "Tutorial completed",
-            "Your first docking is complete. Select a pose in Docking Results to inspect its score and structure. "
-            "The practice project and results have been saved.")
+        self.window.open_or_focus_view(COMPLEXES_VIEW_ID)
+        self.window.dock_manager.toggle("tools", False)
+        # Return to the submit handler before showing a dialog so it can start its worker.
+        QTimer.singleShot(0, lambda: QMessageBox.information(self.window, "Tutorial completed",
+            "Docking is being submitted. When the calculation finishes, open Docking Results "
+            "to inspect its poses and scores. You can check Jobs for its progress or errors."))
 
     def _failed(self, _tutorial_id, message):
         self._cleanup()
