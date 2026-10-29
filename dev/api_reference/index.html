@@ -1431,6 +1431,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#amdockvs.docking.api.DockingAPI.pairs_per_task" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;pairs_per_task
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#amdockvs.docking.api.DockingAPI.prepare_ligand_shards" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2891,6 +2902,17 @@
     <span class="md-ellipsis">
       <span class="md-typeset">
         <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;delete_results
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#amdockvs.docking.api.DockingAPI.pairs_per_task" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;pairs_per_task
       </span>
     </span>
   </a>
@@ -9285,6 +9307,14 @@ derived from the ligand's radius of gyration. Returns {center, size, rg}.</p>
               </td>
             </tr>
             <tr class="doc-section-item">
+              <td><code><a class="autorefs autorefs-internal" title="            pairs_per_task (amdockvs.docking.api.DockingAPI.pairs_per_task)" href="./#amdockvs.docking.api.DockingAPI.pairs_per_task">pairs_per_task</a></code></td>
+              <td>
+                <div class="doc-md-description">
+                  <p>Pairs per docking task. AutoDock-GPU and Uni-Dock dock a task's pairs in one process</p>
+                </div>
+              </td>
+            </tr>
+            <tr class="doc-section-item">
               <td><code><a class="autorefs autorefs-internal" title="            prepare_ligand_shards (amdockvs.docking.api.DockingAPI.prepare_ligand_shards)" href="./#amdockvs.docking.api.DockingAPI.prepare_ligand_shards">prepare_ligand_shards</a></code></td>
               <td>
                 <div class="doc-md-description">
@@ -9853,6 +9883,44 @@ receptor, ligand, protocol and run as each id goes too — what a Results ligand
         <span class="n">seed</span><span class="o">.</span><span class="n">ligand_molecule_id</span> <span class="o">==</span> <span class="n">DockingResultRecord</span><span class="o">.</span><span class="n">ligand_molecule_id</span><span class="p">,</span>
         <span class="n">seed</span><span class="o">.</span><span class="n">docking_run_id</span> <span class="o">==</span> <span class="n">DockingResultRecord</span><span class="o">.</span><span class="n">docking_run_id</span><span class="p">,</span>
     <span class="p">))</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="amdockvs.docking.api.DockingAPI.pairs_per_task" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">pairs_per_task</span>
+
+
+<a href="#amdockvs.docking.api.DockingAPI.pairs_per_task" class="headerlink" title="Permanent link">&para;</a></h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">pairs_per_task</span><span class="p">(</span><span class="n">program_spec</span><span class="p">:</span> <span class="n"><span title="amdockvs.docking.engines.programs.DockingProgramSpec">DockingProgramSpec</span></span><span class="p">,</span> <span class="n">batch_size</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="int">int</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Pairs per docking task. AutoDock-GPU and Uni-Dock dock a task's pairs in one process
+(see their engines), so their tasks never go below <code>docking.&lt;engine&gt;.batch_size</code>.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/amdockvs/docking/api.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">326</span>
+<span class="normal">327</span>
+<span class="normal">328</span>
+<span class="normal">329</span>
+<span class="normal">330</span>
+<span class="normal">331</span>
+<span class="normal">332</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">pairs_per_task</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">program_spec</span><span class="p">:</span> <span class="n">DockingProgramSpec</span><span class="p">,</span> <span class="n">batch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Pairs per docking task. AutoDock-GPU and Uni-Dock dock a task's pairs in one process</span>
+<span class="sd">    (see their engines), so their tasks never go below `docking.&lt;engine&gt;.batch_size`."""</span>
+    <span class="n">config</span> <span class="o">=</span> <span class="n">app_config</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="p">)</span><span class="o">.</span><span class="n">docking</span>
+    <span class="n">pairs</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">batch_size</span> <span class="ow">or</span> <span class="n">config</span><span class="o">.</span><span class="n">batch_size</span><span class="p">))</span>
+    <span class="n">floor</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">config</span><span class="p">,</span> <span class="n">program_spec</span><span class="o">.</span><span class="n">docking_engine</span><span class="p">,</span> <span class="kc">None</span><span class="p">),</span> <span class="s2">"batch_size"</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="k">return</span> <span class="nb">max</span><span class="p">(</span><span class="n">pairs</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">floor</span> <span class="ow">or</span> <span class="mi">0</span><span class="p">))</span>
 </code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -10871,7 +10939,7 @@ or below it (a sharded library uses <code>hit_threshold</code> for that).</p>
     <span class="p">)</span>
     <span class="k">if</span> <span class="n">reset_results</span> <span class="ow">and</span> <span class="n">selected_from_receptor_id</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
         <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"Changing docking configuration requires rerunning the reference stage before off-target docking."</span><span class="p">)</span>
-    <span class="n">resolved_batch_size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pairs_per_task</span><span class="p">(</span><span class="n">program_spec</span><span class="p">,</span> <span class="n">batch_size</span><span class="p">)</span>
+    <span class="n">resolved_batch_size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">pairs_per_task</span><span class="p">(</span><span class="n">program_spec</span><span class="p">,</span> <span class="n">batch_size</span><span class="p">)</span>
     <span class="n">ligand_set_ref</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_set_ref</span><span class="p">(</span><span class="n">ligand_set</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">"docking_ligand_input"</span><span class="p">)</span>
     <span class="n">receptor_set_ref</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_set_ref</span><span class="p">(</span><span class="n">receptor_set</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="s2">"docking_receptor_input"</span><span class="p">)</span>
     <span class="n">ligand_scope</span> <span class="o">=</span> <span class="n">scope_payload</span><span class="p">(</span><span class="n">ligand_set</span><span class="p">)</span> <span class="k">if</span> <span class="n">is_molecule_scope</span><span class="p">(</span><span class="n">ligand_set</span><span class="p">)</span> <span class="k">else</span> <span class="p">{}</span>
