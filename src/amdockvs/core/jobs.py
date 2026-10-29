@@ -92,8 +92,8 @@ class JobDefinition:
     supported_executors: tuple[str, ...] = ()
     cpu_required: int = 1
     relative_paths: bool = False
-    # (params) -> its tasks only wait for a program they start and tell of (`ms_flow.engine.launched`):
-    # on this machine they run on threads of this process, and no worker of the pool is kept for them.
+    # (params) -> its tasks only wait for a program they start: on this machine they run on threads
+    # of ms_flow's helper process, and no worker of the pool is kept for them.
     on_thread: Optional[Callable[[dict], bool]] = None
     where: str = ""  # `module:qualname` of this declaration
 

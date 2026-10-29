@@ -31,7 +31,7 @@ classifiers = [
 dependencies = [
     # MolSuite stack
     "ms_env>=0.3.1",
-    "ms_flow>=0.6.1",
+    "ms_flow>=0.7.0",
     "ms_components[monitor,projects,pymol,steps,table]>=0.4.3",
     "ms_contactmap>=0.3.2",
     # Chemistry / structure
