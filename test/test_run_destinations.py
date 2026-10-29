@@ -179,8 +179,9 @@ def test_a_job_on_record_is_continued_and_one_that_runs_is_moved(tmp_path, monke
         monkeypatch.setattr(runtime.workspace, "submit", lambda *job, **options: said.append(options) or submit(*job, **options))
         waits = docking.DockingJobSpec.definition.on_thread  # a task that only waits for a program has no worker
         assert all(waits(params) for params in ({"engine": "qvina"}, {"engine": "gnina"}, {"engine": "adgpu"},
-                                                 {"engine": "vina", "vina_backend": "binary"}))
+                                                 {"engine": "vina", "vina_backend": "binary", "vina_command": sys.executable}))
         assert not waits({"engine": "vina", "vina_backend": "python"})
+        assert not waits({"engine": "vina", "vina_backend": "binary", "vina_command": "/nowhere/vina"})  # bindings
         for declared in (napping.with_options(on_thread=lambda params: params["naps"] == 1), napping):
             runtime.wait_for_job(runtime.submit_job(declared, params={"naps": 1}, executor_name="thread"))
         assert [options.get("thread") for options in said] == [True, None]
