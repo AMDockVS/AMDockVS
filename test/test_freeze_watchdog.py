@@ -4,6 +4,8 @@ import time
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+# Before PySide6: its import hook breaks pydantic's lazy shim while ms_flow is being imported.
+from amdockvs.runtime import AMDockVSRuntime  # noqa: F401, E402
 from PySide6.QtWidgets import QApplication
 
 
