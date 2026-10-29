@@ -62,44 +62,38 @@ def freeze_log() -> Path:
     return amdock_home() / "logs" / "freeze_stacks.log"
 
 
-def install_freeze_watchdog(qt_app, *, stall_seconds: float = 10.0):
+def install_freeze_watchdog(qt_app, *, stall_seconds: float | None = None):
     """Dump every thread's Python stack to :func:`freeze_log` while the GUI thread is stuck.
 
     A frozen window can't be inspected from outside here (``ptrace_scope=1`` blocks py-spy
-    and gdb), so the app reports itself: a 500 ms timer pats a heartbeat, and a plain
-    daemon thread dumps the stacks whenever that heartbeat goes stale. ``kill -USR1 <pid>``
-    forces a dump too (POSIX only: Windows has neither SIGUSR1 nor ``faulthandler.register``).
+    and gdb), so the app reports itself: a 250 ms timer re-arms ``faulthandler``'s timeout,
+    which fires from a C thread -- so it still dumps when a worker thread holds the GIL, the
+    case a Python watchdog thread would sit out. One dump per stall. ``AMDOCK_FREEZE_SECONDS``
+    sets the threshold (default 10; 1 catches short hitches). ``kill -USR1 <pid>`` forces a
+    dump too (POSIX only: Windows has neither SIGUSR1 nor ``faulthandler.register``).
     Returns the timer -- Qt drops timers that nobody holds.
     """
     import faulthandler
     import signal
-    import threading
-    import time
 
     from PySide6.QtCore import QTimer
 
+    if stall_seconds is None:
+        stall_seconds = float(os.environ.get("AMDOCK_FREEZE_SECONDS") or 10.0)
     path = freeze_log()
     path.parent.mkdir(parents=True, exist_ok=True)
     log = open(path, "a", buffering=1)  # noqa: SIM115 - lives as long as the app
     if hasattr(faulthandler, "register"):
         faulthandler.register(signal.SIGUSR1, file=log, all_threads=True)
-    beat = [time.monotonic()]
+
+    def rearm() -> None:
+        faulthandler.dump_traceback_later(stall_seconds, file=log, exit=False)
+
     timer = QTimer(qt_app)
-    timer.setInterval(500)
-    timer.timeout.connect(lambda: beat.__setitem__(0, time.monotonic()))
+    timer.setInterval(250)
+    timer.timeout.connect(rearm)
     timer.start()
-
-    def watch() -> None:
-        while True:
-            time.sleep(2.0)
-            stalled = time.monotonic() - beat[0]
-            if stalled < stall_seconds:
-                continue
-            print(f"\n=== GUI thread stalled {stalled:.0f}s at {time.strftime('%H:%M:%S')} ===", file=log)
-            faulthandler.dump_traceback(file=log, all_threads=True)
-            beat[0] = time.monotonic()  # one dump per stall window, not per poll
-
-    threading.Thread(target=watch, name="freeze-watchdog", daemon=True).start()
+    rearm()
     return timer
 
 
