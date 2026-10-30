@@ -4,7 +4,6 @@ import pytest
 from amdockvs.qsar.modeling import (
     DEFAULT_QSAR_FEATURES,
     classification_metrics,
-    cross_val_score_mean,
     cross_validation_metrics,
     feature_importance,
     fit_model,
@@ -102,7 +101,7 @@ def test_cross_val_mean_and_pooled_q2():
     q2 = cross_validation_metrics(x, y, algorithm="ridge", task="regression", cv=5)["q2"]
     assert q2 is not None and q2 > 0.9
     # cv too large for the sample count -> None, not a crash
-    assert cross_val_score_mean(x[:3], y[:3], algorithm="ridge", task="regression", cv=5) is None
+    assert cross_validation_metrics(x[:3], y[:3], algorithm="ridge", task="regression", cv=5)["q2"] is None
 
 
 @pytest.mark.parametrize("task,algorithm", [("regression", "ridge"), ("classification", "logistic_regression")])
@@ -123,7 +122,8 @@ def test_scaffold_cv_keeps_groups_disjoint(monkeypatch, task, algorithm):
             yield train, test
 
     monkeypatch.setattr(selection.GroupKFold, "split", check_folds)
-    score = cross_val_score_mean(x, y, algorithm=algorithm, task=task, cv=3, groups=groups)
+    metrics = cross_validation_metrics(x, y, algorithm=algorithm, task=task, cv=3, groups=groups)
+    score = metrics["cv_r2_mean" if task == "regression" else "cv_mcc"]
     assert score is not None and np.isfinite(score)
     assert len(observed) == 3
 
@@ -187,10 +187,10 @@ def test_scrambling_uses_the_same_pooled_q2_definition():
 
 def test_scaffold_cv_does_not_fall_back_when_groups_are_insufficient():
     x, y = _linear_dataset(n=12)
-    assert cross_val_score_mean(x, y, algorithm="ridge", task="regression", cv=3,
-                                groups=["one"] * 6 + ["two"] * 6) is None
+    assert cross_validation_metrics(x, y, algorithm="ridge", task="regression", cv=3,
+                                    groups=["one"] * 6 + ["two"] * 6)["q2"] is None
     with pytest.raises(ValueError, match="groups"):
-        cross_val_score_mean(x, y, algorithm="ridge", task="regression", cv=3, groups=["one"])
+        cross_validation_metrics(x, y, algorithm="ridge", task="regression", cv=3, groups=["one"])
 
 
 def test_classification_metrics_roc_auc_and_mcc():

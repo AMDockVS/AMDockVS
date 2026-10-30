@@ -769,6 +769,10 @@ class QSARAPI(ActivitiesMixin):
         y_true = y_raw
         if fitted.task == "classification":
             y_true = (y_raw >= float(threshold)).astype(int) if threshold is not None else y_raw.astype(int)
+            # A stale/0.0 threshold on a categorical 0/1 endpoint collapses every label to one class:
+            # fall back to the raw labels (the endpoint is already categorical) so old models still plot.
+            if threshold is not None and len(set(y_true.tolist())) < 2 and set(y_raw.tolist()) == {0.0, 1.0}:
+                y_true = y_raw.astype(int)
         return fitted, x_matrix, y_true, {
             "endpoint": endpoint_text, "subset": str(subset or "all").lower(), "n": len(y_true),
         }
@@ -942,6 +946,13 @@ class QSARAPI(ActivitiesMixin):
                                  "confidence": pd.Series(dtype=float)})
         return pd.concat(frames, ignore_index=True)
 
+    def _is_classifier(self, model_id: int) -> bool:
+        with self.runtime.workspace.project_db.get_session() as session:
+            record = session.get(QSARModelRecord, model_id)
+        if record is None:
+            raise ValueError(f"Unknown QSAR model id: {model_id}")
+        return (record.metrics or {}).get("task") == "classification"
+
     def promote_shard_predictions(
         self,
         *,
@@ -959,11 +970,7 @@ class QSARAPI(ActivitiesMixin):
         model_id = int(model.id if hasattr(model, "id") else model)
         frame = self.shard_predictions(model=model_id)
         scored = len(frame)
-        with self.runtime.workspace.project_db.get_session() as session:
-            record = session.get(QSARModelRecord, model_id)
-            if record is None:
-                raise ValueError(f"Unknown QSAR model id: {model_id}")
-            classification = (record.metrics or {}).get("task") == "classification"
+        classification = self._is_classifier(model_id)
         if "positive_probability" not in frame:
             frame["positive_probability"] = np.nan  # older regression shards remain usable
         score = "positive_probability" if classification else "value"
@@ -1069,11 +1076,7 @@ class QSARAPI(ActivitiesMixin):
             raise ValueError("cut_predictions needs top_n and/or cutoff.")
         self.runtime._require_active_project()
         model_id = int(model.id if hasattr(model, "id") else model)
-        with self.runtime.workspace.project_db.get_session() as session:
-            record = session.get(QSARModelRecord, model_id)
-            if record is None:
-                raise ValueError(f"Unknown QSAR model id: {model_id}")
-            classification = (record.metrics or {}).get("task") == "classification"
+        classification = self._is_classifier(model_id)
         scored_ligand = aliased(MoleculeRecord)  # aliased: the UPDATE below targets the table itself
         scored = (
             select(QSARPredictionRecord.molecule_id)

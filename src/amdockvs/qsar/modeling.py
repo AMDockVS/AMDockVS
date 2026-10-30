@@ -414,25 +414,6 @@ def cross_validation_metrics(
             "cv_r2_mean": mean_score, "cv_rmse": float(np.sqrt(press / len(y_fit))), "cv_press": press}
 
 
-def cross_val_score_mean(
-    x_matrix: np.ndarray,
-    y_vector: np.ndarray,
-    *,
-    algorithm: str,
-    task: str,
-    cv: int,
-    hyperparams: dict[str, Any] | None = None,
-    feature_kind: str = "descriptors",
-    corr_threshold: float = 0.95,
-    groups: Sequence[Any] | None = None,
-) -> float | None:
-    """Mean fold R² (regression) or MCC (classification), retained for existing callers.
-
-    This is NOT pooled Q². Use cross_validation_metrics to obtain that statistic.
-    """
-    metrics = cross_validation_metrics(x_matrix, y_vector, algorithm=algorithm, task=task, cv=cv,
-        hyperparams=hyperparams, feature_kind=feature_kind, corr_threshold=corr_threshold, groups=groups)
-    return metrics["cv_r2_mean" if task == "regression" else "cv_mcc"]
 
 
 def y_scramble_score(
@@ -538,7 +519,6 @@ __all__ = [
     "FittedModel",
     "SUPPORTED_QSAR_ALGORITHMS",
     "classification_metrics",
-    "cross_val_score_mean",
     "cross_validation_metrics",
     "feature_importance",
     "fit_model",

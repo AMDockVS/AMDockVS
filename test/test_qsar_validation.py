@@ -85,6 +85,21 @@ def test_single_class_subset_keeps_matrix_but_rejects_curves(qsar_runtime):
             method(model=model.id, subset="test")
 
 
+
+def test_stale_threshold_on_a_categorical_endpoint_uses_the_raw_labels(qsar_runtime):
+    from amdockvs.models import QSARModelRecord
+
+    api = qsar_runtime.qsar
+    model = api.train(endpoint="classification", task="classification", algorithm="logistic_regression",
+                      test_size=.25, seed=42)
+    expected = api.roc_curve_points(model=model.id)["auc"]
+    with qsar_runtime.workspace.project_db.get_session() as session:
+        record = session.get(QSARModelRecord, model.id)
+        record.metrics = {**record.metrics, "class_threshold": 0.0}  # collapses 0/1 labels to all 1
+        session.add(record)
+        session.commit()
+    assert api.roc_curve_points(model=model.id)["auc"] == pytest.approx(expected)
+
 @pytest.mark.parametrize("task,algorithm", [("regression", "ridge"), ("classification", "logistic_regression")])
 def test_diagnostics_never_fall_back_to_all_without_test_split(qsar_runtime, task, algorithm):
     api = qsar_runtime.qsar

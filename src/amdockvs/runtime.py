@@ -327,30 +327,11 @@ class AMDockVSRuntime(AppRuntime):
                 "molecules into a new project."
             )
         self._rekey_interactions()
-        # Additive upgrade: existing labels/confidence stay intact; re-prediction fills the
-        # binary probability used for ranking. NULL must never be mistaken for probability 0.
-        with self.workspace.project_db.get_session() as session:
-            columns = session.connection().exec_driver_sql("PRAGMA table_info(qsar_predictions)").fetchall()
-            if "positive_probability" not in {str(row[1]) for row in columns}:
-                session.connection().exec_driver_sql(
-                    "ALTER TABLE qsar_predictions ADD COLUMN positive_probability FLOAT"
-                )
-                session.commit()
         # ponytail: a no-op unless an import died before building them; then it blocks the open for
         # as long as the build takes (~seconds per million rows). Run it off-thread if that bites.
         ensure_molecule_indexes(self.workspace.project_db)
         ensure_codes(self.workspace.project_db)
-        # Older ECFP4 records used the descriptor code despite recording their actual feature
-        # kind in metrics. Correct only those unambiguous records; artifacts/scores stay intact.
-        from sqlalchemy import update
-        from amdockvs.models import QSARModelRecord
-
-        with self.workspace.project_db.get_session() as session:
-            session.exec(update(QSARModelRecord).where(
-                QSARModelRecord.feature_type == "descriptors_2d",
-                QSARModelRecord.metrics["feature_kind"].as_string() == "ecfp4",
-            ).values(feature_type="fingerprints_ecfp4"))
-            session.commit()
+        self._upgrade_qsar_tables()  # after ensure_codes: it writes a new feature_type code
         # Built once per project: a feed asks the runtime where the ligands are, it does not ask
         # the mode — there is no mode to ask.
         self._ligand_store = DbStore(self.workspace.project_db)
@@ -374,6 +355,23 @@ class AMDockVSRuntime(AppRuntime):
             conn.exec_driver_sql(f"DROP TABLE {TABLE_INTERACTION_RESULTS}")
             session.commit()
         InteractionsResult.__table__.create(db.engine)
+
+    def _upgrade_qsar_tables(self) -> None:
+        """Projects from before 2026-10-30: `qsar_predictions` gains `positive_probability` (NULL until
+        re-predicted, never read as 0), and ECFP4 models saved under the descriptor code get their own."""
+        from sqlalchemy import update
+        from amdockvs.models import QSARModelRecord
+
+        with self.workspace.project_db.get_session() as session:
+            conn = session.connection()
+            columns = conn.exec_driver_sql("PRAGMA table_info(qsar_predictions);").fetchall()
+            if "positive_probability" not in {str(row[1]) for row in columns}:
+                conn.exec_driver_sql("ALTER TABLE qsar_predictions ADD COLUMN positive_probability FLOAT")
+            session.exec(update(QSARModelRecord).where(
+                QSARModelRecord.feature_type == "descriptors_2d",
+                QSARModelRecord.metrics["feature_kind"].as_string() == "ecfp4",
+            ).values(feature_type="fingerprints_ecfp4"))
+            session.commit()
 
     def close_project(self):
         super().close_project()
