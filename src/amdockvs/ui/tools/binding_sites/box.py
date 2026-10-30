@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QMenu,
     QPushButton,
@@ -26,12 +27,13 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget, QTabWidget,
 )
-from ms_components.theme import contrast_ratio
+from ms_components.theme import color, contrast_ratio
 
 from amdockvs.core.configuration import app_config
 from amdockvs.models import BindingSite, MoleculeRecord
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.resources.icons import icon as load_icon
+from amdockvs.ui.view_ids import POCKET_DETECTION_VIEW_ID
 
 SITE_COLORS = [
     "#F29CB2",
@@ -94,6 +96,10 @@ def _active_indicator_icon() -> QIcon:
     painter.drawEllipse(2, (size - 8) // 2, 8, 8)
     painter.end()
     return QIcon(pixmap)
+
+
+# PyMOL selection that mirrors the typed one while the selection editor is open.
+_SELECTION_PREVIEW = "amdock_box_selection"
 
 
 @dataclass
@@ -168,6 +174,58 @@ class GridBoxSettingDockWidget(QWidget):
         discard = QShortcut(QKeySequence.StandardKey.Delete, self.site_tree, self._discard_working_box)
         discard.setContext(Qt.ShortcutContext.WidgetShortcut)
         layout.addWidget(self.site_tree, 1)
+
+        # Every way to start a box is one visible click; Predict hands over to Pocket Detection,
+        # whose sites come back to this list.
+        create_row = QHBoxLayout()
+        create_row.setSpacing(2)
+        self.new_button = self._action_button(
+            "New", "file-plus.svg", self._new_working_box, "A default 22 Å box to place by hand.")
+        self.ligand_button = self._action_button(
+            "Ligand", "ligands.svg", self._auto_box_from_ligand,
+            "Center + cubic box size derived from a reference ligand's radius of gyration.")
+        self.selection_button = self._action_button(
+            "Selection", "pymol.svg", self._toggle_selection_editor,
+            "Center the box on the pocket next to a PyMOL selection of receptor residues or "
+            "metals, so it hugs the pocket mouth instead of burying itself in the protein.")
+        self.selection_button.setCheckable(True)
+        self.predict_button = self._action_button(
+            "Predict…", "binding_site.svg", self._open_pocket_detection,
+            "Open Pocket Detection to predict this receptor's pockets.")
+        for button in (self.new_button, self.ligand_button, self.selection_button, self.predict_button):
+            create_row.addWidget(button)
+        layout.addLayout(create_row)
+
+        # Selection editor: replaces the save row while open. The selection shows in PyMOL as
+        # it is typed; green = receptor residues/metals only, orange = anything else.
+        self.selection_row = QWidget(self)
+        selection_layout = QHBoxLayout(self.selection_row)
+        selection_layout.setContentsMargins(0, 0, 0, 0)
+        self.selection_edit = QLineEdit("sele", self.selection_row)
+        self.selection_edit.setPlaceholderText("e.g. chain A and resi 45+50")
+        self.selection_edit.textChanged.connect(self._preview_selection)
+        self.selection_edit.returnPressed.connect(self._apply_selection)
+        self.selection_apply = QPushButton("Build box", self.selection_row)
+        self.selection_apply.clicked.connect(self._apply_selection)
+        selection_layout.addWidget(self.selection_edit, 1)
+        selection_layout.addWidget(self.selection_apply)
+        cancel = QShortcut(QKeySequence.StandardKey.Cancel, self.selection_row, self._close_selection_editor)
+        cancel.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.selection_row.hide()
+        layout.addWidget(self.selection_row)
+
+        self.save_row = QWidget(self)
+        save_layout = QHBoxLayout(self.save_row)
+        save_layout.setContentsMargins(0, 0, 0, 0)
+        self.save_button = QPushButton("Save", self.save_row)
+        self.save_button.clicked.connect(self._save_selected_site)
+        self.save_as_button = QPushButton("Save as new…", self.save_row)
+        self.save_as_button.clicked.connect(self._save_new_site)
+        self.activate_button = QPushButton("Set Active", self.save_row)
+        self.activate_button.clicked.connect(self._set_active_site)
+        for button in (self.save_button, self.save_as_button, self.activate_button):
+            save_layout.addWidget(button)
+        layout.addWidget(self.save_row)
 
         self.show_working_box = QCheckBox("Show working box", self)
         self.show_working_box.setChecked(True)
@@ -255,36 +313,18 @@ class GridBoxSettingDockWidget(QWidget):
         # editor_layout.addRow(style_grid)
         layout.addWidget(self.box_settings)
 
-        # ponytail: one row, three text buttons; variants of New/Save sit behind their arrow.
-        buttons = QHBoxLayout()
-        self.new_button = self._split_button("New", self._new_working_box)
-        self.load_active_action = self.new_button.menu().addAction("From active site", self._load_active_site)
-        self.auto_box_action = self.new_button.menu().addAction("From ligand", self._auto_box_from_ligand)
-        self.auto_box_action.setToolTip(
-            "Center + cubic box size derived from a reference ligand's radius of gyration."
-        )
-        self.box_from_selection_action = self.new_button.menu().addAction("From selection…", self._box_from_selection)
-        self.box_from_selection_action.setToolTip(
-            "Center the box on a surface pseudo-ligand over a PyMOL selection (residues), so the "
-            "box hugs the pocket mouth instead of burying itself in the protein."
-        )
-        self.save_button = self._split_button("Save", self._save_selected_site)
-        self.save_as_action = self.save_button.menu().addAction("Save as new…", self._save_new_site)
-        self.activate_button = QPushButton("Set Active", self)
-        self.activate_button.clicked.connect(self._set_active_site)
-        for button in (self.new_button, self.save_button, self.activate_button):
-            buttons.addWidget(button)
-        layout.addLayout(buttons)
 
         self._sync_enabled_state()
         self.hide()
 
-    def _split_button(self, text: str, slot) -> QToolButton:
-        """A text button whose click runs ``slot`` and whose arrow lists the variants."""
+    def _action_button(self, text: str, icon_name: str, slot, tooltip: str) -> QToolButton:
         button = QToolButton(self)
         button.setText(text)
-        button.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
-        button.setMenu(QMenu(button))
+        button.setIcon(load_icon(icon_name))
+        button.setIconSize(QSize(20, 20))
+        button.setToolTip(tooltip)
+        button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+        button.setAutoRaise(True)
         button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         button.clicked.connect(slot)
         return button
@@ -328,6 +368,7 @@ class GridBoxSettingDockWidget(QWidget):
         new_id = int(getattr(molecule, "id", 0) or 0) if molecule is not None else 0
         old_id = int(getattr(self._current_molecule, "id", 0) or 0) if self._current_molecule is not None else 0
         if new_id != old_id:
+            self._close_selection_editor()
             # The temporary working box and its marker belong to the receptor that defined them —
             # discard both so they don't reappear on a different receptor.
             self._clear_pseudo_ligand()
@@ -564,24 +605,87 @@ class GridBoxSettingDockWidget(QWidget):
         self._ensure_working_item_present(select_if_created=True)
         self._refresh_preview(force=True)
 
-    def _box_from_selection(self) -> None:
+    def _pymol_cmd(self):
+        dock = getattr(self.window(), "pymol_dock", None)
+        return getattr(dock, "cmd", None) if dock is not None else None
+
+    def _open_pocket_detection(self) -> None:
+        tools = getattr(self.window(), "tools", None)
+        if tools is not None:
+            tools.open_tool(POCKET_DETECTION_VIEW_ID)
+
+    def _toggle_selection_editor(self) -> None:
+        if not self.selection_row.isHidden():
+            self._close_selection_editor()
+            return
+        self.save_row.hide()
+        self.selection_row.show()
+        self.selection_button.setChecked(True)
+        self.selection_edit.setFocus()
+        self.selection_edit.selectAll()
+        self._preview_selection(self.selection_edit.text())
+
+    def _close_selection_editor(self) -> None:
+        self.selection_row.hide()
+        self.save_row.show()
+        self.selection_button.setChecked(False)
+        cmd = self._pymol_cmd()
+        if cmd is not None:
+            try:
+                cmd.delete(_SELECTION_PREVIEW)
+            except Exception:
+                pass
+
+    def _check_selection(self, text: str) -> str:
+        """Why ``text`` can't center a box, or "" when it is receptor residues/metals only."""
+        molecule = self._current_molecule
+        cmd = self._pymol_cmd()
+        text = text.strip()
+        if molecule is None or cmd is None:
+            return "Load a receptor in PyMOL first."
+        if not text:
+            return "Type a PyMOL selection."
+        receptor_obj = f"receptor_{int(molecule.id or 0)}"
+        try:
+            total = cmd.count_atoms(f"({text})")
+            inside = cmd.count_atoms(f"({text}) and {receptor_obj} and (polymer or metals)")
+            cmd.select(_SELECTION_PREVIEW, f"({text})", enable=1)  # shown live while typing
+        except Exception:
+            return "Not a valid PyMOL selection."
+        if total == 0:
+            return "Matches no atoms."
+        if inside != total:
+            return f"{total - inside} of {total} atoms are not receptor residues or metals."
+        return ""
+
+    def _preview_selection(self, text: str) -> None:
+        problem = self._check_selection(text)
+        if problem:
+            cmd = self._pymol_cmd()
+            if cmd is not None:
+                try:
+                    cmd.delete(_SELECTION_PREVIEW)
+                except Exception:
+                    pass
+        hue = color("orange" if problem else "green").name()
+        self.selection_edit.setStyleSheet(f"QLineEdit {{ border: 2px solid {hue}; }}")
+        self.selection_edit.setToolTip(problem or "Receptor residues/metals — press Build box.")
+        self.selection_apply.setEnabled(not problem)
+
+    def _apply_selection(self) -> None:
+        selection = self.selection_edit.text().strip()
+        if self._check_selection(selection):
+            return
+        self._close_selection_editor()
+        self._box_from_selection(selection)
+
+    def _box_from_selection(self, selection: str) -> None:
         from amdockvs.binding_sites.cavity import pseudo_pocket_box
         from amdockvs.binding_sites.boxes import pseudo_ligand_box
 
         molecule = self._current_molecule
-        dock = getattr(self.window(), "pymol_dock", None)
-        cmd = getattr(dock, "cmd", None) if dock is not None else None
+        cmd = self._pymol_cmd()
         if molecule is None or cmd is None:
-            QMessageBox.information(self, "Box from selection", "Load a receptor in PyMOL first.")
-            return
-        selection, ok = QInputDialog.getText(
-            self,
-            "Box from residue/selection",
-            "PyMOL selection of receptor residue(s) (e.g. 'sele', 'chain A and resi 45+50'):",
-            text="sele",
-        )
-        selection = str(selection or "").strip()
-        if not ok or not selection:
             return
         receptor_obj = f"receptor_{int(molecule.id or 0)}"
         try:
@@ -889,15 +993,6 @@ class GridBoxSettingDockWidget(QWidget):
         except Exception:
             return
 
-    def _load_active_site(self) -> None:
-        molecule = self._current_molecule
-        if molecule is None:
-            return
-        active_id = self._active_site_id()
-        if active_id <= 0:
-            return
-        self.focus_binding_site(molecule, site_id=active_id, ensure_selected=True)
-
     def _new_working_box(self) -> None:
         show_faces, show_edges = self._style_flags()
         self._working = GridBoxState(
@@ -1005,6 +1100,7 @@ class GridBoxSettingDockWidget(QWidget):
             self._refresh_preview(force=False)
 
     def hideEvent(self, event) -> None:
+        self._close_selection_editor()
         self._clear_preview()
         self._clear_pseudo_ligand()
         super().hideEvent(event)
@@ -1016,7 +1112,9 @@ class GridBoxSettingDockWidget(QWidget):
         active_id = self._active_site_id()
         self.site_tree.setEnabled(has_receptor)
         self.show_working_box.setEnabled(has_receptor)
-        self.new_button.setEnabled(has_receptor)
+        for button in (self.new_button, self.ligand_button, self.selection_button, self.predict_button,
+                       self.save_as_button):
+            button.setEnabled(has_receptor)
         self.save_button.setEnabled(has_receptor)  # with no saved site to overwrite, Save saves as new
         self.activate_button.setEnabled(has_selected_site and int(selected.id or 0) != active_id)  # already active: nothing to do
 

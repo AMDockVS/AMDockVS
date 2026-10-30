@@ -123,12 +123,17 @@ def test_grid_box_receptor_row_exposes_legend(grid_box_widget):
     assert "Active docking site" in tooltip
 
 
-def test_grid_box_actions_fit_one_row_and_save_without_a_site_saves_as_new(grid_box_widget, monkeypatch):
-    """New ▾, Save ▾ and Set Active replace the old eight buttons; the variants live in the menus."""
+def test_grid_box_actions_are_visible_above_the_editor_and_save_without_a_site_saves_as_new(
+        grid_box_widget, monkeypatch):
+    """No menus: every way to make or keep a box is a button, above "Show working box"."""
     widget = grid_box_widget
-    assert [a.text() for a in widget.new_button.menu().actions()] == [
-        "From active site", "From ligand", "From selection…"]
-    assert [a.text() for a in widget.save_button.menu().actions()] == ["Save as new…"]
+    create = [widget.new_button, widget.ligand_button, widget.selection_button, widget.predict_button]
+    assert [b.text() for b in create] == ["New", "Ligand", "Selection", "Predict…"]
+    assert [b.text() for b in (widget.save_button, widget.save_as_button, widget.activate_button)] == [
+        "Save", "Save as new…", "Set Active"]
+    assert all(b.menu() is None for b in create)
+    layout = widget.layout()
+    assert layout.indexOf(widget.save_row) < layout.indexOf(widget.show_working_box)
     saved_as_new = []
     monkeypatch.setattr(widget, "_save_new_site", lambda: saved_as_new.append(True))
     widget.site_tree.clearSelection()
@@ -137,6 +142,54 @@ def test_grid_box_actions_fit_one_row_and_save_without_a_site_saves_as_new(grid_
     assert widget.save_button.isEnabled()
     widget.save_button.click()
     assert saved_as_new == [True]
+
+
+class _FakeCmd:
+    """count_atoms over a toy receptor: 'sele' = 3 residue atoms, 'lig' = 2 ligand atoms."""
+
+    def __init__(self):
+        self.selections: dict[str, str] = {}
+
+    def count_atoms(self, expression: str) -> int:
+        if "((" in expression or ")(" in expression:
+            raise RuntimeError("Selector-Error")
+        name = expression.split(")")[0].strip("( ")
+        total = {"sele": 3, "lig": 2, "sele or lig": 5}.get(name, 0)
+        if "receptor_4" in expression:
+            return {"sele": 3, "sele or lig": 3}.get(name, 0)
+        return total
+
+    def select(self, name: str, expression: str, enable: int = 0) -> None:
+        self.selections[name] = expression
+
+    def delete(self, name: str) -> None:
+        self.selections.pop(name, None)
+
+
+def test_selection_editor_validates_live_and_builds_on_approval(grid_box_widget, monkeypatch):
+    widget = grid_box_widget
+    cmd = _FakeCmd()
+    widget.pymol_dock = SimpleNamespace(cmd=cmd)  # the widget is its own window() here
+    built = []
+    monkeypatch.setattr(widget, "_box_from_selection", built.append)
+
+    widget.selection_button.click()
+    assert not widget.selection_row.isHidden() and widget.save_row.isHidden()
+    assert widget.selection_button.isChecked()
+    assert widget.selection_apply.isEnabled()  # 'sele' = receptor residues only
+    assert "amdock_box_selection" in cmd.selections  # drawn while typing
+
+    for text in ("sele or lig", "lig", "nothing", "(("):
+        widget.selection_edit.setText(text)
+        assert not widget.selection_apply.isEnabled(), text
+        assert "amdock_box_selection" not in cmd.selections
+
+    widget.selection_edit.setText("sele")
+    widget.selection_apply.click()
+    assert built == ["sele"]
+    assert widget.selection_row.isHidden() and not widget.save_row.isHidden()
+    assert not widget.selection_button.isChecked()
+    assert "amdock_box_selection" not in cmd.selections
 
 
 def test_set_active_is_off_for_the_site_that_is_already_active(grid_box_widget):
