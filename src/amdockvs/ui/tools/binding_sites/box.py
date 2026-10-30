@@ -58,7 +58,8 @@ GRID_BOX_LEGEND = (
     "<b>*</b> Unsaved working box<br>"
     "<b>Colored name</b> Box color in the 3D view<br>"
     "<b>Green dot</b> Active docking site<br>"
-    "<b>Source</b> Method used to define the site"
+    "<b>Source</b> Method used to define the site<br>"
+    "<b>Blue spheres</b> Pocket found from a selection; <b>orange</b> = box center"
 )
 
 
@@ -229,12 +230,13 @@ class GridBoxSettingDockWidget(QWidget):
         self.save_as_button.clicked.connect(self._save_new_site)
         self.activate_button = QPushButton("Set Active", self.save_row)
         self.activate_button.clicked.connect(self._set_active_site)
-        for button in (self.save_button, self.save_as_button, self.activate_button):
-            save_layout.addWidget(button)
         layout.addWidget(self.save_row)
         # No side padding (the theme's 14 px): in a narrow dock it ate the text, not the frame.
         for row in (self.selection_row, self.save_row):
             row.setStyleSheet("QPushButton { padding: 5px 0px; }")
+        # Spare width follows text length, so "Save" never takes room "Save as new" needs.
+        for button in (self.save_button, self.save_as_button, self.activate_button):
+            save_layout.addWidget(button, button.sizeHint().width())
 
         self.show_working_box = QCheckBox("Show working box", self)
         self.show_working_box.setChecked(True)
@@ -334,6 +336,7 @@ class GridBoxSettingDockWidget(QWidget):
         button.setToolTip(tooltip)
         button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
         button.setAutoRaise(True)
+        button.setStyleSheet("QToolButton { padding: 2px 0px; }")  # the theme's 6 px sides cut labels
         button.clicked.connect(slot)
         return button
 
@@ -743,12 +746,12 @@ class GridBoxSettingDockWidget(QWidget):
 
         geometry = app_config(getattr(self.window(), "runtime", None)).binding_sites
 
-        def compute() -> tuple[dict, str]:
+        def compute() -> dict:
             # LIGSITE pocket detection when possible; fall back to the bounded-push heuristic if
             # scipy is missing or no accessible pocket is found near the selection. Runs off the
             # GUI thread — a large receptor's voxel grid can take ~1s.
             try:
-                box = pseudo_pocket_box(
+                return pseudo_pocket_box(
                     receptor_xyz,
                     receptor_vdw,
                     selection_list,
@@ -756,19 +759,17 @@ class GridBoxSettingDockWidget(QWidget):
                     padding=geometry.box_padding,
                     max_edge=geometry.box_max_edge,
                 )
-                return box, ("accessible surface (no deep pocket)" if box.get("fallback") else "detected pocket")
             except Exception:
-                return pseudo_ligand_box(receptor_xyz, selection_list), "centroid push (fallback)"
+                return pseudo_ligand_box(receptor_xyz, selection_list)
 
         run_async(
             compute,
-            lambda result: self._apply_box_from_selection(cmd, result, len(selection_list)),
+            lambda box: self._apply_box_from_selection(cmd, box),
             on_error=lambda exc: QMessageBox.warning(self, "Box from selection", str(exc)),
             busy=self,
         )
 
-    def _apply_box_from_selection(self, cmd, result: tuple[dict, str], n_selected: int) -> None:
-        box, method = result
+    def _apply_box_from_selection(self, cmd, box: dict) -> None:
         # Draw the opaque blob/center FIRST, then the box (below via _refresh_preview): the box's
         # translucent faces must be drawn LAST or they write depth and hide the spheres behind
         # them. The marker is amdock_pseudolig*, which _refresh_preview does NOT clear.
@@ -781,15 +782,6 @@ class GridBoxSettingDockWidget(QWidget):
         self._sync_editor_from_working()
         self._ensure_working_item_present(select_if_created=True)
         self._refresh_preview(force=True)
-        moved = box.get("moved")
-        moved_line = f"\nSnapped {moved:.1f} A from the selection to the pocket." if moved is not None else ""
-        QMessageBox.information(
-            self,
-            "Box from selection",
-            f"{n_selected} selected atom(s) — method: {method}.\n"
-            f"Box center: ({cx:.2f}, {cy:.2f}, {cz:.2f})  size: {self._working.size_x:.1f} A cube (unchanged).{moved_line}\n"
-            f"Blue blob = detected pocket; orange sphere = box center (cavity-volume centroid).",
-        )
 
     def _draw_pseudo_ligand(self, cmd, points, center) -> None:
         # NOT amdock_grid_* on purpose: these must survive _clear_preview so they stay visible
