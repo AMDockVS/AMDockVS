@@ -229,7 +229,8 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
 
     for row in rows:
         source_index = int(row.get("source_index") or 0)
-        molecule_ref = f"molecule::{row.get('source_file')}::{source_index}"
+        source_file = row.get("source_file")
+        molecule_ref = f"molecule::{source_file}::{source_index}"
         role = str(row.get("primary_role") or "").strip().lower()
         metadata_map = metadata_map_from_row(row)
         structure = row.get("current_payload_id") or row.get("stored_payload_id")
@@ -294,7 +295,7 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
                 activity_specs.append(extra)
         activity_ref: str | None = None
         for spec_index, spec in enumerate(activity_specs):
-            spec_ref = f"activity::{source}::{source_index}::{spec_index}"
+            spec_ref = f"activity::{source_file}::{source_index}::{spec_index}"
             if activity_ref is None:
                 activity_ref = spec_ref  # a redocking complex links to the first activity
             ligand_activities.append(

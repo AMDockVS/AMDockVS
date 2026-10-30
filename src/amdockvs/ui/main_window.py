@@ -44,6 +44,7 @@ from amdockvs.ui.view_ids import (
     RECEPTOR_VIEW_ID,
     REDOCKING_VIEW_ID,
     SHARDS_VIEW_ID,
+    QSAR_MODELS_VIEW_ID,
     WORKFLOW_VIEW_ID,
 )
 
@@ -243,18 +244,35 @@ class AMDockVSMainWindow(QMainWindow):
             self._open_default_views()
 
     def _open_default_views(self) -> None:
-        """Open the relevant project tabs; Complexes in front when there are results, else Receptors."""
+        """Open project data views and prioritize docking or QSAR results when available."""
         # open_view() only returns the tab if it already exists; opening is open_or_focus_view().
-        self.open_or_focus_view(RECEPTOR_VIEW_ID)
         sharded, ligand_rows = self.views._library_shape()
         if not sharded or ligand_rows:
             self.open_or_focus_view(LIGANDS_VIEW_ID)
         if sharded:
             self.open_or_focus_view(SHARDS_VIEW_ID)
-        if self.runtime.docking.has_results():
+
+        has_docking_results = self.runtime.docking.has_results()
+        # Saved QSAR models are project data and can be inspected without a receptor.
+        has_qsar_models = False
+        try:
+            has_qsar_models = bool(self.runtime.qsar.list_models())
+            if has_qsar_models:
+                self.open_or_focus_view(QSAR_MODELS_VIEW_ID)
+        except Exception:
+            # A project without QSAR tables/models should still open normally.
+            pass
+
+        # Results views take precedence over the setup catalog. If both exist, both tabs
+        # remain available, with Docking Results as the initial view.
+        if has_docking_results:
             self.open_or_focus_view(COMPLEXES_VIEW_ID)
-        else:
-            self.open_or_focus_view(RECEPTOR_VIEW_ID)
+            return
+        if has_qsar_models:
+            self.open_or_focus_view(QSAR_MODELS_VIEW_ID)
+            return
+
+        self.open_or_focus_view(RECEPTOR_VIEW_ID)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -624,6 +642,12 @@ class AMDockVSMainWindow(QMainWindow):
 
     def show_model_fit_series(self, series) -> None:
         self.charts.show_model_fit_series(series)
+
+    def show_precision_recall_curves(self, curves) -> None:
+        self.charts.show_precision_recall_curves(curves)
+
+    def show_confusion_matrix(self, label: str, result) -> None:
+        self.charts.show_confusion_matrix(label, result)
 
     def show_correlation_heatmap(self, label: str, labels, matrix) -> None:
         self.charts.show_correlation_heatmap(label, labels, matrix)

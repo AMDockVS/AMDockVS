@@ -84,8 +84,8 @@ class ChartController:
         """curves = [{'label', 'points':[(fpr,tpr)], 'auc'}]. Overlaid ROC series + chance diagonal."""
         if self._chart is None or not curves:
             return
-        title = "ROC" if len(curves) > 1 else f"ROC — {curves[0].get('label', '')}"
-        self._chart.show_curves(title, curves, "False positive rate", "True positive rate", diagonal=True)
+        self._chart.show_curves("ROC curve", curves, "False positive rate", "True positive rate",
+                                diagonal=True, legend_position="bottom_right")
         self._show()
 
     def show_model_fit_series(self, series) -> None:
@@ -94,6 +94,20 @@ class ChartController:
             return
         title = "Observed vs predicted" if len(series) > 1 else f"Observed vs predicted — {series[0].get('label', '')}"
         self._chart.show_scatter_series(title, series)
+        self._show()
+
+    def show_precision_recall_curves(self, curves) -> None:
+        if self._chart is None or not curves:
+            return
+        self._chart.show_curves("Precision-recall", curves, "Recall", "Precision",
+                                legend_position="bottom_left")
+        self._chart.chart_plot.getPlotItem().setRange(xRange=(0, 1), yRange=(0, 1), padding=.03)
+        self._show()
+
+    def show_confusion_matrix(self, label: str, result) -> None:
+        if self._chart is None:
+            return
+        self._chart.show_confusion_matrix(f"Confusion matrix - {label}", result["labels"], result["counts"])
         self._show()
 
     def show_correlation_heatmap(self, label: str, labels, matrix) -> None:

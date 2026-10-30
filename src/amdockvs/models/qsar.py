@@ -127,6 +127,7 @@ class QSARPrediction(SQLModel, table=True):
 
     value: float
     confidence: float | None = Field(default=None)
+    positive_probability: float | None = Field(default=None)  # binary P(higher-valued class)
 
 
     @classmethod
@@ -141,6 +142,7 @@ class QSARPrediction(SQLModel, table=True):
                 "model_id":    model_id,
                 "value":       p["value"],
                 "confidence":  p.get("confidence"),
+                "positive_probability": p.get("positive_probability"),
             }
             for p in predictions
         ]

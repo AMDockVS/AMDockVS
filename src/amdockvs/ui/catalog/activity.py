@@ -11,6 +11,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
+    QHeaderView,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -91,9 +92,15 @@ class LigandActivityWidget(QWidget):
         outer.addLayout(controls_row)
 
         self.table = QTableWidget(0, 5, self)
-        self.table.setHorizontalHeaderLabels(["Ligand id", "Name", "Value", "Unit", "Subset"])
+        self.table.setHorizontalHeaderLabels(["Ligand", "Unit", "Model split", "Activity", "ID"])
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setAlternatingRowColors(True)
+        self.table.verticalHeader().setVisible(False)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Interactive)
+        self.table.setColumnWidth(0, 300)
+        for column in (1, 2, 3, 4):
+            header.setSectionResizeMode(column, QHeaderView.ResizeToContents)
         self.table.itemChanged.connect(self._on_item_changed)
         outer.addWidget(self.table, 1)
 
@@ -119,15 +126,23 @@ class LigandActivityWidget(QWidget):
     def _set_row(self, r: int, mid: int, name: str, value, unit: str, subset: str = "") -> None:
         id_item = QTableWidgetItem(str(mid))
         id_item.setFlags(id_item.flags() & ~Qt.ItemIsEditable)
+        id_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
         name_item = QTableWidgetItem(name)
         name_item.setFlags(name_item.flags() & ~Qt.ItemIsEditable)
+        name_item.setToolTip(name)
         subset_item = QTableWidgetItem(subset)
         subset_item.setFlags(subset_item.flags() & ~Qt.ItemIsEditable)
-        self.table.setItem(r, 0, id_item)
-        self.table.setItem(r, 1, name_item)
-        self.table.setItem(r, 2, QTableWidgetItem(self._fmt_value(value)))
-        self.table.setItem(r, 3, QTableWidgetItem(unit or self.unit_combo.currentText().strip()))
-        self.table.setItem(r, 4, subset_item)
+        subset_item.setTextAlignment(Qt.AlignCenter)
+        value_item = QTableWidgetItem(self._fmt_value(value))
+        value_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        unit_item = QTableWidgetItem(unit or self.unit_combo.currentText().strip())
+        name_item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        unit_item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.table.setItem(r, 0, name_item)
+        self.table.setItem(r, 1, unit_item)
+        self.table.setItem(r, 2, subset_item)
+        self.table.setItem(r, 3, value_item)
+        self.table.setItem(r, 4, id_item)
 
     def refresh_view(self) -> None:
         if not hasattr(self, "table"):
@@ -146,7 +161,10 @@ class LigandActivityWidget(QWidget):
             rows = self.runtime.qsar.activity_rows(endpoint=resolved)
             models = self.runtime.qsar.list_models()
             subsets = self.runtime.qsar.model_subsets(model=model_id) if model_id else {}
-            bins = histogram([r["value"] for r in rows if r["value"] is not None])
+            bins = histogram(
+                [r["value"] for r in rows if r["value"] is not None],
+                categorical=kinds.get(resolved) == "categorical",
+            )
             return kinds, resolved, rows, models, subsets, bins
 
         run_async(
@@ -193,18 +211,18 @@ class LigandActivityWidget(QWidget):
             self._show_histogram(self._current_endpoint(), bins)
 
     def _on_item_changed(self, item) -> None:
-        if self._loading or item.column() not in (2, 3):
+        if self._loading or item.column() not in (1, 3):
             return
         endpoint = self._current_endpoint()
         if not endpoint:
             QMessageBox.information(self, "Activities", "Set an endpoint first.")
             return
         try:
-            ligand_id = int(self.table.item(item.row(), 0).text())
-            value = float(self.table.item(item.row(), 2).text())
+            ligand_id = int(self.table.item(item.row(), 4).text())
+            value = float(self.table.item(item.row(), 3).text())
         except (TypeError, ValueError):
             return
-        unit = (self.table.item(item.row(), 3).text() if self.table.item(item.row(), 3) else "").strip()
+        unit = (self.table.item(item.row(), 1).text() if self.table.item(item.row(), 1) else "").strip()
         try:
             self.runtime.qsar.set_activity(ligand_id=ligand_id, endpoint=endpoint, value=value, unit=unit)
         except Exception as exc:
@@ -217,7 +235,7 @@ class LigandActivityWidget(QWidget):
         if not chosen:
             return
         self._loading = True
-        existing = {int(self.table.item(r, 0).text()) for r in range(self.table.rowCount())}
+        existing = {int(self.table.item(r, 4).text()) for r in range(self.table.rowCount())}
         for mid, name in chosen:
             if mid in existing:
                 continue
@@ -282,7 +300,7 @@ class LigandActivityWidget(QWidget):
 
     def _delete_selected(self) -> None:
         endpoint = self._current_endpoint() or None
-        ids = sorted({int(self.table.item(idx.row(), 0).text()) for idx in self.table.selectedIndexes()})
+        ids = sorted({int(self.table.item(idx.row(), 4).text()) for idx in self.table.selectedIndexes()})
         if not ids:
             return
         for ligand_id in ids:

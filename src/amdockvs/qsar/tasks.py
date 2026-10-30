@@ -100,17 +100,20 @@ def predict_shard_task(payload: dict) -> dict:
         if vector is not None:
             keys.append(shard_key(payload.get("import_batch_id"), record_id))
             rows.append(vector)
-    values = confidence = np.zeros(0)
+    values = confidence = positive_probability = np.zeros(0)
     if rows:
         x_matrix = np.asarray(rows, dtype=float)
         values = fitted.predict(x_matrix)
         confidence = fitted.predict_confidence(x_matrix)
+        positive_probability = fitted.predict_positive_probability(x_matrix)
     out = Path(str(payload["output_dir"])) / f"{int(payload['shard_id'])}.parquet"
     out.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame({
         "key": np.asarray(keys, dtype=np.int64),
         "value": np.asarray(values, dtype=float),
         "confidence": np.full(len(keys), np.nan) if confidence is None else np.asarray(confidence, dtype=float),
+        "positive_probability": (np.full(len(keys), np.nan) if positive_probability is None
+                                 else np.asarray(positive_probability, dtype=float)),
     }).to_parquet(out, index=False)
     return {"path": str(out), "count": len(keys)}
 

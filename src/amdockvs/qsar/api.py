@@ -492,13 +492,18 @@ class QSARAPI(ActivitiesMixin):
         RDKit block, computed+cached on first use) or 'ecfp4' (stored Morgan fingerprint). For
         descriptor sources the preprocessing (impute→drop zero-variance→drop |r|>corr_threshold→
         scale) lives inside the CV pipeline, so scores are leakage-free. split 'scaffold' holds out
-        whole Bemis-Murcko scaffolds. cv_folds>=2 adds a CV score (Q²/MCC). class_threshold binarizes
+        whole Bemis-Murcko scaffolds, including within CV. cv_folds>=2 adds a training-only CV
+        score (Q²/MCC); label-permutation checks also use only training molecules. class_threshold binarizes
         a *continuous* endpoint (active = value >= threshold); leave None for categorical endpoints.
         y_scramble>=1 runs that many label-permutation refits (should score ~0; else signal is spurious)."""
         self.runtime._require_active_project()
         endpoint_text = str(endpoint or "").strip()
         if not endpoint_text:
             raise ValueError("train requires endpoint.")
+        if split not in {"random", "scaffold"}:
+            raise ValueError("split must be 'random' or 'scaffold'.")
+        if not 0 <= float(test_size) < 1:
+            raise ValueError("test_size must be >=0 and <1; use 0 to disable the holdout.")
         source = str(feature_source).lower()
         if source in {"ecfp4", "fingerprint", "morgan"}:
             feature_kind = "ecfp4"
@@ -545,8 +550,9 @@ class QSARAPI(ActivitiesMixin):
             )
 
         x_train, y_train, holdout = x_matrix, y_vector, None
+        train_indices = np.arange(len(used_ids))
         test_ids: set[int] = set()  # for split-membership reporting (train/test; no separate val set)
-        if test_size and 0.0 < float(test_size) < 1.0 and x_matrix.shape[0] >= 4:
+        if float(test_size) > 0:
             if split == "scaffold":
                 from amdockvs.qsar.modeling import grouped_holdout_split
 
@@ -554,6 +560,7 @@ class QSARAPI(ActivitiesMixin):
                     [scaffolds.get(mid, "") for mid in used_ids], test_size=float(test_size), seed=int(seed)
                 )
                 if test_idx and train_idx:
+                    train_indices = np.asarray(train_idx)
                     x_train, y_train = x_matrix[train_idx], y_vector[train_idx]
                     holdout = (x_matrix[test_idx], y_vector[test_idx])
                     test_ids = {used_ids[i] for i in test_idx}
@@ -562,9 +569,26 @@ class QSARAPI(ActivitiesMixin):
 
                 indices = np.arange(x_matrix.shape[0])
                 train_i, test_i = train_test_split(indices, test_size=float(test_size), random_state=int(seed))
+                train_indices = train_i
                 x_train, y_train = x_matrix[train_i], y_vector[train_i]
                 holdout = (x_matrix[test_i], y_vector[test_i])
                 test_ids = {used_ids[i] for i in test_i}
+
+            if holdout is None or len(y_train) < 2:
+                raise ValueError(
+                    "The requested holdout cannot leave at least two training molecules and "
+                    "one test molecule. Add more molecules/scaffolds or reduce the test fraction."
+                )
+            if task == "classification" and np.unique(y_train).size < 2:
+                raise ValueError(
+                    "The requested split leaves only one class in training. Add more labeled "
+                    "molecules/scaffolds or choose a different split or seed."
+                )
+
+        training_groups = (
+            np.asarray([scaffolds.get(used_ids[int(i)], "") for i in train_indices])
+            if split == "scaffold" else None
+        )
 
         fitted = fit_model(
             x_train, y_train, feature_names=out_names, algorithm=algorithm, task=task, hyperparams=hyperparams,
@@ -584,6 +608,7 @@ class QSARAPI(ActivitiesMixin):
             "features": feature_summary,
             "split": split,
             "class_threshold": class_threshold,
+            "positive_class": int(max(fitted.classes)) if len(fitted.classes) == 2 else None,
             "corr_threshold": float(corr_threshold),
             "n_train": int(x_train.shape[0]),
             "train": self._score(task, y_train, fitted, x_train),
@@ -593,21 +618,47 @@ class QSARAPI(ActivitiesMixin):
         if holdout is not None:
             metrics["test"] = self._score(task, holdout[1], fitted, holdout[0])
         if cv_folds and int(cv_folds) >= 2:
-            from amdockvs.qsar.modeling import cross_val_score_mean
+            from amdockvs.qsar.modeling import cross_validation_metrics
 
             metrics["cv_folds"] = int(cv_folds)
-            cv_score = cross_val_score_mean(
-                x_matrix, y_vector, algorithm=algorithm, task=task, cv=int(cv_folds),
+            metrics["cv_samples"] = int(x_train.shape[0])
+            metrics["cv_split"] = "scaffold" if training_groups is not None else "row"
+            cv_metrics = cross_validation_metrics(
+                x_train, y_train, algorithm=algorithm, task=task, cv=int(cv_folds),
                 hyperparams=hyperparams, feature_kind=feature_kind, corr_threshold=float(corr_threshold),
+                groups=training_groups,
             )
-            metrics["q2" if task == "regression" else "cv_mcc"] = cv_score
+            metrics.update(cv_metrics)
+            if task == "regression":
+                metrics["q2_method"] = "pooled_oof"
+            cv_score = cv_metrics["q2" if task == "regression" else "cv_mcc"]
+            if cv_score is None:
+                if training_groups is not None and len(np.unique(training_groups)) < int(cv_folds):
+                    metrics["cv_warning"] = (
+                        f"CV not computed: requested {int(cv_folds)} folds, but the training set "
+                        f"contains only {len(np.unique(training_groups))} scaffold group(s)."
+                    )
+                else:
+                    metrics["cv_warning"] = (
+                        "CV score undefined: insufficient training samples, a constant response, or unscorable folds."
+                    )
         if y_scramble and int(y_scramble) >= 1:
             from amdockvs.qsar.modeling import y_scramble_score
 
+            scramble_folds = int(cv_folds) if int(cv_folds) >= 2 else 3
+            metrics["y_scramble_samples"] = int(x_train.shape[0])
+            metrics["y_scramble_cv_folds"] = scramble_folds
+            metrics["y_scramble_metric"] = "q2_pooled_oof" if task == "regression" else "cv_mcc"
             metrics["y_scramble"] = y_scramble_score(
-                x_matrix, y_vector, algorithm=algorithm, task=task, n_permutations=int(y_scramble),
+                x_train, y_train, algorithm=algorithm, task=task, n_permutations=int(y_scramble),
                 hyperparams=hyperparams, feature_kind=feature_kind, corr_threshold=float(corr_threshold), seed=int(seed),
+                cv=scramble_folds, groups=training_groups,
             )
+            if metrics["y_scramble"] is None:
+                metrics["y_scramble_warning"] = (
+                    "Label-permutation validation not computed: insufficient training samples "
+                    "or scaffold groups, or unscorable folds."
+                )
         importance = feature_importance(fitted.estimator, out_names)
         if importance:
             metrics["feature_importance"] = [[n, v] for n, v in importance]
@@ -617,7 +668,7 @@ class QSARAPI(ActivitiesMixin):
                 name=str(name or "").strip() or f"{algorithm}_{endpoint_text}",
                 algorithm=algorithm,
                 target=endpoint_text,
-                feature_type="descriptors_2d",
+                feature_type="fingerprints_ecfp4" if feature_kind == "ecfp4" else "descriptors_2d",
                 source="trained",
                 metrics=metrics,
             )
@@ -649,9 +700,11 @@ class QSARAPI(ActivitiesMixin):
                 name=str(name or source_path.stem),
                 algorithm=fitted.algorithm,
                 target=str(endpoint or ""),
-                feature_type="descriptors_2d",
+                feature_type="fingerprints_ecfp4" if fitted.feature_kind == "ecfp4" else "descriptors_2d",
                 source="external",
-                metrics={"task": fitted.task, "features": list(fitted.feature_names)},
+                metrics={"task": fitted.task, "features": list(fitted.feature_names),
+                         "feature_kind": fitted.feature_kind,
+                         "positive_class": int(max(fitted.classes)) if len(fitted.classes) == 2 else None},
             )
             session.add(model_record)
             session.flush()
@@ -669,6 +722,8 @@ class QSARAPI(ActivitiesMixin):
         """Keep only the ligands in a model's recorded train/test split. subset 'all' passes
         everything; 'train'/'test' keep the matching ids (empty split → nothing to filter on)."""
         mode = str(subset or "all").lower()
+        if mode not in {"all", "train", "test"}:
+            raise ValueError("subset must be 'all', 'train', or 'test'.")
         if mode not in {"train", "test"}:
             return ligands
         assign = {int(mid): str(sub) for mid, sub in (record.metrics or {}).get("split_assignment", [])}
@@ -685,23 +740,19 @@ class QSARAPI(ActivitiesMixin):
             return tuple(fitted.feature_names)
         return normalize_feature_names(fitted.feature_names)
 
-    def roc_curve_points(
+    def _diagnostic_data(
         self,
         *,
         model: QSARModelRef | int,
         molecule_set: MoleculeSetRef | MoleculeScope | int | None = None,
         endpoint: str | None = None,
         subset: str = "all",
-    ) -> dict[str, Any]:
-        """(fpr, tpr) ROC points + AUC for a binary classification model. subset 'test' (held-out —
-        the honest predictivity), 'train' (optimistic; the gap to test shows overfitting) or 'all'.
-        Classification-only; needs a probabilistic model and both classes present."""
+    ) -> tuple[FittedModel, np.ndarray, np.ndarray, dict[str, Any]]:
+        """Read labeled features from exactly the requested evaluation subset."""
         self.runtime._require_active_project()
         ligands = self._ligands(molecule_set)
         with self.runtime.workspace.project_db.get_session() as session:
             record, fitted = self._load_fitted(session, model)
-            if fitted.task != "classification":
-                raise ValueError("ROC curve is only for classification models.")
             endpoint_text = str(endpoint or record.target or "").strip()
             activity_by_ligand = self._latest_activity_by_ligand(session, endpoint_text)
             threshold = (record.metrics or {}).get("class_threshold")
@@ -712,31 +763,76 @@ class QSARAPI(ActivitiesMixin):
                 fp_radius=int(fitted.fp_radius or 2), fp_nbits=int(fitted.fp_nbits or 2048),
             )
         if not x_rows:
-            raise ValueError(f"No labeled, feature-complete ligands in the '{subset}' subset for a ROC curve.")
+            raise ValueError(f"No labeled, feature-complete ligands in the '{subset}' subset.")
         x_matrix = np.asarray(x_rows, dtype=float)
         y_raw = np.asarray([activity_by_ligand[mid] for mid in used_ids], dtype=float)
-        y_true = (y_raw >= float(threshold)).astype(int) if threshold is not None else y_raw.astype(int)
-        # A stale/0.0 threshold on a categorical 0/1 endpoint collapses every label to one class —
-        # fall back to the raw labels (the endpoint is already categorical) so old models still plot.
-        if threshold is not None and len(set(y_true.tolist())) != 2:
-            y_true = y_raw.astype(int)
-        estimator = fitted.estimator
-        if not hasattr(estimator, "predict_proba") or len(set(y_true.tolist())) != 2:
-            raise ValueError("ROC needs a probabilistic binary model with both classes labeled.")
+        y_true = y_raw
+        if fitted.task == "classification":
+            y_true = (y_raw >= float(threshold)).astype(int) if threshold is not None else y_raw.astype(int)
+        return fitted, x_matrix, y_true, {
+            "endpoint": endpoint_text, "subset": str(subset or "all").lower(), "n": len(y_true),
+        }
+
+    def observed_predicted_points(self, *, model, molecule_set=None, endpoint=None, subset="all") -> dict[str, Any]:
+        fitted, x, y_true, result = self._diagnostic_data(
+            model=model, molecule_set=molecule_set, endpoint=endpoint, subset=subset)
+        if fitted.task != "regression":
+            raise ValueError("Observed vs predicted is only for regression models.")
+        return {**result, "points": list(zip(y_true.tolist(), fitted.predict(x).tolist()))}
+
+    def _binary_diagnostic_data(self, **kwargs):
+        fitted, x, y_true, result = self._diagnostic_data(**kwargs)
+        classes = np.asarray(getattr(fitted.estimator, "classes_", []))
+        if fitted.task != "classification" or len(classes) != 2:
+            raise ValueError("This diagnostic requires a binary classification model.")
+        classes = np.sort(classes)
+        if not np.isin(y_true, classes).all():
+            raise ValueError("The selected endpoint contains labels outside the model's trained classes.")
+        return fitted, x, y_true, classes, result
+
+    def _binary_curve_data(self, **kwargs):
+        fitted, x, y_true, classes, result = self._binary_diagnostic_data(**kwargs)
+        if len(np.unique(y_true)) != 2:
+            raise ValueError("ROC and precision-recall curves need both classes in the selected subset.")
+        scores = fitted.predict_positive_probability(x)
+        if scores is None:
+            raise ValueError("ROC and precision-recall curves require a model with binary probabilities.")
+        positive = classes[-1].item()
+        return (y_true == positive).astype(int), scores, {**result, "positive_class": positive}
+
+    def roc_curve_points(self, *, model, molecule_set=None, endpoint=None, subset="all") -> dict[str, Any]:
+        """Binary ROC using positive-class probabilities on the requested subset."""
+        y_true, scores, result = self._binary_curve_data(
+            model=model, molecule_set=molecule_set, endpoint=endpoint, subset=subset)
         from sklearn.metrics import roc_auc_score, roc_curve
 
-        proba = np.asarray(estimator.predict_proba(x_matrix))
-        if proba.ndim != 2 or proba.shape[1] < 2:
-            raise ValueError("model was trained on a single class — retrain it (no ROC possible).")
-        scores = proba[:, 1]
         fpr, tpr, _thr = roc_curve(y_true, scores)
         return {
-            "endpoint": endpoint_text,
-            "subset": str(subset or "all").lower(),
+            **result,
             "points": [(float(a), float(b)) for a, b in zip(fpr, tpr)],
             "auc": float(roc_auc_score(y_true, scores)),
-            "n": int(len(y_true)),
         }
+
+    def precision_recall_curve_points(self, *, model, molecule_set=None, endpoint=None, subset="all") -> dict[str, Any]:
+        """Precision/recall, average precision (AP), and the prevalence baseline."""
+        from sklearn.metrics import average_precision_score, precision_recall_curve
+
+        y_true, scores, result = self._binary_curve_data(
+            model=model, molecule_set=molecule_set, endpoint=endpoint, subset=subset)
+        precision, recall, _thresholds = precision_recall_curve(y_true, scores)
+        return {**result, "points": list(zip(recall.tolist(), precision.tolist())),
+                "average_precision": float(average_precision_score(y_true, scores)),
+                "prevalence": float(np.mean(y_true))}
+
+    def confusion_matrix_data(self, *, model, molecule_set=None, endpoint=None, subset="all") -> dict[str, Any]:
+        """Raw counts: rows are actual classes and columns are predicted classes."""
+        from sklearn.metrics import confusion_matrix
+
+        fitted, x, y_true, classes, result = self._binary_diagnostic_data(
+            model=model, molecule_set=molecule_set, endpoint=endpoint, subset=subset)
+        counts = confusion_matrix(y_true, fitted.predict(x), labels=classes)
+        return {**result, "labels": classes.tolist(), "counts": counts.tolist(),
+                "positive_class": classes[-1].item()}
 
     def _load_fitted(self, session, model: QSARModelRef | int) -> tuple[QSARModelRecord, FittedModel]:
         model_id = int(model.id if hasattr(model, "id") else model)
@@ -772,6 +868,7 @@ class QSARAPI(ActivitiesMixin):
             x_matrix = np.asarray(x_rows, dtype=float)
             values = fitted.predict(x_matrix)
             confidence = fitted.predict_confidence(x_matrix)
+            positive_probability = fitted.predict_positive_probability(x_matrix)
             model_id = int(record.id or 0)
             if replace:
                 for row in session.exec(
@@ -788,6 +885,7 @@ class QSARAPI(ActivitiesMixin):
                         model_id=model_id,
                         value=float(values[i]),
                         confidence=None if confidence is None else float(confidence[i]),
+                        positive_probability=None if positive_probability is None else float(positive_probability[i]),
                     )
                 )
             session.commit()
@@ -861,14 +959,27 @@ class QSARAPI(ActivitiesMixin):
         model_id = int(model.id if hasattr(model, "id") else model)
         frame = self.shard_predictions(model=model_id)
         scored = len(frame)
+        with self.runtime.workspace.project_db.get_session() as session:
+            record = session.get(QSARModelRecord, model_id)
+            if record is None:
+                raise ValueError(f"Unknown QSAR model id: {model_id}")
+            classification = (record.metrics or {}).get("task") == "classification"
+        if "positive_probability" not in frame:
+            frame["positive_probability"] = np.nan  # older regression shards remain usable
+        score = "positive_probability" if classification else "value"
+        if classification and frame[score].isna().any():
+            raise ValueError(
+                "Classifier ranking requires binary positive-class probabilities. "
+                "Run Predict shards again to update older predictions."
+            )
         if cutoff is not None:
-            frame = frame[frame["value"] >= float(cutoff) if higher_is_better else frame["value"] <= float(cutoff)]
-        frame = frame.sort_values(["value", "key"], ascending=[not higher_is_better, True])
+            frame = frame[frame[score] >= float(cutoff) if higher_is_better else frame[score] <= float(cutoff)]
+        frame = frame.sort_values([score, "key"], ascending=[not higher_is_better, True])
         if top_n is not None:
             frame = frame.head(max(0, int(top_n)))
-        kept = [(int(key), float(value), confidence) for key, value, confidence in frame.itertuples(index=False)]
-        promoted = ShardStore(self.runtime.workspace.project_db).promote(key for key, _value, _conf in kept)
-        ids = [promoted[key] for key, _value, _conf in kept if key in promoted]
+        kept = list(frame[["key", "value", "confidence", "positive_probability"]].itertuples(index=False, name=None))
+        promoted = ShardStore(self.runtime.workspace.project_db).promote(int(key) for key, *_ in kept)
+        ids = [promoted[key] for key, *_ in kept if key in promoted]
         with self.runtime.workspace.project_db.get_session() as session:
             for start in range(0, len(ids), 900):
                 for row in session.exec(
@@ -882,8 +993,9 @@ class QSARAPI(ActivitiesMixin):
                 QSARPredictionRecord(
                     molecule_id=promoted[key], model_id=model_id, value=value,
                     confidence=None if confidence != confidence else float(confidence),  # NaN = none
+                    positive_probability=None if probability != probability else float(probability),
                 )
-                for key, value, confidence in kept if key in promoted
+                for key, value, confidence, probability in kept if key in promoted
             )
             session.commit()
         return {"scored": scored, "kept": len(ids), "molecule_ids": ids}
@@ -927,7 +1039,8 @@ class QSARAPI(ActivitiesMixin):
             }
         return [
             {"molecule_id": int(r.molecule_id), "name": names[int(r.molecule_id)],
-             "value": float(r.value), "confidence": None if r.confidence is None else float(r.confidence)}
+             "value": float(r.value), "confidence": None if r.confidence is None else float(r.confidence),
+             "positive_probability": None if r.positive_probability is None else float(r.positive_probability)}
             for r in rows if int(r.molecule_id) in names
         ]
 
@@ -946,6 +1059,9 @@ class QSARAPI(ActivitiesMixin):
         id). With ``exclude_rest`` every other ligand the model scored is marked excluded
         (reversible); ligands it could not score, and ligands already excluded, are left alone.
 
+        Binary classifiers rank/filter by P(the higher-valued class), not the predicted class
+        label or max-class confidence. Older classifier predictions must be regenerated first.
+
         The cut is a subquery over the predictions, so nothing here grows with the library: the
         exclusion is one UPDATE and only ``ids_limit`` ids ever come back. Returns {"kept": n,
         "rest": n, "excluded": how many were marked, "ids": the first ``ids_limit`` kept, best first}."""
@@ -953,13 +1069,18 @@ class QSARAPI(ActivitiesMixin):
             raise ValueError("cut_predictions needs top_n and/or cutoff.")
         self.runtime._require_active_project()
         model_id = int(model.id if hasattr(model, "id") else model)
+        with self.runtime.workspace.project_db.get_session() as session:
+            record = session.get(QSARModelRecord, model_id)
+            if record is None:
+                raise ValueError(f"Unknown QSAR model id: {model_id}")
+            classification = (record.metrics or {}).get("task") == "classification"
         scored_ligand = aliased(MoleculeRecord)  # aliased: the UPDATE below targets the table itself
         scored = (
             select(QSARPredictionRecord.molecule_id)
             .join(scored_ligand, scored_ligand.id == QSARPredictionRecord.molecule_id)
             .where(QSARPredictionRecord.model_id == model_id, scored_ligand.excluded == False)  # noqa: E712
         )
-        value = QSARPredictionRecord.value
+        value = QSARPredictionRecord.positive_probability if classification else QSARPredictionRecord.value
         kept = scored.order_by(value.desc() if higher_is_better else value.asc(), QSARPredictionRecord.molecule_id)
         if cutoff is not None:
             kept = kept.where(value >= float(cutoff) if higher_is_better else value <= float(cutoff))
@@ -969,6 +1090,12 @@ class QSARAPI(ActivitiesMixin):
             f"{' ' if top_n is not None else ''}{'>=' if higher_is_better else '<='} {float(cutoff):g}"
             if cutoff is not None else "")
         with self.runtime.workspace.project_db.get_session() as session:
+            if classification and session.exec(scored.where(value.is_(None)).limit(1)).first() is not None:
+                raise ValueError(
+                    "Classifier ranking requires positive-class probabilities from a binary model. "
+                    "Run prediction again to update older predictions; multiclass or "
+                    "non-probabilistic classifiers cannot use this ranking."
+                )
             n_scored = int(session.exec(select(func.count()).select_from(scored.subquery())).one())
             n_kept = int(session.exec(select(func.count()).select_from(kept.subquery())).one())
             ids = [int(i) for i in session.exec(kept.limit(min(int(ids_limit), n_kept)))] if ids_limit else []
@@ -989,8 +1116,12 @@ class QSARAPI(ActivitiesMixin):
         model: QSARModelRef | int,
         molecule_set: MoleculeSetRef | MoleculeScope | int | None = None,
         endpoint: str | None = None,
+        subset: str = "all",
     ) -> dict[str, Any]:
-        """Score a labeled molecule set against a model and return task-appropriate metrics."""
+        """Score labeled molecules in 'all', 'train', or 'test' (recorded model split).
+
+        A requested subset with no usable molecules raises instead of scoring all molecules.
+        """
         self.runtime._require_active_project()
         ligands = self._ligands(molecule_set)
         with self.runtime.workspace.project_db.get_session() as session:
@@ -1002,12 +1133,13 @@ class QSARAPI(ActivitiesMixin):
             features = self._features_for(fitted)
             threshold = (record.metrics or {}).get("class_threshold")
             labeled = [r for r in ligands if int(r.id or 0) in activity_by_ligand]
+            labeled = self._filter_by_subset(labeled, record, subset)
             used_ids, x_rows, _names, _missing = self._design_matrix(
                 session, labeled, feature_kind=fitted.feature_kind, features=features,
                 fp_radius=int(fitted.fp_radius or 2), fp_nbits=int(fitted.fp_nbits or 2048),
             )
             if not x_rows:
-                raise ValueError("No labeled, descriptor-complete ligands to evaluate.")
+                raise ValueError(f"No labeled, feature-complete ligands in the '{subset}' subset to evaluate.")
             x_matrix = np.asarray(x_rows, dtype=float)
             y_raw = np.asarray([activity_by_ligand[mid] for mid in used_ids], dtype=float)
             if fitted.task == "classification":
@@ -1017,6 +1149,7 @@ class QSARAPI(ActivitiesMixin):
                 metrics = self._score("regression", y_raw, fitted, x_matrix)
             metrics["model_id"] = int(record.id or 0)
             metrics["endpoint"] = endpoint_text
+            metrics["subset"] = str(subset or "all").lower()
             return metrics
 
     def model_subsets(self, *, model: QSARModelRef | int) -> dict[int, str]:

@@ -185,6 +185,20 @@ class FittedModel:
             return np.full(x.shape[0], float(self.residual_std))
         return None
 
+    def predict_positive_probability(self, x_matrix: np.ndarray) -> np.ndarray | None:
+        """P(the higher-valued class) for binary classifiers; None for other models.
+
+        Keep this separate from max-class confidence: a confident negative prediction has a
+        low positive probability. Read class order from the estimator that produced the columns.
+        """
+        if self.task != "classification" or not hasattr(self.estimator, "predict_proba"):
+            return None
+        classes = np.asarray(getattr(self.estimator, "classes_", self.classes))
+        if classes.size != 2:
+            return None
+        probabilities = np.asarray(self.estimator.predict_proba(np.asarray(x_matrix, dtype=float)))
+        return probabilities[:, int(np.argmax(classes))]
+
 
 def fit_model(
     x_matrix: np.ndarray,
@@ -307,25 +321,97 @@ def grouped_holdout_split(groups: Sequence[Any], *, test_size: float, seed: int 
     """Scaffold-style split: return (train_idx, test_idx) sending whole groups to the holdout until
     ~test_size of the rows are held out. Guarantees no group spans both sets. # ponytail: greedy
     fill in shuffled-group order, no class balancing."""
+    if not 0 < float(test_size) < 1:
+        raise ValueError("Scaffold holdout fraction must be between 0 and 1.")
     n = len(groups)
-    if n == 0:
-        return [], []
     import random
 
     by_group: dict[Any, list[int]] = {}
     for idx, key in enumerate(groups):
         by_group.setdefault(key, []).append(idx)
+    if len(by_group) < 2:
+        raise ValueError(
+            "Scaffold holdout requires at least two distinct scaffold groups; "
+            f"found {len(by_group)}. Add more scaffold diversity, choose a random split, "
+            "or explicitly set the test fraction to 0 (no holdout)."
+        )
     order = list(by_group)
     random.Random(int(seed)).shuffle(order)
-    target = int(round(float(test_size) * n))
+    target = max(1, int(round(float(test_size) * n)))
     test_idx: list[int] = []
-    for key in order:
+    for key in order[:-1]:  # reserve one whole group for training, even for a large test fraction
         if len(test_idx) >= target:
             break
         test_idx.extend(by_group[key])
     test_set = set(test_idx)
     train_idx = [i for i in range(n) if i not in test_set]
     return train_idx, test_idx
+
+
+def cross_validation_metrics(
+    x_matrix: np.ndarray,
+    y_vector: np.ndarray,
+    *,
+    algorithm: str,
+    task: str,
+    cv: int,
+    hyperparams: dict[str, Any] | None = None,
+    feature_kind: str = "descriptors",
+    corr_threshold: float = 0.95,
+    groups: Sequence[Any] | None = None,
+) -> dict[str, float | None]:
+    """Score one out-of-fold prediction per training molecule, refitting the full pipeline.
+
+    Regression Q² = 1 - PRESS / sum((y - mean(y))²), using the complete training response
+    vector and its out-of-fold predictions. Mean fold R² is a separate, unweighted diagnostic;
+    it is undefined if any fold has fewer than two responses or constant responses. Q² is
+    undefined for a constant training response. Negative scores are retained.
+
+    Classification retains mean fold MCC. Grouped CV never falls back to row-wise folds.
+    Unusable splits return None metrics; invalid inputs or estimator failures still raise.
+    """
+    from sklearn.base import clone
+    from sklearn.metrics import matthews_corrcoef
+    from sklearn.model_selection import GroupKFold, check_cv
+
+    x_matrix = np.asarray(x_matrix, dtype=float)
+    y_fit = np.asarray(y_vector, dtype=float if task == "regression" else int)
+    if task not in {"regression", "classification"}:
+        raise ValueError("CV task must be 'regression' or 'classification'.")
+    if x_matrix.ndim != 2 or y_fit.ndim != 1 or len(y_fit) != len(x_matrix):
+        raise ValueError("CV requires a 2D feature matrix and one response per molecule.")
+    result = ({"q2": None, "cv_r2_mean": None, "cv_rmse": None, "cv_press": None}
+              if task == "regression" else {"cv_mcc": None})
+    folds = int(cv)
+    if groups is not None:
+        groups = np.asarray(groups)
+        if groups.ndim != 1 or len(groups) != x_matrix.shape[0]:
+            raise ValueError("CV groups must have one entry per training molecule.")
+    if folds < 2 or len(x_matrix) < folds or (groups is not None and len(np.unique(groups)) < folds):
+        return result
+    splitter = check_cv(GroupKFold(n_splits=folds) if groups is not None else folds,
+                        y=y_fit, classifier=task == "classification")
+    estimator = _build_estimator(
+        algorithm, task, hyperparams or {}, feature_kind=feature_kind, corr_threshold=corr_threshold
+    )
+    predictions = np.empty(len(y_fit), dtype=float)
+    scores = []
+    for train, test in splitter.split(x_matrix, y_fit, groups):
+        fitted = clone(estimator).fit(x_matrix[train], y_fit[train])
+        predicted = np.asarray(fitted.predict(x_matrix[test]))
+        predictions[test] = predicted
+        scores.append(regression_metrics(y_fit[test], predicted)["r2"] if task == "regression"
+                      else float(matthews_corrcoef(y_fit[test], predicted)))
+    if not np.all(np.isfinite(predictions)):
+        return result
+    mean_score = (float(np.mean(scores))
+                  if all(score is not None and np.isfinite(score) for score in scores) else None)
+    if task == "classification":
+        return {"cv_mcc": mean_score}
+    press = float(np.sum((y_fit - predictions) ** 2))
+    tss = float(np.sum((y_fit - np.mean(y_fit)) ** 2))
+    return {"q2": float(1 - press / tss) if tss > 0 else None,
+            "cv_r2_mean": mean_score, "cv_rmse": float(np.sqrt(press / len(y_fit))), "cv_press": press}
 
 
 def cross_val_score_mean(
@@ -338,23 +424,15 @@ def cross_val_score_mean(
     hyperparams: dict[str, Any] | None = None,
     feature_kind: str = "descriptors",
     corr_threshold: float = 0.95,
+    groups: Sequence[Any] | None = None,
 ) -> float | None:
-    """Mean k-fold score: r² (regression → Q²) or MCC (classification). None if cv unusable.
-    Builds the full preprocessing+model pipeline so each fold refits its own scaler/selector
-    (no leakage). MCC over accuracy for classification — accuracy is meaningless under imbalance."""
-    from sklearn.model_selection import cross_val_score
+    """Mean fold R² (regression) or MCC (classification), retained for existing callers.
 
-    x_matrix = np.asarray(x_matrix, dtype=float)
-    folds = int(cv)
-    if folds < 2 or x_matrix.shape[0] < folds:
-        return None
-    estimator = _build_estimator(
-        algorithm, task, hyperparams or {}, feature_kind=feature_kind, corr_threshold=corr_threshold
-    )
-    scoring = "r2" if task == "regression" else "matthews_corrcoef"
-    y_fit = y_vector.astype(float) if task == "regression" else y_vector.astype(int)
-    scores = cross_val_score(estimator, x_matrix, y_fit, cv=folds, scoring=scoring)
-    return float(np.mean(scores))
+    This is NOT pooled Q². Use cross_validation_metrics to obtain that statistic.
+    """
+    metrics = cross_validation_metrics(x_matrix, y_vector, algorithm=algorithm, task=task, cv=cv,
+        hyperparams=hyperparams, feature_kind=feature_kind, corr_threshold=corr_threshold, groups=groups)
+    return metrics["cv_r2_mean" if task == "regression" else "cv_mcc"]
 
 
 def y_scramble_score(
@@ -369,9 +447,11 @@ def y_scramble_score(
     feature_kind: str = "descriptors",
     corr_threshold: float = 0.95,
     seed: int = 0,
+    groups: Sequence[Any] | None = None,
 ) -> float | None:
     """OECD y-randomisation: shuffle labels `n_permutations` times and score each *out of sample*
-    (k-fold CV), returning the mean (r² → Q², or MCC). Must use CV, not a train-fit score — a
+    (k-fold CV), returning mean pooled Q² (regression) or mean CV MCC (classification).
+    This uses the same metric definition as the unpermuted validation. Must use CV, not a train-fit score — a
     high-capacity model (RF) memorises shuffled labels in-sample and would always look bad. If the
     real model's CV score isn't clearly above this, its signal is chance. # ponytail: opt-in and
     O(n_permutations·cv·fit) — keep n_permutations small (~5–10)."""
@@ -386,10 +466,12 @@ def y_scramble_score(
         shuffled = rng.permutation(y_fit)
         if task == "classification" and np.unique(shuffled).size < 2:
             continue
-        score = cross_val_score_mean(
+        metrics = cross_validation_metrics(
             x_matrix, shuffled, algorithm=algorithm, task=task, cv=int(cv),
             hyperparams=hyperparams, feature_kind=feature_kind, corr_threshold=corr_threshold,
+            groups=groups,
         )
+        score = metrics["q2" if task == "regression" else "cv_mcc"]
         if score is not None:
             scores.append(float(score))
     return float(np.mean(scores)) if scores else None
@@ -457,6 +539,7 @@ __all__ = [
     "SUPPORTED_QSAR_ALGORITHMS",
     "classification_metrics",
     "cross_val_score_mean",
+    "cross_validation_metrics",
     "feature_importance",
     "fit_model",
     "grouped_holdout_split",
