@@ -243,7 +243,8 @@ def test_existing_project_opens_tabs_for_its_shards_and_results(practice):
     app.processEvents()
     for view_id in (RECEPTOR_VIEW_ID, LIGANDS_VIEW_ID, SHARDS_VIEW_ID, COMPLEXES_VIEW_ID):
         assert second.central_widget.open_view(view_id) is not None
-    assert second.central_widget.main_content_tabs.currentWidget() is second.central_widget.open_view(RECEPTOR_VIEW_ID)
+    # A project with results opens on them.
+    assert second.central_widget.main_content_tabs.currentWidget() is second.central_widget.open_view(COMPLEXES_VIEW_ID)
     second.close()
     app.processEvents()
 

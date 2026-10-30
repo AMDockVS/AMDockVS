@@ -773,7 +773,9 @@ class DockingResultsWidget(QWidget):
                 self._load_hit_in_pymol(hit, self._pose_rank(hit))
             return
         self._show_detail(hit)
-        if not self._showing_together():  # those rows load it themselves
+        # A tab behind another one (Complexes filling itself at start-up) leaves PyMOL to the
+        # one in front; show_active_in_pymol replays this pose when the tab comes forward.
+        if not self._showing_together() and self.isVisibleTo(self.window()):  # those rows load it themselves
             self._load_selected_hit_in_pymol()
 
     def ensure_viewport_filled(self, force: bool = False) -> bool:
