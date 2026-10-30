@@ -130,7 +130,7 @@ def test_grid_box_actions_are_visible_above_the_editor_and_save_without_a_site_s
     create = [widget.new_button, widget.ligand_button, widget.selection_button, widget.predict_button]
     assert [b.text() for b in create] == ["New", "Ligand", "Selection", "Predict…"]
     assert [b.text() for b in (widget.save_button, widget.save_as_button, widget.activate_button)] == [
-        "Save", "Save as new…", "Set Active"]
+        "Save", "Save as new", "Set Active"]
     assert all(b.menu() is None for b in create)
     layout = widget.layout()
     assert layout.indexOf(widget.save_row) < layout.indexOf(widget.show_working_box)
@@ -149,6 +149,11 @@ class _FakeCmd:
 
     def __init__(self):
         self.selections: dict[str, str] = {}
+        self.user_selections = ["sele"]
+
+    def get_names(self, kind: str) -> list[str]:
+        assert kind == "public_selections"
+        return self.user_selections + list(self.selections)
 
     def count_atoms(self, expression: str) -> int:
         if "((" in expression or ")(" in expression:
@@ -169,9 +174,20 @@ class _FakeCmd:
 def test_selection_editor_validates_live_and_builds_on_approval(grid_box_widget, monkeypatch):
     widget = grid_box_widget
     cmd = _FakeCmd()
-    widget.pymol_dock = SimpleNamespace(cmd=cmd)  # the widget is its own window() here
+    shown = [False]
+    widget.pymol_dock = SimpleNamespace(cmd=cmd, isVisible=lambda: shown[0])  # widget is its own window()
     built = []
     monkeypatch.setattr(widget, "_box_from_selection", built.append)
+
+    widget._sync_selection_button()
+    assert not widget.selection_button.isEnabled()  # PyMOL panel hidden
+    shown[0] = True
+    cmd.user_selections = []
+    widget._sync_selection_button()
+    assert not widget.selection_button.isEnabled()  # no selection yet
+    cmd.user_selections = ["sele"]
+    widget._sync_selection_button()
+    assert widget.selection_button.isEnabled()
 
     widget.selection_button.click()
     assert not widget.selection_row.isHidden() and widget.save_row.isHidden()
@@ -190,6 +206,11 @@ def test_selection_editor_validates_live_and_builds_on_approval(grid_box_widget,
     assert widget.selection_row.isHidden() and not widget.save_row.isHidden()
     assert not widget.selection_button.isChecked()
     assert "amdock_box_selection" not in cmd.selections
+
+    widget.selection_button.click()
+    shown[0] = False
+    widget._sync_selection_button()  # PyMOL hidden under the editor: it closes
+    assert widget.selection_row.isHidden() and not widget.selection_button.isEnabled()
 
 
 def test_set_active_is_off_for_the_site_that_is_already_active(grid_box_widget):

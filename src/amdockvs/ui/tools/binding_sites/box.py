@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PySide6.QtCore import Qt, Signal, QSize
+from PySide6.QtCore import Qt, Signal, QSize, QTimer
 from PySide6.QtGui import QColor, QBrush, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -178,7 +178,7 @@ class GridBoxSettingDockWidget(QWidget):
         # Every way to start a box is one visible click; Predict hands over to Pocket Detection,
         # whose sites come back to this list.
         create_row = QHBoxLayout()
-        create_row.setSpacing(2)
+        create_row.setSpacing(0)
         self.new_button = self._action_button(
             "New", "file-plus.svg", self._new_working_box, "A default 22 Å box to place by hand.")
         self.ligand_button = self._action_button(
@@ -194,7 +194,13 @@ class GridBoxSettingDockWidget(QWidget):
             "Open Pocket Detection to predict this receptor's pockets.")
         for button in (self.new_button, self.ligand_button, self.selection_button, self.predict_button):
             create_row.addWidget(button)
+        create_row.addStretch(1)
         layout.addLayout(create_row)
+        # ponytail: PyMOL emits nothing when its selections change, so poll while shown; a
+        # selection signal in ms_components' PyMOL widget would replace this timer.
+        self._selection_poll = QTimer(self)
+        self._selection_poll.setInterval(500)
+        self._selection_poll.timeout.connect(self._sync_selection_button)
 
         # Selection editor: replaces the save row while open. The selection shows in PyMOL as
         # it is typed; green = receptor residues/metals only, orange = anything else.
@@ -219,13 +225,16 @@ class GridBoxSettingDockWidget(QWidget):
         save_layout.setContentsMargins(0, 0, 0, 0)
         self.save_button = QPushButton("Save", self.save_row)
         self.save_button.clicked.connect(self._save_selected_site)
-        self.save_as_button = QPushButton("Save as new…", self.save_row)
+        self.save_as_button = QPushButton("Save as new", self.save_row)
         self.save_as_button.clicked.connect(self._save_new_site)
         self.activate_button = QPushButton("Set Active", self.save_row)
         self.activate_button.clicked.connect(self._set_active_site)
         for button in (self.save_button, self.save_as_button, self.activate_button):
             save_layout.addWidget(button)
         layout.addWidget(self.save_row)
+        # No side padding (the theme's 14 px): in a narrow dock it ate the text, not the frame.
+        for row in (self.selection_row, self.save_row):
+            row.setStyleSheet("QPushButton { padding: 5px 0px; }")
 
         self.show_working_box = QCheckBox("Show working box", self)
         self.show_working_box.setChecked(True)
@@ -325,7 +334,6 @@ class GridBoxSettingDockWidget(QWidget):
         button.setToolTip(tooltip)
         button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
         button.setAutoRaise(True)
-        button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         button.clicked.connect(slot)
         return button
 
@@ -614,10 +622,37 @@ class GridBoxSettingDockWidget(QWidget):
         if tools is not None:
             tools.open_tool(POCKET_DETECTION_VIEW_ID)
 
+    def _pymol_shown(self) -> bool:
+        dock = getattr(self.window(), "pymol_dock", None)
+        return getattr(dock, "cmd", None) is not None and dock.isVisible()
+
+    def _pymol_selections(self) -> list[str]:
+        """Named PyMOL selections with atoms in them, while the PyMOL panel is on screen."""
+        if not self._pymol_shown():
+            return []
+        cmd = self._pymol_cmd()
+        try:
+            return [name for name in cmd.get_names("public_selections")
+                    if not name.startswith("amdock_") and cmd.count_atoms(name)]
+        except Exception:
+            return []
+
+    def _sync_selection_button(self) -> None:
+        editing = not self.selection_row.isHidden()
+        if editing and not self._pymol_shown():
+            self._close_selection_editor()
+            editing = False
+        # While editing it stays on, so the user can close the editor with it.
+        has_selection = editing or bool(self._pymol_selections())
+        self.selection_button.setEnabled(self._current_molecule is not None and has_selection)
+
     def _toggle_selection_editor(self) -> None:
         if not self.selection_row.isHidden():
             self._close_selection_editor()
             return
+        names = self._pymol_selections()
+        if names and self.selection_edit.text().strip() == "sele" and "sele" not in names:
+            self.selection_edit.setText(names[0])
         self.save_row.hide()
         self.selection_row.show()
         self.selection_button.setChecked(True)
@@ -1096,10 +1131,12 @@ class GridBoxSettingDockWidget(QWidget):
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
+        self._selection_poll.start()
         if self._auto_preview_enabled or self._force_preview_once:
             self._refresh_preview(force=False)
 
     def hideEvent(self, event) -> None:
+        self._selection_poll.stop()
         self._close_selection_editor()
         self._clear_preview()
         self._clear_pseudo_ligand()
@@ -1112,9 +1149,9 @@ class GridBoxSettingDockWidget(QWidget):
         active_id = self._active_site_id()
         self.site_tree.setEnabled(has_receptor)
         self.show_working_box.setEnabled(has_receptor)
-        for button in (self.new_button, self.ligand_button, self.selection_button, self.predict_button,
-                       self.save_as_button):
+        for button in (self.new_button, self.ligand_button, self.predict_button, self.save_as_button):
             button.setEnabled(has_receptor)
+        self._sync_selection_button()
         self.save_button.setEnabled(has_receptor)  # with no saved site to overwrite, Save saves as new
         self.activate_button.setEnabled(has_selected_site and int(selected.id or 0) != active_id)  # already active: nothing to do
 
