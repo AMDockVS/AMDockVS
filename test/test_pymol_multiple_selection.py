@@ -335,3 +335,23 @@ def test_selected_ligands_share_the_scene_and_leave_it_when_deselected(viewer_sc
     viewer.load_hit(hits[1], 1)  # what the first row's pose loads, once the list is back
     assert {obj for obj in cmd.get_names("objects") if obj.startswith("amdock_result_pose")} == {
         "amdock_result_pose"}
+
+
+def test_a_press_on_a_non_table_item_view_is_ignored(monkeypatch):
+    """The grid box site list stores its color under the role SmartTable uses for its ColumnDef."""
+    from PySide6.QtWidgets import QApplication, QTreeWidget, QTreeWidgetItem, QWidget
+    from amdockvs.ui.tools.binding_sites.box import SITE_COLOR_ROLE
+
+    QApplication.instance() or QApplication([])
+    window = QWidget()
+    window.pymol_dock, window.grid_dock = None, None
+    viewer = molecular_viewer.MolecularViewerController(window)
+    selected = []
+    monkeypatch.setattr(viewer, "select_table_row", lambda view, additive: selected.append(view))
+    tree = QTreeWidget(window)
+    tree.setColumnCount(3)
+    item = QTreeWidgetItem(["", "7A5 site"])
+    item.setData(1, SITE_COLOR_ROLE, "#f4a0b0")
+    tree.addTopLevelItem(item)
+    viewer._on_table_pressed(tree, tree.model().index(0, 1), Qt.NoModifier)
+    assert selected == []
