@@ -69,12 +69,12 @@ class ImportFilterCriteriaForm(QWidget):
         self.mw_max = _optional_spinbox(minimum=0, maximum=5000)
         mw_row = QHBoxLayout()
         mw_row.addWidget(self.mw_min)
-        mw_row.addWidget(QLabel("–"), alignment=Qt.AlignmentFlag.AlignCenter)
+        mw_row.addWidget(QLabel("-"), alignment=Qt.AlignmentFlag.AlignCenter)
         mw_row.addWidget(self.mw_max)
         self.include_smarts = QLineEdit(self)
-        self.include_smarts.setPlaceholderText("SMARTS, comma-separated — keep matches")
+        self.include_smarts.setPlaceholderText("SMARTS, comma-separated - keep matches")
         self.exclude_smarts = QLineEdit(self)
-        self.exclude_smarts.setPlaceholderText("SMARTS, comma-separated — drop matches")
+        self.exclude_smarts.setPlaceholderText("SMARTS, comma-separated - drop matches")
         layout.addRow(self.exclude_pains)
         layout.addRow(self.require_ro5)
         layout.addRow("Max Ro5 violations", self.max_ro5_violations)
@@ -111,7 +111,7 @@ class ImportPrepareForm(QWidget):
         self.add_hs = _checkbox("Add hydrogens (if missing)", checked=False)
         self.gen_3d = _checkbox("Generate 3D coordinates (if missing)", checked=False)
         self.canonical_tautomer = _checkbox("Standardize to canonical tautomer", checked=False)
-        self.gen_3d.setToolTip("Embeds an ETKDG conformer and adds hydrogens — slow over huge libraries.")
+        self.gen_3d.setToolTip("Embeds an ETKDG conformer and adds hydrogens - slow over huge libraries.")
         self.canonical_tautomer.setToolTip(
             "Picks ONE canonical tautomer per molecule. Enumerating tautomers into separate "
             "molecules is a distinct step (planned for Molecule Tools), not this checkbox."

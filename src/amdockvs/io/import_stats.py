@@ -75,7 +75,7 @@ def summarize(tally: dict[str, Any]) -> str:
     detail = ", ".join(f"{count} {label}" for label, count in sorted(merged.items()))
     if not skipped:
         return f"Imported all {imported} molecule(s)."
-    return f"Imported {imported} of {total} — {skipped} skipped ({detail})."
+    return f"Imported {imported} of {total} - {skipped} skipped ({detail})."
 
 
 __all__ = [

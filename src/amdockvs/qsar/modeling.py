@@ -374,7 +374,7 @@ def y_scramble_score(
     (k-fold CV), returning the mean (r² → Q², or MCC). Must use CV, not a train-fit score — a
     high-capacity model (RF) memorises shuffled labels in-sample and would always look bad. If the
     real model's CV score isn't clearly above this, its signal is chance. # ponytail: opt-in and
-    O(n_permutations·cv·fit) — keep n_permutations small (~5–10)."""
+    O(n_permutations·cv·fit) — keep n_permutations small (~5-10)."""
     x_matrix = np.asarray(x_matrix, dtype=float)
     n = int(n_permutations)
     if n < 1 or x_matrix.shape[0] < max(2, int(cv)):

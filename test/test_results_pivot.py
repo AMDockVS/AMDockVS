@@ -75,7 +75,7 @@ def test_unpopulated_pivots_are_disabled_with_the_reason_not_hidden():
     rows = _rows(widget)
     assert len(rows) == 3  # nothing is hidden
     assert rows["hits"][0] is True
-    assert rows["offtarget"] == (False, "Off-target (ligand × receptor) — Needs a ligand docked against 2 receptors")
+    assert rows["offtarget"] == (False, "Off-target (ligand × receptor) - Needs a ligand docked against 2 receptors")
     assert rows["redocking"][0] is False
 
 

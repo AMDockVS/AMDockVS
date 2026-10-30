@@ -50,7 +50,7 @@ def _shard_table_config() -> TableConfig:
         allow_row_resize=True,
         multi_select=True,
         embedded_controls=True,
-        empty_message="No shards in this project — import a library as shards to start a campaign",
+        empty_message="No shards in this project - import a library as shards to start a campaign",
     )
 
 

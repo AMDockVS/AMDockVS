@@ -311,7 +311,7 @@ class LigandImportDialog(QDialog):
         )
         description = QLabel(
             "Molecules stay in files on disk: no rows, no catalog, and only docking hits are ever "
-            "written to the project. This sets how the whole project screens — one screening "
+            "written to the project. This sets how the whole project screens - one screening "
             "library per project.",
             self.shard_box,
         )
@@ -419,14 +419,14 @@ class LigandImportDialog(QDialog):
             # library, so unticking here means "reference", not "shard this too".
             self.shard_checkbox.setChecked(True)
             self._set_shard_hint(
-                "This project's library is sharded — ticked, these files join the shards. "
+                "This project's library is sharded - ticked, these files join the shards. "
                 "Untick to bring them in as reference ligands (rows: cocrystals, activity sets)."
             )
         elif rows:
             self.shard_checkbox.setChecked(False)
             self.shard_checkbox.setEnabled(False)
             self._set_shard_hint(
-                f"This project already holds {rows} ligands as rows — imports go to the database."
+                f"This project already holds {rows} ligands as rows - imports go to the database."
             )
 
     def _style_shard_box(self, *_args) -> None:
@@ -469,7 +469,7 @@ class LigandImportDialog(QDialog):
         if self.shard_checkbox.isEnabled() and total >= SHARD_SUGGEST_RECORDS:
             self.shard_checkbox.setChecked(True)
             self._set_shard_hint(
-                f"⚠ ~{total:,} molecules queued — sharding suggested. Importing them as rows "
+                f"⚠ ~{total:,} molecules queued - sharding suggested. Importing them as rows "
                 "would write a row per molecule into the project database."
             )
         elif self.shard_checkbox.isEnabled():

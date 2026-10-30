@@ -99,10 +99,10 @@ class QSARBuildWidget(QWidget):
         self.status.setText(f"Previewing {split} split for {endpoint}… (computing scaffolds can take a moment)")
 
         def _done(res):
-            show(f"{endpoint} — {split} split (train vs test)", res["categories"],
+            show(f"{endpoint} - {split} split (train vs test)", res["categories"],
                  {"train": res["train"], "test": res["test"]})
             self.status.setText(f"Split preview [{split}] {endpoint}: "
-                                f"{res['n_train']} train / {res['n_test']} test — {res['note']}")
+                                f"{res['n_train']} train / {res['n_test']} test - {res['note']}")
 
         run_async(
             lambda: self.runtime.qsar.split_preview(
@@ -147,7 +147,7 @@ class QSARBuildWidget(QWidget):
         self.test_size.setSingleStep(0.1)
         self.test_size.setValue(0.3)
         split_preview_btn = QPushButton("Preview split distribution", box)
-        split_preview_btn.setToolTip("Class/value distribution in train vs test — scaffold split balances "
+        split_preview_btn.setToolTip("Class/value distribution in train vs test - scaffold split balances "
                                      "chemical space but NOT the labels, so check the actives aren't lopsided.")
         split_preview_btn.clicked.connect(self._preview_split)
         self.feature_source = QComboBox(box)
@@ -171,7 +171,7 @@ class QSARBuildWidget(QWidget):
         step3_desc_btn.setToolTip("Skips ligands that already have them.")
         step3_desc_btn.clicked.connect(self._compute_descriptors)
         corr_btn = QPushButton("Analyze correlation…", box)
-        corr_btn.setToolTip("Heatmap of THIS feature block (above) at THIS cutoff — shows which "
+        corr_btn.setToolTip("Heatmap of THIS feature block (above) at THIS cutoff - shows which "
                             "descriptors the pipeline prunes as redundant before training.")
         corr_btn.clicked.connect(self._show_correlation)
         self.algo_box = QWidget(box)
@@ -468,7 +468,7 @@ class QSARModelsWidget(QWidget):
             "Observed vs predicted (test set) — regression models only." if not all_regression
             else "Observed vs predicted on the held-out test ligands; several ticked models overlay.")
         self._action_buttons["roc"].setToolTip(
-            "ROC + AUC — classification models only." if not all_classification
+            "ROC + AUC - classification models only." if not all_classification
             else "ROC + AUC over the labeled ligands; several ticked models overlay.")
         self._action_buttons["glowing"].setToolTip(
             "Per-atom contribution — ECFP4 models only (tick exactly one ECFP4 model)."
@@ -635,7 +635,7 @@ class QSARModelsWidget(QWidget):
 
         run_async(
             _work,
-            lambda out: self.status.setText("Predicted — " + "; ".join(
+            lambda out: self.status.setText("Predicted - " + "; ".join(
                 f"#{mid} {name}: {res['predicted']} scored ({res['skipped_missing_descriptor']} skipped)"
                 for mid, name, res in out)),
             on_error=lambda exc: QMessageBox.warning(self, "QSAR predict", str(exc)),
@@ -651,7 +651,7 @@ class QSARModelsWidget(QWidget):
         except Exception as exc:  # noqa: BLE001 — a project without shards, a missing model file
             QMessageBox.warning(self, "QSAR predict shards", str(exc))
             return
-        self.status.setText(f"Scoring the shards: {len(jobs)} job(s) — see Jobs. Then 'Promote top…'.")
+        self.status.setText(f"Scoring the shards: {len(jobs)} job(s) - see Jobs. Then 'Promote top…'.")
 
     def _promote_shards(self) -> None:
         checked = self._require_checked(exactly_one=True)
@@ -939,7 +939,7 @@ class PredictionsWidget(QWidget):
                 else "Glowing needs a fingerprint (ECFP4) model.")
         cut, self._cut_status = getattr(self, "_cut_status", ""), ""  # the outcome of a cut, shown once
         self.status.setText(f"{cut} {len(rows)} prediction(s). {glow}".strip()
-                            if rows else "No predictions yet — click 'Run prediction'.")
+                            if rows else "No predictions yet - click 'Run prediction'.")
 
     def _run(self) -> None:
         model_id = self._current_model_id()

@@ -1,11 +1,12 @@
-`data/` es un workspace local, no una interfaz oficial del producto.
+`data/` is a local workspace, not an official product interface.
 
-Su funcion es alojar datasets grandes, proyectos temporales y salidas de prueba que ayudan al desarrollo local pero no deben definir la narrativa principal del repo.
+It holds large datasets, temporary projects, and test outputs that support local
+development but should not define the repository's primary narrative.
 
-Politica:
+Policy:
 
-- no versionar datasets pesados ni proyectos de trabajo en git
-- mantener en el repo solo `data/README.md` y `data/fixtures/`
-- usar `data/fixtures/` para muestras pequenas y controladas que deban quedar versionadas
-- tratar carpetas como `project_*`, `pdemo*` o datasets grandes como material local descartable
-- si un ejemplo oficial necesita datos, debe usar fixtures pequenas o generarlos temporalmente
+- Do not commit large datasets or work projects to Git.
+- Keep only `data/README.md` and `data/fixtures/` in the repository.
+- Use `data/fixtures/` for small, controlled samples that need to be versioned.
+- Treat folders such as `project_*`, `pdemo*`, and large datasets as disposable local material.
+- If an official example needs data, use small fixtures or generate the data temporarily.

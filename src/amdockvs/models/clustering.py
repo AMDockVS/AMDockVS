@@ -28,7 +28,7 @@ class SimilarityResult(SQLModel, table=True):
     query_id is the reference molecule; target_id is compared against it.
 
     fp_type records which fingerprint was used for the comparison.
-    Scores range 0.0–1.0 (method-dependent).
+    Scores range 0.0-1.0 (method-dependent).
 
     Results are directional by convention (query → target) but similarity
     is symmetric — only one direction is stored to avoid duplication.
@@ -48,7 +48,7 @@ class SimilarityResult(SQLModel, table=True):
     target_id: int = Field(foreign_key=f"{TABLE_MOLECULES}.id", index=True)
     fp_type: str = Field()  # fingerprint used
     method: str = Field(default=SimilarityMethod.TANIMOTO)
-    score: float = Field()  # 0.0 – 1.0
+    score: float = Field()  # 0.0 - 1.0
 
     @classmethod
     def build_rows(

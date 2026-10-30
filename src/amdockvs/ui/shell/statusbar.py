@@ -54,7 +54,7 @@ class JobsStatusIndicator(QWidget):
         if self._attention:
             self.setVisible(True)
             self._label.setStyleSheet(f"font-size:11px; color:{color('red').name()};")
-            self._label.setText("⚠ Job failed — click to view")
+            self._label.setText("⚠ Job failed - click to view")
             self._bar.setVisible(False)
             return
         self.setVisible(self._visible)
@@ -133,7 +133,7 @@ class ResourceIndicator(_ClickableChip):
     """CPU (and GPU if present) in use by the local scheduler; click opens the monitor."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent, tooltip="Local compute in use — open the Jobs monitor")
+        super().__init__(parent, tooltip="Local compute in use - open the Jobs monitor")
 
     def set_state(self, *, used_cpu: int, total_cpu: int, used_gpu: int = 0, total_gpu: int = 0) -> None:
         total_cpu = max(0, int(total_cpu))

@@ -209,7 +209,7 @@ def test_protein_run_follows_the_whole_chain(build_widget, monkeypatch):
     assert bar.is_running and (bar.headline.text(), bar.detail.text()) == ("Queued", "step 1 of 2")
 
     jobs.on_upserted("fix-job", JobMonitorState(job_id="fix-job", status="running", chunks_total=4, chunks_done=1))
-    assert bar.headline.text() == "Fixing — 1 / 4 batches"
+    assert bar.headline.text() == "Fixing - 1 / 4 batches"
     assert "step 1 of 2" in bar.detail.text()
 
     jobs.on_finished("fix-job", "completed")
@@ -288,7 +288,7 @@ def test_build_run_follows_its_job_in_the_action_bar(build_widget):
         job_id="pipeline-job", status="running", chunks_total=10, chunks_done=4, chunks_failed=1, chunks_running=3
     )
     jobs.on_upserted("pipeline-job", running)
-    assert bar.headline.text() == "Building — 4 / 10 batches"
+    assert bar.headline.text() == "Building - 4 / 10 batches"
     assert bar.detail.text().startswith("Estimating time… · 3 running · 1 failed")
 
     bar.cancel_button.click()

@@ -83,7 +83,7 @@ class InteractionDiagramDock(MSDockWidget):
                 message=f"{label}\nNo interaction diagram has been computed for this pose yet.",
             )
             self.stack.setCurrentWidget(self.view)
-            self.status.setText(f"{label} — no diagram yet")
+            self.status.setText(f"{label} - no diagram yet")
             return
         self._draw(*cached, label=label)
 
@@ -97,7 +97,7 @@ class InteractionDiagramDock(MSDockWidget):
         self._diagram = diagram
         self._ensure_view().set_layout(diagram, layout)
         self.stack.setCurrentWidget(self.view)
-        self.status.setText(f"{label} — {len(diagram.interactions)} interactions")
+        self.status.setText(f"{label} - {len(diagram.interactions)} interactions")
 
     def _ensure_view(self) -> QWidget:
         if self.view is None:
@@ -120,7 +120,7 @@ class InteractionDiagramDock(MSDockWidget):
         hit = self._hit
         save_pose_diagram(hit.output_path, self._pose_rank, diagram, layout)
         self._diagram = diagram
-        self.status.setText(f"{hit.ligand_name} · pose {self._pose_rank} — {len(diagram.interactions)} interactions")
+        self.status.setText(f"{hit.ligand_name} · pose {self._pose_rank} - {len(diagram.interactions)} interactions")
         self.diagram_built.emit(int(hit.result_id or 0))
 
     def _on_residue_selected(self, key: str) -> None:

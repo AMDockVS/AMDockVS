@@ -222,7 +222,7 @@ class ProtocolEditorWidget:
             self.gnina_cnn_combo.setCurrentText("rescore")
             gpu_hint = QLabel(
                 "CNN mode: rescore/none are CPU-bound; refinement/all are GPU-bound and run "
-                "in the GPU token pool (≈1–2 at a time on a single card).",
+                "in the GPU token pool (≈1-2 at a time on a single card).",
                 page,
             )
             gpu_hint.setWordWrap(True)
@@ -651,7 +651,7 @@ class ProtocolEditorWidget:
             reason = self._missing_programs.get(spec.key, "")
             item = self.program_list.item(index)
             why = "not available" if spec.key in unavailable_programs() else "not installed"
-            item.setText(f"{spec.label} — {why}" if reason else spec.label)
+            item.setText(f"{spec.label} - {why}" if reason else spec.label)
             item.setData(Qt.ItemDataRole.ForegroundRole, greyed if reason else None)
             form, notice, label = self._program_notices[spec.key]
             label.setText(reason)

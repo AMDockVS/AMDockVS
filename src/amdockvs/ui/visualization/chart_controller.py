@@ -92,7 +92,7 @@ class ChartController:
         """series = [{'label','points':[(observed,predicted)]}]. Overlaid model-fit scatter."""
         if self._chart is None or not series:
             return
-        title = "Observed vs predicted" if len(series) > 1 else f"Observed vs predicted — {series[0].get('label', '')}"
+        title = "Observed vs predicted" if len(series) > 1 else f"Observed vs predicted - {series[0].get('label', '')}"
         self._chart.show_scatter_series(title, series)
         self._show()
 

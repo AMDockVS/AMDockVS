@@ -94,7 +94,7 @@ def load_activities_dialog(parent, *, current_endpoint: str = "") -> dict[str, A
     unit.addItems(UNIT_CHOICES)
     transform = QComboBox(dlg)
     transform.addItems(TRANSFORM_CHOICES)
-    transform.setToolTip("Convert a concentration value+unit to pX = -log10(M) — the modeling endpoint.")
+    transform.setToolTip("Convert a concentration value+unit to pX = -log10(M) - the modeling endpoint.")
     form.addRow("Endpoint", endpoint)
     form.addRow("Value column", value_col)
     form.addRow("Match by", match)

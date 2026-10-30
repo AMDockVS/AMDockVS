@@ -292,7 +292,7 @@ def molecule_scope_spec(
     kind, scope_filters, prepared_flag, grid_flag = _entity_scope_filters(entity_kind, filters, engine=engine)
     if grid_flag is not None and not ignore_grid_filter:
         # A grid lives in binding_sites and is only resolved by the hydrating path.
-        raise ValueError("molecule_scope_spec cannot filter by grid state — use list_entity_rows.")
+        raise ValueError("molecule_scope_spec cannot filter by grid state - use list_entity_rows.")
     scope_filters.pop("_limit", None)
     if set_id is not None:
         scope_filters["id__in_subquery"] = molecule_set_spec(int(set_id))

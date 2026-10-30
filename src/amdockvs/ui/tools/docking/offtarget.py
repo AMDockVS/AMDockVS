@@ -80,8 +80,8 @@ _HINTS = {
             "of error, about ×30.",
 }
 _DIFFERENCE_PALETTES = (
-    ("Blue – white – red", ("#2166ac", "#ffffff", "#b2182b")),
-    ("Purple – white – orange", ("#762a83", "#ffffff", "#e66101")),
+    ("Blue - white - red", ("#2166ac", "#ffffff", "#b2182b")),
+    ("Purple - white - orange", ("#762a83", "#ffffff", "#e66101")),
 )
 
 
@@ -195,7 +195,7 @@ class OffTargetResultsWidget(QWidget):
         self.align_check.setChecked(True)
         self.align_check.setToolTip(
             "When showing a ligand's grid, superimpose every receptor onto the target "
-            "(and move its bound pose with it) so the binding modes are directly comparable — "
+            "(and move its bound pose with it) so the binding modes are directly comparable - "
             "no per-ligand matrices needed (AMDock v1 style)."
         )
         self.palette_combo = QComboBox(self)

@@ -112,7 +112,7 @@ def show_project_summary(window) -> None:
     path = str(getattr(summary, "path", None) or getattr(ctx, "path", "") or "")
 
     dlg = QDialog(window)
-    dlg.setWindowTitle(f"Project — {name}")
+    dlg.setWindowTitle(f"Project - {name}")
     dlg.setMinimumWidth(440)
     root = QVBoxLayout(dlg)
 

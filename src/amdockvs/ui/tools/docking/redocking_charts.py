@@ -109,7 +109,7 @@ class RedockingChartsPanel(QWidget):
         mode, n = self._mode()
         per = case_rmsds(self._records, mode=mode, n=n)
         if not per:
-            self._message("No RMSD values to plot — run redocking first.")
+            self._message("No RMSD values to plot - run redocking first.")
             return
         x_max = max(2.5, min(max(max(v) for v in per.values()), 10.0))
         plot = self._plot()

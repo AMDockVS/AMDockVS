@@ -225,8 +225,8 @@ class MoleculeFilterWidget(QWidget):
         # The action implies the state scope + what Apply does — one direction only, so no run
         # ever flips a side it doesn't own (see FILTER_REASON_PREFIX).
         self.action_combo = QComboBox(self.scope_box)
-        self.action_combo.addItem("Enrich — exclude failing molecules", "enrich")
-        self.action_combo.addItem("Recover — re-include filter-excluded that now pass", "recover")
+        self.action_combo.addItem("Enrich - exclude failing molecules", "enrich")
+        self.action_combo.addItem("Recover - re-include filter-excluded that now pass", "recover")
         self.action_combo.addItem("Tag matches to a set (no state change)", "tag")
         self.action_combo.currentIndexChanged.connect(self._sync_action_controls)
         self.set_name_edit = QLineEdit(self.scope_box)
@@ -471,7 +471,7 @@ class MoleculeFilterWidget(QWidget):
             # bury it as "no match".
             text += f"\n⚠ {skipped} molecule(s) lack a computed property this filter needs and were skipped."
         if counts["evaluable"] == 0 and counts["scanned"]:
-            text += "\n⚠ Nothing was evaluable in this scope — no valid result."
+            text += "\n⚠ Nothing was evaluable in this scope - no valid result."
         self.summary_label.setText(text)
 
     def _open_ligands(self) -> None:

@@ -435,7 +435,7 @@ def test_amdock_ui_domain_views_show_docking_summaries(tmp_path, monkeypatch):
         docking_view._reopened = False
         docking_view.on_jobs_snapshot(SimpleNamespace(jobs_active=1, jobs=[running]))
         assert docking_view.stepper.current_index == 3 and docking_view.run_bar.is_running
-        assert "Docking — 214 / 1" in docking_view.req_pairs_count.text()
+        assert "Docking - 214 / 1" in docking_view.req_pairs_count.text()
         docking_view._pairs_text("No dockings in scope")  # a count refresh must not clobber it
         assert "214" in docking_view.req_pairs_count.text()
         docking_view.docking_jobs.on_finished("job-d", "canceled")
