@@ -51,7 +51,7 @@ class Notification:
 
     def as_line(self, *, glyph: bool = True) -> str:
         icon = f"{_ICONS.get(self.level, _ICONS[INFO])}  " if glyph else ""
-        body = f" — {self.text}" if self.text else ""
+        body = f" - {self.text}" if self.text else ""
         return f"{icon}{self.at:%H:%M}  {self.title}{body}"
 
 
@@ -178,7 +178,7 @@ class NotificationBell(QToolButton):
             "QToolButton { padding: 0; margin: 0; border: none; background: transparent;"
             f"font-size: 11px; font-weight: 600; {f'color: {color};' if color else ''} }}"
         )
-        self.setToolTip("Notifications" if count <= 0 else f"Notifications — {count} unread")
+        self.setToolTip("Notifications" if count <= 0 else f"Notifications - {count} unread")
         self.adjustSize()
 
 

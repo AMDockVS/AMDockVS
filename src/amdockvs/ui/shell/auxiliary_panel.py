@@ -175,7 +175,7 @@ class AuxiliaryPanelController:
             view.show_complex(obj)
         else:
             view.show_molecule(obj)
-        dialog.setWindowTitle(f"Details — {getattr(obj, 'name', None) or f'{kind} {obj.id}'}")
+        dialog.setWindowTitle(f"Details - {getattr(obj, 'name', None) or f'{kind} {obj.id}'}")
         dialog.show()
         dialog.raise_()
 

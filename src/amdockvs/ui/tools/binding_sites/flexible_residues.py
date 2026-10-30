@@ -121,7 +121,7 @@ class FlexibleResiduesPanel:
     def _load_flex_residues(self) -> None:
         source = str(self.flex_source_combo.currentData() or "box")
         if source != "box":
-            self.flex_count_label.setText("That source isn't available yet — use 'Residues in box'.")
+            self.flex_count_label.setText("That source isn't available yet - use 'Residues in box'.")
             return
         self._load_box_residues()
 

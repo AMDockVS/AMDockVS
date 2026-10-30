@@ -592,7 +592,7 @@ class MoleculeBuildWidget(QWidget):
     @staticmethod
     def _workflow_button(parent, handler) -> QPushButton:
         button = QPushButton("Save to workflow", parent)
-        button.setToolTip("Add this op (current settings) as a workflow step — updates it if already there.")
+        button.setToolTip("Add this op (current settings) as a workflow step - updates it if already there.")
         button.clicked.connect(handler)
         gate_workflow_save(button)
         return button

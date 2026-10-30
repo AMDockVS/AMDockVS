@@ -91,7 +91,7 @@ class RedockingWidget(QWidget):
         run_row.addWidget(self.run_button)
         self.run_button.setVisible(False)
         self.add_workflow_button = QPushButton("Save to workflow", self)
-        self.add_workflow_button.setToolTip("Save this redocking (current settings) as a step in the active workflow — updates the existing redocking step if there is one.")
+        self.add_workflow_button.setToolTip("Save this redocking (current settings) as a step in the active workflow - updates the existing redocking step if there is one.")
         self.add_workflow_button.clicked.connect(self._add_to_workflow)
         gate_workflow_save(self.add_workflow_button)
         run_row.addWidget(self.add_workflow_button)

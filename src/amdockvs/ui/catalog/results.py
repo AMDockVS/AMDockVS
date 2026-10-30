@@ -971,7 +971,7 @@ class DockingResultsWidget(QWidget):
             return
         x_values = [point[0] for point in points]
         y_values = [point[1] for point in points]
-        self.metric_plot.setTitle(f"{len(points)} point(s) — loaded ligands, best pose")
+        self.metric_plot.setTitle(f"{len(points)} point(s) - loaded ligands, best pose")
         self.metric_plot.plot(
             x_values,
             y_values,

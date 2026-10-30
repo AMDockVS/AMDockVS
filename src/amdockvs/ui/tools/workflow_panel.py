@@ -424,7 +424,7 @@ class WorkflowPanel(QWidget):
         self.edit_btn.toggled.connect(self._toggle_edit)
         self.save_as_btn = QPushButton("Save as new…", editor_box)
         self.save_as_btn.setEnabled(False)  # Fase 3: serialize the working copy to a file
-        self.save_as_btn.setToolTip("Save this edited workflow as a new one — coming with persistence.")
+        self.save_as_btn.setToolTip("Save this edited workflow as a new one - coming with persistence.")
         self.mode_combo = QComboBox(editor_box)
         self.mode_combo.addItem("Guided (step by step)", "guided")
         self.mode_combo.addItem("Automatic (unattended)", "auto")
@@ -435,7 +435,7 @@ class WorkflowPanel(QWidget):
         self.run_btn = QPushButton("Run", editor_box)
         self.run_btn.clicked.connect(self._run)
         self.next_btn = QPushButton("Mark done ▸", editor_box)  # guided: finish the current manual step
-        self.next_btn.setToolTip("The current interactive step is done — advance the route.")
+        self.next_btn.setToolTip("The current interactive step is done - advance the route.")
         self.next_btn.clicked.connect(self._mark_done)
         self.open_step_btn = QPushButton("Open step", editor_box)  # guided: (re)open current step's panel
         self.open_step_btn.setToolTip("Open the panel for the current step.")
@@ -526,7 +526,7 @@ class WorkflowPanel(QWidget):
 
     def _toggle_edit(self, checked: bool) -> None:
         if checked and any(s.status == "running" for s in self.runner.steps):
-            QMessageBox.information(self, "Workflow", "Can't edit a running workflow — abort it first.")
+            QMessageBox.information(self, "Workflow", "Can't edit a running workflow - abort it first.")
             self.edit_btn.setChecked(False)
             return
         self._set_edit_mode(checked)
@@ -614,7 +614,7 @@ class WorkflowPanel(QWidget):
         if step is None:
             return
         if not step.editable:
-            QMessageBox.information(self, "Workflow", "This step is already running or finished — can't reconfigure it.")
+            QMessageBox.information(self, "Workflow", "This step is already running or finished - can't reconfigure it.")
             return
         if not self._edit_mode:
             QMessageBox.information(self, "Workflow", "Enable Edit to configure steps.")
@@ -654,7 +654,7 @@ class WorkflowPanel(QWidget):
             )
             return
         if not any(s.status == "pending" for s in self.runner.steps):
-            QMessageBox.information(self, "Workflow", "Nothing to run — add some steps first.")
+            QMessageBox.information(self, "Workflow", "Nothing to run - add some steps first.")
             return
         self._set_edit_mode(False)  # lock while running
         if self._mode == "guided":

@@ -220,7 +220,7 @@ class QSARChartDockWidget(MSDockWidget):
         n_reps = sum(len(g.get("points") or []) for g in groups)
         pct = f"{evr[0] * 100:.1f}% + {evr[1] * 100:.1f}% = {(evr[0] + evr[1]) * 100:.1f}% variance"
         plot.setTitle(
-            f"Chemical universe (PCA) — {pool.shape[0]} sampled · {n_reps} representatives "
+            f"Chemical universe (PCA) - {pool.shape[0]} sampled · {n_reps} representatives "
             f"({len(groups)} previews) · {pct}",
             color=_AXIS_GREY,
         )

@@ -75,7 +75,7 @@ def _jsonable_to_tuple(value: Any) -> Any:
 
 
 _CLUSTER_TIP = (
-    "Cluster the WHOLE scope as an mf job (always — never inline; no size cap). You confirm the CPU "
+    "Cluster the WHOLE scope as an mf job (always - never inline; no size cap). You confirm the CPU "
     "count first (suggested from the scope size; 1 = serial, >1 = parallel). The result opens in "
     "the Clusters view when the job finishes; nothing is excluded until you ask for it there."
 )
@@ -255,7 +255,7 @@ class DiversitySelectionWidget(QWidget):
         self.run_button = QPushButton("Preview sample", box)
         self.run_button.setToolTip(
             f"Optional: cluster a fast random sample (up to {RUN_SAMPLE_LIMIT}) just to eyeball the "
-            f"clustering and tune threshold/method — changes nothing. Press it again for another "
+            f"clustering and tune threshold/method - changes nothing. Press it again for another "
             f"sample. To cluster the whole scope, use 'Cluster'."
         )
         self.run_button.clicked.connect(self._run)
@@ -264,7 +264,7 @@ class DiversitySelectionWidget(QWidget):
         self.clear_button.clicked.connect(self._clear)
         self.size_dist_button = QPushButton("Size distribution", box)
         self.size_dist_button.setToolTip(
-            "Histogram of compounds-per-cluster for the current previews — how many clusters are "
+            "Histogram of compounds-per-cluster for the current previews - how many clusters are "
             "singletons vs. large. Replaces the scatter in the Distribution dock; Preview redraws it."
         )
         self.size_dist_button.clicked.connect(self._show_size_distribution)
@@ -316,7 +316,7 @@ class DiversitySelectionWidget(QWidget):
             threshold.setValue(0.35)
             threshold.setToolTip(
                 "Merge threshold. Higher = tighter, more clusters, less reduction. Range is "
-                "fingerprint-dependent: 0.3–0.4 for ECFP4 (Morgan r2, the default here), 0.5–0.65 for "
+                "fingerprint-dependent: 0.3-0.4 for ECFP4 (Morgan r2, the default here), 0.5-0.65 for "
                 "RDKit fingerprints (bblean guidance)."
             )
             form.addRow("Threshold", threshold)
@@ -327,7 +327,7 @@ class DiversitySelectionWidget(QWidget):
                 batch.setRange(100, 100000)
                 batch.setSingleStep(500)
                 batch.setValue(2000)
-                batch.setToolTip("Molecules per batch clustered independently — the parallelizable unit.")
+                batch.setToolTip("Molecules per batch clustered independently - the parallelizable unit.")
                 form.addRow("Batch size", batch)
                 getters["batch_size"] = lambda w=batch: int(w.value())
 
@@ -494,7 +494,7 @@ class DiversitySelectionWidget(QWidget):
             if len(ids) > MAX_NARROWED_IDS:
                 QMessageBox.information(
                     self, "Diversity",
-                    f"The Ligands table is narrowed to {len(ids)} rows — too many to pass as a list "
+                    f"The Ligands table is narrowed to {len(ids)} rows - too many to pass as a list "
                     f"(limit {MAX_NARROWED_IDS}). Save them as a set ('Create Ligand Set…') and pick "
                     f"it in Selection, or clear the table filters.",
                 )
@@ -551,7 +551,7 @@ class DiversitySelectionWidget(QWidget):
         if len(self._selections) >= MAX_PREVIEWS:
             QMessageBox.information(
                 self, "Diversity",
-                f"Preview limit ({MAX_PREVIEWS}) reached — press Clear to start a fresh pile.",
+                f"Preview limit ({MAX_PREVIEWS}) reached - press Clear to start a fresh pile.",
             )
             return
         self._running = True
@@ -635,7 +635,7 @@ class DiversitySelectionWidget(QWidget):
             f"{stats.get('n_clusters', 0)} clusters ({len(reps)} representatives) · "
             f"mean tightness {stats.get('mean_tightness', 0)}.\n"
             f"Sampled {len(self._seen_ids)} of {self._total_in_scope} in scope across "
-            f"{len(self._selections)} preview(s) — this is just a look. Press 'Cluster' to run "
+            f"{len(self._selections)} preview(s) - this is just a look. Press 'Cluster' to run "
             f"the clustering over the whole scope."
         )
         self._push_plot()
@@ -656,7 +656,7 @@ class DiversitySelectionWidget(QWidget):
         if not sizes:
             QMessageBox.information(
                 self, "Diversity",
-                "No clusters yet — Preview a sample first. A finished run has its own in Clusters.",
+                "No clusters yet - Preview a sample first. A finished run has its own in Clusters.",
             )
             return
         labels, counts = size_histogram(sizes)
@@ -719,7 +719,7 @@ class DiversitySelectionWidget(QWidget):
         suggested = plan_cpus(n, cap=cap)
         cpus, ok = QInputDialog.getInt(
             self, "Run clustering",
-            f"{n} molecules — clustering runs as an mf job.\n"
+            f"{n} molecules - clustering runs as an mf job.\n"
             f"{'Parallel' if suggested > 1 else 'Serial'} at the suggested {suggested} CPU(s); "
             f"override up to {cap} cores:",
             suggested, 1, cap, 1,
@@ -753,7 +753,7 @@ class DiversitySelectionWidget(QWidget):
         self._connect_job_signal()
         mode = "parallel multiround" if cpus > 1 else "serial"
         self.stats_label.setText(
-            f"Clustering {n} ligands as an mf job on {cpus} CPU(s) ({mode}) — see Jobs. The result "
+            f"Clustering {n} ligands as an mf job on {cpus} CPU(s) ({mode}) - see Jobs. The result "
             f"opens in Clusters when it finishes; you can keep working."
         )
 
@@ -774,7 +774,7 @@ class DiversitySelectionWidget(QWidget):
         self._pending_cluster_job = None
         if str(status or "").strip().lower() != "completed":
             self.cluster_button.setEnabled(True)
-            self.stats_label.setText(f"Clustering job {status} — no result. See Jobs.")
+            self.stats_label.setText(f"Clustering job {status} - no result. See Jobs.")
             return
         run_async(
             lambda p=pending: self._register_run(p),

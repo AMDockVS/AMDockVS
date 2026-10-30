@@ -231,7 +231,7 @@ class ClustersWidget(QWidget):
         if not self._runs:
             self._run_id = None
             self._show_run({})
-            self.status.setText("No clustering runs yet — run one from the Diversity tool.")
+            self.status.setText("No clustering runs yet - run one from the Diversity tool.")
         elif self.run_combo.currentData() != self._run_id:
             self._on_run_changed()
 

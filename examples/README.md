@@ -1,26 +1,27 @@
 # Examples
 
-Los ejemplos usan la API pública actual:
+The examples use the current public API:
 
 ```python
 from amdockvs import AMDockVSRuntime
 ```
 
-No se mantienen ejemplos basados en `amdockvs.api.AMDockRuntime`.
+Examples based on the old `amdockvs.api.AMDockRuntime` API are no longer maintained.
 
-- `pipeline_demo.py`: flujo corto de importación, preparación y docking
-- `runtime_quickstart.py`: ejemplo más explícito de envío y espera de jobs
+- `pipeline_demo.py`: a short import, preparation, and docking workflow
+- `runtime_quickstart.py`: a more explicit example of submitting and waiting for jobs
 
-## Tutorial guiado en PySide6
+## Guided tutorial in PySide6
 
-`guided_tutorial_demo.py` es una app independiente: resalta controles, atenúa el resto
-de la ventana, deja interactuar con el control señalado y avanza al completar la acción.
-Incluye Atrás, Salir/Esc y reinicio; recalcula las posiciones al cambiar el tamaño.
-Usa el componente compartido `ms_components.ms_tutorial`. Tiene dos recorridos:
-informativo (solo Siguiente/Atrás, sin acciones) e interactivo (espera señales).
-Los slots de la aplicación de prueba no contienen llamadas al tutorial.
+`guided_tutorial_demo.py` is a standalone app. It highlights controls, dims the rest of
+the window, lets the user interact with the highlighted control, and advances when the
+action is complete. It includes Back, Exit/Esc, and restart controls, and recalculates
+positions when the window is resized. It uses the shared `ms_components.ms_tutorial`
+component and includes two tours: an informational tour (Next/Back only, with no actions)
+and an interactive tour (waits for signals). The test application's slots do not call the
+tutorial directly.
 
-Ejecutar desde la raíz del repositorio:
+Run it from the repository root:
 
 ```bash
 conda activate MSDD_312
@@ -28,19 +29,18 @@ PYTHONPATH="../ms_components/src:../ms_flow/src:../ms_env/src${PYTHONPATH:+:$PYT
   python examples/guided_tutorial_demo.py
 ```
 
-Estas rutas corresponden a los checkouts actuales (`ms_components` y `ms_flow`),
-equivalentes a los nombres anteriores `molsuite_components` y `molsuite_flow`.
-Si esos paquetes ya están instalados en el entorno, no hace falta `PYTHONPATH`.
+These paths point to the current checkouts (`ms_components` and `ms_flow`), previously
+named `molsuite_components` and `molsuite_flow`. If these packages are already installed
+in the environment, `PYTHONPATH` is not needed.
 
-La demo utiliza **el `ProjectsMenuWidget` real** y **`ProjectCatalogBackend` de la API
-de Molsuite**. Crea un catálogo y un proyecto temporales bajo su propio `MOLSUITE_HOME`,
-que elimina al cerrar normalmente. No utiliza el catálogo personal. Abre el proyecto
-de práctica con doble clic para pasar a una pantalla de trabajo ilustrativa.
-«Cargar datos de muestra» y «Validar ejemplo» solo cambian el estado visual: no importan
-moléculas, no envían jobs y no calculan docking. La creación de proyectos está desactivada
-para mantener el recorrido dentro de una única ventana.
+The demo uses the real **`ProjectsMenuWidget`** and **`ProjectCatalogBackend`** from the
+MolSuite API. It creates a temporary catalog and project under its own `MOLSUITE_HOME`,
+which are removed during normal shutdown. It does not use the personal project catalog.
+Double-click the practice project to open an illustrative work screen. “Load sample data”
+and “Validate example” only change the visual state: they do not import molecules, submit
+jobs, or run docking. Project creation is disabled so the tour stays within one window.
 
-Comprobación de interacción con Qt y el catálogo real:
+Test interaction with Qt and the real project catalog:
 
 ```bash
 QT_QPA_PLATFORM=offscreen \
@@ -48,48 +48,48 @@ QT_QPA_PLATFORM=offscreen \
   python -m pytest -q examples/test_guided_tutorial_demo.py
 ```
 
-### Viabilidad en AMDockVS y ms_projects
+### Feasibility in AMDockVS and ms_projects
 
-Es viable con Qt Widgets, sin añadir una dependencia de tutoriales. `TutorialStep`
-describe el destino, el texto y un evento opcional de avance. `TutorialTarget` enlaza
-el destino con un widget o resolver y una función opcional de navegación de UI.
-`TutorialController` observa señales existentes desde fuera de los slots. Los pasos
-informativos bloquean la interacción con el destino; los interactivos dejan pasar
-los clics reales. No depende de posiciones fijas ni de localizar controles por su texto.
-El contenido admite Python o TOML; los enlaces con widgets/señales se definen en Python.
-La guía de uso está en `../ms_components/docs/ms_tutorial.md`, y allí hay otra demo
-independiente con ambos modos y un recorrido cargado desde TOML.
+This can be implemented with Qt Widgets and does not require an additional tutorial
+dependency. `TutorialStep` describes the target, text, and an optional advance event.
+`TutorialTarget` binds the target to a widget or resolver and an optional UI navigation
+function. `TutorialController` observes existing signals from outside the slots.
+Informational steps block interaction with the target; interactive steps allow real clicks.
+The controller does not rely on fixed positions or on finding controls by their text.
+Content can be written in Python or TOML; widget and signal bindings are defined in Python.
+The usage guide is in `../ms_components/docs/ms_tutorial.md`, which also includes a separate
+demo of both modes and a tour loaded from TOML.
 
-La integración propuesta, comprobada contra el código actual:
+The proposed integration, checked against the current code:
 
-- **Componente compartido**: `ms_components.ms_tutorial` ya contiene el controlador
-  agnóstico a la aplicación; cada aplicación registra sus destinos, eventos y pasos.
-- **Proyectos**: `src/amdockvs/ui/shell/projects.py` ya crea `ProjectsMenuWidget` y
-  conecta `project_requested`. Se pueden encadenar los recorridos con esta señal y
-  `project_created`, ambas públicas. La demo ejercita el primer enlace.
-- **Diálogo y ventana principal**: AMDockVS aloja el navegador en un `QDialog` que se
-  oculta al abrir un proyecto. Necesita una capa por ventana y transferir el paso al
-  cambiar de ventana. `ms_tutorial` ya admite ese cambio de host y lo prueba con un
-  diálogo modal; esta demo de AMDock sigue incrustando el navegador para probar el
-  enlace en pequeño. Falta registrar el recorrido en la aplicación científica real.
-- **Pantallas dinámicas**: `ToolCoordinator.open_tool` y
-  `MainContentWidget.open_or_focus_view` permiten mostrar la pantalla antes de resolver
-  su destino. `TutorialTarget` permite registrar esa navegación y resolver el widget
-  al entrar al paso, porque docks y diálogos pueden crearse tarde o destruirse.
-- **Acciones de química**: usar las APIs existentes de AMDockVS/Molsuite y verificar
-  su resultado. `monitor_bridge.job_finished` ya publica ID y estado: el tutorial puede
-  conectarse mediante `TutorialEvent` y comprobar el job esperado y el éxito sin cambiar
-  `JobFeedbackController.on_job_finished`; enviar un job no completa el paso.
-- **Destinos estables**: `title_label` y `project_tree.view` existen actualmente como
-  atributos, pero convendría ofrecer un método público de destinos del tutorial en
-  `ms_projects` para no depender de la estructura interna del componente.
-- **Progreso**: guardar versión e identificador del tutorial en preferencias de UI;
-  ofrecer «Ayuda → Tutoriales» y un proyecto de práctica separado. No modificar el
-  proyecto científico del usuario para enseñar el flujo.
+- **Shared component:** `ms_components.ms_tutorial` already provides an application-agnostic
+  controller. Each application registers its targets, events, and steps.
+- **Projects:** `src/amdockvs/ui/shell/projects.py` already creates `ProjectsMenuWidget` and
+  connects `project_requested`. Tours can be chained with this public signal and
+  `project_created`. The demo exercises the first link.
+- **Dialog and main window:** AMDockVS hosts the browser in a `QDialog` that is hidden when a
+  project opens. It needs a per-window layer and must transfer the current step when the
+  window changes. `ms_tutorial` already supports host changes and tests them with a modal
+  dialog; this AMDock demo still embeds the browser to test the connection in a small setup.
+  The tour still needs to be registered in the scientific application.
+- **Dynamic screens:** `ToolCoordinator.open_tool` and
+  `MainContentWidget.open_or_focus_view` can show a screen before its target is resolved.
+  `TutorialTarget` can register that navigation and resolve the widget when the step begins,
+  since docks and dialogs may be created or destroyed later.
+- **Chemistry actions:** use the existing AMDockVS/MolSuite APIs and verify their results.
+  `monitor_bridge.job_finished` already publishes the job ID and status. The tour can listen
+  through `TutorialEvent` and verify the expected job and its success without changing
+  `JobFeedbackController.on_job_finished`; submitting a job alone does not complete the step.
+- **Stable targets:** `title_label` and `project_tree.view` currently exist as attributes,
+  but `ms_projects` should expose a public method for tutorial targets to avoid depending on
+  the component's internal structure.
+- **Progress:** save the tour version and ID in UI preferences; offer “Help > Tutorials” and
+  a separate practice project. Do not modify the user's scientific project to demonstrate
+  the workflow.
 
-Primera integración aconsejada: abrir/crear un proyecto → importar un receptor y pocos
-ligandos de ejemplo → comprobar la importación. Extender a preparación y docking después
-de integrar el recorrido entre ventanas. Cambiar de proyecto con uno abierto lanza otro
-proceso: continuar allí necesitaría guardar y recuperar el progreso desde la aplicación.
-Quedan por probar los docks flotantes, foco/accesibilidad con lectores de pantalla,
-escalado HiDPI y el visor PyMOL. La demo conserva el estado de los datos al reiniciar.
+Recommended first integration: open or create a project, import a receptor and a few sample
+ligands, and verify the import. Add preparation and docking after tours can transfer between
+windows. Switching projects while one is open starts another process; continuing the tour
+there would require saving and restoring progress in the application. Floating docks,
+screen-reader focus and accessibility, HiDPI scaling, and the PyMOL viewer still need testing.
+The demo preserves its data state across restarts.

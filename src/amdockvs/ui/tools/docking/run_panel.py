@@ -82,7 +82,7 @@ class RunPanel:
         hits_layout.addRow(self.hit_threshold_label, self.hit_threshold)
         hits_layout.addRow(self.hit_cap_label, self.hit_cap)
         self.offtarget_reference_combo = QComboBox(self.hits_box)
-        self.offtarget_reference_combo.addItem("None — dock the full library against every receptor", None)
+        self.offtarget_reference_combo.addItem("None - dock the full library against every receptor", None)
         self.offtarget_reference_combo.setToolTip(
             "With a reference, dock the full library against it first, then dock only its "
             "selected ligands (Top-N, or every one at or below the threshold) against the other "
@@ -116,7 +116,7 @@ class RunPanel:
         self.skip_existing_check = QCheckBox("Skip pairs already docked", run_box)
         self.skip_existing_check.setChecked(True)
         self.skip_existing_check.setToolTip(
-            "Before running, drop receptor–ligand pairs that already have results for this "
+            "Before running, drop receptor-ligand pairs that already have results for this "
             "engine (a single indexed scan). Uncheck to re-dock and replace previous results."
         )
         run_layout.addRow(self.skip_existing_check)
@@ -439,7 +439,7 @@ class RunPanel:
         if label is None:
             return
         body = payload if isinstance(payload, str) else self._short(payload)
-        label.setText(f"{title} — {body}")
+        label.setText(f"{title} - {body}")
 
     def _requirement_inputs(self) -> dict:
         # Capture the run scope (not the per-step mode) so the check matches the run and never
@@ -666,7 +666,7 @@ class RunPanel:
             # would survive it.
             self._docking_held = True
             self._run_text = self.run_button.text()
-            self.run_button.setText("Queued — waits for preparation")
+            self.run_button.setText("Queued - waits for preparation")
             self.run_button.setEnabled(False)
             return
         signature = self._docking_signature(inp, params)
@@ -880,7 +880,7 @@ class RunPanel:
         self.offtarget_reference_combo.blockSignals(True)
         self.offtarget_reference_combo.clear()
         self.offtarget_reference_combo.addItem(
-            "None — dock the full library against every receptor", None
+            "None - dock the full library against every receptor", None
         )
         for receptor_id, name in receptors:
             self.offtarget_reference_combo.addItem(
@@ -915,9 +915,9 @@ class RunPanel:
         counts = self._compute_requirement_counts(inp)
         ready_receptor_ids = tuple(int(v) for v in (counts.get("ready_receptor_ids") or ()) if int(v) > 0)
         if not int(counts["ligands"]["ready"]):
-            return {"warning": "No prepared shards in the library — run ligand preparation first."}
+            return {"warning": "No prepared shards in the library - run ligand preparation first."}
         if not ready_receptor_ids:
-            return {"warning": "No prepared receptors with a binding-site grid — nothing to dock."}
+            return {"warning": "No prepared receptors with a binding-site grid - nothing to dock."}
         protocols = tuple(DockingProtocol.from_mapping(value) for value in (params.get("protocols") or ()))
         if not protocols:
             return {"warning": "Select at least one compatible docking software first."}
@@ -988,7 +988,7 @@ class RunPanel:
         counts = self._compute_requirement_counts(inp)
         if "shards" in counts and not int(counts["shards"]["prepared"]):
             # Refused before the table's jobs go: half a run is not what both boxes asked for.
-            return {"warning": "No prepared shards in the library — run ligand preparation first."}
+            return {"warning": "No prepared shards in the library - run ligand preparation first."}
         protocols = tuple(
             DockingProtocol.from_mapping(value)
             for value in (params.get("protocols") or ())
@@ -1013,7 +1013,7 @@ class RunPanel:
                     missing.append("prepared ligands")
                 if not ready_receptor_ids:
                     missing.append("prepared receptors (with a grid)")
-                return {"warning": f"No {' or '.join(missing)} in scope — nothing to dock."}
+                return {"warning": f"No {' or '.join(missing)} in scope - nothing to dock."}
             ligand_scope = self._resolve_ligand_scope(params["sel_lig"], run_kind=params.get("run_kind", "docking"))
             receptor_scope = self._resolve_receptor_scope(list(ready_receptor_ids))
         reference_id = params.get("offtarget_reference_id") if params.get("run_kind") != "redocking" else None

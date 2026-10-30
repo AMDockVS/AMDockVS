@@ -187,7 +187,7 @@ class LigandActivityWidget(QWidget):
         self.table.blockSignals(False)
         self._loading = False
         n_test = sum(1 for v in subsets.values() if v == "test")
-        suffix = f" — {n_test} test / {len(subsets) - n_test} train" if subsets else ""
+        suffix = f" - {n_test} test / {len(subsets) - n_test} train" if subsets else ""
         self.status.setText(f"{len(rows)} activity row(s) for endpoint '{self._current_endpoint() or '(all)'}'{suffix}.")
         if self._show_histogram is not None:
             self._show_histogram(self._current_endpoint(), bins)

@@ -319,7 +319,7 @@ class QSARAPI(ActivitiesMixin):
             names = {int(r.id or 0): str(r.name or "") for r in ligands}
         train_fps = [fp_map[i] for i in train_ids if i in fp_map]
         if not train_fps:
-            raise ValueError("No training fingerprints — compute Morgan fingerprints (ECFP4) first.")
+            raise ValueError("No training fingerprints - compute Morgan fingerprints (ECFP4) first.")
         train_matrix = np.asarray(train_fps, dtype=float)
         train_norm = train_matrix.sum(axis=1)  # popcount per training fp
         out: list[dict[str, Any]] = []
@@ -454,7 +454,7 @@ class QSARAPI(ActivitiesMixin):
             # active-class fraction on each side — the imbalance the split may distort
             pos = classes[-1] if classes else 1
             fr = lambda idx: float((yb[idx] == pos).mean()) if len(idx) else 0.0
-            note = f"class {pos} fraction — train {fr(train_idx):.3f} vs test {fr(test_idx):.3f}"
+            note = f"class {pos} fraction - train {fr(train_idx):.3f} vs test {fr(test_idx):.3f}"
             return {"task": "classification", "categories": [str(c) for c in classes],
                     "train": train, "test": test, "n_train": len(train_idx), "n_test": len(test_idx), "note": note}
         lo, hi = float(y.min()), float(y.max())
@@ -462,7 +462,7 @@ class QSARAPI(ActivitiesMixin):
         cats = [f"{edges[i]:.2g}" for i in range(len(edges) - 1)]
         train = [int(v) for v in np.histogram(y[train_idx], bins=edges)[0]]
         test = [int(v) for v in np.histogram(y[test_idx], bins=edges)[0]]
-        note = f"mean value — train {float(y[train_idx].mean()):.3f} vs test {float(y[test_idx].mean()):.3f}"
+        note = f"mean value - train {float(y[train_idx].mean()):.3f} vs test {float(y[test_idx].mean()):.3f}"
         return {"task": "regression", "categories": cats, "train": train, "test": test,
                 "n_train": len(train_idx), "n_test": len(test_idx), "note": note}
 
@@ -539,7 +539,7 @@ class QSARAPI(ActivitiesMixin):
 
         if task == "classification" and np.unique(y_vector).size < 2:
             raise ValueError(
-                "All ligands fall in a single class after labeling — a model can't be trained. "
+                "All ligands fall in a single class after labeling - a model can't be trained. "
                 "For a categorical endpoint don't set a class threshold (the value is already the "
                 "label); for a continuous one, pick a threshold that leaves both classes populated."
             )

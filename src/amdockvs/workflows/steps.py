@@ -144,7 +144,7 @@ PRESET_WORKFLOWS: dict[str, WorkflowPreset] = {
             ("import_ligands", "standardize_ligands", "protonate_ligands", "generate_3d_ligands"),
         ),
         WorkflowPreset(
-            "QSAR — descriptor features",
+            "QSAR - descriptor features",
             "Unattended: import ligands, embed 3D, and compute molecular descriptors for QSAR modelling.",
             ("import_ligands", "generate_3d_ligands", "compute_descriptors"),
         ),

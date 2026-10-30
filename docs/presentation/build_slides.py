@@ -1,4 +1,4 @@
-"""Build the 8-minute AMDockVS talk (Spanish) as a .pptx.
+"""Build the 8-minute AMDockVS talk (English) as a .pptx.
 
 Run:  PYTHONPATH=/tmp/pptxlib python3 docs/presentation/build_slides.py
 Import the result into Google Slides (File > Import slides) or open in PowerPoint.
@@ -97,7 +97,7 @@ def funnel(s, y, steps, fill):
         tf.paragraphs[0].space_after = Pt(2)
 
 
-STEPS = ["Librería", "Filtrado", "Diversidad", "Preparación", "Sitio", "Docking", "Análisis"]
+STEPS = ["Library", "Filtering", "Diversity", "Preparation", "Site", "Docking", "Analysis"]
 
 # 1 — Title --------------------------------------------------------------------
 s = prs.slides.add_slide(BLANK)
@@ -108,47 +108,47 @@ bg.line.fill.background()
 if LOGO.exists():
     s.shapes.add_picture(str(LOGO), Inches(0.9), Inches(2.3), height=Inches(2.6))
 text(s, 4.0, 2.2, 8.8, 1.2, "AMDockVS", size=60, color=WHITE, bold=True)
-text(s, 4.0, 3.4, 8.8, 1.2, "Cribado virtual integrado, reproducible y de código abierto",
+text(s, 4.0, 3.4, 8.8, 1.2, "Integrated, reproducible, open-source virtual screening",
      size=26, color=RGBColor(0x9F, 0xE0, 0xE0))
-text(s, 4.0, 5.2, 8.8, 0.9, ["Mario S. Valdés · [institución] · [evento, fecha]"], size=16,
+text(s, 4.0, 5.2, 8.8, 0.9, ["Mario S. Valdés · [institution] · [event, date]"], size=16,
      color=WHITE)
 s.notes_slide.notes_text_frame.text = (
-    "(10 s) Presentarse. Hoy: qué problema resuelve AMDockVS y qué puede hacer.")
+    "(10 s) Introduce yourself. Today: the problem AMDockVS solves and what it can do.")
 
 # 2 — Typical VS workflow -------------------------------------------------------
-s = slide("Un cribado virtual típico", kicker="EL PROBLEMA", notes=(
-    "(1:00) Así es un cribado virtual: partimos de librerías de millones —incluso miles de "
-    "millones— de compuestos (ZINC, Enamine REAL). Filtramos por propiedades y alertas, "
-    "reducimos por diversidad, preparamos ligandos y receptor, definimos el sitio, hacemos "
-    "docking y analizamos. Cada paso suele ser un programa distinto, con su formato. "
-    "Los retos: pegar herramientas a mano, convertir formatos, escalar a muchos compuestos "
-    "y poder repetir exactamente lo que se hizo."))
-funnel(s, 1.8, list(zip(STEPS, ["10⁶–10⁹ cpds", "Lipinski, PAINS", "clustering", "H⁺, 3D, PDBQT",
-                                "cavidades", "scoring", "poses, ranking"])), NAVY)
+s = slide("A Typical Virtual Screening Workflow", kicker="THE PROBLEM", notes=(
+    "(1:00) A virtual-screening campaign starts with libraries of millions, sometimes billions, "
+    "of compounds (ZINC, Enamine REAL). We filter by properties and alerts, reduce the set by "
+    "diversity, prepare the ligands and receptor, define the binding site, dock, and analyze. "
+    "Each step often uses a different program and file format. The challenges are connecting "
+    "tools by hand, converting formats, scaling to large libraries, and reproducing the exact "
+    "workflow."))
+funnel(s, 1.8, list(zip(STEPS, ["10⁶-10⁹ compounds", "Lipinski, PAINS", "clustering", "H⁺, 3D, PDBQT",
+                                "pockets", "scoring", "poses, ranking"])), NAVY)
 tools = ["ZINC\nEnamine", "RDKit\nKNIME", "RDKit\nscripts", "OpenBabel\nreduce · Meeko",
          "fpocket\nP2Rank", "Vina\nAutoDock", "PyMOL\nPLIP"]
 for i, t in enumerate(tools):
     text(s, 0.6 + i * 12.1 / 7, 3.15, 12.1 / 7, 0.9, t.split("\n"), size=13, color=GREY,
          align=PP_ALIGN.CENTER)
-for i, (h, d) in enumerate([("Fragmentado", "un programa y un formato por paso"),
-                            ("Manual", "scripts y conversiones ad hoc"),
-                            ("Escala", "de decenas a millones de moléculas"),
-                            ("Reproducibilidad", "¿qué parámetros se usaron?")]):
+for i, (h, d) in enumerate([("Fragmented", "one program and format per step"),
+                            ("Manual", "ad hoc scripts and conversions"),
+                            ("Scale", "from dozens to millions of molecules"),
+                            ("Reproducibility", "which parameters were used?")]):
     box(s, 0.6 + i * 3.1, 4.8, 2.85, 1.6, f"{h}\n{d}", fill=ORANGE, size=18)
 
 # 3 — Current solutions --------------------------------------------------------
-s = slide("Soluciones actuales", kicker="CONTEXTO", notes=(
-    "(0:45) No partimos de cero. AMDock (2020) ya ofrecía una GUI para docking con Vina y "
-    "AutoDock4, pero orientada a un complejo a la vez. Hay otras opciones: PyRx, servidores "
-    "web, VirtualFlow para HPC, suites comerciales. Cada una cubre una parte: o es fácil de "
-    "usar, o escala, o es abierta. Faltaba algo intermedio: GUI + escala + abierto + "
-    "reproducible, en el escritorio."))
-rows = [("", "GUI", "Escala", "Abierto", "Reproducible"),
-        ("AMDock 1.6.5", "✔", "✘  1 complejo", "✔", "~"),
+s = slide("Current Solutions", kicker="CONTEXT", notes=(
+    "(0:45) We are building on existing work. AMDock (2020) already offered a Vina and "
+    "AutoDock4 docking GUI, but it handled one complex at a time. Other options include PyRx, "
+    "web servers, VirtualFlow for HPC, and commercial suites. Each covers part of the need: "
+    "ease of use, scale, or openness. A desktop tool combining a GUI, scale, openness, and "
+    "reproducibility was missing."))
+rows = [("", "GUI", "Scale", "Open source", "Reproducible"),
+        ("AMDock 1.6.5", "✔", "✘  1 complex", "✔", "~"),
         ("PyRx", "✔", "~", "~", "~"),
-        ("Servidores web (SwissDock, DockThor)", "✔", "✘  cuotas", "~", "~"),
+        ("Web servers (SwissDock, DockThor)", "✔", "✘  quotas", "~", "~"),
         ("VirtualFlow", "✘  CLI / HPC", "✔", "✔", "✔"),
-        ("Suites comerciales (Schrödinger)", "✔", "✔", "✘  licencia", "✔"),
+        ("Commercial suites (Schrödinger)", "✔", "✔", "✘  license", "✔"),
         ("AMDockVS", "✔", "✔", "✔  MIT", "✔")]
 tbl = s.shapes.add_table(len(rows), 5, Inches(0.6), Inches(1.8), Inches(12.1), Inches(4.6)).table
 tbl.columns[0].width = Inches(4.5)
@@ -169,67 +169,67 @@ text(s, 0.6, 6.6, 12, 0.5, "Valdés-Tresanco M.S. et al. AMDock. Biology Direct 
      size=11, color=GREY)
 
 # 4 — AMDockVS -----------------------------------------------------------------
-s = slide("AMDockVS: un flujo, una aplicación", kicker="LA PROPUESTA", notes=(
-    "(0:50) AMDockVS integra todo el embudo en una sola aplicación. Se usa de dos formas "
-    "sobre la misma lógica científica: una interfaz de escritorio, o una API de Python para "
-    "notebooks y scripts reproducibles. Es MIT y se instala con pip."))
-funnel(s, 1.8, list(zip(STEPS, ["SDF · SMILES · PDB", "descriptores", "BitBIRCH", "RDKit · Meeko",
-                                "P2Rank · manual", "Vina · Vinardo", "tablas · PyMOL"])), TEAL)
-box(s, 0.6, 3.5, 5.9, 2.9, "Interfaz de escritorio\nPySide6 + PyMOL · proyectos · tablas · "
-    "trabajos en segundo plano", fill=NAVY, size=22)
+s = slide("AMDockVS: One Workflow, One Application", kicker="THE PROPOSAL", notes=(
+    "(0:50) AMDockVS brings the entire workflow into one application. It offers two ways to "
+    "use the same scientific logic: a desktop interface and a Python API for reproducible "
+    "notebooks and scripts. It is MIT-licensed and installable with pip."))
+funnel(s, 1.8, list(zip(STEPS, ["SDF · SMILES · PDB", "descriptors", "BitBIRCH", "RDKit · Meeko",
+                                "P2Rank · manual", "Vina · Vinardo", "tables · PyMOL"])), TEAL)
+box(s, 0.6, 3.5, 5.9, 2.9, "Desktop interface\nPySide6 + PyMOL · projects · tables · "
+    "background jobs", fill=NAVY, size=22)
 code = s.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(6.8), Inches(3.5), Inches(5.9), Inches(2.9))
 code.fill.solid()
 code.fill.fore_color.rgb = RGBColor(0x10, 0x18, 0x24)
 code.line.fill.background()
 tf = code.text_frame
 tf.word_wrap = True
-for i, line in enumerate(["# API de Python — notebooks y scripts",
+for i, line in enumerate(["# Python API — notebooks and scripts",
                           "from amdockvs import AMDockVSRuntime",
                           "rt = AMDockVSRuntime(...)",
-                          "rt.loader ...      # importar",
+                          "rt.loader ...      # import",
                           "rt.pockets.predict(...)",
-                          "rt.docking ...     # preparar y acoplar"]):
+                          "rt.docking ...     # prepare and dock"]):
     p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
     p.text = line
     p.font.name, p.font.size = "Consolas", Pt(16)
     p.font.color.rgb = GREY if line.startswith("#") else RGBColor(0x9F, 0xE0, 0xE0)
-text(s, 0.6, 6.55, 12.1, 0.5, "pip install AMDockVS   ·   Python 3.12   ·   licencia MIT",
+text(s, 0.6, 6.55, 12.1, 0.5, "pip install AMDockVS   ·   Python 3.12   ·   MIT license",
      size=18, color=TEAL, bold=True, align=PP_ALIGN.CENTER)
 
 # 5-8 — capability gallery -----------------------------------------------------
 GALLERY = [
-    ("Preparar y seleccionar", "CAPACIDADES · 1/4",
-     ["• Tablas de ligandos y receptores con descriptores",
-      "• Estandarización, protonación, 3D y minimización",
-      "• Clustering por diversidad (BitBIRCH) → centroides representativos"],
-     "Tabla de ligandos + pestaña Prepare / resultado de Diversity",
-     "(0:45) Todo se ve en tablas filtrables. La preparación hace protonación, 3D y "
-     "minimización en un solo paso. Para reducir una librería grande usamos clustering "
-     "BitBIRCH y nos quedamos con los centroides: menos compuestos, misma diversidad."),
-    ("Sitio de unión y docking", "CAPACIDADES · 2/4",
-     ["• Predicción de cavidades con P2Rank o caja manual",
-      "• Preparación automática con Meeko",
-      "• Vina / Vinardo en paralelo; resultados ordenados por afinidad"],
-     "Cavidades P2Rank sobre el receptor + tabla de resultados por afinidad",
-     "(0:45) Si no conocemos el sitio, P2Rank predice las cavidades y generamos la caja a "
-     "partir de ellas. Meeko prepara los PDBQT y el docking se lanza como trabajo en paralelo. "
-     "Los resultados salen en una tabla ordenable por afinidad."),
-    ("Validar: redocking", "CAPACIDADES · 3/4",
-     ["• Re-acoplar el ligando cristalográfico",
-      "• RMSD entre pose predicha y experimental",
-      "• Confirma el protocolo antes del cribado"],
-     "Gráfica de RMSD del redocking",
-     "(0:45) Antes de cribar, validamos: re-acoplamos el ligando del cristal y medimos el RMSD. "
-     "[Si hay datos: 'en X de Y complejos el RMSD fue < 2 Å'.] Así sabemos que el protocolo "
-     "reproduce el modo de unión."),
-    ("Explorar: off-target y análisis", "CAPACIDADES · 4/4",
-     ["• Un ligando frente a varios receptores (off-target)",
-      "• Poses alineadas en PyMOL",
-      "• Diagramas 2D de interacciones · QSAR básico"],
-     "Vista off-target + pose en PyMOL + diagrama de interacciones",
-     "(0:45) La vista off-target pone un ligando frente a varios receptores con las poses "
-     "alineadas: útil para selectividad. Cada pose se inspecciona en PyMOL y con su diagrama "
-     "2D de interacciones. También hay descriptores y modelos QSAR básicos."),
+    ("Prepare and Select", "CAPABILITIES · 1/4",
+     ["• Ligand and receptor tables with descriptors",
+      "• Standardization, protonation, 3D generation, and minimization",
+      "• Diversity clustering (BitBIRCH) → representative centroids"],
+     "Ligand table + Prepare tab / Diversity results",
+     "(0:45) Everything is available in filterable tables. Preparation handles protonation, "
+     "3D generation, and minimization in one step. To reduce a large library, we use BitBIRCH "
+     "clustering and keep the centroids: fewer compounds with the same diversity."),
+    ("Binding Site and Docking", "CAPABILITIES · 2/4",
+     ["• Pocket prediction with P2Rank or a manual box",
+      "• Automatic preparation with Meeko",
+      "• Parallel Vina / Vinardo runs; results sorted by affinity"],
+     "P2Rank pockets on the receptor + affinity-ranked results table",
+     "(0:45) If the binding site is unknown, P2Rank predicts pockets and we generate a box "
+     "from them. Meeko prepares the PDBQT files, and docking runs as a parallel job. Results "
+     "appear in a table that can be sorted by affinity."),
+    ("Validate: Redocking", "CAPABILITIES · 3/4",
+     ["• Redock the crystallographic ligand",
+      "• RMSD between the predicted and experimental poses",
+      "• Validate the protocol before screening"],
+     "Redocking RMSD plot",
+     "(0:45) Before screening, validate the protocol: redock the crystal ligand and measure "
+     "the RMSD. [If data are available: 'the RMSD was below 2 Å for X of Y complexes.'] This "
+     "shows whether the protocol reproduces the binding mode."),
+    ("Explore: Off-Target and Analysis", "CAPABILITIES · 4/4",
+     ["• One ligand against multiple receptors (off-target)",
+      "• Aligned poses in PyMOL",
+      "• 2D interaction diagrams · basic QSAR"],
+     "Off-target view + PyMOL pose + interaction diagram",
+     "(0:45) The off-target view compares one ligand against several receptors with aligned "
+     "poses, which helps assess selectivity. Inspect each pose in PyMOL and with its 2D "
+     "interaction diagram. The application also includes descriptors and basic QSAR models."),
 ]
 for title, kicker, bullets, what, notes in GALLERY:
     s = slide(title, notes, kicker=kicker)
@@ -237,35 +237,36 @@ for title, kicker, bullets, what, notes in GALLERY:
     text(s, 8.8, 1.9, 4.0, 5.0, bullets, size=20)
 
 # 9 — Architecture / ms_flow ---------------------------------------------------
-s = slide("Arquitectura", kicker="POR DENTRO", notes=(
-    "(0:40) Por dentro hay tres capas. Arriba, la GUI y la API usan la misma lógica. "
-    "En medio, AMDockVS: la química. Abajo, ms_flow: nuestro orquestador, que gestiona "
-    "proyectos, trabajos asíncronos, ejecutores y paralelismo CPU/GPU, sin servidor ni broker. "
-    "ms_flow es genérico: sirve para cualquier flujo masivo de datos, no solo química."))
-box(s, 0.6, 1.8, 5.9, 1.1, "Interfaz de escritorio\nPySide6 · PyMOL", fill=NAVY, size=20)
-box(s, 6.8, 1.8, 5.9, 1.1, "API de Python\nnotebooks · scripts", fill=NAVY, size=20)
-box(s, 0.6, 3.1, 12.1, 1.2, "AMDockVS — lógica científica\nRDKit · Meeko · Vina · P2Rank",
+s = slide("Architecture", kicker="UNDER THE HOOD", notes=(
+    "(0:40) The architecture has three layers. At the top, the GUI and API use the same "
+    "logic. AMDockVS provides the chemistry layer. At the bottom, ms_flow is our orchestrator: "
+    "it manages projects, asynchronous jobs, executors, and CPU/GPU parallelism without a "
+    "server or broker. ms_flow is general-purpose and supports large data workflows beyond chemistry."))
+box(s, 0.6, 1.8, 5.9, 1.1, "Desktop interface\nPySide6 · PyMOL", fill=NAVY, size=20)
+box(s, 6.8, 1.8, 5.9, 1.1, "Python API\nnotebooks · scripts", fill=NAVY, size=20)
+box(s, 0.6, 3.1, 12.1, 1.2, "AMDockVS — scientific workflow\nRDKit · Meeko · Vina · P2Rank",
     fill=TEAL, size=22)
-box(s, 0.6, 4.5, 12.1, 1.6, "ms_flow — orquestador\nproyectos · trabajos asíncronos · "
-    "ejecutores · paralelismo CPU/GPU · persistencia", fill=ORANGE, size=24)
-text(s, 0.6, 6.3, 12.1, 0.8, "ms_flow: sin servidor ni broker, reutilizable fuera de la química "
+box(s, 0.6, 4.5, 12.1, 1.6, "ms_flow — orchestrator\nprojects · asynchronous jobs · "
+    "executors · CPU/GPU parallelism · persistence", fill=ORANGE, size=24)
+text(s, 0.6, 6.3, 12.1, 0.8, "ms_flow: no server or broker; reusable beyond chemistry "
      "—  pip install ms_flow", size=18, color=ORANGE, bold=True, align=PP_ALIGN.CENTER)
 
 # 10 — Conclusion --------------------------------------------------------------
-s = slide("Conclusión", kicker="CIERRE", notes=(
-    "(0:40) Resumen: integra, es reproducible y sirve desde la GUI o desde código. "
-    "Próximos pasos: GNINA y GPU, ejecución remota/HPC y más motores. Frase final."))
-for i, (h, d) in enumerate([("Integra", "todo el embudo en una aplicación"),
-                            ("Reproducible", "proyectos, parámetros y API"),
-                            ("Accesible", "GUI o Python · MIT · pip")]):
+s = slide("Conclusion", kicker="WRAP-UP", notes=(
+    "(0:40) In summary: AMDockVS is integrated, reproducible, and works through either the "
+    "GUI or code. Next steps include GNINA and GPU support, remote/HPC execution, and more "
+    "docking engines. Close with the final statement."))
+for i, (h, d) in enumerate([("Integrated", "the full workflow in one application"),
+                            ("Reproducible", "projects, parameters, and API"),
+                            ("Accessible", "GUI or Python · MIT · pip")]):
     box(s, 0.6 + i * 4.1, 1.8, 3.8, 1.6, f"{h}\n{d}", fill=TEAL, size=24)
-text(s, 0.6, 3.7, 12.1, 0.5, "Próximos pasos:  GNINA / GPU  ·  ejecución remota (HPC)  ·  "
-     "nuevos motores", size=18, color=GREY, align=PP_ALIGN.CENTER)
-text(s, 1.2, 4.5, 10.9, 1.6, "“AMDockVS convierte un conjunto fragmentado de herramientas de "
-     "docking en un flujo integrado, reproducible y accesible para el diseño de fármacos.”",
+text(s, 0.6, 3.7, 12.1, 0.5, "Next steps:  GNINA / GPU  ·  remote execution (HPC)  ·  "
+     "more engines", size=18, color=GREY, align=PP_ALIGN.CENTER)
+text(s, 1.2, 4.5, 10.9, 1.6, "“AMDockVS turns a fragmented set of docking tools into an "
+     "integrated, reproducible, and accessible workflow for drug discovery.”",
      size=24, color=NAVY, bold=True, align=PP_ALIGN.CENTER)
 shot(s, 5.9, 6.1, 1.4, 1.2, "QR")
-text(s, 7.5, 6.35, 5.2, 0.6, "github · pypi · docs  —  ¡Gracias!", size=16, color=GREY)
+text(s, 7.5, 6.35, 5.2, 0.6, "GitHub · PyPI · docs  —  Thank you!", size=16, color=GREY)
 
 prs.save(OUT)
 print(OUT)

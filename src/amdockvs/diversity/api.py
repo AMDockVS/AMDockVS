@@ -427,7 +427,7 @@ class DiversityAPI:
         rows = list(islice(scope_molecule_rows(project_db, params), INLINE_RUN_LIMIT + 1))
         if len(rows) > INLINE_RUN_LIMIT:
             raise ValueError(
-                f"More than {INLINE_RUN_LIMIT} molecules exceed the serial limit — this scope belongs "
+                f"More than {INLINE_RUN_LIMIT} molecules exceed the serial limit - this scope belongs "
                 f"on the parallel clustering job (cluster_job), not the inline path."
             )
         total = len(rows)
@@ -680,7 +680,7 @@ class DiversityAPI:
     def _project_root(self) -> Path:
         db_path = getattr(self.runtime.workspace.project_db, "db_path", None)
         if not db_path:
-            raise ValueError("No project DB path — cannot resolve the run sidecar location.")
+            raise ValueError("No project DB path - cannot resolve the run sidecar location.")
         return Path(db_path).expanduser().resolve().parent
 
     def save_clustering_result(

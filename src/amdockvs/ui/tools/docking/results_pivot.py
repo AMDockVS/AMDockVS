@@ -334,7 +334,7 @@ class ResultsPivotWidget(QWidget):
             item = model.item(row)
             item.setEnabled(usable)
             item.setToolTip("" if usable else reason)
-            self.pivot_combo.setItemText(row, label if usable else f"{label} — {reason}")
+            self.pivot_combo.setItemText(row, label if usable else f"{label} - {reason}")
         self.reason_label.setText(self._reason(str(self.pivot_combo.currentData() or _HITS)))
 
     # --- live job context -----------------------------------------------------

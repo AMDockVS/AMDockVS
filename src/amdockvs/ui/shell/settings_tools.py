@@ -64,7 +64,7 @@ class _ToolRow(QFrame):
 
         text = QVBoxLayout()
         text.setSpacing(2)
-        title = QLabel(f"<b>{tool.label}</b> — {tool.purpose}", self)
+        title = QLabel(f"<b>{tool.label}</b> - {tool.purpose}", self)
         title.setWordWrap(True)
         text.addWidget(title)
         self.status_label = QLabel("Checking…", self)

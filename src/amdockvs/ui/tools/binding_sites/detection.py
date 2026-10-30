@@ -221,11 +221,11 @@ class BindingSitesWidget(QWidget):
             # Nothing preselected on purpose: the receptor's own view lands after this load, so
             # a preselected row would look shown without being shown, and clicking it — the
             # first thing anyone tries — would change no selection and do nothing.
-            self.status_label.setText(f"{len(sites)} predicted site(s) — click one to see it in PyMOL.")
+            self.status_label.setText(f"{len(sites)} predicted site(s) - click one to see it in PyMOL.")
         else:
             self._clear_pymol_pockets()
             self.status_label.setText(
-                "No predicted sites for this receptor yet — run Pocket Detection."
+                "No predicted sites for this receptor yet - run Pocket Detection."
                 if self._receptor_id is not None
                 else "Select a receptor to see its predicted sites."
             )
