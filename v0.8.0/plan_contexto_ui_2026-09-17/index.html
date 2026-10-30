@@ -1,0 +1,880 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Virtual screening, molecular preparation, QSAR, and docking with MolSuite.">
+      
+      
+        <meta name="author" content="AMDockVS authors">
+      
+      
+        <link rel="canonical" href="https://amdockvs.github.io/AMDockVS/latest/plan_contexto_ui_2026-09-17/">
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../images/favicon.svg">
+      <meta name="generator" content="zensical-0.0.73">
+    
+    
+      
+        <title>Contexto (tool, tab) → visualización / zona auxiliar - AMDockVS</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../assets/stylesheets/modern/main.4ab2de0c.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../assets/stylesheets/modern/palette.b60ce83d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-hidden="true"></label>
+    <div data-md-component="skip">
+      <a href="#__skip" class="md-skip">
+        Skip to content
+      </a>
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="./.." title="AMDockVS" class="md-header__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+      <span class="md-visually-hidden">Navigation</span>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AMDockVS
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Contexto (tool, tab) → visualización / zona auxiliar
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+          <span class="md-visually-hidden">Search</span>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="./.." title="AMDockVS" class="md-nav__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    AMDockVS
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../runtime_api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API guide
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../data_and_export/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Data and export
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Examples
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#0-las-piezas" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        0. Las piezas
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-tool-tab-quien-ancla-a-quien-hoy" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1. Tool → Tab (quién ancla a quién) — HOY
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-tab-visualizacion-hoy" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        2. Tab → Visualización — HOY
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-tab-zona-auxiliar-hoy" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        3. Tab → Zona auxiliar — HOY
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-tool-visualizacion-hoy-por-empuje-fuera-del-contexto" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        4. Tool → Visualización — HOY (por empuje, fuera del contexto)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-lo-que-falta-o-esta-roto-a-revisar-antes-de-declarar-el-contexto" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        5. Lo que falta o está roto (a revisar antes de declarar el contexto)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-tabla-que-habria-que-declarar-propuesta-a-validar" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        6. Tabla que habría que declarar (propuesta a validar)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+              
+              <article class="md-content__inner md-typeset">
+                <a id="__skip" tabindex="-1"></a>
+                
+                  
+
+  
+  
+
+
+<h1 id="contexto-tool-tab-visualizacion-zona-auxiliar">Contexto (tool, tab) → visualización / zona auxiliar<a class="headerlink" href="#contexto-tool-tab-visualizacion-zona-auxiliar" title="Permanent link">&para;</a></h1>
+<p>Inventario de las relaciones <strong>que existen hoy en el código</strong> y de las <strong>que faltan o están
+mal conectadas</strong>, para revisarlas antes de declarar el contexto global.</p>
+<h2 id="0-las-piezas">0. Las piezas<a class="headerlink" href="#0-las-piezas" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Zona</th>
+<th>Quién la gobierna hoy</th>
+<th>Ocupantes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Panel izquierdo (tool)</td>
+<td><code>shell/tool_coordinator.py</code> (<code>active_tool</code>, 1 a la vez, dock EXCLUSIVE)</td>
+<td>Filter, Diversity, Build, Pocket Detection, Docking Studio</td>
+</tr>
+<tr>
+<td>Centro (tabs)</td>
+<td><code>shell/main_content.py</code> (<code>current_view_id()</code>, 1 slot de <em>preview</em>)</td>
+<td>7 tablas de catálogo + Docking Results + QSAR Models + Predictions + Workflow + Import</td>
+</tr>
+<tr>
+<td>Derecha arriba (EXCLUSIVE)</td>
+<td><code>visualization/chart_controller.py</code> + <code>viewers/molecular_viewer.py</code></td>
+<td>PyMOL · Distribution (charts) · Glowing molecule</td>
+</tr>
+<tr>
+<td>Derecha abajo (EXCLUSIVE)</td>
+<td><code>catalog/results.py</code> → <code>diagram_dock</code></td>
+<td>2D Interactions</td>
+</tr>
+<tr>
+<td>Panel lateral de PyMOL</td>
+<td><code>viewers/molecular_viewer.py</code> + <code>shell/auxiliary_panel.py</code></td>
+<td>Grid Box</td>
+</tr>
+<tr>
+<td>Zona auxiliar (bajo la tabla)</td>
+<td><code>shell/auxiliary_panel.py</code> (1 ocupante + 1 toggle global)</td>
+<td>Details · panel de la tab · auxiliar de la tool</td>
+</tr>
+</tbody>
+</table>
+<p>Único punto donde hoy se cruzan tool y tab: <code>main_window._on_current_view_changed()</code>
+(línea 440) y <code>tool_coordinator.open_tool()</code> → <code>aux.set_occupant()</code>.</p>
+<h2 id="1-tool-tab-quien-ancla-a-quien-hoy">1. Tool → Tab (quién ancla a quién) — HOY<a class="headerlink" href="#1-tool-tab-quien-ancla-a-quien-hoy" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Tab que enfoca</th>
+<th>Cómo</th>
+<th>Nota</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Filter</td>
+<td>Molecules</td>
+<td><code>showEvent</code> → <code>open_or_focus_view</code></td>
+<td>además botón → Ligands</td>
+</tr>
+<tr>
+<td>Build</td>
+<td>Molecules <strong>o</strong> Shards</td>
+<td><code>showEvent</code> + al cambiar de sub-pestaña</td>
+<td>ancla dinámica (<code>_ligand_view_id</code>)</td>
+</tr>
+<tr>
+<td>Pocket Detection</td>
+<td>Receptors</td>
+<td><code>showEvent</code></td>
+<td></td>
+</tr>
+<tr>
+<td>Docking Studio</td>
+<td>Ligands/Shards (paso 1), Receptors (paso 2), Complexes (paso 3)</td>
+<td>cambio de etapa del stepper</td>
+<td>ancla que <strong>se mueve</strong></td>
+</tr>
+<tr>
+<td>Docking (al lanzar Run)</td>
+<td>Docking Results + cierra el panel de tools</td>
+<td><code>run_panel.py:1052</code></td>
+<td></td>
+</tr>
+<tr>
+<td><strong>Diversity</strong></td>
+<td><strong>ninguna</strong></td>
+<td>—</td>
+<td>⚠️ falta; es la que motivó todo esto</td>
+</tr>
+</tbody>
+</table>
+<p>Ninguna tool declara su ancla: cada una la ejecuta desde su <code>showEvent</code>. No hay
+<code>tool_anchor_view</code> legible desde el shell, y <strong>ninguna deshace nada al cerrarse</strong>.</p>
+<h2 id="2-tab-visualizacion-hoy">2. Tab → Visualización — HOY<a class="headerlink" href="#2-tab-visualizacion-hoy" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Tab</th>
+<th>PyMOL</th>
+<th>Chart</th>
+<th>2D Interactions</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Molecules / Receptors / Ligands / Shards / Binding Sites / Complexes</td>
+<td><code>show_active_in_pymol()</code> → carga fila 0</td>
+<td>—</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Activity</td>
+<td><code>cmd.delete("all")</code></td>
+<td><code>refresh()</code> → histograma <strong>y fuerza el dock visible</strong></td>
+<td>—</td>
+</tr>
+<tr>
+<td>Docking Results</td>
+<td>fila 0 (pose)</td>
+<td>—</td>
+<td><code>show_hit()</code> al seleccionar</td>
+</tr>
+<tr>
+<td>QSAR Models / Predictions</td>
+<td><code>cmd.delete("all")</code></td>
+<td>el chart se queda como estaba (rama <code>return</code>)</td>
+<td>—</td>
+</tr>
+<tr>
+<td>Workflow / Import</td>
+<td><code>cmd.delete("all")</code></td>
+<td>oculta chart+glow y <strong>enciende PyMOL</strong></td>
+<td>—</td>
+</tr>
+<tr>
+<td>cualquier otra</td>
+<td>idem</td>
+<td><code>toggle("pymol", True)</code> incondicional</td>
+<td>—</td>
+</tr>
+</tbody>
+</table>
+<p><code>chart_controller.sync_to_active_view</code> es quien decide, y su rama por defecto contiene el
+<code>self.w.dock_manager.toggle("pymol", True)</code> que reabre PyMOL aunque el usuario lo haya cerrado.</p>
+<h2 id="3-tab-zona-auxiliar-hoy">3. Tab → Zona auxiliar — HOY<a class="headerlink" href="#3-tab-zona-auxiliar-hoy" title="Permanent link">&para;</a></h2>
+<p>Prioridad en <code>auxiliary_panel.set_occupant()</code>: <strong>panel de la tab</strong> &gt; <strong>auxiliar de la tool</strong> &gt; <strong>Details</strong>.</p>
+<table>
+<thead>
+<tr>
+<th>Contexto</th>
+<th>Ocupante</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Docking Results (pivot Hits)</td>
+<td>"Selected Result" (lo presta la tab)</td>
+</tr>
+<tr>
+<td>Docking Results (otros pivots)</td>
+<td>cae al de la tool / Details</td>
+</tr>
+<tr>
+<td>* con Docking Studio abierto</td>
+<td>Prep Status (rol ligando o receptor según la etapa)</td>
+</tr>
+<tr>
+<td>* con Pocket Detection abierto</td>
+<td>Pocket Sites</td>
+</tr>
+<tr>
+<td>cualquier tabla, sin tool</td>
+<td>Details (sigue la selección; sólo consulta la DB si está visible)</td>
+</tr>
+</tbody>
+</table>
+<p>Además, la <strong>selección de fila</strong> (no la tab) decide Grid Box:
+<code>show_catalog_selection_details()</code> → Details + <code>grid_dock.set_molecule()</code> +
+<code>show/hide_grid_panel()</code> según <code>is_receptor</code> y <code>grid_preview_enabled</code>.</p>
+<h2 id="4-tool-visualizacion-hoy-por-empuje-fuera-del-contexto">4. Tool → Visualización — HOY (por empuje, fuera del contexto)<a class="headerlink" href="#4-tool-visualizacion-hoy-por-empuje-fuera-del-contexto" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Tool / vista</th>
+<th>Qué empuja</th>
+<th>Dónde</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Diversity</td>
+<td>universo químico, distribución de tamaños, hover de centroides</td>
+<td><code>show_diversity_universe</code>, <code>show_size_distribution</code></td>
+</tr>
+<tr>
+<td>QSAR panels</td>
+<td>ROC, importancias, heatmap, split, dominio de aplicabilidad, glowing molecule</td>
+<td><code>tools/qsar/panels.py</code></td>
+</tr>
+<tr>
+<td>Activity view</td>
+<td>histograma</td>
+<td><code>catalog/domain_views.py</code></td>
+</tr>
+<tr>
+<td>Docking Studio</td>
+<td>receptor + caja en PyMOL al marcar receptor</td>
+<td><code>focus_receptor_in_pymol</code></td>
+</tr>
+<tr>
+<td>Pocket Detection</td>
+<td>sitio en PyMOL</td>
+<td><code>detection.py:282</code></td>
+</tr>
+</tbody>
+</table>
+<p>Todas llaman <code>_show()</code> → <code>toggle(dock, True)</code>: <strong>encender es siempre una orden, nunca una propuesta</strong>.</p>
+<hr />
+<h2 id="5-lo-que-falta-o-esta-roto-a-revisar-antes-de-declarar-el-contexto">5. Lo que falta o está roto (a revisar antes de declarar el contexto)<a class="headerlink" href="#5-lo-que-falta-o-esta-roto-a-revisar-antes-de-declarar-el-contexto" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>Diversity no tiene ancla.</strong> No enfoca Molecules; su chart aparece sin que la tab
+   correspondiente esté delante, y al cambiar de tab <code>sync_to_active_view</code> hace
+   <code>show_universe([], [], ...)</code> — <strong>borra el universo aunque la tool siga abierta</strong>.</li>
+<li><strong>Rama muerta:</strong> <code>chart_controller</code> busca <code>SELECTION_VIEW_ID</code> como tab central; desde que
+   Diversity vive en el panel izquierdo esa condición no se cumple nunca (<code>restore_plot</code> inalcanzable).</li>
+<li><strong><code>toggle("pymol", True)</code> incondicional</strong> pisa la decisión explícita del usuario. Mismo
+   problema con el histograma de Activity, que se re-enciende en cada <code>refresh()</code>.</li>
+<li><strong>No hay memoria por contexto.</strong> Sólo <code>aux</code> guarda medio estado (<code>_user_checked</code>); PyMOL,
+   Distribution, Glow, Grid Box y 2D no guardan nada. Falta <code>visible_panel_by_context</code>.</li>
+<li><strong>Enfoque vía <code>showEvent</code></strong>: se dispara también cuando el dock se re-muestra, y no hay
+   simétrico en <code>hideEvent</code>. Cerrar una tool no devuelve el contexto anterior (sólo el aux lo hace).</li>
+<li><strong>No existe la relación (tool, tab) → visualización.</strong> Hoy sólo hay tab→visual y
+   empujones de la tool. Es exactamente lo que hay que declarar: p.ej.
+   <code>(Diversity, Molecules) → Distribution</code>, <code>(Docking, Receptors) → PyMOL + Grid Box</code>.</li>
+<li><strong>Grid Box depende de la selección, no del contexto.</strong> Con Docking Studio en la etapa de
+   receptor debería estar disponible siempre, no sólo cuando la fila seleccionada es receptor.</li>
+<li><strong>2D Interactions nunca se apaga.</strong> Sólo Docking Results lo llena; al irse de esa tab queda
+   mostrando un hit viejo.</li>
+<li><strong>QSAR y Activity no son tools</strong> (viven como tabs "standing"), pero se comportan como tales
+   (empujan charts). O son tools, o el contexto tiene que aceptar "tab protagonista sin tool".</li>
+<li><strong>Import no participa</strong>: es una tab que ignora tool, aux y visualización.</li>
+<li><strong>Ancla móvil de Docking Studio</strong>: cambia de tab por etapa. El contexto tiene que aceptar
+    que la tool reescriba su <code>tool_anchor_view</code> (ya lo hace, pero nadie lo registra).</li>
+</ol>
+<h2 id="6-tabla-que-habria-que-declarar-propuesta-a-validar">6. Tabla que habría que declarar (propuesta a validar)<a class="headerlink" href="#6-tabla-que-habria-que-declarar-propuesta-a-validar" title="Permanent link">&para;</a></h2>
+<p>Por <strong>tool</strong>: <code>anchor_view</code> · <code>aux_page</code> · <code>visual</code> sugerida.</p>
+<table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>anchor_view</th>
+<th>aux_page</th>
+<th>visual sugerida</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Filter</td>
+<td>Molecules</td>
+<td>Details</td>
+<td>PyMOL</td>
+</tr>
+<tr>
+<td>Build</td>
+<td>Molecules / Shards</td>
+<td>Details</td>
+<td>PyMOL</td>
+</tr>
+<tr>
+<td>Diversity</td>
+<td>Molecules</td>
+<td>Details (o resumen de clusters)</td>
+<td>Distribution</td>
+</tr>
+<tr>
+<td>Pocket Detection</td>
+<td>Receptors</td>
+<td>Pocket Sites</td>
+<td>PyMOL + Grid Box</td>
+</tr>
+<tr>
+<td>Docking Studio</td>
+<td>Ligands→Receptors→Complexes</td>
+<td>Prep Status / Selected Result</td>
+<td>PyMOL + Grid Box; 2D en resultados</td>
+</tr>
+</tbody>
+</table>
+<p>Por <strong>tab</strong>: <code>pymol_hook</code> · <code>aux_panel()</code> · chart propio (ya existe, sin declarar en un solo sitio).</p>
+<p>Regla a fijar: <strong>el contexto propone, el usuario dispone.</strong> Un cambio de contexto puede
+cambiar el <em>contenido</em> de un panel; sólo puede cambiar su <em>visibilidad</em> si el usuario no se
+ha pronunciado en ese contexto.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 AMDockVS authors
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["content.code.copy","navigation.footer","navigation.path","navigation.sections","navigation.top","search.highlight","search.suggest"],"redirect":null,"search":"../assets/javascripts/workers/search.c47bb847.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"provider":"mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.77dd0ce9.min.js"></script>
+      
+    
+  </body>
+</html>

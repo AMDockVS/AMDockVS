@@ -1,0 +1,812 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Virtual screening, molecular preparation, QSAR, and docking with MolSuite.">
+      
+      
+        <meta name="author" content="AMDockVS authors">
+      
+      
+        <link rel="canonical" href="https://amdockvs.github.io/AMDockVS/latest/backend_execution_model/">
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../images/favicon.svg">
+      <meta name="generator" content="zensical-0.0.73">
+    
+    
+      
+        <title>Modelo de ejecución del backend - AMDockVS</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../assets/stylesheets/modern/main.4ab2de0c.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../assets/stylesheets/modern/palette.b60ce83d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-hidden="true"></label>
+    <div data-md-component="skip">
+      <a href="#__skip" class="md-skip">
+        Skip to content
+      </a>
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="./.." title="AMDockVS" class="md-header__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+      <span class="md-visually-hidden">Navigation</span>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AMDockVS
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Modelo de ejecución del backend
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+          <span class="md-visually-hidden">Search</span>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="./.." title="AMDockVS" class="md-nav__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    AMDockVS
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../runtime_api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API guide
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../data_and_export/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Data and export
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Examples
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#una-ruta-publica-dos-adaptadores" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Una ruta pública, dos adaptadores
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#que-significa-puro-aqui" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Qué significa “puro” aquí
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#que-se-agrupa-continuamente" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Qué se agrupa continuamente
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Qué se agrupa continuamente">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#quimica-de-ligandos" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Química de ligandos
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#descriptores-y-fingerprints" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Descriptores y fingerprints
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#diversitybitbirch" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Diversity/BitBIRCH
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#preparacion-y-docking" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Preparación y docking
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#resultados-htp" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Resultados HTP
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dependencias-y-alcance-diferido" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Dependencias y alcance diferido
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fronteras-que-no-deben-fusionarse" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fronteras que no deben fusionarse
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+              
+              <article class="md-content__inner md-typeset">
+                <a id="__skip" tabindex="-1"></a>
+                
+                  
+
+  
+  
+
+
+<h1 id="modelo-de-ejecucion-del-backend">Modelo de ejecución del backend<a class="headerlink" href="#modelo-de-ejecucion-del-backend" title="Permanent link">&para;</a></h1>
+<h2 id="una-ruta-publica-dos-adaptadores">Una ruta pública, dos adaptadores<a class="headerlink" href="#una-ruta-publica-dos-adaptadores" title="Permanent link">&para;</a></h2>
+<p>El backend no tiene dos pipelines científicos. La biblioteca activa determina la unidad de
+trabajo:</p>
+<table>
+<thead>
+<tr>
+<th>Biblioteca</th>
+<th>Unidad entregada a MF</th>
+<th>Adaptador de E/S</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Molecules en la DB</td>
+<td>Lote de filas</td>
+<td><code>transform_ligand_rows</code></td>
+</tr>
+<tr>
+<td>Shards</td>
+<td>Uno o varios shards completos</td>
+<td><code>transform_ligand_shard</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>ChemistryAPI.run_ligand_pipeline</code>, <code>DockingAPI.prepare_ligands</code> y <code>DockingAPI.run</code> seleccionan
+el adaptador automáticamente cuando no se proporciona un scope explícito de filas. Los métodos
+<code>run_shard_pipeline</code>, <code>prepare_ligand_shards</code> y <code>run_shards</code> siguen disponibles como primitivas
+internas y para llamadas especializadas.</p>
+<p>MF recibe jobs y chunks normales. En HPC, <code>compute</code> puede corresponder al clúster Ray levantado
+dentro de una reserva; AMDock no genera arrays ni un submission del scheduler por shard.</p>
+<h2 id="que-significa-puro-aqui">Qué significa “puro” aquí<a class="headerlink" href="#que-significa-puro-aqui" title="Permanent link">&para;</a></h2>
+<p>Se distinguen tres niveles. Es importante no llamar pura a una función sólo porque corre en un
+worker:</p>
+<ol>
+<li><strong>Pura:</strong> depende únicamente de sus argumentos y no hace E/S.</li>
+<li><strong>Kernel en memoria:</strong> no abre la DB ni administra archivos, pero puede usar aleatoriedad,
+   librerías nativas o un backend externo.</li>
+<li><strong>Adaptador:</strong> lee/escribe archivos, ejecuta programas o persiste estado.</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>Área</th>
+<th>Funciones principales</th>
+<th style="text-align: right;">Nivel</th>
+<th>Aplicación</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Composición química</td>
+<td><code>normalize_steps</code>, <code>kwargs_for</code>, <code>run_pipeline</code></td>
+<td style="text-align: right;">Kernel en memoria</td>
+<td>Una llamada continua por lote o shard</td>
+</tr>
+<tr>
+<td>Química RDKit</td>
+<td><code>standardize_ligand_molecule</code>, <code>generate_ligand_3d</code>, <code>minimize_ligand_molecule</code></td>
+<td style="text-align: right;">Kernel en memoria</td>
+<td>Pasos encadenables sin escritura intermedia</td>
+</tr>
+<tr>
+<td>Descriptores</td>
+<td><code>calculate_basic_descriptors</code></td>
+<td style="text-align: right;">Pura respecto al <code>Mol</code></td>
+<td>Paralela por molécula/lote</td>
+</tr>
+<tr>
+<td>Fingerprints</td>
+<td><code>morgan_fingerprint</code>, conversiones a bitstring/matriz</td>
+<td style="text-align: right;">Pura respecto al <code>Mol</code></td>
+<td>Debe agruparse con descriptores cuando ambos se necesitan</td>
+</tr>
+<tr>
+<td>Clustering</td>
+<td><code>bitbirch_lean</code>, <code>select_representatives</code>, <code>cluster_stats</code>, proyección PCA</td>
+<td style="text-align: right;">Pura sobre matrices</td>
+<td>Reducción global después de construir fingerprints</td>
+</tr>
+<tr>
+<td>Geometría del sitio</td>
+<td><code>centroid</code>, <code>radius_of_gyration</code>, <code>box_edge_from_rg</code>, <code>box_from_coords</code>, <code>residues_in_box</code></td>
+<td style="text-align: right;">Pura</td>
+<td>Inline o por receptor; no requiere job propio</td>
+</tr>
+<tr>
+<td>Identidad de protocolo</td>
+<td><code>protocol_identity</code>, <code>protocol_hash</code></td>
+<td style="text-align: right;">Pura</td>
+<td>Antes de enviar el job y al consultar receipts</td>
+</tr>
+<tr>
+<td>Métricas simples</td>
+<td><code>predicted_ki_m</code>, <code>predicted_pki</code>, <code>ligand_efficiency</code></td>
+<td style="text-align: right;">Pura</td>
+<td>En el mismo task que procesa el resultado de docking</td>
+</tr>
+<tr>
+<td>Shard químico</td>
+<td><code>read_shard</code>, <code>write_shard</code>, <code>transform_ligand_shard</code></td>
+<td style="text-align: right;">Adaptador</td>
+<td>Un shard entra y otro sale</td>
+</tr>
+<tr>
+<td>Preparación</td>
+<td><code>prepare_entities_rows</code>, <code>prepare_ligand_shard</code></td>
+<td style="text-align: right;">Adaptador</td>
+<td>Job independiente y reutilizable por familia de engine</td>
+</tr>
+<tr>
+<td>Docking</td>
+<td><code>run_docking_chunk</code>, <code>extract_ligands</code></td>
+<td style="text-align: right;">Adaptador</td>
+<td>Chunk distribuido por Ray; empaqueta resultados y sólo materializa hits en HTP</td>
+</tr>
+<tr>
+<td>P2Rank/interacciones/diagramas</td>
+<td>ejecutables y parsers respectivos</td>
+<td style="text-align: right;">Adaptador</td>
+<td>Jobs separados por dependencia y artefactos propios</td>
+</tr>
+</tbody>
+</table>
+<p><code>run_pipeline</code> es libre de DB y rutas, pero no es pureza matemática estricta: protonación puede
+invocar backends distintos y la generación 3D sólo es reproducible si conserva su semilla.</p>
+<h2 id="que-se-agrupa-continuamente">Qué se agrupa continuamente<a class="headerlink" href="#que-se-agrupa-continuamente" title="Permanent link">&para;</a></h2>
+<h3 id="quimica-de-ligandos">Química de ligandos<a class="headerlink" href="#quimica-de-ligandos" title="Permanent link">&para;</a></h3>
+<p><code>standardize -&gt; protonate -&gt; generate_3d -&gt; minimize</code> debe viajar como una lista de pasos en un
+único job. Cada task carga su lote o shard una vez, ejecuta toda la lista y escribe únicamente el
+resultado final. Enviar cuatro jobs separados implica cuatro lecturas, cuatro escrituras y tres
+barreras de sincronización innecesarias.</p>
+<p>Los conformeros son una frontera. El modelo por filas puede materializar varios modelos, pero el
+formato actual de shard conserva una estructura por record. Por eso el backend rechaza
+<code>conformers</code> sobre shards en vez de perder silenciosamente el ensemble.</p>
+<h3 id="descriptores-y-fingerprints">Descriptores y fingerprints<a class="headerlink" href="#descriptores-y-fingerprints" title="Permanent link">&para;</a></h3>
+<p>El job de descriptores ya puede calcular el fingerprint durante la misma lectura. Si ambos son
+necesarios, deben pedirse juntos. Calcular fingerprints como job independiente sólo es útil si:</p>
+<ul>
+<li>los descriptores ya existen;</li>
+<li>se necesita otra familia/radio de fingerprint; o</li>
+<li>los fingerprints se producirán directamente desde shards para una reducción global.</li>
+</ul>
+<h3 id="diversitybitbirch">Diversity/BitBIRCH<a class="headerlink" href="#diversitybitbirch" title="Permanent link">&para;</a></h3>
+<p>La creación de fingerprints es paralelizable por lote/shard. El clustering no es una colección
+de clusters independientes: necesita una reducción global. <code>bblean multiround</code> administra su
+propio paralelismo; desde MF debe verse como un job con los recursos reservados, no como miles de
+jobs pequeños.</p>
+<p>La forma escalable es:</p>
+<div class="highlight"><pre><span></span><code>shards -&gt; fingerprints parciales en paralelo -&gt; manifiesto/matriz compacta -&gt; clustering global
+       -&gt; selección de ids -&gt; reconstrucción transaccional de shards
+</code></pre></div>
+<h3 id="preparacion-y-docking">Preparación y docking<a class="headerlink" href="#preparacion-y-docking" title="Permanent link">&para;</a></h3>
+<p>Permanecen como dos jobs lógicos porque la preparación es reutilizable entre receptores y
+protocolos. En una ejecución completamente remota ambos jobs deben correr dentro de la misma
+reserva Ray y sobre el mismo almacenamiento de trabajo; “dos jobs” no significa “dos reservas”.</p>
+<p>La generación 3D puede ejecutarse antes como parte del pipeline químico. <code>prepare_ligand_shard</code>
+detecta conformaciones existentes y sólo genera 3D para los records que aún no las tienen.</p>
+<h3 id="resultados-htp">Resultados HTP<a class="headerlink" href="#resultados-htp" title="Permanent link">&para;</a></h3>
+<p>El shard químico no cambia al prepararlo. <code>ShardEngineState</code> mantiene los artefactos por familia
+de preparación. <code>ScreeningShardRun</code> registra un receipt por run/shard/receptor/engine/protocolo;
+así un resume omite exactamente los pares terminados y no hereda el estado de otra campaña.</p>
+<p>Cada task <code>(shard, receptor)</code> abre un fragmento Parquet de resultados y, después de cada ligando, añade
+una fila con score, métricas, SMILES y el SDF de todas las poses. En ese mismo
+punto elimina el PDBQT y, si no es hit, también el SDF suelto. El <code>.results.parquet.tmp</code> crece durante el
+trabajo y se publica atómicamente al terminar; por eso nunca se acumulan mil pares de archivos
+ni queda un shard final corrupto si el task falla. Los SDF individuales que sobreviven son sólo
+los hits que la UI necesita abrir. El receipt guarda la ruta del shard final.</p>
+<p>El callback de MF recibe progreso por ligando y sirve también como punto de cancelación
+cooperativa para <code>compute</code>. En Ray la cancelación sigue siendo forzada por el propio adapter.
+Una campaña cancelada o fallida marca sus targets con ese estado y no promociona un top-N
+parcial.</p>
+<h3 id="dependencias-y-alcance-diferido">Dependencias y alcance diferido<a class="headerlink" href="#dependencias-y-alcance-diferido" title="Permanent link">&para;</a></h3>
+<p>El alcance de docking es una fotografía tomada una vez, pero se toma <strong>después</strong> de completar
+los jobs activos de importación, química y preparación. MF difiere <code>build_chunks</code>; en ese punto
+AMDock enumera los shards preparados, calcula el total definitivo y crea el plan de receptores.
+Esto evita tanto ignorar el último shard como hacer que el alcance cambie mientras una campaña
+ya está corriendo. No se consulta repetidamente una tabla “viva”.</p>
+<h2 id="fronteras-que-no-deben-fusionarse">Fronteras que no deben fusionarse<a class="headerlink" href="#fronteras-que-no-deben-fusionarse" title="Permanent link">&para;</a></h2>
+<ul>
+<li>La escritura del inventario y el cómputo del worker: el sink de MF persiste en el parent.</li>
+<li>Preparación y docking cuando el artefacto preparado se reutilizará.</li>
+<li>Fingerprints por shard y clustering global.</li>
+<li>Docking y materialización completa: HTP sólo promueve hits.</li>
+<li>Transformaciones sustitutivas de shards y borrado del conjunto anterior: primero se valida y
+  activa el conjunto nuevo; después se elimina el anterior.</li>
+</ul>
+<p><code>shards.keep_history</code> controla si futuros rebuilders conservan los conjuntos sustituidos. El
+valor por defecto es <code>false</code>; aun así, el reemplazo debe ser transaccional y nunca borrar las
+entradas activas antes de que el nuevo conjunto esté completo.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 AMDockVS authors
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["content.code.copy","navigation.footer","navigation.path","navigation.sections","navigation.top","search.highlight","search.suggest"],"redirect":null,"search":"../assets/javascripts/workers/search.c47bb847.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"provider":"mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.77dd0ce9.min.js"></script>
+      
+    
+  </body>
+</html>

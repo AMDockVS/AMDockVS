@@ -1,0 +1,1151 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Virtual screening, molecular preparation, QSAR, and docking with MolSuite.">
+      
+      
+        <meta name="author" content="AMDockVS authors">
+      
+      
+        <link rel="canonical" href="https://amdockvs.github.io/AMDockVS/latest/import/import_refactor_plan/">
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../images/favicon.svg">
+      <meta name="generator" content="zensical-0.0.73">
+    
+    
+      
+        <title>Plan De Refactor De Importacion - AMDockVS</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../../assets/stylesheets/modern/main.4ab2de0c.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/modern/palette.b60ce83d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-hidden="true"></label>
+    <div data-md-component="skip">
+      <a href="#__skip" class="md-skip">
+        Skip to content
+      </a>
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="AMDockVS" class="md-header__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+      <span class="md-visually-hidden">Navigation</span>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AMDockVS
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Plan De Refactor De Importacion
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+          <span class="md-visually-hidden">Search</span>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="AMDockVS" class="md-nav__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    AMDockVS
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../runtime_api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API guide
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../data_and_export/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Data and export
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Examples
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#alcance" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Alcance
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#problemas-actuales" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Problemas Actuales
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#arquitectura-objetivo" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Arquitectura Objetivo
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decisiones-de-diseno" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Decisiones De Diseno
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Decisiones De Diseno">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-unificar-la-resolucion-de-recursos-y-rutas-de-almacenamiento" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        1. Unificar la resolucion de recursos y rutas de almacenamiento
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-mantener-jobs-homogeneos-reduciendo-duplicacion" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        2. Mantener jobs homogeneos, reduciendo duplicacion
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-hacer-el-conteo-de-registros-asincrono-y-no-bloqueante-para-la-planificacion" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        3. Hacer el conteo de registros asincrono y no bloqueante para la planificacion
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-eliminar-normalizaciones-implicitas" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        4. Eliminar normalizaciones implicitas
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-mover-helpers-quimicos-fuera-de-ioloaderspy" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        5. Mover helpers quimicos fuera de <code>io/loaders.py</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#6-eliminar-el-conteo-de-atomos-por-escaneo-de-texto" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        6. Eliminar el conteo de atomos por escaneo de texto
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#7-simplificar-el-flujo-de-prefilter" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        7. Simplificar el flujo de prefilter
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#8-reemplazar-la-iteracion-custom-de-sdf-por-readers-basados-en-suppliers" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        8. Reemplazar la iteracion custom de SDF por readers basados en suppliers
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#9-reemplazar-la-iteracion-custom-de-smiles-por-readers-basados-en-suppliers" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        9. Reemplazar la iteracion custom de SMILES por readers basados en suppliers
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#10-reconstruir-la-importacion-de-estructura-unica-alrededor-de-instancias-moleculares-reales" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        10. Reconstruir la importacion de estructura unica alrededor de instancias moleculares reales
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#11-eliminar-helpers-de-streaming-custom-si-readers-o-suppliers-ya-resuelven-el-problema" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        11. Eliminar helpers de streaming custom si readers o suppliers ya resuelven el problema
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#plan-de-persistencia" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Plan De Persistencia
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#estructura-de-modulos-propuesta" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Estructura De Modulos Propuesta
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#fases-de-ejecucion" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fases De Ejecucion
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Fases De Ejecucion">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#fase-1-estabilizar-contratos" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 1. Estabilizar contratos
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fase-2-extraer-capa-de-parsers" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 2. Extraer capa de parsers
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fase-3-extraer-derivacion-de-estado-molecular" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 3. Extraer derivacion de estado molecular
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fase-4-simplificar-prefilter" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 4. Simplificar prefilter
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fase-5-reemplazar-persistencia-directa" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 5. Reemplazar persistencia directa
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fase-6-rehacer-el-modelo-de-progreso" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 6. Rehacer el modelo de progreso
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fase-7-colapsar-helpers-y-jobs-redundantes" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Fase 7. Colapsar helpers y jobs redundantes
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#criterios-de-aceptacion" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Criterios De Aceptacion
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#notas" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Notas
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+              
+              <article class="md-content__inner md-typeset">
+                <a id="__skip" tabindex="-1"></a>
+                
+                  
+
+  
+  
+
+
+<h1 id="plan-de-refactor-de-importacion">Plan De Refactor De Importacion<a class="headerlink" href="#plan-de-refactor-de-importacion" title="Permanent link">&para;</a></h1>
+<h2 id="alcance">Alcance<a class="headerlink" href="#alcance" title="Permanent link">&para;</a></h2>
+<p>Este documento define el plan de refactor para <code>/src/amdock/io</code> a partir de la implementacion actual y de las siguientes restricciones:</p>
+<ul>
+<li>AMDock no debe escribir datos del proyecto mediante logica ad hoc directa sobre la base de datos si MolSuite ya ofrece una via delegada adecuada.</li>
+<li>El codigo de importacion debe separar:</li>
+<li>parseo de archivos e instanciacion molecular</li>
+<li>decisiones de dominio</li>
+<li>persistencia</li>
+<li>orquestacion de jobs y feeds</li>
+<li>El progreso de importacion debe seguir siendo responsivo incluso con fuentes muy grandes.</li>
+<li>El estado molecular debe derivarse de objetos moleculares reales, no de convenciones por extension o escaneos de texto simplificados.</li>
+</ul>
+<h2 id="problemas-actuales">Problemas Actuales<a class="headerlink" href="#problemas-actuales" title="Permanent link">&para;</a></h2>
+<ol>
+<li>La resolucion de rutas y recursos de almacenamiento esta duplicada en varios jobs y repositorios.</li>
+<li>Los jobs de importacion se solapan mucho y solo estan parcialmente especializados.</li>
+<li><code>count_import_records()</code> es bloqueante y escala mal en archivos grandes.</li>
+<li>Helpers de normalizacion como <code>_normalize_molecule_kind()</code> ocultan errores del llamador en lugar de exigir una intencion explicita de importacion.</li>
+<li>Helpers de quimica viven en <code>io/loaders.py</code> en lugar de una capa de quimica o parsing.</li>
+<li><code>_count_atoms_from_structure_lines()</code> no es una estrategia valida para obtener informacion molecular.</li>
+<li>El flujo de prefiltrado de ligandos esta sobrecomplicado y sobreanotado para un camino que descarta temprano.</li>
+<li>La carga de SDF/SMILES duplica logica que ya existe en los suppliers adecuados.</li>
+<li>La carga de estructuras unitarias es demasiado superficial y depende de supuestos por formato.</li>
+<li>Los helpers de streaming reimplementan comportamiento que deberia venir de readers o suppliers reales.</li>
+<li>La persistencia se hace hoy manualmente dentro de AMDock en lugar de pasar por un contrato delegado de MolSuite.</li>
+</ol>
+<h2 id="arquitectura-objetivo">Arquitectura Objetivo<a class="headerlink" href="#arquitectura-objetivo" title="Permanent link">&para;</a></h2>
+<p>La pila de importacion debe dividirse en cinco capas:</p>
+<ol>
+<li><code>io/api.py</code></li>
+<li>puntos de entrada publicos de importacion</li>
+<li>validacion de la intencion explicita del llamador</li>
+<li>
+<p>construccion de objetos de request de importacion</p>
+</li>
+<li>
+<p><code>io/jobs.py</code></p>
+</li>
+<li>definicion de jobs homogeneos de MolSuite</li>
+<li>orquestacion de feeds, chunks y progreso</li>
+<li>
+<p>no debe contener el detalle del parsing</p>
+</li>
+<li>
+<p><code>io/parsers/</code></p>
+</li>
+<li>readers especificos por formato</li>
+<li>devuelven objetos moleculares y payloads normalizados</li>
+<li>
+<p>sin acceso directo a base de datos</p>
+</li>
+<li>
+<p><code>io/transformers/</code></p>
+</li>
+<li>convierten la salida del parser en filas de dominio</li>
+<li>derivan estado comun (<code>has_3d</code>, <code>has_hs</code>, numero de atomos, representaciones)</li>
+<li>
+<p>aplican prefilters tempranos opcionales</p>
+</li>
+<li>
+<p>capa de persistencia delegada</p>
+</li>
+<li>escribe filas relacionadas (<code>molecules</code>, <code>ligands</code>, <code>receptors</code>, tablas especificas por tipo)</li>
+<li>usa la infraestructura de escritura de MolSuite</li>
+<li>evita <code>flush()/refresh()</code> por fila dentro de AMDock</li>
+</ol>
+<h2 id="decisiones-de-diseno">Decisiones De Diseno<a class="headerlink" href="#decisiones-de-diseno" title="Permanent link">&para;</a></h2>
+<h3 id="1-unificar-la-resolucion-de-recursos-y-rutas-de-almacenamiento">1. Unificar la resolucion de recursos y rutas de almacenamiento<a class="headerlink" href="#1-unificar-la-resolucion-de-recursos-y-rutas-de-almacenamiento" title="Permanent link">&para;</a></h3>
+<p>Debe existir un modulo compartido unico, preferiblemente primero dentro de AMDock:</p>
+<ul>
+<li><code>amdock/io/resources.py</code> o <code>amdock/io/paths.py</code></li>
+</ul>
+<p>Responsabilidades:</p>
+<ul>
+<li>resolver la raiz de almacenamiento molecular</li>
+<li>resolver subdirectorios por rol</li>
+<li>resolver rutas gestionadas derivadas del archivo fuente</li>
+<li>exponer una API canonica usada por importacion, quimica y docking</li>
+</ul>
+<p>Extraccion futura a MolSuite solo si:</p>
+<ul>
+<li>la logica pasa a ser realmente agnostica de la aplicacion</li>
+<li>varias apps necesitan exactamente la misma semantica de recursos</li>
+</ul>
+<p>Hoy sigue siendo especifica de AMDock.</p>
+<h3 id="2-mantener-jobs-homogeneos-reduciendo-duplicacion">2. Mantener jobs homogeneos, reduciendo duplicacion<a class="headerlink" href="#2-mantener-jobs-homogeneos-reduciendo-duplicacion" title="Permanent link">&para;</a></h3>
+<p>La multiplicidad actual de jobs es aceptable si se vuelven claramente especializados:</p>
+<ul>
+<li><code>load_ligands_*</code></li>
+<li><code>load_receptors_*</code></li>
+<li><code>load_molecules_*</code></li>
+</ul>
+<p>Pero deben compartir primitivas internas comunes:</p>
+<ul>
+<li>enumeracion de archivos</li>
+<li>emision de chunks</li>
+<li>despacho a parsers</li>
+<li>persistencia delegada</li>
+</ul>
+<p>La capa de jobs debe diferenciarse principalmente por:</p>
+<ul>
+<li>rol explicito</li>
+<li>restricciones explicitas de <code>molecule_kind</code></li>
+<li>formatos permitidos</li>
+<li>soporte opcional de prefilter</li>
+</ul>
+<h3 id="3-hacer-el-conteo-de-registros-asincrono-y-no-bloqueante-para-la-planificacion">3. Hacer el conteo de registros asincrono y no bloqueante para la planificacion<a class="headerlink" href="#3-hacer-el-conteo-de-registros-asincrono-y-no-bloqueante-para-la-planificacion" title="Permanent link">&para;</a></h3>
+<p><code>count_import_records()</code> no debe bloquear la creacion del job ni congelar la UI.</p>
+<p>Plan:</p>
+<ul>
+<li>eliminar el conteo como precondicion dura para crear el job</li>
+<li>enviar los jobs de importacion inmediatamente</li>
+<li>calcular totales en paralelo de forma asincrona cuando el formato lo permita</li>
+<li>actualizar monitor y progreso cuando el total ya sea conocido</li>
+</ul>
+<p>Comportamiento esperado:</p>
+<ul>
+<li>antes de conocer el total: progreso indeterminado o abierto</li>
+<li>despues de conocer el total: conversion a progreso acotado</li>
+</ul>
+<p>Politica de conteo por formato:</p>
+<ul>
+<li>SDF: escaneo asincrono solo cuando haga falta</li>
+<li>SMILES: conteo asincrono de lineas solo cuando haga falta</li>
+<li>archivos de estructura unica: conteo trivial igual a 1</li>
+</ul>
+<p>La importacion de archivos grandes debe arrancar rapido incluso si el total final tarda en calcularse.</p>
+<h3 id="4-eliminar-normalizaciones-implicitas">4. Eliminar normalizaciones implicitas<a class="headerlink" href="#4-eliminar-normalizaciones-implicitas" title="Permanent link">&para;</a></h3>
+<p>Helpers como <code>_normalize_molecule_kind()</code> deben eliminarse o reducirse a validacion estricta.</p>
+<p>Reglas:</p>
+<ul>
+<li>la intencion de importacion debe ser explicita en el borde del API</li>
+<li>combinaciones invalidas de rol y kind deben fallar temprano</li>
+<li>no debe haber fallbacks silenciosos desde entradas invalidas del llamador hacia valores inferidos internamente</li>
+</ul>
+<p>Los valores permitidos deben definirse centralmente y validarse una sola vez.</p>
+<h3 id="5-mover-helpers-quimicos-fuera-de-ioloaderspy">5. Mover helpers quimicos fuera de <code>io/loaders.py</code><a class="headerlink" href="#5-mover-helpers-quimicos-fuera-de-ioloaderspy" title="Permanent link">&para;</a></h3>
+<p>Funciones como:</p>
+<ul>
+<li><code>_mol_has_3d</code></li>
+<li><code>_mol_has_explicit_hs</code></li>
+</ul>
+<p>pertenecen a un modulo de estado o de inspeccion quimica, por ejemplo:</p>
+<ul>
+<li><code>amdock/chemistry/state.py</code></li>
+<li><code>amdock/chemistry/introspection.py</code></li>
+</ul>
+<p>Estos helpers deben operar sobre objetos moleculares y ser reutilizables fuera de la importacion.</p>
+<h3 id="6-eliminar-el-conteo-de-atomos-por-escaneo-de-texto">6. Eliminar el conteo de atomos por escaneo de texto<a class="headerlink" href="#6-eliminar-el-conteo-de-atomos-por-escaneo-de-texto" title="Permanent link">&para;</a></h3>
+<p><code>_count_atoms_from_structure_lines()</code> debe eliminarse.</p>
+<p>El numero de atomos debe salir de un objeto molecular parseado:</p>
+<ul>
+<li>RDKit para formatos compatibles con small molecules</li>
+<li>un parser adecuado para biopolimeros o macromoleculas cuando corresponda</li>
+</ul>
+<p>No debe inferirse el numero de atomos a partir de escaneos de texto <code>ATOM/HETATM</code> como camino canonico.</p>
+<h3 id="7-simplificar-el-flujo-de-prefilter">7. Simplificar el flujo de prefilter<a class="headerlink" href="#7-simplificar-el-flujo-de-prefilter" title="Permanent link">&para;</a></h3>
+<p>La semantica actual de descarte temprano es correcta:</p>
+<ul>
+<li>si una molecula no pasa el prefilter, no se persiste</li>
+</ul>
+<p>Por tanto:</p>
+<ul>
+<li>no se necesita una canalizacion pesada de anotacion para los descartados</li>
+<li>la anotacion solo tiene sentido si se reutiliza para filas que si se persisten</li>
+</ul>
+<p>Plan:</p>
+<ul>
+<li>mantener el prefilter como una compuerta pura de aceptacion o rechazo</li>
+<li>conservar solo la generacion minima reutilizable de reportes o descriptores para las filas aceptadas</li>
+<li>evitar decoracion de metadata para filas que nunca se escribiran</li>
+</ul>
+<h3 id="8-reemplazar-la-iteracion-custom-de-sdf-por-readers-basados-en-suppliers">8. Reemplazar la iteracion custom de SDF por readers basados en suppliers<a class="headerlink" href="#8-reemplazar-la-iteracion-custom-de-sdf-por-readers-basados-en-suppliers" title="Permanent link">&para;</a></h3>
+<p>Para importacion de SDF:</p>
+<ul>
+<li>usar <code>SDMolSupplier</code> para parsing lazy monohilo cuando importe la contabilidad exacta</li>
+<li>usar <code>MultithreadedSDMolSupplier</code> cuando importe mas el throughput que el preconteo exacto</li>
+</ul>
+<p>Regla de implementacion:</p>
+<ul>
+<li>la seleccion del parser debe ser explicita</li>
+<li>no debe mantenerse logica paralela propia de parseo por bloques salvo para edge cases reales no soportados</li>
+</ul>
+<h3 id="9-reemplazar-la-iteracion-custom-de-smiles-por-readers-basados-en-suppliers">9. Reemplazar la iteracion custom de SMILES por readers basados en suppliers<a class="headerlink" href="#9-reemplazar-la-iteracion-custom-de-smiles-por-readers-basados-en-suppliers" title="Permanent link">&para;</a></h3>
+<p>Para importacion de SMILES:</p>
+<ul>
+<li>usar <code>SmilesMolSupplier</code></li>
+<li>usar <code>MultithreadedSmilesMolSupplier</code> cuando corresponda</li>
+</ul>
+<p>Esto elimina tokenizacion duplicada y divergencia frente al comportamiento real de RDKit.</p>
+<h3 id="10-reconstruir-la-importacion-de-estructura-unica-alrededor-de-instancias-moleculares-reales">10. Reconstruir la importacion de estructura unica alrededor de instancias moleculares reales<a class="headerlink" href="#10-reconstruir-la-importacion-de-estructura-unica-alrededor-de-instancias-moleculares-reales" title="Permanent link">&para;</a></h3>
+<p><code>_materialize_single_structure_rows()</code> debe convertirse en un punto de despacho por formato, no en un copiador superficial.</p>
+<p>Comportamiento requerido por formato:</p>
+<ul>
+<li><code>mol2</code></li>
+<li>parsear estructura real</li>
+<li>computar numero de atomos</li>
+<li>detectar 3D desde coordenadas</li>
+<li>
+<p>detectar hidrogenos explicitos desde atomos reales</p>
+</li>
+<li>
+<p><code>pdb</code></p>
+</li>
+<li>parsear modelos o cadenas segun corresponda</li>
+<li>determinar si existen multiples modelos</li>
+<li>definir regla de importacion para seleccion de modelo</li>
+<li>
+<p>computar hidrogenos y 3D desde la estructura parseada</p>
+</li>
+<li>
+<p><code>pdbqt</code></p>
+</li>
+<li>parsear como estructura consciente de preparacion</li>
+<li>
+<p>determinar hidrogenos, 3D y estado de preparacion con cuidado, no por extension</p>
+</li>
+<li>
+<p>otros formatos futuros</p>
+</li>
+<li>conectarlos mediante un registro de parsers</li>
+</ul>
+<p>Ningun formato debe implicar estado por el simple hecho de su sufijo.</p>
+<h3 id="11-eliminar-helpers-de-streaming-custom-si-readers-o-suppliers-ya-resuelven-el-problema">11. Eliminar helpers de streaming custom si readers o suppliers ya resuelven el problema<a class="headerlink" href="#11-eliminar-helpers-de-streaming-custom-si-readers-o-suppliers-ya-resuelven-el-problema" title="Permanent link">&para;</a></h3>
+<p><code>_stream_sdf_entries()</code> y <code>_stream_smiles_entries()</code> deben desaparecer si la capa de parsers expone:</p>
+<ul>
+<li>iteracion lazy de registros</li>
+<li>conteo opcional de registros</li>
+<li>indexacion de origen consistente</li>
+<li>manejo de errores y reporte</li>
+</ul>
+<p>Si aun hace falta un wrapper adicional, debe ser fino y agnostico del parser.</p>
+<h2 id="plan-de-persistencia">Plan De Persistencia<a class="headerlink" href="#plan-de-persistencia" title="Permanent link">&para;</a></h2>
+<p>La implementacion actual de <code>persist_molecule_import_rows()</code> debe sustituirse por persistencia delegada mediante MolSuite.</p>
+<p>Modelo objetivo de escritura:</p>
+<ul>
+<li>nodo: <code>molecules</code></li>
+<li>nodo: <code>ligands</code></li>
+<li>nodo: <code>receptors</code></li>
+<li>nodos futuros opcionales:</li>
+<li><code>small_molecule_data</code></li>
+<li><code>protein_data</code></li>
+<li><code>representations</code></li>
+</ul>
+<p>Requisitos:</p>
+<ul>
+<li>escritura bulk</li>
+<li>resolucion de relaciones por referencias, no por <code>flush</code> ORM fila a fila</li>
+<li>un contrato de escritura por batch de importacion</li>
+<li>sin ciclo de vida manual de <code>ProjectDB()</code> dentro del codigo de importacion de AMDock</li>
+</ul>
+<p>El mecanismo deseado es la escritura relacional tipo grafo de MolSuite, no una sesion manual ad hoc en AMDock.</p>
+<h2 id="estructura-de-modulos-propuesta">Estructura De Modulos Propuesta<a class="headerlink" href="#estructura-de-modulos-propuesta" title="Permanent link">&para;</a></h2>
+<p>Estructura sugerida:</p>
+<div class="highlight"><pre><span></span><code>src/amdock/io/
+  api.py
+  jobs.py
+  paths.py
+  requests.py
+  persistence.py
+  parsers/
+    __init__.py
+    base.py
+    sdf.py
+    smiles.py
+    single_structure.py
+    registry.py
+  transformers/
+    __init__.py
+    molecules.py
+    filters.py
+    representations.py
+</code></pre></div>
+<p>Y helpers de estado quimico fuera de importacion:</p>
+<div class="highlight"><pre><span></span><code>src/amdock/chemistry/
+  state.py
+  introspection.py
+</code></pre></div>
+<h2 id="fases-de-ejecucion">Fases De Ejecucion<a class="headerlink" href="#fases-de-ejecucion" title="Permanent link">&para;</a></h2>
+<h3 id="fase-1-estabilizar-contratos">Fase 1. Estabilizar contratos<a class="headerlink" href="#fase-1-estabilizar-contratos" title="Permanent link">&para;</a></h3>
+<ul>
+<li>definir modelo explicito de request de importacion</li>
+<li>definir validacion estricta de rol y kind</li>
+<li>centralizar resolucion de recursos y rutas</li>
+</ul>
+<h3 id="fase-2-extraer-capa-de-parsers">Fase 2. Extraer capa de parsers<a class="headerlink" href="#fase-2-extraer-capa-de-parsers" title="Permanent link">&para;</a></h3>
+<ul>
+<li>agregar reader SDF basado en <code>SDMolSupplier</code></li>
+<li>agregar reader SMILES basado en <code>SmilesMolSupplier</code></li>
+<li>agregar despacho de parser para estructuras unitarias</li>
+</ul>
+<h3 id="fase-3-extraer-derivacion-de-estado-molecular">Fase 3. Extraer derivacion de estado molecular<a class="headerlink" href="#fase-3-extraer-derivacion-de-estado-molecular" title="Permanent link">&para;</a></h3>
+<ul>
+<li>computar <code>has_3d</code>, <code>has_hs</code>, numero de atomos y representaciones 1D desde objetos parseados</li>
+<li>mover helpers quimicos fuera de <code>io/loaders.py</code></li>
+</ul>
+<h3 id="fase-4-simplificar-prefilter">Fase 4. Simplificar prefilter<a class="headerlink" href="#fase-4-simplificar-prefilter" title="Permanent link">&para;</a></h3>
+<ul>
+<li>convertir el prefilter en una compuerta acotada de aceptacion o rechazo</li>
+<li>eliminar rutas de anotacion innecesarias para filas descartadas</li>
+</ul>
+<h3 id="fase-5-reemplazar-persistencia-directa">Fase 5. Reemplazar persistencia directa<a class="headerlink" href="#fase-5-reemplazar-persistencia-directa" title="Permanent link">&para;</a></h3>
+<ul>
+<li>eliminar escrituras manuales con <code>ProjectDB()</code> desde la importacion de AMDock</li>
+<li>cambiar a persistencia delegada tipo grafo en MolSuite</li>
+</ul>
+<h3 id="fase-6-rehacer-el-modelo-de-progreso">Fase 6. Rehacer el modelo de progreso<a class="headerlink" href="#fase-6-rehacer-el-modelo-de-progreso" title="Permanent link">&para;</a></h3>
+<ul>
+<li>desacoplar el lanzamiento del job del preconteo</li>
+<li>agregar reporte asincrono del conteo</li>
+<li>soportar transicion de progreso indeterminado a determinado</li>
+</ul>
+<h3 id="fase-7-colapsar-helpers-y-jobs-redundantes">Fase 7. Colapsar helpers y jobs redundantes<a class="headerlink" href="#fase-7-colapsar-helpers-y-jobs-redundantes" title="Permanent link">&para;</a></h3>
+<ul>
+<li>borrar helpers obsoletos de normalizacion y streaming</li>
+<li>reducir codigo duplicado de los jobs de importacion a logica de orquestacion</li>
+</ul>
+<h2 id="criterios-de-aceptacion">Criterios De Aceptacion<a class="headerlink" href="#criterios-de-aceptacion" title="Permanent link">&para;</a></h2>
+<p>El refactor se considera completo cuando:</p>
+<ol>
+<li>El envio de jobs de importacion es rapido incluso para archivos muy grandes.</li>
+<li>No queda gestion ad hoc directa de sesion de DB en la persistencia de importacion de AMDock.</li>
+<li>El estado molecular se deriva de objetos parseados, no de extensiones o escaneos de texto.</li>
+<li>La importacion de SDF/SMILES usa suppliers reales en lugar de iteracion custom por lineas o bloques.</li>
+<li>La validacion de rol y kind es explicita y estricta.</li>
+<li><code>loaders.py</code> queda reducido a orquestacion o desaparece en favor de modulos mas claros de parser y transformacion.</li>
+<li>La importacion de estructuras unitarias produce el mismo nivel de calidad de estado que SDF/SMILES.</li>
+<li>El progreso de importacion puede arrancar inmediatamente sin esperar el conteo completo de registros.</li>
+</ol>
+<h2 id="notas">Notas<a class="headerlink" href="#notas" title="Permanent link">&para;</a></h2>
+<ul>
+<li>El problema del conteo es un problema del modelo de progreso, no una razon para seguir bloqueando el inicio del job.</li>
+<li>El problema de persistencia es de arquitectura, no solo de rendimiento.</li>
+<li>El codigo actual funciona para casos moderados, pero no escala limpiamente a importaciones muy grandes ni a soporte mas amplio de tipos moleculares sin este refactor.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 AMDockVS authors
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"../..","features":["content.code.copy","navigation.footer","navigation.path","navigation.sections","navigation.top","search.highlight","search.suggest"],"redirect":null,"search":"../../assets/javascripts/workers/search.c47bb847.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"provider":"mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.77dd0ce9.min.js"></script>
+      
+    
+  </body>
+</html>
