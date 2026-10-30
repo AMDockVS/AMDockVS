@@ -144,6 +144,22 @@ def test_grid_box_actions_are_visible_above_the_editor_and_save_without_a_site_s
     assert saved_as_new == [True]
 
 
+def test_only_marked_rows_are_drawn_and_edges_is_the_default_style(grid_box_widget):
+    """A box made from a selection doesn't drag the site it was loaded over into the view."""
+    widget = grid_box_widget
+    drawn = []
+    cmd = SimpleNamespace(get_names=lambda kind: [], delete=lambda name: None,
+                          draw_box=lambda **kw: drawn.append((kw["obj_name"], kw["show_face"])))
+    widget.pymol_dock = SimpleNamespace(cmd=cmd, isVisible=lambda: True)
+    widget.show()
+    widget.focus_binding_site(widget._current_molecule, site_id=2)  # the active one, loaded
+    widget._apply_box_from_selection(cmd, {"center": (9.0, 9.0, 9.0), "points": []})
+    drawn.clear()
+    widget._refresh_preview(force=True)
+    assert drawn == [("amdock_grid_working", False)]
+    assert widget._working.source_site_id is None  # Save makes a new site, 2 stays as it was
+
+
 class _FakeCmd:
     """count_atoms over a toy receptor: 'sele' = 3 residue atoms, 'lig' = 2 ligand atoms."""
 

@@ -111,7 +111,7 @@ class GridBoxState:
     size_x: float = 22.0
     size_y: float = 22.0
     size_z: float = 22.0
-    show_faces: bool = True
+    show_faces: bool = False
     show_edges: bool = True
     edge_width: float = 2.0
     opacity: float = 0.35
@@ -288,8 +288,9 @@ class GridBoxSettingDockWidget(QWidget):
         self.style_faces = QRadioButton("Faces", style_tab)
         self.style_edges = QRadioButton("Edges", style_tab)
         self.style_both.setToolTip(
-            "Display style for ALL visible boxes. Faces + Edges is the default; a box with neither would be invisible.")
-        self.style_both.setChecked(True)
+            "Display style for ALL visible boxes; a box with neither faces nor edges would be invisible.")
+        # Edges by default: faces hide what sits inside the box (P2Rank or selection markers).
+        self.style_edges.setChecked(True)
         self.style_group = QButtonGroup(self)
         for button in (self.style_both, self.style_faces, self.style_edges):
             self.style_group.addButton(button)
@@ -611,6 +612,7 @@ class GridBoxSettingDockWidget(QWidget):
         sx, sy, sz = box["size"]
         self._working.center_x, self._working.center_y, self._working.center_z = cx, cy, cz
         self._working.size_x, self._working.size_y, self._working.size_z = sx, sy, sz
+        self._working.source_site_id = None  # a new box: Save must not overwrite the loaded site
         self._working.dirty = True
         self._sync_editor_from_working()
         self._ensure_working_item_present(select_if_created=True)
@@ -778,6 +780,7 @@ class GridBoxSettingDockWidget(QWidget):
         # (default 22) — a selection snap must not resize the box.
         cx, cy, cz = box["center"]
         self._working.center_x, self._working.center_y, self._working.center_z = cx, cy, cz
+        self._working.source_site_id = None  # a new box: Save must not overwrite the loaded site
         self._working.dirty = True
         self._sync_editor_from_working()
         self._ensure_working_item_present(select_if_created=True)
@@ -939,28 +942,17 @@ class GridBoxSettingDockWidget(QWidget):
         # Style (Faces / Edges / F+E) is a global display choice applied to EVERY visible box,
         # not just the working one.
         show_faces, show_edges = self._style_flags()
-        selected_sites = self._selected_sites()
-        drawn_indices = set()
-        for site in selected_sites:
+        # Only the marked rows are drawn: a site the user isn't working on (the active one
+        # included) would just hide the box being placed.
+        for site in self._selected_sites():
             self._draw_reference_site(
                 cmd, site, active=(site == self._selected_site()),
                 name=f"amdock_grid_bs_{int(site.id or 0)}",
                 show_faces=show_faces, show_edges=show_edges,
             )
-            drawn_indices.add(int(site.id or 0))
         # The temporary/working box persists (drawn whenever checked) regardless of tree
         # selection or clicks in the viewport — only receptor change / New / Save clears it.
-        # When it's an edit of a saved site, also draw that origin box faded so it's obvious
-        # what's changing.
         if self.show_working_box.isChecked() and self._working.dirty:
-            source_id = self._working.source_site_id
-            if source_id is not None and int(source_id) not in drawn_indices:
-                source_site = self._site_by_id(int(source_id))
-                if source_site is not None:
-                    self._draw_reference_site(
-                        cmd, source_site, active=False, name="amdock_grid_origin",
-                        show_faces=show_faces, show_edges=show_edges,
-                    )
             self._draw_working(cmd, show_faces=show_faces, show_edges=show_edges)
 
     def _draw_reference_site(
