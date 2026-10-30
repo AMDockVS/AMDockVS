@@ -1,0 +1,880 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Virtual screening, molecular preparation, QSAR, and docking with MolSuite.">
+      
+      
+        <meta name="author" content="AMDockVS authors">
+      
+      
+        <link rel="canonical" href="https://amdockvs.github.io/AMDockVS/latest/tareas/">
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../images/favicon.svg">
+      <meta name="generator" content="zensical-0.0.73">
+    
+    
+      
+        <title>Tareas AMDockVS - AMDockVS</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../assets/stylesheets/modern/main.4ab2de0c.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../assets/stylesheets/modern/palette.b60ce83d.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Inter";--md-code-font:"JetBrains Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-hidden="true"></label>
+    <div data-md-component="skip">
+      <a href="#__skip" class="md-skip">
+        Skip to content
+      </a>
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="./.." title="AMDockVS" class="md-header__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+      <span class="md-visually-hidden">Navigation</span>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            AMDockVS
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Tareas AMDockVS
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+          <span class="md-visually-hidden">Search</span>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="./.." title="AMDockVS" class="md-nav__button md-logo" aria-label="AMDockVS" data-md-component="logo">
+      
+  <img src="../images/favicon.svg" alt="AMDockVS">
+
+    </a>
+    AMDockVS
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/AMDockVS/AMDockVS" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.3.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    AMDockVS/AMDockVS
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../runtime_api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API guide
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../data_and_export/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Data and export
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Examples
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api_reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  API reference
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#a-zona-auxiliar-y-contrato-de-las-tools-0" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        A. Zona auxiliar y contrato de las tools — §0
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#b-bugs" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        B. Bugs
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="B. Bugs">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#regla-de-escala-auditoria-15-2026-08-16" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Regla de escala (auditoría §15, 2026-08-16)
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#c-deuda-de-ui" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        C. Deuda de UI
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#d-limpieza" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        D. Limpieza
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#e-tests-rotos-preexistentes-ninguno-causado-por-el-trabajo-de-0" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        E. Tests rotos (preexistentes, ninguno causado por el trabajo de §0)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#f-fuera-de-alcance-ahora-decidido-no-olvidado" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        F. Fuera de alcance ahora (decidido, no olvidado)
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+              
+              <article class="md-content__inner md-typeset">
+                <a id="__skip" tabindex="-1"></a>
+                
+                  
+
+  
+  
+
+
+<h1 id="tareas-amdockvs">Tareas AMDockVS<a class="headerlink" href="#tareas-amdockvs" title="Permanent link">&para;</a></h1>
+<p>Lista de trabajo derivada de <a href="../revision_2026-08-14/"><code>revision_2026-08-14.md</code></a>. La revisión
+explica el <strong>porqué</strong> con evidencia <code>archivo:línea</code>; esta lista es el <strong>qué</strong>, en orden, para ir
+marcando. Cada tarea cita la sección de la revisión donde está el razonamiento.</p>
+<p>Estado: <code>[ ]</code> pendiente · <code>[x]</code> hecho (con fecha) · <code>[~]</code> en curso · <code>[-]</code> descartado o fuera de
+alcance.</p>
+<hr />
+<h2 id="a-zona-auxiliar-y-contrato-de-las-tools-0">A. Zona auxiliar y contrato de las tools — §0<a class="headerlink" href="#a-zona-auxiliar-y-contrato-de-las-tools-0" title="Permanent link">&para;</a></h2>
+<p>Es por donde se empieza: el resto de la UI depende de que exista un contrato de entrada/salida.</p>
+<ul>
+<li>[x] <strong>A0. Refrescar solo lo visible</strong> <em>(2026-08-15)</em> — <code>refresh_open_view</code> salta lo que no está
+  en pantalla y anota el <code>view_id</code>; <code>_on_current_tab_changed</code> recarga solo lo anotado. Mismo
+  criterio en la auxiliar: Details no sigue la selección mientras está oculto. §0.2 nota 1</li>
+<li>[x] <strong>A1. Splitter + zona auxiliar</strong> <em>(2026-08-15)</em> — <code>QSplitter(Vertical)</code> con el <code>QTabWidget</code>
+  arriba y un <code>QStackedWidget</code> abajo, oculto cuando no hay ocupante (Qt esconde el handle con él).
+  Toggle global "Panel" a la derecha de la barra superior. §0.2</li>
+<li>[x] <strong>A2. Details a la auxiliar</strong> <em>(2026-08-15)</em> — deja de ser pestaña; una sola instancia que
+  sigue la selección de cualquier tabla; su botón sale del rail izquierdo. §0.1</li>
+<li>[x] <strong>A3. Prepared a la auxiliar</strong> <em>(2026-08-15)</em> — <em>Prep Status</em> deja de ser pestaña
+  contextual; Docking Studio ocupa el hueco mientras está abierto y lo devuelve a Details al
+  cerrarse (<code>_TOOL_AUX_VIEWS</code>). §0.2</li>
+<li>[x] <strong>A4. <code>set_toolbar_actions</code> en <code>ms_table</code></strong> <em>(2026-08-15)</em> — API con clave, igual que
+  <code>set_external_filters</code>: <code>set_toolbar_actions(key, actions)</code> inserta al final de la zona
+  izquierda, re-empujar la misma clave reemplaza, lista vacía = <code>clear_toolbar_actions(key)</code>.
+  Respeta el estado colapsado y construye la barra si la config no pedía ninguna.
+  Forwarder en <code>BoundTableWidget</code> (<code>catalog/common.py</code>). Self-check en
+  <code>molsuite_components/ms_table/test_toolbar.py</code>. <strong>Cambio en <code>ms_components</code>.</strong> §0.4</li>
+<li>[x] <strong>A5. <code>push_scope</code> / <code>pop_scope</code></strong> <em>(2026-08-15)</em> — en <code>BoundTableWidget</code>: una sola llamada
+  con <code>filters</code> + <code>clause</code> + <code>actions</code> (A4) + estado vacío, bajo una clave; <code>pop_scope(key)</code>
+  devuelve las cuatro y <strong>restaura los <code>default_filters</code> del catálogo</strong>, no "sin filtro" (antes
+  docking tenía que recordar a mano que Ligands filtra <code>usage_class=general</code>). Docking migrado:
+  <code>_SCOPE_KEY = "docking"</code>, <code>_release_*</code> bajó a una línea. Test <code>test/test_table_scope.py</code>. §0.4</li>
+<li>[x] <strong>A6. Pocket Detection al mismo mecanismo</strong> <em>(2026-08-16)</em> — desaparecen <code>PocketReceptorWidget</code>
+  y el <code>QSplitter</code> con la tabla de predicciones. Al abrir la tool: foco en Receptors +
+  <code>push_scope("pockets", …)</code> (solo receptores, menos los que ya traen ligando de referencia);
+  las predicciones son <code>BindingSitesWidget</code>, vista propia en la zona auxiliar que <strong>sigue al
+  receptor seleccionado</strong> leyendo de <code>pockets.list_predictions</code>. Profile pasa a ser global de la
+  corrida. Accesor nuevo <code>window.aux_view(view_id)</code>: construye la página aunque esté oculta, y es
+  <strong>la página</strong> la que aplaza la carga hasta mostrarse (A0), en vez de que la tool tenga que mirar
+  si el panel está abierto. Abrir una tool con auxiliar <strong>enciende el panel</strong> y al cerrarla se
+  devuelve el estado que encontró: su salida no vive detrás de un toggle que hay que descubrir.
+  §0.1, §0.4</li>
+<li>[x] <strong>A7. Pivotes de Docking Results</strong> <em>(2026-08-16)</em> — off-target y redocking dejan de ser vistas
+  y pasan a ser pivotes de la misma tabla (<code>ui/tools/docking/results_pivot.py</code>), con <strong>condicional
+  de poblado</strong> (no de corrida) y <strong>deshabilitado con el motivo escrito, nunca oculto</strong>; el predicado
+  es una sola consulta (<code>queries.pivot_availability</code>) y se recalcula en <code>job_finished</code>. Cada pivote
+  se construye la primera vez que se elige. Test <code>test/test_results_pivot.py</code>. §0.3</li>
+<li>[x] <strong>A8. Filter y Build entrando por Molecules</strong> <em>(2026-08-16)</em> — por corrección, no por estética:
+  entrando por Ligands/Receptors se escapan moléculas cuyo tipo no cae en el rol. Las dos tools
+  toman scope <strong>por tipo molecular</strong> y lo pintan sobre Molecules (<code>push_scope</code>/<code>pop_scope</code> en
+  <code>showEvent</code>/<code>hideEvent</code>, mismas condiciones que ejecuta el run vía <code>filtering.sql</code>). En Build,
+  un solo combo de tipo + un combo de Set sustituyen a los dos combos por rol, y los grupos de ops
+  que ese tipo no admite quedan <strong>deshabilitados con el motivo en el título</strong>. La raíz estaba en
+  <code>chemistry/api.py</code>: un scope con <code>molecule_type</code> ya no se pisa con <code>is_ligand</code>/<code>is_receptor</code>. §0.4</li>
+<li>[x] <strong>A9. Regla de vida de las pestañas efímeras</strong> <em>(2026-08-16)</em> — patrón <em>preview</em> en
+  <code>MainContentWidget</code>: <code>register_view(..., preview=True)</code> marca la vista como efímera (QSAR Models,
+  Binding Sites, Complexes) y todas comparten <strong>una sola ranura</strong> — abrir una cierra la anterior.
+  Título en cursiva vía <code>QProxyStyle</code> sobre el <code>QTabBar</code> (Qt no tiene fuente por pestaña).
+  Test <code>test/test_preview_tabs.py</code>. §0.5</li>
+</ul>
+<p><strong>Decisión abierta:</strong> si una auxiliar sigue <strong>a la selección</strong> (binding sites, poses) o <strong>al
+scope</strong> (prepared). Con A6 ya hay una de cada tipo: Details y Binding Sites siguen la selección,
+Prep Status sigue a la tool. Sigue sin hacer falta indexar por pestaña porque las tres entran por
+<code>_TOOL_AUX_VIEWS</code>; se decide cuando Binding Sites deba verse <strong>sin</strong> Pocket Detection abierto
+(solo seleccionando un receptor). §0.2</p>
+<hr />
+<h2 id="b-bugs">B. Bugs<a class="headerlink" href="#b-bugs" title="Permanent link">&para;</a></h2>
+<ul>
+<li>[x] <strong>B1. <code>DockingStudioWidget</code> reventaba al cerrarse sin proyecto</strong> <em>(2026-08-15)</em> — el
+  placeholder no construye <code>flex_box</code>/<code>flex_candidates</code> pero <code>hideEvent</code> los tocaba. Flag <code>_ready</code></li>
+<li>guarda en <code>show/hideEvent</code>, y el chrome del tool se retira antes de destruirlo.</li>
+<li>[x] <strong>B1b. LLE/BEI/SEI salían vacías en todos los resultados</strong> <em>(2026-08-16)</em> — el worker
+  recalculaba los descriptores parseando el fichero del ligando, pero <code>ligand_source_path</code> es
+  relativa y en el worker no resuelve → <code>clogp/mw/tpsa</code> a <code>None</code>. Ahora los descriptores del
+  import viajan con el par (<code>_ligand_descriptors_from_row</code> en <code>docking/service.py</code>, campos extra
+  en <code>docking/jobs.py</code>) y <code>docking_metrics(descriptors=...)</code> los prefiere; el parseo queda de
+  respaldo. Solo aplica a corridas nuevas: no hay backfill de las métricas ya guardadas.</li>
+<li>[x] <strong>B1c. Docking Results cargaba TODA la tabla de resultados al abrir</strong> <em>(2026-08-16)</em> —
+  <code>filtered_hits(limit=5000)</code> traía cada pose de cada ligando y agrupaba en Python (además
+  truncaba en silencio: con ~9 poses/ligando el tope eran ~550 ligandos). Ahora
+  <code>list_ligand_result_summaries</code> agrupa en SQL (<code>MIN(r.score)</code> + el truco de columnas desnudas de
+  SQLite ⇒ la fila del mejor pose) y devuelve páginas de 200; las poses se piden por ligando al
+  seleccionarlo (<code>filtered_hits(ligand_id=...)</code>). Scroll al fondo = página siguiente. En p4:
+  0.076 s vs 1.64 s, y ahora es O(página), no O(resultados). Check en
+  <code>test_amdock_runtime.py</code> (paginación + best-pose + pose_count).</li>
+<li>[x] <strong>B1d. No se veía cuántos dockings se iban a hacer ni cuántos faltaban</strong> <em>(2026-08-16)</em> — el
+  Docking Studio solo mostraba ligandos y receptores listos (nunca el producto), y Results mostraba
+  "intentados/completados" por receptor sin referencia contra la que comparar: en p4, 4UWH tenía
+  158 ligandos y los otros 160 y nada lo delataba. Ahora: (a) fila <strong>Dockings</strong> en Run Scope,
+  <code>ligandos x receptores x programas</code>, con <code>N to run of M (K already docked)</code> usando
+  <code>count_docked_pairs</code> (un <code>COUNT(DISTINCT receptor, ligand)</code> en SQL, no el conjunto de pares, que
+  solo materializa el guard de skip-existing); (b) columna <strong>Missing</strong> en la tabla By Receptor =
+  <code>expected_ligands - docked</code>, donde <code>expected_ligands</code> es la unión de ligandos dockeados contra
+  <em>cualquier</em> receptor (subquery escalar en <code>list_receptor_result_summaries</code>). Verificado en p4:
+  4UWH → Missing 2, resto 0; preview → <code>2720 to run of 3198 (478 already docked)</code>. Check en
+  <code>test_amdock_runtime.py</code>.</li>
+<li>[x] <strong>B1e. El hash del protocolo incluía parámetros que no son protocolo</strong> <em>(2026-08-17)</em> —
+  <code>protocol_hash</code> hasheaba el <code>config</code> completo, y el <code>config</code> de la UI lleva también los mandos de
+  <em>ejecución</em>: <code>num_modes</code> (cuántas poses se reportan), <code>vina_backend</code> (binario vs API) y
+  <code>vina_cpu</code> (hilos). Ninguno mueve una pose, pero cambiarlos daba un protocolo nuevo, con dos
+  consecuencias: el filtro <em>Protocol</em> de Results se llenaba de variantes falsas
+  (<code>... | modes=9 | backend=binary</code>) y el guard de skip-existing —<code>existing_result_pairs</code> filtra
+  por <code>metrics.protocol.hash</code>— dejaba de reconocer lo ya dockeado y volvía a docar todo. Ahora
+  <code>protocols.py</code> declara <code>IDENTITY_KEYS = ("scoring_function", "exhaustiveness")</code> +
+  <code>protocol_identity(config)</code>, y <strong>hash y label</strong> se construyen solo con ese subconjunto; el
+  <code>config</code> completo se sigue guardando (es el que lleva los parámetros al job y sirve de auditoría).
+  Label nuevo: <code>AutoDock Vina | sf=vina | exh=8</code>. Check en <code>test_amdock_runtime.py</code>.
+  Ojo: los resultados viejos conservan su hash/label largos ⇒ en p4 conviven el protocolo antiguo
+  y el nuevo aunque la ciencia sea la misma (no hay backfill; datos de desarrollo).</li>
+<li>[ ] <strong>B2. PDBQT: se fuerza el sufijo equivocado</strong> — receptor <code>.pdbqt</code> se guarda como <code>.pdb</code>
+  (<code>materializers.py:1010-1016</code>) y ligando <code>.pdbqt</code> como <code>.sdf</code> sin datos RDKit. §6</li>
+<li>[ ] <strong>B3. Rama inalcanzable</strong> <code>elif suffix == ".pdbqt": return Chem.Mol()</code>
+  (<code>vina_preparation.py:36</code>): devolvería una molécula vacía en silencio. §14.7</li>
+<li>[ ] <strong>B4. <code>RECEPTOR_VIEW_ID</code> duplicado con valores distintos</strong> — <code>domain_views.py:5</code> dice
+  <code>workspace.receptor</code>, <code>receptors.py:59</code> dice <code>workspace.receptors</code>. §1, §14.5</li>
+</ul>
+<h3 id="regla-de-escala-auditoria-15-2026-08-16">Regla de escala (auditoría §15, 2026-08-16)<a class="headerlink" href="#regla-de-escala-auditoria-15-2026-08-16" title="Permanent link">&para;</a></h3>
+<p><strong>Ningún dato que crezca con el screening se lee entero.</strong> Query sobre <code>molecules</code>,
+<code>docking_results</code> o <code>plip_results</code> ⇒ paginada (<code>LIMIT</code>/<code>OFFSET</code>) o agregada en SQL; tabla de UI
+que la consuma ⇒ pagina al hacer scroll. Un tope fijo <strong>siempre</strong> se le dice al usuario
+("showing X of Y", como hace off-target); truncar en silencio es tan bug como quedarse sin RAM.
+Auditado ya: catálogo (ms_table pagina, OK), off-target (topes con aviso, OK), grid box (OK),
+resultados de docking / <code>list_ligands</code> / <code>list_receptors</code> / <code>list_results</code> / picker de QSAR
+(arreglados, ver B1c y abajo). Lo pendiente son B5–B7.</p>
+<ul>
+<li>[x] <strong>B4b. Fugas menores de "traer todo"</strong> <em>(2026-08-16)</em> — <code>queries.list_ligands</code> volcaba la
+  tabla <code>molecules</code> entera <strong>y la imprimía a stdout</strong> (<code>print(f"{rows = }")</code>); <code>list_ligands</code>,
+  <code>list_receptors</code> y <code>list_results</code> no tenían cota; el picker de ligandos de QSAR
+  (<code>qsar/activities.pick_ligands</code>) construía un diálogo con todos los ligandos del proyecto.
+  Print fuera, <code>limit</code>/<code>offset</code> en las tres queries, tope de 500 + aviso en el picker. §15</li>
+<li>[ ] <strong>B5. <code>docking._count_failed_preparations</code> materializa todos los ids del scope</strong>
+  (<code>ui/tools/docking/docking.py:1327</code>) y hace queries <code>IN (...)</code> de 900 en 900 — se dispara en
+  cada cambio de scope del Docking Studio. Debe ser un <code>COUNT</code> con join sobre las condiciones del
+  scope (<code>filtering.sql.scope_conditions</code>). §15</li>
+<li>[ ] <strong>B6. <code>docking._resolve_receptor_ids(mode="active")</code> manda la lista completa de ids</strong>
+  a los parámetros del job; con miles de receptores el <code>params</code> se vuelve enorme. Debería viajar
+  el scope, no los ids. §15</li>
+<li>[ ] <strong>B7. <code>redocking._fetch_results</code> usa <code>filtered_hits(limit=5000)</code></strong> y agrega por protocolo en
+  Python: trunca sin avisar. Prioridad baja (el redocking va sobre complejos de referencia), pero
+  la agregación pertenece a SQL. §15</li>
+<li>[ ] <strong>B8. <code>ui/lazy_table.py</code> (<code>LazyFetchTableModel</code>) no lo usa nadie</strong> — está escrito justo para
+  las tablas de resultados (<code>canFetchMore</code>/<code>fetchMore</code>, <code>_Pager</code> con su check). O se adopta en la
+  tabla de ligandos (implica pasar de <code>QTableWidget</code> a <code>QTableView</code> + modelo, y portar
+  <code>_MetricColumns</code>) o se borra. §15</li>
+<li>[ ] <strong>B9. "¿esto ya está hecho?" — guard de re-ejecución transversal, y avisar al usuario</strong>
+  <em>(revisado 2026-08-17, sin tocar nada: es un patrón para aplicarlo de una vez a todos los jobs)</em>.
+  Estado real hoy, job por job:</li>
+<li><strong>docking.run / redock</strong> — sí hay guard, pero <em>silencioso</em> y a nivel de par:
+    <code>skip_existing=True</code> ⇒ <code>existing_result_pairs(engine, run_kind, protocol_hash)</code>; con
+    <code>skip_existing=False</code> se borran los resultados previos de esos receptores en vez de duplicar.
+    Nada avisa: si los 3198 pares ya están, el job se envía igual, emite 0 chunks útiles y termina
+    "bien". Falta el "0 pares nuevos ⇒ no envío / confirma re-dock".</li>
+<li><strong>redocking</strong> (<code>ui/tools/docking/redocking.py::_submit</code>) — <strong>no manda <code>protocol_metadata</code></strong> ⇒
+    hash <code>""</code> ⇒ el skip casa con <em>cualquier</em> redock previo de ese par: cambiar <code>exhaustiveness</code> y
+    volver a lanzar no vuelve a docar nada, en silencio. Es el fallo inverso al de B1e.</li>
+<li><strong>prepare_ligands / prepare_receptors</strong> — sí: <code>_pending_rows</code> deja fuera lo que ya tiene
+    <code>prepared_engine_path</code> existente en disco; <code>force=True</code> lo salta. Tampoco avisa ("0 pendientes").</li>
+<li><strong>chemistry / descriptores / fingerprints</strong> — <code>write_mode="upsert"</code> ⇒ re-ejecutar no duplica
+    filas, pero recalcula todo; solo los fingerprints tienen gate de "missing".</li>
+<li><strong>pockets</strong> — re-ejecutar <em>reemplaza</em> los sitios del receptor (<code>replaced_receptors</code>).</li>
+<li><strong>import</strong> — sin guard: el mismo fichero dos veces entra dos veces.</li>
+<li><strong>job en vuelo, solo docking</strong> — el Docking Studio sí lo comprueba antes de enviar
+    (<code>_docking_signature</code> + <code>_check_docking_conflict</code>): job idéntico vivo ⇒ error y no envía; otro
+    docking vivo ⇒ pregunta. Dos límites: (i) las firmas viven en <code>self._docking_job_sigs</code>, un dict
+    en memoria del widget, y desde que el studio se cierra al lanzar (C0b) se pierde ⇒ al reabrir
+    solo queda el aviso genérico; debería derivarse de los params del job en la BD del executor.
+    (ii) la firma hashea el <code>config</code> completo, así que sigue distinguiendo <code>num_modes</code>/backend —
+    debería usar <code>protocol_identity</code> como el hash (B1e).</li>
+<li><strong>nivel job</strong> (<code>runtime.submit_job</code>) — no hay deduplicación genérica: solo encadena
+    dependencias (<code>resolve_job_dependencies</code>). Fuera de docking, dos submits idénticos se encolan y
+    corren los dos; el skip se materializa al arrancar cada job, así que solapados se pisan.
+  Lo que falta, en una pieza reutilizable: (a) un "¿qué queda por hacer?" por job (el par/entidad
+  pendiente ya se sabe calcular en docking y prepare) evaluado <strong>antes de enviar</strong>; (b) aviso al
+  usuario con el reparto <em>nuevo / ya hecho</em> y la opción de forzar; (c) chequeo de que no haya ya un
+  job activo del mismo tipo y ámbito (<code>active_jobs</code> + firma de params ~ el hash del protocolo).
+  Ligado a [[mf-domain-idempotency-contract]] y a <code>docking-skip-existing</code>.</li>
+</ul>
+<hr />
+<h2 id="c-deuda-de-ui">C. Deuda de UI<a class="headerlink" href="#c-deuda-de-ui" title="Permanent link">&para;</a></h2>
+<ul>
+<li>[x] <strong>C0. Columnas de métricas seleccionables en las tablas de resultados</strong> <em>(2026-08-16)</em> —
+  <code>_MetricColumns</code> (<code>ui/workspace.py</code>): cada columna es <code>(label, getter, visible_por_defecto)</code> y
+  el menú contextual del header la enciende. Ligands: Ligand/Best/LE/LLE/Poses visibles,
+  pKi/Ki/FQ/BEI/SEI opcionales. Poses: Pose/Score/RMSD ref visibles, LE/pKi/Ki opcionales (dentro
+  de un mismo ligando reordenan igual que Score). La columna 0 nunca se oculta. Sin persistencia
+  de la selección todavía. Test <code>test/test_metric_columns.py</code>.</li>
+<li>[x] <strong>C0b. El paso 4 (Preview &amp; Run) abre Docking Results</strong> <em>(2026-08-16)</em> — el mapa
+  paso→vista de <code>_on_step_changed</code> solo cubría los pasos 2 y 3 (Ligands/Receptors), así que al
+  llegar a Preview &amp; Run la zona central se quedaba en Receptors. Ahora <code>3: COMPLEXES_VIEW_ID</code>:
+  el paso previo al run muestra dónde va a aterrizar. Y al lanzar (<code>_on_docking_submitted</code>,
+  solo en el camino de éxito) el studio se retira: abre Docking Results y cierra el dock de
+  tools — ya no queda nada que configurar y la pantalla es para los resultados.</li>
+<li>[x] <strong>C0c. "Selected Result" pasa a la zona auxiliar</strong> <em>(2026-08-16)</em> — era un panel dentro de
+  la pestaña, debajo de las tablas, justo lo que la zona auxiliar existe para mostrar. Ahora una
+  vista central puede reclamar el slot exponiendo <code>aux_panel()</code>: <code>_set_aux_occupant</code> calcula
+  <em>vista en pantalla → tool activo → Details</em> y se dispara también en <code>current_view_changed</code>. El
+  panel lo sigue construyendo <code>DockingResultsWidget</code> (está cableado a sus tablas) y solo se
+  reparenta al stack auxiliar; al salir de la pestaña, cambiar de pivot (off-target/redocking no
+  tienen panel) o cerrarla, el slot vuelve al auxiliar del tool. §0</li>
+<li>[x] <strong>C6. Sacar PLIP del panel "Selected Result" — una sola fuente: el JSON de ms_contactmap</strong>
+  <em>(decidido y hecho 2026-08-16/17)</em> — fuera los dos split-buttons de PLIP (<code>Compute selected pose</code>
+  / <code>Compute filtered active poses</code> + sus "Render 2D diagram"). Además de estar fuera de sitio,
+  desde que el panel vive en la zona auxiliar pasaban <code>busy=self</code> = overlay "Loading…" <strong>sobre la
+  pestaña de resultados</strong>, no sobre el panel del botón: se apagaban las tablas y se comían los
+  clics mientras el botón pulsado no daba señal ninguna — se lee como app congelada. <code>pldiagram</code>
+  pasa a ser <code>ms_contactmap</code>, módulo independiente de MolSuite: computa las interacciones <strong>y</strong> el
+  diagrama en una pasada y las deja en JSON junto a la pose. Reparto final:</li>
+<li><strong>Selected Result (auxiliar)</strong> = dueño de la pose ⇒ dueño de la acción. Lista las interacciones
+    leyendo ese JSON (<code>pose_interactions</code>, <code>json.load</code> pelado: ni PLIP en BD ni import de
+    pldiagram) y tiene el botón <strong>Build diagram</strong>, que corre detección + <code>solve_layout</code> en worker,
+    guarda junto a la pose, recarga la lista y le pide <code>reload()</code> al dock.
+    Más adelante, clic en una interacción ⇒ resaltarla en PyMOL: mismo JSON, sin segunda pasada.</li>
+<li><strong>Dock 2D</strong> = render-only, ajeno a poses/receptores/PLIP: dibuja el documento guardado y ya.
+    Es lo que necesita <code>ms_contactmap</code> para ser reutilizable; la app standalone pondrá su propio
+    botón. Un botón en el componente actuaría sobre una selección que el componente no conoce.</li>
+<li><strong>Lote</strong> ("Compute filtered active poses") no es detalle de una pose: se va a la barra de
+    Docking Results, junto al resto de acciones sobre el conjunto filtrado. <strong>Pendiente.</strong></li>
+<li>[x] <strong>C7. Filtros de Docking Results: chips aditivos en vez de checkbox+Apply</strong> <em>(2026-08-17)</em> —
+  la barra vieja pedía dos clics para cualquier filtro (marcar la casilla y pulsar <code>Apply</code>), solo
+  admitía <strong>un</strong> valor de score y <strong>una</strong> métrica a la vez, y tras editar un campo no había forma
+  de saber qué estaba aplicado de verdad. Ahora <code>ui/filter_chips.py::MetricFilterBar</code> (local a
+  <code>molsuite_components.ms_table.MetricFilterBar</code> (el <code>FilterPanel</code> del mismo paquete es otra cosa:
+  filtra un <code>TableConfig</code> por igualdad/ILIKE, no expresa rangos, y está huérfano): en la barra
+  solo hay estado — los chips activos y un <code>+</code> que abre un diálogo (campo, operador ≥/≤, valor);
+  al aceptar aparece el chip mientras las tablas
+  recargan solas — lo aplicado es lo que se lee en pantalla. Los chips se llavean por
+  <code>(campo, operador)</code>, así que <code>Score ≥ -9.5</code> y <code>Score ≤ -9</code> conviven = <strong>rango</strong>, y varias
+  métricas se acumulan (AND). El componente no sabe de SQL ni de sesiones — <code>conditions()</code> devuelve
+  <code>[(campo, op, valor)]</code> y quien lo use decide; eso es lo que lo hace reutilizable (también expone
+  <code>add_condition</code> / <code>set_conditions</code> para restaurar una vista guardada). En AMDock son condiciones
+  aditivas en SQL: <code>_hit_filter_clauses(metric_filters=...)</code> en <code>queries.py</code>, expuesto por
+  <code>docking/api.py</code> en <code>ligand_summaries</code> y <code>filtered_hits</code>.
+  <code>Completed only</code> pasa a <strong><code>Hide failed poses</code></strong> (es <code>r.score IS NULL</code>: la fila del par que falló
+  se escribe igual para que el fallo se vea) y aplica al instante; <code>Apply</code> desaparece y <code>Clear</code>
+  limpia chips + casilla. Protocolo sigue siendo combo aparte (aísla programa, no filtra número).
+  Verificado en p4: 160 ligandos → 7 con <code>Score ≤ -9</code> → mismo 7 al añadir <code>≥ -9.5</code>, <code>Clear</code> → 160.</li>
+<li>[ ] <strong>C1. <code>saveState</code>/<code>restoreState</code> del layout</strong> en <code>closeEvent</code>/<code>showEvent</code>, con clave de
+  versión, y <strong>dejar de reimponer el tercio</strong> en cada <code>open_tool</code> (hoy pisa el tamaño que el
+  usuario arrastró). §8</li>
+<li>[ ] <strong>C2. Details por tipo molecular</strong> — hoy es un visor de diccionarios, no un panel de
+  dominio. §9</li>
+<li>[ ] <strong>C3. <code>Details.show_molecule()</code> fuera del hilo GUI</strong> — 4 queries bloqueantes; <code>run_async</code> ya
+  es el patrón del proyecto. §3, §14.3</li>
+<li>[ ] <strong>C4. Respetar el <code>behavior</code> declarado en <code>_infer_and_update_region</code></strong> — al arrastrar un dock
+  a otra región se le reasigna comportamiento. §11</li>
+<li>[ ] <strong>C5. Exponer <code>protonate_*</code> / <code>standardize_ligands</code> en Build</strong> e Import en la toolbar: son
+  jobs sin acción propia en la UI. §12</li>
+</ul>
+<hr />
+<h2 id="d-limpieza">D. Limpieza<a class="headerlink" href="#d-limpieza" title="Permanent link">&para;</a></h2>
+<ul>
+<li>[ ] <strong>D1. Borrar <code>../src/amdockvs/ui.bak/</code></strong> — 40.337 líneas, 21 MB, <strong>no ignorado por git</strong>. Antes
+  de commitear. §14.1</li>
+<li>[ ] <strong>D2. Borrar <code>ui/tools/molecules.py</code> y <code>ui/tools/mols.py</code></strong> — vacíos, y el primero sombrea el
+  paquete <code>molecules/</code>. §14.4</li>
+<li>[ ] <strong>D3. Subir los helpers de UI de <code>docking.py</code> a <code>docking/api.py</code></strong> — el panel tiene 2.825
+  líneas. §3</li>
+<li>[ ] <strong>D4. Cerrar Fase 5 o quitar <code>_NullDock</code></strong> — se traga llamadas muertas y oculta errores de
+  registro. §14.2</li>
+<li>[ ] <strong>D5. <code>amdock_rc.py</code> (21.703 líneas generadas) fuera del repo</strong>, a paso de build. §14.6</li>
+</ul>
+<hr />
+<h2 id="e-tests-rotos-preexistentes-ninguno-causado-por-el-trabajo-de-0">E. Tests rotos (preexistentes, ninguno causado por el trabajo de §0)<a class="headerlink" href="#e-tests-rotos-preexistentes-ninguno-causado-por-el-trabajo-de-0" title="Permanent link">&para;</a></h2>
+<ul>
+<li>[ ] <strong>E1. <code>test_docking_ligand_picker.py:3</code></strong> importa <code>_docking_ligand_table_config</code>, que ya no
+  existe.</li>
+<li>[ ] <strong>E2. <code>test_pymol_ribbon.py</code></strong> importa <code>install_pymol_ribbon</code>, que ya no existe.</li>
+<li>[ ] <strong>E3. <code>test_2d_preview_settings.py:177</code></strong> afirma <code>menu.settings_button</code>, atributo que no
+  existe en ningún sitio de <code>src/</code>.</li>
+</ul>
+<p>Suite al 2026-08-15, excluyendo E1 y E2: <strong>159 pasan, 1 falla (E3)</strong>.</p>
+<hr />
+<h2 id="f-fuera-de-alcance-ahora-decidido-no-olvidado">F. Fuera de alcance ahora (decidido, no olvidado)<a class="headerlink" href="#f-fuera-de-alcance-ahora-decidido-no-olvidado" title="Permanent link">&para;</a></h2>
+<ul>
+<li>[-] <strong>F1. <code>gpu_required</code> / elegir executor por job</strong> — se trabaja en <code>ms_flow</code> primero; no
+  tocar AMDock hasta que MF exponga la declaración. Decidido 2026-08-14. §13</li>
+<li>[-] <strong>F2. Workflow</strong> — fuera de esta ronda hasta que todo lo que usa esté funcional. §0.1</li>
+<li>[-] <strong>F3. Unificar descriptores / fingerprints / SMILES</strong> — plomería de datos, no layout, pero es
+  lo que dolerá al construir el <code>feature_source</code> de QSAR. §0.6</li>
+<li>[-] <strong>F4. Tool de diseño de derivados a partir del Glowing.</strong> §0.6</li>
+<li>[-] <strong>F5. Fusionar Ligands y Receptors</strong> en una tabla con selector de rol — <strong>descartado</strong>:
+  docking necesita las dos a la vez. §0.5</li>
+<li>[-] <strong>F6. Versionado por tags (setuptools-scm)</strong> — versioneer estaba muerto en el repo (sin
+  <code>setup.py</code>, sin <code>[tool.versioneer]</code>, sin <code>_version.py</code>, sin tags); se borró junto con el
+  <code>.gitattributes</code> que apuntaba a <code>src/amdockvs/_version.py</code> (ruta inexistente). Hoy la versión
+  es el literal <code>version = "0.1.0"</code> de <code>pyproject.toml</code>. Cuando haya primer release etiquetado,
+  sustituirlo por: <code>requires = ["setuptools&gt;=68", "setuptools-scm&gt;=8"]</code>, <code>dynamic = ["version"]</code>
+  y <code>[tool.setuptools_scm] version_file = "src/amdock/_version.py"</code>; entonces <code>git tag -a v0.2.0</code>
+  fija la versión sola. Ojo: con <code>pip install -e .</code> la versión queda congelada hasta reinstalar.
+  Decidido 2026-08-18: esperar, sin tags no ahorra nada.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+    <div class="md-copyright__highlight">
+      Copyright &copy; 2026 AMDockVS authors
+    </div>
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog" role="status" aria-atomic="true">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      
+      
+        
+        
+      <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["content.code.copy","navigation.footer","navigation.path","navigation.sections","navigation.top","search.highlight","search.suggest"],"redirect":null,"search":"../assets/javascripts/workers/search.c47bb847.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","clipboard.error":"Could not copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"provider":"mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.77dd0ce9.min.js"></script>
+      
+    
+  </body>
+</html>
