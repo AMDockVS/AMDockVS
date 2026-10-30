@@ -243,7 +243,7 @@ class AMDockVSMainWindow(QMainWindow):
             self._open_default_views()
 
     def _open_default_views(self) -> None:
-        """Open the relevant project tabs while leaving Receptors in front."""
+        """Open the relevant project tabs; Complexes in front when there are results, else Receptors."""
         # open_view() only returns the tab if it already exists; opening is open_or_focus_view().
         self.open_or_focus_view(RECEPTOR_VIEW_ID)
         sharded, ligand_rows = self.views._library_shape()
@@ -253,7 +253,8 @@ class AMDockVSMainWindow(QMainWindow):
             self.open_or_focus_view(SHARDS_VIEW_ID)
         if self.runtime.docking.has_results():
             self.open_or_focus_view(COMPLEXES_VIEW_ID)
-        self.open_or_focus_view(RECEPTOR_VIEW_ID)
+        else:
+            self.open_or_focus_view(RECEPTOR_VIEW_ID)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

@@ -167,7 +167,7 @@ def test_pending_result_hits_accumulate_but_do_not_reappear_after_a_table_change
     page = SimpleNamespace(
         _hit_token=2, window=lambda: window, _show_detail=selected.append,
         _pose_rank=lambda hit: 1, _load_hit_in_pymol=lambda hit, rank: shown.append(hit),
-        _showing_together=lambda: False,
+        _showing_together=lambda: False, isVisibleTo=lambda _window: True,
         _load_selected_hit_in_pymol=lambda: shown.append(selected[-1]))
     DockingResultsWidget._apply_selected_hit(page, "latest", (2, epoch))
     DockingResultsWidget._apply_selected_hit(page, "earlier_shift_click", (1, epoch))
@@ -176,6 +176,21 @@ def test_pending_result_hits_accumulate_but_do_not_reappear_after_a_table_change
     viewer.select_table_row(object(), additive=True)
     DockingResultsWidget._apply_selected_hit(page, "stale", (2, epoch))
     assert shown == ["latest", "earlier_shift_click"]
+
+
+def test_a_results_tab_behind_another_leaves_pymol_alone(viewer_scene):
+    # Complexes fills itself at start-up behind Receptors: its first pose must not take PyMOL.
+    from amdockvs.ui.catalog.results import DockingResultsWidget
+
+    _viewer, window, _cmd = viewer_scene
+    selected, shown = [], []
+    page = SimpleNamespace(
+        _hit_token=1, window=lambda: window, _show_detail=selected.append,
+        _showing_together=lambda: False, isVisibleTo=lambda _window: False,
+        _load_selected_hit_in_pymol=lambda: shown.append(selected[-1]))
+    DockingResultsWidget._apply_selected_hit(page, "first", (1, getattr(window.pymol_dock, "_amdock_scene_epoch", 0)))
+    assert selected == ["first"]
+    assert shown == []
 
 
 def test_redocking_clicks_replace_or_accumulate_even_when_reselecting_a_row(viewer_scene, monkeypatch):
