@@ -42,6 +42,8 @@ class MolecularViewerController:
 
     def _on_table_pressed(self, view, index, modifiers) -> None:
         column = index.data(COLUMN_DEF_ROLE)
+        if not hasattr(column, "field"):  # any item view in the window reaches here; others reuse the role
+            column = None
         if column is None:
             if view.objectName() != "redocking_results":
                 return
