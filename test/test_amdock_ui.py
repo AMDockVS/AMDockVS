@@ -952,4 +952,6 @@ def test_a_picked_member_is_ringed_in_every_model_series():
     ])
     dock.highlight_molecule(11)
     assert sorted(zip(*dock._highlight.getData())) == [(6.0, 6.1), (6.0, 7.0)]
+    ring = dock._highlight.opts
+    assert ring["brush"].style() == Qt.NoBrush and ring["pen"].color() == dock.palette().color(dock.palette().ColorRole.WindowText)
     window.close()

@@ -226,13 +226,15 @@ class QSARChartDockWidget(MSDockWidget):
         plot.setLabel("left", "Predicted")
 
     def highlight_molecule(self, molecule_id: int) -> None:
-        """Ring a molecule's point in every series of the fit chart (a member picked in the table)."""
+        """Ring a molecule's point in every series of the fit chart (a member picked in the table):
+        a hollow circle in the theme's text colour, so the point keeps its own colour and marker."""
         plot = self.chart_plot.getPlotItem()
         if self._highlight is not None:
             plot.removeItem(self._highlight)
         points = [(x, y) for ids, xs, ys in self._fit_series for i, x, y in zip(ids, xs, ys) if i == molecule_id]
-        self._highlight = pg.ScatterPlotItem(x=[p[0] for p in points], y=[p[1] for p in points], size=16,
-                                             pen=pg.mkPen("w", width=2), brush=pg.mkBrush(255, 214, 10))
+        ring = pg.mkPen(self.palette().color(QPalette.WindowText), width=2)
+        self._highlight = pg.ScatterPlotItem(x=[p[0] for p in points], y=[p[1] for p in points], size=20,
+                                             pen=ring, brush=None, symbol="o")
         plot.addItem(self._highlight)
 
     def show_scatter(self, observed, predicted, label: str = "") -> None:
