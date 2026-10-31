@@ -398,10 +398,18 @@ def has_ligand_rows(project_db) -> bool:
     opening", and a project whose only ligands are reference cocrystals still is. One row
     answers it: counting them all is a scan of millions.
     """
+    return _has_row(project_db, "is_ligand")
+
+
+def has_receptor_rows(project_db) -> bool:
+    """Is any receptor a row here? One row answers it, like `has_ligand_rows`."""
+    return _has_row(project_db, "is_receptor")
+
+
+def _has_row(project_db, role: str) -> bool:
     return db_count(
         project_db,
-        QuerySpec(table=TABLE_MOLECULES, fields=("id",),
-                  filters={"is_ligand": True, "excluded": False}, limit=1),
+        QuerySpec(table=TABLE_MOLECULES, fields=("id",), filters={role: True, "excluded": False}, limit=1),
     ) > 0
 
 
@@ -429,6 +437,7 @@ __all__ = [
     "general_ligand_count",
     "has_shards",
     "has_ligand_rows",
+    "has_receptor_rows",
     "library_kind",
     "PREPARED_DIR",
     "iter_prepared_shards",

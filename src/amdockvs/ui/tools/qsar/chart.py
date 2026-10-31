@@ -67,6 +67,7 @@ class QSARChartDockWidget(MSDockWidget):
         self.stack.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
         universe = self.universe_view.getPlotItem()
         self._universe_legend = universe.addLegend(offset=(-10, 10), labelTextColor=_AXIS_GREY)
+        self._highlight = None
         self.stack.addWidget(self.chart_plot)
         self.stack.addWidget(self.universe_view)
         self.setWidget(self.stack)
@@ -85,6 +86,8 @@ class QSARChartDockWidget(MSDockWidget):
         plot.setTitle(None)
         for name in ("left", "bottom"):
             plot.getAxis(name).setTicks(None)
+            plot.getAxis(name).showLabel(False)  # a previous chart's "Count" must not stay
+        self._highlight = None
         plot.enableAutoRange()
         return plot
 
@@ -105,7 +108,7 @@ class QSARChartDockWidget(MSDockWidget):
         plot.setLabel("bottom", label or "")
         plot.setLabel("left", "Count")
 
-    def show_grouped_bars(self, title: str, categories, groups) -> None:
+    def show_grouped_bars(self, title: str, categories, groups, x_title: str = "") -> None:
         """Grouped bars: categories on X, one bar-set per group. Used for train-vs-test balance —
         groups = {'train': [...], 'test': [...]} aligned to categories (classes or value bins)."""
         plot = self._chart()
@@ -124,7 +127,8 @@ class QSARChartDockWidget(MSDockWidget):
             self._chart_legend.addItem(bar, str(name))
         plot.getAxis("bottom").setTicks([[(i, str(categories[i])) for i in xs]])
         plot.setTitle(title, color=_AXIS_GREY)
-        plot.setLabel("left", "Count")
+        plot.setLabel("bottom", x_title)
+        plot.setLabel("left", "Molecules")
 
     def show_hbars(self, title: str, labels, values, x_title: str = "") -> None:
         """Horizontal bar chart (feature importance): labels top→bottom, biggest first."""
@@ -159,17 +163,25 @@ class QSARChartDockWidget(MSDockWidget):
         plot.setLabel("left", y_title)
 
     def show_scatter_series(self, title: str, series) -> None:
-        """Observed-vs-predicted for several models overlaid: series = [{'label','points':[(obs,pred)]}].
-        One scatter series per model (auto-coloured, legend on) + a shared y=x reference line."""
+        """Observed-vs-predicted for several models overlaid: series = [{'label','points':[(obs,pred)],
+        'ids'?, 'color'?, 'symbol'?}]. One scatter series per spec (legend on) + a shared y=x reference
+        line; 'color' indexes the palette (default: the spec's position), 'symbol' is a pyqtgraph
+        marker. With 'ids', hovering a point announces its molecule (universeHovered)."""
         plot = self._chart()
         series = list(series)
+        n_colors = len({spec.get("color", i) for i, spec in enumerate(series)})
         allv: list[float] = []
         for index, spec in enumerate(series):
             points = spec.get("points", [])
             xs = [float(o) for o, _ in points]
             ys = [float(p) for _, p in points]
             allv += xs + ys
-            item = pg.ScatterPlotItem(x=xs, y=ys, size=8, pen=None, brush=pg.mkBrush(self._color(index, len(series))))
+            ids = list(spec.get("ids") or [])
+            brush = pg.mkBrush(self._color(spec.get("color", index), n_colors))
+            item = pg.ScatterPlotItem(x=xs, y=ys, size=8, pen=None, brush=brush, symbol=spec.get("symbol", "o"),
+                                      data=ids or None, hoverable=bool(ids), hoverSize=12, tip=None)
+            if ids:
+                item.sigHovered.connect(self._on_spot_hover)
             plot.addItem(item)
             self._chart_legend.addItem(item, str(spec.get("label", "")))
         if allv:
@@ -178,6 +190,15 @@ class QSARChartDockWidget(MSDockWidget):
         plot.setTitle(title, color=_AXIS_GREY)
         plot.setLabel("bottom", "Observed")
         plot.setLabel("left", "Predicted")
+
+    def highlight_point(self, x: float, y: float) -> None:
+        """Ring one point of the fit chart on screen (a member picked in the table)."""
+        plot = self.chart_plot.getPlotItem()
+        if self._highlight is not None:
+            plot.removeItem(self._highlight)
+        self._highlight = pg.ScatterPlotItem(x=[float(x)], y=[float(y)], size=16, pen=pg.mkPen("w", width=2),
+                                             brush=pg.mkBrush(255, 214, 10))
+        plot.addItem(self._highlight)
 
     def show_scatter(self, observed, predicted, label: str = "") -> None:
         """Observed-vs-predicted scatter with a y=x reference line (StarDrop's model-fit plot)."""
@@ -322,15 +343,25 @@ class QSARChartDockWidget(MSDockWidget):
         self._hover_label.hide()
 
 
-def render_structure_png(molblock: str, *, legend: str = "", size: tuple[int, int] = (240, 210)) -> bytes:
-    """Plain 2-D depiction of a molecule (native RDKit Cairo, no model weights), with an optional
-    caption under it — the hover preview, so all the hover info lives in this one image."""
+def _flat(molblock: str):
+    """The molecule with fresh 2D coordinates: a stored 3D pose drawn as-is looks projected.
+    The atom order is kept, so per-atom weights still line up."""
     from rdkit import Chem
-    from rdkit.Chem.Draw import rdMolDraw2D
+    from rdkit.Chem import rdDepictor
 
     mol = Chem.MolFromMolBlock(molblock)
     if mol is None:
         raise ValueError("Unparseable molblock.")
+    rdDepictor.Compute2DCoords(mol)
+    return mol
+
+
+def render_structure_png(molblock: str, *, legend: str = "", size: tuple[int, int] = (240, 210)) -> bytes:
+    """Plain 2-D depiction of a molecule (native RDKit Cairo, no model weights), with an optional
+    caption under it — the hover preview, so all the hover info lives in this one image."""
+    from rdkit.Chem.Draw import rdMolDraw2D
+
+    mol = _flat(molblock)
     drawer = rdMolDraw2D.MolDraw2DCairo(*size)
     rdMolDraw2D.PrepareAndDrawMolecule(drawer, mol, legend=str(legend))
     drawer.FinishDrawing()
@@ -339,12 +370,9 @@ def render_structure_png(molblock: str, *, legend: str = "", size: tuple[int, in
 
 def render_glowing_png(molblock: str, weights, size: tuple[int, int] = (380, 320)) -> bytes:
     """RDKit similarity-map PNG (native Cairo, no matplotlib) coloring per-atom contributions."""
-    from rdkit import Chem
     from rdkit.Chem.Draw import SimilarityMaps, rdMolDraw2D
 
-    mol = Chem.MolFromMolBlock(molblock)
-    if mol is None:
-        raise ValueError("Unparseable molblock.")
+    mol = _flat(molblock)
     drawer = rdMolDraw2D.MolDraw2DCairo(*size)
     SimilarityMaps.GetSimilarityMapFromWeights(mol, list(weights), draw2d=drawer)
     drawer.FinishDrawing()

@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from amdockvs.models.molecules import MoleculeRecord
 from amdockvs.runtime import AMDockVSRuntime
 from amdockvs.ui.main_window import AMDockVSMainWindow
-from amdockvs.ui.view_ids import PREDICTIONS_VIEW_ID
+from amdockvs.ui.view_ids import QSAR_ANALYSIS_VIEW_ID
 
 ENDPOINT = "pAct"
 # Four chemical series; the chain length drives the (synthetic) activity within each.
@@ -146,7 +146,7 @@ def test_qsar_from_activities_to_a_filtered_library(tmp_path, monkeypatch):
         # e. the Predictions view as a filter
         window = AMDockVSMainWindow(runtime=runtime)
         window.show()
-        view = window.open_or_focus_view(PREDICTIONS_VIEW_ID)
+        view = window.open_or_focus_view(QSAR_ANALYSIS_VIEW_ID).results
         _wait(app, lambda: view.model_combo.findData(best) >= 0)
         view.model_combo.setCurrentIndex(view.model_combo.findData(best))
         _wait(app, lambda: view.table.rowCount() == len(by_name))

@@ -47,7 +47,9 @@ def pick_ligands(parent, runtime) -> list[tuple[int, str]]:
     # ponytail: cap the list — a VS project has 100k+ ligands and a scrollable dialog of all of
     # them is neither loadable nor usable. Say so instead of silently showing a slice.
     ligands = []
-    for mol in runtime.molecules.stream(runtime.molecules.select(role="ligand")):
+    from amdockvs.qsar.api import QSAR_USAGE_CLASSES
+
+    for mol in runtime.molecules.stream(runtime.molecules.select(role="ligand", usage_class=QSAR_USAGE_CLASSES)):
         ligands.append(mol)
         if len(ligands) >= LIGAND_PICK_CAP:
             break

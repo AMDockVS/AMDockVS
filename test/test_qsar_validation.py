@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from amdockvs.runtime import AMDockVSRuntime
-from amdockvs.qsar import modeling
+from amdockvs.qsar import modeling, training
 
 
 @pytest.fixture
@@ -189,8 +189,10 @@ def test_internal_validation_uses_only_training_molecules(qsar_runtime, monkeypa
         return original(x, y, **kwargs)
 
     monkeypatch.setattr(modeling, "cross_validation_metrics", capture)
+    monkeypatch.setattr(training, "cross_validation_metrics", capture)
+    # On a thread, so the training sees the patch.
     model = qsar_runtime.qsar.train(endpoint=task, algorithm=algorithm, task=task, split=split,
-                                    test_size=.25, cv_folds=3, y_scramble=2, seed=42)
+                                    test_size=.25, cv_folds=3, y_scramble=2, seed=42, executor_name="thread")
     train = _members(qsar_runtime, model, "train")
     assert len(train) == model.n_train < 48
     assert len(calls) == 3  # CV and two shuffled-label refits, all on the same training folds
@@ -352,3 +354,14 @@ def test_trained_and_external_models_record_their_feature_type(qsar_runtime, sou
             "SELECT feature_type FROM qsar_models WHERE id = ?", (model.id,)).scalar()
         assert code == CODES["feature_type"][expected]
     assert CODES["feature_type"]["descriptors_2d"] == 1501  # existing codes must never move
+
+
+def test_identical_training_reuses_the_stored_model(qsar_runtime):
+    api = qsar_runtime.qsar
+    params = dict(endpoint="regression", split="random", test_size=.25, seed=3)
+    first = api.train(algorithm="ridge", **params)
+    request = api.submit_train(algorithm=["ridge", "random_forest"], **params)
+    assert request["existing"] == {"ridge": first.id}
+    assert set(request["identities"]) == {"ridge", "random_forest"} and request["job_id"]
+    assert api.train(algorithm="ridge", name="renamed", **params).id == first.id
+    assert api.train(algorithm="ridge", **{**params, "seed": 4}).id != first.id

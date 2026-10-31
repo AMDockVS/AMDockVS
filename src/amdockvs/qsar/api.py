@@ -20,30 +20,32 @@ from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR, RESOURCE_QSAR_MO
 from amdockvs.core.vocab import ReprType
 from amdockvs.models import (
     ActivityRecord,
-    FingerprintRecord,
     MoleculeRecord,
     MoleculeRepresentation,
     QSARModelRecord,
 )
-from amdockvs.models.descriptors import FingerprintType
 from amdockvs.qsar.activities import ActivitiesMixin
 from amdockvs.qsar.build import BuildMixin
+from amdockvs.qsar.features import design_matrix, fingerprint_matrix
 from amdockvs.qsar.jobs import (
     DescriptorJobParams,
     calculate_molecule_alerts_job,
     calculate_molecule_descriptors_job,
 )
 from amdockvs.qsar.model_analysis import ModelAnalysisMixin
-from amdockvs.qsar.modeling import FittedModel, classification_metrics, load_model, regression_metrics
+from amdockvs.qsar.modeling import FittedModel, load_model
 from amdockvs.qsar.predict import PredictMixin
 from amdockvs.qsar.results import ResultsMixin
 from amdockvs.qsar.tasks import DESCRIPTOR_COLUMNS
+from amdockvs.qsar.training import score
 from amdockvs.molecules.scopes import MoleculeScope, as_molecule_scope, is_molecule_scope, scope_payload
 from amdockvs.molecules.api import ensure_molecule_set_ref
 from amdockvs.project.sets import MoleculeSetRef, QSARModelRef
 from amdockvs.workflows.rules import apply_workflow_filters
 
 QSAR_WORKFLOW = "qsar"
+# Activities only enter through the As Reference mark, so reference ligands are QSAR data.
+QSAR_USAGE_CLASSES = ("general", "reference")
 
 
 @dataclass
@@ -65,10 +67,9 @@ class QSARAPI(BuildMixin, PredictMixin, ModelAnalysisMixin, ResultsMixin, Activi
                 order=tuple(scope.order or ("id",)),
                 limit=scope.limit,
             )
-        if molecule_set is None:
-            scope = self.runtime.molecules.select(role="ligand", workflow=QSAR_WORKFLOW).scope
-        else:
-            scope = self.runtime.molecules.select(source=molecule_set, role="ligand", workflow=QSAR_WORKFLOW).scope
+        scope = self.runtime.molecules.select(
+            source=molecule_set, role="ligand", workflow=QSAR_WORKFLOW, usage_class=QSAR_USAGE_CLASSES
+        ).scope
         assert isinstance(scope, MoleculeScope)
         return scope
 
@@ -78,37 +79,19 @@ class QSARAPI(BuildMixin, PredictMixin, ModelAnalysisMixin, ResultsMixin, Activi
     def _design_matrix(
         self, session, ligands, *, feature_kind: str, features, fp_radius: int, fp_nbits: int
     ) -> tuple[list[int], list[list[float]], tuple[str, ...], int]:
-        """(used_ids, x_rows, feature_names, n_missing). 'rdkit2d' reads/computes the full RDKit
-        block (per-descriptor gaps become NaN for the pipeline's imputer); 'ecfp4' unpacks each
-        ligand's stored Morgan fingerprint."""
-        if feature_kind == "rdkit2d":
-            block = self._rdkit2d_matrix(session, ligands)
-            names = tuple(features)
-            vectors = {mid: [float(values.get(n, np.nan)) for n in names] for mid, values in block.items() if values}
-        else:
-            fp_map = self._fingerprint_matrix(
-                session, [int(r.id or 0) for r in ligands], radius=fp_radius, nbits=fp_nbits
-            )
-            names = tuple(f"bit_{i}" for i in range(int(fp_nbits)))
-            vectors = {mid: [float(v) for v in vector] for mid, vector in fp_map.items()}
-        ids = [int(r.id or 0) for r in ligands if int(r.id or 0) in vectors]
-        return ids, [vectors[i] for i in ids], names, len(ligands) - len(ids)
+        """(used_ids, x_rows, feature_names, n_missing) from the stored features: the rdkit2d
+        block or the Morgan fingerprint. Only reads; the descriptor job computes them."""
+        ids = [int(r.id or 0) for r in ligands]
+        used, rows, names = design_matrix(session, ids, kind=feature_kind, names=features,
+                                          fp_radius=fp_radius, fp_nbits=fp_nbits)
+        return used, rows, names, len(ids) - len(used)
 
     @staticmethod
     def _features_for(fitted: FittedModel) -> tuple[str, ...]:
         """The feature names the design matrix needs for a fitted model; ecfp4 uses none."""
         return () if fitted.feature_kind == "ecfp4" else tuple(fitted.feature_names)
 
-    @staticmethod
-    def _score(task: str, y_true: np.ndarray, fitted: FittedModel, x_matrix: np.ndarray) -> dict[str, Any]:
-        """Task-appropriate metrics; for classification, pass positive-class proba for ROC-AUC."""
-        if task == "classification":
-            y_score = None
-            estimator = fitted.estimator
-            if hasattr(estimator, "predict_proba") and len(getattr(fitted, "classes", ()) or ()) == 2:
-                y_score = np.asarray(estimator.predict_proba(np.asarray(x_matrix, dtype=float)))[:, 1]
-            return classification_metrics(y_true, fitted.predict(x_matrix), y_score)
-        return regression_metrics(y_true, fitted.predict(x_matrix))
+    _score = staticmethod(score)
 
     def _latest_activity_by_ligand(self, session, endpoint: str) -> dict[int, float]:
         rows = session.exec(
@@ -138,12 +121,16 @@ class QSARAPI(BuildMixin, PredictMixin, ModelAnalysisMixin, ResultsMixin, Activi
         fp_radius: int = 2,
         fp_nbits: int = 2048,
         alerts: bool = False,
+        rdkit2d: bool = False,
+        molecule_ids: list[int] | None = None,
     ) -> str:
         """Submit the descriptor job. only_missing=True skips ligands that already have
         descriptors computed (MoleculeRecord.mw populated). With compute_fingerprints=True it
         also stores a Morgan fingerprint per ligand, and only_missing then means "lacks that
-        fingerprint" so FPs can be added to already-described ligands. With alerts=True it is
-        the alerts job instead: PAINS and identity keys, which a library import leaves out."""
+        fingerprint" so FPs can be added to already-described ligands. rdkit2d=True also stores
+        the full RDKit 2D block the models train on (only_missing: lacks that block). With
+        alerts=True it is the alerts job instead: PAINS and identity keys, which a library import
+        leaves out. molecule_ids narrows the scope to those molecules."""
         self.runtime._require_active_project()
         molecule_set_ref = (
             None
@@ -165,6 +152,8 @@ class QSARAPI(BuildMixin, PredictMixin, ModelAnalysisMixin, ResultsMixin, Activi
             fp_radius=int(fp_radius),
             fp_nbits=int(fp_nbits),
             alerts=bool(alerts),
+            rdkit2d=bool(rdkit2d),
+            molecule_ids=None if molecule_ids is None else [int(i) for i in molecule_ids],
         )
         return self.runtime.submit_job(
             calculate_molecule_alerts_job if alerts else calculate_molecule_descriptors_job,
@@ -196,51 +185,9 @@ class QSARAPI(BuildMixin, PredictMixin, ModelAnalysisMixin, ResultsMixin, Activi
             fp_nbits=nbits,
         )
 
-    def _fingerprint_matrix(self, session, ligand_ids, *, radius: int, nbits: int) -> dict[int, np.ndarray]:
-        """molecule_id -> 0/1 vector unpacked from the stored Morgan bitstring bytes (no RDKit)."""
-        fp_type = FingerprintType.ECFP6 if int(radius) >= 3 else FingerprintType.ECFP4
-        statement = (
-            select(FingerprintRecord)
-            .where(FingerprintRecord.fp_type == fp_type)
-            .where(FingerprintRecord.nbits == int(nbits))
-            .where(FingerprintRecord.radius == int(radius))
-        )
-        if ligand_ids is not None:
-            statement = statement.where(FingerprintRecord.molecule_id.in_([int(i) for i in ligand_ids]))
-        out: dict[int, np.ndarray] = {}
-        for rec in session.exec(statement):
-            out[int(rec.molecule_id)] = np.frombuffer(rec.fp_binary, dtype=np.uint8) - ord("0")
-        return out
-
-    def _rdkit2d_matrix(self, session, ligands) -> dict[int, dict[str, float]]:
-        """{molecule_id: {descriptor: value}} for the full RDKit 2D block. Reads the cached
-        DescriptorBlockRecord(block='rdkit2d') and computes+persists any missing ligand on the fly,
-        so the first training pays the cost once and later runs are instant. # ponytail: compute
-        happens inside the (already off-GUI) train call; no separate job for v1."""
-        from amdockvs.models import DescriptorBlockRecord
-
-        ids = [int(r.id or 0) for r in ligands]
-        cached = {
-            int(r.molecule_id): dict(r.values_json or {})
-            for r in session.exec(
-                select(DescriptorBlockRecord)
-                .where(DescriptorBlockRecord.block == "rdkit2d")
-                .where(DescriptorBlockRecord.molecule_id.in_(ids or [0]))
-            )
-        }
-        to_compute = [r for r in ligands if int(r.id or 0) not in cached]
-        if to_compute:
-            from amdockvs.chemistry.descriptors import calculate_rdkit2d_descriptors
-
-            for rec in to_compute:
-                mol = self._ligand_mol(session, rec)
-                if mol is None:
-                    continue
-                values = calculate_rdkit2d_descriptors(mol)
-                cached[int(rec.id or 0)] = values
-                session.add(DescriptorBlockRecord(molecule_id=int(rec.id or 0), block="rdkit2d", values_json=values))
-            session.commit()
-        return {int(r.id or 0): cached[int(r.id or 0)] for r in ligands if int(r.id or 0) in cached}
+    @staticmethod
+    def _fingerprint_matrix(session, ligand_ids, *, radius: int, nbits: int) -> dict[int, np.ndarray]:
+        return fingerprint_matrix(session, ligand_ids, radius=radius, nbits=nbits)
 
     def list_descriptors(self) -> list[dict[str, Any]]:
         self.runtime._require_active_project()

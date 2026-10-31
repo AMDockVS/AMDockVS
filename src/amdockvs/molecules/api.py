@@ -449,6 +449,13 @@ class MoleculeAPI:
         project_db = self.runtime.workspace.project_db
         return bool(has_shards(project_db)), has_ligand_rows(project_db)
 
+    def has_receptors(self) -> bool:
+        """Whether any receptor row exists — a one-row lookup."""
+        from amdockvs.molecules.storage import has_receptor_rows
+
+        self.runtime._require_active_project()
+        return has_receptor_rows(self.runtime.workspace.project_db)
+
     def shard_counts(self, *, engine: str = "ad4") -> dict[str, int]:
         """Inventory of the sharded library: shards, molecules in them, and how many are prepared.
 

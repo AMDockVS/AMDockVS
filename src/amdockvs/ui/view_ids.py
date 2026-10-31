@@ -19,8 +19,7 @@ COMPLEXES_VIEW_ID = "docking_results"  # the "Docking Results" tab
 OFFTARGET_VIEW_ID = "offtarget"
 REDOCKING_VIEW_ID = "redocking"
 CLUSTERS_VIEW_ID = "clusters"
-QSAR_MODELS_VIEW_ID = "qsar_models"
-PREDICTIONS_VIEW_ID = "qsar_predictions"
+QSAR_ANALYSIS_VIEW_ID = "qsar_analysis"  # Model analysis | Result analysis
 
 # Tools
 FILTER_ID = "filter"
