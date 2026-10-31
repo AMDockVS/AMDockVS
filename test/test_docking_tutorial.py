@@ -220,6 +220,7 @@ def test_existing_project_opens_tabs_for_its_shards_and_results(practice):
     from amdockvs.models import DockingResultRecord, DockingRun, MoleculeRecord, ScreeningShard
 
     app, runtime, window, _messages = practice
+    # The practice project starts empty: the two catalogs open for their Import button.
     assert window.central_widget.open_view(RECEPTOR_VIEW_ID) is not None
     assert window.central_widget.open_view(LIGANDS_VIEW_ID) is not None
     assert window.central_widget.open_view(SHARDS_VIEW_ID) is None
@@ -723,3 +724,27 @@ def test_close_control_follows_the_tutorial_into_import_dialog(practice, monkeyp
     assert not overlay.back_button.isVisible() and not overlay.next_button.isVisible()
     QTest.mouseClick(overlay.exit_button, Qt.LeftButton)
     assert not tutorial.controller.is_active and not dialog.isVisible()
+
+
+def test_project_with_qsar_models_and_no_results_opens_on_qsar_analysis(practice):
+    from amdockvs.models import QSARModel
+    from amdockvs.ui.view_ids import QSAR_ANALYSIS_VIEW_ID
+
+    app, runtime, _window, _messages = practice
+    with runtime.workspace.project_db.get_session() as session:
+        session.add(QSARModel(name="m", algorithm="random_forest", feature_type="descriptors_2d"))
+        session.commit()
+    second = AMDockVSMainWindow(runtime=runtime)
+    second.show()
+    app.processEvents()
+    analysis = second.central_widget.open_view(QSAR_ANALYSIS_VIEW_ID)
+    assert analysis is not None and second.central_widget.open_view(RECEPTOR_VIEW_ID) is None  # only data tabs
+    assert second.central_widget.main_content_tabs.currentWidget() is analysis
+    # with models the view leads with reading their predictions
+    for _ in range(200):
+        app.processEvents()
+        if analysis.currentWidget() is analysis.results:
+            break
+    assert analysis.tabText(0) == "Result analysis" and analysis.currentWidget() is analysis.results
+    second.close()
+    app.processEvents()

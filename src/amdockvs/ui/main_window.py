@@ -41,6 +41,7 @@ from amdockvs.ui.view_ids import (
     COMPLEXES_VIEW_ID,
     LIGANDS_VIEW_ID,
     OFFTARGET_VIEW_ID,
+    QSAR_ANALYSIS_VIEW_ID,
     RECEPTOR_VIEW_ID,
     REDOCKING_VIEW_ID,
     SHARDS_VIEW_ID,
@@ -243,18 +244,23 @@ class AMDockVSMainWindow(QMainWindow):
             self._open_default_views()
 
     def _open_default_views(self) -> None:
-        """Open the relevant project tabs; Complexes in front when there are results, else Receptors."""
+        """Open the tabs that have data; in front goes the first of Docking Results, QSAR
+        Analysis, Receptors, Ligands, Shards that opened. An empty project opens Receptors."""
         # open_view() only returns the tab if it already exists; opening is open_or_focus_view().
-        self.open_or_focus_view(RECEPTOR_VIEW_ID)
         sharded, ligand_rows = self.views._library_shape()
-        if not sharded or ligand_rows:
-            self.open_or_focus_view(LIGANDS_VIEW_ID)
-        if sharded:
-            self.open_or_focus_view(SHARDS_VIEW_ID)
-        if self.runtime.docking.has_results():
-            self.open_or_focus_view(COMPLEXES_VIEW_ID)
-        else:
-            self.open_or_focus_view(RECEPTOR_VIEW_ID)
+        has_data = {  # in tab-bar order
+            RECEPTOR_VIEW_ID: self.runtime.molecules.has_receptors(),
+            LIGANDS_VIEW_ID: ligand_rows,
+            SHARDS_VIEW_ID: sharded,
+            QSAR_ANALYSIS_VIEW_ID: bool(self.runtime.qsar.list_models()),
+            COMPLEXES_VIEW_ID: self.runtime.docking.has_results(),
+        }
+        # An empty project still opens the two catalogs: their Import button is where it starts.
+        opened = [view_id for view_id, present in has_data.items() if present] or [RECEPTOR_VIEW_ID, LIGANDS_VIEW_ID]
+        for view_id in opened:
+            self.open_or_focus_view(view_id)
+        front = (COMPLEXES_VIEW_ID, QSAR_ANALYSIS_VIEW_ID, RECEPTOR_VIEW_ID, LIGANDS_VIEW_ID, SHARDS_VIEW_ID)
+        self.open_or_focus_view(next(v for v in front if v in opened))
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

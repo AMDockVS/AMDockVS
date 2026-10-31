@@ -10,8 +10,7 @@ from amdockvs.ui.tools.qsar.chart import render_structure_png
 from amdockvs.ui.view_ids import (
     CLUSTERS_VIEW_ID,
     LIGAND_ACTIVITY_VIEW_ID,
-    PREDICTIONS_VIEW_ID,
-    QSAR_MODELS_VIEW_ID,
+    QSAR_ANALYSIS_VIEW_ID,
 )
 
 
@@ -49,7 +48,7 @@ class ChartController:
             if widget is not None and hasattr(widget, "restore_plot"):
                 widget.restore_plot()  # re-pushes the run's universe + toggles chart on
             return
-        if view_id in (QSAR_MODELS_VIEW_ID, PREDICTIONS_VIEW_ID):
+        if view_id == QSAR_ANALYSIS_VIEW_ID:
             return  # chart/glow show on demand (plot + glowing-molecule + row-select); leave state
         self.w.dock_manager.toggle("qsar_chart", False)
         if getattr(self.w, "qsar_glow_dock", None) is not None:

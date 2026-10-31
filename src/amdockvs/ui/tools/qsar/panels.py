@@ -17,10 +17,13 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPushButton,
     QScrollArea,
     QSpinBox,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -32,7 +35,7 @@ from amdockvs.qsar.modeling import supported_algorithms
 from amdockvs.qsar.splitters import SPLITTERS
 from amdockvs.ui.common.async_query import run_async
 from ms_components.ms_stepper import Orientation, QStepper
-from amdockvs.ui.view_ids import PREDICTIONS_VIEW_ID, QSAR_BUILD_VIEW_ID, QSAR_MODELS_VIEW_ID
+from amdockvs.ui.view_ids import QSAR_ANALYSIS_VIEW_ID, QSAR_BUILD_VIEW_ID
 
 
 # ponytail: a selection is an `id IN [...]` filter, and SQLite binds at most 32766 values in its
@@ -66,7 +69,7 @@ def _form_step(rows: list[tuple[str, QWidget]]) -> QWidget:
 # ---------------------------------------------------------------------------
 
 class QSARBuildWidget(QWidget):
-    """The build-a-model wizard. It only builds: what it trains is read in Model Analysis."""
+    """The build-a-model wizard. It only builds: what it trains is read in QSAR Analysis."""
 
     def __init__(self, *, runtime, parent=None):
         super().__init__(parent)
@@ -269,8 +272,8 @@ class QSARBuildWidget(QWidget):
         errors = [r for status, r in results if status == "err"]
         open_view = getattr(self.window(), "open_or_focus_view", None)
         if trained and open_view is not None:
-            open_view(QSAR_MODELS_VIEW_ID).show_trained(trained)
-        msg = f"Trained {len(trained)} model(s); compared in Model Analysis."
+            open_view(QSAR_ANALYSIS_VIEW_ID).show_trained(trained)
+        msg = f"Trained {len(trained)} model(s); compared in QSAR Analysis."
         if errors:
             msg += " Failed: " + "; ".join(errors)
         self.status.setText(msg)
@@ -327,7 +330,7 @@ class QSARBuildWidget(QWidget):
 # ---------------------------------------------------------------------------
 
 class QSARModelsWidget(QWidget):
-    """The trained models and everything read off them: compare, predict, evaluate, charts."""
+    """Model analysis: the trained models and what is read off them: compare, evaluate, charts."""
 
     def __init__(self, *, runtime, parent=None):
         super().__init__(parent)
@@ -395,19 +398,9 @@ class QSARModelsWidget(QWidget):
                                     "overfitting; All = every molecule the model was built on.")
 
         use_row = QHBoxLayout()
-        use_row.addWidget(QLabel("Use the model:", box))
+        use_row.addWidget(QLabel("Score the model:", box))
         use_row.addWidget(
             _btn("compare", "Compare", "Fill the comparison table from the ticked models.", self._compare_checked))
-        use_row.addWidget(
-            _btn("predict", "Predict all ligands", "Score every ligand with each ticked model.", self._predict))
-        use_row.addWidget(
-            _btn("predict_shards", "Predict shards",
-                 "Score the screening library in its shards with each ticked model, as a job. The "
-                 "scores stay by reference until 'Promote top…' turns the best into ligand rows.",
-                 self._predict_shards))
-        use_row.addWidget(
-            _btn("promote", "Promote top…", "The ticked model's best shard scores become ligand rows, "
-                 "with their predictions (tick one; run 'Predict shards' first).", self._promote_shards))
         use_row.addWidget(
             _btn("evaluate", "Evaluate", "Metrics of each ticked model on its labeled ligands.", self._evaluate))
         use_row.addWidget(
@@ -460,8 +453,7 @@ class QSARModelsWidget(QWidget):
         all_regression = n >= 1 and tasks == {"regression"}
         all_classification = n >= 1 and tasks == {"classification"}
         rules = {
-            "compare": n >= 1, "predict": n >= 1, "evaluate": n >= 1,
-            "predict_shards": n >= 1, "promote": n == 1,
+            "compare": n >= 1, "evaluate": n >= 1,
             "plot": all_regression,  # observed-vs-predicted is a regression diagnostic
             "roc": all_classification,  # ROC is classification-only
             "importance": n == 1, "ad": n == 1, "glowing": one_ecfp4,
@@ -620,55 +612,6 @@ class QSARModelsWidget(QWidget):
             busy=self,
         )
 
-    def _predict(self) -> None:
-        checked = self._require_checked()
-        if not checked:
-            return
-        specs = [(int(m.id), m.name) for m in checked]
-
-        def _work():
-            return [(mid, name, self.runtime.qsar.predict(model=mid)) for mid, name in specs]
-
-        run_async(
-            _work,
-            lambda out: self.status.setText("Predicted - " + "; ".join(
-                f"#{mid} {name}: {res['predicted']} scored ({res['skipped_missing_descriptor']} skipped)"
-                for mid, name, res in out)),
-            on_error=lambda exc: QMessageBox.warning(self, "QSAR predict", str(exc)),
-            busy=self,
-        )
-
-    def _predict_shards(self) -> None:
-        checked = self._require_checked()
-        if not checked:
-            return
-        try:
-            jobs = [self.runtime.qsar.predict_shards(model=int(m.id)) for m in checked]
-        except Exception as exc:  # noqa: BLE001 — a project without shards, a missing model file
-            QMessageBox.warning(self, "QSAR predict shards", str(exc))
-            return
-        self.status.setText(f"Scoring the shards: {len(jobs)} job(s) - see Jobs. Then 'Promote top…'.")
-
-    def _promote_shards(self) -> None:
-        checked = self._require_checked(exactly_one=True)
-        if not checked:
-            return
-        model_id = int(checked[0].id)
-        top_n, ok = QInputDialog.getInt(self, "Promote top", "Best-scored shard molecules to make ligand rows:",
-                                        100, 1, 1_000_000, 10)
-        if not ok:
-            return
-        higher = checked[0].task != "regression" or QMessageBox.question(
-            self, "Promote top", "Is a higher predicted value better?") == QMessageBox.Yes
-        run_async(
-            lambda: self.runtime.qsar.promote_shard_predictions(model=model_id, top_n=int(top_n),
-                                                                higher_is_better=higher),
-            lambda res: self.status.setText(f"#{model_id}: {res['kept']} of {res['scored']} shard "
-                                            f"molecules promoted to ligand rows, with their predictions."),
-            on_error=lambda exc: QMessageBox.warning(self, "QSAR promote", str(exc)),
-            busy=self,
-        )
-
     def _evaluate(self) -> None:
         checked = self._require_checked()
         if not checked:
@@ -769,24 +712,17 @@ class QSARModelsWidget(QWidget):
 
 
 class PredictionsWidget(QWidget):
-    """Per-model predictions table; selecting a row drives the glowing-molecule dock."""
+    """Result analysis: per-model predictions as a filter; selecting a row drives the glowing-molecule dock."""
 
     def __init__(self, *, runtime, parent=None):
         super().__init__(parent)
         self.runtime = runtime
         outer = QVBoxLayout(self)
-        # if getattr(runtime, "active_context", None) is None:
-        #     label = QLabel("Open or create a project to view predictions.", self)
-        #     label.setAlignment(Qt.AlignCenter)
-        #     outer.addWidget(label)
-        #     return
         toolbar = QHBoxLayout()
         self.model_combo = QComboBox(self)
         self.model_combo.setMinimumWidth(180)
         self.model_combo.currentIndexChanged.connect(lambda _i: self._refresh_predictions())
-        run_btn = QPushButton("Run prediction (all ligands)", self)
-        run_btn.clicked.connect(self._run)
-        for w in (QLabel("Model:"), self.model_combo, run_btn):
+        for w in (QLabel("Model:"), self.model_combo):
             toolbar.addWidget(w)
         toolbar.addStretch(1)
         outer.addLayout(toolbar)
@@ -901,7 +837,8 @@ class PredictionsWidget(QWidget):
     refresh_view = refresh
 
     def _fill_models(self, models) -> None:
-        current = self._current_model_id()
+        current = getattr(self, "_wanted_model", None) or self._current_model_id()
+        self._wanted_model = None
         self._fp_models = {int(m.id) for m in models if (m.metrics or {}).get("feature_kind") == "ecfp4"}
         self.model_combo.blockSignals(True)
         self.model_combo.clear()
@@ -934,19 +871,12 @@ class PredictionsWidget(QWidget):
                 else "Glowing needs a fingerprint (ECFP4) model.")
         cut, self._cut_status = getattr(self, "_cut_status", ""), ""  # the outcome of a cut, shown once
         self.status.setText(f"{cut} {len(rows)} prediction(s). {glow}".strip()
-                            if rows else "No predictions yet - click 'Run prediction'.")
+                            if rows else "No predictions yet - run them from the QSAR tool's Predict tab.")
 
-    def _run(self) -> None:
-        model_id = self._current_model_id()
-        if model_id is None:
-            QMessageBox.information(self, "QSAR", "Train or select a model first.")
-            return
-        run_async(
-            lambda: self.runtime.qsar.predict(model=model_id),
-            lambda res: (self.status.setText(f"Predicted {res['predicted']} ligand(s)."), self._refresh_predictions()),
-            on_error=lambda exc: QMessageBox.warning(self, "QSAR predict", str(exc)),
-            busy=self,
-        )
+    def show_model(self, model_id: int) -> None:
+        """Reload the models (a new one may have just predicted) and show this one's predictions."""
+        self._wanted_model = model_id
+        self.refresh()
 
     def _on_select_row(self) -> None:
         row = self.table.currentRow()
@@ -972,22 +902,194 @@ class PredictionsWidget(QWidget):
         )
 
 
+class QSARPredictWidget(QWidget):
+    """The tool's Predict tab: score ligands or shards with the ticked models. Reading the
+    predictions is the QSAR Analysis view's Result analysis tab."""
+
+    def __init__(self, *, runtime, parent=None):
+        super().__init__(parent)
+        self.runtime = runtime
+        self._models: list = []
+        outer = QVBoxLayout(self)
+        outer.addWidget(QLabel("Tick the model(s) to predict with:", self))
+        self.models_list = QListWidget(self)
+        outer.addWidget(self.models_list, 1)
+        row = QHBoxLayout()
+        for text, tip, slot in (
+            ("Predict all ligands", "Score every ligand with each ticked model.", self._predict),
+            ("Predict shards", "Score the screening library in its shards with each ticked model, as a "
+             "job. The scores stay by reference until 'Promote top…' turns the best into ligand rows.",
+             self._predict_shards),
+            ("Promote top…", "The ticked model's best shard scores become ligand rows, with their "
+             "predictions (tick one; run 'Predict shards' first).", self._promote_shards),
+        ):
+            button = QPushButton(text, self)
+            button.setToolTip(tip)
+            button.clicked.connect(slot)
+            row.addWidget(button)
+        row.addStretch(1)
+        outer.addLayout(row)
+        self.status = QLabel("", self)
+        self.status.setWordWrap(True)
+        outer.addWidget(self.status)
+
+    def showEvent(self, event) -> None:
+        # ponytail: re-read on show, so a model trained in the Build tab is here without wiring.
+        super().showEvent(event)
+        self.refresh()
+
+    def refresh(self) -> None:
+        run_async(self.runtime.qsar.list_models, self._fill_models, on_error=lambda _e: None,
+                  busy=self.models_list)
+
+    refresh_view = refresh
+
+    def _fill_models(self, models) -> None:
+        ticked = {int(m.id) for m in self._checked_models()}
+        self._models = list(models)
+        self.models_list.clear()
+        for m in self._models:
+            item = QListWidgetItem(f"#{m.id} {m.name} ({m.task}, {m.algorithm})", self.models_list)
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Checked if int(m.id) in ticked else Qt.Unchecked)
+
+    def _checked_models(self) -> list:
+        return [m for r, m in enumerate(self._models)
+                if r < self.models_list.count() and self.models_list.item(r).checkState() == Qt.Checked]
+
+    def _require_checked(self, *, exactly_one: bool = False) -> list:
+        checked = self._checked_models()
+        if not checked or (exactly_one and len(checked) != 1):
+            QMessageBox.information(self, "QSAR", "Tick exactly one model for this action." if exactly_one
+                                    else "Tick at least one model to predict with.")
+            return []
+        return checked
+
+    def _on_predicted(self, out) -> None:
+        self.status.setText("Predicted - " + "; ".join(
+            f"#{mid} {name}: {res['predicted']} scored ({res['skipped_missing_descriptor']} skipped)"
+            for mid, name, res in out))
+        open_view = getattr(self.window(), "open_or_focus_view", None)
+        if out and open_view is not None:
+            open_view(QSAR_ANALYSIS_VIEW_ID).show_predictions(out[0][0])
+
+    def _predict(self) -> None:
+        checked = self._require_checked()
+        if not checked:
+            return
+        specs = [(int(m.id), m.name) for m in checked]
+
+        def _work():
+            return [(mid, name, self.runtime.qsar.predict(model=mid)) for mid, name in specs]
+
+        run_async(
+            _work,
+            self._on_predicted,
+            on_error=lambda exc: QMessageBox.warning(self, "QSAR predict", str(exc)),
+            busy=self,
+        )
+
+    def _predict_shards(self) -> None:
+        checked = self._require_checked()
+        if not checked:
+            return
+        try:
+            jobs = [self.runtime.qsar.predict_shards(model=int(m.id)) for m in checked]
+        except Exception as exc:  # noqa: BLE001 — a project without shards, a missing model file
+            QMessageBox.warning(self, "QSAR predict shards", str(exc))
+            return
+        self.status.setText(f"Scoring the shards: {len(jobs)} job(s) - see Jobs. Then 'Promote top…'.")
+
+    def _promote_shards(self) -> None:
+        checked = self._require_checked(exactly_one=True)
+        if not checked:
+            return
+        model_id = int(checked[0].id)
+        top_n, ok = QInputDialog.getInt(self, "Promote top", "Best-scored shard molecules to make ligand rows:",
+                                        100, 1, 1_000_000, 10)
+        if not ok:
+            return
+        higher = checked[0].task != "regression" or QMessageBox.question(
+            self, "Promote top", "Is a higher predicted value better?") == QMessageBox.Yes
+        run_async(
+            lambda: self.runtime.qsar.promote_shard_predictions(model=model_id, top_n=int(top_n),
+                                                                higher_is_better=higher),
+            lambda res: self.status.setText(f"#{model_id}: {res['kept']} of {res['scored']} shard "
+                                            f"molecules promoted to ligand rows, with their predictions."),
+            on_error=lambda exc: QMessageBox.warning(self, "QSAR promote", str(exc)),
+            busy=self,
+        )
+
+
+def _lead_with(tabs: QTabWidget, widget: QWidget) -> None:
+    """Move `widget`'s tab to the front and show it."""
+    index = tabs.indexOf(widget)
+    if index > 0:
+        tabs.tabBar().moveTab(index, 0)
+    tabs.setCurrentWidget(widget)
+
+
+def _lead_when_models(tabs: QTabWidget, runtime, widget: QWidget) -> None:
+    """A project with models leads with `widget` (using them); one without, with building them."""
+    run_async(runtime.qsar.list_models, lambda models: models and _lead_with(tabs, widget),
+              on_error=lambda _e: None)
+
+
+class QSARToolWidget(QTabWidget):
+    """The QSAR tool: Build | Predict."""
+
+    def __init__(self, *, runtime, parent=None):
+        super().__init__(parent)
+        self.build = QSARBuildWidget(runtime=runtime, parent=self)
+        self.predict = QSARPredictWidget(runtime=runtime, parent=self)
+        self.addTab(self.build, "Build")
+        self.addTab(self.predict, "Predict")
+        _lead_when_models(self, runtime, self.predict)
+
+    def refresh(self) -> None:
+        self.build.refresh()
+        self.predict.refresh()
+
+    refresh_view = refresh
+
+
+class QSARAnalysisWidget(QTabWidget):
+    """The QSAR Analysis view: Model analysis | Result analysis."""
+
+    def __init__(self, *, runtime, parent=None):
+        super().__init__(parent)
+        self.models = QSARModelsWidget(runtime=runtime, parent=self)
+        self.results = PredictionsWidget(runtime=runtime, parent=self)
+        self.addTab(self.models, "Model analysis")
+        self.addTab(self.results, "Result analysis")
+        _lead_when_models(self, runtime, self.results)
+
+    def refresh(self) -> None:
+        self.models.refresh()
+        self.results.refresh()
+
+    refresh_view = refresh
+
+    def show_trained(self, rows: list[dict]) -> None:
+        self.setCurrentWidget(self.models)
+        self.models.show_trained(rows)
+
+    def show_predictions(self, model_id: int) -> None:
+        self.setCurrentWidget(self.results)
+        self.results.show_model(model_id)
+
+
 def register_qsar_panels(window) -> None:
     window.register_main_view(
-        QSAR_BUILD_VIEW_ID, "Build Model",
-        lambda: QSARBuildWidget(runtime=window.runtime, parent=window.central_widget),
+        QSAR_BUILD_VIEW_ID, "QSAR",
+        lambda: QSARToolWidget(runtime=window.runtime, parent=window.central_widget),
     )
     window.register_main_view(
-        QSAR_MODELS_VIEW_ID, "Model Analysis",
-        lambda: QSARModelsWidget(runtime=window.runtime, parent=window.central_widget),
-    )
-    window.register_main_view(
-        PREDICTIONS_VIEW_ID, "Predictions",
-        lambda: PredictionsWidget(runtime=window.runtime, parent=window.central_widget),
+        QSAR_ANALYSIS_VIEW_ID, "QSAR Analysis",
+        lambda: QSARAnalysisWidget(runtime=window.runtime, parent=window.central_widget),
     )
     # Where each one shows up (left tool bar vs. top catalog bar) is decided in ui/registry.py.
-    # HTP is an import mode, not a QSAR view — it is wired into the ligand-import flow, not here.
 
 
-__all__ = ["PredictionsWidget",
-           "QSARBuildWidget", "QSARModelsWidget", "register_qsar_panels"]
+__all__ = ["PredictionsWidget", "QSARAnalysisWidget", "QSARBuildWidget", "QSARModelsWidget",
+           "QSARPredictWidget", "QSARToolWidget", "register_qsar_panels"]
