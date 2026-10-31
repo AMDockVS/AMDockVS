@@ -87,6 +87,52 @@ def test_smiles_csv_column_becomes_activity(tmp_path):
     assert len(rows2) == 2 and not rows2[0].get("source_properties")
 
 
+def test_smiles_activity_import_completes_and_persists_records(tmp_path, monkeypatch):
+    pytest.importorskip("rdkit")
+    from sqlmodel import select
+
+    from amdockvs.models import ActivityRecord, MoleculeRecord
+    from amdockvs.runtime import AMDockVSRuntime
+
+    # Keep all MolSuite and AMDock state isolated from the user's normal project registry.
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("MOLSUITE_HOME", str(tmp_path / "molsuite"))
+    monkeypatch.setenv("AMDOCK_HOME", str(tmp_path / "amdock"))
+    monkeypatch.setenv("AMDOCK_CCD_CACHE", str(tmp_path / "ccd"))
+
+    source = tmp_path / "ligands.smi"
+    source.write_text(
+        "SMILES,Name,IC50\nCCO,ethanol,100\nc1ccccc1,benzene,50\n",
+        encoding="utf-8",
+    )
+    runtime = AMDockVSRuntime()
+    try:
+        runtime.create_project(name="activity import", folder=tmp_path / "project")
+        jobs = runtime.loader.load_ligands(
+            [source],
+            executor_name="thread",
+            prefilter={
+                "activity_property": "IC50",
+                "activity_endpoint": "pIC50",
+                "activity_unit": "nM",
+                "activity_transform": "pIC50",
+            },
+        )
+        statuses = runtime.wait_for_jobs(list(jobs), timeout_s=60)
+        assert all(str(job.status).lower().endswith("completed") for job in statuses.values()), statuses
+
+        with runtime.workspace.project_db.get_session() as session:
+            molecules = session.exec(select(MoleculeRecord)).all()
+            activities = session.exec(select(ActivityRecord)).all()
+
+        assert len(molecules) == 2
+        assert len(activities) == 2
+        assert {activity.activity_type for activity in activities} == {"pIC50"}
+        assert sorted(activity.value for activity in activities) == pytest.approx([7.0, 7.30103], abs=1e-3)
+    finally:
+        runtime.shutdown()
+
+
 if __name__ == "__main__":
     test_pchem_transform()
     test_structural_keys_from_smiles()

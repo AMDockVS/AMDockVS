@@ -16,6 +16,9 @@ from amdockvs.core.constants import (
     RESOURCE_QSAR_MODELS,
     TABLE_INTERACTION_RESULTS,
     TABLE_MOLECULES,
+    TABLE_QSAR_MODEL_MEMBERS,
+    TABLE_QSAR_MODELS,
+    TABLE_QSAR_PREDICTIONS,
 )
 from amdockvs.manifest import AMDOCKVS_PROJECT_RESOURCES
 from amdockvs.core.configuration import (
@@ -327,6 +330,7 @@ class AMDockVSRuntime(AppRuntime):
                 "molecules into a new project."
             )
         self._rekey_interactions()
+        self._rebuild_qsar_tables()
         # ponytail: a no-op unless an import died before building them; then it blocks the open for
         # as long as the build takes (~seconds per million rows). Run it off-thread if that bites.
         ensure_molecule_indexes(self.workspace.project_db)
@@ -354,6 +358,24 @@ class AMDockVSRuntime(AppRuntime):
             conn.exec_driver_sql(f"DROP TABLE {TABLE_INTERACTION_RESULTS}")
             session.commit()
         InteractionsResult.__table__.create(db.engine)
+
+    def _rebuild_qsar_tables(self) -> None:
+        """`qsar_models` without the registry columns (before 2026-10-30) is dropped and made again,
+        with its predictions: those models kept their split in a JSON blob the diagnostics no longer
+        read. Their files stay on disk; the models have to be trained again."""
+        from amdockvs.models import QSARModelMemberRecord, QSARModelRecord, QSARPredictionRecord
+
+        db = self.workspace.project_db
+        with db.get_session() as session:
+            conn = session.connection()
+            columns = conn.exec_driver_sql(f"PRAGMA table_info({TABLE_QSAR_MODELS});").fetchall()
+            if "task" in {str(row[1]) for row in columns}:
+                return
+            for table in (TABLE_QSAR_PREDICTIONS, TABLE_QSAR_MODEL_MEMBERS, TABLE_QSAR_MODELS):
+                conn.exec_driver_sql(f"DROP TABLE IF EXISTS {table}")
+            session.commit()
+        for record in (QSARModelRecord, QSARPredictionRecord, QSARModelMemberRecord):
+            record.__table__.create(db.engine)
 
     def close_project(self):
         super().close_project()

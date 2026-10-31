@@ -12,57 +12,21 @@ from pathlib import Path
 from typing import Any, Sequence
 
 import numpy as np
-from sklearn.base import BaseEstimator, TransformerMixin
 
-
-class CorrelationFilter(BaseEstimator, TransformerMixin):
-    """Drop one of every pair of features with |Pearson r| > threshold (keeps the first seen).
-    Greedy and O(n²) in features — fine for ≤~300 descriptors, not for fingerprints (skip it there).
-    Zero-variance columns give NaN correlations, treated as 0 so they aren't dropped here (a prior
-    VarianceThreshold removes them)."""
-
-    def __init__(self, threshold: float = 0.95):
-        self.threshold = threshold
-
-    def fit(self, X, y=None):
-        X = np.asarray(X, dtype=float)
-        n = X.shape[1]
-        keep = np.ones(n, dtype=bool)
-        if n > 1:
-            with np.errstate(invalid="ignore", divide="ignore"):
-                corr = np.nan_to_num(np.corrcoef(X, rowvar=False), nan=0.0)
-            for j in range(n):
-                if not keep[j]:
-                    continue
-                for k in range(j + 1, n):
-                    if keep[k] and abs(corr[j, k]) > float(self.threshold):
-                        keep[k] = False
-        self.support_ = keep
-        return self
-
-    def transform(self, X):
-        return np.asarray(X, dtype=float)[:, self.support_]
-
-    def get_support(self):
-        return self.support_
-
-# Numeric descriptor columns available on MoleculeRecord (populated by the descriptor job).
-DEFAULT_QSAR_FEATURES: tuple[str, ...] = (
-    "mw",
-    "logp",
-    "hbd",
-    "hba",
-    "tpsa",
-    "rotatable_bonds",
-    "ring_count",
-    "aromatic_ring_count",
-    "hetero_atom_count",
-    "heavy_atom_count",
-    "fraction_csp3",
-    "formal_charge",
-    "fragment_count",
+SKLEARN_MISSING = (
+    "QSAR models need scikit-learn, which is not installed. Install it from Settings > External "
+    "tools (scikit-learn), or run: pip install 'amdockvs[qsar]'."
 )
-ALLOWED_FEATURES = frozenset(DEFAULT_QSAR_FEATURES)
+
+
+def require_sklearn() -> None:
+    """Raise the install hint when scikit-learn is missing. It is an optional dependency, installed
+    on demand into this environment: no restart, every sklearn import here is lazy."""
+    try:
+        import sklearn  # noqa: F401
+    except ImportError:
+        raise RuntimeError(SKLEARN_MISSING) from None
+
 
 # Algorithms that benefit from feature scaling -> get a StandardScaler in the pipeline.
 _SCALE_SENSITIVE = frozenset(
@@ -78,13 +42,14 @@ def _build_estimator(
     task: str,
     hyperparams: dict[str, Any],
     *,
-    feature_kind: str = "descriptors",
+    feature_kind: str = "rdkit2d",
     corr_threshold: float = 0.95,
 ):
     """The estimator as a leakage-safe Pipeline. For descriptor features the preprocessing
     (impute → drop zero-variance → drop correlated → scale) is *inside* the pipeline, so it
     refits per CV fold and is serialized whole with the model. Fingerprint (ecfp4) features skip
     preprocessing — binary bits don't scale and an O(n²) correlation filter over 2048 bits is silly."""
+    require_sklearn()
     from sklearn.dummy import DummyClassifier, DummyRegressor
     from sklearn.ensemble import (
         GradientBoostingClassifier,
@@ -99,6 +64,8 @@ def _build_estimator(
     from sklearn.pipeline import Pipeline
     from sklearn.preprocessing import StandardScaler
     from sklearn.svm import SVC, SVR
+
+    from amdockvs.qsar.correlation import CorrelationFilter
 
     hp = dict(hyperparams or {})
     balance = {"class_weight": "balanced"} if algorithm in _BALANCEABLE else {}
@@ -148,16 +115,6 @@ def supported_algorithms(task: str = "regression") -> tuple[str, ...]:
 SUPPORTED_QSAR_ALGORITHMS = frozenset(supported_algorithms("regression") + supported_algorithms("classification"))
 
 
-def normalize_feature_names(feature_names: Sequence[str] | None) -> tuple[str, ...]:
-    names = tuple(str(n).strip() for n in (feature_names or DEFAULT_QSAR_FEATURES) if str(n).strip())
-    if not names:
-        raise ValueError("QSAR requires at least one feature.")
-    invalid = sorted(n for n in names if n not in ALLOWED_FEATURES)
-    if invalid:
-        raise ValueError(f"Unsupported QSAR feature names: {invalid}. Allowed: {sorted(ALLOWED_FEATURES)}")
-    return names
-
-
 @dataclass
 class FittedModel:
     estimator: Any
@@ -166,9 +123,9 @@ class FittedModel:
     feature_names: tuple[str, ...]
     classes: tuple[Any, ...] = field(default_factory=tuple)
     residual_std: float | None = None
-    # "descriptors" (named MoleculeRecord columns) or "ecfp4" (Morgan bit vector). For ecfp4 the
-    # api rebuilds X from FingerprintRecord at predict time using these.
-    feature_kind: str = "descriptors"
+    # "rdkit2d" (the RDKit 2D block, by feature_names) or "ecfp4" (Morgan bit vector, rebuilt
+    # from FingerprintRecord at predict time with fp_radius/fp_nbits).
+    feature_kind: str = "rdkit2d"
     fp_radius: int | None = None
     fp_nbits: int | None = None
 
@@ -185,6 +142,20 @@ class FittedModel:
             return np.full(x.shape[0], float(self.residual_std))
         return None
 
+    def predict_positive_probability(self, x_matrix: np.ndarray) -> np.ndarray | None:
+        """P(the higher-valued class) for binary classifiers; None for other models.
+
+        Keep this separate from max-class confidence: a confident negative prediction has a
+        low positive probability. Read class order from the estimator that produced the columns.
+        """
+        if self.task != "classification" or not hasattr(self.estimator, "predict_proba"):
+            return None
+        classes = np.asarray(getattr(self.estimator, "classes_", self.classes))
+        if classes.size != 2:
+            return None
+        probabilities = np.asarray(self.estimator.predict_proba(np.asarray(x_matrix, dtype=float)))
+        return probabilities[:, int(np.argmax(classes))]
+
 
 def fit_model(
     x_matrix: np.ndarray,
@@ -194,7 +165,7 @@ def fit_model(
     algorithm: str,
     task: str = "regression",
     hyperparams: dict[str, Any] | None = None,
-    feature_kind: str = "descriptors",
+    feature_kind: str = "rdkit2d",
     corr_threshold: float = 0.95,
     fp_radius: int | None = None,
     fp_nbits: int | None = None,
@@ -303,93 +274,113 @@ def _enrichment_factor(y_true: np.ndarray, y_score: np.ndarray, *, fraction: flo
     return float(np.mean(np.asarray(y_true)[top]) / active_rate)
 
 
-def grouped_holdout_split(groups: Sequence[Any], *, test_size: float, seed: int = 0) -> tuple[list[int], list[int]]:
-    """Scaffold-style split: return (train_idx, test_idx) sending whole groups to the holdout until
-    ~test_size of the rows are held out. Guarantees no group spans both sets. # ponytail: greedy
-    fill in shuffled-group order, no class balancing."""
-    n = len(groups)
-    if n == 0:
-        return [], []
-    import random
-
-    by_group: dict[Any, list[int]] = {}
-    for idx, key in enumerate(groups):
-        by_group.setdefault(key, []).append(idx)
-    order = list(by_group)
-    random.Random(int(seed)).shuffle(order)
-    target = int(round(float(test_size) * n))
-    test_idx: list[int] = []
-    for key in order:
-        if len(test_idx) >= target:
-            break
-        test_idx.extend(by_group[key])
-    test_set = set(test_idx)
-    train_idx = [i for i in range(n) if i not in test_set]
-    return train_idx, test_idx
-
-
-def cross_val_score_mean(
+def cross_validation_metrics(
     x_matrix: np.ndarray,
     y_vector: np.ndarray,
     *,
+    folds: np.ndarray,
     algorithm: str,
     task: str,
-    cv: int,
     hyperparams: dict[str, Any] | None = None,
-    feature_kind: str = "descriptors",
+    feature_kind: str = "rdkit2d",
     corr_threshold: float = 0.95,
-) -> float | None:
-    """Mean k-fold score: r² (regression → Q²) or MCC (classification). None if cv unusable.
-    Builds the full preprocessing+model pipeline so each fold refits its own scaler/selector
-    (no leakage). MCC over accuracy for classification — accuracy is meaningless under imbalance."""
-    from sklearn.model_selection import cross_val_score
+) -> dict[str, Any]:
+    """Refit the full pipeline once per fold (``folds[i]`` = the fold of row i, from
+    ``splitters.assign_split``) and predict each molecule with the model that did not see it.
+
+    Regression Q² = 1 - PRESS / sum((y - mean(y))²) over the pooled out-of-fold predictions. Mean
+    fold R² is a separate, unweighted diagnostic; undefined if any fold has fewer than two or
+    constant responses. Q² is undefined for a constant response. Negative scores are kept.
+    Classification reports mean fold MCC.
+
+    Also returns ``oof_predicted`` and, for binary classifiers, ``oof_probability`` (P of the
+    higher-valued class): one value per row, or None when CV could not run (fewer than two folds,
+    a fold whose training part holds a single class).
+    """
+    require_sklearn()
+    from sklearn.base import clone
+    from sklearn.metrics import matthews_corrcoef
 
     x_matrix = np.asarray(x_matrix, dtype=float)
-    folds = int(cv)
-    if folds < 2 or x_matrix.shape[0] < folds:
-        return None
+    y_fit = np.asarray(y_vector, dtype=float if task == "regression" else int)
+    folds = np.asarray(folds, dtype=int)
+    if task not in {"regression", "classification"}:
+        raise ValueError("CV task must be 'regression' or 'classification'.")
+    if x_matrix.ndim != 2 or y_fit.ndim != 1 or not len(y_fit) == len(x_matrix) == len(folds):
+        raise ValueError("CV requires a 2D feature matrix, one response and one fold per molecule.")
+    result: dict[str, Any] = ({"q2": None, "cv_r2_mean": None, "cv_rmse": None, "cv_press": None}
+                              if task == "regression" else {"cv_mcc": None})
+    result.update(oof_predicted=None, oof_probability=None)
+    fold_ids = np.unique(folds[folds >= 0])
+    if len(fold_ids) < 2 or (folds < 0).any():
+        return result
     estimator = _build_estimator(
         algorithm, task, hyperparams or {}, feature_kind=feature_kind, corr_threshold=corr_threshold
     )
-    scoring = "r2" if task == "regression" else "matthews_corrcoef"
-    y_fit = y_vector.astype(float) if task == "regression" else y_vector.astype(int)
-    scores = cross_val_score(estimator, x_matrix, y_fit, cv=folds, scoring=scoring)
-    return float(np.mean(scores))
+    predictions = np.empty(len(y_fit), dtype=float)
+    probability = np.full(len(y_fit), np.nan) if task == "classification" else None
+    scores = []
+    for fold in fold_ids:
+        test = folds == fold
+        if task == "classification" and np.unique(y_fit[~test]).size < 2:
+            return result
+        fitted = clone(estimator).fit(x_matrix[~test], y_fit[~test])
+        predicted = np.asarray(fitted.predict(x_matrix[test]))
+        predictions[test] = predicted
+        if probability is not None and hasattr(fitted, "predict_proba") and len(fitted.classes_) == 2:
+            probability[test] = np.asarray(fitted.predict_proba(x_matrix[test]))[:, int(np.argmax(fitted.classes_))]
+        scores.append(regression_metrics(y_fit[test], predicted)["r2"] if task == "regression"
+                      else float(matthews_corrcoef(y_fit[test], predicted)))
+    if not np.all(np.isfinite(predictions)):
+        return result
+    result["oof_predicted"] = predictions
+    if probability is not None and np.isfinite(probability).all():
+        result["oof_probability"] = probability
+    mean_score = (float(np.mean(scores))
+                  if all(score is not None and np.isfinite(score) for score in scores) else None)
+    if task == "classification":
+        result["cv_mcc"] = mean_score
+        return result
+    press = float(np.sum((y_fit - predictions) ** 2))
+    tss = float(np.sum((y_fit - np.mean(y_fit)) ** 2))
+    result.update(q2=float(1 - press / tss) if tss > 0 else None, cv_r2_mean=mean_score,
+                  cv_rmse=float(np.sqrt(press / len(y_fit))), cv_press=press)
+    return result
 
 
 def y_scramble_score(
     x_matrix: np.ndarray,
     y_vector: np.ndarray,
     *,
+    folds: np.ndarray,
     algorithm: str,
     task: str,
     n_permutations: int = 10,
-    cv: int = 3,
     hyperparams: dict[str, Any] | None = None,
-    feature_kind: str = "descriptors",
+    feature_kind: str = "rdkit2d",
     corr_threshold: float = 0.95,
     seed: int = 0,
 ) -> float | None:
     """OECD y-randomisation: shuffle labels `n_permutations` times and score each *out of sample*
-    (k-fold CV), returning the mean (r² → Q², or MCC). Must use CV, not a train-fit score — a
-    high-capacity model (RF) memorises shuffled labels in-sample and would always look bad. If the
-    real model's CV score isn't clearly above this, its signal is chance. # ponytail: opt-in and
-    O(n_permutations·cv·fit) — keep n_permutations small (~5-10)."""
+    over the same ``folds``, returning mean pooled Q² (regression) or mean CV MCC (classification).
+    Must use CV, not a train-fit score - a high-capacity model (RF) memorises shuffled labels
+    in-sample and would always look bad. If the real model's CV score isn't clearly above this, its
+    signal is chance. # ponytail: opt-in and O(n_permutations·folds·fit) — keep it small (~5-10)."""
     x_matrix = np.asarray(x_matrix, dtype=float)
-    n = int(n_permutations)
-    if n < 1 or x_matrix.shape[0] < max(2, int(cv)):
+    if int(n_permutations) < 1:
         return None
     rng = np.random.default_rng(int(seed))
     y_fit = y_vector.astype(float) if task == "regression" else y_vector.astype(int)
     scores: list[float] = []
-    for _ in range(n):
+    for _ in range(int(n_permutations)):
         shuffled = rng.permutation(y_fit)
         if task == "classification" and np.unique(shuffled).size < 2:
             continue
-        score = cross_val_score_mean(
-            x_matrix, shuffled, algorithm=algorithm, task=task, cv=int(cv),
+        metrics = cross_validation_metrics(
+            x_matrix, shuffled, folds=folds, algorithm=algorithm, task=task,
             hyperparams=hyperparams, feature_kind=feature_kind, corr_threshold=corr_threshold,
         )
+        score = metrics["q2" if task == "regression" else "cv_mcc"]
         if score is not None:
             scores.append(float(score))
     return float(np.mean(scores)) if scores else None
@@ -441,6 +432,7 @@ def save_model(path: str | Path, model: FittedModel) -> Path:
 
 
 def load_model(path: str | Path) -> FittedModel:
+    require_sklearn()  # the pickle holds sklearn estimators
     import joblib
 
     model = joblib.load(Path(path).expanduser().resolve())
@@ -450,19 +442,15 @@ def load_model(path: str | Path) -> FittedModel:
 
 
 __all__ = [
-    "ALLOWED_FEATURES",
-    "DEFAULT_QSAR_FEATURES",
-    "CorrelationFilter",
     "FittedModel",
     "SUPPORTED_QSAR_ALGORITHMS",
     "classification_metrics",
-    "cross_val_score_mean",
+    "cross_validation_metrics",
     "feature_importance",
     "fit_model",
-    "grouped_holdout_split",
     "load_model",
-    "normalize_feature_names",
     "regression_metrics",
+    "require_sklearn",
     "save_model",
     "supported_algorithms",
     "y_scramble_score",

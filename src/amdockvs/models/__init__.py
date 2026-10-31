@@ -31,7 +31,7 @@ from amdockvs.models.screening import (
     ShardPrep,
     ShardGeneration,
 )
-from amdockvs.models.qsar import QSARModel, QSARPrediction, LigandActivity
+from amdockvs.models.qsar import QSARModel, QSARModelMember, QSARPrediction, LigandActivity
 from amdockvs.models.sets import MoleculeSet, MoleculeSetMember, SetRecord, SetItemRecord
 
 # Temporary compatibility aliases while callers migrate to the new schema.
@@ -42,6 +42,7 @@ MoleculeDescriptorRecord = DescriptorVectorRecord
 ActivityRecord = LigandActivity
 QSARModelRecord = QSARModel
 QSARPredictionRecord = QSARPrediction
+QSARModelMemberRecord = QSARModelMember
 
 __all__ = [
     "CodeRecord",
@@ -83,6 +84,8 @@ __all__ = [
     "DockingRun",
     "QSARModelRecord",
     "QSARModel",
+    "QSARModelMemberRecord",
+    "QSARModelMember",
     "QSARPredictionRecord",
     "QSARPrediction",
     "InteractionsResult",

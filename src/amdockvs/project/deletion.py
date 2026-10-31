@@ -37,6 +37,7 @@ from amdockvs.models import (
     MoleculeRecord,
     MoleculeRepresentation,
     MoleculeSetMember,
+    QSARModelMember,
     QSARPrediction,
     ReceptorPrep,
     SimilarityResult,
@@ -188,7 +189,7 @@ def delete_molecules(project_db, molecule_ids: Iterable[int]) -> int:
     structures = _owned_payloads(project_db, ids, structure=True)
     clear_derived(project_db, ids)
     # Children before parents: project databases enforce foreign keys.
-    for model in (LigandActivity, MoleculeSetMember):
+    for model in (LigandActivity, MoleculeSetMember, QSARModelMember):
         _safe_delete(project_db, model, model.molecule_id.in_(ids))
     _safe_delete(
         project_db,

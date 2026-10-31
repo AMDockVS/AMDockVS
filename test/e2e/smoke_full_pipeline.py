@@ -226,7 +226,7 @@ def vs_project(rt, tmp):
         assert rt.qsar.list_endpoints() == ["logP"], rt.qsar.list_endpoints()
         qsar_set = rt.molecules.create_set(labeled, name="qsar_set")
         model = rt.qsar.train(endpoint="logP", molecule_set=qsar_set, algorithm="random_forest",
-                              task="regression", feature_source="descriptors", cv_folds=3, seed=1)
+                              task="regression", feature_source="rdkit2d", cv_folds=3, seed=1)
         predicted = rt.qsar.predict(model=model, molecule_set=qsar_set)
         scored = rt.qsar.evaluate(model=model, molecule_set=qsar_set, endpoint="logP")
         return f"model {model.id}, predicted {predicted.get('predicted')}, r2={scored.get('r2'):.2f}"

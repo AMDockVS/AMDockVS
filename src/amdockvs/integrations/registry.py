@@ -8,6 +8,7 @@ report status, install and remove.
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import shutil
 import subprocess
 import sys
@@ -103,6 +104,44 @@ def _p2rank_steps(_runtime) -> list[Step]:
 
     steps.append(Step(f"download and extract P2Rank {P2RANK_VERSION}", call=install, timeout=1800))
     return steps
+
+
+# --- scikit-learn (QSAR) ---------------------------------------------------
+# A Python package, not a program: pip puts it into this environment and the QSAR code imports it
+# lazily, so no restart. Removal goes through pip too, never an rmtree of site-packages.
+
+SKLEARN_SPEC = "scikit-learn>=1.5"
+
+
+def _sklearn_location(_runtime) -> Path:
+    spec = importlib.util.find_spec("sklearn")
+    return Path(spec.origin).parent if spec and spec.origin else Path()
+
+
+def _sklearn_status(runtime) -> ToolStatus:
+    importlib.invalidate_caches()
+    location = _sklearn_location(runtime)
+    installed = location.is_dir() and location != Path()
+    return ToolStatus(
+        tool_id="scikit-learn",
+        installed=installed,
+        message=f"scikit-learn is ready ({location})." if installed else "scikit-learn is not installed.",
+        location=location if installed else None,
+        size_bytes=_directory_size(location) if installed else 0,
+    )
+
+
+def _sklearn_steps(_runtime) -> list[Step]:
+    def verify() -> str:
+        importlib.invalidate_caches()
+        import sklearn
+
+        return f"scikit-learn {sklearn.__version__} is ready."
+
+    return [
+        Step("install scikit-learn", argv=[sys.executable, "-m", "pip", "install", SKLEARN_SPEC], timeout=900),
+        Step("verify scikit-learn", call=verify, timeout=120),
+    ]
 
 
 # --- protonation backends --------------------------------------------------
@@ -206,6 +245,17 @@ MANAGED_TOOLS: tuple[ManagedTool, ...] = (
         recipe=lambda runtime: protonation_recipe(runtime, "pkasso"),
         category="Ligand preparation",
     ),
+    ManagedTool(
+        tool_id="scikit-learn",
+        label="scikit-learn",
+        purpose="QSAR model building and prediction.",
+        footprint="~50 MB (Python package in this environment)",
+        status=_sklearn_status,
+        install_steps=_sklearn_steps,
+        location=_sklearn_location,
+        category="QSAR",
+        on_hosts=False,
+    ),
     _recipe_tool("vina", vina_recipe, "Docking engines"),
     _recipe_tool("qvina", qvina_recipe, "Docking engines"),
     _recipe_tool("adgpu", adgpu_recipe, "Docking engines"),
@@ -243,7 +293,10 @@ def uninstall_tool(runtime, tool_id: str) -> str:
     location = tool.location(runtime)
     if not location.is_dir():
         return f"{tool.label} is not installed."
-    if tool.recipe is None:
+    if tool.tool_id == "scikit-learn":
+        subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", "scikit-learn"], check=True,
+                       capture_output=True)
+    elif tool.recipe is None:
         shutil.rmtree(location)
     elif not remove(tool.recipe(runtime)):
         return f"{tool.label} at {location} was not installed by AMDock: left as it is."

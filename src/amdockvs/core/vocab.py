@@ -190,7 +190,7 @@ CODES: dict[str, dict[str, int]] = {
         1400, "baseline", "linear_regression", "ridge", "lasso", "random_forest", "gradient_boosting",
         "svr", "knn", "logistic_regression", "svc",
     ),
-    "feature_type": _domain(1500, "descriptors_2d"),
+    "feature_type": _domain(1500, "descriptors_2d", "fingerprints_ecfp4"),
     "set_purpose": _domain(
         1600, "qsar", "redocking", "rescoring", "substructure", "enrichment", "grid_reference", "custom",
         "snapshot", "filter", "manual",
