@@ -908,8 +908,9 @@ def test_charts_repaint_their_background_on_theme_change():
     assert color == app.palette().color(QPalette.Window)
 
 
-def test_feature_importance_labels_sit_on_the_bars_and_hovering_a_row_previews_it():
+def test_feature_importance_labels_share_the_bar_row_and_hover_splits_value_from_structure(monkeypatch):
     import pyqtgraph as pg
+    from PySide6.QtWidgets import QToolTip
     from amdockvs.ui.tools.qsar.chart import QSARChartDockWidget
     from ms_components.ms_dockwidget.widget import DockManager
 
@@ -919,17 +920,20 @@ def test_feature_importance_labels_sit_on_the_bars_and_hovering_a_row_previews_i
     window.setCentralWidget(dock)
     window.resize(500, 500)
     window.show()
-    shown = []
+    shown, tips = [], []
     dock.show_hover_structure = shown.append
-    dock.show_hbars("t", ["bit_1 · CC", "bit_2 · N"], [3.0, 1.0], images=[b"top", b""])
+    monkeypatch.setattr(QToolTip, "showText", lambda _pos, text, *_a: tips.append(text))
+    dock.show_hbars("t", ["bit_1 · CC", "bit_2 · N"], [3.0, 1.0], images=[b"top", b"low"])
     app.processEvents()
     plot = dock.chart_plot.getPlotItem()
     assert not plot.getAxis("left").isVisible()
-    assert sorted(i.toPlainText() for i in plot.items if isinstance(i, pg.TextItem)) == ["bit_1 · CC", "bit_2 · N"]
+    labels = [i for i in plot.items if isinstance(i, pg.TextItem)]
+    assert [(i.toPlainText(), i.pos().x(), i.pos().y()) for i in labels] == [("bit_1 · CC", 3.0, 1.0), ("bit_2 · N", 3.0, 0.0)]
     view = plot.getViewBox()
-    dock._on_chart_mouse(view.mapViewToScene(pg.Point(1.0, 1.0)))  # bar 0 sits at the top (y=1)
-    dock._on_chart_mouse(view.mapViewToScene(pg.Point(0.5, 0.0)))  # bar 1 has no image
-    assert shown == [b"top"] and dock._hovered_bar == -1
+    dock._on_chart_mouse(view.mapViewToScene(pg.Point(0.2, 0.0)))  # bar 1, far from its label
+    dock._on_chart_mouse(labels[1].sceneBoundingRect().center())  # label 1, past the bar's end
+    dock._on_chart_mouse(labels[0].sceneBoundingRect().center())  # label 0 over its own bar: label wins
+    assert tips == ["1"] and shown == [b"low", b"top"]
     dock.show_distribution_bins("x", ["a"], [1])
-    assert plot.getAxis("left").isVisible() and dock._bar_images == []
+    assert plot.getAxis("left").isVisible() and dock._bar_values == []
     window.close()

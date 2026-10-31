@@ -12,7 +12,9 @@ import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import QEvent, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QCursor, QGuiApplication, QPalette, QPixmap
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QComboBox, QHBoxLayout, QLabel, QSizePolicy, QStackedWidget, QToolTip, QVBoxLayout, QWidget,
+)
 
 from ms_components.ms_dockwidget.widget import DockManager, MSDockWidget
 
@@ -71,15 +73,19 @@ class QSARChartDockWidget(MSDockWidget):
         self.stack.addWidget(self.chart_plot)
         self.stack.addWidget(self.universe_view)
         self.setWidget(self.stack)
-        self._bar_images: list[bytes] = []  # show_hbars hover previews, bar 0 at the top
-        self._hovered_bar = -1
+        # show_hbars hover state, bar 0 at the top: values (bar tooltip), labels + structure PNGs
+        self._bar_values: list[float] = []
+        self._bar_labels: list[pg.TextItem] = []
+        self._bar_images: list[bytes] = []
+        self._hovered_bar: tuple[int, str] = (-1, "")
         self.chart_plot.scene().sigMouseMoved.connect(self._on_chart_mouse)
         self.chart_plot.viewport().installEventFilter(self)
 
     def eventFilter(self, obj, event):
         if event.type() == QEvent.Leave and obj is self.chart_plot.viewport():
-            self._hovered_bar = -1
+            self._hovered_bar = (-1, "")
             self.hide_hover_structure()
+            QToolTip.hideText()
         return super().eventFilter(obj, event)
 
     @staticmethod
@@ -95,7 +101,8 @@ class QSARChartDockWidget(MSDockWidget):
         self._chart_legend.clear()
         plot.setTitle(None)
         plot.showAxis("left")  # show_hbars hides it
-        self._bar_images, self._hovered_bar = [], -1
+        self._bar_values, self._bar_labels, self._bar_images = [], [], []
+        self._hovered_bar = (-1, "")
         for name in ("left", "bottom"):
             plot.getAxis(name).setTicks(None)
             plot.getAxis(name).showLabel(False)  # a previous chart's "Count" must not stay
@@ -143,21 +150,26 @@ class QSARChartDockWidget(MSDockWidget):
         plot.setLabel("left", "Molecules")
 
     def show_hbars(self, title: str, labels, values, x_title: str = "", *, images=None) -> None:
-        """Horizontal bar chart (feature importance): labels top→bottom, biggest first, each written
-        above its bar (no left axis, so long labels don't eat the bars' width). ``images`` = one PNG
-        per bar, shown while the cursor is over that bar's row."""
+        """Horizontal bar chart (feature importance): biggest first, top→bottom. Each label sits on
+        its bar's row, right-aligned at the longest bar's end (over the bar when it reaches that far),
+        so no left axis takes width or height. Hovering a bar shows its value; hovering a label shows
+        ``images[i]`` (one PNG per bar, b"" for none)."""
         plot = self._chart()
         labels = list(labels)
         values = [float(v) for v in values]
         plot.hideAxis("left")
         if values:
             ys = list(range(len(values) - 1, -1, -1))  # index 0 at the top
-            plot.addItem(pg.BarGraphItem(x0=0, y=ys, height=0.5, width=values, brush=pg.mkBrush(_SINGLE), pen=None))
-            for y, text in zip(ys, labels):
-                item = pg.TextItem(str(text), color=_AXIS_GREY, anchor=(0, 1))
-                item.setPos(0, y + 0.25)  # sits on the bar's top edge
+            plot.addItem(pg.BarGraphItem(x0=0, y=ys, height=0.7, width=values, brush=pg.mkBrush(_SINGLE), pen=None))
+            right = max(values + [0.0])
+            text = self.palette().color(QPalette.WindowText)  # readable on the bar and off it
+            for y, label in zip(ys, labels):
+                item = pg.TextItem(str(label), color=text, anchor=(1, 0.5))
+                item.setPos(right, y)
                 plot.addItem(item)
-            self._bar_images = list(images or [])
+                self._bar_labels.append(item)
+            self._bar_values = values
+            self._bar_images = list(images or [b""] * len(values))
         plot.setLabel("bottom", x_title or "importance")
         plot.setTitle(title, color=_AXIS_GREY)
 
@@ -342,22 +354,30 @@ class QSARChartDockWidget(MSDockWidget):
         self.universeHovered.emit(-1)  # left every marker → owner hides the preview
 
     def _on_chart_mouse(self, pos) -> None:
-        """Hovering a feature-importance row previews its bit's structure (show_hbars images)."""
-        if not self._bar_images:
+        """Feature-importance hover: a label previews its structure, a bar shows its value."""
+        if not self._bar_values:
             return
         view = self.chart_plot.getPlotItem().getViewBox()
-        index = -1
+        hit = (-1, "")
         if view.sceneBoundingRect().contains(pos):
-            index = len(self._bar_images) - 1 - round(view.mapSceneToView(pos).y())  # bar 0 at the top
-        if not 0 <= index < len(self._bar_images) or not self._bar_images[index]:
-            index = -1
-        if index == self._hovered_bar:
+            point = view.mapSceneToView(pos)
+            row = len(self._bar_values) - 1 - round(point.y())  # bar 0 at the top
+            if 0 <= row < len(self._bar_values):
+                value = self._bar_values[row]
+                if self._bar_images[row] and self._bar_labels[row].sceneBoundingRect().contains(pos):
+                    hit = (row, "label")  # wins over the bar it overlaps
+                elif min(0.0, value) <= point.x() <= max(0.0, value) and abs(point.y() - round(point.y())) <= 0.35:
+                    hit = (row, "bar")
+        if hit == self._hovered_bar:
             return
-        self._hovered_bar = index
-        if index < 0:
-            self.hide_hover_structure()
-        else:
-            self.show_hover_structure(self._bar_images[index])
+        self._hovered_bar = hit
+        self.hide_hover_structure()
+        QToolTip.hideText()
+        row, kind = hit
+        if kind == "label":
+            self.show_hover_structure(self._bar_images[row])
+        elif kind == "bar":
+            QToolTip.showText(QCursor.pos(), f"{self._bar_values[row]:.4g}", self.chart_plot)
 
     def show_hover_structure(self, png_bytes: bytes) -> None:
         pixmap = QPixmap()
