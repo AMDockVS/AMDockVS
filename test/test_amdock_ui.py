@@ -871,3 +871,17 @@ def test_prepare_ligands_from_table_and_shards(tmp_path, monkeypatch):
         if window is not None:
             window.close()
         runtime.shutdown()
+
+
+def test_qsar_endpoints_reload_when_the_list_opens():
+    from amdockvs.ui.tools.qsar.panels import QSARBuildWidget
+
+    app = QApplication.instance() or QApplication([])
+    kinds: dict[str, str] = {}
+    widget = QSARBuildWidget(runtime=SimpleNamespace(qsar=SimpleNamespace(endpoint_kinds=lambda: dict(kinds))))
+    kinds["pIC50"] = "continuous"  # loaded after the tool was built, e.g. from the Activity view
+    widget.train_endpoint.showPopup()
+    assert widget.train_endpoint.findText("pIC50") >= 0
+    widget.train_endpoint.hidePopup()
+    widget.deleteLater()
+    app.processEvents()

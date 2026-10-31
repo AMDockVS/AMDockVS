@@ -52,6 +52,19 @@ def _scrolled(inner: QWidget) -> QScrollArea:
     return scroll
 
 
+class _FreshCombo(QComboBox):
+    """Re-reads its items each time its list opens: endpoints arrive from imports, the Activity
+    view and deletions, none of which tells this tool."""
+
+    def __init__(self, reload, parent=None):
+        super().__init__(parent)
+        self._reload = reload
+
+    def showPopup(self) -> None:
+        self._reload()
+        super().showPopup()
+
+
 def _form_step(rows: list[tuple[str, QWidget]]) -> QWidget:
     """A small QWidget with a QFormLayout — the body for one stepper step."""
     page = QWidget()
@@ -78,14 +91,17 @@ class QSARBuildWidget(QWidget):
         self.status = QLabel("", self)
         self.status.setWordWrap(True)
         outer.addWidget(_scrolled(self._train_box()), 1)
-        outer.addWidget(self.status)
-        self.refresh()
+        outer.addWidget(self.status)  # the endpoints load in showEvent
 
     def refresh(self) -> None:
         run_async(self.runtime.qsar.endpoint_kinds, self._fill_endpoints, on_error=lambda _e: None,
                   busy=self.stepper)
 
     refresh_view = refresh
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self.refresh()
 
     def _preview_split(self) -> None:
         endpoint = self.train_endpoint.currentText().strip()
@@ -134,7 +150,8 @@ class QSARBuildWidget(QWidget):
         box = QGroupBox(self)
         layout = QVBoxLayout(box)
 
-        self.train_endpoint = QComboBox(box)
+        # ponytail: a synchronous DISTINCT over the activities table, small next to the ligands.
+        self.train_endpoint = _FreshCombo(lambda: self._fill_endpoints(self.runtime.qsar.endpoint_kinds()), box)
         self.train_endpoint.setEditable(True)
         self._endpoint_kinds: dict[str, str] = {}
         self.train_endpoint.currentTextChanged.connect(self._default_task_for_endpoint)
