@@ -154,12 +154,13 @@ class AMDockVSMainWindow(QMainWindow):
             starts_visible=False,
         )
         self.qsar_chart_dock.universeHovered.connect(self.charts.on_universe_hover)
-        # Glowing molecule (RDKit similarity map): also shares PyMOL's region.
+        # Glowing molecule (RDKit similarity map): shares the 2D Interactions slot under the
+        # chart, so a model's chart and the molecule picked from it are read together.
         self.qsar_glow_dock = Glowing2DDockWidget("Glowing molecule", self.dock_manager, self)
         self.dock_manager.add_dock(
             self.qsar_glow_dock,
             dock_id="qsar_glow",
-            region=Region.RIGHT_TOP,
+            region=Region.BOTTOM_RIGHT,
             order=12,
             behavior=Behavior.EXCLUSIVE,
             icon=load_icon("activity.svg"),
@@ -189,6 +190,7 @@ class AMDockVSMainWindow(QMainWindow):
         # DockManager rebuilds the right column first; resize it afterwards so activating the
         # complementary 2D view starts with the same height as PyMOL.
         self.dock_manager.buttons["diagram"].toggled.connect(self._on_diagram_toggled)
+        self.dock_manager.buttons["qsar_glow"].toggled.connect(self._on_diagram_toggled)
         self.monitor_bridge.start()
         self.monitor_bridge.request_refresh()
 
@@ -296,17 +298,15 @@ class AMDockVSMainWindow(QMainWindow):
             QTimer.singleShot(0, self._split_viewer_docks_evenly)
 
     def _split_viewer_docks_evenly(self) -> None:
-        pymol = self.pymol_dock
-        diagram = self.diagram_dock
-        if (
-            pymol is None
-            or not pymol.isVisible()
-            or not diagram.isVisible()
-            or pymol.isFloating()
-            or diagram.isFloating()
-        ):
-            return
-        self.resizeDocks([pymol, diagram], [1, 1], Qt.Vertical)
+        """Half and half between what shows on top (PyMOL or the chart) and below (2D
+        Interactions or the glowing molecule)."""
+        def shown(*docks):
+            return next((d for d in docks if d is not None and d.isVisible() and not d.isFloating()), None)
+
+        top = shown(self.pymol_dock, self.qsar_chart_dock)
+        bottom = shown(self.diagram_dock, self.qsar_glow_dock)
+        if top is not None and bottom is not None:
+            self.resizeDocks([top, bottom], [1, 1], Qt.Vertical)
 
     def _third_width(self) -> int:
         return max(1, self.width() // 3)

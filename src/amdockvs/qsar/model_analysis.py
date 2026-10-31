@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+from sqlalchemy import func
 from sqlmodel import select
 
 from amdockvs.models import MoleculeRecord, QSARModelMemberRecord, QSARModelRecord
@@ -12,6 +13,37 @@ from amdockvs.molecules.scopes import MoleculeScope
 from amdockvs.project.sets import MoleculeSetRef, QSARModelRef
 
 SUBSETS = ("all", "train", "test", "cv")
+
+
+def model_scores():
+    """(test score, cross-validation score) expressions for the models table: a model is
+    regression (R², Q²) or classification (MCC, ROC AUC), so one column per role reads both."""
+    model = QSARModelRecord
+    return func.coalesce(model.test_r2, model.test_mcc), func.coalesce(model.q2, model.test_roc_auc)
+
+
+def member_columns(model_id: int, subset: str) -> dict[str, Any]:
+    """{role, observed, predicted}: what one model recorded about each molecule, as correlated
+    subqueries on a molecules table. Under 'cv' the prediction is the out-of-fold one."""
+    member = QSARModelMemberRecord
+
+    def value(column):
+        return select(column).where(member.model_id == model_id,
+                                    member.molecule_id == MoleculeRecord.id).scalar_subquery()
+
+    predicted = member.oof_predicted if subset == "cv" else member.predicted
+    return {"role": value(member.role), "observed": value(member.observed), "predicted": value(predicted)}
+
+
+def member_scope(model_id: int, subset: str):
+    """The molecules of one model in ``subset`` (see ``ModelAnalysisMixin.model_members``)."""
+    member = QSARModelMemberRecord
+    rows = select(member.molecule_id).where(member.model_id == model_id)
+    if subset in {"train", "test"}:
+        rows = rows.where(member.role == subset)
+    elif subset == "cv":
+        rows = rows.where(member.role == "train", member.oof_predicted.is_not(None))
+    return MoleculeRecord.id.in_(rows)
 
 
 class ModelAnalysisMixin:

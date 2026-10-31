@@ -164,10 +164,12 @@ class QSARChartDockWidget(MSDockWidget):
 
     def show_scatter_series(self, title: str, series) -> None:
         """Observed-vs-predicted for several models overlaid: series = [{'label','points':[(obs,pred)],
-        'ids'?}]. One scatter series per model (auto-coloured, legend on) + a shared y=x reference
-        line; with 'ids', hovering a point announces its molecule (universeHovered)."""
+        'ids'?, 'color'?, 'symbol'?}]. One scatter series per spec (legend on) + a shared y=x reference
+        line; 'color' indexes the palette (default: the spec's position), 'symbol' is a pyqtgraph
+        marker. With 'ids', hovering a point announces its molecule (universeHovered)."""
         plot = self._chart()
         series = list(series)
+        n_colors = len({spec.get("color", i) for i, spec in enumerate(series)})
         allv: list[float] = []
         for index, spec in enumerate(series):
             points = spec.get("points", [])
@@ -175,7 +177,8 @@ class QSARChartDockWidget(MSDockWidget):
             ys = [float(p) for _, p in points]
             allv += xs + ys
             ids = list(spec.get("ids") or [])
-            item = pg.ScatterPlotItem(x=xs, y=ys, size=8, pen=None, brush=pg.mkBrush(self._color(index, len(series))),
+            brush = pg.mkBrush(self._color(spec.get("color", index), n_colors))
+            item = pg.ScatterPlotItem(x=xs, y=ys, size=8, pen=None, brush=brush, symbol=spec.get("symbol", "o"),
                                       data=ids or None, hoverable=bool(ids), hoverSize=12, tip=None)
             if ids:
                 item.sigHovered.connect(self._on_spot_hover)

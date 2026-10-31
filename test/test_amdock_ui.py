@@ -79,6 +79,7 @@ def test_2d_diagram_and_pymol_are_split_evenly_when_both_are_visible():
 
     window.pymol_dock = pymol
     window.diagram_dock = diagram
+    window.qsar_chart_dock = window.qsar_glow_dock = None
     AMDockVSMainWindow._split_viewer_docks_evenly(window)
     app.processEvents()
 
