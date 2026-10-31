@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -363,8 +364,11 @@ class DockingResultsWidget(QWidget):
             hheader.setSectionResizeMode(col, QHeaderView.ResizeMode.Stretch)
 
         self.interactions_table.setMinimumHeight(90)
+        # The surrounding scroll area must fit the available height, not reserve
+        # the table's preferred height via the word-wrapped labels' height-for-width.
+        self.interactions_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Ignored)
         self.interactions_table.itemSelectionChanged.connect(self._on_interaction_picked)
-        interactions_layout.addWidget(self.interactions_table)
+        interactions_layout.addWidget(self.interactions_table, 1)
         layout.addWidget(self.interactions_box, 1)
         return results_container
 
