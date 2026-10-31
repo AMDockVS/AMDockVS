@@ -42,6 +42,18 @@ def saved_base_font_pt(default: float = DEFAULT_FONT_PT) -> float:
         return default
 
 
+def _repaint_charts() -> None:
+    """pyqtgraph views cache their painted background (CacheBackground), so a transparent
+    chart keeps the previous theme's color until the cache is dropped."""
+    import pyqtgraph as pg
+    from PySide6.QtWidgets import QApplication
+
+    for widget in QApplication.allWidgets():
+        if isinstance(widget, pg.GraphicsView):
+            widget.resetCachedContent()
+            widget.viewport().update()
+
+
 def set_theme(name: str, window=None, app=None) -> None:
     """Apply a theme live and persist it.
 
@@ -54,6 +66,7 @@ def set_theme(name: str, window=None, app=None) -> None:
     del window  # theming is app-level; nothing window-specific to repaint
     selected = name if name == "auto" or name in THEMES else resolve(name)
     apply_theme(selected, app)
+    _repaint_charts()
     try:
         # A fresh global-only configuration: set_project_root is never called, so
         # set_value writes to the global file, matching saved_theme_name's read.

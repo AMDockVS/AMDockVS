@@ -886,3 +886,23 @@ def test_qsar_endpoints_reload_when_the_list_opens():
     widget.train_endpoint.hidePopup()
     widget.deleteLater()
     app.processEvents()
+
+
+def test_charts_repaint_their_background_on_theme_change():
+    import pyqtgraph as pg
+    from ms_components.theme import apply_theme
+    from PySide6.QtGui import QPalette
+    from amdockvs.ui.common.theme import _repaint_charts
+
+    app = QApplication.instance() or QApplication([])
+    apply_theme("dracula", app)
+    view = pg.PlotWidget(background=None)
+    view.resize(120, 80)
+    view.show()
+    app.processEvents()
+    view.grab()  # fills the background cache with dracula
+    apply_theme("catppuccin_latte", app)
+    _repaint_charts()
+    color = view.grab().toImage().pixelColor(60, 40)
+    view.close()
+    assert color == app.palette().color(QPalette.Window)
