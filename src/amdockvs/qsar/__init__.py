@@ -3,7 +3,6 @@ from __future__ import annotations
 from importlib import import_module
 
 _LAZY_EXPORTS = {
-    "DEFAULT_QSAR_FEATURES": ("amdockvs.qsar.modeling", "DEFAULT_QSAR_FEATURES"),
     "DescriptorJobParams": ("amdockvs.qsar.jobs", "DescriptorJobParams"),
     "FittedModel": ("amdockvs.qsar.modeling", "FittedModel"),
     "QSARAPI": ("amdockvs.qsar.api", "QSARAPI"),
@@ -14,8 +13,8 @@ _LAZY_EXPORTS = {
     "classification_metrics": ("amdockvs.qsar.modeling", "classification_metrics"),
     "fit_model": ("amdockvs.qsar.modeling", "fit_model"),
     "load_model": ("amdockvs.qsar.modeling", "load_model"),
-    "normalize_feature_names": ("amdockvs.qsar.modeling", "normalize_feature_names"),
     "regression_metrics": ("amdockvs.qsar.modeling", "regression_metrics"),
+    "SPLITTERS": ("amdockvs.qsar.splitters", "SPLITTERS"),
     "save_model": ("amdockvs.qsar.modeling", "save_model"),
     "supported_algorithms": ("amdockvs.qsar.modeling", "supported_algorithms"),
 }

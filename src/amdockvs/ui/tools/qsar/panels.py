@@ -27,7 +27,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from amdockvs.qsar.build import FEATURE_SOURCES
 from amdockvs.qsar.modeling import supported_algorithms
+from amdockvs.qsar.splitters import SPLITTERS
 from amdockvs.ui.common.async_query import run_async
 from ms_components.ms_stepper import Orientation, QStepper
 from amdockvs.ui.view_ids import PREDICTIONS_VIEW_ID, QSAR_BUILD_VIEW_ID, QSAR_MODELS_VIEW_ID
@@ -140,8 +142,11 @@ class QSARBuildWidget(QWidget):
         self.class_threshold.setRange(-1e6, 1e6)
         self.class_threshold.setDecimals(3)
         self.split_combo = QComboBox(box)
-        self.split_combo.addItems(["random", "scaffold"])
-        self.split_combo.setToolTip("Scaffold split holds out whole Bemis-Murcko scaffolds (realistic QSAR test).")
+        self.split_combo.addItems(list(SPLITTERS))
+        self.split_combo.setToolTip(
+            "random · stratified (keeps each class / value quantile in proportion) · scaffold (whole "
+            "Bemis-Murcko scaffolds) · butina (Taylor-Butina clusters) · maxmin (groups around diverse "
+            "seeds). The grouped ones keep a group on one side of the holdout and of every CV fold.")
         self.test_size = QDoubleSpinBox(box)
         self.test_size.setRange(0.0, 0.9)
         self.test_size.setSingleStep(0.1)
@@ -151,11 +156,10 @@ class QSARBuildWidget(QWidget):
                                      "chemical space but NOT the labels, so check the actives aren't lopsided.")
         split_preview_btn.clicked.connect(self._preview_split)
         self.feature_source = QComboBox(box)
-        self.feature_source.addItems(["descriptors", "rdkit2d", "ecfp4"])
+        self.feature_source.addItems(list(FEATURE_SOURCES))
         self.feature_source.setToolTip(
-            "descriptors: 14 physchem columns · rdkit2d: full RDKit ~200 block (computed+cached on "
-            "first use) · ecfp4: stored Morgan fingerprint. Descriptor blocks are auto-scaled and "
-            "correlation-pruned inside the CV pipeline.")
+            "rdkit2d: full RDKit ~200 block (computed+cached on first use), auto-scaled and "
+            "correlation-pruned inside the CV pipeline · ecfp4: stored Morgan fingerprint.")
         self.corr_threshold = QDoubleSpinBox(box)
         self.corr_threshold.setRange(0.5, 1.0)
         self.corr_threshold.setSingleStep(0.05)
@@ -252,8 +256,7 @@ class QSARBuildWidget(QWidget):
             for algo in algos:
                 try:
                     m = self.runtime.qsar.train(algorithm=algo, **base)
-                    out.append(("ok", {"id": int(m.id), "name": m.name, "algorithm": m.algorithm,
-                                       "metrics": dict(m.metrics or {})}))
+                    out.append(("ok", {"id": int(m.id), "name": m.name, "algorithm": m.algorithm, "model": m}))
                 except Exception as exc:  # one bad algorithm shouldn't sink the batch
                     out.append(("err", f"{algo}: {exc}"))
             return out
@@ -385,10 +388,11 @@ class QSARModelsWidget(QWidget):
         # ROC / observed-vs-predicted can be scored on the held-out test (honest predictivity), the
         # train set (its gap to test = overfitting), or all labeled. Test is the default.
         self.eval_subset = QComboBox(box)
-        for text, data in (("Test", "test"), ("Train", "train"), ("All labeled", "all")):
+        for text, data in (("Test", "test"), ("Cross-validation", "cv"), ("Train", "train"), ("All", "all")):
             self.eval_subset.addItem(text, data)
         self.eval_subset.setToolTip("Which ligands ROC and observed-vs-predicted score on. Test = honest "
-                                    "predictivity; Train vs Test gap = overfitting; All = everything labeled.")
+                                    "predictivity; Cross-validation = out-of-fold training predictions; Train vs Test gap = "
+                                    "overfitting; All = every molecule the model was built on.")
 
         use_row = QHBoxLayout()
         use_row.addWidget(QLabel("Use the model:", box))
@@ -451,7 +455,7 @@ class QSARModelsWidget(QWidget):
         checked = self._checked_models()
         n = len(checked)
         kinds = {str((m.metrics or {}).get("feature_kind", "")) for m in checked}
-        tasks = {str((m.metrics or {}).get("task", "")) for m in checked}
+        tasks = {m.task for m in checked}
         one_ecfp4 = n == 1 and kinds == {"ecfp4"}
         all_regression = n >= 1 and tasks == {"regression"}
         all_classification = n >= 1 and tasks == {"classification"}
@@ -493,29 +497,21 @@ class QSARModelsWidget(QWidget):
         checked = self._require_checked()
         if not checked:
             return
-        if any(str((m.metrics or {}).get("task", "")) != "regression" for m in checked):
+        if any(m.task != "regression" for m in checked):
             QMessageBox.information(self, "QSAR", "Observed-vs-predicted is a regression diagnostic. For "
                                                   "classification use ROC curve / Evaluate instead.")
             return
         show = getattr(self.window(), "show_model_fit_series", None)
         if show is None:
             return
-        model_specs = [(int(m.id), m.name, str(m.target or "")) for m in checked]
+        model_specs = [(int(m.id), m.name) for m in checked]
         subset = self.eval_subset.currentData()
 
         def _compute():
             series = []
-            for mid, name, endpoint in model_specs:
-                self.runtime.qsar.predict(model=mid)
-                preds = {p.molecule_id: p.value for p in self.runtime.qsar.list_predictions(model=mid)}
-                acts = {r["molecule_id"]: r["value"] for r in
-                        self.runtime.qsar.activity_rows(endpoint=endpoint or None)}
-                # Restrict to the chosen subset (test = honest); 'all' or a missing split keeps everything.
-                assign = self.runtime.qsar.model_subsets(model=mid)
-                keep = (lambda k: assign.get(k) == subset) if subset in ("train", "test") and assign else (
-                    lambda k: True)
-                points = [(acts[k], preds[k]) for k in preds if k in acts and keep(k)]
-                series.append({"label": f"#{mid} {name}", "points": points})
+            for mid, name in model_specs:
+                res = self.runtime.qsar.observed_predicted_points(model=mid, subset=subset)
+                series.append({"label": f"#{mid} {name}", "points": res["points"]})
             return series
 
         run_async(
@@ -662,7 +658,7 @@ class QSARModelsWidget(QWidget):
                                         100, 1, 1_000_000, 10)
         if not ok:
             return
-        higher = str((checked[0].metrics or {}).get("task", "")) != "regression" or QMessageBox.question(
+        higher = checked[0].task != "regression" or QMessageBox.question(
             self, "Promote top", "Is a higher predicted value better?") == QMessageBox.Yes
         run_async(
             lambda: self.runtime.qsar.promote_shard_predictions(model=model_id, top_n=int(top_n),
@@ -714,17 +710,16 @@ class QSARModelsWidget(QWidget):
         self._update_action_state()
 
     @staticmethod
-    def _comparison_cells(metrics: dict) -> list[str]:
+    def _comparison_cells(model) -> list[str]:
         """[features, n_train, primary, secondary]. Classification → MCC + ROC-AUC (honest under
         imbalance); regression → R² + RMSE."""
-        test = metrics.get("test") or {}
-        if metrics.get("task") == "classification":
-            primary, secondary = test.get("mcc"), test.get("roc_auc")
+        if model.task == "classification":
+            primary, secondary = model.test_mcc, model.test_roc_auc
         else:
-            primary, secondary = test.get("r2"), test.get("rmse")
+            primary, secondary = model.test_r2, model.test_rmse
         return [
-            str(metrics.get("feature_kind", "?")),
-            str(metrics.get("n_train", "?")),
+            str((model.metrics or {}).get("feature_kind", "?")),
+            str(model.n_train),
             "—" if primary is None else f"{primary:.3f}",
             "—" if secondary is None else f"{secondary:.3f}",
         ]
@@ -733,14 +728,14 @@ class QSARModelsWidget(QWidget):
         """rows = [{id, algorithm, metrics}, …] (trained batch or ticked models)."""
         self.comparison_table.setRowCount(len(rows))
         for r, row in enumerate(rows):
-            cells = [str(row["id"]), str(row.get("algorithm", ""))] + self._comparison_cells(row.get("metrics") or {})
+            cells = [str(row["id"]), str(row.get("algorithm", ""))] + self._comparison_cells(row["model"])
             for c, val in enumerate(cells):
                 self.comparison_table.setItem(r, c, QTableWidgetItem(val))
 
     def _compare_checked(self) -> None:
         models = getattr(self, "_models", [])
         ticked = [
-            {"id": m.id, "algorithm": m.algorithm, "metrics": m.metrics}
+            {"id": m.id, "algorithm": m.algorithm, "model": m}
             for r, m in enumerate(models)
             if self.models_table.item(r, 0) is not None and self.models_table.item(r, 0).checkState() == Qt.Checked
         ]

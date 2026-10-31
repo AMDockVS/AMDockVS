@@ -2,18 +2,17 @@ import numpy as np
 import pytest
 
 from amdockvs.qsar.modeling import (
-    DEFAULT_QSAR_FEATURES,
     classification_metrics,
-    cross_val_score_mean,
+    cross_validation_metrics,
     feature_importance,
     fit_model,
-    grouped_holdout_split,
     load_model,
-    normalize_feature_names,
     regression_metrics,
     save_model,
     supported_algorithms,
+    y_scramble_score,
 )
+from amdockvs.qsar.splitters import grouped_folds
 
 
 def _linear_dataset(n=60, seed=0):
@@ -23,11 +22,9 @@ def _linear_dataset(n=60, seed=0):
     return x, y
 
 
-def test_normalize_feature_names_validates():
-    assert normalize_feature_names(None) == DEFAULT_QSAR_FEATURES
-    assert normalize_feature_names(["mw", "logp"]) == ("mw", "logp")
-    with pytest.raises(ValueError):
-        normalize_feature_names(["not_a_feature"])
+def _blocks(n, k):
+    """Contiguous folds, like an unshuffled KFold(k)."""
+    return np.repeat(np.arange(k), int(np.ceil(n / k)))[:n]
 
 
 @pytest.mark.parametrize("algo", supported_algorithms("regression"))
@@ -66,20 +63,96 @@ def test_unknown_algorithm_rejected():
         fit_model(x, y, feature_names=("a", "b", "c"), algorithm="xgboost_dnn", task="regression")
 
 
-def test_grouped_split_keeps_scaffolds_disjoint():
-    groups = ["s1", "s1", "s2", "s2", "s3", "s3", "s4", "s4", "s5", "s5"]
-    train_idx, test_idx = grouped_holdout_split(groups, test_size=0.3, seed=7)
-    assert set(train_idx).isdisjoint(test_idx)
-    assert {groups[i] for i in train_idx}.isdisjoint({groups[i] for i in test_idx})
-    assert test_idx and train_idx  # both non-empty for this size
+def test_binary_probability_uses_estimator_class_order_and_is_not_confidence():
+    from types import SimpleNamespace
+    from amdockvs.qsar.modeling import FittedModel
+
+    # Exercise reversed class order and confident negatives, including SVC-style disagreement
+    # between predict() and argmax(predict_proba()).
+    estimator = SimpleNamespace(classes_=np.array([1, 0]),
+        predict_proba=lambda x: np.array([[.2, .8], [.997, .003]]))
+    fitted = FittedModel(estimator=estimator, task="classification", algorithm="svc", feature_names=("a",))
+    assert fitted.predict_positive_probability(np.array([[0], [1]])) == pytest.approx([.2, .997])
+    assert fitted.predict_confidence(np.array([[0], [1]])) == pytest.approx([.8, .997])
 
 
-def test_cross_val_and_q2():
+def test_cross_val_pooled_q2_and_oof_predictions():
     x, y = _linear_dataset()
-    q2 = cross_val_score_mean(x, y, algorithm="ridge", task="regression", cv=5)
-    assert q2 is not None and q2 > 0.9
-    # cv too large for the sample count -> None, not a crash
-    assert cross_val_score_mean(x[:3], y[:3], algorithm="ridge", task="regression", cv=5) is None
+    scores = cross_validation_metrics(x, y, folds=_blocks(len(y), 5), algorithm="ridge", task="regression")
+    assert scores["q2"] > 0.9
+    assert scores["oof_predicted"].shape == y.shape
+    # fewer than two folds, or a row left out of every fold -> None, not a crash
+    assert cross_validation_metrics(x, y, folds=np.zeros(len(y)), algorithm="ridge", task="regression")["q2"] is None
+    partial = _blocks(len(y), 5)
+    partial[0] = -1
+    assert cross_validation_metrics(x, y, folds=partial, algorithm="ridge", task="regression")["q2"] is None
+
+
+def test_classification_cv_returns_out_of_fold_probabilities():
+    x, y = _linear_dataset(n=48)
+    labels = (y >= np.median(y)).astype(int)
+    folds = grouped_folds(list(range(48)), 4, seed=1)
+    scores = cross_validation_metrics(x, labels, folds=folds, algorithm="logistic_regression",
+                                      task="classification")
+    assert scores["cv_mcc"] > 0.5
+    assert ((scores["oof_probability"] >= 0) & (scores["oof_probability"] <= 1)).all()
+    # a fold whose training part holds one class makes the CV undefined
+    one_sided = np.where(labels == 1, 0, 1)
+    assert cross_validation_metrics(x, labels, folds=one_sided, algorithm="logistic_regression",
+                                    task="classification")["cv_mcc"] is None
+
+
+def test_q2_matches_pooled_oof_predictions_and_differs_from_mean_fold_r2():
+    x = np.arange(12).reshape(-1, 1)
+    y = np.array([0., 1., 2., 3., 10., 11., 15., 20., 25., 30., 50., 90.])
+    folds = grouped_folds(["a"] * 5 + ["b"] * 3 + ["c"] * 2 + ["d"] * 2, 3)
+    predicted = np.empty_like(y)
+    fold_r2 = []
+    for fold in range(3):
+        test = folds == fold
+        predicted[test] = y[~test].mean()  # the baseline predicts the training mean
+        fold_r2.append(1 - np.sum((y[test] - predicted[test]) ** 2) / np.sum((y[test] - y[test].mean()) ** 2))
+    expected_press = np.sum((y - predicted) ** 2)
+    scores = cross_validation_metrics(x, y, folds=folds, algorithm="baseline", task="regression",
+                                      feature_kind="ecfp4")
+    assert scores["q2"] == pytest.approx(1 - expected_press / np.sum((y - y.mean()) ** 2))
+    assert scores["cv_r2_mean"] == pytest.approx(np.mean(fold_r2))
+    assert scores["q2"] != pytest.approx(scores["cv_r2_mean"])
+    assert scores["q2"] < 0  # poor models must retain negative predictivity
+    assert scores["cv_press"] == pytest.approx(expected_press)
+    assert scores["cv_rmse"] == pytest.approx(np.sqrt(expected_press / len(y)))
+    assert scores["oof_predicted"] == pytest.approx(predicted)
+
+
+@pytest.mark.parametrize("y,k", [([1., 1., 1., 2., 2., 2.], 2), ([0., 1., 4., 9.], 4)])
+def test_q2_defined_even_when_individual_fold_r2_is_not(y, k):
+    scores = cross_validation_metrics(np.arange(len(y)).reshape(-1, 1), np.array(y), folds=_blocks(len(y), k),
+                                      algorithm="baseline", task="regression", feature_kind="ecfp4")
+    assert np.isfinite(scores["q2"])
+    assert scores["cv_r2_mean"] is None
+    assert np.isfinite(scores["cv_rmse"])
+
+
+def test_q2_is_undefined_for_a_constant_response():
+    scores = cross_validation_metrics(np.arange(6).reshape(-1, 1), np.ones(6), folds=_blocks(6, 3),
+                                      algorithm="baseline", task="regression", feature_kind="ecfp4")
+    assert (scores["q2"], scores["cv_r2_mean"], scores["cv_rmse"], scores["cv_press"]) == (None, None, 0., 0.)
+
+
+def test_scrambling_uses_the_same_pooled_q2_definition():
+    x, y = _linear_dataset(n=15)
+    folds = _blocks(15, 3)
+    rng = np.random.default_rng(42)
+    expected = []
+    for _ in range(3):
+        shuffled = rng.permutation(y)
+        predicted = np.empty_like(shuffled)
+        for fold in range(3):
+            predicted[folds == fold] = shuffled[folds != fold].mean()
+        expected.append(1 - np.sum((shuffled - predicted) ** 2) / np.sum((shuffled - shuffled.mean()) ** 2))
+    actual = y_scramble_score(x, y, folds=folds, algorithm="baseline", task="regression",
+                              n_permutations=3, seed=42, feature_kind="ecfp4")
+    assert actual == pytest.approx(np.mean(expected))
 
 
 def test_classification_metrics_roc_auc_and_mcc():

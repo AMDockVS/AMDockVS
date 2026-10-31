@@ -52,7 +52,6 @@ dependencies = [
     "pyarrow>=15",  # parquet sidecars for offloaded molecule source properties
     "pydantic>=2.0",
     "tqdm>=4.66",  # download bar in scripts and notebooks (never in the UI)
-    "scikit-learn>=1.5",
     "joblib>=1.3",  # model persistence for the QSAR models
     "sqlalchemy>=2.0",
     "sqlmodel>=0.0.24",
@@ -73,7 +72,10 @@ pockets = ["jdk4py>=21"]
 # minimise, ProDy is the fallback PDBQT path. All imported lazily — without
 # them those preparation options simply report they are unavailable.
 receptors = ["openmm>=8.1", "pdbfixer>=1.9", "prody>=2.4"]
-all = ["amdockvs[bblean,pockets,receptors]"]
+# QSAR model building and prediction. Installable from Settings > External tools as well:
+# every sklearn import is lazy, so it works without a restart.
+qsar = ["scikit-learn>=1.5"]
+all = ["amdockvs[bblean,pockets,qsar,receptors]"]
 
 [project.urls]
 Homepage = "https://github.com/AMDockVS/AMDockVS"
