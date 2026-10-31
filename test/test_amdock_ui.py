@@ -79,11 +79,41 @@ def test_2d_diagram_and_pymol_are_split_evenly_when_both_are_visible():
 
     window.pymol_dock = pymol
     window.diagram_dock = diagram
+    window.qsar_chart_dock = window.qsar_glow_dock = None
     AMDockVSMainWindow._split_viewer_docks_evenly(window)
     app.processEvents()
 
     assert abs(pymol.height() - diagram.height()) <= 2
     window.close()
+
+
+def test_viewer_docks_are_disabled_on_views_that_cannot_feed_them():
+    from types import SimpleNamespace
+
+    from PySide6.QtWidgets import QToolButton
+
+    from amdockvs.ui.view_ids import COMPLEXES_VIEW_ID, QSAR_ANALYSIS_VIEW_ID
+
+    QApplication.instance() or QApplication(["amdockvs-viewer-docks-test"])
+    ids = ("diagram", "qsar_chart", "qsar_glow")
+    buttons = {dock_id: QToolButton(checkable=True) for dock_id in ids}
+    closed = []
+    manager = SimpleNamespace(
+        buttons=buttons,
+        docks={dock_id: QWidget(windowTitle=dock_id) for dock_id in ids},
+        toggle=lambda dock_id, on: (closed.append(dock_id), buttons[dock_id].setChecked(on)),
+    )
+    window = SimpleNamespace(dock_manager=manager)
+    buttons["diagram"].setChecked(True)  # the last complex's diagram, still open
+
+    AMDockVSMainWindow._sync_viewer_docks_to_view(window, QSAR_ANALYSIS_VIEW_ID)
+    assert closed == ["diagram"]
+    assert {i: b.isEnabled() for i, b in buttons.items()} == {"diagram": False, "qsar_chart": True, "qsar_glow": True}
+    assert "Docking Results" in buttons["diagram"].toolTip()
+
+    AMDockVSMainWindow._sync_viewer_docks_to_view(window, COMPLEXES_VIEW_ID)
+    assert {i: b.isEnabled() for i, b in buttons.items()} == {"diagram": True, "qsar_chart": False, "qsar_glow": False}
+    assert buttons["diagram"].toolTip() == "diagram"
 
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
@@ -871,3 +901,86 @@ def test_prepare_ligands_from_table_and_shards(tmp_path, monkeypatch):
         if window is not None:
             window.close()
         runtime.shutdown()
+
+
+def test_qsar_endpoints_reload_when_the_list_opens():
+    from amdockvs.ui.tools.qsar.panels import QSARBuildWidget
+
+    app = QApplication.instance() or QApplication([])
+    kinds: dict[str, str] = {}
+    widget = QSARBuildWidget(runtime=SimpleNamespace(qsar=SimpleNamespace(endpoint_kinds=lambda: dict(kinds))))
+    kinds["pIC50"] = "continuous"  # loaded after the tool was built, e.g. from the Activity view
+    widget.train_endpoint.showPopup()
+    assert widget.train_endpoint.findText("pIC50") >= 0
+    widget.train_endpoint.hidePopup()
+    widget.deleteLater()
+    app.processEvents()
+
+
+def test_charts_repaint_their_background_on_theme_change():
+    import pyqtgraph as pg
+    from ms_components.theme import apply_theme
+    from PySide6.QtGui import QPalette
+    from amdockvs.ui.common.theme import _repaint_charts
+
+    app = QApplication.instance() or QApplication([])
+    apply_theme("dracula", app)
+    view = pg.PlotWidget(background=None)
+    view.resize(120, 80)
+    view.show()
+    app.processEvents()
+    view.grab()  # fills the background cache with dracula
+    apply_theme("catppuccin_latte", app)
+    _repaint_charts()
+    color = view.grab().toImage().pixelColor(60, 40)
+    view.close()
+    assert color == app.palette().color(QPalette.Window)
+
+
+def test_feature_importance_labels_share_the_bar_row_and_hover_splits_value_from_structure(monkeypatch):
+    import pyqtgraph as pg
+    from PySide6.QtWidgets import QToolTip
+    from amdockvs.ui.tools.qsar.chart import QSARChartDockWidget
+    from ms_components.ms_dockwidget.widget import DockManager
+
+    app = QApplication.instance() or QApplication([])
+    window = QMainWindow()
+    dock = QSARChartDockWidget("Chart", DockManager(window), window)
+    window.setCentralWidget(dock)
+    window.resize(500, 500)
+    window.show()
+    shown, tips = [], []
+    dock.show_hover_structure = shown.append
+    monkeypatch.setattr(QToolTip, "showText", lambda _pos, text, *_a: tips.append(text))
+    dock.show_hbars("t", ["bit_0001", "bit_0002"], [3.0, 1.0], notes=["CC", "N"], images=[b"top", b"low"])
+    app.processEvents()
+    plot = dock.chart_plot.getPlotItem()
+    assert plot.getAxis("left")._tickLevels == [[(1, "bit_0001"), (0, "bit_0002")]]
+    labels = [i for i in plot.items if isinstance(i, pg.TextItem)]
+    assert [(i.toPlainText(), i.pos().x(), i.pos().y()) for i in labels] == [("CC", 3.0, 1.0), ("N", 3.0, 0.0)]
+    view = plot.getViewBox()
+    dock._on_chart_mouse(view.mapViewToScene(pg.Point(0.2, 0.0)))  # bar 1, far from its label
+    dock._on_chart_mouse(labels[1].sceneBoundingRect().center())  # label 1, past the bar's end
+    dock._on_chart_mouse(labels[0].sceneBoundingRect().center())  # label 0 over its own bar: label wins
+    assert tips == ["1"] and shown == [b"low", b"top"]
+    dock.show_distribution_bins("x", ["a"], [1])
+    assert plot.getAxis("left")._tickLevels is None and dock._bar_values == []
+    window.close()
+
+
+def test_a_picked_member_is_ringed_in_every_model_series():
+    from amdockvs.ui.tools.qsar.chart import QSARChartDockWidget
+    from ms_components.ms_dockwidget.widget import DockManager
+
+    app = QApplication.instance() or QApplication([])
+    window = QMainWindow()
+    dock = QSARChartDockWidget("Chart", DockManager(window), window)
+    dock.show_scatter_series("fit", [
+        {"label": "#1", "points": [(5.0, 5.5), (6.0, 6.1)], "ids": [10, 11]},
+        {"label": "#2", "points": [(6.0, 7.0)], "ids": [11]},
+    ])
+    dock.highlight_molecule(11)
+    assert sorted(zip(*dock._highlight.getData())) == [(6.0, 6.1), (6.0, 7.0)]
+    ring = dock._highlight.opts
+    assert ring["brush"].style() == Qt.NoBrush and ring["pen"].color() == dock.palette().color(dock.palette().ColorRole.WindowText)
+    window.close()

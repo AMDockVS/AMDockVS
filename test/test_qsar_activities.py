@@ -108,9 +108,11 @@ def test_smiles_activity_import_completes_and_persists_records(tmp_path, monkeyp
     runtime = AMDockVSRuntime()
     try:
         runtime.create_project(name="activity import", folder=tmp_path / "project")
+        # As the Import tab sends it: activities only come in with the As Reference mark.
         jobs = runtime.loader.load_ligands(
             [source],
             executor_name="thread",
+            primary_context="reference",
             prefilter={
                 "activity_property": "IC50",
                 "activity_endpoint": "pIC50",
@@ -129,6 +131,9 @@ def test_smiles_activity_import_completes_and_persists_records(tmp_path, monkeyp
         assert len(activities) == 2
         assert {activity.activity_type for activity in activities} == {"pIC50"}
         assert sorted(activity.value for activity in activities) == pytest.approx([7.0, 7.30103], abs=1e-3)
+        # reference ligands are QSAR data: both train
+        pytest.importorskip("sklearn")
+        assert runtime.qsar.train(endpoint="pIC50", algorithm="baseline").n_train == 2
     finally:
         runtime.shutdown()
 

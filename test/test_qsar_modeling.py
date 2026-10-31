@@ -4,6 +4,7 @@ import pytest
 from amdockvs.qsar.modeling import (
     classification_metrics,
     cross_validation_metrics,
+    domain_similarity,
     feature_importance,
     fit_model,
     load_model,
@@ -55,6 +56,26 @@ def test_save_load_roundtrip(tmp_path):
     reloaded = load_model(path)
     assert reloaded.feature_names == ("a", "b", "c")
     assert np.allclose(reloaded.predict(x), model.predict(x))
+
+
+def test_saved_model_loads_without_pymol_after_pymol_patched_pickle(tmp_path, monkeypatch):
+    """PyMOL's chempy.pkl makes pickle._Pickler write Python 2 strings; the artifact must still
+    load in a worker that never imported PyMOL."""
+    import pickle
+    import subprocess
+    import sys
+
+    pytest.importorskip("chempy.pkl")
+    from joblib.numpy_pickle import NumpyPickler
+
+    monkeypatch.setitem(NumpyPickler.dispatch, str, pickle._Pickler.dispatch[str])  # joblib after PyMOL
+    x, y = _linear_dataset()
+    model = fit_model(x, y, feature_names=("a", "b", "c"), algorithm="ridge", task="regression")
+    path = save_model(tmp_path / "m.joblib", model)
+    assert NumpyPickler.dispatch[str] is not pickle._Pickler.save_str  # left as it was found
+    loaded = subprocess.run([sys.executable, "-c", "import sys, joblib; print(joblib.load(sys.argv[1]).feature_names)",
+                             str(path)], capture_output=True, text=True)
+    assert loaded.stdout.strip() == "('a', 'b', 'c')", loaded.stderr
 
 
 def test_unknown_algorithm_rejected():
@@ -189,3 +210,11 @@ def test_linear_models_expose_signed_weights():
     weights = dict(feature_importance(model.estimator, model.feature_names))
     assert weights["up"] > 0 > weights["down"]
     assert abs(weights["noise_a"]) < abs(weights["down"])
+
+
+def test_domain_similarity_is_mean_tanimoto_to_the_k_nearest():
+    train = np.array([[1, 1, 0, 0], [1, 0, 0, 0], [0, 0, 1, 1]])
+    query = np.array([[1, 1, 0, 0], [0, 0, 0, 0]])
+    # to [1,1,0,0]: 1, 0.5, 0 -> the two nearest average 0.75; an empty query is like nothing
+    assert np.allclose(domain_similarity(train, query, k=2), [0.75, 0.0])
+    assert np.allclose(domain_similarity(train, query, k=99), [0.5, 0.0])  # k caps at the set size

@@ -29,6 +29,12 @@ def test_grouped_holdout_keeps_groups_whole_and_one_in_training():
     assert grouped_holdout(["a"] * 5 + ["b"] * 5, test_size=0.99).sum() == 5
 
 
+def test_grouped_holdout_does_not_overshoot_on_a_big_group():
+    groups = ["big"] * 20 + [g for g in "abcd" for _ in range(5)]  # 40 rows, 30 % = 12
+    for seed in range(20):
+        assert 10 <= grouped_holdout(groups, test_size=0.3, seed=seed).sum() <= 15
+
+
 @pytest.mark.parametrize("splitter", SPLITTERS)
 def test_every_splitter_keeps_groups_out_of_both_sides(splitter):
     y = np.arange(len(SMILES), dtype=float)

@@ -94,8 +94,9 @@ def strata(y: np.ndarray, task: str, bins: int = 5) -> np.ndarray:
 
 
 def grouped_holdout(groups: Sequence[Any], test_size: float, seed: int = 0) -> np.ndarray:
-    """Test flag per molecule: whole groups, in shuffled order, go to test until ~test_size of the
-    rows are there. One group always stays in training. # ponytail: greedy, no label balancing."""
+    """Test flag per molecule: whole groups, in shuffled order, go to test while they fit in
+    ~test_size of the rows; then one more group only if it lands closer to the target. One group
+    always stays in training. # ponytail: greedy, no label balancing."""
     by_group: dict[Any, list[int]] = {}
     for index, key in enumerate(groups):
         by_group.setdefault(key, []).append(index)
@@ -109,11 +110,16 @@ def grouped_holdout(groups: Sequence[Any], test_size: float, seed: int = 0) -> n
     target = max(1, round(float(test_size) * len(groups)))
     is_test = np.zeros(len(groups), dtype=bool)
     taken = 0
-    for key in order[:-1]:
-        if taken >= target:
-            break
-        is_test[by_group[key]] = True
-        taken += len(by_group[key])
+    candidates = order[:-1]
+    for key in candidates:
+        if taken + len(by_group[key]) <= target:
+            is_test[by_group[key]] = True
+            taken += len(by_group[key])
+    rest = [key for key in candidates if not is_test[by_group[key][0]]]
+    if rest:
+        key = min(rest, key=lambda k: len(by_group[k]))
+        if not taken or taken + len(by_group[key]) - target <= target - taken:  # a tie takes it
+            is_test[by_group[key]] = True
     return is_test
 
 

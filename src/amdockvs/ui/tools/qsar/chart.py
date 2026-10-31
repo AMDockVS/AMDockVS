@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QCursor, QGuiApplication, QPixmap
-from PySide6.QtWidgets import QLabel, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QCursor, QGuiApplication, QPalette, QPixmap
+from PySide6.QtWidgets import (
+    QComboBox, QHBoxLayout, QLabel, QSizePolicy, QStackedWidget, QToolTip, QVBoxLayout, QWidget,
+)
 
 from ms_components.ms_dockwidget.widget import DockManager, MSDockWidget
 
@@ -67,9 +69,25 @@ class QSARChartDockWidget(MSDockWidget):
         self.stack.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
         universe = self.universe_view.getPlotItem()
         self._universe_legend = universe.addLegend(offset=(-10, 10), labelTextColor=_AXIS_GREY)
+        self._highlight = None
         self.stack.addWidget(self.chart_plot)
         self.stack.addWidget(self.universe_view)
         self.setWidget(self.stack)
+        # show_hbars hover state, bar 0 at the top: values (bar tooltip), labels + structure PNGs
+        self._bar_values: list[float] = []
+        self._bar_labels: list[pg.TextItem] = []
+        self._bar_images: list[bytes] = []
+        self._hovered_bar: tuple[int, str] = (-1, "")
+        self._fit_series: list[tuple[list, list, list]] = []
+        self.chart_plot.scene().sigMouseMoved.connect(self._on_chart_mouse)
+        self.chart_plot.viewport().installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Leave and obj is self.chart_plot.viewport():
+            self._hovered_bar = (-1, "")
+            self.hide_hover_structure()
+            QToolTip.hideText()
+        return super().eventFilter(obj, event)
 
     @staticmethod
     def _color(index: int, total: int):
@@ -83,8 +101,13 @@ class QSARChartDockWidget(MSDockWidget):
         plot.clear()
         self._chart_legend.clear()
         plot.setTitle(None)
+        self._bar_values, self._bar_labels, self._bar_images = [], [], []
+        self._fit_series: list[tuple[list, list, list]] = []  # (ids, xs, ys) per scatter series
+        self._hovered_bar = (-1, "")
         for name in ("left", "bottom"):
             plot.getAxis(name).setTicks(None)
+            plot.getAxis(name).showLabel(False)  # a previous chart's "Count" must not stay
+        self._highlight = None
         plot.enableAutoRange()
         return plot
 
@@ -105,7 +128,7 @@ class QSARChartDockWidget(MSDockWidget):
         plot.setLabel("bottom", label or "")
         plot.setLabel("left", "Count")
 
-    def show_grouped_bars(self, title: str, categories, groups) -> None:
+    def show_grouped_bars(self, title: str, categories, groups, x_title: str = "") -> None:
         """Grouped bars: categories on X, one bar-set per group. Used for train-vs-test balance —
         groups = {'train': [...], 'test': [...]} aligned to categories (classes or value bins)."""
         plot = self._chart()
@@ -124,17 +147,31 @@ class QSARChartDockWidget(MSDockWidget):
             self._chart_legend.addItem(bar, str(name))
         plot.getAxis("bottom").setTicks([[(i, str(categories[i])) for i in xs]])
         plot.setTitle(title, color=_AXIS_GREY)
-        plot.setLabel("left", "Count")
+        plot.setLabel("bottom", x_title)
+        plot.setLabel("left", "Molecules")
 
-    def show_hbars(self, title: str, labels, values, x_title: str = "") -> None:
-        """Horizontal bar chart (feature importance): labels top→bottom, biggest first."""
+    def show_hbars(self, title: str, labels, values, x_title: str = "", *, notes=None, images=None) -> None:
+        """Horizontal bar chart (feature importance): ``labels`` on the Y axis, biggest first,
+        top→bottom. ``notes`` (one per bar, "" for none) sit on the bar's row, right-aligned at the
+        longest bar's end (over the bar when it reaches that far). Hovering a bar shows its value;
+        hovering a note shows ``images[i]`` (one PNG per bar, b"" for none)."""
         plot = self._chart()
         labels = list(labels)
         values = [float(v) for v in values]
+        notes = list(notes or [""] * len(values))
         if values:
             ys = list(range(len(values) - 1, -1, -1))  # index 0 at the top
             plot.addItem(pg.BarGraphItem(x0=0, y=ys, height=0.7, width=values, brush=pg.mkBrush(_SINGLE), pen=None))
             plot.getAxis("left").setTicks([[(ys[i], str(labels[i])) for i in range(len(labels))]])
+            right = max(values + [0.0])
+            text = self.palette().color(QPalette.WindowText)  # readable on the bar and off it
+            for y, note in zip(ys, notes):
+                item = pg.TextItem(str(note), color=text, anchor=(1, 0.5))
+                item.setPos(right, y)
+                plot.addItem(item)
+                self._bar_labels.append(item)
+            self._bar_values = values
+            self._bar_images = list(images or [b""] * len(values))
         plot.setLabel("bottom", x_title or "importance")
         plot.setTitle(title, color=_AXIS_GREY)
 
@@ -159,17 +196,26 @@ class QSARChartDockWidget(MSDockWidget):
         plot.setLabel("left", y_title)
 
     def show_scatter_series(self, title: str, series) -> None:
-        """Observed-vs-predicted for several models overlaid: series = [{'label','points':[(obs,pred)]}].
-        One scatter series per model (auto-coloured, legend on) + a shared y=x reference line."""
+        """Observed-vs-predicted for several models overlaid: series = [{'label','points':[(obs,pred)],
+        'ids'?, 'color'?, 'symbol'?}]. One scatter series per spec (legend on) + a shared y=x reference
+        line; 'color' indexes the palette (default: the spec's position), 'symbol' is a pyqtgraph
+        marker. With 'ids', hovering a point announces its molecule (universeHovered)."""
         plot = self._chart()
         series = list(series)
+        n_colors = len({spec.get("color", i) for i, spec in enumerate(series)})
         allv: list[float] = []
         for index, spec in enumerate(series):
             points = spec.get("points", [])
             xs = [float(o) for o, _ in points]
             ys = [float(p) for _, p in points]
             allv += xs + ys
-            item = pg.ScatterPlotItem(x=xs, y=ys, size=8, pen=None, brush=pg.mkBrush(self._color(index, len(series))))
+            ids = list(spec.get("ids") or [])
+            self._fit_series.append((ids, xs, ys))
+            brush = pg.mkBrush(self._color(spec.get("color", index), n_colors))
+            item = pg.ScatterPlotItem(x=xs, y=ys, size=8, pen=None, brush=brush, symbol=spec.get("symbol", "o"),
+                                      data=ids or None, hoverable=bool(ids), hoverSize=12, tip=None)
+            if ids:
+                item.sigHovered.connect(self._on_spot_hover)
             plot.addItem(item)
             self._chart_legend.addItem(item, str(spec.get("label", "")))
         if allv:
@@ -178,6 +224,18 @@ class QSARChartDockWidget(MSDockWidget):
         plot.setTitle(title, color=_AXIS_GREY)
         plot.setLabel("bottom", "Observed")
         plot.setLabel("left", "Predicted")
+
+    def highlight_molecule(self, molecule_id: int) -> None:
+        """Ring a molecule's point in every series of the fit chart (a member picked in the table):
+        a hollow circle in the theme's text colour, so the point keeps its own colour and marker."""
+        plot = self.chart_plot.getPlotItem()
+        if self._highlight is not None:
+            plot.removeItem(self._highlight)
+        points = [(x, y) for ids, xs, ys in self._fit_series for i, x, y in zip(ids, xs, ys) if i == molecule_id]
+        ring = pg.mkPen(self.palette().color(QPalette.WindowText), width=2)
+        self._highlight = pg.ScatterPlotItem(x=[p[0] for p in points], y=[p[1] for p in points], size=20,
+                                             pen=ring, brush=None, symbol="o")
+        plot.addItem(self._highlight)
 
     def show_scatter(self, observed, predicted, label: str = "") -> None:
         """Observed-vs-predicted scatter with a y=x reference line (StarDrop's model-fit plot)."""
@@ -301,6 +359,32 @@ class QSARChartDockWidget(MSDockWidget):
                 return
         self.universeHovered.emit(-1)  # left every marker → owner hides the preview
 
+    def _on_chart_mouse(self, pos) -> None:
+        """Feature-importance hover: a note previews its structure, a bar shows its value."""
+        if not self._bar_values:
+            return
+        view = self.chart_plot.getPlotItem().getViewBox()
+        hit = (-1, "")
+        if view.sceneBoundingRect().contains(pos):
+            point = view.mapSceneToView(pos)
+            row = len(self._bar_values) - 1 - round(point.y())  # bar 0 at the top
+            if 0 <= row < len(self._bar_values):
+                value = self._bar_values[row]
+                if self._bar_images[row] and self._bar_labels[row].sceneBoundingRect().contains(pos):
+                    hit = (row, "label")  # wins over the bar it overlaps
+                elif min(0.0, value) <= point.x() <= max(0.0, value) and abs(point.y() - round(point.y())) <= 0.35:
+                    hit = (row, "bar")
+        if hit == self._hovered_bar:
+            return
+        self._hovered_bar = hit
+        self.hide_hover_structure()
+        QToolTip.hideText()
+        row, kind = hit
+        if kind == "label":
+            self.show_hover_structure(self._bar_images[row])
+        elif kind == "bar":
+            QToolTip.showText(QCursor.pos(), f"{self._bar_values[row]:.4g}", self.chart_plot)
+
     def show_hover_structure(self, png_bytes: bytes) -> None:
         pixmap = QPixmap()
         if not png_bytes or not pixmap.loadFromData(png_bytes, "PNG"):
@@ -322,67 +406,130 @@ class QSARChartDockWidget(MSDockWidget):
         self._hover_label.hide()
 
 
-def render_structure_png(molblock: str, *, legend: str = "", size: tuple[int, int] = (240, 210)) -> bytes:
-    """Plain 2-D depiction of a molecule (native RDKit Cairo, no model weights), with an optional
-    caption under it — the hover preview, so all the hover info lives in this one image."""
+def _flat(molblock: str):
+    """The molecule with fresh 2D coordinates: a stored 3D pose drawn as-is looks projected.
+    The atom order is kept, so per-atom weights still line up."""
     from rdkit import Chem
-    from rdkit.Chem.Draw import rdMolDraw2D
+    from rdkit.Chem import rdDepictor
 
     mol = Chem.MolFromMolBlock(molblock)
     if mol is None:
         raise ValueError("Unparseable molblock.")
+    rdDepictor.Compute2DCoords(mol)
+    return mol
+
+
+def render_structure_png(molblock: str, *, legend: str = "", size: tuple[int, int] = (240, 210),
+                         highlight_atoms=None, highlight_bonds=None) -> bytes:
+    """Plain 2-D depiction of a molecule (native RDKit Cairo, no model weights), with an optional
+    caption under it — the hover preview, so all the hover info lives in this one image. The
+    highlight indices mark a substructure (a fingerprint bit's environment)."""
+    from rdkit.Chem.Draw import rdMolDraw2D
+
+    mol = _flat(molblock)
     drawer = rdMolDraw2D.MolDraw2DCairo(*size)
-    rdMolDraw2D.PrepareAndDrawMolecule(drawer, mol, legend=str(legend))
+    rdMolDraw2D.PrepareAndDrawMolecule(drawer, mol, legend=str(legend), highlightAtoms=highlight_atoms,
+                                       highlightBonds=highlight_bonds)
     drawer.FinishDrawing()
     return drawer.GetDrawingText()
 
 
-def render_glowing_png(molblock: str, weights, size: tuple[int, int] = (380, 320)) -> bytes:
-    """RDKit similarity-map PNG (native Cairo, no matplotlib) coloring per-atom contributions."""
-    from rdkit import Chem
+# (lowers, raises) per palette, as 0-1 RGB; the middle of the map is the window colour
+GLOW_PALETTES = {
+    "Green (+) / Red (−)": ((0.75, 0.16, 0.17), (0.16, 0.62, 0.16)),
+    "Orange (+) / Blue (−)": ((0.13, 0.40, 0.75), (0.93, 0.50, 0.05)),  # colour-blind safe
+    "Green (+) / Pink (−)": ((0.85, 0.25, 0.60), (0.20, 0.60, 0.20)),
+}
+
+
+def render_glowing_png(molblock: str, weights, size: tuple[int, int] = (380, 320), *,
+                       background=(1.0, 1.0, 1.0), palette: str = next(iter(GLOW_PALETTES))) -> bytes:
+    """RDKit similarity-map PNG (native Cairo, no matplotlib) coloring per-atom contributions on
+    ``background`` (0-1 RGB) over the whole canvas; a dark background draws the bonds light."""
     from rdkit.Chem.Draw import SimilarityMaps, rdMolDraw2D
 
-    mol = Chem.MolFromMolBlock(molblock)
-    if mol is None:
-        raise ValueError("Unparseable molblock.")
+    mol = _flat(molblock)
     drawer = rdMolDraw2D.MolDraw2DCairo(*size)
-    SimilarityMaps.GetSimilarityMapFromWeights(mol, list(weights), draw2d=drawer)
+    options = drawer.drawOptions()
+    if sum(background) < 1.5:
+        rdMolDraw2D.SetDarkMode(options)
+    options.setBackgroundColour((*background, 1.0))
+    lowers, raises = GLOW_PALETTES[palette]
+    SimilarityMaps.GetSimilarityMapFromWeights(mol, list(weights), draw2d=drawer,
+                                               colorMap=(lowers, tuple(background), raises))
     drawer.FinishDrawing()
     return drawer.GetDrawingText()
 
 
 class Glowing2DDockWidget(MSDockWidget):
     """2D structure with per-atom model contributions (StarDrop's glowing molecule). Shares
-    PyMOL's region — there is no 2D editor yet, this is read-only interpretability."""
-
-    LEGEND = (
-        "<b>Per-atom contribution to the model's prediction.</b><br>"
-        "<span style='color:#2a9d2a'>●</span> green = atom raises the predicted value "
-        "(e.g. more potent) &nbsp;·&nbsp; "
-        "<span style='color:#c0392b'>●</span> red = atom lowers it &nbsp;·&nbsp; "
-        "stronger color = bigger effect. This is what the model learned, not measured truth."
-    )
+    PyMOL's region — there is no 2D editor yet, this is read-only interpretability. It fills its
+    dock, on the app's window colour, in the palette picked above it."""
 
     def __init__(self, title: str, dock_manager: DockManager, parent: QWidget | None = None):
         super().__init__(title, dock_manager, parent)
+        self._shown = None  # (molblock, weights, caption): redrawn on resize, theme or palette
         container = QWidget(self)
         layout = QVBoxLayout(container)
         layout.setContentsMargins(4, 4, 4, 4)
+        self.palette_combo = QComboBox(container)
+        self.palette_combo.addItems(list(GLOW_PALETTES))
+        self.palette_combo.setToolTip("Colours of the atom contributions.")
+        self.palette_combo.currentIndexChanged.connect(lambda _i: self._render())
         self.label = QLabel("Select a model + ligand to show the glowing molecule.", container)
         self.label.setAlignment(Qt.AlignCenter)
         self.label.setWordWrap(True)
-        self.legend = QLabel(self.LEGEND, container)
+        self.label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)  # the pixmap follows the dock
+        self.legend = QLabel(container)
         self.legend.setWordWrap(True)
         self.legend.setTextFormat(Qt.RichText)
+        self.legend.setToolTip("Per-atom contribution to the model's prediction; stronger colour = bigger "
+                               "effect. This is what the model learned, not measured truth.")
+        bottom = QHBoxLayout()
+        bottom.addWidget(self.legend, 1)
+        bottom.addWidget(self.palette_combo)
         layout.addWidget(self.label, 1)
-        layout.addWidget(self.legend)
+        layout.addLayout(bottom)
         self.setWidget(container)
+        self._resize = QTimer(self)
+        self._resize.setSingleShot(True)
+        self._resize.setInterval(120)
+        self._resize.timeout.connect(self._render)
+        self._legend()
 
     def show_glowing(self, molblock: str, weights, caption: str = "") -> None:
+        self._shown = (molblock, list(weights), caption)
+        self._render()
+
+    def _legend(self) -> None:
+        lowers, raises = (QColor.fromRgbF(*c).name() for c in GLOW_PALETTES[self.palette_combo.currentText()])
+        self.legend.setText(f"<span style='color:{raises}'>●</span> raises the prediction &nbsp; "
+                            f"<span style='color:{lowers}'>●</span> lowers it")
+
+    def _render(self) -> None:
+        self._legend()
+        if self._shown is None:
+            return
+        molblock, weights, caption = self._shown
+        ratio = self.label.devicePixelRatioF()
+        size = (max(120, int(self.label.width() * ratio)), max(120, int(self.label.height() * ratio)))
+        window = self.label.palette().color(QPalette.Window)
         pixmap = QPixmap()
-        pixmap.loadFromData(render_glowing_png(molblock, weights), "PNG")
+        pixmap.loadFromData(render_glowing_png(molblock, weights, size, palette=self.palette_combo.currentText(),
+                                               background=(window.redF(), window.greenF(), window.blueF())), "PNG")
+        pixmap.setDevicePixelRatio(ratio)
         self.label.setPixmap(pixmap)
         self.label.setToolTip(caption)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt override
+        super().resizeEvent(event)
+        if self._shown is not None:
+            self._resize.start()
+
+    def changeEvent(self, event) -> None:  # noqa: N802 - Qt override
+        super().changeEvent(event)
+        if event.type() == QEvent.PaletteChange and self._shown is not None:
+            self._resize.start()  # the theme changed
 
 
 def _demo() -> None:

@@ -57,12 +57,15 @@ def rdkit2d_descriptor_names() -> list[str]:
 
 def calculate_rdkit2d_descriptors(mol) -> dict[str, float]:
     """All RDKit 2D descriptors for a molecule as {name: value}. Non-finite values (a few
-    descriptors return NaN/inf on odd structures) are dropped so the caller/imputer handles them."""
+    descriptors return NaN/inf on odd structures) are dropped so the caller/imputer handles them.
+    Explicit hydrogens are removed first, so a 3D import and its SMILES give the same block."""
     global _RDKIT2D_CALC
     import math
 
+    from rdkit import Chem
     from rdkit.ML.Descriptors.MoleculeDescriptors import MolecularDescriptorCalculator
 
+    mol = Chem.RemoveHs(mol)
     if _RDKIT2D_CALC is None:
         _RDKIT2D_CALC = MolecularDescriptorCalculator(rdkit2d_descriptor_names())
     values = _RDKIT2D_CALC.CalcDescriptors(mol)
@@ -94,10 +97,11 @@ def calculate_alert_rows(items: list[dict]) -> list[dict]:
     return rows
 
 
-def calculate_descriptor_rows(items: list[dict], *, fingerprint: dict | None = None) -> list[dict]:
+def calculate_descriptor_rows(items: list[dict], *, fingerprint: dict | None = None, rdkit2d: bool = False) -> list[dict]:
     """Compute physchem descriptors per item. When ``fingerprint`` ({"radius","nbits"}) is given,
     also attach a Morgan fingerprint as ``row["fp_binary"]`` (the bitstring as ascii bytes — a
-    later np.frombuffer unpacks it without RDKit) plus fp_type/fp_nbits/fp_radius."""
+    later np.frombuffer unpacks it without RDKit) plus fp_type/fp_nbits/fp_radius. With
+    ``rdkit2d`` the full RDKit 2D block goes in ``row["rdkit2d"]``."""
     fp_radius = int((fingerprint or {}).get("radius", 2))
     fp_nbits = int((fingerprint or {}).get("nbits", 2048))
     results: list[dict] = []
@@ -138,6 +142,8 @@ def calculate_descriptor_rows(items: list[dict], *, fingerprint: dict | None = N
                 row["fp_type"] = FingerprintType.ECFP6 if fp_radius >= 3 else FingerprintType.ECFP4
                 row["fp_nbits"] = fp_nbits
                 row["fp_radius"] = fp_radius
+            if rdkit2d:
+                row["rdkit2d"] = calculate_rdkit2d_descriptors(mol)
         except Exception as exc:
             row["status"] = "failed"
             row["error"] = str(exc)

@@ -106,6 +106,22 @@ model = runtime.qsar.train(
 predictions = runtime.qsar.predict(model=int(model.id), molecule_set=ligands)
 ```
 
+Both run as jobs and wait for them. Training computes the features a molecule
+lacks first, in a descriptor job. Training the same model on the same data
+again returns the stored model. To queue the work without waiting, use
+`submit_train` and `submit_predict`. `submit_train` takes several algorithms,
+one task per model:
+
+```python
+request = runtime.qsar.submit_train(
+    endpoint="IC50",
+    algorithm=["ridge", "random_forest"],
+    feature_source="ecfp4",
+)
+runtime.wait_for_jobs([j for j in (request["descriptor_job_id"], request["job_id"]) if j])
+# request["existing"] lists the algorithms whose model was already stored
+```
+
 Consult the generated reference for the complete signatures because available
 model options and return values are defined by the current implementation.
 

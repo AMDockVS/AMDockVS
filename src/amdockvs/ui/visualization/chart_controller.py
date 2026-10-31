@@ -10,8 +10,7 @@ from amdockvs.ui.tools.qsar.chart import render_structure_png
 from amdockvs.ui.view_ids import (
     CLUSTERS_VIEW_ID,
     LIGAND_ACTIVITY_VIEW_ID,
-    PREDICTIONS_VIEW_ID,
-    QSAR_MODELS_VIEW_ID,
+    QSAR_ANALYSIS_VIEW_ID,
 )
 
 
@@ -49,8 +48,13 @@ class ChartController:
             if widget is not None and hasattr(widget, "restore_plot"):
                 widget.restore_plot()  # re-pushes the run's universe + toggles chart on
             return
-        if view_id in (QSAR_MODELS_VIEW_ID, PREDICTIONS_VIEW_ID):
-            return  # chart/glow show on demand (plot + glowing-molecule + row-select); leave state
+        if view_id == QSAR_ANALYSIS_VIEW_ID:
+            widget = self.w.central_widget.open_view(view_id)
+            # only Model analysis charts; Result analysis keeps PyMOL (the else branch below)
+            if widget is not None and widget.currentWidget() is widget.models:
+                self._show()  # the chart takes PyMOL's place; the glow shows when a molecule is picked
+                widget.restore_plot()
+                return
         self.w.dock_manager.toggle("qsar_chart", False)
         if getattr(self.w, "qsar_glow_dock", None) is not None:
             self.w.dock_manager.toggle("qsar_glow", False)
@@ -69,32 +73,40 @@ class ChartController:
         self._chart.show_distribution_bins(endpoint or "value", labels, counts)
         self._show()
 
-    def show_feature_importance(self, label: str, pairs) -> None:
-        """pairs = [(feature, importance), ...] (already sorted). Horizontal bars in PyMOL's region."""
+    def show_feature_importance(self, label: str, pairs, notes=None, images=None) -> None:
+        """pairs = [(feature, importance), ...] (already sorted). Horizontal bars in PyMOL's region;
+        ``notes`` = text on each bar's row, ``images`` = its hover PNG (b"" for none)."""
         if self._chart is None or not pairs:
             return
         pairs = list(pairs)[:15]  # already biggest-first; show_hbars renders index 0 at the top
         self._chart.show_hbars(
             f"Feature importance ({label})" if label else "Feature importance",
-            [p[0] for p in pairs], [p[1] for p in pairs], "importance",
+            [p[0] for p in pairs], [p[1] for p in pairs], "Importance", notes=notes, images=images,
         )
         self._show()
 
-    def show_roc_curves(self, curves) -> None:
-        """curves = [{'label', 'points':[(fpr,tpr)], 'auc'}]. Overlaid ROC series + chance diagonal."""
-        if self._chart is None or not curves:
+    def show_roc_curves(self, curves, empty: str = "No ROC curve.") -> None:
+        """curves = [{'label', 'points':[(fpr,tpr)], 'auc'}]. Overlaid ROC series + chance diagonal;
+        none = an empty chart titled ``empty`` (a stale one would pass for this selection's)."""
+        if self._chart is None:
             return
-        title = "ROC" if len(curves) > 1 else f"ROC — {curves[0].get('label', '')}"
+        title = empty if not curves else "ROC" if len(curves) > 1 else f"ROC — {curves[0].get('label', '')}"
         self._chart.show_curves(title, curves, "False positive rate", "True positive rate", diagonal=True)
         self._show()
 
-    def show_model_fit_series(self, series) -> None:
-        """series = [{'label','points':[(observed,predicted)]}]. Overlaid model-fit scatter."""
-        if self._chart is None or not series:
+    def show_model_fit_series(self, series, empty: str = "No predictions to plot.") -> None:
+        """series = [{'label','points':[(observed,predicted)]}]. Overlaid model-fit scatter; none =
+        an empty chart titled ``empty``."""
+        if self._chart is None:
             return
-        title = "Observed vs predicted" if len(series) > 1 else f"Observed vs predicted - {series[0].get('label', '')}"
+        title = (empty if not series else "Observed vs predicted" if len(series) > 1
+                 else f"Observed vs predicted - {series[0].get('label', '')}")
         self._chart.show_scatter_series(title, series)
         self._show()
+
+    def highlight_fit_molecule(self, molecule_id: int) -> None:
+        if self._chart is not None:
+            self._chart.highlight_molecule(molecule_id)
 
     def show_correlation_heatmap(self, label: str, labels, matrix) -> None:
         """Descriptor correlation heatmap (pyqtgraph) in PyMOL's region."""
@@ -103,11 +115,11 @@ class ChartController:
         self._chart.show_heatmap(label or "Descriptor correlation", labels, matrix)
         self._show()
 
-    def show_split_distribution(self, label: str, categories, groups) -> None:
+    def show_split_distribution(self, label: str, categories, groups, x_title: str = "") -> None:
         """Train-vs-test label distribution grouped bars (split preview) in PyMOL's region."""
         if self._chart is None:
             return
-        self._chart.show_grouped_bars(label or "Train/test distribution", categories, groups)
+        self._chart.show_grouped_bars(label or "Train/test distribution", categories, groups, x_title)
         self._show()
 
     def show_similarity_distribution(self, label: str, bins) -> None:
@@ -143,8 +155,11 @@ class ChartController:
     def show_glowing_molecule(self, molblock: str, weights, caption: str = "") -> None:
         if getattr(self.w, "qsar_glow_dock", None) is None:
             return
+        opening = not self.w.qsar_glow_dock.isVisible()
         self.w.qsar_glow_dock.show_glowing(molblock, weights, caption)
         self._show("qsar_glow")
+        if opening:  # half the column, as 2D Interactions gets; a later resize by the user stays
+            QTimer.singleShot(0, self.w._split_viewer_docks_evenly)
 
     # -- centroid hover preview ----------------------------------------------------
 
@@ -166,7 +181,7 @@ class ChartController:
 
         def _work():
             molblock = self.w.runtime.diversity.molblock_for(mid)
-            return render_structure_png(molblock, legend=f"centroid #{mid}") if molblock else b""
+            return render_structure_png(molblock, legend=f"#{mid}") if molblock else b""
 
         run_async(_work, self._show_hovered_structure, on_error=lambda _e: None)
 

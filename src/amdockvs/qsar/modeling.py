@@ -128,6 +128,17 @@ class FittedModel:
     feature_kind: str = "rdkit2d"
     fp_radius: int | None = None
     fp_nbits: int | None = None
+    # Applicability domain: the training molecules' Morgan bits (np.packbits rows) and the
+    # radius/size they were made with; None for a model trained without them (or before).
+    ad_fingerprints: Any = None
+    ad_fp_radius: int | None = None
+    ad_fp_nbits: int | None = None
+
+    def training_bits(self) -> np.ndarray | None:
+        """The training fingerprints as a 0/1 matrix, or None."""
+        if self.ad_fingerprints is None or not len(self.ad_fingerprints):
+            return None
+        return np.unpackbits(np.asarray(self.ad_fingerprints, dtype=np.uint8), axis=1)[:, : int(self.ad_fp_nbits)]
 
     def predict(self, x_matrix: np.ndarray) -> np.ndarray:
         return np.asarray(self.estimator.predict(np.asarray(x_matrix, dtype=float)))
@@ -422,12 +433,42 @@ def feature_importance(estimator, feature_names: Sequence[str], *, top_n: int = 
     return pairs[: int(top_n)]
 
 
+# A molecule is in the domain when its mean Tanimoto to the AD_K most similar training
+# molecules reaches AD_THRESHOLD.
+AD_K = 5
+AD_THRESHOLD = 0.3
+
+
+def domain_similarity(train_bits, query_bits, k: int = AD_K) -> np.ndarray:
+    """Mean Tanimoto of each query row to its ``k`` most similar training rows (0/1 matrices)."""
+    train = np.asarray(train_bits, dtype=np.float32)
+    query = np.atleast_2d(np.asarray(query_bits, dtype=np.float32))
+    inter = query @ train.T
+    union = query.sum(axis=1)[:, None] + train.sum(axis=1)[None, :] - inter
+    tanimoto = np.divide(inter, union, out=np.zeros_like(inter), where=union > 0)
+    k = max(1, min(int(k), train.shape[0]))
+    return -np.partition(-tanimoto, k - 1, axis=1)[:, :k].mean(axis=1)
+
+
 def save_model(path: str | Path, model: FittedModel) -> Path:
+    import pickle
+
     import joblib
+    from joblib.numpy_pickle import NumpyPickler
 
     artifact = Path(path).expanduser().resolve()
     artifact.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(model, artifact)
+    # joblib pickles with pure-Python pickle._Pickler. Once PyMOL is imported (the GUI process),
+    # chempy.pkl has made that pickler write str as Python 2 strings, and a worker without PyMOL
+    # cannot read the file back. joblib copied the dispatch table when it was imported, so it is
+    # restored there; the class still has the stock savers.
+    dispatch = NumpyPickler.dispatch
+    patched = dispatch[str], dispatch[bytes]
+    dispatch[str], dispatch[bytes] = pickle._Pickler.save_str, pickle._Pickler.save_bytes
+    try:
+        joblib.dump(model, artifact)
+    finally:
+        dispatch[str], dispatch[bytes] = patched
     return artifact
 
 

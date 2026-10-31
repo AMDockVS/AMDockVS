@@ -5,13 +5,46 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+from sqlalchemy import func
 from sqlmodel import select
 
-from amdockvs.models import MoleculeRecord, QSARModelMemberRecord, QSARModelRecord
+from amdockvs.models import MoleculeRecord, QSARModelMemberRecord, QSARModelRecord, QSARPredictionRecord
 from amdockvs.molecules.scopes import MoleculeScope
 from amdockvs.project.sets import MoleculeSetRef, QSARModelRef
+from amdockvs.qsar.modeling import AD_K, AD_THRESHOLD, domain_similarity
 
 SUBSETS = ("all", "train", "test", "cv")
+
+
+def model_scores():
+    """(test score, cross-validation score) expressions for the models table: a model is
+    regression (R², Q²) or classification (MCC, ROC AUC), so one column per role reads both."""
+    model = QSARModelRecord
+    return func.coalesce(model.test_r2, model.test_mcc), func.coalesce(model.q2, model.test_roc_auc)
+
+
+def member_columns(model_id: int, subset: str) -> dict[str, Any]:
+    """{role, observed, predicted}: what one model recorded about each molecule, as correlated
+    subqueries on a molecules table. Under 'cv' the prediction is the out-of-fold one."""
+    member = QSARModelMemberRecord
+
+    def value(column):
+        return select(column).where(member.model_id == model_id,
+                                    member.molecule_id == MoleculeRecord.id).scalar_subquery()
+
+    predicted = member.oof_predicted if subset == "cv" else member.predicted
+    return {"role": value(member.role), "observed": value(member.observed), "predicted": value(predicted)}
+
+
+def member_scope(model_id: int, subset: str):
+    """The molecules of one model in ``subset`` (see ``ModelAnalysisMixin.model_members``)."""
+    member = QSARModelMemberRecord
+    rows = select(member.molecule_id).where(member.model_id == model_id)
+    if subset in {"train", "test"}:
+        rows = rows.where(member.role == subset)
+    elif subset == "cv":
+        rows = rows.where(member.role == "train", member.oof_predicted.is_not(None))
+    return MoleculeRecord.id.in_(rows)
 
 
 class ModelAnalysisMixin:
@@ -53,6 +86,21 @@ class ModelAnalysisMixin:
             raise ValueError(f"No molecules in the '{mode}' subset of model #{record.id}.")
         return record, rows
 
+    def member_table(self, *, model: QSARModelRef | int) -> list[dict[str, Any]]:
+        """One row per molecule the model was built on: molecule_id, name, role ('train'|'test'),
+        observed, predicted, oof_predicted (a training molecule's, when CV ran), probability."""
+        record, rows = self.model_members(model=model)
+        with self.runtime.workspace.project_db.get_session() as session:
+            names = dict(session.exec(
+                select(MoleculeRecord.id, MoleculeRecord.name)
+                .where(MoleculeRecord.id.in_([int(r.molecule_id) for r in rows]))
+            ).all())
+        return [{
+            "molecule_id": int(r.molecule_id), "name": str(names.get(r.molecule_id) or ""), "role": r.role,
+            "observed": r.observed, "predicted": r.predicted, "oof_predicted": r.oof_predicted,
+            "probability": r.probability,
+        } for r in rows]
+
     def _diagnostic_data(self, *, model, subset: str = "all"):
         """(record, observed, predicted, probability, summary) for the subset; 'cv' reads the
         out-of-fold columns. probability is None when any row lacks one."""
@@ -64,6 +112,7 @@ class ModelAnalysisMixin:
         probability = None if any(p is None for p in scores) else np.asarray(scores, dtype=float)
         return record, observed, predicted, probability, {
             "endpoint": record.target, "subset": str(subset or "all").lower(), "n": len(rows),
+            "ids": [int(r.molecule_id) for r in rows],
         }
 
     def observed_predicted_points(self, *, model, subset="all") -> dict[str, Any]:
@@ -173,44 +222,90 @@ class ModelAnalysisMixin:
         *,
         model: QSARModelRef | int,
         molecule_set: MoleculeSetRef | MoleculeScope | int | None = None,
-        k: int = 5,
-        threshold: float = 0.3,
+        k: int = AD_K,
+        threshold: float = AD_THRESHOLD,
         fp_radius: int = 2,
         fp_nbits: int = 2048,
     ) -> list[dict[str, Any]]:
-        """Per-ligand applicability domain by ECFP4 similarity: mean Tanimoto to the k nearest
-        *training* ligands of ``model``; in_domain = that mean >= threshold. Answers "is this
-        prediction an interpolation or an extrapolation?". Needs Morgan fingerprints computed."""
+        """Per-ligand applicability domain: mean Tanimoto to the k nearest *training* ligands of
+        ``model``; in_domain = that mean >= threshold. Answers "is this prediction an interpolation
+        or an extrapolation?". A prediction made with the default k carries its value already;
+        the rest are measured here from the stored Morgan fingerprints."""
         self.runtime._require_active_project()
-        train_ids = [int(mid) for mid, sub in self.model_subsets(model=model).items() if sub == "train"]
-        if not train_ids:
-            raise ValueError("This model recorded no training molecules (an external model?): no domain to measure.")
+        model_id = self._model_id(model)
         ligands = self._ligands(molecule_set)
+        names = {int(r.id or 0): str(r.name or "") for r in ligands}
+        stored = {}
+        if int(k) == AD_K:
+            with self.runtime.workspace.project_db.get_session() as session:
+                for start in range(0, len(names), 900):
+                    stored.update(session.exec(
+                        select(QSARPredictionRecord.molecule_id, QSARPredictionRecord.ad_similarity)
+                        .where(QSARPredictionRecord.model_id == model_id)
+                        .where(QSARPredictionRecord.ad_similarity.is_not(None))
+                        .where(QSARPredictionRecord.molecule_id.in_(list(names)[start:start + 900]))
+                    ).all())
+        missing = [mid for mid in names if mid not in stored]
+        if missing:
+            train_ids = [int(mid) for mid, sub in self.model_subsets(model=model_id).items() if sub == "train"]
+            with self.runtime.workspace.project_db.get_session() as session:
+                fp_map = self._fingerprint_matrix(session, train_ids + missing, radius=fp_radius, nbits=fp_nbits)
+            train = [fp_map[i] for i in train_ids if i in fp_map]
+            query = [mid for mid in missing if mid in fp_map]
+            if train and query:
+                stored.update(zip(query, domain_similarity(train, [fp_map[mid] for mid in query], k=k).tolist()))
+            elif not stored:
+                raise ValueError("No training fingerprints for this model - compute Morgan fingerprints "
+                                 "(ECFP4) first, or predict with it." if train_ids else
+                                 "This model recorded no training molecules (an external model?): no domain to measure.")
+        return [{"molecule_id": mid, "name": names[mid], "similarity": float(stored[mid]),
+                 "in_domain": bool(stored[mid] >= float(threshold))}
+                for mid in names if mid in stored]
+
+    def bit_fragments(self, *, model: QSARModelRef | int, bits, max_molecules: int = 500) -> dict[str, dict]:
+        """{"bit_<i>": {smiles, molblock, atoms, bonds}} for an ECFP4 model: the substructure that
+        sets the bit, read off the first of its training molecules that has it (Morgan bitInfo), plus
+        that molecule and the fragment's atom/bond indices in it (to draw it highlighted). A bit no
+        molecule sets is absent; a collision keeps whichever environment came first."""
+        from rdkit import Chem
+        from rdkit.Chem import rdFingerprintGenerator
+
+        self.runtime._require_active_project()
+        wanted = {int(str(b).removeprefix("bit_")) for b in bits}
         with self.runtime.workspace.project_db.get_session() as session:
-            fp_map = self._fingerprint_matrix(
-                session, train_ids + [int(r.id or 0) for r in ligands], radius=fp_radius, nbits=fp_nbits
-            )
-            names = {int(r.id or 0): str(r.name or "") for r in ligands}
-        train_fps = [fp_map[i] for i in train_ids if i in fp_map]
-        if not train_fps:
-            raise ValueError("No training fingerprints - compute Morgan fingerprints (ECFP4) first.")
-        train_matrix = np.asarray(train_fps, dtype=float)
-        train_norm = train_matrix.sum(axis=1)  # popcount per training fp
-        out: list[dict[str, Any]] = []
-        for rec in ligands:
-            mid = int(rec.id or 0)
-            query = fp_map.get(mid)
-            if query is None:
-                continue
-            query = np.asarray(query, dtype=float)
-            inter = train_matrix @ query  # |A ∩ B| per training fp
-            union = train_norm + query.sum() - inter
-            tanimoto = np.divide(inter, union, out=np.zeros_like(inter), where=union > 0)
-            top = np.sort(tanimoto)[::-1][: max(1, int(k))]
-            sim = float(np.mean(top))
-            out.append({"molecule_id": mid, "name": names.get(mid, ""),
-                        "similarity": sim, "in_domain": bool(sim >= float(threshold))})
-        return out
+            record, fitted = self._load_fitted(session, model)
+            if fitted.feature_kind != "ecfp4":
+                raise ValueError("Bit fragments are for ECFP4 models.")
+            members = session.exec(
+                select(QSARModelMemberRecord.molecule_id).where(QSARModelMemberRecord.model_id == record.id)
+                .limit(int(max_molecules))
+            ).all()
+            generator = rdFingerprintGenerator.GetMorganGenerator(
+                radius=int(fitted.fp_radius or 2), fpSize=int(fitted.fp_nbits or 2048), includeChirality=True)
+            found: dict[str, str] = {}
+            for molecule_id in members:
+                rec = session.get(MoleculeRecord, int(molecule_id))
+                mol = None if rec is None else self._ligand_mol(session, rec)
+                if mol is None:
+                    continue
+                output = rdFingerprintGenerator.AdditionalOutput()
+                output.AllocateBitInfoMap()
+                generator.GetFingerprint(mol, additionalOutput=output)
+                for bit, environments in output.GetBitInfoMap().items():
+                    if bit not in wanted or f"bit_{bit}" in found:
+                        continue
+                    atom, radius = environments[0]
+                    bonds = list(Chem.FindAtomEnvironmentOfRadiusN(mol, int(radius), int(atom)))
+                    atoms = {int(atom)} | {a for b in bonds for a in (mol.GetBondWithIdx(b).GetBeginAtomIdx(),
+                                                                      mol.GetBondWithIdx(b).GetEndAtomIdx())}
+                    found[f"bit_{bit}"] = {
+                        "smiles": Chem.MolFragmentToSmiles(
+                            mol, atomsToUse=sorted(atoms), bondsToUse=bonds or None, canonical=True),
+                        "molblock": Chem.MolToMolBlock(mol), "atoms": sorted(atoms), "bonds": bonds,
+                    }
+                if len(found) == len(wanted):
+                    break
+        return found
 
     def atom_contributions(self, *, model: QSARModelRef | int, ligand_id: int) -> dict[str, Any]:
         """Per-atom contribution to an ECFP4 model's prediction (StarDrop's "glowing molecule").

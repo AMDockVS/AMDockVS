@@ -37,10 +37,13 @@ from ms_components.ms_dockwidget.widget import Behavior, DockManager, MSDockWidg
 from ms_components.ms_executors import ExecutorsPanel
 from ms_components.ms_pymol.widget import PymolDockWidget
 from amdockvs.ui.view_ids import (
+    CLUSTERS_VIEW_ID,
     COMPLEX_PAIRS_VIEW_ID,
     COMPLEXES_VIEW_ID,
+    LIGAND_ACTIVITY_VIEW_ID,
     LIGANDS_VIEW_ID,
     OFFTARGET_VIEW_ID,
+    QSAR_ANALYSIS_VIEW_ID,
     RECEPTOR_VIEW_ID,
     REDOCKING_VIEW_ID,
     SHARDS_VIEW_ID,
@@ -49,6 +52,14 @@ from amdockvs.ui.view_ids import (
 
 # Views whose rows are docked poses: the 2D interaction diagram only has something to show there.
 _RESULT_VIEW_IDS = frozenset({COMPLEXES_VIEW_ID, OFFTARGET_VIEW_ID, REDOCKING_VIEW_ID})
+# Viewer docks with nothing to show outside the views that feed them: their rail button is
+# disabled elsewhere, with a hint on where their content comes from. PyMOL is always on.
+_VIEWER_DOCK_SOURCES = {
+    "diagram": (_RESULT_VIEW_IDS, "pick a complex in Docking Results, Off-target or Redocking"),
+    "qsar_chart": (frozenset({LIGAND_ACTIVITY_VIEW_ID, CLUSTERS_VIEW_ID, QSAR_ANALYSIS_VIEW_ID}),
+                   "open Activity, Clusters or QSAR Analysis"),
+    "qsar_glow": (frozenset({QSAR_ANALYSIS_VIEW_ID}), "pick a molecule in QSAR Analysis"),
+}
 
 
 def _pymol_disabled() -> bool:
@@ -153,12 +164,13 @@ class AMDockVSMainWindow(QMainWindow):
             starts_visible=False,
         )
         self.qsar_chart_dock.universeHovered.connect(self.charts.on_universe_hover)
-        # Glowing molecule (RDKit similarity map): also shares PyMOL's region.
+        # Glowing molecule (RDKit similarity map): shares the 2D Interactions slot under the
+        # chart, so a model's chart and the molecule picked from it are read together.
         self.qsar_glow_dock = Glowing2DDockWidget("Glowing molecule", self.dock_manager, self)
         self.dock_manager.add_dock(
             self.qsar_glow_dock,
             dock_id="qsar_glow",
-            region=Region.RIGHT_TOP,
+            region=Region.BOTTOM_RIGHT,
             order=12,
             behavior=Behavior.EXCLUSIVE,
             icon=load_icon("activity.svg"),
@@ -188,6 +200,8 @@ class AMDockVSMainWindow(QMainWindow):
         # DockManager rebuilds the right column first; resize it afterwards so activating the
         # complementary 2D view starts with the same height as PyMOL.
         self.dock_manager.buttons["diagram"].toggled.connect(self._on_diagram_toggled)
+        self.dock_manager.buttons["qsar_glow"].toggled.connect(self._on_diagram_toggled)
+        self._sync_viewer_docks_to_view("")  # no view yet: only PyMOL has something to show
         self.monitor_bridge.start()
         self.monitor_bridge.request_refresh()
 
@@ -243,18 +257,23 @@ class AMDockVSMainWindow(QMainWindow):
             self._open_default_views()
 
     def _open_default_views(self) -> None:
-        """Open the relevant project tabs; Complexes in front when there are results, else Receptors."""
+        """Open the tabs that have data; in front goes the first of Docking Results, QSAR
+        Analysis, Receptors, Ligands, Shards that opened. An empty project opens Receptors."""
         # open_view() only returns the tab if it already exists; opening is open_or_focus_view().
-        self.open_or_focus_view(RECEPTOR_VIEW_ID)
         sharded, ligand_rows = self.views._library_shape()
-        if not sharded or ligand_rows:
-            self.open_or_focus_view(LIGANDS_VIEW_ID)
-        if sharded:
-            self.open_or_focus_view(SHARDS_VIEW_ID)
-        if self.runtime.docking.has_results():
-            self.open_or_focus_view(COMPLEXES_VIEW_ID)
-        else:
-            self.open_or_focus_view(RECEPTOR_VIEW_ID)
+        has_data = {  # in tab-bar order
+            RECEPTOR_VIEW_ID: self.runtime.molecules.has_receptors(),
+            LIGANDS_VIEW_ID: ligand_rows,
+            SHARDS_VIEW_ID: sharded,
+            QSAR_ANALYSIS_VIEW_ID: bool(self.runtime.qsar.list_models()),
+            COMPLEXES_VIEW_ID: self.runtime.docking.has_results(),
+        }
+        # An empty project still opens the two catalogs: their Import button is where it starts.
+        opened = [view_id for view_id, present in has_data.items() if present] or [RECEPTOR_VIEW_ID, LIGANDS_VIEW_ID]
+        for view_id in opened:
+            self.open_or_focus_view(view_id)
+        front = (COMPLEXES_VIEW_ID, QSAR_ANALYSIS_VIEW_ID, RECEPTOR_VIEW_ID, LIGANDS_VIEW_ID, SHARDS_VIEW_ID)
+        self.open_or_focus_view(next(v for v in front if v in opened))
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -290,17 +309,15 @@ class AMDockVSMainWindow(QMainWindow):
             QTimer.singleShot(0, self._split_viewer_docks_evenly)
 
     def _split_viewer_docks_evenly(self) -> None:
-        pymol = self.pymol_dock
-        diagram = self.diagram_dock
-        if (
-            pymol is None
-            or not pymol.isVisible()
-            or not diagram.isVisible()
-            or pymol.isFloating()
-            or diagram.isFloating()
-        ):
-            return
-        self.resizeDocks([pymol, diagram], [1, 1], Qt.Vertical)
+        """Half and half between what shows on top (PyMOL or the chart) and below (2D
+        Interactions or the glowing molecule)."""
+        def shown(*docks):
+            return next((d for d in docks if d is not None and d.isVisible() and not d.isFloating()), None)
+
+        top = shown(self.pymol_dock, self.qsar_chart_dock)
+        bottom = shown(self.diagram_dock, self.qsar_glow_dock)
+        if top is not None and bottom is not None:
+            self.resizeDocks([top, bottom], [1, 1], Qt.Vertical)
 
     def _third_width(self) -> int:
         return max(1, self.width() // 3)
@@ -533,9 +550,10 @@ class AMDockVSMainWindow(QMainWindow):
     def _on_current_view_changed(self, view_id: str) -> None:
         self.viewer.hide_grid_panel()
         self.aux.set_occupant()  # the tab on screen may own the auxiliary panel
+        self._sync_diagram_to_view(view_id)  # parks an open diagram before it is disabled
+        self._sync_viewer_docks_to_view(view_id)  # before the charts reopen theirs
         self.charts.sync_to_active_view(view_id)
         self.viewer.sync_to_active_view(view_id)
-        self._sync_diagram_to_view(view_id)
         # Switching tabs changes whether a jobs surface is on screen, so the status
         # bar indicator (the always-visible fallback) has to be re-evaluated.
         self.jobs.update_jobs_statusbar()
@@ -546,6 +564,18 @@ class AMDockVSMainWindow(QMainWindow):
 
         for page in self.findChildren(DockingResultsWidget):
             page.diagram_saved(result_id)
+
+    def _sync_viewer_docks_to_view(self, view_id: str) -> None:
+        """Disable the rail button of a viewer dock the current view cannot feed (it would show
+        stale content from another view), closing the dock if it was open."""
+        for dock_id, (views, hint) in _VIEWER_DOCK_SOURCES.items():
+            button = self.dock_manager.buttons[dock_id]
+            fed = str(view_id) in views
+            if not fed and button.isChecked():
+                self.dock_manager.toggle(dock_id, False)
+            title = self.dock_manager.docks[dock_id].windowTitle()
+            button.setEnabled(fed)
+            button.setToolTip(title if fed else f"{title}: nothing to show here — {hint}")
 
     def _sync_diagram_to_view(self, view_id: str) -> None:
         """The 2D diagram follows the results views: it hides when the user leaves them and
@@ -616,20 +646,23 @@ class AMDockVSMainWindow(QMainWindow):
     def show_activity_histogram(self, endpoint: str, bins) -> None:
         self.charts.show_activity_histogram(endpoint, bins)
 
-    def show_feature_importance(self, label: str, pairs) -> None:
-        self.charts.show_feature_importance(label, pairs)
+    def show_feature_importance(self, label: str, pairs, notes=None, images=None) -> None:
+        self.charts.show_feature_importance(label, pairs, notes, images)
 
-    def show_roc_curves(self, curves) -> None:
-        self.charts.show_roc_curves(curves)
+    def show_roc_curves(self, curves, *empty) -> None:
+        self.charts.show_roc_curves(curves, *empty)
 
-    def show_model_fit_series(self, series) -> None:
-        self.charts.show_model_fit_series(series)
+    def show_model_fit_series(self, series, *empty) -> None:
+        self.charts.show_model_fit_series(series, *empty)
 
     def show_correlation_heatmap(self, label: str, labels, matrix) -> None:
         self.charts.show_correlation_heatmap(label, labels, matrix)
 
-    def show_split_distribution(self, label: str, categories, groups) -> None:
-        self.charts.show_split_distribution(label, categories, groups)
+    def show_split_distribution(self, label: str, categories, groups, x_title: str = "") -> None:
+        self.charts.show_split_distribution(label, categories, groups, x_title)
+
+    def highlight_fit_molecule(self, molecule_id: int) -> None:
+        self.charts.highlight_fit_molecule(molecule_id)
 
     def show_similarity_distribution(self, label: str, bins) -> None:
         self.charts.show_similarity_distribution(label, bins)

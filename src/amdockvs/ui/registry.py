@@ -24,9 +24,8 @@ from amdockvs.ui.view_ids import (
     LIGAND_ACTIVITY_VIEW_ID,
     MOLECULES_VIEW_ID,
     POCKET_DETECTION_VIEW_ID,
-    PREDICTIONS_VIEW_ID,
+    QSAR_ANALYSIS_VIEW_ID,
     QSAR_BUILD_VIEW_ID,
-    QSAR_MODELS_VIEW_ID,
     RECEPTOR_VIEW_ID,
     SELECTION_VIEW_ID,
     SHARDS_VIEW_ID,
@@ -52,7 +51,7 @@ class ToolEntry:
 # Order runs within each section; the (hidden) tools-dock button also lives in "middle".
 TOOLS: tuple[ToolEntry, ...] = (
     ToolEntry("tool_docking", "Docking Studio", DOCKING_VIEW_ID, "target.svg", 1, section="top"),
-    ToolEntry("tool_qsar", "QSAR Build", QSAR_BUILD_VIEW_ID, "qsar.svg", 2, section="middle"),
+    ToolEntry("tool_qsar", "QSAR", QSAR_BUILD_VIEW_ID, "qsar.svg", 2, section="middle"),
     ToolEntry("tool_build", "Build", BUILD_ID, "build.svg", 3),
     ToolEntry("tool_pockets", "Pocket Detection", POCKET_DETECTION_VIEW_ID, "binding_site.svg", 4),
     ToolEntry("tool_filter", "Filter", FILTER_ID, "filter.svg", 5),
@@ -83,8 +82,7 @@ STANDING_DATA_VIEWS = (
     ),
     (
         ("Activity", LIGAND_ACTIVITY_VIEW_ID, "activity.svg"),
-        ("Model Analysis", QSAR_MODELS_VIEW_ID, "models.svg"),
-        ("Predictions", PREDICTIONS_VIEW_ID, "predictions.svg"),
+        ("QSAR Analysis", QSAR_ANALYSIS_VIEW_ID, "models.svg"),  # Model analysis | Result analysis
     ),
 )
 
@@ -99,7 +97,7 @@ EPHEMERAL_VIEW_IDS = frozenset({COMPLEX_PAIRS_VIEW_ID})
 
 # Views opened to look at something and then abandoned. They share one tab slot, so they
 # stop accumulating in the tab bar.
-PREVIEW_VIEW_IDS = frozenset({QSAR_MODELS_VIEW_ID, BINDING_SITES_VIEW_ID, COMPLEX_PAIRS_VIEW_ID})
+PREVIEW_VIEW_IDS = frozenset({BINDING_SITES_VIEW_ID, COMPLEX_PAIRS_VIEW_ID})
 
 # "module:function", each called with the window once the central widget exists.
 REGISTRARS: tuple[str, ...] = (
