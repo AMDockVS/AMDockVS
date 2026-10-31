@@ -262,10 +262,11 @@ class ModelAnalysisMixin:
                  "in_domain": bool(stored[mid] >= float(threshold))}
                 for mid in names if mid in stored]
 
-    def bit_fragments(self, *, model: QSARModelRef | int, bits, max_molecules: int = 500) -> dict[str, str]:
-        """{"bit_<i>": SMILES of the substructure that sets it} for an ECFP4 model, read off the
-        first of its training molecules that has the bit (Morgan bitInfo). A bit no molecule sets,
-        or a collision, keeps whichever environment came first."""
+    def bit_fragments(self, *, model: QSARModelRef | int, bits, max_molecules: int = 500) -> dict[str, dict]:
+        """{"bit_<i>": {smiles, molblock, atoms, bonds}} for an ECFP4 model: the substructure that
+        sets the bit, read off the first of its training molecules that has it (Morgan bitInfo), plus
+        that molecule and the fragment's atom/bond indices in it (to draw it highlighted). A bit no
+        molecule sets is absent; a collision keeps whichever environment came first."""
         from rdkit import Chem
         from rdkit.Chem import rdFingerprintGenerator
 
@@ -297,8 +298,11 @@ class ModelAnalysisMixin:
                     bonds = list(Chem.FindAtomEnvironmentOfRadiusN(mol, int(radius), int(atom)))
                     atoms = {int(atom)} | {a for b in bonds for a in (mol.GetBondWithIdx(b).GetBeginAtomIdx(),
                                                                       mol.GetBondWithIdx(b).GetEndAtomIdx())}
-                    found[f"bit_{bit}"] = Chem.MolFragmentToSmiles(
-                        mol, atomsToUse=sorted(atoms), bondsToUse=bonds or None, canonical=True)
+                    found[f"bit_{bit}"] = {
+                        "smiles": Chem.MolFragmentToSmiles(
+                            mol, atomsToUse=sorted(atoms), bondsToUse=bonds or None, canonical=True),
+                        "molblock": Chem.MolToMolBlock(mol), "atoms": sorted(atoms), "bonds": bonds,
+                    }
                 if len(found) == len(wanted):
                     break
         return found

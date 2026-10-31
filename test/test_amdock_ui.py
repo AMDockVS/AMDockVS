@@ -906,3 +906,30 @@ def test_charts_repaint_their_background_on_theme_change():
     color = view.grab().toImage().pixelColor(60, 40)
     view.close()
     assert color == app.palette().color(QPalette.Window)
+
+
+def test_feature_importance_labels_sit_on_the_bars_and_hovering_a_row_previews_it():
+    import pyqtgraph as pg
+    from amdockvs.ui.tools.qsar.chart import QSARChartDockWidget
+    from ms_components.ms_dockwidget.widget import DockManager
+
+    app = QApplication.instance() or QApplication([])
+    window = QMainWindow()
+    dock = QSARChartDockWidget("Chart", DockManager(window), window)
+    window.setCentralWidget(dock)
+    window.resize(500, 500)
+    window.show()
+    shown = []
+    dock.show_hover_structure = shown.append
+    dock.show_hbars("t", ["bit_1 · CC", "bit_2 · N"], [3.0, 1.0], images=[b"top", b""])
+    app.processEvents()
+    plot = dock.chart_plot.getPlotItem()
+    assert not plot.getAxis("left").isVisible()
+    assert sorted(i.toPlainText() for i in plot.items if isinstance(i, pg.TextItem)) == ["bit_1 · CC", "bit_2 · N"]
+    view = plot.getViewBox()
+    dock._on_chart_mouse(view.mapViewToScene(pg.Point(1.0, 1.0)))  # bar 0 sits at the top (y=1)
+    dock._on_chart_mouse(view.mapViewToScene(pg.Point(0.5, 0.0)))  # bar 1 has no image
+    assert shown == [b"top"] and dock._hovered_bar == -1
+    dock.show_distribution_bins("x", ["a"], [1])
+    assert plot.getAxis("left").isVisible() and dock._bar_images == []
+    window.close()

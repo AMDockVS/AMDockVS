@@ -172,6 +172,18 @@ def test_qsar_from_activities_to_a_filtered_library(tmp_path, monkeypatch):
         copied = {row["molecule_id"]: row["value"] for row in runtime.qsar.prediction_rows(model=int(imported["model"].id))}
         assert copied == pytest.approx(predicted)
 
+        # an ECFP4 model names its top bits by the fragment that sets them, inside a training molecule
+        ecfp = runtime.qsar.train(endpoint=ENDPOINT, molecule_set=training, algorithm="random_forest",
+                                  task="regression", feature_source="ecfp4", name="ecfp")
+        top = [name for name, _v in ecfp.metrics["feature_importance"][:5]]
+        fragments = runtime.qsar.bit_fragments(model=ecfp, bits=top)
+        assert fragments and set(fragments) <= set(top)
+        for fragment in fragments.values():
+            mol = Chem.MolFromMolBlock(fragment["molblock"])
+            assert fragment["atoms"] and max(fragment["atoms"]) < mol.GetNumAtoms()
+            assert Chem.MolFragmentToSmiles(mol, atomsToUse=fragment["atoms"], bondsToUse=fragment["bonds"] or None,
+                                            canonical=True) == fragment["smiles"]
+
         # e. the Predictions view as a filter
         window = AMDockVSMainWindow(runtime=runtime)
         window.show()

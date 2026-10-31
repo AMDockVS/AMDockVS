@@ -71,6 +71,16 @@ class QSARChartDockWidget(MSDockWidget):
         self.stack.addWidget(self.chart_plot)
         self.stack.addWidget(self.universe_view)
         self.setWidget(self.stack)
+        self._bar_images: list[bytes] = []  # show_hbars hover previews, bar 0 at the top
+        self._hovered_bar = -1
+        self.chart_plot.scene().sigMouseMoved.connect(self._on_chart_mouse)
+        self.chart_plot.viewport().installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Leave and obj is self.chart_plot.viewport():
+            self._hovered_bar = -1
+            self.hide_hover_structure()
+        return super().eventFilter(obj, event)
 
     @staticmethod
     def _color(index: int, total: int):
@@ -84,6 +94,8 @@ class QSARChartDockWidget(MSDockWidget):
         plot.clear()
         self._chart_legend.clear()
         plot.setTitle(None)
+        plot.showAxis("left")  # show_hbars hides it
+        self._bar_images, self._hovered_bar = [], -1
         for name in ("left", "bottom"):
             plot.getAxis(name).setTicks(None)
             plot.getAxis(name).showLabel(False)  # a previous chart's "Count" must not stay
@@ -130,15 +142,22 @@ class QSARChartDockWidget(MSDockWidget):
         plot.setLabel("bottom", x_title)
         plot.setLabel("left", "Molecules")
 
-    def show_hbars(self, title: str, labels, values, x_title: str = "") -> None:
-        """Horizontal bar chart (feature importance): labels top→bottom, biggest first."""
+    def show_hbars(self, title: str, labels, values, x_title: str = "", *, images=None) -> None:
+        """Horizontal bar chart (feature importance): labels top→bottom, biggest first, each written
+        above its bar (no left axis, so long labels don't eat the bars' width). ``images`` = one PNG
+        per bar, shown while the cursor is over that bar's row."""
         plot = self._chart()
         labels = list(labels)
         values = [float(v) for v in values]
+        plot.hideAxis("left")
         if values:
             ys = list(range(len(values) - 1, -1, -1))  # index 0 at the top
-            plot.addItem(pg.BarGraphItem(x0=0, y=ys, height=0.7, width=values, brush=pg.mkBrush(_SINGLE), pen=None))
-            plot.getAxis("left").setTicks([[(ys[i], str(labels[i])) for i in range(len(labels))]])
+            plot.addItem(pg.BarGraphItem(x0=0, y=ys, height=0.5, width=values, brush=pg.mkBrush(_SINGLE), pen=None))
+            for y, text in zip(ys, labels):
+                item = pg.TextItem(str(text), color=_AXIS_GREY, anchor=(0, 1))
+                item.setPos(0, y + 0.25)  # sits on the bar's top edge
+                plot.addItem(item)
+            self._bar_images = list(images or [])
         plot.setLabel("bottom", x_title or "importance")
         plot.setTitle(title, color=_AXIS_GREY)
 
@@ -322,6 +341,24 @@ class QSARChartDockWidget(MSDockWidget):
                 return
         self.universeHovered.emit(-1)  # left every marker → owner hides the preview
 
+    def _on_chart_mouse(self, pos) -> None:
+        """Hovering a feature-importance row previews its bit's structure (show_hbars images)."""
+        if not self._bar_images:
+            return
+        view = self.chart_plot.getPlotItem().getViewBox()
+        index = -1
+        if view.sceneBoundingRect().contains(pos):
+            index = len(self._bar_images) - 1 - round(view.mapSceneToView(pos).y())  # bar 0 at the top
+        if not 0 <= index < len(self._bar_images) or not self._bar_images[index]:
+            index = -1
+        if index == self._hovered_bar:
+            return
+        self._hovered_bar = index
+        if index < 0:
+            self.hide_hover_structure()
+        else:
+            self.show_hover_structure(self._bar_images[index])
+
     def show_hover_structure(self, png_bytes: bytes) -> None:
         pixmap = QPixmap()
         if not png_bytes or not pixmap.loadFromData(png_bytes, "PNG"):
@@ -356,14 +393,17 @@ def _flat(molblock: str):
     return mol
 
 
-def render_structure_png(molblock: str, *, legend: str = "", size: tuple[int, int] = (240, 210)) -> bytes:
+def render_structure_png(molblock: str, *, legend: str = "", size: tuple[int, int] = (240, 210),
+                         highlight_atoms=None, highlight_bonds=None) -> bytes:
     """Plain 2-D depiction of a molecule (native RDKit Cairo, no model weights), with an optional
-    caption under it — the hover preview, so all the hover info lives in this one image."""
+    caption under it — the hover preview, so all the hover info lives in this one image. The
+    highlight indices mark a substructure (a fingerprint bit's environment)."""
     from rdkit.Chem.Draw import rdMolDraw2D
 
     mol = _flat(molblock)
     drawer = rdMolDraw2D.MolDraw2DCairo(*size)
-    rdMolDraw2D.PrepareAndDrawMolecule(drawer, mol, legend=str(legend))
+    rdMolDraw2D.PrepareAndDrawMolecule(drawer, mol, legend=str(legend), highlightAtoms=highlight_atoms,
+                                       highlightBonds=highlight_bonds)
     drawer.FinishDrawing()
     return drawer.GetDrawingText()
 

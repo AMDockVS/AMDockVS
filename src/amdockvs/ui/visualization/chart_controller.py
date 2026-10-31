@@ -72,14 +72,15 @@ class ChartController:
         self._chart.show_distribution_bins(endpoint or "value", labels, counts)
         self._show()
 
-    def show_feature_importance(self, label: str, pairs) -> None:
-        """pairs = [(feature, importance), ...] (already sorted). Horizontal bars in PyMOL's region."""
+    def show_feature_importance(self, label: str, pairs, images=None) -> None:
+        """pairs = [(feature, importance), ...] (already sorted). Horizontal bars in PyMOL's region;
+        ``images`` = one hover PNG per pair (b"" for none)."""
         if self._chart is None or not pairs:
             return
         pairs = list(pairs)[:15]  # already biggest-first; show_hbars renders index 0 at the top
         self._chart.show_hbars(
             f"Feature importance ({label})" if label else "Feature importance",
-            [p[0] for p in pairs], [p[1] for p in pairs], "Importance",
+            [p[0] for p in pairs], [p[1] for p in pairs], "Importance", images=images,
         )
         self._show()
 

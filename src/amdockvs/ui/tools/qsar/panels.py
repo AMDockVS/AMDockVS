@@ -875,11 +875,17 @@ class QSARModelsWidget(QWidget):
             show(label, pairs)
             return
 
-        def _done(fragments: dict[str, str]):
-            show(label, [(f"{n} · {fragments[n]}" if n in fragments else n, v) for n, v in pairs])
+        def _compute():
+            from amdockvs.ui.tools.qsar.chart import render_structure_png
 
-        run_async(lambda: self.runtime.qsar.bit_fragments(model=int(model.id), bits=[n for n, _v in pairs]),
-                  self._latest(_done), on_error=self._latest(lambda _e: show(label, pairs)))
+            fragments = self.runtime.qsar.bit_fragments(model=int(model.id), bits=[n for n, _v in pairs])
+            images = [render_structure_png(f["molblock"], legend=f["smiles"], highlight_atoms=f["atoms"],
+                                           highlight_bonds=f["bonds"]) if f else b""
+                      for f in (fragments.get(n) for n, _v in pairs)]
+            return [(f"{n} · {fragments[n]['smiles']}" if n in fragments else n, v) for n, v in pairs], images
+
+        run_async(_compute, self._latest(lambda result: show(label, *result)),
+                  on_error=self._latest(lambda _e: show(label, pairs)))
 
     def _show_roc(self, models) -> None:
         show = getattr(self.window(), "show_roc_curves", None)
