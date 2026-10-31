@@ -37,8 +37,10 @@ from ms_components.ms_dockwidget.widget import Behavior, DockManager, MSDockWidg
 from ms_components.ms_executors import ExecutorsPanel
 from ms_components.ms_pymol.widget import PymolDockWidget
 from amdockvs.ui.view_ids import (
+    CLUSTERS_VIEW_ID,
     COMPLEX_PAIRS_VIEW_ID,
     COMPLEXES_VIEW_ID,
+    LIGAND_ACTIVITY_VIEW_ID,
     LIGANDS_VIEW_ID,
     OFFTARGET_VIEW_ID,
     QSAR_ANALYSIS_VIEW_ID,
@@ -50,6 +52,14 @@ from amdockvs.ui.view_ids import (
 
 # Views whose rows are docked poses: the 2D interaction diagram only has something to show there.
 _RESULT_VIEW_IDS = frozenset({COMPLEXES_VIEW_ID, OFFTARGET_VIEW_ID, REDOCKING_VIEW_ID})
+# Viewer docks with nothing to show outside the views that feed them: their rail button is
+# disabled elsewhere, with a hint on where their content comes from. PyMOL is always on.
+_VIEWER_DOCK_SOURCES = {
+    "diagram": (_RESULT_VIEW_IDS, "pick a complex in Docking Results, Off-target or Redocking"),
+    "qsar_chart": (frozenset({LIGAND_ACTIVITY_VIEW_ID, CLUSTERS_VIEW_ID, QSAR_ANALYSIS_VIEW_ID}),
+                   "open Activity, Clusters or QSAR Analysis"),
+    "qsar_glow": (frozenset({QSAR_ANALYSIS_VIEW_ID}), "pick a molecule in QSAR Analysis"),
+}
 
 
 def _pymol_disabled() -> bool:
@@ -191,6 +201,7 @@ class AMDockVSMainWindow(QMainWindow):
         # complementary 2D view starts with the same height as PyMOL.
         self.dock_manager.buttons["diagram"].toggled.connect(self._on_diagram_toggled)
         self.dock_manager.buttons["qsar_glow"].toggled.connect(self._on_diagram_toggled)
+        self._sync_viewer_docks_to_view("")  # no view yet: only PyMOL has something to show
         self.monitor_bridge.start()
         self.monitor_bridge.request_refresh()
 
@@ -539,9 +550,10 @@ class AMDockVSMainWindow(QMainWindow):
     def _on_current_view_changed(self, view_id: str) -> None:
         self.viewer.hide_grid_panel()
         self.aux.set_occupant()  # the tab on screen may own the auxiliary panel
+        self._sync_diagram_to_view(view_id)  # parks an open diagram before it is disabled
+        self._sync_viewer_docks_to_view(view_id)  # before the charts reopen theirs
         self.charts.sync_to_active_view(view_id)
         self.viewer.sync_to_active_view(view_id)
-        self._sync_diagram_to_view(view_id)
         # Switching tabs changes whether a jobs surface is on screen, so the status
         # bar indicator (the always-visible fallback) has to be re-evaluated.
         self.jobs.update_jobs_statusbar()
@@ -552,6 +564,18 @@ class AMDockVSMainWindow(QMainWindow):
 
         for page in self.findChildren(DockingResultsWidget):
             page.diagram_saved(result_id)
+
+    def _sync_viewer_docks_to_view(self, view_id: str) -> None:
+        """Disable the rail button of a viewer dock the current view cannot feed (it would show
+        stale content from another view), closing the dock if it was open."""
+        for dock_id, (views, hint) in _VIEWER_DOCK_SOURCES.items():
+            button = self.dock_manager.buttons[dock_id]
+            fed = str(view_id) in views
+            if not fed and button.isChecked():
+                self.dock_manager.toggle(dock_id, False)
+            title = self.dock_manager.docks[dock_id].windowTitle()
+            button.setEnabled(fed)
+            button.setToolTip(title if fed else f"{title}: nothing to show here — {hint}")
 
     def _sync_diagram_to_view(self, view_id: str) -> None:
         """The 2D diagram follows the results views: it hides when the user leaves them and

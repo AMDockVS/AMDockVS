@@ -87,6 +87,35 @@ def test_2d_diagram_and_pymol_are_split_evenly_when_both_are_visible():
     window.close()
 
 
+def test_viewer_docks_are_disabled_on_views_that_cannot_feed_them():
+    from types import SimpleNamespace
+
+    from PySide6.QtWidgets import QToolButton
+
+    from amdockvs.ui.view_ids import COMPLEXES_VIEW_ID, QSAR_ANALYSIS_VIEW_ID
+
+    QApplication.instance() or QApplication(["amdockvs-viewer-docks-test"])
+    ids = ("diagram", "qsar_chart", "qsar_glow")
+    buttons = {dock_id: QToolButton(checkable=True) for dock_id in ids}
+    closed = []
+    manager = SimpleNamespace(
+        buttons=buttons,
+        docks={dock_id: QWidget(windowTitle=dock_id) for dock_id in ids},
+        toggle=lambda dock_id, on: (closed.append(dock_id), buttons[dock_id].setChecked(on)),
+    )
+    window = SimpleNamespace(dock_manager=manager)
+    buttons["diagram"].setChecked(True)  # the last complex's diagram, still open
+
+    AMDockVSMainWindow._sync_viewer_docks_to_view(window, QSAR_ANALYSIS_VIEW_ID)
+    assert closed == ["diagram"]
+    assert {i: b.isEnabled() for i, b in buttons.items()} == {"diagram": False, "qsar_chart": True, "qsar_glow": True}
+    assert "Docking Results" in buttons["diagram"].toolTip()
+
+    AMDockVSMainWindow._sync_viewer_docks_to_view(window, COMPLEXES_VIEW_ID)
+    assert {i: b.isEnabled() for i, b in buttons.items()} == {"diagram": True, "qsar_chart": False, "qsar_glow": False}
+    assert buttons["diagram"].toolTip() == "diagram"
+
+
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
 def test_amdock_ui_smoke_instantiates_without_project(tmp_path, monkeypatch):
     _patch_fake_home(monkeypatch, tmp_path)
