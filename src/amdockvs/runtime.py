@@ -362,7 +362,8 @@ class AMDockVSRuntime(AppRuntime):
     def _rebuild_qsar_tables(self) -> None:
         """`qsar_models` without the registry columns (before 2026-10-30) is dropped and made again,
         with its predictions: those models kept their split in a JSON blob the diagnostics no longer
-        read. Their files stay on disk; the models have to be trained again."""
+        read. Their files stay on disk; the models have to be trained again. A newer table that
+        only lacks ``ad_similarity`` gets the column."""
         from amdockvs.models import QSARModelMemberRecord, QSARModelRecord, QSARPredictionRecord
 
         db = self.workspace.project_db
@@ -370,6 +371,10 @@ class AMDockVSRuntime(AppRuntime):
             conn = session.connection()
             columns = conn.exec_driver_sql(f"PRAGMA table_info({TABLE_QSAR_MODELS});").fetchall()
             if "task" in {str(row[1]) for row in columns}:
+                predictions = conn.exec_driver_sql(f"PRAGMA table_info({TABLE_QSAR_PREDICTIONS});").fetchall()
+                if "ad_similarity" not in {str(row[1]) for row in predictions}:  # added 2026-10-31
+                    conn.exec_driver_sql(f"ALTER TABLE {TABLE_QSAR_PREDICTIONS} ADD COLUMN ad_similarity FLOAT")
+                    session.commit()
                 return
             for table in (TABLE_QSAR_PREDICTIONS, TABLE_QSAR_MODEL_MEMBERS, TABLE_QSAR_MODELS):
                 conn.exec_driver_sql(f"DROP TABLE IF EXISTS {table}")

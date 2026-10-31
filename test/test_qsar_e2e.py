@@ -5,9 +5,11 @@ b. pick a diverse, activity-spanning training set (Diversity)
 c. train and evaluate several models on it (scaffold split + CV)
 e. from the Predictions view, keep a top-N / a cutoff and exclude the rest
 """
+import json
 import sys
 import time
 import uuid
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -142,6 +144,33 @@ def test_qsar_from_activities_to_a_filtered_library(tmp_path, monkeypatch):
         assert (cut["kept"], cut["rest"], cut["excluded"], cut["ids"]) == (5, len(by_name) - 5, 0, best_first[:3])
         lowest = runtime.qsar.cut_predictions(model=best, top_n=2, higher_is_better=False, ids_limit=9)
         assert lowest["ids"] == sorted(predicted, key=lambda i: (predicted[i], i))[:2]
+
+        # the applicability domain travels with each prediction; the other model (same training
+        # set, no predictions) measures it from the stored fingerprints, and they agree
+        stored = {row["molecule_id"]: row["ad_similarity"] for row in runtime.qsar.prediction_rows(model=best)}
+        assert all(value is not None for value in stored.values())
+        other = next(mid for mid in scores if mid != best)
+        measured_ad = {row["molecule_id"]: row["similarity"] for row in runtime.qsar.applicability_domain(model=other)}
+        assert measured_ad.keys() == stored.keys()
+        assert all(abs(measured_ad[mid] - stored[mid]) < 1e-6 for mid in stored)
+
+        # a model leaves as a bundle and comes back once; without its identity it comes back as a
+        # copy that finds every member and predicts the same
+        bundle = runtime.qsar.export_model(model=best, path=tmp_path / "best.zip")
+        assert runtime.qsar.import_model(path=bundle)["existing"]
+        with zipfile.ZipFile(bundle) as source:
+            data = json.loads(source.read("bundle.json"))
+            data["model"]["metrics"].pop("identity")
+            with zipfile.ZipFile(tmp_path / "copy.zip", "w") as copy:
+                copy.writestr("bundle.json", json.dumps(data))
+                copy.writestr("model.joblib", source.read("model.joblib"))
+        imported = runtime.qsar.import_model(path=tmp_path / "copy.zip", name="copy")
+        assert (imported["existing"], imported["unmatched"]) == (False, 0)
+        assert imported["members"] == len(runtime.qsar.model_subsets(model=best))
+        assert runtime.qsar.model_subsets(model=imported["model"].id) == runtime.qsar.model_subsets(model=best)
+        runtime.qsar.predict(model=int(imported["model"].id))
+        copied = {row["molecule_id"]: row["value"] for row in runtime.qsar.prediction_rows(model=int(imported["model"].id))}
+        assert copied == pytest.approx(predicted)
 
         # e. the Predictions view as a filter
         window = AMDockVSMainWindow(runtime=runtime)

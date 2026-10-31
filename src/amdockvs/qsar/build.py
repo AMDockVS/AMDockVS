@@ -16,9 +16,11 @@ import numpy as np
 
 from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR
 from amdockvs.core.normalize import PathLike
-from amdockvs.models import QSARModelRecord
+from amdockvs.core.vocab import ReprType
+from amdockvs.models import MoleculeRecord, MoleculeRepresentation, QSARModelMemberRecord, QSARModelRecord
 from amdockvs.molecules.scopes import MoleculeScope
-from amdockvs.project.sets import MoleculeSetRef
+from amdockvs.project.sets import MoleculeSetRef, QSARModelRef
+from amdockvs.qsar.activities import _structural_keys_from_row
 from amdockvs.qsar.features import fingerprint_matrix, rdkit2d_blocks
 from amdockvs.qsar.jobs import TrainJobParams, train_models_job
 from amdockvs.qsar.modeling import load_model, require_sklearn, save_model, supported_algorithms
@@ -26,6 +28,7 @@ from amdockvs.qsar.splitters import NEEDS_STRUCTURES, SPLITTERS, assign_split, m
 from amdockvs.qsar.training import feature_type_of
 
 FEATURE_SOURCES = ("rdkit2d", "ecfp4")
+BUNDLE_FORMAT = "amdockvs-qsar-model/1"
 
 
 def feature_kind_of(feature_source: str) -> str:
@@ -206,16 +209,18 @@ class BuildMixin:
         if not specs:
             return request
 
+        # every model stores its applicability domain in ECFP bits (its own, or ECFP4 for rdkit2d)
+        ad_radius, ad_nbits = (fp_radius, fp_nbits) if kind == "ecfp4" else (2, 2048)
         with self.runtime.workspace.project_db.get_session() as session:
+            have = set(fingerprint_matrix(session, ids, radius=ad_radius, nbits=ad_nbits))
             if kind == "rdkit2d":
-                have = set(rdkit2d_blocks(session, ids))
-            else:
-                have = set(fingerprint_matrix(session, ids, radius=fp_radius, nbits=fp_nbits))
+                have &= set(rdkit2d_blocks(session, ids))
         missing = [mid for mid in ids if mid not in have]
         if missing:
             request["descriptor_job_id"] = self.runtime.qsar.compute_descriptors(
-                molecule_ids=missing, rdkit2d=kind == "rdkit2d", compute_fingerprints=kind == "ecfp4",
-                fp_radius=fp_radius, fp_nbits=fp_nbits, executor_name=executor_name,
+                molecule_ids=missing, only_missing=False,  # missing: the block, the bits or both
+                rdkit2d=kind == "rdkit2d", compute_fingerprints=True,
+                fp_radius=ad_radius, fp_nbits=ad_nbits, executor_name=executor_name,
             )
         # ponytail: the split file stays in tmp/qsar; a few KB per training.
         data_path = self._project_root() / "tmp" / "qsar" / f"split_{specs[0]['identity'][:16]}.npz"
@@ -303,6 +308,73 @@ class BuildMixin:
             session.add(record)
             session.flush()
             return self._store_artifact(session, record, fitted)
+
+    def export_model(self, *, model: QSARModelRef | int, path: PathLike) -> Path:
+        """One model as a zip bundle: the fitted model, its registry row and its members keyed by
+        InChIKey, so ``import_model`` in another project finds the same molecules again."""
+        import zipfile
+
+        from sqlmodel import select
+
+        self.runtime._require_active_project()
+        model_id = self._model_id(model)
+        out = Path(path).expanduser()
+        with self.runtime.workspace.project_db.get_session() as session:
+            record = session.get(QSARModelRecord, model_id)
+            if record is None:
+                raise ValueError(f"Unknown QSAR model id: {model_id}")
+            members = session.exec(select(QSARModelMemberRecord).where(QSARModelMemberRecord.model_id == model_id)).all()
+            keys = dict(session.exec(
+                select(MoleculeRepresentation.molecule_id, MoleculeRepresentation.value)
+                .where(MoleculeRepresentation.repr_type == ReprType.INCHI_KEY)
+                .where(MoleculeRepresentation.molecule_id.in_(
+                    select(QSARModelMemberRecord.molecule_id).where(QSARModelMemberRecord.model_id == model_id)))
+            ).all())
+            for mid in {int(m.molecule_id) for m in members} - set(keys):  # a library row has no identity yet
+                keys[mid] = _structural_keys_from_row(self.runtime.workspace.project_db,
+                                                      session.get(MoleculeRecord, mid))[1]
+            row = record.model_dump(exclude={"id", "model_path", "created_at"})
+            rows = [{**m.model_dump(exclude={"model_id", "molecule_id"}), "inchikey": keys.get(int(m.molecule_id))}
+                    for m in members]
+        with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as bundle:
+            bundle.writestr("bundle.json", json.dumps({"format": BUNDLE_FORMAT, "model": row, "members": rows}))
+            bundle.write(self._project_root() / record.model_path, "model.joblib")
+        return out
+
+    def import_model(self, *, path: PathLike, name: str = "") -> dict[str, Any]:
+        """A bundle written by ``export_model``. Its members are matched to this project's molecules
+        by InChIKey; the ones not here are left out (the model still predicts, its diagnostics show
+        fewer points). A model this project already has (same identity) is not imported twice.
+        The fitted model is a pickle: import only bundles you trust.
+        Returns {"model": record, "members": n matched, "unmatched": n, "existing": bool}."""
+        import tempfile
+        import zipfile
+
+        self.runtime._require_active_project()
+        with zipfile.ZipFile(Path(path).expanduser()) as bundle:
+            data = json.loads(bundle.read("bundle.json"))
+            if data.get("format") != BUNDLE_FORMAT:
+                raise ValueError(f"Not an AMDockVS QSAR model bundle: {path}")
+            with tempfile.TemporaryDirectory() as tmp:
+                fitted = load_model(bundle.extract("model.joblib", tmp))
+        row, members = dict(data["model"]), list(data["members"])
+        identity = (row.get("metrics") or {}).get("identity")
+        for record in self.list_models() if identity else ():
+            if (record.metrics or {}).get("identity") == identity:
+                return {"model": record, "members": 0, "unmatched": 0, "existing": True}
+        with self.runtime.workspace.project_db.get_session() as session:
+            found = self._structural_ligand_index(session)[0]
+            record = QSARModelRecord(**{**row, "name": str(name or row.get("name") or Path(path).stem)})
+            session.add(record)
+            session.flush()
+            matched = {found[m["inchikey"]]: m for m in members if m.get("inchikey") in found}  # one row a molecule
+            session.add_all(
+                QSARModelMemberRecord(**{k: v for k, v in m.items() if k != "inchikey"},
+                                      model_id=int(record.id), molecule_id=int(mid))
+                for mid, m in matched.items()
+            )
+            record = self._store_artifact(session, record, fitted)
+        return {"model": record, "members": len(matched), "unmatched": len(members) - len(matched), "existing": False}
 
     def correlation_matrix(
         self,

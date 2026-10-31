@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
+    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -33,7 +34,7 @@ from PySide6.QtWidgets import (
 from amdockvs.models import MoleculeRecord, QSARModelRecord
 from amdockvs.qsar.build import FEATURE_SOURCES
 from amdockvs.qsar.model_analysis import member_columns, member_scope, model_scores
-from amdockvs.qsar.modeling import supported_algorithms
+from amdockvs.qsar.modeling import AD_K, AD_THRESHOLD, supported_algorithms
 from amdockvs.qsar.splitters import SPLITTERS
 from amdockvs.ui.catalog.common import (
     PREVIEW_2D_COLUMN_FIELD,
@@ -415,7 +416,22 @@ def _models_config() -> TableConfig:
     )
 
 
-def _members_config(runtime, model_id: int, subset: str) -> tuple[TableConfig, object]:
+def _empty_subset(record, subset: str) -> str:
+    """Why a model has no molecules in ``subset``."""
+    if record is None:
+        return "Select a model to list its molecules."
+    metrics = record.metrics or {}
+    if subset == "cv":
+        return ("No out-of-fold predictions: " + str(metrics["cv_warning"]) if metrics.get("cv_warning")
+                else "This model was not cross-validated (CV folds = 0).")
+    if subset == "test":
+        return "This model has no holdout test set (test fraction = 0)."
+    if record.source == "external":
+        return "An external model records no molecules; evaluate it on labeled ones."
+    return "No molecules in this subset."
+
+
+def _members_config(runtime, model_id: int, subset: str, empty: str = "") -> tuple[TableConfig, object]:
     """(config, clause): the molecules of one model in ``subset``, with what the model said about
     them. Built per model: the values are subqueries on that model's member rows."""
     values = member_columns(model_id, subset)
@@ -435,7 +451,7 @@ def _members_config(runtime, model_id: int, subset: str) -> tuple[TableConfig, o
         ],
         load_mode=TableLoadMode.INFINITE,
         multi_select=False,
-        empty_message="Select a model to list its molecules.",
+        empty_message=empty or "Select a model to list its molecules.",
     )
     return config, member_scope(model_id, subset)
 
@@ -451,7 +467,8 @@ class QSARModelsWidget(QWidget):
         self._job_status: dict[str, str] = {}
         self._to_select: set[str] = set()  # identities to select once they are stored
         self._selected_ids: set[int] = set()
-        self._reloading = False  # a reload clears the table's selection: keep ours meanwhile
+        self._reloading = True  # a reload clears the table's selection: keep ours meanwhile
+        self._pick_first = True  # the first load selects the newest model
         self._member_values: dict[int, dict] = {}
         self._members_key = None
         self._chart: str | None = None  # the chart last drawn: it follows the selection
@@ -465,6 +482,18 @@ class QSARModelsWidget(QWidget):
         self.training_line.setWordWrap(True)
         self.training_line.hide()
         layout.addWidget(self.training_line)
+        bundles = QHBoxLayout()
+        bundles.addStretch(1)
+        for text, tip, slot in (
+            ("Import model…", "Add a model exported from AMDockVS (a .zip bundle).", self._import_model),
+            ("Export model…", "Save the selected model as a .zip bundle another project can import.",
+             self._export_model),
+        ):
+            button = QPushButton(text, self)
+            button.setToolTip(tip)
+            button.clicked.connect(slot)
+            bundles.addWidget(button)
+        layout.addLayout(bundles)
         self.models_table = project_table(runtime, _models_config(), self)
         self.models_table.setMaximumHeight(240)
         self.models_table.selection_changed.connect(self._on_selection)
@@ -518,6 +547,46 @@ class QSARModelsWidget(QWidget):
         self._update_action_state()
         return bar
 
+    # --- bundles --------------------------------------------------------------
+    def _export_model(self) -> None:
+        models = self._selected_models()
+        if len(models) != 1:
+            QMessageBox.information(self, "QSAR", "Select one model to export.")
+            return
+        model = models[0]
+        path, _ = QFileDialog.getSaveFileName(self, "Export QSAR model", f"{model.name}.zip", "Model bundles (*.zip)")
+        if not path:
+            return
+        run_async(lambda: self.runtime.qsar.export_model(model=int(model.id), path=path),
+                  lambda out: self.status.setText(f"Model #{model.id} exported to {out}."),
+                  on_error=lambda exc: QMessageBox.warning(self, "Export QSAR model", str(exc)))
+
+    def _import_model(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, "Import QSAR model", "", "Model bundles (*.zip)")
+        if not path:
+            return
+        # warn, do not block: joblib runs code while loading
+        if QMessageBox.question(
+            self, "Import QSAR model",
+            "A model bundle holds a pickled model: loading it can run code. Import it only if you trust "
+            "where it came from.\n\nImport it?",
+        ) != QMessageBox.Yes:
+            return
+
+        def _done(result):
+            model = result["model"]
+            if result["existing"]:
+                text = f"This project already has that model: #{model.id} {model.name}."
+            else:
+                text = f"Imported #{model.id} {model.name}: {result['members']} molecule(s) found here"
+                text += f", {result['unmatched']} not in this project." if result["unmatched"] else "."
+            self.status.setText(text)
+            self._selected_ids = {int(model.id)}
+            self.refresh()
+
+        run_async(lambda: self.runtime.qsar.import_model(path=path), _done,
+                  on_error=lambda exc: QMessageBox.warning(self, "Import QSAR model", str(exc)))
+
     # --- the table ------------------------------------------------------------
     def refresh(self) -> None:
         self._reloading = True
@@ -531,6 +600,7 @@ class QSARModelsWidget(QWidget):
         features, split): what it trains is selected as each model is stored."""
         self._to_select = set(request["identities"].values())
         self._selected_ids = set()
+        self._pick_first = False  # what it trains gets selected instead
         if request.get("job_id"):
             self._requests.append(request)
             self._poll.start()
@@ -599,6 +669,10 @@ class QSARModelsWidget(QWidget):
             if int(raw.id) in self._selected_ids or identity in self._to_select:
                 selection.select(model.index(r, 0), QItemSelectionModel.Select | QItemSelectionModel.Rows)
                 picked.add(identity)
+        if self._pick_first and model.rowCount() and model.index(0, 0).data(RAW_OBJECT_ROLE) is not None:
+            if not picked:
+                selection.select(model.index(0, 0), QItemSelectionModel.Select | QItemSelectionModel.Rows)
+            self._pick_first = False
         self._to_select -= picked
         self._reloading = False
         self._on_selection(self.models_table.get_selected_objects())
@@ -690,10 +764,8 @@ class QSARModelsWidget(QWidget):
         if self.members_table is not None:
             self.members_table.setParent(None)
             self.members_table.deleteLater()
-        if key is None:
-            config, clause = _members_config(self.runtime, -1, "test")
-        else:
-            config, clause = _members_config(self.runtime, *key)
+        config, clause = _members_config(self.runtime, *(key or (-1, "test")),
+                                         empty=_empty_subset(models[0] if models else None, subset))
         self.members_table = project_table(self.runtime, config, self)
         self.members_table.set_external_clause("model", clause)
         self.members_table.selection_changed.connect(lambda picked: picked and self._on_member(picked[0]))
@@ -749,9 +821,14 @@ class QSARModelsWidget(QWidget):
         return lambda *args: done(*args) if draw == self._draws else None
 
     def _redraw(self) -> None:
+        """The chart again, off the current selection; the task's own chart if none was drawn."""
         dock = getattr(self.window(), "qsar_chart_dock", None)
-        if self._chart and dock is not None and dock.isVisible():
-            self._draw(self._chart, quiet=True)
+        models = self._selected_models()
+        if dock is None or not dock.isVisible() or not models:
+            return
+        self._draw(self._chart or ("roc" if models[0].task == "classification" else "plot"), quiet=True)
+
+    restore_plot = _redraw  # the window calls it when the view comes back
 
     def _plot_fit(self, models) -> None:
         show = getattr(self.window(), "show_model_fit_series", None)
@@ -773,14 +850,15 @@ class QSARModelsWidget(QWidget):
                                    "color": index, "symbol": _SUBSET_SYMBOLS[role]})
             return series
 
-        run_async(
-            _compute,
-            self._latest(lambda series: (show(series), self.status.setText(
-                f"Observed vs predicted [{subset}]: "
-                + ", ".join(f"{s['label']} ({len(s['points'])})" for s in series)))),
-            on_error=lambda exc: QMessageBox.warning(self, "QSAR plot", str(exc)),
-            busy=self,
-        )
+        empty = _empty_subset(models[0], "test" if subset == "all" else subset)
+
+        def _done(series):
+            show(series, empty)
+            self.status.setText(f"Observed vs predicted [{subset}]: "
+                                + ", ".join(f"{s['label']} ({len(s['points'])})" for s in series)
+                                if series else empty)
+
+        run_async(_compute, self._latest(_done), on_error=lambda exc: QMessageBox.warning(self, "QSAR plot", str(exc)))
 
     def _show_importance(self, models) -> None:
         show = getattr(self.window(), "show_feature_importance", None)
@@ -801,7 +879,7 @@ class QSARModelsWidget(QWidget):
             show(label, [(f"{n} · {fragments[n]}" if n in fragments else n, v) for n, v in pairs])
 
         run_async(lambda: self.runtime.qsar.bit_fragments(model=int(model.id), bits=[n for n, _v in pairs]),
-                  self._latest(_done), on_error=self._latest(lambda _e: show(label, pairs)), busy=self)
+                  self._latest(_done), on_error=self._latest(lambda _e: show(label, pairs)))
 
     def _show_roc(self, models) -> None:
         show = getattr(self.window(), "show_roc_curves", None)
@@ -823,22 +901,19 @@ class QSARModelsWidget(QWidget):
 
         def _done(result):
             curves, failed = result
-            if curves:
-                show(curves)
+            show(curves, "No ROC curve: " + "; ".join(failed) if failed else "No ROC curve.")
             msg = f"ROC [{subset}]: " + ", ".join(c["label"] for c in curves) if curves else "No ROC curves produced."
             if failed:
                 msg += " | Skipped: " + "; ".join(failed)
             self.status.setText(msg)
 
-        run_async(_compute, self._latest(_done), on_error=lambda exc: QMessageBox.warning(self, "QSAR ROC", str(exc)),
-                  busy=self)
+        run_async(_compute, self._latest(_done), on_error=lambda exc: QMessageBox.warning(self, "QSAR ROC", str(exc)))
 
     def _show_ad(self, models) -> None:
         show = getattr(self.window(), "show_similarity_distribution", None)
         if show is None:
             return
         model_id = int(models[0].id)
-        self.status.setText("Computing applicability domain… (Tanimoto to training set)")
 
         def _work():
             from amdockvs.ui.tools.qsar.chart import histogram
@@ -851,9 +926,8 @@ class QSARModelsWidget(QWidget):
             self._latest(lambda res: (
                 show(f"#{model_id} Tanimoto to training set", res[0]),
                 self.status.setText(f"Applicability domain #{model_id}: {res[1]}/{res[2]} ligands in-domain "
-                                    f"(mean Tanimoto ≥ 0.3 to 5 nearest training molecules)."))),
+                                    f"(mean Tanimoto ≥ {AD_THRESHOLD} to {AD_K} nearest training molecules)."))),
             on_error=lambda exc: QMessageBox.warning(self, "QSAR applicability domain", str(exc)),
-            busy=self,
         )
 
 
@@ -873,8 +947,11 @@ class PredictionsWidget(QWidget):
         toolbar.addStretch(1)
         outer.addLayout(toolbar)
         outer.addLayout(self._cut_row())
-        self.table = QTableWidget(0, 4, self)
-        self.table.setHorizontalHeaderLabels(["Ligand id", "Name", "Predicted", "Confidence"])
+        self.table = QTableWidget(0, 5, self)
+        self.table.setHorizontalHeaderLabels(["Ligand id", "Name", "Predicted", "Confidence", "AD"])
+        self.table.horizontalHeaderItem(4).setToolTip(
+            f"Applicability domain: mean Tanimoto to the {AD_K} nearest training molecules. "
+            f"Below {AD_THRESHOLD} the prediction is an extrapolation.")
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.horizontalHeader().setStretchLastSection(True)
@@ -1011,7 +1088,9 @@ class PredictionsWidget(QWidget):
         self.table.setRowCount(len(rows))
         for r, row in enumerate(rows):
             conf = "" if row["confidence"] is None else f"{row['confidence']:.3f}"
-            for c, val in enumerate([row["molecule_id"], row["name"], f"{row['value']:.4f}", conf]):
+            ad = row["ad_similarity"]
+            ad_text = "" if ad is None else f"{ad:.2f}" + ("" if ad >= AD_THRESHOLD else " (out)")
+            for c, val in enumerate([row["molecule_id"], row["name"], f"{row['value']:.4f}", conf, ad_text]):
                 self.table.setItem(r, c, QTableWidgetItem(str(val)))
         glow = ("Select a row to glow the molecule." if self._current_model_id() in self._fp_models
                 else "Glowing needs a fingerprint (ECFP4) model.")
@@ -1217,6 +1296,9 @@ class QSARAnalysisWidget(QTabWidget):
         self.results.refresh()
 
     refresh_view = refresh
+
+    def restore_plot(self) -> None:
+        self.models.restore_plot()
 
     def show_trained(self, request: dict) -> None:
         self._chosen = True

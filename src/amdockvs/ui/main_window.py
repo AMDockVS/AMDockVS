@@ -625,11 +625,11 @@ class AMDockVSMainWindow(QMainWindow):
     def show_feature_importance(self, label: str, pairs) -> None:
         self.charts.show_feature_importance(label, pairs)
 
-    def show_roc_curves(self, curves) -> None:
-        self.charts.show_roc_curves(curves)
+    def show_roc_curves(self, curves, *empty) -> None:
+        self.charts.show_roc_curves(curves, *empty)
 
-    def show_model_fit_series(self, series) -> None:
-        self.charts.show_model_fit_series(series)
+    def show_model_fit_series(self, series, *empty) -> None:
+        self.charts.show_model_fit_series(series, *empty)
 
     def show_correlation_heatmap(self, label: str, labels, matrix) -> None:
         self.charts.show_correlation_heatmap(label, labels, matrix)

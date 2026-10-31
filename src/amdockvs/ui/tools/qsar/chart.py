@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QCursor, QGuiApplication, QPixmap
-from PySide6.QtWidgets import QLabel, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QCursor, QGuiApplication, QPalette, QPixmap
+from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QSizePolicy, QStackedWidget, QVBoxLayout, QWidget
 
 from ms_components.ms_dockwidget.widget import DockManager, MSDockWidget
 
@@ -368,49 +368,102 @@ def render_structure_png(molblock: str, *, legend: str = "", size: tuple[int, in
     return drawer.GetDrawingText()
 
 
-def render_glowing_png(molblock: str, weights, size: tuple[int, int] = (380, 320)) -> bytes:
-    """RDKit similarity-map PNG (native Cairo, no matplotlib) coloring per-atom contributions."""
+# (lowers, raises) per palette, as 0-1 RGB; the middle of the map is the window colour
+GLOW_PALETTES = {
+    "Green (+) / Red (−)": ((0.75, 0.16, 0.17), (0.16, 0.62, 0.16)),
+    "Orange (+) / Blue (−)": ((0.13, 0.40, 0.75), (0.93, 0.50, 0.05)),  # colour-blind safe
+    "Green (+) / Pink (−)": ((0.85, 0.25, 0.60), (0.20, 0.60, 0.20)),
+}
+
+
+def render_glowing_png(molblock: str, weights, size: tuple[int, int] = (380, 320), *,
+                       background=(1.0, 1.0, 1.0), palette: str = next(iter(GLOW_PALETTES))) -> bytes:
+    """RDKit similarity-map PNG (native Cairo, no matplotlib) coloring per-atom contributions on
+    ``background`` (0-1 RGB) over the whole canvas; a dark background draws the bonds light."""
     from rdkit.Chem.Draw import SimilarityMaps, rdMolDraw2D
 
     mol = _flat(molblock)
     drawer = rdMolDraw2D.MolDraw2DCairo(*size)
-    SimilarityMaps.GetSimilarityMapFromWeights(mol, list(weights), draw2d=drawer)
+    options = drawer.drawOptions()
+    if sum(background) < 1.5:
+        rdMolDraw2D.SetDarkMode(options)
+    options.setBackgroundColour((*background, 1.0))
+    lowers, raises = GLOW_PALETTES[palette]
+    SimilarityMaps.GetSimilarityMapFromWeights(mol, list(weights), draw2d=drawer,
+                                               colorMap=(lowers, tuple(background), raises))
     drawer.FinishDrawing()
     return drawer.GetDrawingText()
 
 
 class Glowing2DDockWidget(MSDockWidget):
     """2D structure with per-atom model contributions (StarDrop's glowing molecule). Shares
-    PyMOL's region — there is no 2D editor yet, this is read-only interpretability."""
-
-    LEGEND = (
-        "<b>Per-atom contribution to the model's prediction.</b><br>"
-        "<span style='color:#2a9d2a'>●</span> green = atom raises the predicted value "
-        "(e.g. more potent) &nbsp;·&nbsp; "
-        "<span style='color:#c0392b'>●</span> red = atom lowers it &nbsp;·&nbsp; "
-        "stronger color = bigger effect. This is what the model learned, not measured truth."
-    )
+    PyMOL's region — there is no 2D editor yet, this is read-only interpretability. It fills its
+    dock, on the app's window colour, in the palette picked above it."""
 
     def __init__(self, title: str, dock_manager: DockManager, parent: QWidget | None = None):
         super().__init__(title, dock_manager, parent)
+        self._shown = None  # (molblock, weights, caption): redrawn on resize, theme or palette
         container = QWidget(self)
         layout = QVBoxLayout(container)
         layout.setContentsMargins(4, 4, 4, 4)
+        self.palette_combo = QComboBox(container)
+        self.palette_combo.addItems(list(GLOW_PALETTES))
+        self.palette_combo.setToolTip("Colours of the atom contributions.")
+        self.palette_combo.currentIndexChanged.connect(lambda _i: self._render())
         self.label = QLabel("Select a model + ligand to show the glowing molecule.", container)
         self.label.setAlignment(Qt.AlignCenter)
         self.label.setWordWrap(True)
-        self.legend = QLabel(self.LEGEND, container)
+        self.label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)  # the pixmap follows the dock
+        self.legend = QLabel(container)
         self.legend.setWordWrap(True)
         self.legend.setTextFormat(Qt.RichText)
+        self.legend.setToolTip("Per-atom contribution to the model's prediction; stronger colour = bigger "
+                               "effect. This is what the model learned, not measured truth.")
+        bottom = QHBoxLayout()
+        bottom.addWidget(self.legend, 1)
+        bottom.addWidget(self.palette_combo)
         layout.addWidget(self.label, 1)
-        layout.addWidget(self.legend)
+        layout.addLayout(bottom)
         self.setWidget(container)
+        self._resize = QTimer(self)
+        self._resize.setSingleShot(True)
+        self._resize.setInterval(120)
+        self._resize.timeout.connect(self._render)
+        self._legend()
 
     def show_glowing(self, molblock: str, weights, caption: str = "") -> None:
+        self._shown = (molblock, list(weights), caption)
+        self._render()
+
+    def _legend(self) -> None:
+        lowers, raises = (QColor.fromRgbF(*c).name() for c in GLOW_PALETTES[self.palette_combo.currentText()])
+        self.legend.setText(f"<span style='color:{raises}'>●</span> raises the prediction &nbsp; "
+                            f"<span style='color:{lowers}'>●</span> lowers it")
+
+    def _render(self) -> None:
+        self._legend()
+        if self._shown is None:
+            return
+        molblock, weights, caption = self._shown
+        ratio = self.label.devicePixelRatioF()
+        size = (max(120, int(self.label.width() * ratio)), max(120, int(self.label.height() * ratio)))
+        window = self.label.palette().color(QPalette.Window)
         pixmap = QPixmap()
-        pixmap.loadFromData(render_glowing_png(molblock, weights), "PNG")
+        pixmap.loadFromData(render_glowing_png(molblock, weights, size, palette=self.palette_combo.currentText(),
+                                               background=(window.redF(), window.greenF(), window.blueF())), "PNG")
+        pixmap.setDevicePixelRatio(ratio)
         self.label.setPixmap(pixmap)
         self.label.setToolTip(caption)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt override
+        super().resizeEvent(event)
+        if self._shown is not None:
+            self._resize.start()
+
+    def changeEvent(self, event) -> None:  # noqa: N802 - Qt override
+        super().changeEvent(event)
+        if event.type() == QEvent.PaletteChange and self._shown is not None:
+            self._resize.start()  # the theme changed
 
 
 def _demo() -> None:

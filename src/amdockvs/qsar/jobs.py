@@ -303,7 +303,7 @@ def train_models_job(params: dict, config: dict | None = None) -> Iterator[dict]
     here, once, and handed to every model by file; a molecule still without them is left out."""
     import numpy as np
 
-    from amdockvs.qsar.features import design_matrix
+    from amdockvs.qsar.features import design_matrix, fingerprint_matrix
 
     parsed = TrainJobParams(**params)
     project_db = dict(config or {}).get("project_db")
@@ -315,6 +315,11 @@ def train_models_job(params: dict, config: dict | None = None) -> Iterator[dict]
             session, split["ids"].tolist(), kind=parsed.feature_kind, names=parsed.feature_names,
             fp_radius=parsed.fp_radius, fp_nbits=parsed.fp_nbits,
         )
+        is_test = dict(zip(split["ids"].tolist(), split["is_test"].tolist()))
+        train_ids = [mid for mid in kept if not is_test[mid]]
+        # the applicability domain is measured in the model's own bits, else in ECFP4
+        ad_radius, ad_nbits = (parsed.fp_radius, parsed.fp_nbits) if parsed.feature_kind == "ecfp4" else (2, 2048)
+        ad_fps = fingerprint_matrix(session, train_ids, radius=ad_radius, nbits=ad_nbits)
     if len(kept) < 2:
         raise ValueError(f"Only {len(kept)} of {split['ids'].size} labeled molecules have {parsed.feature_kind} "
                          "features; a model needs at least two.")
@@ -326,6 +331,10 @@ def train_models_job(params: dict, config: dict | None = None) -> Iterator[dict]
         ids=split["ids"][index], y=split["y"][index], is_test=split["is_test"][index],
         folds=split["folds"][index], groups=split["groups"][index] if split["groups"].size else split["groups"],
         names=np.asarray(names if parsed.feature_kind == "rdkit2d" else [], dtype=str),
+        # ponytail: a training molecule without a stored fingerprint is left out of the domain
+        ad_fp=np.packbits(np.asarray([ad_fps[mid] for mid in train_ids if mid in ad_fps], dtype=np.uint8)
+                          .reshape(-1, ad_nbits), axis=1),
+        ad_radius=ad_radius, ad_nbits=ad_nbits,
     )
     for spec in parsed.specs:
         yield {"data_path": worker_file(data_path), "spec": spec, "output_dir": worker_output_dir(parsed.output_dir)}
@@ -341,7 +350,7 @@ PREDICT_ROWS_OUTPUT = graph_sink(
         {
             "name": "qsar_predictions",
             "model": QSARPredictionRecord,
-            "columns": ["molecule_id", "model_id", "value", "confidence", "positive_probability"],
+            "columns": ["molecule_id", "model_id", "value", "confidence", "positive_probability", "ad_similarity"],
             "write_mode": "upsert",
             "conflict_keys": ["molecule_id", "model_id"],
             "validate_model": False,

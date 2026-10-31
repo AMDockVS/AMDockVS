@@ -4,6 +4,7 @@ import pytest
 from amdockvs.qsar.modeling import (
     classification_metrics,
     cross_validation_metrics,
+    domain_similarity,
     feature_importance,
     fit_model,
     load_model,
@@ -189,3 +190,11 @@ def test_linear_models_expose_signed_weights():
     weights = dict(feature_importance(model.estimator, model.feature_names))
     assert weights["up"] > 0 > weights["down"]
     assert abs(weights["noise_a"]) < abs(weights["down"])
+
+
+def test_domain_similarity_is_mean_tanimoto_to_the_k_nearest():
+    train = np.array([[1, 1, 0, 0], [1, 0, 0, 0], [0, 0, 1, 1]])
+    query = np.array([[1, 1, 0, 0], [0, 0, 0, 0]])
+    # to [1,1,0,0]: 1, 0.5, 0 -> the two nearest average 0.75; an empty query is like nothing
+    assert np.allclose(domain_similarity(train, query, k=2), [0.75, 0.0])
+    assert np.allclose(domain_similarity(train, query, k=99), [0.5, 0.0])  # k caps at the set size

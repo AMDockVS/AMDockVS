@@ -15,7 +15,7 @@ from amdockvs.project.sets import QSARModelRef
 class ResultsMixin:
     def shard_predictions(self, *, model: QSARModelRef | int):
         """A model's predictions over the library's shards, as a frame (key, value, confidence,
-        positive_probability).
+        positive_probability, ad_similarity).
         Only the active generation's shards are read: an older one is no longer the library.
 
         ponytail: the whole frame in RAM (~24 B/molecule, 2.4 GB at 10^8); a per-file top-N
@@ -30,8 +30,12 @@ class ResultsMixin:
         if not frames:
             return pd.DataFrame({"key": pd.Series(dtype="int64"), "value": pd.Series(dtype=float),
                                  "confidence": pd.Series(dtype=float),
-                                 "positive_probability": pd.Series(dtype=float)})
-        return pd.concat(frames, ignore_index=True)
+                                 "positive_probability": pd.Series(dtype=float),
+                                 "ad_similarity": pd.Series(dtype=float)})
+        frame = pd.concat(frames, ignore_index=True)
+        if "ad_similarity" not in frame:  # shards scored before the domain was stored
+            frame["ad_similarity"] = float("nan")
+        return frame
 
     def _is_classifier(self, model_id: int) -> bool:
         with self.runtime.workspace.project_db.get_session() as session:
@@ -69,7 +73,8 @@ class ResultsMixin:
         frame = frame.sort_values([score, "key"], ascending=[not higher_is_better, True])
         if top_n is not None:
             frame = frame.head(max(0, int(top_n)))
-        kept = list(frame[["key", "value", "confidence", "positive_probability"]].itertuples(index=False, name=None))
+        kept = list(frame[["key", "value", "confidence", "positive_probability", "ad_similarity"]]
+                    .itertuples(index=False, name=None))
         promoted = ShardStore(self.runtime.workspace.project_db).promote(int(key) for key, *_ in kept)
         ids = [promoted[key] for key, *_ in kept if key in promoted]
         with self.runtime.workspace.project_db.get_session() as session:
@@ -86,8 +91,9 @@ class ResultsMixin:
                     molecule_id=promoted[key], model_id=model_id, value=value,
                     confidence=None if confidence != confidence else float(confidence),  # NaN = none
                     positive_probability=None if probability != probability else float(probability),
+                    ad_similarity=None if domain != domain else float(domain),
                 )
-                for key, value, confidence, probability in kept if key in promoted
+                for key, value, confidence, probability, domain in kept if key in promoted
             )
             session.commit()
         return {"scored": scored, "kept": len(ids), "molecule_ids": ids}
@@ -111,7 +117,8 @@ class ResultsMixin:
 
     def prediction_rows(self, *, model: QSARModelRef | int) -> list[dict[str, Any]]:
         """Predictions joined with the ligand name, for the Predictions table:
-        [{molecule_id, name, value, confidence}] ordered by ligand id. Excluded ligands are left
+        [{molecule_id, name, value, confidence, positive_probability, ad_similarity}] ordered by
+        ligand id. Excluded ligands are left
         out, as in every other ligand listing."""
         self.runtime._require_active_project()
         model_id = self._model_id(model)
@@ -132,7 +139,8 @@ class ResultsMixin:
         return [
             {"molecule_id": int(r.molecule_id), "name": names[int(r.molecule_id)],
              "value": float(r.value), "confidence": None if r.confidence is None else float(r.confidence),
-             "positive_probability": None if r.positive_probability is None else float(r.positive_probability)}
+             "positive_probability": None if r.positive_probability is None else float(r.positive_probability),
+             "ad_similarity": r.ad_similarity}
             for r in rows if int(r.molecule_id) in names
         ]
 

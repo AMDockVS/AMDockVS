@@ -175,6 +175,9 @@ class QSARPrediction(SQLModel, table=True):
     value: float
     confidence: float | None = Field(default=None)
     positive_probability: float | None = Field(default=None)  # binary P(higher-valued class)
+    # mean Tanimoto to the model's nearest training molecules (applicability domain); None when
+    # the model stored no training fingerprints
+    ad_similarity: float | None = Field(default=None)
 
 
     @classmethod

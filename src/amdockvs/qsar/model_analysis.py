@@ -8,9 +8,10 @@ import numpy as np
 from sqlalchemy import func
 from sqlmodel import select
 
-from amdockvs.models import MoleculeRecord, QSARModelMemberRecord, QSARModelRecord
+from amdockvs.models import MoleculeRecord, QSARModelMemberRecord, QSARModelRecord, QSARPredictionRecord
 from amdockvs.molecules.scopes import MoleculeScope
 from amdockvs.project.sets import MoleculeSetRef, QSARModelRef
+from amdockvs.qsar.modeling import AD_K, AD_THRESHOLD, domain_similarity
 
 SUBSETS = ("all", "train", "test", "cv")
 
@@ -221,44 +222,45 @@ class ModelAnalysisMixin:
         *,
         model: QSARModelRef | int,
         molecule_set: MoleculeSetRef | MoleculeScope | int | None = None,
-        k: int = 5,
-        threshold: float = 0.3,
+        k: int = AD_K,
+        threshold: float = AD_THRESHOLD,
         fp_radius: int = 2,
         fp_nbits: int = 2048,
     ) -> list[dict[str, Any]]:
-        """Per-ligand applicability domain by ECFP4 similarity: mean Tanimoto to the k nearest
-        *training* ligands of ``model``; in_domain = that mean >= threshold. Answers "is this
-        prediction an interpolation or an extrapolation?". Needs Morgan fingerprints computed."""
+        """Per-ligand applicability domain: mean Tanimoto to the k nearest *training* ligands of
+        ``model``; in_domain = that mean >= threshold. Answers "is this prediction an interpolation
+        or an extrapolation?". A prediction made with the default k carries its value already;
+        the rest are measured here from the stored Morgan fingerprints."""
         self.runtime._require_active_project()
-        train_ids = [int(mid) for mid, sub in self.model_subsets(model=model).items() if sub == "train"]
-        if not train_ids:
-            raise ValueError("This model recorded no training molecules (an external model?): no domain to measure.")
+        model_id = self._model_id(model)
         ligands = self._ligands(molecule_set)
-        with self.runtime.workspace.project_db.get_session() as session:
-            fp_map = self._fingerprint_matrix(
-                session, train_ids + [int(r.id or 0) for r in ligands], radius=fp_radius, nbits=fp_nbits
-            )
-            names = {int(r.id or 0): str(r.name or "") for r in ligands}
-        train_fps = [fp_map[i] for i in train_ids if i in fp_map]
-        if not train_fps:
-            raise ValueError("No training fingerprints - compute Morgan fingerprints (ECFP4) first.")
-        train_matrix = np.asarray(train_fps, dtype=float)
-        train_norm = train_matrix.sum(axis=1)  # popcount per training fp
-        out: list[dict[str, Any]] = []
-        for rec in ligands:
-            mid = int(rec.id or 0)
-            query = fp_map.get(mid)
-            if query is None:
-                continue
-            query = np.asarray(query, dtype=float)
-            inter = train_matrix @ query  # |A ∩ B| per training fp
-            union = train_norm + query.sum() - inter
-            tanimoto = np.divide(inter, union, out=np.zeros_like(inter), where=union > 0)
-            top = np.sort(tanimoto)[::-1][: max(1, int(k))]
-            sim = float(np.mean(top))
-            out.append({"molecule_id": mid, "name": names.get(mid, ""),
-                        "similarity": sim, "in_domain": bool(sim >= float(threshold))})
-        return out
+        names = {int(r.id or 0): str(r.name or "") for r in ligands}
+        stored = {}
+        if int(k) == AD_K:
+            with self.runtime.workspace.project_db.get_session() as session:
+                for start in range(0, len(names), 900):
+                    stored.update(session.exec(
+                        select(QSARPredictionRecord.molecule_id, QSARPredictionRecord.ad_similarity)
+                        .where(QSARPredictionRecord.model_id == model_id)
+                        .where(QSARPredictionRecord.ad_similarity.is_not(None))
+                        .where(QSARPredictionRecord.molecule_id.in_(list(names)[start:start + 900]))
+                    ).all())
+        missing = [mid for mid in names if mid not in stored]
+        if missing:
+            train_ids = [int(mid) for mid, sub in self.model_subsets(model=model_id).items() if sub == "train"]
+            with self.runtime.workspace.project_db.get_session() as session:
+                fp_map = self._fingerprint_matrix(session, train_ids + missing, radius=fp_radius, nbits=fp_nbits)
+            train = [fp_map[i] for i in train_ids if i in fp_map]
+            query = [mid for mid in missing if mid in fp_map]
+            if train and query:
+                stored.update(zip(query, domain_similarity(train, [fp_map[mid] for mid in query], k=k).tolist()))
+            elif not stored:
+                raise ValueError("No training fingerprints for this model - compute Morgan fingerprints "
+                                 "(ECFP4) first, or predict with it." if train_ids else
+                                 "This model recorded no training molecules (an external model?): no domain to measure.")
+        return [{"molecule_id": mid, "name": names[mid], "similarity": float(stored[mid]),
+                 "in_domain": bool(stored[mid] >= float(threshold))}
+                for mid in names if mid in stored]
 
     def bit_fragments(self, *, model: QSARModelRef | int, bits, max_molecules: int = 500) -> dict[str, str]:
         """{"bit_<i>": SMILES of the substructure that sets it} for an ECFP4 model, read off the

@@ -49,7 +49,11 @@ class ChartController:
                 widget.restore_plot()  # re-pushes the run's universe + toggles chart on
             return
         if view_id == QSAR_ANALYSIS_VIEW_ID:
-            return  # chart/glow show on demand (plot + glowing-molecule + row-select); leave state
+            self._show()  # the chart takes PyMOL's place; the glow shows when a molecule is picked
+            widget = self.w.central_widget.open_view(view_id)
+            if widget is not None and hasattr(widget, "restore_plot"):
+                widget.restore_plot()
+            return
         self.w.dock_manager.toggle("qsar_chart", False)
         if getattr(self.w, "qsar_glow_dock", None) is not None:
             self.w.dock_manager.toggle("qsar_glow", False)
@@ -79,19 +83,22 @@ class ChartController:
         )
         self._show()
 
-    def show_roc_curves(self, curves) -> None:
-        """curves = [{'label', 'points':[(fpr,tpr)], 'auc'}]. Overlaid ROC series + chance diagonal."""
-        if self._chart is None or not curves:
+    def show_roc_curves(self, curves, empty: str = "No ROC curve.") -> None:
+        """curves = [{'label', 'points':[(fpr,tpr)], 'auc'}]. Overlaid ROC series + chance diagonal;
+        none = an empty chart titled ``empty`` (a stale one would pass for this selection's)."""
+        if self._chart is None:
             return
-        title = "ROC" if len(curves) > 1 else f"ROC — {curves[0].get('label', '')}"
+        title = empty if not curves else "ROC" if len(curves) > 1 else f"ROC — {curves[0].get('label', '')}"
         self._chart.show_curves(title, curves, "False positive rate", "True positive rate", diagonal=True)
         self._show()
 
-    def show_model_fit_series(self, series) -> None:
-        """series = [{'label','points':[(observed,predicted)]}]. Overlaid model-fit scatter."""
-        if self._chart is None or not series:
+    def show_model_fit_series(self, series, empty: str = "No predictions to plot.") -> None:
+        """series = [{'label','points':[(observed,predicted)]}]. Overlaid model-fit scatter; none =
+        an empty chart titled ``empty``."""
+        if self._chart is None:
             return
-        title = "Observed vs predicted" if len(series) > 1 else f"Observed vs predicted - {series[0].get('label', '')}"
+        title = (empty if not series else "Observed vs predicted" if len(series) > 1
+                 else f"Observed vs predicted - {series[0].get('label', '')}")
         self._chart.show_scatter_series(title, series)
         self._show()
 
@@ -146,8 +153,11 @@ class ChartController:
     def show_glowing_molecule(self, molblock: str, weights, caption: str = "") -> None:
         if getattr(self.w, "qsar_glow_dock", None) is None:
             return
+        opening = not self.w.qsar_glow_dock.isVisible()
         self.w.qsar_glow_dock.show_glowing(molblock, weights, caption)
         self._show("qsar_glow")
+        if opening:  # half the column, as 2D Interactions gets; a later resize by the user stays
+            QTimer.singleShot(0, self.w._split_viewer_docks_evenly)
 
     # -- centroid hover preview ----------------------------------------------------
 
