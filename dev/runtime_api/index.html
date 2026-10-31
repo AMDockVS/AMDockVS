@@ -762,6 +762,19 @@ needs at least two ligands with the activity:</p>
 <span class="p">)</span>
 <span class="n">predictions</span> <span class="o">=</span> <span class="n">runtime</span><span class="o">.</span><span class="n">qsar</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">model</span><span class="o">.</span><span class="n">id</span><span class="p">),</span> <span class="n">molecule_set</span><span class="o">=</span><span class="n">ligands</span><span class="p">)</span>
 </code></pre></div>
+<p>Both run as jobs and wait for them. Training computes the features a molecule
+lacks first, in a descriptor job. Training the same model on the same data
+again returns the stored model. To queue the work without waiting, use
+<code>submit_train</code> and <code>submit_predict</code>. <code>submit_train</code> takes several algorithms,
+one task per model:</p>
+<div class="highlight"><pre><span></span><code><span class="n">request</span> <span class="o">=</span> <span class="n">runtime</span><span class="o">.</span><span class="n">qsar</span><span class="o">.</span><span class="n">submit_train</span><span class="p">(</span>
+    <span class="n">endpoint</span><span class="o">=</span><span class="s2">"IC50"</span><span class="p">,</span>
+    <span class="n">algorithm</span><span class="o">=</span><span class="p">[</span><span class="s2">"ridge"</span><span class="p">,</span> <span class="s2">"random_forest"</span><span class="p">],</span>
+    <span class="n">feature_source</span><span class="o">=</span><span class="s2">"ecfp4"</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">runtime</span><span class="o">.</span><span class="n">wait_for_jobs</span><span class="p">([</span><span class="n">j</span> <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="p">(</span><span class="n">request</span><span class="p">[</span><span class="s2">"descriptor_job_id"</span><span class="p">],</span> <span class="n">request</span><span class="p">[</span><span class="s2">"job_id"</span><span class="p">])</span> <span class="k">if</span> <span class="n">j</span><span class="p">])</span>
+<span class="c1"># request["existing"] lists the algorithms whose model was already stored</span>
+</code></pre></div>
 <p>Consult the generated reference for the complete signatures because available
 model options and return values are defined by the current implementation.</p>
 <h2 id="binding-sites">Binding sites<a class="headerlink" href="#binding-sites" title="Permanent link">&para;</a></h2>

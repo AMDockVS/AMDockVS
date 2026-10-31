@@ -829,6 +829,17 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#amdockvs.molecules.api.MoleculeAPI.has_receptors" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;has_receptors
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#amdockvs.molecules.api.MoleculeAPI.shard_counts" class="md-nav__link">
     <span class="md-ellipsis">
       <span class="md-typeset">
@@ -2146,6 +2157,17 @@
     <span class="md-ellipsis">
       <span class="md-typeset">
         <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;library_shape
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#amdockvs.molecules.api.MoleculeAPI.has_receptors" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code class="doc-symbol doc-symbol-toc doc-symbol-method"></code>&nbsp;has_receptors
       </span>
     </span>
   </a>
@@ -3529,12 +3551,12 @@ to shard, since the two libraries cannot coexist.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/runtime.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">387</span>
-<span class="normal">388</span>
-<span class="normal">389</span>
-<span class="normal">390</span>
-<span class="normal">391</span>
-<span class="normal">392</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">check_storage</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">392</span>
+<span class="normal">393</span>
+<span class="normal">394</span>
+<span class="normal">395</span>
+<span class="normal">396</span>
+<span class="normal">397</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">check_storage</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">"""(level, title, text) of a fast check of the project's payload volumes."""</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">amdockvs.project.storage</span><span class="w"> </span><span class="kn">import</span> <span class="n">check_storage</span>
 
@@ -3565,15 +3587,15 @@ that are mostly dead bytes; the stats, or None when nothing was due.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/runtime.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">394</span>
-<span class="normal">395</span>
-<span class="normal">396</span>
-<span class="normal">397</span>
-<span class="normal">398</span>
-<span class="normal">399</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">399</span>
 <span class="normal">400</span>
 <span class="normal">401</span>
-<span class="normal">402</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">compact_storage_if_due</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="normal">402</span>
+<span class="normal">403</span>
+<span class="normal">404</span>
+<span class="normal">405</span>
+<span class="normal">406</span>
+<span class="normal">407</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">compact_storage_if_due</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""Once no job is active, release the structures no row uses and compact the payload volumes</span>
 <span class="sd">    that are mostly dead bytes; the stats, or None when nothing was due."""</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">amdockvs.project.storage</span><span class="w"> </span><span class="kn">import</span> <span class="n">compact_if_idle</span>
@@ -3606,14 +3628,14 @@ that are mostly dead bytes; the stats, or None when nothing was due.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/runtime.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">404</span>
-<span class="normal">405</span>
-<span class="normal">406</span>
-<span class="normal">407</span>
-<span class="normal">408</span>
-<span class="normal">409</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">409</span>
 <span class="normal">410</span>
-<span class="normal">411</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">repair_storage</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="normal">411</span>
+<span class="normal">412</span>
+<span class="normal">413</span>
+<span class="normal">414</span>
+<span class="normal">415</span>
+<span class="normal">416</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">repair_storage</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">"""Clear the payload volumes' leftovers (see `check_storage`); refused while a job is active."""</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">amdockvs.project.storage</span><span class="w"> </span><span class="kn">import</span> <span class="n">repair_if_idle</span>
 
@@ -3647,11 +3669,11 @@ without every submit API needing a depends_on parameter. Cleared by passing None
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/runtime.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">437</span>
-<span class="normal">438</span>
-<span class="normal">439</span>
-<span class="normal">440</span>
-<span class="normal">441</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">set_forced_dependencies</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job_ids</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">442</span>
+<span class="normal">443</span>
+<span class="normal">444</span>
+<span class="normal">445</span>
+<span class="normal">446</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">set_forced_dependencies</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job_ids</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""Workflow channel: ids the NEXT submit_job call(s) must also depend on. Lets the</span>
 <span class="sd">    orchestrator inject same-category serialization that the category auto-deps don't cover,</span>
 <span class="sd">    without every submit API needing a depends_on parameter. Cleared by passing None."""</span>
@@ -3684,12 +3706,7 @@ Returns the key of the job in the project's journal, which is its id everywhere 
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/runtime.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">443</span>
-<span class="normal">444</span>
-<span class="normal">445</span>
-<span class="normal">446</span>
-<span class="normal">447</span>
-<span class="normal">448</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">448</span>
 <span class="normal">449</span>
 <span class="normal">450</span>
 <span class="normal">451</span>
@@ -3741,7 +3758,12 @@ Returns the key of the job in the project's journal, which is its id everywhere 
 <span class="normal">497</span>
 <span class="normal">498</span>
 <span class="normal">499</span>
-<span class="normal">500</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">submit_job</span><span class="p">(</span>
+<span class="normal">500</span>
+<span class="normal">501</span>
+<span class="normal">502</span>
+<span class="normal">503</span>
+<span class="normal">504</span>
+<span class="normal">505</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">submit_job</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="n">job</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
@@ -3824,13 +3846,13 @@ that cannot be submitted again.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/runtime.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">521</span>
-<span class="normal">522</span>
-<span class="normal">523</span>
-<span class="normal">524</span>
-<span class="normal">525</span>
-<span class="normal">526</span>
-<span class="normal">527</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">job_destinations</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]:</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">526</span>
+<span class="normal">527</span>
+<span class="normal">528</span>
+<span class="normal">529</span>
+<span class="normal">530</span>
+<span class="normal">531</span>
+<span class="normal">532</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">job_destinations</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">"""`run_destinations` for a job on record: where it may be continued now. Nowhere for one</span>
 <span class="sd">    that cannot be submitted again."""</span>
     <span class="k">try</span><span class="p">:</span>
@@ -3864,12 +3886,7 @@ waits for, as when it was submitted.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/runtime.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">529</span>
-<span class="normal">530</span>
-<span class="normal">531</span>
-<span class="normal">532</span>
-<span class="normal">533</span>
-<span class="normal">534</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">534</span>
 <span class="normal">535</span>
 <span class="normal">536</span>
 <span class="normal">537</span>
@@ -3880,7 +3897,12 @@ waits for, as when it was submitted.</p>
 <span class="normal">542</span>
 <span class="normal">543</span>
 <span class="normal">544</span>
-<span class="normal">545</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">resume_job</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">executor_name</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="normal">545</span>
+<span class="normal">546</span>
+<span class="normal">547</span>
+<span class="normal">548</span>
+<span class="normal">549</span>
+<span class="normal">550</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">resume_job</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">executor_name</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""Continue a job that was canceled or interrupted, on `executor_name` or where it was.</span>
 
 <span class="sd">    A job that is still running is canceled first and waited for, which is how it is moved</span>
@@ -3921,18 +3943,18 @@ waits for, as when it was submitted.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/runtime.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">553</span>
-<span class="normal">554</span>
-<span class="normal">555</span>
-<span class="normal">556</span>
-<span class="normal">557</span>
-<span class="normal">558</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">558</span>
 <span class="normal">559</span>
 <span class="normal">560</span>
 <span class="normal">561</span>
 <span class="normal">562</span>
 <span class="normal">563</span>
-<span class="normal">564</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">resolve_job_dependencies</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job</span><span class="p">,</span> <span class="n">explicit</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]]:</span>
+<span class="normal">564</span>
+<span class="normal">565</span>
+<span class="normal">566</span>
+<span class="normal">567</span>
+<span class="normal">568</span>
+<span class="normal">569</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">resolve_job_dependencies</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job</span><span class="p">,</span> <span class="n">explicit</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">"""Union of explicit depends_on and the ids of active jobs this one should wait for."""</span>
     <span class="n">category</span> <span class="o">=</span> <span class="n">_job_category</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">job</span><span class="p">,</span> <span class="s2">"name"</span><span class="p">,</span> <span class="s2">""</span><span class="p">)</span> <span class="ow">or</span> <span class="s2">""</span><span class="p">)</span>
     <span class="n">prereqs</span> <span class="o">=</span> <span class="n">_JOB_PREREQS</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">category</span> <span class="ow">or</span> <span class="s2">""</span><span class="p">,</span> <span class="p">())</span>
@@ -3968,16 +3990,16 @@ waits for, as when it was submitted.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/runtime.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">579</span>
-<span class="normal">580</span>
-<span class="normal">581</span>
-<span class="normal">582</span>
-<span class="normal">583</span>
-<span class="normal">584</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">584</span>
 <span class="normal">585</span>
 <span class="normal">586</span>
 <span class="normal">587</span>
-<span class="normal">588</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">wait_for_job</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">poll_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JobStatus</span><span class="p">:</span>
+<span class="normal">588</span>
+<span class="normal">589</span>
+<span class="normal">590</span>
+<span class="normal">591</span>
+<span class="normal">592</span>
+<span class="normal">593</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">wait_for_job</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">poll_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JobStatus</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""Block until the job has ended. `poll_s` is not used: the engine tells."""</span>
     <span class="bp">self</span><span class="o">.</span><span class="n">_require_active_project</span><span class="p">()</span>
     <span class="n">engine_id</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_engine_ids</span><span class="p">()</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">job_id</span><span class="p">))</span>
@@ -4011,9 +4033,9 @@ waits for, as when it was submitted.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/runtime.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">590</span>
-<span class="normal">591</span>
-<span class="normal">592</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">watch_job</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">poll_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JobStatus</span><span class="p">:</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">595</span>
+<span class="normal">596</span>
+<span class="normal">597</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">watch_job</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">poll_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JobStatus</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""Display tqdm progress in a terminal or notebook and return the job status."""</span>
     <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">watch_jobs</span><span class="p">([</span><span class="n">job_id</span><span class="p">],</span> <span class="n">poll_s</span><span class="o">=</span><span class="n">poll_s</span><span class="p">)[</span><span class="nb">str</span><span class="p">(</span><span class="n">job_id</span><span class="p">)]</span>
 </code></pre></div></td></tr></table></div>
@@ -4040,15 +4062,15 @@ waits for, as when it was submitted.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/runtime.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">594</span>
-<span class="normal">595</span>
-<span class="normal">596</span>
-<span class="normal">597</span>
-<span class="normal">598</span>
-<span class="normal">599</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">599</span>
 <span class="normal">600</span>
 <span class="normal">601</span>
-<span class="normal">602</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">watch_jobs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job_ids</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="o">*</span><span class="p">,</span> <span class="n">poll_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">JobStatus</span><span class="p">]:</span>
+<span class="normal">602</span>
+<span class="normal">603</span>
+<span class="normal">604</span>
+<span class="normal">605</span>
+<span class="normal">606</span>
+<span class="normal">607</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">watch_jobs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job_ids</span><span class="p">:</span> <span class="n">Iterable</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="o">*</span><span class="p">,</span> <span class="n">poll_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">JobStatus</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">"""Display concurrent tqdm progress for several jobs of this session."""</span>
     <span class="bp">self</span><span class="o">.</span><span class="n">_require_active_project</span><span class="p">()</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">ms_flow.progress</span><span class="w"> </span><span class="kn">import</span> <span class="n">watch_jobs</span>
@@ -4082,17 +4104,17 @@ active, the default one first. With <code>job</code>, only the ones that job can
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/runtime.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">637</span>
-<span class="normal">638</span>
-<span class="normal">639</span>
-<span class="normal">640</span>
-<span class="normal">641</span>
-<span class="normal">642</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">642</span>
 <span class="normal">643</span>
 <span class="normal">644</span>
 <span class="normal">645</span>
 <span class="normal">646</span>
-<span class="normal">647</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">run_destinations</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]:</span>
+<span class="normal">647</span>
+<span class="normal">648</span>
+<span class="normal">649</span>
+<span class="normal">650</span>
+<span class="normal">651</span>
+<span class="normal">652</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">run_destinations</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">job</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">"""Where a job may be sent now, as (executor_name, label): the executors that are</span>
 <span class="sd">    active, the default one first. With `job`, only the ones that job can run on.</span>
 <span class="sd">    """</span>
@@ -4337,6 +4359,14 @@ active, the default one first. With <code>job</code>, only the ones that job can
               <td>
                 <div class="doc-md-description">
                   <p><code>(the library is sharded, any ligand row exists)</code> — two one-row lookups.</p>
+                </div>
+              </td>
+            </tr>
+            <tr class="doc-section-item">
+              <td><code><a class="autorefs autorefs-internal" title="            has_receptors (amdockvs.molecules.api.MoleculeAPI.has_receptors)" href="./#amdockvs.molecules.api.MoleculeAPI.has_receptors">has_receptors</a></code></td>
+              <td>
+                <div class="doc-md-description">
+                  <p>Whether any receptor row exists — a one-row lookup.</p>
                 </div>
               </td>
             </tr>
@@ -5272,6 +5302,41 @@ there when there are shards, Ligands lights up when there is any ligand row at a
 <div class="doc doc-object doc-function">
 
 
+<h4 id="amdockvs.molecules.api.MoleculeAPI.has_receptors" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">has_receptors</span>
+
+
+<a href="#amdockvs.molecules.api.MoleculeAPI.has_receptors" class="headerlink" title="Permanent link">&para;</a></h4>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">has_receptors</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n"><span title="bool">bool</span></span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Whether any receptor row exists — a one-row lookup.</p>
+
+
+            <details class="mkdocstrings-source">
+              <summary>Source code in <code>src/amdockvs/molecules/api.py</code></summary>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">452</span>
+<span class="normal">453</span>
+<span class="normal">454</span>
+<span class="normal">455</span>
+<span class="normal">456</span>
+<span class="normal">457</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">has_receptors</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Whether any receptor row exists — a one-row lookup."""</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">amdockvs.molecules.storage</span><span class="w"> </span><span class="kn">import</span> <span class="n">has_receptor_rows</span>
+
+    <span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="o">.</span><span class="n">_require_active_project</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">has_receptor_rows</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="o">.</span><span class="n">workspace</span><span class="o">.</span><span class="n">project_db</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h4 id="amdockvs.molecules.api.MoleculeAPI.shard_counts" class="doc doc-heading">
 <code class="doc-symbol doc-symbol-heading doc-symbol-method"></code>            <span class="doc doc-object-name doc-function-name">shard_counts</span>
 
@@ -5288,14 +5353,7 @@ there when there are shards, Ligands lights up when there is any ligand row at a
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/molecules/api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">452</span>
-<span class="normal">453</span>
-<span class="normal">454</span>
-<span class="normal">455</span>
-<span class="normal">456</span>
-<span class="normal">457</span>
-<span class="normal">458</span>
-<span class="normal">459</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">459</span>
 <span class="normal">460</span>
 <span class="normal">461</span>
 <span class="normal">462</span>
@@ -5304,7 +5362,14 @@ there when there are shards, Ligands lights up when there is any ligand row at a
 <span class="normal">465</span>
 <span class="normal">466</span>
 <span class="normal">467</span>
-<span class="normal">468</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">shard_counts</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">engine</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"ad4"</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">]:</span>
+<span class="normal">468</span>
+<span class="normal">469</span>
+<span class="normal">470</span>
+<span class="normal">471</span>
+<span class="normal">472</span>
+<span class="normal">473</span>
+<span class="normal">474</span>
+<span class="normal">475</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">shard_counts</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">engine</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"ad4"</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">]:</span>
 <span class="w">    </span><span class="sd">"""Inventory of the sharded library: shards, molecules in them, and how many are prepared.</span>
 
 <span class="sd">    Preparation is engine-specific and does not rewrite the chemical inventory.</span>
@@ -5345,16 +5410,16 @@ there when there are shards, Ligands lights up when there is any ligand row at a
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/molecules/api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">470</span>
-<span class="normal">471</span>
-<span class="normal">472</span>
-<span class="normal">473</span>
-<span class="normal">474</span>
-<span class="normal">475</span>
-<span class="normal">476</span>
-<span class="normal">477</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">477</span>
 <span class="normal">478</span>
-<span class="normal">479</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">shard_preps</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">shard_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]]:</span>
+<span class="normal">479</span>
+<span class="normal">480</span>
+<span class="normal">481</span>
+<span class="normal">482</span>
+<span class="normal">483</span>
+<span class="normal">484</span>
+<span class="normal">485</span>
+<span class="normal">486</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">shard_preps</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">shard_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]]:</span>
 <span class="w">    </span><span class="sd">"""One shard's preparations: family -&gt; (prepared records, failed records)."""</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">sqlmodel</span><span class="w"> </span><span class="kn">import</span> <span class="n">select</span>
 
@@ -5391,14 +5456,7 @@ imported compound, stay.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/molecules/api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">489</span>
-<span class="normal">490</span>
-<span class="normal">491</span>
-<span class="normal">492</span>
-<span class="normal">493</span>
-<span class="normal">494</span>
-<span class="normal">495</span>
-<span class="normal">496</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">496</span>
 <span class="normal">497</span>
 <span class="normal">498</span>
 <span class="normal">499</span>
@@ -5439,7 +5497,14 @@ imported compound, stay.</p>
 <span class="normal">534</span>
 <span class="normal">535</span>
 <span class="normal">536</span>
-<span class="normal">537</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">select_fragment</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">molecule_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">fragment_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="normal">537</span>
+<span class="normal">538</span>
+<span class="normal">539</span>
+<span class="normal">540</span>
+<span class="normal">541</span>
+<span class="normal">542</span>
+<span class="normal">543</span>
+<span class="normal">544</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">select_fragment</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">molecule_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">fragment_index</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""Make another component of the imported original the molecule's current structure.</span>
 
 <span class="sd">    Fragments are not stored: this one is cut again from the original and written alone. What</span>
@@ -6506,7 +6571,7 @@ to the new model. The token comes from ESM_API_KEY and is never stored.</p>
 
 
 <a href="#amdockvs.qsar.api.QSARAPI.compute_descriptors" class="headerlink" title="Permanent link">&para;</a></h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">compute_descriptors</span><span class="p">(</span><span class="o">*</span><span class="p">,</span> <span class="n">molecule_set</span><span class="p">:</span> <span class="n"><span title="amdockvs.project.sets.MoleculeSetRef">MoleculeSetRef</span></span> <span class="o">|</span> <span class="n"><span title="amdockvs.molecules.scopes.MoleculeScope">MoleculeScope</span></span> <span class="o">|</span> <span class="n"><span title="int">int</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">only_missing</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">batch_size</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">=</span> <span class="mi">1000</span><span class="p">,</span> <span class="n">executor_name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">=</span> <span class="n"><span title="amdockvs.core.constants.DEFAULT_LOCAL_CPU_EXECUTOR">DEFAULT_LOCAL_CPU_EXECUTOR</span></span><span class="p">,</span> <span class="n">depends_on</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="List (list)" href="../TODO/#list">list</a></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">compute_fingerprints</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">fp_radius</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span> <span class="n">fp_nbits</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">=</span> <span class="mi">2048</span><span class="p">,</span> <span class="n">alerts</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="str">str</span></span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">compute_descriptors</span><span class="p">(</span><span class="o">*</span><span class="p">,</span> <span class="n">molecule_set</span><span class="p">:</span> <span class="n"><span title="amdockvs.project.sets.MoleculeSetRef">MoleculeSetRef</span></span> <span class="o">|</span> <span class="n"><span title="amdockvs.molecules.scopes.MoleculeScope">MoleculeScope</span></span> <span class="o">|</span> <span class="n"><span title="int">int</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">only_missing</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span> <span class="n">batch_size</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">=</span> <span class="mi">1000</span><span class="p">,</span> <span class="n">executor_name</span><span class="p">:</span> <span class="n"><span title="str">str</span></span> <span class="o">=</span> <span class="n"><span title="amdockvs.core.constants.DEFAULT_LOCAL_CPU_EXECUTOR">DEFAULT_LOCAL_CPU_EXECUTOR</span></span><span class="p">,</span> <span class="n">depends_on</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="List (list)" href="../TODO/#list">list</a></span><span class="p">[</span><span class="n"><span title="str">str</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">compute_fingerprints</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">fp_radius</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span> <span class="n">fp_nbits</span><span class="p">:</span> <span class="n"><span title="int">int</span></span> <span class="o">=</span> <span class="mi">2048</span><span class="p">,</span> <span class="n">alerts</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">rdkit2d</span><span class="p">:</span> <span class="n"><span title="bool">bool</span></span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">molecule_ids</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="List (list)" href="../TODO/#list">list</a></span><span class="p">[</span><span class="n"><span title="int">int</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="str">str</span></span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -6514,13 +6579,32 @@ to the new model. The token comes from ESM_API_KEY and is never stored.</p>
         <p>Submit the descriptor job. only_missing=True skips ligands that already have
 descriptors computed (MoleculeRecord.mw populated). With compute_fingerprints=True it
 also stores a Morgan fingerprint per ligand, and only_missing then means "lacks that
-fingerprint" so FPs can be added to already-described ligands. With alerts=True it is
-the alerts job instead: PAINS and identity keys, which a library import leaves out.</p>
+fingerprint" so FPs can be added to already-described ligands. rdkit2d=True also stores
+the full RDKit 2D block the models train on (only_missing: lacks that block). With
+alerts=True it is the alerts job instead: PAINS and identity keys, which a library import
+leaves out. molecule_ids narrows the scope to those molecules.</p>
 
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/qsar/api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">129</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">112</span>
+<span class="normal">113</span>
+<span class="normal">114</span>
+<span class="normal">115</span>
+<span class="normal">116</span>
+<span class="normal">117</span>
+<span class="normal">118</span>
+<span class="normal">119</span>
+<span class="normal">120</span>
+<span class="normal">121</span>
+<span class="normal">122</span>
+<span class="normal">123</span>
+<span class="normal">124</span>
+<span class="normal">125</span>
+<span class="normal">126</span>
+<span class="normal">127</span>
+<span class="normal">128</span>
+<span class="normal">129</span>
 <span class="normal">130</span>
 <span class="normal">131</span>
 <span class="normal">132</span>
@@ -6554,18 +6638,7 @@ the alerts job instead: PAINS and identity keys, which a library import leaves o
 <span class="normal">160</span>
 <span class="normal">161</span>
 <span class="normal">162</span>
-<span class="normal">163</span>
-<span class="normal">164</span>
-<span class="normal">165</span>
-<span class="normal">166</span>
-<span class="normal">167</span>
-<span class="normal">168</span>
-<span class="normal">169</span>
-<span class="normal">170</span>
-<span class="normal">171</span>
-<span class="normal">172</span>
-<span class="normal">173</span>
-<span class="normal">174</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">compute_descriptors</span><span class="p">(</span>
+<span class="normal">163</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">compute_descriptors</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">molecule_set</span><span class="p">:</span> <span class="n">MoleculeSetRef</span> <span class="o">|</span> <span class="n">MoleculeScope</span> <span class="o">|</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -6577,12 +6650,16 @@ the alerts job instead: PAINS and identity keys, which a library import leaves o
     <span class="n">fp_radius</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
     <span class="n">fp_nbits</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2048</span><span class="p">,</span>
     <span class="n">alerts</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">rdkit2d</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">molecule_ids</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">    </span><span class="sd">"""Submit the descriptor job. only_missing=True skips ligands that already have</span>
 <span class="sd">    descriptors computed (MoleculeRecord.mw populated). With compute_fingerprints=True it</span>
 <span class="sd">    also stores a Morgan fingerprint per ligand, and only_missing then means "lacks that</span>
-<span class="sd">    fingerprint" so FPs can be added to already-described ligands. With alerts=True it is</span>
-<span class="sd">    the alerts job instead: PAINS and identity keys, which a library import leaves out."""</span>
+<span class="sd">    fingerprint" so FPs can be added to already-described ligands. rdkit2d=True also stores</span>
+<span class="sd">    the full RDKit 2D block the models train on (only_missing: lacks that block). With</span>
+<span class="sd">    alerts=True it is the alerts job instead: PAINS and identity keys, which a library import</span>
+<span class="sd">    leaves out. molecule_ids narrows the scope to those molecules."""</span>
     <span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="o">.</span><span class="n">_require_active_project</span><span class="p">()</span>
     <span class="n">molecule_set_ref</span> <span class="o">=</span> <span class="p">(</span>
         <span class="kc">None</span>
@@ -6604,6 +6681,8 @@ the alerts job instead: PAINS and identity keys, which a library import leaves o
         <span class="n">fp_radius</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">fp_radius</span><span class="p">),</span>
         <span class="n">fp_nbits</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">fp_nbits</span><span class="p">),</span>
         <span class="n">alerts</span><span class="o">=</span><span class="nb">bool</span><span class="p">(</span><span class="n">alerts</span><span class="p">),</span>
+        <span class="n">rdkit2d</span><span class="o">=</span><span class="nb">bool</span><span class="p">(</span><span class="n">rdkit2d</span><span class="p">),</span>
+        <span class="n">molecule_ids</span><span class="o">=</span><span class="kc">None</span> <span class="k">if</span> <span class="n">molecule_ids</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">molecule_ids</span><span class="p">],</span>
     <span class="p">)</span>
     <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">runtime</span><span class="o">.</span><span class="n">submit_job</span><span class="p">(</span>
         <span class="n">calculate_molecule_alerts_job</span> <span class="k">if</span> <span class="n">alerts</span> <span class="k">else</span> <span class="n">calculate_molecule_descriptors_job</span><span class="p">,</span>
@@ -6635,7 +6714,18 @@ the alerts job instead: PAINS and identity keys, which a library import leaves o
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>src/amdockvs/qsar/api.py</code></summary>
-              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">176</span>
+              <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal">165</span>
+<span class="normal">166</span>
+<span class="normal">167</span>
+<span class="normal">168</span>
+<span class="normal">169</span>
+<span class="normal">170</span>
+<span class="normal">171</span>
+<span class="normal">172</span>
+<span class="normal">173</span>
+<span class="normal">174</span>
+<span class="normal">175</span>
+<span class="normal">176</span>
 <span class="normal">177</span>
 <span class="normal">178</span>
 <span class="normal">179</span>
@@ -6645,18 +6735,7 @@ the alerts job instead: PAINS and identity keys, which a library import leaves o
 <span class="normal">183</span>
 <span class="normal">184</span>
 <span class="normal">185</span>
-<span class="normal">186</span>
-<span class="normal">187</span>
-<span class="normal">188</span>
-<span class="normal">189</span>
-<span class="normal">190</span>
-<span class="normal">191</span>
-<span class="normal">192</span>
-<span class="normal">193</span>
-<span class="normal">194</span>
-<span class="normal">195</span>
-<span class="normal">196</span>
-<span class="normal">197</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">compute_fingerprints</span><span class="p">(</span>
+<span class="normal">186</span></pre></div></td><td class="code"><div><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">compute_fingerprints</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">molecule_set</span><span class="p">:</span> <span class="n">MoleculeSetRef</span> <span class="o">|</span> <span class="n">MoleculeScope</span> <span class="o">|</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
