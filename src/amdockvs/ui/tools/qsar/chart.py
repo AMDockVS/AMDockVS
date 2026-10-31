@@ -100,7 +100,6 @@ class QSARChartDockWidget(MSDockWidget):
         plot.clear()
         self._chart_legend.clear()
         plot.setTitle(None)
-        plot.showAxis("left")  # show_hbars hides it
         self._bar_values, self._bar_labels, self._bar_images = [], [], []
         self._hovered_bar = (-1, "")
         for name in ("left", "bottom"):
@@ -149,22 +148,23 @@ class QSARChartDockWidget(MSDockWidget):
         plot.setLabel("bottom", x_title)
         plot.setLabel("left", "Molecules")
 
-    def show_hbars(self, title: str, labels, values, x_title: str = "", *, images=None) -> None:
-        """Horizontal bar chart (feature importance): biggest first, top→bottom. Each label sits on
-        its bar's row, right-aligned at the longest bar's end (over the bar when it reaches that far),
-        so no left axis takes width or height. Hovering a bar shows its value; hovering a label shows
-        ``images[i]`` (one PNG per bar, b"" for none)."""
+    def show_hbars(self, title: str, labels, values, x_title: str = "", *, notes=None, images=None) -> None:
+        """Horizontal bar chart (feature importance): ``labels`` on the Y axis, biggest first,
+        top→bottom. ``notes`` (one per bar, "" for none) sit on the bar's row, right-aligned at the
+        longest bar's end (over the bar when it reaches that far). Hovering a bar shows its value;
+        hovering a note shows ``images[i]`` (one PNG per bar, b"" for none)."""
         plot = self._chart()
         labels = list(labels)
         values = [float(v) for v in values]
-        plot.hideAxis("left")
+        notes = list(notes or [""] * len(values))
         if values:
             ys = list(range(len(values) - 1, -1, -1))  # index 0 at the top
             plot.addItem(pg.BarGraphItem(x0=0, y=ys, height=0.7, width=values, brush=pg.mkBrush(_SINGLE), pen=None))
+            plot.getAxis("left").setTicks([[(ys[i], str(labels[i])) for i in range(len(labels))]])
             right = max(values + [0.0])
             text = self.palette().color(QPalette.WindowText)  # readable on the bar and off it
-            for y, label in zip(ys, labels):
-                item = pg.TextItem(str(label), color=text, anchor=(1, 0.5))
+            for y, note in zip(ys, notes):
+                item = pg.TextItem(str(note), color=text, anchor=(1, 0.5))
                 item.setPos(right, y)
                 plot.addItem(item)
                 self._bar_labels.append(item)
@@ -354,7 +354,7 @@ class QSARChartDockWidget(MSDockWidget):
         self.universeHovered.emit(-1)  # left every marker → owner hides the preview
 
     def _on_chart_mouse(self, pos) -> None:
-        """Feature-importance hover: a label previews its structure, a bar shows its value."""
+        """Feature-importance hover: a note previews its structure, a bar shows its value."""
         if not self._bar_values:
             return
         view = self.chart_plot.getPlotItem().getViewBox()

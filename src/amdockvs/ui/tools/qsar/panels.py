@@ -874,6 +874,8 @@ class QSARModelsWidget(QWidget):
         if metrics.get("feature_kind") != "ecfp4":
             show(label, pairs)
             return
+        # the axis shows bit_0042 (same width on every row); RDKit is still asked for "bit_42"
+        shown = [(f"bit_{int(n.removeprefix('bit_')):04d}", v) for n, v in pairs]
 
         def _compute():
             from amdockvs.ui.tools.qsar.chart import render_structure_png
@@ -882,10 +884,10 @@ class QSARModelsWidget(QWidget):
             images = [render_structure_png(f["molblock"], legend=f["smiles"], highlight_atoms=f["atoms"],
                                            highlight_bonds=f["bonds"]) if f else b""
                       for f in (fragments.get(n) for n, _v in pairs)]
-            return [(f"{n} · {fragments[n]['smiles']}" if n in fragments else n, v) for n, v in pairs], images
+            return [fragments[n]["smiles"] if n in fragments else "" for n, _v in pairs], images
 
-        run_async(_compute, self._latest(lambda result: show(label, *result)),
-                  on_error=self._latest(lambda _e: show(label, pairs)))
+        run_async(_compute, self._latest(lambda result: show(label, shown, *result)),
+                  on_error=self._latest(lambda _e: show(label, shown)))
 
     def _show_roc(self, models) -> None:
         show = getattr(self.window(), "show_roc_curves", None)

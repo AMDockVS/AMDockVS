@@ -622,8 +622,8 @@ class AMDockVSMainWindow(QMainWindow):
     def show_activity_histogram(self, endpoint: str, bins) -> None:
         self.charts.show_activity_histogram(endpoint, bins)
 
-    def show_feature_importance(self, label: str, pairs, images=None) -> None:
-        self.charts.show_feature_importance(label, pairs, images)
+    def show_feature_importance(self, label: str, pairs, notes=None, images=None) -> None:
+        self.charts.show_feature_importance(label, pairs, notes, images)
 
     def show_roc_curves(self, curves, *empty) -> None:
         self.charts.show_roc_curves(curves, *empty)

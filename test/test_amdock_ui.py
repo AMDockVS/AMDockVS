@@ -923,17 +923,17 @@ def test_feature_importance_labels_share_the_bar_row_and_hover_splits_value_from
     shown, tips = [], []
     dock.show_hover_structure = shown.append
     monkeypatch.setattr(QToolTip, "showText", lambda _pos, text, *_a: tips.append(text))
-    dock.show_hbars("t", ["bit_1 · CC", "bit_2 · N"], [3.0, 1.0], images=[b"top", b"low"])
+    dock.show_hbars("t", ["bit_0001", "bit_0002"], [3.0, 1.0], notes=["CC", "N"], images=[b"top", b"low"])
     app.processEvents()
     plot = dock.chart_plot.getPlotItem()
-    assert not plot.getAxis("left").isVisible()
+    assert plot.getAxis("left")._tickLevels == [[(1, "bit_0001"), (0, "bit_0002")]]
     labels = [i for i in plot.items if isinstance(i, pg.TextItem)]
-    assert [(i.toPlainText(), i.pos().x(), i.pos().y()) for i in labels] == [("bit_1 · CC", 3.0, 1.0), ("bit_2 · N", 3.0, 0.0)]
+    assert [(i.toPlainText(), i.pos().x(), i.pos().y()) for i in labels] == [("CC", 3.0, 1.0), ("N", 3.0, 0.0)]
     view = plot.getViewBox()
     dock._on_chart_mouse(view.mapViewToScene(pg.Point(0.2, 0.0)))  # bar 1, far from its label
     dock._on_chart_mouse(labels[1].sceneBoundingRect().center())  # label 1, past the bar's end
     dock._on_chart_mouse(labels[0].sceneBoundingRect().center())  # label 0 over its own bar: label wins
     assert tips == ["1"] and shown == [b"low", b"top"]
     dock.show_distribution_bins("x", ["a"], [1])
-    assert plot.getAxis("left").isVisible() and dock._bar_values == []
+    assert plot.getAxis("left")._tickLevels is None and dock._bar_values == []
     window.close()
