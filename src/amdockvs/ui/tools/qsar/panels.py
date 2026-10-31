@@ -717,7 +717,7 @@ class QSARModelsWidget(QWidget):
                              for k, v in (d or {}).items() if k != "n_samples")
 
         parts = [f"<b>{models[row].name}</b> — {models[row].algorithm}, features={m.get('feature_kind', '?')}, "
-                 f"split={m.get('split', '?')}, n_train={m.get('n_train', '?')}"]
+                 f"split={models[row].splitter or '?'}, n_train={models[row].n_train}, n_test={models[row].n_test}"]
         if m.get("train"):
             parts.append(f"train: {fmt(m['train'])}")
         if m.get("test"):
@@ -1047,8 +1047,12 @@ def _lead_with(tabs: QTabWidget, widget: QWidget) -> None:
 
 
 def _lead_when_models(tabs: QTabWidget, runtime, widget: QWidget) -> None:
-    """A project with models leads with `widget` (using them); one without, with building them."""
-    run_async(runtime.qsar.list_models, lambda models: models and _lead_with(tabs, widget),
+    """A project with models leads with `widget` (using them); one without, with building them.
+    A tab chosen before the models are read (a click, show_trained) keeps the focus."""
+    tabs._chosen = False
+    tabs.tabBarClicked.connect(lambda _i: setattr(tabs, "_chosen", True))
+    run_async(runtime.qsar.list_models,
+              lambda models: models and not tabs._chosen and _lead_with(tabs, widget),
               on_error=lambda _e: None)
 
 
@@ -1088,10 +1092,12 @@ class QSARAnalysisWidget(QTabWidget):
     refresh_view = refresh
 
     def show_trained(self, rows: list[dict]) -> None:
+        self._chosen = True
         self.setCurrentWidget(self.models)
         self.models.show_trained(rows)
 
     def show_predictions(self, model_id: int) -> None:
+        self._chosen = True
         self.setCurrentWidget(self.results)
         self.results.show_model(model_id)
 

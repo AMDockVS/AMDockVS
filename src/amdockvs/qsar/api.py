@@ -44,6 +44,8 @@ from amdockvs.project.sets import MoleculeSetRef, QSARModelRef
 from amdockvs.workflows.rules import apply_workflow_filters
 
 QSAR_WORKFLOW = "qsar"
+# Activities only enter through the As Reference mark, so reference ligands are QSAR data.
+QSAR_USAGE_CLASSES = ("general", "reference")
 
 
 @dataclass
@@ -65,10 +67,9 @@ class QSARAPI(BuildMixin, PredictMixin, ModelAnalysisMixin, ResultsMixin, Activi
                 order=tuple(scope.order or ("id",)),
                 limit=scope.limit,
             )
-        if molecule_set is None:
-            scope = self.runtime.molecules.select(role="ligand", workflow=QSAR_WORKFLOW).scope
-        else:
-            scope = self.runtime.molecules.select(source=molecule_set, role="ligand", workflow=QSAR_WORKFLOW).scope
+        scope = self.runtime.molecules.select(
+            source=molecule_set, role="ligand", workflow=QSAR_WORKFLOW, usage_class=QSAR_USAGE_CLASSES
+        ).scope
         assert isinstance(scope, MoleculeScope)
         return scope
 
