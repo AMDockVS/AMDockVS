@@ -451,11 +451,24 @@ def domain_similarity(train_bits, query_bits, k: int = AD_K) -> np.ndarray:
 
 
 def save_model(path: str | Path, model: FittedModel) -> Path:
+    import pickle
+
     import joblib
+    from joblib.numpy_pickle import NumpyPickler
 
     artifact = Path(path).expanduser().resolve()
     artifact.parent.mkdir(parents=True, exist_ok=True)
-    joblib.dump(model, artifact)
+    # joblib pickles with pure-Python pickle._Pickler. Once PyMOL is imported (the GUI process),
+    # chempy.pkl has made that pickler write str as Python 2 strings, and a worker without PyMOL
+    # cannot read the file back. joblib copied the dispatch table when it was imported, so it is
+    # restored there; the class still has the stock savers.
+    dispatch = NumpyPickler.dispatch
+    patched = dispatch[str], dispatch[bytes]
+    dispatch[str], dispatch[bytes] = pickle._Pickler.save_str, pickle._Pickler.save_bytes
+    try:
+        joblib.dump(model, artifact)
+    finally:
+        dispatch[str], dispatch[bytes] = patched
     return artifact
 
 

@@ -58,6 +58,26 @@ def test_save_load_roundtrip(tmp_path):
     assert np.allclose(reloaded.predict(x), model.predict(x))
 
 
+def test_saved_model_loads_without_pymol_after_pymol_patched_pickle(tmp_path, monkeypatch):
+    """PyMOL's chempy.pkl makes pickle._Pickler write Python 2 strings; the artifact must still
+    load in a worker that never imported PyMOL."""
+    import pickle
+    import subprocess
+    import sys
+
+    pytest.importorskip("chempy.pkl")
+    from joblib.numpy_pickle import NumpyPickler
+
+    monkeypatch.setitem(NumpyPickler.dispatch, str, pickle._Pickler.dispatch[str])  # joblib after PyMOL
+    x, y = _linear_dataset()
+    model = fit_model(x, y, feature_names=("a", "b", "c"), algorithm="ridge", task="regression")
+    path = save_model(tmp_path / "m.joblib", model)
+    assert NumpyPickler.dispatch[str] is not pickle._Pickler.save_str  # left as it was found
+    loaded = subprocess.run([sys.executable, "-c", "import sys, joblib; print(joblib.load(sys.argv[1]).feature_names)",
+                             str(path)], capture_output=True, text=True)
+    assert loaded.stdout.strip() == "('a', 'b', 'c')", loaded.stderr
+
+
 def test_unknown_algorithm_rejected():
     x, y = _linear_dataset()
     with pytest.raises(ValueError):
