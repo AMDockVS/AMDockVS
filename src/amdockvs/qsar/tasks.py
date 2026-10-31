@@ -32,7 +32,8 @@ DESCRIPTOR_COLUMNS = (
 def calculate_descriptor_batch(payload: dict):
     # The worker gets each molecule's bytes in its item and COMPUTES; it returns rows for the
     # engine-side sink to persist. It does not open a DB connection.
-    rows = calculate_descriptor_rows(list(payload.get("items") or []), fingerprint=payload.get("fp"))
+    rows = calculate_descriptor_rows(list(payload.get("items") or []), fingerprint=payload.get("fp"),
+                                     rdkit2d=bool(payload.get("rdkit2d")))
     return _descriptor_graph_payload(rows)
 
 
@@ -115,11 +116,88 @@ def predict_shard_task(payload: dict) -> dict:
     return {"path": str(out), "count": len(keys)}
 
 
+@task(
+    name="amdock_qsar_train_model",
+    description="Fit, validate and save one QSAR model.",
+    executor="compute",
+    supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
+)
+def train_model_task(payload: dict) -> dict:
+    """One model of a train job: the design matrix comes by file, shared by every model of the job;
+    the fitted model is written beside the others, named by its identity."""
+    from pathlib import Path
+
+    import numpy as np
+
+    from amdockvs.qsar.modeling import save_model
+    from amdockvs.qsar.training import train_on_arrays
+
+    data = np.load(str(payload["data_path"]), allow_pickle=False)
+    spec = dict(payload["spec"])
+    groups = data["groups"].tolist() if data["groups"].size else None
+    names = data["names"].tolist() if data["names"].size else [f"bit_{i}" for i in range(data["x"].shape[1])]
+    fitted, record, members = train_on_arrays(
+        x=data["x"].astype(float), y=data["y"], ids=data["ids"].tolist(), is_test=data["is_test"],
+        folds=data["folds"], groups=groups, names=names, spec=spec,
+    )
+    out = Path(str(payload["output_dir"])) / f"model_{spec['identity'][:16]}.joblib"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    save_model(out, fitted)
+    ref = f"model::{spec['identity']}"
+    return {
+        "qsar_models": [{**record, "model_path": str(out), "$ref": ref}],
+        "qsar_model_members": [{**member, "model_ref": ref} for member in members],
+    }
+
+
+@task(
+    name="amdock_qsar_predict_rows",
+    description="Score one batch of molecules with a QSAR model.",
+    executor="compute",
+    supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
+)
+def predict_rows_task(payload: dict) -> dict:
+    """Features computed from each molecule's structure, the same way the shards are scored; a
+    molecule that does not parse, or whose features cannot be computed, is left unscored."""
+    import numpy as np
+
+    from amdockvs.chemistry.structures import mol_from_bytes
+    from amdockvs.qsar.modeling import load_model
+
+    fitted = load_model(payload["model_path"])
+    ids, rows = [], []
+    for item in payload.get("items") or []:
+        try:
+            mol = mol_from_bytes(item["structure"], item.get("structure_kind"))
+            vector = None if mol is None else _feature_vector(mol, fitted)
+        except Exception:  # noqa: BLE001 - one odd molecule does not fail its batch
+            vector = None
+        if vector is not None:
+            ids.append(int(item["molecule_id"]))
+            rows.append(vector)
+    if not rows:
+        return {"qsar_predictions": []}
+    x_matrix = np.asarray(rows, dtype=float)
+    values = fitted.predict(x_matrix)
+    confidence = fitted.predict_confidence(x_matrix)
+    probability = fitted.predict_positive_probability(x_matrix)
+    model_id = int(payload["model_id"])
+    return {"qsar_predictions": [
+        {
+            "molecule_id": mid, "model_id": model_id, "value": float(values[i]),
+            "confidence": None if confidence is None else float(confidence[i]),
+            "positive_probability": None if probability is None else float(probability[i]),
+        }
+        for i, mid in enumerate(ids)
+    ]}
+
+
 def _descriptor_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     """Shape descriptor rows for DESCRIPTOR_GRAPH_OUTPUT: descriptor values upserted onto
     MoleculeRecord columns, optional Morgan fingerprints upserted into FingerprintRecord."""
     molecules: list[dict[str, Any]] = []
     fingerprints: list[dict[str, Any]] = []
+    blocks: list[dict[str, Any]] = []
     for row in rows:
         if str(row.get("status") or "") != "completed":
             continue
@@ -133,4 +211,6 @@ def _descriptor_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dict
                 "radius": int(row["fp_radius"]),
                 "fp_binary": row["fp_binary"],
             })
-    return {"molecules": molecules, "fingerprints": fingerprints}
+        if row.get("rdkit2d"):
+            blocks.append({"molecule_id": molecule_id, "block": "rdkit2d", "values_json": row["rdkit2d"]})
+    return {"molecules": molecules, "fingerprints": fingerprints, "descriptor_blocks": blocks}

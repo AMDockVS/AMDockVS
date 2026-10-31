@@ -53,6 +53,21 @@ class ModelAnalysisMixin:
             raise ValueError(f"No molecules in the '{mode}' subset of model #{record.id}.")
         return record, rows
 
+    def member_table(self, *, model: QSARModelRef | int) -> list[dict[str, Any]]:
+        """One row per molecule the model was built on: molecule_id, name, role ('train'|'test'),
+        observed, predicted, oof_predicted (a training molecule's, when CV ran), probability."""
+        record, rows = self.model_members(model=model)
+        with self.runtime.workspace.project_db.get_session() as session:
+            names = dict(session.exec(
+                select(MoleculeRecord.id, MoleculeRecord.name)
+                .where(MoleculeRecord.id.in_([int(r.molecule_id) for r in rows]))
+            ).all())
+        return [{
+            "molecule_id": int(r.molecule_id), "name": str(names.get(r.molecule_id) or ""), "role": r.role,
+            "observed": r.observed, "predicted": r.predicted, "oof_predicted": r.oof_predicted,
+            "probability": r.probability,
+        } for r in rows]
+
     def _diagnostic_data(self, *, model, subset: str = "all"):
         """(record, observed, predicted, probability, summary) for the subset; 'cv' reads the
         out-of-fold columns. probability is None when any row lacks one."""
@@ -64,6 +79,7 @@ class ModelAnalysisMixin:
         probability = None if any(p is None for p in scores) else np.asarray(scores, dtype=float)
         return record, observed, predicted, probability, {
             "endpoint": record.target, "subset": str(subset or "all").lower(), "n": len(rows),
+            "ids": [int(r.molecule_id) for r in rows],
         }
 
     def observed_predicted_points(self, *, model, subset="all") -> dict[str, Any]:
@@ -211,6 +227,47 @@ class ModelAnalysisMixin:
             out.append({"molecule_id": mid, "name": names.get(mid, ""),
                         "similarity": sim, "in_domain": bool(sim >= float(threshold))})
         return out
+
+    def bit_fragments(self, *, model: QSARModelRef | int, bits, max_molecules: int = 500) -> dict[str, str]:
+        """{"bit_<i>": SMILES of the substructure that sets it} for an ECFP4 model, read off the
+        first of its training molecules that has the bit (Morgan bitInfo). A bit no molecule sets,
+        or a collision, keeps whichever environment came first."""
+        from rdkit import Chem
+        from rdkit.Chem import rdFingerprintGenerator
+
+        self.runtime._require_active_project()
+        wanted = {int(str(b).removeprefix("bit_")) for b in bits}
+        with self.runtime.workspace.project_db.get_session() as session:
+            record, fitted = self._load_fitted(session, model)
+            if fitted.feature_kind != "ecfp4":
+                raise ValueError("Bit fragments are for ECFP4 models.")
+            members = session.exec(
+                select(QSARModelMemberRecord.molecule_id).where(QSARModelMemberRecord.model_id == record.id)
+                .limit(int(max_molecules))
+            ).all()
+            generator = rdFingerprintGenerator.GetMorganGenerator(
+                radius=int(fitted.fp_radius or 2), fpSize=int(fitted.fp_nbits or 2048), includeChirality=True)
+            found: dict[str, str] = {}
+            for molecule_id in members:
+                rec = session.get(MoleculeRecord, int(molecule_id))
+                mol = None if rec is None else self._ligand_mol(session, rec)
+                if mol is None:
+                    continue
+                output = rdFingerprintGenerator.AdditionalOutput()
+                output.AllocateBitInfoMap()
+                generator.GetFingerprint(mol, additionalOutput=output)
+                for bit, environments in output.GetBitInfoMap().items():
+                    if bit not in wanted or f"bit_{bit}" in found:
+                        continue
+                    atom, radius = environments[0]
+                    bonds = list(Chem.FindAtomEnvironmentOfRadiusN(mol, int(radius), int(atom)))
+                    atoms = {int(atom)} | {a for b in bonds for a in (mol.GetBondWithIdx(b).GetBeginAtomIdx(),
+                                                                      mol.GetBondWithIdx(b).GetEndAtomIdx())}
+                    found[f"bit_{bit}"] = Chem.MolFragmentToSmiles(
+                        mol, atomsToUse=sorted(atoms), bondsToUse=bonds or None, canonical=True)
+                if len(found) == len(wanted):
+                    break
+        return found
 
     def atom_contributions(self, *, model: QSARModelRef | int, ligand_id: int) -> dict[str, Any]:
         """Per-atom contribution to an ECFP4 model's prediction (StarDrop's "glowing molecule").

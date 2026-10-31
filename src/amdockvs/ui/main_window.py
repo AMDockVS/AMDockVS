@@ -634,8 +634,11 @@ class AMDockVSMainWindow(QMainWindow):
     def show_correlation_heatmap(self, label: str, labels, matrix) -> None:
         self.charts.show_correlation_heatmap(label, labels, matrix)
 
-    def show_split_distribution(self, label: str, categories, groups) -> None:
-        self.charts.show_split_distribution(label, categories, groups)
+    def show_split_distribution(self, label: str, categories, groups, x_title: str = "") -> None:
+        self.charts.show_split_distribution(label, categories, groups, x_title)
+
+    def highlight_fit_point(self, x: float, y: float) -> None:
+        self.charts.highlight_fit_point(x, y)
 
     def show_similarity_distribution(self, label: str, bins) -> None:
         self.charts.show_similarity_distribution(label, bins)

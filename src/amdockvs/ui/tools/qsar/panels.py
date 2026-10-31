@@ -6,7 +6,7 @@ filtering. Heavy calls go through run_async so the GUI never blocks.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QItemSelectionModel, Qt, QTimer
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QInputDialog,
     QLabel,
     QListWidget,
@@ -34,6 +35,7 @@ from amdockvs.qsar.build import FEATURE_SOURCES
 from amdockvs.qsar.modeling import supported_algorithms
 from amdockvs.qsar.splitters import SPLITTERS
 from amdockvs.ui.common.async_query import run_async
+from ms_components.chips import FlowLayout
 from ms_components.ms_stepper import Orientation, QStepper
 from amdockvs.ui.view_ids import QSAR_ANALYSIS_VIEW_ID, QSAR_BUILD_VIEW_ID
 
@@ -120,8 +122,9 @@ class QSARBuildWidget(QWidget):
         self.status.setText(f"Previewing {split} split for {endpoint}… (computing scaffolds can take a moment)")
 
         def _done(res):
+            classes = threshold is not None or self._endpoint_kinds.get(endpoint) == "categorical"
             show(f"{endpoint} - {split} split (train vs test)", res["categories"],
-                 {"train": res["train"], "test": res["test"]})
+                 {"train": res["train"], "test": res["test"]}, "Class" if classes else f"{endpoint} range")
             self.status.setText(f"Split preview [{split}] {endpoint}: "
                                 f"{res['n_train']} train / {res['n_test']} test - {res['note']}")
 
@@ -132,16 +135,6 @@ class QSARBuildWidget(QWidget):
             on_error=lambda exc: QMessageBox.warning(self, "QSAR split preview", str(exc)),
             busy=self,
         )
-
-    def _compute_descriptors(self) -> None:
-        try:
-            job_id = self.runtime.qsar.compute_descriptors(
-                only_missing=True, compute_fingerprints=self.morgan_check.isChecked()
-            )
-        except Exception as exc:
-            QMessageBox.warning(self, "QSAR", str(exc))
-            return
-        self.status.setText(f"Descriptor job submitted: {job_id}")
 
     # --- training -------------------------------------------------------------
     def _train_box(self) -> QGroupBox:
@@ -178,8 +171,18 @@ class QSARBuildWidget(QWidget):
         self.feature_source = QComboBox(box)
         self.feature_source.addItems(list(FEATURE_SOURCES))
         self.feature_source.setToolTip(
-            "rdkit2d: full RDKit ~200 block (computed+cached on first use), auto-scaled and "
-            "correlation-pruned inside the CV pipeline · ecfp4: stored Morgan fingerprint.")
+            "rdkit2d: full RDKit ~200 block, auto-scaled and correlation-pruned inside the CV pipeline · "
+            "ecfp4: Morgan fingerprint. Training computes what a molecule lacks first, as a job.")
+        self.feature_source.currentTextChanged.connect(self._sync_features)
+        self.fp_radius = QSpinBox(box)
+        self.fp_radius.setRange(1, 4)
+        self.fp_radius.setValue(2)
+        self.fp_radius.setToolTip("Morgan radius: 2 is ECFP4.")
+        self.fp_nbits = QSpinBox(box)
+        self.fp_nbits.setRange(256, 16384)
+        self.fp_nbits.setSingleStep(1024)
+        self.fp_nbits.setValue(2048)
+        self.fp_nbits.setToolTip("Fingerprint length in bits.")
         self.corr_threshold = QDoubleSpinBox(box)
         self.corr_threshold.setRange(0.5, 1.0)
         self.corr_threshold.setSingleStep(0.05)
@@ -189,12 +192,7 @@ class QSARBuildWidget(QWidget):
         self.y_scramble.setRange(0, 50)
         self.y_scramble.setToolTip("y-randomisation: refit on N shuffled-label sets (CV-scored). "
                                    "Should score ~0; if near the real score, the model is chance. 0 = off.")
-        self.morgan_check = QCheckBox("Morgan fingerprints (ECFP4)", box)
-        self.morgan_check.setToolTip("Also compute/store the Morgan fingerprint (needed for the ECFP4 feature source).")
-        step3_desc_btn = QPushButton("Compute missing descriptors", box)
-        step3_desc_btn.setToolTip("Skips ligands that already have them.")
-        step3_desc_btn.clicked.connect(self._compute_descriptors)
-        corr_btn = QPushButton("Analyze correlation…", box)
+        self.corr_btn = corr_btn = QPushButton("Analyze correlation…", box)
         corr_btn.setToolTip("Heatmap of THIS feature block (above) at THIS cutoff - shows which "
                             "descriptors the pipeline prunes as redundant before training.")
         corr_btn.clicked.connect(self._show_correlation)
@@ -217,15 +215,25 @@ class QSARBuildWidget(QWidget):
                         ("Class threshold", self.class_threshold)]))
         self.stepper.add_step("Split", "train/test", header_nav=False).add_widget(
             _form_step([("Split", self.split_combo), ("Test split", self.test_size), ("", split_preview_btn)]))
-        self.stepper.add_step("Descriptors", "features", header_nav=False).add_widget(
-            _form_step([("Features", self.feature_source), ("Correlation cutoff", self.corr_threshold),
-                        ("", corr_btn), ("", self.morgan_check), ("", step3_desc_btn)]))
+        self._features_page = _form_step([
+            ("Features", self.feature_source), ("Radius", self.fp_radius), ("Bits", self.fp_nbits),
+            ("Correlation cutoff", self.corr_threshold), ("", corr_btn)])
+        self.stepper.add_step("Descriptors", "features", header_nav=False).add_widget(self._features_page)
         self.stepper.add_step("Methods", "algorithms & run", header_nav=False).add_widget(
             _form_step([("Algorithms", self.algo_box), ("CV folds", self.cv_folds),
                         ("y-scramble runs", self.y_scramble)]))
         layout.addWidget(self.stepper)
         self._sync_algorithms()
+        self._sync_features()
         return box
+
+    def _sync_features(self) -> None:
+        """Radius and bits are the fingerprint's; the correlation cutoff prunes descriptors."""
+        form = self._features_page.layout()
+        ecfp4 = self.feature_source.currentText() == "ecfp4"
+        for widget, visible in ((self.fp_radius, ecfp4), (self.fp_nbits, ecfp4),
+                                (self.corr_threshold, not ecfp4), (self.corr_btn, not ecfp4)):
+            form.setRowVisible(widget, visible)
 
     def _sync_algorithms(self) -> None:
         """Rebuild the algorithm checkboxes for the current task (tick several to train + compare)."""
@@ -268,32 +276,27 @@ class QSARBuildWidget(QWidget):
             y_scramble=int(self.y_scramble.value()),
             class_threshold=float(self.class_threshold.value()) if needs_threshold else None,
         )
+        if base["feature_source"] == "ecfp4":
+            base.update(fp_radius=int(self.fp_radius.value()), fp_nbits=int(self.fp_nbits.value()))
+
+        def _done(request: dict) -> None:
+            self.stepper.setEnabled(True)
+            reused = ", ".join(f"{algo} (#{mid})" for algo, mid in request["existing"].items())
+            self.status.setText(
+                (f"Training {len(algos) - len(request['existing'])} model(s) as a job; follow them in "
+                 "QSAR Analysis." if request["job_id"] else "Nothing to train.")
+                + (f" Already trained on the same data and settings: {reused}." if reused else ""))
+            open_view = getattr(self.window(), "open_or_focus_view", None)
+            if open_view is not None:
+                open_view(QSAR_ANALYSIS_VIEW_ID).show_trained(
+                    {**request, "endpoint": endpoint, "task": task, "features": base["feature_source"],
+                     "split": base["split"]})
+
         self.stepper.setEnabled(False)
-        self.status.setText(f"Training {len(algos)} model(s)…")
-
-        def _work():
-            out = []
-            for algo in algos:
-                try:
-                    m = self.runtime.qsar.train(algorithm=algo, **base)
-                    out.append(("ok", {"id": int(m.id), "name": m.name, "algorithm": m.algorithm, "model": m}))
-                except Exception as exc:  # one bad algorithm shouldn't sink the batch
-                    out.append(("err", f"{algo}: {exc}"))
-            return out
-
-        run_async(_work, self._on_trained_batch, on_error=self._on_train_error, busy=self)
-
-    def _on_trained_batch(self, results) -> None:
-        self.stepper.setEnabled(True)
-        trained = [r for status, r in results if status == "ok"]
-        errors = [r for status, r in results if status == "err"]
-        open_view = getattr(self.window(), "open_or_focus_view", None)
-        if trained and open_view is not None:
-            open_view(QSAR_ANALYSIS_VIEW_ID).show_trained(trained)
-        msg = f"Trained {len(trained)} model(s); compared in QSAR Analysis."
-        if errors:
-            msg += " Failed: " + "; ".join(errors)
-        self.status.setText(msg)
+        self.status.setText("Labeling and splitting the molecules…")
+        # The split is checked here, so a split that cannot work fails before any job is queued.
+        run_async(lambda: self.runtime.qsar.submit_train(algorithm=algos, **base), _done,
+                  on_error=self._on_train_error, busy=self)
 
     def _on_train_error(self, exc: Exception) -> None:
         self.stepper.setEnabled(True)
@@ -319,9 +322,18 @@ class QSARBuildWidget(QWidget):
         run_async(
             lambda: self.runtime.qsar.correlation_matrix(feature_source=source, corr_threshold=thr),
             _done,
-            on_error=lambda exc: QMessageBox.warning(self, "QSAR correlation", str(exc)),
+            on_error=self._on_correlation_error,
             busy=self,
         )
+
+    def _on_correlation_error(self, exc: Exception) -> None:
+        if "RDKit 2D block" not in str(exc):
+            QMessageBox.warning(self, "QSAR correlation", str(exc))
+            return
+        if QMessageBox.question(self, "QSAR correlation", "The RDKit 2D block is not computed for these "
+                                "ligands yet. Compute it now, as a job?") == QMessageBox.Yes:
+            job_id = self.runtime.qsar.compute_descriptors(rdkit2d=True)
+            self.status.setText(f"RDKit 2D block job submitted ({job_id}); analyze again when it ends.")
 
     def _fill_endpoints(self, kinds: dict[str, str]) -> None:
         self._endpoint_kinds = dict(kinds)
@@ -346,181 +358,338 @@ class QSARBuildWidget(QWidget):
 # Model analysis (catalog view)
 # ---------------------------------------------------------------------------
 
+_METRIC_NAMES = {
+    "accuracy": "Accuracy", "balanced_accuracy": "Balanced accuracy", "f1": "F1", "mcc": "MCC",
+    "roc_auc": "ROC AUC", "pr_auc": "PR AUC", "r2": "R²", "rmse": "RMSE", "mae": "MAE", "mse": "MSE",
+    "enrichment_1pct": "Enrichment at 1%", "cv_mcc": "CV MCC", "cv_accuracy": "CV accuracy",
+}
+
+
+def _metric_name(key: str) -> str:
+    return _METRIC_NAMES.get(key, key.replace("_", " ").capitalize())
+
+
+def _fmt(value) -> str:
+    return "—" if value is None else f"{value:.3f}"
+
+
+# What a training job's status reads as in the Status column.
+_JOB_STATUS = {"pending": "Queued", "running": "Training", "failed": "Failed", "canceled": "Canceled"}
+
+
 class QSARModelsWidget(QWidget):
-    """Model analysis: the trained models and what is read off them: compare, evaluate, charts."""
+    """Model analysis: the trained models (and those still training), a summary of the selected one,
+    the charts read off the selection and the molecules the model was built on."""
+
+    _COLUMNS = ("Model", "Status", "Task", "Algorithm", "Features", "Endpoint", "Split",
+                "Train n", "Test n", "Test R² / MCC", "Q² / AUC")
 
     def __init__(self, *, runtime, parent=None):
         super().__init__(parent)
         self.runtime = runtime
-        outer = QVBoxLayout(self)
-        self.status = QLabel("", self)
-        self.status.setWordWrap(True)
-        outer.addWidget(_scrolled(self._models_box()), 1)
-        outer.addWidget(self.status)
-        self.refresh()
+        self._models: list = []
+        self._rows: list = []  # per table row: a stored model, or a pending (request, algorithm)
+        self._requests: list[dict] = []  # trainings submitted from Build: running, or failed
+        self._job_status: dict[str, str] = {}
+        self._to_select: set[str] = set()  # identities to select once they are listed
+        self._members: list[dict] = []
+        self._poll = QTimer(self)
+        self._poll.setInterval(2000)
+        self._poll.timeout.connect(self._poll_jobs)
 
-    def show_trained(self, rows: list[dict]) -> None:
-        """Called by the Build Model tool: reload the list and compare what it just trained."""
-        self.refresh()
-        self._populate_comparison(rows)
-
-    # --- models ---------------------------------------------------------------
-    def _models_box(self) -> QGroupBox:
-        box = QGroupBox(self)
-        layout = QVBoxLayout(box)
-        self.models_table = QTableWidget(0, 5, box)
-        self.models_table.setHorizontalHeaderLabels(["id", "name", "algorithm", "target", "source"])
+        layout = QVBoxLayout(self)
+        self.models_table = QTableWidget(0, len(self._COLUMNS), self)
+        self.models_table.setHorizontalHeaderLabels(list(self._COLUMNS))
         self.models_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.models_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.models_table.horizontalHeader().setStretchLastSection(True)
-        self.models_table.setMaximumHeight(170)
-        self.models_table.itemSelectionChanged.connect(self._show_model_summary)
-        self.models_table.itemChanged.connect(lambda _i: self._update_action_state())
+        self.models_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.models_table.verticalHeader().setVisible(False)
+        header = self.models_table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        self.models_table.setMaximumHeight(205)
+        self.models_table.itemSelectionChanged.connect(self._on_selection)
         layout.addWidget(self.models_table)
-        self.model_summary = QLabel("Tick the id boxes to pick the model(s) to act on; click a row for its summary.",
-                                    box)
+
+        self.model_summary = QLabel("Select a model row to review its results.", self)
         self.model_summary.setWordWrap(True)
         self.model_summary.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.model_summary.setStyleSheet("QLabel { padding: 8px; border: 1px solid palette(mid); border-radius: 4px; }")
         layout.addWidget(self.model_summary)
-        # This label makes the model→action link explicit: every button below acts on the TICKED models.
-        self.acting_label = QLabel("Acting on: no models ticked.", box)
-        self.acting_label.setStyleSheet("QLabel { font-weight: bold; }")
-        layout.addWidget(self.acting_label)
+        layout.addWidget(self._analyze_bar())
 
-        self.comparison_table = QTableWidget(0, 6, box)
-        self.comparison_table.setHorizontalHeaderLabels(
-            ["id", "algorithm", "features", "n_train", "test MCC/R²", "test AUC/RMSE"])
-        self.comparison_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.comparison_table.setMaximumHeight(150)
-        self.comparison_table.horizontalHeader().setStretchLastSection(True)
-        layout.addWidget(self.comparison_table)
+        layout.addWidget(QLabel("Molecules of the model: click one to find it in the chart.", self))
+        self.members_table = QTableWidget(0, 4, self)
+        self.members_table.setHorizontalHeaderLabels(["Molecule", "Subset", "Observed", "Predicted"])
+        self.members_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.members_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.members_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.members_table.verticalHeader().setVisible(False)
+        self.members_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.members_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.members_table.itemSelectionChanged.connect(self._on_member)
+        layout.addWidget(self.members_table, 1)
+        self.status = QLabel("", self)
+        self.status.setWordWrap(True)
+        layout.addWidget(self.status)
+        self.refresh()
 
-        # Two labelled groups so it's clear what each button does with the ticked model(s).
-        self._action_buttons: dict[str, QPushButton] = {}
-
-        def _btn(key: str, text: str, tip: str, slot) -> QPushButton:
-            b = QPushButton(text, box)
-            b.setToolTip(tip)
-            b.clicked.connect(slot)
-            self._action_buttons[key] = b
-            return b
-
-        # ROC / observed-vs-predicted can be scored on the held-out test (honest predictivity), the
-        # train set (its gap to test = overfitting), or all labeled. Test is the default.
-        self.eval_subset = QComboBox(box)
+    def _analyze_bar(self) -> QWidget:
+        bar = QWidget(self)
+        flow = FlowLayout(bar)
+        flow.setContentsMargins(0, 0, 0, 0)
+        # Charts are scored on the held-out test (honest predictivity), the out-of-fold training
+        # predictions, the training set (its gap to test = overfitting) or everything.
+        self.eval_subset = QComboBox(bar)
         for text, data in (("Test", "test"), ("Cross-validation", "cv"), ("Train", "train"), ("All", "all")):
             self.eval_subset.addItem(text, data)
-        self.eval_subset.setToolTip("Which ligands ROC and observed-vs-predicted score on. Test = honest "
-                                    "predictivity; Cross-validation = out-of-fold training predictions; Train vs Test gap = "
-                                    "overfitting; All = every molecule the model was built on.")
-
-        use_row = QHBoxLayout()
-        use_row.addWidget(QLabel("Score the model:", box))
-        use_row.addWidget(
-            _btn("compare", "Compare", "Fill the comparison table from the ticked models.", self._compare_checked))
-        use_row.addWidget(
-            _btn("evaluate", "Evaluate", "Metrics of each ticked model on its labeled ligands.", self._evaluate))
-        use_row.addWidget(
-            _btn("plot", "Observed vs predicted", "Model-fit scatter; several ticked models overlay as series.",
-                 self._plot_fit))
-        use_row.addWidget(QLabel("on:", box))
-        use_row.addWidget(self.eval_subset)
-        use_row.addStretch(1)
-        layout.addLayout(use_row)
-
-        analyze_row = QHBoxLayout()
-        analyze_row.addWidget(QLabel("Analyze:", box))
-        analyze_row.addWidget(_btn("importance", "Feature importance",
-                                   "Bar chart of the ticked model's feature weights: tree importances or "
-                                   "linear coefficients (tick exactly one).",
-                                   self._show_importance))
-        analyze_row.addWidget(
-            _btn("roc", "ROC curve", "ROC + AUC; several ticked models overlay (classification).", self._show_roc))
-        analyze_row.addWidget(
-            _btn("ad", "Applicability domain", "Tanimoto to the training set (tick one; can be slow for big sets).",
-                 self._show_ad))
-        analyze_row.addWidget(
-            _btn("glowing", "Glowing molecule…", "Per-atom contribution — ECFP4 models only (tick one).",
-                 self._glowing_molecule))
-        analyze_row.addStretch(1)
-        layout.addLayout(analyze_row)
+        self.eval_subset.setToolTip("The molecules the charts score on. Test = honest predictivity; Cross-validation "
+                                    "= out-of-fold training predictions; Train vs Test gap = overfitting.")
+        flow.addWidget(QLabel("Analyze on:", bar))
+        flow.addWidget(self.eval_subset)
+        self._actions: dict[str, QPushButton] = {}
+        for key, text, tip, slot in (
+            ("plot", "Observed vs predicted", "Fit scatter (regression); several selected models overlay.",
+             self._plot_fit),
+            ("importance", "Feature importance", "Tree importances or linear weights of the selected model.",
+             self._show_importance),
+            ("roc", "ROC curve", "ROC + AUC (classification); several selected models overlay.", self._show_roc),
+            ("ad", "Applicability domain", "Tanimoto of the ligands to the selected model's training set.",
+             self._show_ad),
+        ):
+            button = QPushButton(text, bar)
+            button.setToolTip(tip)
+            button.clicked.connect(slot)
+            flow.addWidget(button)
+            self._actions[key] = button
         self._update_action_state()
-        return box
+        return bar
 
-    # --- action targeting (everything acts on the TICKED models) --------------
-    def _checked_rows(self) -> list[int]:
+    # --- the table ------------------------------------------------------------
+    def refresh(self) -> None:
+        run_async(self.runtime.qsar.list_models, self._fill_models, on_error=lambda _e: None, busy=self.models_table)
+
+    refresh_view = refresh
+
+    def show_trained(self, request: dict) -> None:
+        """Called by the Build tool with what ``submit_train`` returned (plus endpoint, task,
+        features, split): the models it trains are listed as they train and selected when done."""
+        self._to_select = set(request["identities"].values())
+        self.models_table.clearSelection()  # what it trains is selected as each model is stored
+        if request.get("job_id"):
+            self._requests.append(request)
+            self._poll.start()
+        self.refresh()
+
+    def _poll_jobs(self) -> None:
+        jobs = [j for r in self._requests if not r.get("ended")
+                for j in (r.get("descriptor_job_id"), r["job_id"]) if j]
+        if not jobs:
+            self._poll.stop()
+            return
+
+        def _read():
+            return {j: getattr(self.runtime.get_job_status(j), "status", "") for j in jobs}
+
+        run_async(_read, self._on_job_status, on_error=lambda _e: None)
+
+    def _on_job_status(self, statuses: dict[str, str]) -> None:
+        changed = statuses != {j: self._job_status.get(j) for j in statuses}
+        self._job_status.update(statuses)
+        ended = [r for r in self._requests if statuses.get(r["job_id"]) in {"completed", "failed", "canceled"}]
+        for request in ended:  # a failed training stays listed as Failed; the monitor has its error
+            request["ended"] = True
+            if statuses[request["job_id"]] == "completed":
+                self._requests.remove(request)
+        if changed or ended:
+            self.refresh()
+
+    def _pending_rows(self, stored: set[str]) -> list[tuple[dict, str]]:
+        return [(request, algo) for request in self._requests
+                for algo, identity in request["identities"].items()
+                if identity not in stored and algo not in request["existing"]]
+
+    def _pending_status(self, request: dict) -> str:
+        features_job = request.get("descriptor_job_id")
+        if features_job and self._job_status.get(features_job) in {"pending", "running"}:
+            return "Computing features"
+        return _JOB_STATUS.get(self._job_status.get(request["job_id"], "pending"), "Queued")
+
+    def _fill_models(self, models) -> None:
+        self._models = list(models)
+        identity_of = {int(m.id): (m.metrics or {}).get("identity") for m in self._models}
+        selected = {self._row_key(r) for r in self._selected_rows()}
+        self._rows = list(self._models) + self._pending_rows({i for i in identity_of.values() if i})
         table = self.models_table
-        return [r for r in range(table.rowCount())
-                if table.item(r, 0) is not None and table.item(r, 0).checkState() == Qt.Checked]
+        table.blockSignals(True)
+        table.clearSelection()
+        table.setRowCount(len(self._rows))
+        for r, row in enumerate(self._rows):
+            for c, text in enumerate(self._cells(row)):
+                table.setItem(r, c, QTableWidgetItem(text))
+        pick = self._to_select & set(identity_of.values())
+        for r, row in enumerate(self._rows):
+            stored = not isinstance(row, tuple)
+            if (stored and identity_of[int(row.id)] in pick) or self._row_key(row) in selected:
+                # selectRow() would replace the selection: add to it instead
+                table.selectionModel().select(table.model().index(r, 0),
+                                              QItemSelectionModel.Select | QItemSelectionModel.Rows)
+        if pick:
+            self._to_select -= pick
+        table.blockSignals(False)
+        if not self._rows:
+            self.model_summary.setText("No QSAR models in this project yet. Build one in the QSAR tool.")
+        self._on_selection()
 
-    def _checked_models(self) -> list:
-        models = getattr(self, "_models", [])
-        return [models[r] for r in self._checked_rows() if r < len(models)]
+    @staticmethod
+    def _row_key(row):
+        return ("job", row[0]["job_id"], row[1]) if isinstance(row, tuple) else ("model", int(row.id))
+
+    def _cells(self, row) -> list[str]:
+        if isinstance(row, tuple):
+            request, algo = row
+            return [f"{algo}_{request.get('endpoint', '')}", self._pending_status(request),
+                    str(request.get("task", "")), algo, str(request.get("features", "")),
+                    str(request.get("endpoint", "")), str(request.get("split", "")), "", "", "", ""]
+        m = row.metrics or {}
+        if row.task == "classification":
+            primary, secondary = row.test_mcc, row.test_roc_auc
+        else:
+            primary, secondary = row.test_r2, row.q2
+        return [row.name, "Trained" if row.source == "trained" else "External", row.task, row.algorithm,
+                str(m.get("feature_kind", "—")), row.target, row.splitter or "—", str(row.n_train or 0),
+                str(row.n_test or 0), _fmt(primary), _fmt(secondary)]
+
+    def _selected_rows(self) -> list:
+        indexes = sorted(i.row() for i in self.models_table.selectionModel().selectedRows())
+        return [self._rows[i] for i in indexes if i < len(self._rows)]
+
+    def _selected_models(self) -> list:
+        return [row for row in self._selected_rows() if not isinstance(row, tuple)]
+
+    def _require_selected(self, *, exactly_one: bool = False) -> list:
+        models = self._selected_models()
+        if not models or (exactly_one and len(models) != 1):
+            QMessageBox.information(self, "QSAR", "Select exactly one trained model." if exactly_one
+                                    else "Select at least one trained model.")
+            return []
+        return models
+
+    def _on_selection(self) -> None:
+        self._update_action_state()
+        models = self._selected_models()
+        if models:
+            self._show_summary(models[0], len(self._selected_rows()))
+            self._load_members(int(models[0].id))
+        else:
+            self._members = []
+            self.members_table.setRowCount(0)
 
     def _update_action_state(self) -> None:
-        """Enable/disable each button by how many models are ticked + their feature kind, and
-        spell out the current target — so the buttons visibly relate to the model selection."""
-        if not getattr(self, "_action_buttons", None):
+        if not getattr(self, "_actions", None):
             return
-        checked = self._checked_models()
-        n = len(checked)
-        kinds = {str((m.metrics or {}).get("feature_kind", "")) for m in checked}
-        tasks = {m.task for m in checked}
-        one_ecfp4 = n == 1 and kinds == {"ecfp4"}
-        all_regression = n >= 1 and tasks == {"regression"}
-        all_classification = n >= 1 and tasks == {"classification"}
-        rules = {
-            "compare": n >= 1, "evaluate": n >= 1,
-            "plot": all_regression,  # observed-vs-predicted is a regression diagnostic
-            "roc": all_classification,  # ROC is classification-only
-            "importance": n == 1, "ad": n == 1, "glowing": one_ecfp4,
-        }
+        models = self._selected_models()
+        tasks = {m.task for m in models}
+        rules = {"plot": bool(models) and tasks == {"regression"},
+                 "roc": bool(models) and tasks == {"classification"},
+                 "importance": len(models) == 1, "ad": len(models) == 1}
         for key, enabled in rules.items():
-            self._action_buttons[key].setEnabled(bool(enabled))
-        self._action_buttons["plot"].setToolTip(
-            "Observed vs predicted (test set) — regression models only." if not all_regression
-            else "Observed vs predicted on the held-out test ligands; several ticked models overlay.")
-        self._action_buttons["roc"].setToolTip(
-            "ROC + AUC - classification models only." if not all_classification
-            else "ROC + AUC over the labeled ligands; several ticked models overlay.")
-        self._action_buttons["glowing"].setToolTip(
-            "Per-atom contribution — ECFP4 models only (tick exactly one ECFP4 model)."
-            if not one_ecfp4 else "Per-atom contribution of a ligand to this ECFP4 model.")
-        if n == 0:
-            self.acting_label.setText("Acting on: no models ticked — tick id boxes above.")
-        else:
-            names = ", ".join(f"#{m.id} {m.name}" for m in checked[:4]) + (" …" if n > 4 else "")
-            self.acting_label.setText(f"Acting on {n} model(s): {names}")
+            self._actions[key].setEnabled(enabled)
 
-    def _require_checked(self, *, exactly_one: bool = False) -> list:
-        checked = self._checked_models()
-        if not checked:
-            QMessageBox.information(self, "QSAR", "Tick at least one model (id box) to act on.")
-            return []
-        if exactly_one and len(checked) != 1:
-            QMessageBox.information(self, "QSAR", "Tick exactly one model for this action.")
-            return []
-        return checked
+    # --- the summary card -----------------------------------------------------
+    def _show_summary(self, record, n_selected: int) -> None:
+        m = record.metrics or {}
 
-    def _plot_fit(self) -> None:
-        checked = self._require_checked()
-        if not checked:
+        def metric_lines(values):
+            return "<br>".join(
+                f"<b>{_metric_name(key)}</b> {value:.3f}" if isinstance(value, float)
+                else f"<b>{_metric_name(key)}</b> {value}"
+                for key, value in (values or {}).items() if key != "n_samples" and value is not None
+            ) or "—"
+
+        blocks = [f"<b>{record.name}</b> &nbsp;·&nbsp; {record.task.title()} &nbsp;·&nbsp; {record.algorithm}"
+                  f" &nbsp;·&nbsp; {str(m.get('feature_kind', '—')).upper()}<br>Endpoint: {record.target}"
+                  f" &nbsp;·&nbsp; Split: {record.splitter or '—'}", "<hr>"]
+        if m.get("train") or m.get("test"):
+            blocks.append(
+                "<table width='100%'><tr>"
+                f"<th align='left'>Training (n={record.n_train})</th>"
+                f"<th align='left'>Holdout test (n={record.n_test})</th></tr><tr>"
+                f"<td valign='top'>{metric_lines(m.get('train'))}</td>"
+                f"<td valign='top'>{metric_lines(m.get('test'))}</td></tr></table>")
+        cv = []
+        if m.get("cv_folds"):
+            cv.append(f"{m['cv_folds']} folds on the training molecules")
+        for key, label in (("q2", "Pooled out-of-fold Q²"), ("cv_r2_mean", "Mean fold R²"), ("cv_rmse", "CV RMSE"),
+                           ("cv_mcc", "CV MCC"), ("cv_accuracy", "CV accuracy")):
+            if m.get(key) is not None:
+                cv.append(f"{label}: {m[key]:.3f}")
+        if cv:
+            blocks.extend(["<hr><b>Cross-validation</b><br>", "<br>".join(cv)])
+        if m.get("y_scramble") is not None:
+            label = "y-scramble Q²" if m.get("y_scramble_metric") == "q2_pooled_oof" else "y-scramble MCC"
+            blocks.extend(["<hr>", f"<b>{label}:</b> {m['y_scramble']:.3f}"])
+        warnings = [str(m[k]) for k in ("cv_warning", "y_scramble_warning") if m.get(k)]
+        if warnings:
+            blocks.extend(["<hr>", "<br>".join(warnings)])
+        if n_selected > 1:
+            blocks.extend(["<hr>", f"{n_selected} models selected: the charts overlay them."])
+        self.model_summary.setText("".join(blocks))
+
+    # --- the members ----------------------------------------------------------
+    def _load_members(self, model_id: int) -> None:
+        run_async(lambda: self.runtime.qsar.member_table(model=model_id), self._fill_members,
+                  on_error=lambda _e: self._fill_members([]), busy=self.members_table)
+
+    def _fill_members(self, rows) -> None:
+        self._members = list(rows)
+        table = self.members_table
+        table.blockSignals(True)
+        table.setRowCount(len(self._members))
+        for r, row in enumerate(self._members):
+            cells = [row["name"] or f"#{row['molecule_id']}", row["role"], f"{row['observed']:.3f}",
+                     f"{row['predicted']:.3f}"]
+            for c, text in enumerate(cells):
+                table.setItem(r, c, QTableWidgetItem(text))
+        table.blockSignals(False)
+
+    def _on_member(self) -> None:
+        rows = self.members_table.selectionModel().selectedRows()
+        models = self._selected_models()
+        if not rows or not models or rows[0].row() >= len(self._members):
             return
-        if any(m.task != "regression" for m in checked):
-            QMessageBox.information(self, "QSAR", "Observed-vs-predicted is a regression diagnostic. For "
-                                                  "classification use ROC curve / Evaluate instead.")
+        member, model = self._members[rows[0].row()], models[0]
+        if model.task == "regression":
+            cv = self.eval_subset.currentData() == "cv" and member["oof_predicted"] is not None
+            highlight = getattr(self.window(), "highlight_fit_point", None)
+            if highlight is not None:
+                highlight(member["observed"], member["oof_predicted"] if cv else member["predicted"])
+        if (model.metrics or {}).get("feature_kind") != "ecfp4":
             return
-        show = getattr(self.window(), "show_model_fit_series", None)
+        show = getattr(self.window(), "show_glowing_molecule", None)
         if show is None:
             return
-        model_specs = [(int(m.id), m.name) for m in checked]
+        name = member["name"] or f"#{member['molecule_id']}"
+        run_async(
+            lambda: self.runtime.qsar.atom_contributions(model=int(model.id), ligand_id=member["molecule_id"]),
+            lambda res: show(res["molblock"], res["weights"], f"{name}: pred {res['prediction']:.2f}"),
+            on_error=lambda exc: self.status.setText(f"Glowing molecule: {exc}"),
+        )
+
+    # --- charts ---------------------------------------------------------------
+    def _plot_fit(self) -> None:
+        models = self._require_selected()
+        show = getattr(self.window(), "show_model_fit_series", None)
+        if not models or show is None:
+            return
+        specs = [(int(m.id), m.name) for m in models]
         subset = self.eval_subset.currentData()
 
         def _compute():
             series = []
-            for mid, name in model_specs:
+            for mid, name in specs:
                 res = self.runtime.qsar.observed_predicted_points(model=mid, subset=subset)
-                series.append({"label": f"#{mid} {name}", "points": res["points"]})
+                series.append({"label": f"#{mid} {name}", "points": res["points"], "ids": res["ids"]})
             return series
 
         run_async(
@@ -533,29 +702,34 @@ class QSARModelsWidget(QWidget):
         )
 
     def _show_importance(self) -> None:
-        checked = self._require_checked(exactly_one=True)
-        if not checked:
+        models = self._require_selected(exactly_one=True)
+        show = getattr(self.window(), "show_feature_importance", None)
+        if not models or show is None:
             return
-        metrics = dict(checked[0].metrics or {})
-        pairs = metrics.get("feature_importance") or []
+        model = models[0]
+        metrics = dict(model.metrics or {})
+        pairs = [(str(n), float(v)) for n, v in metrics.get("feature_importance") or []][:15]
         if not pairs:
             QMessageBox.information(self, "QSAR", "This model exposes no feature weights (tree and linear "
-                                                  "models do; kNN/SVM don't). Models trained before "
-                                                  "linear weights were stored need a retrain.")
+                                                  "models do; kNN/SVM don't).")
             return
-        show = getattr(self.window(), "show_feature_importance", None)
-        if show is not None:
-            show(f"#{checked[0].id} {metrics.get('feature_kind', '')}", [(str(n), float(v)) for n, v in pairs])
-            self.status.setText(f"Top {min(len(pairs), 15)} features of #{checked[0].id}.")
+        label = f"#{model.id} {metrics.get('feature_kind', '')}"
+        if metrics.get("feature_kind") != "ecfp4":
+            show(label, pairs)
+            return
+
+        def _done(fragments: dict[str, str]):
+            show(label, [(f"{n} · {fragments[n]}" if n in fragments else n, v) for n, v in pairs])
+
+        run_async(lambda: self.runtime.qsar.bit_fragments(model=int(model.id), bits=[n for n, _v in pairs]),
+                  _done, on_error=lambda _e: show(label, pairs), busy=self)
 
     def _show_roc(self) -> None:
-        checked = self._require_checked()
-        if not checked:
-            return
+        models = self._require_selected()
         show = getattr(self.window(), "show_roc_curves", None)
-        if show is None:
+        if not models or show is None:
             return
-        specs = [(int(m.id), m.name) for m in checked]
+        specs = [(int(m.id), m.name) for m in models]
         subset = self.eval_subset.currentData()
 
         def _compute():
@@ -581,22 +755,18 @@ class QSARModelsWidget(QWidget):
         run_async(_compute, _done, on_error=lambda exc: QMessageBox.warning(self, "QSAR ROC", str(exc)), busy=self)
 
     def _show_ad(self) -> None:
-        checked = self._require_checked(exactly_one=True)
-        if not checked:
-            return
-        model_id = int(checked[0].id)
+        models = self._require_selected(exactly_one=True)
         show = getattr(self.window(), "show_similarity_distribution", None)
-        if show is None:
+        if not models or show is None:
             return
+        model_id = int(models[0].id)
         self.status.setText("Computing applicability domain… (Tanimoto to training set)")
 
         def _work():
             from amdockvs.ui.tools.qsar.chart import histogram
 
             rows = self.runtime.qsar.applicability_domain(model=model_id)
-            sims = [r["similarity"] for r in rows]
-            in_domain = sum(1 for r in rows if r["in_domain"])
-            return histogram(sims), in_domain, len(rows)
+            return histogram([r["similarity"] for r in rows]), sum(1 for r in rows if r["in_domain"]), len(rows)
 
         run_async(
             _work,
@@ -606,126 +776,6 @@ class QSARModelsWidget(QWidget):
             on_error=lambda exc: QMessageBox.warning(self, "QSAR applicability domain", str(exc)),
             busy=self,
         )
-
-    def _glowing_molecule(self) -> None:
-        from amdockvs.ui.tools.qsar.activities import pick_ligands
-
-        checked = self._require_checked(exactly_one=True)
-        if not checked:
-            return
-        model_id = int(checked[0].id)
-        chosen = pick_ligands(self, self.runtime)
-        if not chosen:
-            return
-        ligand_id, name = chosen[0]
-        show = getattr(self.window(), "show_glowing_molecule", None)
-        if show is None:
-            return
-        run_async(
-            lambda: self.runtime.qsar.atom_contributions(model=model_id, ligand_id=ligand_id),
-            lambda res: (show(res["molblock"], res["weights"], f"{name}: pred {res['prediction']:.2f}"),
-                         self.status.setText(f"Glowing molecule for {name} (pred {res['prediction']:.2f}).")),
-            on_error=lambda exc: QMessageBox.warning(self, "QSAR glowing", str(exc)),
-            busy=self,
-        )
-
-    def _evaluate(self) -> None:
-        checked = self._require_checked()
-        if not checked:
-            return
-        specs = [(int(m.id), m.name) for m in checked]
-
-        def _work():
-            return [(mid, name, self.runtime.qsar.evaluate(model=mid)) for mid, name in specs]
-
-        def _fmt(res: dict) -> str:
-            keys = ("mcc", "roc_auc", "r2", "rmse")
-            return ", ".join(f"{k}={res[k]:.3f}" for k in keys if isinstance(res.get(k), float))
-
-        run_async(
-            _work,
-            lambda out: self.status.setText("Evaluate — " + "; ".join(
-                f"#{mid} {name}: {_fmt(res)}" for mid, name, res in out)),
-            on_error=lambda exc: QMessageBox.warning(self, "QSAR evaluate", str(exc)),
-            busy=self,
-        )
-
-    def refresh(self) -> None:
-        run_async(self.runtime.qsar.list_models, self._fill_models, on_error=lambda _e: None, busy=self.models_table)
-
-    refresh_view = refresh
-
-    def _fill_models(self, models) -> None:
-        self._models = list(models)
-        self.models_table.blockSignals(True)  # setCheckState below would spam itemChanged → _update_action_state
-        self.models_table.setRowCount(len(models))
-        for r, m in enumerate(models):
-            for c, val in enumerate([m.id, m.name, m.algorithm, m.target, m.source]):
-                item = QTableWidgetItem(str(val))
-                if c == 0:  # id column doubles as the ticked-set checkbox (drives every action)
-                    item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
-                    item.setCheckState(Qt.Unchecked)
-                self.models_table.setItem(r, c, item)
-        self.models_table.blockSignals(False)
-        self._update_action_state()
-
-    @staticmethod
-    def _comparison_cells(model) -> list[str]:
-        """[features, n_train, primary, secondary]. Classification → MCC + ROC-AUC (honest under
-        imbalance); regression → R² + RMSE."""
-        if model.task == "classification":
-            primary, secondary = model.test_mcc, model.test_roc_auc
-        else:
-            primary, secondary = model.test_r2, model.test_rmse
-        return [
-            str((model.metrics or {}).get("feature_kind", "?")),
-            str(model.n_train),
-            "—" if primary is None else f"{primary:.3f}",
-            "—" if secondary is None else f"{secondary:.3f}",
-        ]
-
-    def _populate_comparison(self, rows: list[dict]) -> None:
-        """rows = [{id, algorithm, metrics}, …] (trained batch or ticked models)."""
-        self.comparison_table.setRowCount(len(rows))
-        for r, row in enumerate(rows):
-            cells = [str(row["id"]), str(row.get("algorithm", ""))] + self._comparison_cells(row["model"])
-            for c, val in enumerate(cells):
-                self.comparison_table.setItem(r, c, QTableWidgetItem(val))
-
-    def _compare_checked(self) -> None:
-        models = getattr(self, "_models", [])
-        ticked = [
-            {"id": m.id, "algorithm": m.algorithm, "model": m}
-            for r, m in enumerate(models)
-            if self.models_table.item(r, 0) is not None and self.models_table.item(r, 0).checkState() == Qt.Checked
-        ]
-        if not ticked:
-            QMessageBox.information(self, "QSAR", "Tick the id boxes of the models to compare.")
-            return
-        self._populate_comparison(ticked)
-
-    def _show_model_summary(self) -> None:
-        row = self.models_table.currentRow()
-        models = getattr(self, "_models", [])
-        if row < 0 or row >= len(models):
-            self.model_summary.setText("Select a model to see its summary.")
-            return
-        m = models[row].metrics or {}
-
-        def fmt(d):
-            return ", ".join(f"{k}={v:.3f}" if isinstance(v, float) else f"{k}={v}"
-                             for k, v in (d or {}).items() if k != "n_samples")
-
-        parts = [f"<b>{models[row].name}</b> — {models[row].algorithm}, features={m.get('feature_kind', '?')}, "
-                 f"split={models[row].splitter or '?'}, n_train={models[row].n_train}, n_test={models[row].n_test}"]
-        if m.get("train"):
-            parts.append(f"train: {fmt(m['train'])}")
-        if m.get("test"):
-            parts.append(f"test: {fmt(m['test'])}")
-        for key in ("q2", "cv_mcc", "cv_accuracy", "y_scramble"):
-            if m.get(key) is not None:
-                parts.append(f"{key}={m[key]:.3f}")
-        self.model_summary.setText("<br>".join(parts))
 
 
 class PredictionsWidget(QWidget):
@@ -984,27 +1034,25 @@ class QSARPredictWidget(QWidget):
 
     def _on_predicted(self, out) -> None:
         self.status.setText("Predicted - " + "; ".join(
-            f"#{mid} {name}: {res['predicted']} scored ({res['skipped_missing_descriptor']} skipped)"
-            for mid, name, res in out))
+            f"#{mid} {name}: {'done' if status == 'completed' else status}" for mid, name, status in out))
+        done = [mid for mid, _name, status in out if status == "completed"]
         open_view = getattr(self.window(), "open_or_focus_view", None)
-        if out and open_view is not None:
-            open_view(QSAR_ANALYSIS_VIEW_ID).show_predictions(out[0][0])
+        if done and open_view is not None:
+            open_view(QSAR_ANALYSIS_VIEW_ID).show_predictions(done[0])
 
     def _predict(self) -> None:
         checked = self._require_checked()
         if not checked:
             return
         specs = [(int(m.id), m.name) for m in checked]
+        self.status.setText(f"Scoring the ligands with {len(specs)} model(s) as jobs - see Jobs.")
 
-        def _work():
-            return [(mid, name, self.runtime.qsar.predict(model=mid)) for mid, name in specs]
+        def _work():  # one job per model; this thread only waits for them
+            jobs = [(mid, name, self.runtime.qsar.submit_predict(model=mid)) for mid, name in specs]
+            statuses = self.runtime.wait_for_jobs([job for *_x, job in jobs])
+            return [(mid, name, statuses[job].status) for mid, name, job in jobs]
 
-        run_async(
-            _work,
-            self._on_predicted,
-            on_error=lambda exc: QMessageBox.warning(self, "QSAR predict", str(exc)),
-            busy=self,
-        )
+        run_async(_work, self._on_predicted, on_error=lambda exc: QMessageBox.warning(self, "QSAR predict", str(exc)))
 
     def _predict_shards(self) -> None:
         checked = self._require_checked()
@@ -1091,10 +1139,10 @@ class QSARAnalysisWidget(QTabWidget):
 
     refresh_view = refresh
 
-    def show_trained(self, rows: list[dict]) -> None:
+    def show_trained(self, request: dict) -> None:
         self._chosen = True
         self.setCurrentWidget(self.models)
-        self.models.show_trained(rows)
+        self.models.show_trained(request)
 
     def show_predictions(self, model_id: int) -> None:
         self._chosen = True

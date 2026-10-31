@@ -75,7 +75,7 @@ class ChartController:
         pairs = list(pairs)[:15]  # already biggest-first; show_hbars renders index 0 at the top
         self._chart.show_hbars(
             f"Feature importance ({label})" if label else "Feature importance",
-            [p[0] for p in pairs], [p[1] for p in pairs], "importance",
+            [p[0] for p in pairs], [p[1] for p in pairs], "Importance",
         )
         self._show()
 
@@ -95,6 +95,10 @@ class ChartController:
         self._chart.show_scatter_series(title, series)
         self._show()
 
+    def highlight_fit_point(self, x: float, y: float) -> None:
+        if self._chart is not None:
+            self._chart.highlight_point(x, y)
+
     def show_correlation_heatmap(self, label: str, labels, matrix) -> None:
         """Descriptor correlation heatmap (pyqtgraph) in PyMOL's region."""
         if self._chart is None:
@@ -102,11 +106,11 @@ class ChartController:
         self._chart.show_heatmap(label or "Descriptor correlation", labels, matrix)
         self._show()
 
-    def show_split_distribution(self, label: str, categories, groups) -> None:
+    def show_split_distribution(self, label: str, categories, groups, x_title: str = "") -> None:
         """Train-vs-test label distribution grouped bars (split preview) in PyMOL's region."""
         if self._chart is None:
             return
-        self._chart.show_grouped_bars(label or "Train/test distribution", categories, groups)
+        self._chart.show_grouped_bars(label or "Train/test distribution", categories, groups, x_title)
         self._show()
 
     def show_similarity_distribution(self, label: str, bins) -> None:
@@ -165,7 +169,7 @@ class ChartController:
 
         def _work():
             molblock = self.w.runtime.diversity.molblock_for(mid)
-            return render_structure_png(molblock, legend=f"centroid #{mid}") if molblock else b""
+            return render_structure_png(molblock, legend=f"#{mid}") if molblock else b""
 
         run_async(_work, self._show_hovered_structure, on_error=lambda _e: None)
 
