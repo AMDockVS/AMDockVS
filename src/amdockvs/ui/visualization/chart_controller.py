@@ -49,11 +49,12 @@ class ChartController:
                 widget.restore_plot()  # re-pushes the run's universe + toggles chart on
             return
         if view_id == QSAR_ANALYSIS_VIEW_ID:
-            self._show()  # the chart takes PyMOL's place; the glow shows when a molecule is picked
             widget = self.w.central_widget.open_view(view_id)
-            if widget is not None and hasattr(widget, "restore_plot"):
+            # only Model analysis charts; Result analysis keeps PyMOL (the else branch below)
+            if widget is not None and widget.currentWidget() is widget.models:
+                self._show()  # the chart takes PyMOL's place; the glow shows when a molecule is picked
                 widget.restore_plot()
-            return
+                return
         self.w.dock_manager.toggle("qsar_chart", False)
         if getattr(self.w, "qsar_glow_dock", None) is not None:
             self.w.dock_manager.toggle("qsar_glow", False)
@@ -103,9 +104,9 @@ class ChartController:
         self._chart.show_scatter_series(title, series)
         self._show()
 
-    def highlight_fit_point(self, x: float, y: float) -> None:
+    def highlight_fit_molecule(self, molecule_id: int) -> None:
         if self._chart is not None:
-            self._chart.highlight_point(x, y)
+            self._chart.highlight_molecule(molecule_id)
 
     def show_correlation_heatmap(self, label: str, labels, matrix) -> None:
         """Descriptor correlation heatmap (pyqtgraph) in PyMOL's region."""

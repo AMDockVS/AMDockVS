@@ -78,6 +78,7 @@ class QSARChartDockWidget(MSDockWidget):
         self._bar_labels: list[pg.TextItem] = []
         self._bar_images: list[bytes] = []
         self._hovered_bar: tuple[int, str] = (-1, "")
+        self._fit_series: list[tuple[list, list, list]] = []
         self.chart_plot.scene().sigMouseMoved.connect(self._on_chart_mouse)
         self.chart_plot.viewport().installEventFilter(self)
 
@@ -101,6 +102,7 @@ class QSARChartDockWidget(MSDockWidget):
         self._chart_legend.clear()
         plot.setTitle(None)
         self._bar_values, self._bar_labels, self._bar_images = [], [], []
+        self._fit_series: list[tuple[list, list, list]] = []  # (ids, xs, ys) per scatter series
         self._hovered_bar = (-1, "")
         for name in ("left", "bottom"):
             plot.getAxis(name).setTicks(None)
@@ -208,6 +210,7 @@ class QSARChartDockWidget(MSDockWidget):
             ys = [float(p) for _, p in points]
             allv += xs + ys
             ids = list(spec.get("ids") or [])
+            self._fit_series.append((ids, xs, ys))
             brush = pg.mkBrush(self._color(spec.get("color", index), n_colors))
             item = pg.ScatterPlotItem(x=xs, y=ys, size=8, pen=None, brush=brush, symbol=spec.get("symbol", "o"),
                                       data=ids or None, hoverable=bool(ids), hoverSize=12, tip=None)
@@ -222,13 +225,14 @@ class QSARChartDockWidget(MSDockWidget):
         plot.setLabel("bottom", "Observed")
         plot.setLabel("left", "Predicted")
 
-    def highlight_point(self, x: float, y: float) -> None:
-        """Ring one point of the fit chart on screen (a member picked in the table)."""
+    def highlight_molecule(self, molecule_id: int) -> None:
+        """Ring a molecule's point in every series of the fit chart (a member picked in the table)."""
         plot = self.chart_plot.getPlotItem()
         if self._highlight is not None:
             plot.removeItem(self._highlight)
-        self._highlight = pg.ScatterPlotItem(x=[float(x)], y=[float(y)], size=16, pen=pg.mkPen("w", width=2),
-                                             brush=pg.mkBrush(255, 214, 10))
+        points = [(x, y) for ids, xs, ys in self._fit_series for i, x, y in zip(ids, xs, ys) if i == molecule_id]
+        self._highlight = pg.ScatterPlotItem(x=[p[0] for p in points], y=[p[1] for p in points], size=16,
+                                             pen=pg.mkPen("w", width=2), brush=pg.mkBrush(255, 214, 10))
         plot.addItem(self._highlight)
 
     def show_scatter(self, observed, predicted, label: str = "") -> None:

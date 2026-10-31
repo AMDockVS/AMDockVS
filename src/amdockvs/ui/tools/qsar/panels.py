@@ -45,7 +45,9 @@ from amdockvs.ui.catalog.common import (
 from amdockvs.ui.common.async_query import run_async
 from ms_components.chips import FlowLayout
 from ms_components.ms_stepper import Orientation, QStepper
-from ms_components.ms_table import AlignHint, ColumnDef, ColumnKind, SortSpec, TableConfig, TableLoadMode
+from ms_components.ms_table import (
+    AlignHint, ColumnDef, ColumnKind, SortSpec, TableConfig, TableLoadMode, ToolbarAction,
+)
 from ms_components.ms_table.table_model import RAW_OBJECT_ROLE
 from amdockvs.ui.view_ids import QSAR_ANALYSIS_VIEW_ID, QSAR_BUILD_VIEW_ID
 
@@ -482,19 +484,13 @@ class QSARModelsWidget(QWidget):
         self.training_line.setWordWrap(True)
         self.training_line.hide()
         layout.addWidget(self.training_line)
-        bundles = QHBoxLayout()
-        bundles.addStretch(1)
-        for text, tip, slot in (
-            ("Import model…", "Add a model exported from AMDockVS (a .zip bundle).", self._import_model),
-            ("Export model…", "Save the selected model as a .zip bundle another project can import.",
-             self._export_model),
-        ):
-            button = QPushButton(text, self)
-            button.setToolTip(tip)
-            button.clicked.connect(slot)
-            bundles.addWidget(button)
-        layout.addLayout(bundles)
         self.models_table = project_table(runtime, _models_config(), self)
+        self.models_table.set_toolbar_actions("qsar_bundles", [
+            ToolbarAction(label="Import model…", on_click=lambda _objs: self._import_model(),
+                          tooltip="Add a model exported from AMDockVS (a .zip bundle)."),
+            ToolbarAction(label="Export model…", on_click=lambda _objs: self._export_model(),
+                          tooltip="Save the selected model as a .zip bundle another project can import."),
+        ])
         self.models_table.setMaximumHeight(240)
         self.models_table.selection_changed.connect(self._on_selection)
         self.models_table.data_refreshed.connect(self._reselect)
@@ -784,11 +780,9 @@ class QSARModelsWidget(QWidget):
         if not models or member is None:
             return
         model = models[0]
-        if model.task == "regression":
-            cv = self.eval_subset.currentData() == "cv" and member["oof_predicted"] is not None
-            highlight = getattr(self.window(), "highlight_fit_point", None)
-            if highlight is not None and self._chart == "plot":
-                highlight(member["observed"], member["oof_predicted"] if cv else member["predicted"])
+        highlight = getattr(self.window(), "highlight_fit_molecule", None)
+        if highlight is not None and self._chart == "plot":
+            highlight(int(molecule.id))  # its point in every model's series
         if (model.metrics or {}).get("feature_kind") != "ecfp4":
             return
         show = getattr(self.window(), "show_glowing_molecule", None)
@@ -1252,6 +1246,11 @@ class QSARPredictWidget(QWidget):
         )
 
 
+def _breathe(tabs: QTabWidget) -> None:
+    """Room around a tab bar nested in a view, so it doesn't sit flush on the view's own tabs."""
+    tabs.setContentsMargins(6, 6, 6, 0)
+
+
 def _lead_with(tabs: QTabWidget, widget: QWidget) -> None:
     """Move `widget`'s tab to the front and show it."""
     index = tabs.indexOf(widget)
@@ -1280,6 +1279,7 @@ class QSARToolWidget(QTabWidget):
         self.addTab(self.build, "Build")
         self.addTab(self.predict, "Predict")
         _lead_when_models(self, runtime, self.predict)
+        _breathe(self)
 
     def refresh(self) -> None:
         self.build.refresh()
@@ -1298,6 +1298,8 @@ class QSARAnalysisWidget(QTabWidget):
         self.addTab(self.models, "Model analysis")
         self.addTab(self.results, "Result analysis")
         _lead_when_models(self, runtime, self.results)
+        _breathe(self)
+        self.currentChanged.connect(self._sync_chart)
 
     def refresh(self) -> None:
         self.models.refresh()
@@ -1307,6 +1309,12 @@ class QSARAnalysisWidget(QTabWidget):
 
     def restore_plot(self) -> None:
         self.models.restore_plot()
+
+    def _sync_chart(self) -> None:
+        """The chart belongs to Model analysis: switching tabs swaps it with PyMOL."""
+        charts = getattr(self.window(), "charts", None)
+        if charts is not None and self.isVisible():
+            charts.sync_to_active_view(QSAR_ANALYSIS_VIEW_ID)
 
     def show_trained(self, request: dict) -> None:
         self._chosen = True

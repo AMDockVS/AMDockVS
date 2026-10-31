@@ -937,3 +937,19 @@ def test_feature_importance_labels_share_the_bar_row_and_hover_splits_value_from
     dock.show_distribution_bins("x", ["a"], [1])
     assert plot.getAxis("left")._tickLevels is None and dock._bar_values == []
     window.close()
+
+
+def test_a_picked_member_is_ringed_in_every_model_series():
+    from amdockvs.ui.tools.qsar.chart import QSARChartDockWidget
+    from ms_components.ms_dockwidget.widget import DockManager
+
+    app = QApplication.instance() or QApplication([])
+    window = QMainWindow()
+    dock = QSARChartDockWidget("Chart", DockManager(window), window)
+    dock.show_scatter_series("fit", [
+        {"label": "#1", "points": [(5.0, 5.5), (6.0, 6.1)], "ids": [10, 11]},
+        {"label": "#2", "points": [(6.0, 7.0)], "ids": [11]},
+    ])
+    dock.highlight_molecule(11)
+    assert sorted(zip(*dock._highlight.getData())) == [(6.0, 6.1), (6.0, 7.0)]
+    window.close()

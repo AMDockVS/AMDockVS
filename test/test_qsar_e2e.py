@@ -187,7 +187,17 @@ def test_qsar_from_activities_to_a_filtered_library(tmp_path, monkeypatch):
         # e. the Predictions view as a filter
         window = AMDockVSMainWindow(runtime=runtime)
         window.show()
-        view = window.open_or_focus_view(QSAR_ANALYSIS_VIEW_ID).results
+        analysis = window.open_or_focus_view(QSAR_ANALYSIS_VIEW_ID)
+        view = analysis.results
+        # the chart belongs to Model analysis: Result analysis keeps PyMOL
+        _wait(app, lambda: analysis.currentWidget() is view)
+        assert not window.qsar_chart_dock.isVisible()
+        analysis.setCurrentWidget(analysis.models)
+        _wait(app, window.qsar_chart_dock.isVisible)
+        toolbar = {a.text() for a in analysis.models.models_table._keyed_actions["qsar_bundles"]}
+        assert toolbar == {"Import model…", "Export model…"}
+        analysis.setCurrentWidget(view)
+        _wait(app, lambda: not window.qsar_chart_dock.isVisible())
         _wait(app, lambda: view.model_combo.findData(best) >= 0)
         view.model_combo.setCurrentIndex(view.model_combo.findData(best))
         _wait(app, lambda: view.table.rowCount() == len(by_name))
