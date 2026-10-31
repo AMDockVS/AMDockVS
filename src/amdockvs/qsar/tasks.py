@@ -16,7 +16,7 @@ from amdockvs.io.rows import identity_representations
 # DescriptorVectorRecord BLOB is unused/incompatible here). Persistence goes through a
 # MolSuite sink (engine-side, upsert), NOT a direct worker DB write — a second SQLite
 # connection from a process/thread worker deadlocks against the engine's connection.
-_DESCRIPTOR_COLUMNS = (
+DESCRIPTOR_COLUMNS = (
     "mw", "logp", "hbd", "hba", "tpsa", "rotatable_bonds",
     "fragment_count", "ring_count", "aromatic_ring_count", "hetero_atom_count",
     "heavy_atom_count", "formal_charge", "fraction_csp3",
@@ -55,20 +55,17 @@ def calculate_alerts_batch(payload: dict):
 
 def _feature_vector(mol, fitted) -> list[float] | None:
     """What the model was trained on, computed from the molecule: the row path reads the same
-    values off the descriptor columns, the stored fingerprint or the rdkit2d block."""
+    values off the stored fingerprint or the rdkit2d block."""
     import numpy as np
 
-    from amdockvs.chemistry.descriptors import calculate_basic_descriptors, calculate_rdkit2d_descriptors
+    from amdockvs.chemistry.descriptors import calculate_rdkit2d_descriptors
     from amdockvs.chemistry.fingerprints import morgan_fingerprint
 
     if fitted.feature_kind == "ecfp4":
         bits = morgan_fingerprint(mol, radius=int(fitted.fp_radius or 2), n_bits=int(fitted.fp_nbits or 2048))
         return list(np.frombuffer(bits.ToBitString().encode("ascii"), dtype=np.uint8) - ord("0"))
-    if fitted.feature_kind == "rdkit2d":
-        values = calculate_rdkit2d_descriptors(mol)
-        return [float(values.get(name, np.nan)) for name in fitted.feature_names] if values else None
-    values = calculate_basic_descriptors(mol)
-    return [float(values[name]) for name in fitted.feature_names]
+    values = calculate_rdkit2d_descriptors(mol)
+    return [float(values.get(name, np.nan)) for name in fitted.feature_names] if values else None
 
 
 @task(
@@ -127,7 +124,7 @@ def _descriptor_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dict
         if str(row.get("status") or "") != "completed":
             continue
         molecule_id = int(row.get("molecule_id") or 0)
-        molecules.append({"id": molecule_id, **{col: row.get(col) for col in _DESCRIPTOR_COLUMNS}})
+        molecules.append({"id": molecule_id, **{col: row.get(col) for col in DESCRIPTOR_COLUMNS}})
         if row.get("fp_binary"):
             fingerprints.append({
                 "molecule_id": molecule_id,

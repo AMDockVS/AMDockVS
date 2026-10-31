@@ -16,6 +16,9 @@ from amdockvs.core.constants import (
     RESOURCE_QSAR_MODELS,
     TABLE_INTERACTION_RESULTS,
     TABLE_MOLECULES,
+    TABLE_QSAR_MODEL_MEMBERS,
+    TABLE_QSAR_MODELS,
+    TABLE_QSAR_PREDICTIONS,
 )
 from amdockvs.manifest import AMDOCKVS_PROJECT_RESOURCES
 from amdockvs.core.configuration import (
@@ -327,11 +330,11 @@ class AMDockVSRuntime(AppRuntime):
                 "molecules into a new project."
             )
         self._rekey_interactions()
+        self._rebuild_qsar_tables()
         # ponytail: a no-op unless an import died before building them; then it blocks the open for
         # as long as the build takes (~seconds per million rows). Run it off-thread if that bites.
         ensure_molecule_indexes(self.workspace.project_db)
         ensure_codes(self.workspace.project_db)
-        self._upgrade_qsar_tables()  # after ensure_codes: it writes a new feature_type code
         # Built once per project: a feed asks the runtime where the ligands are, it does not ask
         # the mode — there is no mode to ask.
         self._ligand_store = DbStore(self.workspace.project_db)
@@ -356,22 +359,23 @@ class AMDockVSRuntime(AppRuntime):
             session.commit()
         InteractionsResult.__table__.create(db.engine)
 
-    def _upgrade_qsar_tables(self) -> None:
-        """Projects from before 2026-10-30: `qsar_predictions` gains `positive_probability` (NULL until
-        re-predicted, never read as 0), and ECFP4 models saved under the descriptor code get their own."""
-        from sqlalchemy import update
-        from amdockvs.models import QSARModelRecord
+    def _rebuild_qsar_tables(self) -> None:
+        """`qsar_models` without the registry columns (before 2026-10-30) is dropped and made again,
+        with its predictions: those models kept their split in a JSON blob the diagnostics no longer
+        read. Their files stay on disk; the models have to be trained again."""
+        from amdockvs.models import QSARModelMemberRecord, QSARModelRecord, QSARPredictionRecord
 
-        with self.workspace.project_db.get_session() as session:
+        db = self.workspace.project_db
+        with db.get_session() as session:
             conn = session.connection()
-            columns = conn.exec_driver_sql("PRAGMA table_info(qsar_predictions);").fetchall()
-            if "positive_probability" not in {str(row[1]) for row in columns}:
-                conn.exec_driver_sql("ALTER TABLE qsar_predictions ADD COLUMN positive_probability FLOAT")
-            session.exec(update(QSARModelRecord).where(
-                QSARModelRecord.feature_type == "descriptors_2d",
-                QSARModelRecord.metrics["feature_kind"].as_string() == "ecfp4",
-            ).values(feature_type="fingerprints_ecfp4"))
+            columns = conn.exec_driver_sql(f"PRAGMA table_info({TABLE_QSAR_MODELS});").fetchall()
+            if "task" in {str(row[1]) for row in columns}:
+                return
+            for table in (TABLE_QSAR_PREDICTIONS, TABLE_QSAR_MODEL_MEMBERS, TABLE_QSAR_MODELS):
+                conn.exec_driver_sql(f"DROP TABLE IF EXISTS {table}")
             session.commit()
+        for record in (QSARModelRecord, QSARPredictionRecord, QSARModelMemberRecord):
+            record.__table__.create(db.engine)
 
     def close_project(self):
         super().close_project()

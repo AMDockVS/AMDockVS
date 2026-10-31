@@ -54,16 +54,16 @@ def test_diversity_scope_skips_molecules_without_a_structure_and_fingerprints_th
 def test_qsar_readers_parse_the_payload_bytes(tmp_path):
     from amdockvs.qsar.activities import ActivitiesMixin
     from amdockvs.qsar.api import QSARAPI
+    from amdockvs.qsar.splitters import scaffold_groups
 
     store = _project(tmp_path)
     runtime = SimpleNamespace(workspace=SimpleNamespace(project_db=store), _require_active_project=lambda: None)
     api = QSARAPI(runtime)
     with store.get_session() as session:
         records = [session.get(MoleculeRecord, 1)]
-        scaffolds = api._scaffold_keys(records)
         mol = api._ligand_mol(session, records[0])
         inchikey_to_id, smiles_to_id = ActivitiesMixin._structural_ligand_index(api, session)
-    assert scaffolds == {1: ""}  # propane has no ring: parsed, scaffold empty
+    assert scaffold_groups([mol]) == [""]  # propane has no ring: parsed, scaffold empty
     assert mol.GetNumHeavyAtoms() == 3  # the current structure (propane), not the imported ethanol
     assert 1 in inchikey_to_id.values() and 1 in smiles_to_id.values()  # keys recovered from the bytes
     store.dispose()

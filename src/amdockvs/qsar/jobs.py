@@ -12,7 +12,7 @@ from ms_flow.sinks import graph_sink
 from amdockvs.core.jobs import job
 from amdockvs.qsar.tasks import (
     _ALERT_COLUMNS,
-    _DESCRIPTOR_COLUMNS,
+    DESCRIPTOR_COLUMNS,
     calculate_alerts_batch,
     calculate_descriptor_batch,
     predict_shard_task,
@@ -51,7 +51,7 @@ DESCRIPTOR_GRAPH_OUTPUT = graph_sink(
         {
             "name": "molecules",
             "model": MoleculeRecord,
-            "columns": ["id", *_DESCRIPTOR_COLUMNS],
+            "columns": ["id", *DESCRIPTOR_COLUMNS],
             "write_mode": "upsert",
             "conflict_keys": ["id"],
             "validate_model": False,

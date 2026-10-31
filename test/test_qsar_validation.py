@@ -1,4 +1,4 @@
-"""Keep outer test molecules out of internal validation and label-permutation checks."""
+"""Keep outer test molecules out of internal validation; diagnostics read the stored members."""
 import csv
 
 import numpy as np
@@ -69,36 +69,89 @@ def test_binary_diagnostics_match_sklearn_on_each_subset(qsar_runtime):
         assert roc["auc"] == pytest.approx(roc_auc_score(y, scores))
 
 
+def _members(runtime, model, subset="all"):
+    return runtime.qsar.model_members(model=model, subset=subset)[1]
+
+
+def _series(runtime):
+    """{molecule id: its series}: each series of the fixture shares one Murcko scaffold."""
+    records = runtime.molecules.stream(runtime.molecules.select(role="ligand"))
+    return {r.id: r.name.split("_")[0] for r in records}
+
+
 def test_single_class_subset_keeps_matrix_but_rejects_curves(qsar_runtime):
+    from amdockvs.core.constants import TABLE_QSAR_MODEL_MEMBERS
+
     api = qsar_runtime.qsar
     # A real threshold on a continuous endpoint must never fall back to raw values.
     model = api.train(endpoint="regression", task="classification", class_threshold=4.5,
                       algorithm="logistic_regression", test_size=.25, seed=42)
-    ids = [mid for mid, subset in model.metrics["split_assignment"] if subset == "test"]
-    for mid in ids:
-        api.set_activity(ligand_id=mid, endpoint="regression", value=8.)
+    with qsar_runtime.workspace.project_db.get_session() as session:
+        session.connection().exec_driver_sql(
+            f"UPDATE {TABLE_QSAR_MODEL_MEMBERS} SET observed = 1 WHERE model_id = ? AND role = 'test'", (model.id,))
+        session.commit()
+    n_test = model.n_test
     result = api.confusion_matrix_data(model=model.id, subset="test")
     assert sum(result["counts"][0]) == 0
-    assert sum(result["counts"][1]) == len(ids)
+    assert sum(result["counts"][1]) == n_test
     for method in (api.roc_curve_points, api.precision_recall_curve_points):
         with pytest.raises(ValueError, match="both classes in the selected subset"):
             method(model=model.id, subset="test")
 
 
+def test_diagnostics_keep_the_labels_the_model_was_built_on(qsar_runtime):
+    api = qsar_runtime.qsar
+    model = api.train(endpoint="regression", algorithm="ridge", test_size=.25, seed=42)
+    before = api.observed_predicted_points(model=model.id, subset="test")
+    for member in _members(qsar_runtime, model, "test"):
+        api.set_activity(ligand_id=member.molecule_id, endpoint="regression", value=1000.)
+    assert api.observed_predicted_points(model=model.id, subset="test")["points"] == before["points"]
 
-def test_stale_threshold_on_a_categorical_endpoint_uses_the_raw_labels(qsar_runtime):
-    from amdockvs.models import QSARModelRecord
 
+def test_registry_columns_and_members_describe_the_model(qsar_runtime):
     api = qsar_runtime.qsar
     model = api.train(endpoint="classification", task="classification", algorithm="logistic_regression",
-                      test_size=.25, seed=42)
-    expected = api.roc_curve_points(model=model.id)["auc"]
-    with qsar_runtime.workspace.project_db.get_session() as session:
-        record = session.get(QSARModelRecord, model.id)
-        record.metrics = {**record.metrics, "class_threshold": 0.0}  # collapses 0/1 labels to all 1
-        session.add(record)
+                      split="scaffold", test_size=.25, cv_folds=3, seed=42)
+    assert (model.task, model.engine, model.splitter) == ("classification", "sklearn", "scaffold")
+    assert (model.n_train, model.n_test) == (32, 16)
+    assert model.test_mcc == pytest.approx(model.metrics["test"]["mcc"])
+    assert model.test_roc_auc == pytest.approx(model.metrics["test"]["roc_auc"])
+    assert model.cv_mcc == pytest.approx(model.metrics["cv_mcc"])
+    assert model.test_r2 is None and model.q2 is None
+    assert "split_assignment" not in model.metrics
+    members = _members(qsar_runtime, model)
+    assert len(members) == 48
+    train = [m for m in members if m.role == "train"]
+    assert all(m.fold is None and m.oof_predicted is None for m in members if m.role == "test")
+    assert {m.fold for m in train} == {0, 1, 2}
+    assert all(m.oof_predicted is not None and 0 <= m.oof_probability <= 1 for m in train)
+    assert api.roc_curve_points(model=model.id, subset="cv")["n"] == 32
+    assert set(api.model_subsets(model=model.id).values()) == {"train", "test"}
+
+
+def test_deleting_a_molecule_removes_its_membership(qsar_runtime):
+    api = qsar_runtime.qsar
+    model = api.train(endpoint="regression", algorithm="ridge", test_size=.25, seed=42)
+    gone = _members(qsar_runtime, model)[0].molecule_id
+    qsar_runtime.molecules.delete([gone])
+    assert gone not in {m.molecule_id for m in _members(qsar_runtime, model)}
+
+
+def test_reopening_a_project_with_the_old_qsar_tables_drops_their_models(qsar_runtime):
+    from amdockvs.core.constants import TABLE_QSAR_MODELS
+
+    runtime = qsar_runtime
+    model = runtime.qsar.train(endpoint="regression", algorithm="ridge")
+    runtime.qsar.predict(model=model)
+    project_id = runtime.get_active_project().id
+    with runtime.workspace.project_db.get_session() as session:
+        session.connection().exec_driver_sql(f"ALTER TABLE {TABLE_QSAR_MODELS} DROP COLUMN task")
         session.commit()
-    assert api.roc_curve_points(model=model.id)["auc"] == pytest.approx(expected)
+    runtime.close_project()
+    runtime.open_project(project_id)
+    assert runtime.qsar.list_models() == []
+    assert runtime.qsar.train(endpoint="regression", algorithm="ridge").task == "regression"
+
 
 @pytest.mark.parametrize("task,algorithm", [("regression", "ridge"), ("classification", "logistic_regression")])
 def test_diagnostics_never_fall_back_to_all_without_test_split(qsar_runtime, task, algorithm):
@@ -132,43 +185,39 @@ def test_internal_validation_uses_only_training_molecules(qsar_runtime, monkeypa
     original = modeling.cross_validation_metrics
 
     def capture(x, y, **kwargs):
-        calls.append((np.array(x), kwargs.get("groups")))
+        calls.append((len(x), np.array(kwargs["folds"])))
         return original(x, y, **kwargs)
 
     monkeypatch.setattr(modeling, "cross_validation_metrics", capture)
     model = qsar_runtime.qsar.train(endpoint=task, algorithm=algorithm, task=task, split=split,
-        test_size=.25, cv_folds=3, y_scramble=2, seed=42, feature_names=("mw", "logp", "tpsa"))
-    assignment = dict(model.metrics["split_assignment"])
-    train_ids = {mid for mid, subset in assignment.items() if subset == "train"}
-    records = list(qsar_runtime.molecules.stream(qsar_runtime.molecules.select(role="ligand")))
-    expected = sorted((r.mw, r.logp, r.tpsa) for r in records if r.id in train_ids)
-    assert len(train_ids) < 48
-    assert model.metrics["cv_samples"] == len(train_ids)
-    assert model.metrics["y_scramble_samples"] == len(train_ids)
-    assert model.metrics["cv_split"] == ("scaffold" if split == "scaffold" else "row")
-    assert len(calls) == 3  # CV and two shuffled-label refits
-    keys = qsar_runtime.qsar._scaffold_keys(records)
-    for x, groups in calls:
-        assert sorted(map(tuple, x)) == expected
-        if split == "scaffold":
-            group_by_mw = {r.mw: keys[r.id] for r in records}
-            assert list(groups) == [group_by_mw[mw] for mw in x[:, 0]]
-        else:
-            assert groups is None
+                                    test_size=.25, cv_folds=3, y_scramble=2, seed=42)
+    train = _members(qsar_runtime, model, "train")
+    assert len(train) == model.n_train < 48
+    assert len(calls) == 3  # CV and two shuffled-label refits, all on the same training folds
+    folds = sorted(m.fold for m in train)
+    for n, call_folds in calls:
+        assert n == len(train)
+        assert sorted(call_folds) == folds
+    if split == "scaffold":
+        series = _series(qsar_runtime)
+        by_fold = {}
+        for m in train:
+            by_fold.setdefault(m.fold, set()).add(series[m.molecule_id])
+        assert sum(len(s) for s in by_fold.values()) == len(set().union(*by_fold.values()))
 
 
 @pytest.mark.parametrize("split", ["random", "scaffold"])
 def test_changing_test_labels_does_not_change_internal_validation(qsar_runtime, split):
     api = qsar_runtime.qsar
     params = dict(endpoint="regression", algorithm="ridge", split=split, test_size=.25,
-                  cv_folds=3, y_scramble=2, seed=42, feature_names=("mw", "logp", "tpsa"))
+                  cv_folds=3, y_scramble=2, seed=42)
     first = api.train(**params)
-    test_ids = {mid for mid, subset in first.metrics["split_assignment"] if subset == "test"}
-    assert test_ids
-    for mid in test_ids:
-        api.set_activity(ligand_id=mid, endpoint="regression", value=1000.0 + mid)
+    roles = {m.molecule_id: (m.role, m.fold) for m in _members(qsar_runtime, first)}
+    for mid, (role, _fold) in roles.items():
+        if role == "test":
+            api.set_activity(ligand_id=mid, endpoint="regression", value=1000.0 + mid)
     second = api.train(**params)
-    assert second.metrics["split_assignment"] == first.metrics["split_assignment"]
+    assert {m.molecule_id: (m.role, m.fold) for m in _members(qsar_runtime, second)} == roles
     for metric in ("q2", "y_scramble"):
         assert first.metrics[metric] is not None
         assert second.metrics[metric] == pytest.approx(first.metrics[metric], abs=1e-12)
@@ -178,9 +227,8 @@ def test_changing_test_labels_does_not_change_internal_validation(qsar_runtime, 
 def test_insufficient_training_scaffolds_report_no_cv_score(qsar_runtime):
     model = qsar_runtime.qsar.train(endpoint="regression", algorithm="ridge", split="scaffold",
                                    test_size=.25, cv_folds=5, y_scramble=1, seed=42)
-    assert model.metrics["q2"] is None
-    assert "requested 5 folds" in model.metrics["cv_warning"]
-    assert "only 4 scaffold group(s)" in model.metrics["cv_warning"]
+    assert model.metrics["q2"] is None and model.q2 is None
+    assert "5 folds need at least as many training groups" in model.metrics["cv_warning"]
     assert model.metrics["y_scramble"] is None
     assert "y_scramble_warning" in model.metrics
     assert "test" in model.metrics
@@ -189,37 +237,33 @@ def test_insufficient_training_scaffolds_report_no_cv_score(qsar_runtime):
 def test_without_a_holdout_all_molecules_are_training_data(qsar_runtime):
     model = qsar_runtime.qsar.train(endpoint="regression", algorithm="ridge", split="scaffold",
                                    test_size=0, cv_folds=3, seed=42)
-    assert model.metrics["n_train"] == model.metrics["cv_samples"] == 48
+    assert (model.n_train, model.n_test) == (48, 0)
     assert model.metrics["q2"] is not None
     assert "test" not in model.metrics
 
 
 def test_saved_q2_matches_independent_training_only_oof_predictions(qsar_runtime):
+    from sklearn.base import clone
     from sklearn.metrics import r2_score
-    from sklearn.model_selection import GroupKFold, cross_val_predict
+    from sklearn.model_selection import PredefinedSplit, cross_val_predict
 
     api = qsar_runtime.qsar
-    features = ("mw", "logp", "tpsa")
     model = api.train(endpoint="regression", algorithm="ridge", split="scaffold", test_size=.25,
-                      cv_folds=3, y_scramble=1, feature_names=features)
-    train_ids = {mid for mid, subset in model.metrics["split_assignment"] if subset == "train"}
-    training = [r for r in qsar_runtime.molecules.stream(qsar_runtime.molecules.select(role="ligand"))
-                if r.id in train_ids]
+                      cv_folds=3, y_scramble=1)
+    train = {m.molecule_id: m for m in _members(qsar_runtime, model, "train")}
+    records = [r for r in qsar_runtime.molecules.stream(qsar_runtime.molecules.select(role="ligand"))
+               if r.id in train]
     with qsar_runtime.workspace.project_db.get_session() as session:
         _, fitted = api._load_fitted(session, model)
-        activities = api._latest_activity_by_ligand(session, "regression")
-    x = np.array([[getattr(r, f) for f in features] for r in training])
-    y = np.array([activities[r.id] for r in training])
-    scaffolds = api._scaffold_keys(training)
-    groups = [scaffolds[r.id] for r in training]
-    predicted = cross_val_predict(fitted.estimator, x, y, cv=GroupKFold(3), groups=groups)
+        ids, x, _names, _missing = api._design_matrix(session, records, feature_kind="rdkit2d",
+                                                     features=fitted.feature_names, fp_radius=2, fp_nbits=2048)
+    y = np.array([train[i].observed for i in ids])
+    folds = np.array([train[i].fold for i in ids])
+    predicted = cross_val_predict(clone(fitted.estimator), np.asarray(x, dtype=float), y, cv=PredefinedSplit(folds))
     assert model.metrics["q2"] == pytest.approx(r2_score(y, predicted))
     assert model.metrics["cv_rmse"] == pytest.approx(np.sqrt(np.mean((y - predicted) ** 2)))
-    assert model.metrics["q2_method"] == "pooled_oof"
+    np.testing.assert_allclose([train[i].oof_predicted for i in ids], predicted)
     assert model.metrics["y_scramble_metric"] == "q2_pooled_oof"
-    assert model.metrics["cv_samples"] == len(training) < 48
-
-
 
 
 def test_single_scaffold_holdout_fails_without_saving_a_model(qsar_runtime):
@@ -230,17 +274,27 @@ def test_single_scaffold_holdout_fails_without_saving_a_model(qsar_runtime):
     ids = [r.id for r in records if r.name.startswith("s0_")]
     scope = MoleculeScope(filters={"id__in": ids})
     before = len(api.list_models())
-    with pytest.raises(ValueError, match="at least two distinct scaffold groups"):
+    with pytest.raises(ValueError, match="at least two groups"):
         api.train(endpoint="regression", algorithm="ridge", molecule_set=scope,
                   split="scaffold", test_size=.3)
     assert len(api.list_models()) == before
-    with pytest.raises(ValueError, match="at least two distinct scaffold groups"):
+    with pytest.raises(ValueError, match="at least two groups"):
         api.split_preview(endpoint="regression", molecule_set=scope, split="scaffold", test_size=.3)
     # An explicitly requested no-holdout fit still works.
     model = api.train(endpoint="regression", algorithm="ridge", molecule_set=scope,
                       split="scaffold", test_size=0)
-    assert model.metrics["n_train"] == 8
+    assert model.n_train == 8
     assert "test" not in model.metrics
+
+
+@pytest.mark.parametrize("split", ["stratified", "butina", "maxmin"])
+def test_every_splitter_trains_and_previews(qsar_runtime, split):
+    api = qsar_runtime.qsar
+    preview = api.split_preview(endpoint="classification", split=split, test_size=.25, seed=1)
+    model = api.train(endpoint="classification", task="classification", algorithm="logistic_regression",
+                      split=split, test_size=.25, cv_folds=2, seed=1)
+    assert (model.n_train, model.n_test) == (preview["n_train"], preview["n_test"])
+    assert model.splitter == split
 
 
 @pytest.mark.parametrize("task,algorithm", [("regression", "ridge"), ("classification", "logistic_regression")])
@@ -274,44 +328,9 @@ def test_binary_prediction_ranking_uses_positive_probability(qsar_runtime):
     cutoff = .8
     cut = api.cut_predictions(model=model, cutoff=cutoff, ids_limit=48)
     assert set(cut["ids"]) == {r["molecule_id"] for r in rows if r["positive_probability"] >= cutoff}
-    # Old confidence/labels cannot stand in for the missing probability.
-    from amdockvs.models import QSARPredictionRecord
-    with qsar_runtime.workspace.project_db.get_session() as session:
-        from sqlmodel import select
-        row = session.exec(select(QSARPredictionRecord).where(QSARPredictionRecord.model_id == model.id)).first()
-        row.positive_probability = None
-        session.add(row)
-        session.commit()
-    with pytest.raises(ValueError, match="Run prediction again"):
-        api.cut_predictions(model=model, top_n=1)
-    api.predict(model=model)
-    assert api.cut_predictions(model=model, top_n=1)["kept"] == 1
 
 
-def test_probability_column_added_when_reopening_an_older_project(qsar_runtime):
-    from amdockvs.models import QSARPredictionRecord
-    from sqlmodel import select
-
-    runtime = qsar_runtime
-    model = runtime.qsar.train(endpoint="regression", algorithm="ridge")
-    runtime.qsar.predict(model=model)
-    project_id = runtime.get_active_project().id
-    with runtime.workspace.project_db.get_session() as session:
-        session.connection().exec_driver_sql("ALTER TABLE qsar_predictions DROP COLUMN positive_probability")
-        session.commit()
-    runtime.close_project()
-    runtime.open_project(project_id)
-    with runtime.workspace.project_db.get_session() as session:
-        rows = session.exec(select(QSARPredictionRecord)).all()
-        assert len(rows) == 48
-        assert all(r.positive_probability is None for r in rows)
-
-
-
-
-@pytest.mark.parametrize("source,expected", [("descriptors", "descriptors_2d"),
-                                            ("rdkit2d", "descriptors_2d"),
-                                            ("ecfp4", "fingerprints_ecfp4")])
+@pytest.mark.parametrize("source,expected", [("rdkit2d", "descriptors_2d"), ("ecfp4", "fingerprints_ecfp4")])
 def test_trained_and_external_models_record_their_feature_type(qsar_runtime, source, expected):
     from amdockvs.core.vocab import CODES
 
@@ -326,40 +345,10 @@ def test_trained_and_external_models_record_their_feature_type(qsar_runtime, sou
     external = runtime.qsar.load_external_model(path=path, name=f"external_{source}")
     assert external.feature_type == expected
     assert external.metrics["feature_kind"] == source
+    assert (external.task, external.source) == ("regression", "external")
     assert runtime.qsar.predict(model=external)["predicted"] == 48
     with runtime.workspace.project_db.get_session() as session:
         code = session.connection().exec_driver_sql(
             "SELECT feature_type FROM qsar_models WHERE id = ?", (model.id,)).scalar()
         assert code == CODES["feature_type"][expected]
     assert CODES["feature_type"]["descriptors_2d"] == 1501  # existing codes must never move
-
-
-def test_existing_ecfp4_metadata_is_corrected_on_open(qsar_runtime):
-    from amdockvs.models import QSARModelRecord
-
-    runtime = qsar_runtime
-    job = runtime.qsar.compute_fingerprints(executor_name="thread")
-    assert runtime.wait_for_jobs([job], timeout_s=60)[job].status == "completed"
-    model = runtime.qsar.train(endpoint="regression", algorithm="ridge", feature_source="ecfp4")
-    descriptor = runtime.qsar.train(endpoint="regression", algorithm="ridge")
-    path = runtime.get_project_paths()["project_root"] / model.model_path
-    original_artifact = path.read_bytes()
-    original_metrics = dict(model.metrics)
-    project_id = runtime.get_active_project().id
-    with runtime.workspace.project_db.get_session() as session:
-        old = session.get(QSARModelRecord, model.id)
-        old.feature_type = "descriptors_2d"
-        session.add(old)
-        session.flush()
-        # The code was absent in projects created before this correction.
-        session.connection().exec_driver_sql(
-            "DELETE FROM codes WHERE domain = 'feature_type' AND name = 'fingerprints_ecfp4'")
-        session.commit()
-    for _ in range(2):
-        runtime.close_project()
-        runtime.open_project(project_id)
-        models = {m.id: m for m in runtime.qsar.list_models()}
-        assert models[model.id].feature_type == "fingerprints_ecfp4"
-        assert models[model.id].metrics == original_metrics
-        assert models[descriptor.id].feature_type == "descriptors_2d"
-        assert path.read_bytes() == original_artifact

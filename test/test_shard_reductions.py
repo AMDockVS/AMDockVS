@@ -72,7 +72,7 @@ def test_clustering_the_shards_promotes_only_the_representatives(runtime):
     assert len(_ligands(runtime)) == len(again)  # the same picks again: no duplicate rows
 
 
-@pytest.mark.parametrize("feature_source", ["descriptors", "ecfp4"])
+@pytest.mark.parametrize("feature_source", ["rdkit2d", "ecfp4"])
 def test_qsar_scores_the_shards_by_reference_and_promotes_the_cut(runtime, tmp_path, feature_source):
     pytest.importorskip("sklearn")
     import numpy as np

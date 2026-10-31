@@ -13,9 +13,20 @@ def test_every_managed_tool_reports_a_status(monkeypatch, tmp_path):
     statuses = tool_statuses(SimpleNamespace())
 
     assert [status.tool_id for status in statuses] == [tool.tool_id for tool in MANAGED_TOOLS]
-    # Nothing lives under a fresh tools home (a tool already on PATH may still report ready).
-    assert all(status.location is None and status.size_bytes == 0 for status in statuses)
+    # Nothing lives under a fresh tools home (a tool already on PATH may still report ready);
+    # scikit-learn is a package of this environment, not a tools-home directory.
+    assert all(status.location is None and status.size_bytes == 0
+               for status in statuses if status.tool_id != "scikit-learn")
     assert not next(status for status in statuses if status.tool_id == "p2rank").installed
+
+
+def test_scikit_learn_status_follows_this_environment(monkeypatch):
+    import amdockvs.integrations.registry as external_tools
+
+    assert external_tools.get_tool("scikit-learn").status(None).installed  # a test dependency here
+    monkeypatch.setattr(external_tools.importlib.util, "find_spec", lambda _name: None)
+    missing = external_tools.get_tool("scikit-learn").status(None)
+    assert not missing.installed and missing.location is None
 
 
 def test_p2rank_plan_installs_java_only_when_missing(monkeypatch, tmp_path):

@@ -128,7 +128,7 @@ def test_qsar_from_activities_to_a_filtered_library(tmp_path, monkeypatch):
                 split="scaffold", test_size=0.3, cv_folds=3, name=algorithm,
             )
             assert {"train", "test", "q2"} <= set(model.metrics), sorted(model.metrics)
-            assert 0 < model.metrics["n_train"] < len(picked)
+            assert 0 < model.n_train < len(picked)
             scores[int(model.id)] = runtime.qsar.evaluate(model=model, endpoint=ENDPOINT)["r2"]
         best = max(scores, key=scores.get)
         assert scores[best] > 0.7, scores
