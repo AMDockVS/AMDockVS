@@ -334,7 +334,7 @@ class AMDockVSMainWindow(QMainWindow):
             pass
 
     def _create_menu_bar(self):
-        """Plain QMenuBar: File (Projects/Settings/Exit), View (Catalog Bar), Help.
+        """Plain QMenuBar: File (Projects/Settings/Restart/Exit), View (Catalog Bar), Help.
 
         Replaces the NeoRibbon backstage button + quick-access bar. ApplicationWidget is
         now a hidden controller that owns the Projects/Settings dialogs."""
@@ -375,6 +375,9 @@ class AMDockVSMainWindow(QMainWindow):
         ]
         file_menu.addSeparator()
         file_menu.addAction(load_icon("info.svg"), "Settings…", self._app_widget.open_settings)
+        file_menu.addSeparator()
+        restart_action = file_menu.addAction(load_icon("reset.svg"), "Restart", self._restart_application)
+        restart_action.setToolTip("Restart AMDockVS and reopen the current project.")
         file_menu.addAction("Exit", self.close)
 
         view_menu = menu_bar.addMenu("&View")
@@ -697,6 +700,13 @@ class AMDockVSMainWindow(QMainWindow):
         self.setWindowTitle(f"AMDockVS - {active_context.name}")
         self._status_bar.project_indicator.set_project(active_context.name)
         self.views.sync_catalog_availability()
+
+    def _restart_application(self) -> None:
+        from amdockvs.app import restart
+
+        active_context = getattr(self.runtime, "active_context", None)
+        args = ("--project-id", str(active_context.id)) if active_context is not None else ()
+        restart(self, *args)
 
     def _on_application_project_requested(self, project_id: str) -> None:
         if self._app_widget is not None:
