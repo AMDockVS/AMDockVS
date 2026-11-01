@@ -75,6 +75,34 @@ def test_delete_complex_keeps_molecules():
     assert results == 0         # the pair's docking results removed
 
 
+def test_delete_receptor_cleans_only_unshared_reference_ligands():
+    db = _seed()
+    with db.get_session() as session:
+        session.add(MoleculeRecord(id=3, name="another receptor", is_receptor=True))
+        session.add_all([
+            MoleculeRecord(id=4, name="exclusive reference", is_ligand=True, usage_class="reference"),
+            MoleculeRecord(id=5, name="shared reference", is_ligand=True, usage_class="reference"),
+            MoleculeRecord(id=6, name="promoted ligand", is_ligand=True),
+        ])
+        session.commit()
+        session.add_all([
+            ComplexRecord(receptor_molecule_id=1, ligand_molecule_id=ligand_id, purpose="reference")
+            for ligand_id in (4, 5, 6)
+        ])
+        session.add(ComplexRecord(receptor_molecule_id=3, ligand_molecule_id=5, purpose="reference"))
+        session.commit()
+
+    assert delete_molecules(db, [1]) == 1
+    with db.get_session() as session:
+        assert {m.id for m in session.exec(select(MoleculeRecord)).all()} == {2, 3, 5, 6}
+        complexes = session.exec(select(ComplexRecord)).all()
+        assert [(c.receptor_molecule_id, c.ligand_molecule_id) for c in complexes] == [(3, 5)]
+
+    assert delete_molecules(db, [3]) == 1
+    with db.get_session() as session:
+        assert {m.id for m in session.exec(select(MoleculeRecord)).all()} == {2, 6}
+
+
 def _project(tmp_path):
     """Two ligands: 2 owns a stored and an edited structure, a model, a preparation and a fingerprint;
     3 and 4 share one structure; a cached copy of every payload was opened once."""
