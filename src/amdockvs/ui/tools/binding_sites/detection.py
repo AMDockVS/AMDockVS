@@ -322,6 +322,9 @@ class BindingSitesWidget(QWidget):
             for index, (points_path, path_sites) in enumerate(by_points_path.items(), start=1):
                 points_obj = f"amdock_p2rank_points_{index}"
                 cmd.load(str(points_path), points_obj)
+                # P2Rank encodes pocket markers as H atoms. They are visualization points,
+                # so keep them out of the viewer's session-wide hydrogen hiding policy.
+                cmd.alter(f"{points_obj} and resn STP", "elem='C'")
                 cmd.hide("everything", points_obj)
                 for site in path_sites:
                     site_number += 1
