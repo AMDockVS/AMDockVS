@@ -113,22 +113,6 @@ class _ClickableChip(QLabel):
         super().mousePressEvent(event)
 
 
-class ProjectIndicator(_ClickableChip):
-    """Active project; clicking opens the projects browser."""
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent, tooltip="Open the projects browser")
-
-    def set_project(self, name: str | None) -> None:
-        name = str(name or "").strip()
-        if not name:
-            self.clear()
-            self.setVisible(False)
-            return
-        self.setText(f"📁 {name}")
-        self.setVisible(True)
-
-
 class ResourceIndicator(_ClickableChip):
     """CPU (and GPU if present) in use by the local scheduler; click opens the monitor."""
 
@@ -196,9 +180,7 @@ class StatusBar(QStatusBar):
         }
         for indicator in self.selection_indicators.values():
             self.addPermanentWidget(indicator)
-        # Right (global, permanent): project · backend · resources · workflow · jobs.
-        self.project_indicator = ProjectIndicator(self)
-        self.addPermanentWidget(self.project_indicator)
+        # Right (global, permanent): backend · resources · workflow · jobs.
         self.backend_indicator = BackendIndicator(self)
         self.addPermanentWidget(self.backend_indicator)
         self.resource_indicator = ResourceIndicator(self)

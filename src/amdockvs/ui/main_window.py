@@ -233,7 +233,6 @@ class AMDockVSMainWindow(QMainWindow):
         self.selection.changed.connect(lambda role: self._status_bar.selection_indicators[role].set_count(
             len(self.selection.get(role) or ())))
         self._status_bar.workflow_indicator.clicked.connect(lambda: self.open_or_focus_view(WORKFLOW_VIEW_ID))
-        self._status_bar.project_indicator.clicked.connect(self._show_project_summary)
         self._status_bar.resource_indicator.clicked.connect(self.open_jobs_monitor)
         self._status_bar.backend_indicator.clicked.connect(self.open_jobs_monitor)
         self.views.wire_workflow_quick_access()
@@ -334,7 +333,7 @@ class AMDockVSMainWindow(QMainWindow):
             pass
 
     def _create_menu_bar(self):
-        """Plain QMenuBar: File (Projects/Settings/Exit), View (Catalog Bar), Help.
+        """Plain QMenuBar: File (Projects/Settings/Restart/Exit), View (Catalog Bar), Help.
 
         Replaces the NeoRibbon backstage button + quick-access bar. ApplicationWidget is
         now a hidden controller that owns the Projects/Settings dialogs."""
@@ -375,6 +374,9 @@ class AMDockVSMainWindow(QMainWindow):
         ]
         file_menu.addSeparator()
         file_menu.addAction(load_icon("info.svg"), "Settings…", self._app_widget.open_settings)
+        file_menu.addSeparator()
+        restart_action = file_menu.addAction(load_icon("reset.svg"), "Restart", self._restart_application)
+        restart_action.setToolTip("Restart AMDockVS and reopen the current project.")
         file_menu.addAction("Exit", self.close)
 
         view_menu = menu_bar.addMenu("&View")
@@ -689,14 +691,24 @@ class AMDockVSMainWindow(QMainWindow):
 
     def _sync_window_title(self) -> None:
         active_context = getattr(self.runtime, "active_context", None)
+        self.views.project_action.setEnabled(active_context is not None)
+        self.views.project_action.setToolTip(
+            f"Project details: {active_context.name}" if active_context is not None
+            else "Open a project to view its details."
+        )
         if active_context is None:
             self.setWindowTitle("AMDockVS")
-            self._status_bar.project_indicator.set_project(None)
             self.views.sync_catalog_availability()
             return
         self.setWindowTitle(f"AMDockVS - {active_context.name}")
-        self._status_bar.project_indicator.set_project(active_context.name)
         self.views.sync_catalog_availability()
+
+    def _restart_application(self) -> None:
+        from amdockvs.app import restart
+
+        active_context = getattr(self.runtime, "active_context", None)
+        args = ("--project-id", str(active_context.id)) if active_context is not None else ()
+        restart(self, *args)
 
     def _on_application_project_requested(self, project_id: str) -> None:
         if self._app_widget is not None:
