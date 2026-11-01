@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import shutil
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -148,11 +147,12 @@ def p2rank_prediction_finalize(
     _payload: dict[str, Any],
     context: dict[str, Any],
 ) -> dict[str, Any]:
-    """The only thing left to do by hand: drop the files of a run that failed.
+    """Leave prediction outputs alongside the rows already committed by the sink.
 
-    The rows are written by the sink. Prediction is additive — a new run sits next to the old
-    ones and it is the user who deletes the ones they no longer want
-    (`pockets.delete_binding_sites`), so no row and no active receptor site is touched here.
+    Results are committed per receptor. A canceled or failed batch can therefore contain
+    successful predictions whose points files the UI still needs. Keep the run directory,
+    including partial files, rather than deleting outputs referenced by persisted sites.
+    Prediction is additive; no row or active receptor site is changed here.
     """
     raw_params = context.get("job_params")
     if not isinstance(raw_params, dict):
@@ -161,13 +161,6 @@ def p2rank_prediction_finalize(
     if str(context.get("terminal_status") or "").strip().lower() == "completed":
         return {"predicted_receptors": len(params.recalculate_receptor_ids), "status": "added"}
 
-    output_root = _output_root(
-        params,
-        {"project_resources": dict(context.get("project_resources") or {})},
-    )
-    failed_run = output_root / params.run_id
-    if failed_run.is_dir():
-        shutil.rmtree(failed_run)
     return {"predicted_receptors": 0, "status": "skipped_failed_job"}
 
 
