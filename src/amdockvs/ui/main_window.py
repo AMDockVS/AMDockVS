@@ -233,7 +233,6 @@ class AMDockVSMainWindow(QMainWindow):
         self.selection.changed.connect(lambda role: self._status_bar.selection_indicators[role].set_count(
             len(self.selection.get(role) or ())))
         self._status_bar.workflow_indicator.clicked.connect(lambda: self.open_or_focus_view(WORKFLOW_VIEW_ID))
-        self._status_bar.project_indicator.clicked.connect(self._show_project_summary)
         self._status_bar.resource_indicator.clicked.connect(self.open_jobs_monitor)
         self._status_bar.backend_indicator.clicked.connect(self.open_jobs_monitor)
         self.views.wire_workflow_quick_access()
@@ -692,13 +691,16 @@ class AMDockVSMainWindow(QMainWindow):
 
     def _sync_window_title(self) -> None:
         active_context = getattr(self.runtime, "active_context", None)
+        self.views.project_action.setEnabled(active_context is not None)
+        self.views.project_action.setToolTip(
+            f"Project details: {active_context.name}" if active_context is not None
+            else "Open a project to view its details."
+        )
         if active_context is None:
             self.setWindowTitle("AMDockVS")
-            self._status_bar.project_indicator.set_project(None)
             self.views.sync_catalog_availability()
             return
         self.setWindowTitle(f"AMDockVS - {active_context.name}")
-        self._status_bar.project_indicator.set_project(active_context.name)
         self.views.sync_catalog_availability()
 
     def _restart_application(self) -> None:

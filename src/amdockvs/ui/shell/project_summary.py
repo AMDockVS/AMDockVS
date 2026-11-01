@@ -1,5 +1,5 @@
-"""Summary dialog for the active project — opened from the project chip in the
-statusbar. Shows metadata + quick counts; it does not navigate, it only informs
+"""Summary dialog for the active project, opened from Project in the top toolbar.
+Shows metadata + quick counts; it does not navigate, it only informs
 (with an optional button to jump to the project browser)."""
 from __future__ import annotations
 
