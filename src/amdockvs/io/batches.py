@@ -11,7 +11,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from sqlalchemy import func, insert, select, update
+from sqlalchemy import func, insert, or_, select, update
 from sqlmodel import col
 
 from amdockvs.core.normalize import resolved_path
@@ -59,15 +59,29 @@ def file_format_of(path: str | Path) -> str:
 
 
 def duplicate_imports(project_db, files: Iterable[str | Path]) -> list[str]:
-    """The files (resolved) that a batch already imported completely: its hash is known and a
-    batch with it read at least as many records as the file has."""
+    """Files imported completely before whose batches still contain their primary role or shards.
+
+    Batch counters describe import history, so they survive deletion of the imported records.
+    History alone must not prevent importing a deleted file again.
+    """
     digests = {f: quick_hash(f) for f in map(resolved_path, files)}
+    role = func.coalesce(ImportBatch.extra["role"].as_string(), "")
     read: dict[str, int] = {}
     with project_db.get_session() as session:
         for part in _chunks(list(set(digests.values()))):
             read.update(session.execute(
                 select(ImportBatch.quick_hash, func.max(ImportBatch.n_records))
                 .where(col(ImportBatch.quick_hash).in_(part))
+                .where(or_(
+                    select(MoleculeRecord.id)
+                    .where(MoleculeRecord.import_batch_id == ImportBatch.id)
+                    # A receptor batch also contains cocrystal reference ligands. Those
+                    # alone do not mean the receptor is still present after deletion.
+                    .where(or_(role != "receptor", MoleculeRecord.is_receptor.is_(True)))
+                    .exists(),
+                    select(ScreeningShard.id)
+                    .where(ScreeningShard.import_batch_id == ImportBatch.id).exists(),
+                ))
                 .group_by(ImportBatch.quick_hash)
             ).all())
     return [f for f, d in digests.items() if d in read and int(read[d]) >= count_import_records(f)]

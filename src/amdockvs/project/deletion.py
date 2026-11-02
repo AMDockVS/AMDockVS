@@ -22,6 +22,7 @@ from sqlalchemy.exc import OperationalError as _SAOperationalError
 from sqlmodel import or_, select
 
 from amdockvs.core.payloads import PAYLOAD_CACHE, payload_store
+from amdockvs.core.vocab import MoleculeUsageClass
 from amdockvs.models import (
     BindingSite,
     ClusteringResult,
@@ -180,12 +181,44 @@ def clear_derived(project_db, molecule_ids: Iterable[int]) -> int:
     return results
 
 
+def _unshared_reference_ligands(project_db, receptor_ids: set[int]) -> list[int]:
+    """Cocrystal references owned only by the receptors being deleted.
+
+    Keep references shared with another receptor or promoted to the general ligand pool.
+    """
+    with suppress(*OperationalError), project_db.get_session() as session:
+        candidates = set(session.exec(
+            select(ComplexRecord.ligand_molecule_id)
+            .join(MoleculeRecord, MoleculeRecord.id == ComplexRecord.ligand_molecule_id)
+            .where(
+                ComplexRecord.receptor_molecule_id.in_(receptor_ids),
+                ComplexRecord.purpose == "reference",
+                MoleculeRecord.usage_class == MoleculeUsageClass.REFERENCE,
+                MoleculeRecord.is_receptor.is_(False),
+            )
+        ).all())
+        if candidates:
+            shared = set(session.exec(
+                select(ComplexRecord.ligand_molecule_id).where(
+                    ComplexRecord.ligand_molecule_id.in_(candidates),
+                    ComplexRecord.receptor_molecule_id.not_in(receptor_ids),
+                )
+            ).all())
+            return sorted(candidates - shared - set(receptor_ids))
+    return []
+
+
 def delete_molecules(project_db, molecule_ids: Iterable[int]) -> int:
-    """Delete molecules, every row that references them and the payloads only they held. Returns the
-    molecule count deleted."""
+    """Delete molecules and their dependent rows, unshared references and payloads.
+
+    Returns the number of requested molecules deleted, excluding dependent references.
+    """
     ids = _ids(molecule_ids)
     if not ids:
         return 0
+    references = _unshared_reference_ligands(project_db, ids)
+    if references:
+        delete_molecules(project_db, references)
     structures = _owned_payloads(project_db, ids, structure=True)
     clear_derived(project_db, ids)
     # Children before parents: project databases enforce foreign keys.

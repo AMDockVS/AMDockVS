@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from amdockvs.models import BindingSite, MoleculeRecord
+from amdockvs.binding_sites.jobs import p2rank_prediction_job
 from amdockvs.core.configuration import app_config
 from amdockvs.core.payloads import molecule_payload_id, payload_store
 from amdockvs.ui.common.async_query import run_async
@@ -322,6 +323,9 @@ class BindingSitesWidget(QWidget):
             for index, (points_path, path_sites) in enumerate(by_points_path.items(), start=1):
                 points_obj = f"amdock_p2rank_points_{index}"
                 cmd.load(str(points_path), points_obj)
+                # P2Rank encodes pocket markers as H atoms. They are visualization points,
+                # so keep them out of the viewer's session-wide hydrogen hiding policy.
+                cmd.alter(f"{points_obj} and resn STP", "elem='C'")
                 cmd.hide("everything", points_obj)
                 for site in path_sites:
                     site_number += 1
@@ -513,7 +517,18 @@ class PocketDetectionWidget(QWidget):
 
         self.status_label = QLabel("", self)
         self.status_label.setWordWrap(True)
-        outer.addWidget(self.status_label)
+        status_row = QHBoxLayout()
+        status_row.addWidget(self.status_label, 1)
+        self.job_details_link = QLabel('<a href="jobs">See details</a>', self)
+        self.job_details_link.setTextFormat(Qt.TextFormat.RichText)
+        self.job_details_link.setTextInteractionFlags(
+            Qt.TextInteractionFlag.LinksAccessibleByMouse | Qt.TextInteractionFlag.LinksAccessibleByKeyboard
+        )
+        self.job_details_link.setToolTip("Open the Jobs monitor to see P2Rank progress and errors.")
+        self.job_details_link.linkActivated.connect(self._open_jobs_monitor)
+        self.job_details_link.hide()
+        status_row.addWidget(self.job_details_link)
+        outer.addLayout(status_row)
 
         self._ready = True
         self._connect_job_signal()
@@ -530,8 +545,24 @@ class PocketDetectionWidget(QWidget):
             return
         bridge = getattr(self.window(), "monitor_bridge", None)
         if bridge is not None:
+            bridge.job_upserted.connect(self._on_job_upserted)
             bridge.job_finished.connect(self._on_job_finished)
             self._job_signal_connected = True
+            snapshot = bridge.current_snapshot
+            if snapshot is not None:
+                for state in snapshot.jobs:
+                    self._on_job_upserted(str(state.job_id), state)
+
+    def _on_job_upserted(self, job_id: str, state) -> None:
+        if state.name != p2rank_prediction_job.name or state.is_terminal:
+            return
+        job_id = str(job_id)
+        newly_active = job_id not in self._pending_job_ids
+        self._pending_job_ids.add(job_id)
+        self.run_button.setEnabled(False)
+        if newly_active:
+            self.status_label.setText("P2Rank prediction is in progress.")
+            self.job_details_link.show()
 
     def refresh(self) -> None:
         run_async(
@@ -563,6 +594,11 @@ class PocketDetectionWidget(QWidget):
 
     def _open_tool_settings(self) -> None:
         opener = getattr(self.window(), "open_settings", None)
+        if callable(opener):
+            opener(node="page:External tools")
+
+    def _open_jobs_monitor(self, _link: str = "") -> None:
+        opener = getattr(self.window(), "open_jobs_monitor", None)
         if callable(opener):
             opener()
 
@@ -740,12 +776,25 @@ class PocketDetectionWidget(QWidget):
         profile = str(self.profile_combo.currentData() or "default")
         profiles = {receptor_id: profile for receptor_id in receptor_ids}
         try:
+            # Resume can start a job before the next monitor poll reaches this panel.
+            # Read the runtime as well as the local pending set before allowing a submit.
+            active = self.runtime.list_jobs(statuses=("pending", "running"))
+            self._pending_job_ids.update(
+                str(state.job_id) for state in active
+                if state.task_type == p2rank_prediction_job.name
+            )
+            if self._pending_job_ids:
+                self.run_button.setEnabled(False)
+                self.status_label.setText("P2Rank prediction is already in progress.")
+                self.job_details_link.show()
+                return
             plan = self.runtime.binding_sites.plan_prediction(
                 receptor_ids=receptor_ids,
                 profiles=profiles,
             )
             if not plan.recalculate_receptor_ids:
                 self._reload_sites()
+                self.job_details_link.hide()
                 self.status_label.setText(
                     f"Reused existing P2Rank predictions for "
                     f"{len(plan.reused_receptor_ids)} receptor(s); profiles are unchanged."
@@ -768,9 +817,10 @@ class PocketDetectionWidget(QWidget):
             else ""
         )
         self.status_label.setText(
-            f"P2Rank job {normalized_job_id} submitted for "
+            "P2Rank submitted for "
             f"{len(plan.recalculate_receptor_ids)} receptor(s){reused_text}."
         )
+        self.job_details_link.show()
 
     def _on_job_finished(self, job_id: str, status: str) -> None:
         normalized_job_id = str(job_id)

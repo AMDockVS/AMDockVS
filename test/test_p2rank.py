@@ -283,7 +283,8 @@ def test_plan_prediction_judges_only_the_latest_run(tmp_path):
     ProjectStore.clear_cached_stores()
 
 
-def test_p2rank_finalize_failed_job_preserves_previous_prediction(tmp_path):
+@pytest.mark.parametrize("terminal_status", ["canceled", "failed", "interrupted", "completed_with_errors"])
+def test_p2rank_finalize_preserves_predictions_from_partially_finished_job(tmp_path, terminal_status):
     project_store = ProjectStore.open_at(tmp_path / "project.db")
     output_root = tmp_path / "results" / "pockets"
     failed_output = output_root / "failed-run" / "receptor_7"
@@ -300,6 +301,11 @@ def test_p2rank_finalize_failed_job_preserves_previous_prediction(tmp_path):
                 extra_data={"profile": "default", "run_id": "old-run"},
             )
         )
+        # The sink has already committed a successful receptor from this run.
+        for row in parse_p2rank_outputs(
+            output_dir=failed_output, receptor_id=7, run_id="failed-run", profile="default"
+        ):
+            session.add(BindingSite(**row))
         session.commit()
     params = P2RankPredictionParams(
         receptor_ids=[7],
@@ -313,16 +319,20 @@ def test_p2rank_finalize_failed_job_preserves_previous_prediction(tmp_path):
         {"job_id": "job"},
         {
             "job_params": params.model_dump(mode="python"),
-            "terminal_status": "failed",
+            "terminal_status": terminal_status,
             "project_db_path": str(project_store.db_path),
         },
     )
     assert result["status"] == "skipped_failed_job"
     with project_store.get_session() as session:
         sites = session.exec(select(BindingSite)).all()
-    assert len(sites) == 1
+    assert len(sites) == 2
     assert sites[0].extra_data["run_id"] == "old-run"
-    assert not (output_root / "failed-run").exists()
+    current = next(site for site in sites if site.extra_data["run_id"] == "failed-run")
+    assert Path(current.extra_data["points_path"]).is_file()
+    assert Path(current.extra_data["predictions_path"]).is_file()
+    assert Path(current.extra_data["pymol_script_path"]).is_file()
+    assert _pocket_api(project_store).plan_prediction(receptor_ids=[7]).reused_receptor_ids == (7,)
     ProjectStore.clear_cached_stores()
 
 
