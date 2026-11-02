@@ -8,6 +8,8 @@ half-installed tool is a failure that costs more to clean up than the wait.
 
 from __future__ import annotations
 
+from contextlib import ExitStack
+
 from PySide6.QtCore import QObject, Signal
 from shiboken6 import isValid
 from PySide6.QtWidgets import (
@@ -23,10 +25,12 @@ from PySide6.QtWidgets import (
 )
 
 from ms_components.step_dialog import offer_unlock, run_steps_dialog
+from ms_env import prefix_lock
 
 from amdockvs.integrations.registry import (
     MANAGED_TOOLS,
     ToolStatus,
+    get_tool,
     install_steps,
     tool_statuses,
     uninstall_tool,
@@ -201,7 +205,21 @@ class ExternalToolsPage(QWidget):
             return
         steps = [step for tool_id in pending for step in install_steps(self.runtime, tool_id)]
         title = "Install external tools" if len(pending) > 1 else f"Install {self._rows[pending[0]].tool.label}"
-        run_steps_dialog(self, title, steps, blocking=True, on_success=self.refresh)
+        # The environments are this install's while it runs, as they are for a host Sync or a removal.
+        with ExitStack() as held:
+            try:
+                for tool_id in pending:
+                    if (recipe := get_tool(tool_id).recipe) is not None:
+                        held.enter_context(prefix_lock(recipe(self.runtime).prefix))
+            except Exception as exc:  # noqa: BLE001 - shown to the user, nothing installed yet
+                held.close()
+                forced = offer_unlock(self, exc)
+                if forced is None:
+                    QMessageBox.warning(self, "Install failed", str(exc))
+                    return
+                forced()  # ponytail: these prefixes are local, so the unlock is quick on the GUI thread
+                return self._run_install(tool_ids)
+            run_steps_dialog(self, title, steps, blocking=True, on_success=self.refresh)
         self.refresh()
 
     def remove(self, tool_id: str, unlock=None) -> None:
