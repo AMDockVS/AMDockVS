@@ -430,7 +430,7 @@ class AMDockVSMainWindow(QMainWindow):
         tgrp.setExclusive(True)
         current = saved_theme_name()
         for name in ("auto", *THEMES):
-            act = theme_menu.addAction(name.replace("_", " ").title())
+            act = theme_menu.addAction(" ".join(w[:1].upper() + w[1:] for w in name.split("_")))
             act.setCheckable(True)
             act.setData(name)
             act.setChecked(name == current)
