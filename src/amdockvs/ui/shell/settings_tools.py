@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ms_components.step_dialog import run_steps_dialog
+from ms_components.step_dialog import offer_unlock, run_steps_dialog
 
 from amdockvs.integrations.registry import (
     MANAGED_TOOLS,
@@ -204,9 +204,10 @@ class ExternalToolsPage(QWidget):
         run_steps_dialog(self, title, steps, blocking=True, on_success=self.refresh)
         self.refresh()
 
-    def remove(self, tool_id: str) -> None:
+    def remove(self, tool_id: str, unlock=None) -> None:
+        """`unlock`: the lock left behind on its environment, which the user said to remove first."""
         row = self._rows[tool_id]
-        confirm = QMessageBox.question(
+        confirm = QMessageBox.StandardButton.Yes if unlock is not None else QMessageBox.question(
             self,
             f"Remove {row.tool.label}",
             f"Delete {row.tool.label} from disk? It can be installed again from this page.",
@@ -215,10 +216,18 @@ class ExternalToolsPage(QWidget):
         )
         if confirm != QMessageBox.StandardButton.Yes:
             return
+
+        def failed(exc) -> None:
+            forced = offer_unlock(self, exc)
+            if forced is not None:
+                self.remove(tool_id, forced)
+            else:
+                QMessageBox.warning(self, "Removal failed", str(exc))
+
         run_async(
-            lambda: uninstall_tool(self.runtime, tool_id),
+            lambda: (unlock and unlock(), uninstall_tool(self.runtime, tool_id))[1],
             lambda message: (row.status_label.setText(str(message)), self.refresh()),
-            on_error=lambda exc: QMessageBox.warning(self, "Removal failed", str(exc)),
+            on_error=failed,
             busy=row.status_label,
             compact=True,
         )
