@@ -121,12 +121,15 @@ class ViewCoordinator:
             checkable=True,
             on_click=self.w.aux.on_toggled,
         ))
-        # Jobs and Executors float right, past a stretch, so the catalog actions never push
+        # Project, Jobs and Executors float right, so the catalog actions never push
         # them around. Jobs opens a window, not a region: the tools show their own progress,
         # so the full monitor is on demand. Disabled with no project like the rest of the bar.
         spacer = QWidget(bar)
         spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         bar.addWidget(spacer)
+        self.project_action = bar.addAction(load_icon("folder.svg"), "Project")
+        self.project_action.setToolTip("View details for the active project.")
+        self.project_action.triggered.connect(self.w._show_project_summary)
         self.jobs_action = bar.addAction(load_icon("cpu.svg"), "Jobs")
         self.jobs_action.setToolTip("Open the Jobs monitor.")
         self.jobs_action.triggered.connect(self.w.open_jobs_monitor)

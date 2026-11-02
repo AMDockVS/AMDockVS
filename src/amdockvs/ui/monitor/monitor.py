@@ -10,7 +10,7 @@ class JobsDialog(QDialog):
 
     A tab or dock had to share space with the tables and PyMOL and squeezed one of them; the
     tools already show their own progress, so the full monitor is opened on demand. Built once
-    and only hidden on close, so reopening it is instant and keeps its scroll and selection.
+    and only hidden on close, so reopening it is instant and focuses active work.
     """
 
     def __init__(self, *, bridge: MolSuiteMonitorBridge, parent: QWidget | None = None) -> None:

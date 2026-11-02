@@ -41,8 +41,10 @@ def restart(window, *args: str) -> None:
     from PySide6.QtWidgets import QApplication
 
     _restart_args = list(args)
-    window.close()
-    QApplication.quit()
+    # An import preview can defer closing until its worker finishes. Let that close
+    # complete before leaving the event loop and shutting the runtime down.
+    if window.close():
+        QApplication.quit()
 
 
 def _delete_project(runtime: AMDockVSRuntime, project_id: str) -> None:
