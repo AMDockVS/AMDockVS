@@ -471,6 +471,10 @@ def install_pymol_toolbar(window) -> None:
         tooltip="More PyMOL scene, camera, and render options.",
     )
 
+    # The shared control bar creates Export before AMDock adds its own controls.
+    # Reinsert it here so it remains the final visible action in the full toolbar.
+    control_bar.move_action_to_end(control_bar.export_action)
+
     window._pymol_overflow_menu = menu  # keep alive
     window._pymol_scene_action = action
     window._pymol_toolbar_installed = True

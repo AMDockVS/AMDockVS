@@ -13,7 +13,7 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine
 
 pytest.importorskip("PySide6")
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QSizePolicy
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -246,6 +246,7 @@ def test_hits_results_always_select_a_concrete_receptor():
     assert widget.receptor_table._model.loaded_count == 2
     assert widget._selected_receptor_id == 41
     assert reloads == [{"auto_select": True}]
+    assert widget.interactions_table.sizePolicy().verticalPolicy() == QSizePolicy.Ignored
 
 
 def test_running_job_refresh_reaches_the_active_results_page():
