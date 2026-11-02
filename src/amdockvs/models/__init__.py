@@ -24,7 +24,6 @@ from amdockvs.models.docking import (
     prep_table,
 )
 from amdockvs.models.screening import (
-    ScreeningDispatch,
     ScreeningShard,
     ScreeningShardRun,
     ScreeningTarget,
@@ -71,7 +70,6 @@ __all__ = [
     "ShardGeneration",
     "ScreeningShardRun",
     "ScreeningTarget",
-    "ScreeningDispatch",
     "ComplexRecord",
     "MoleculeSet",
     "MoleculeSetMember",

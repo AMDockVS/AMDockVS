@@ -341,6 +341,9 @@ def iter_prepared_shards(project_db, *, engine: str) -> Iterator[dict[str, Any]]
         counts = dict(session.exec(
             select(ShardPrep.shard_id, ShardPrep.n_records).where(ShardPrep.family == family)
         ).all())
+        digests = dict(session.exec(
+            select(ShardPrep.shard_id, ShardPrep.sha256).where(ShardPrep.family == family)
+        ).all())
         # Scoped like every other shard read: the parent generation is still in the table and
         # its prepared artifacts are still on disk, but they are not the library any more.
         query = select(ScreeningShard).order_by(ScreeningShard.id)
@@ -362,6 +365,7 @@ def iter_prepared_shards(project_db, *, engine: str) -> Iterator[dict[str, Any]]
                 "path": shard.path,
                 "prepared_path": str(prepared_path),
                 "n_records": int(n_records),
+                "sha256": digests.get(int(shard.id or 0)) or "",  # "" = prepared before 2026-11
             }
 
 

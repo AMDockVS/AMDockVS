@@ -19,6 +19,7 @@ from amdockvs.core.constants import (
     TABLE_QSAR_MODEL_MEMBERS,
     TABLE_QSAR_MODELS,
     TABLE_QSAR_PREDICTIONS,
+    TABLE_SHARD_PREPS,
 )
 from amdockvs.manifest import AMDOCKVS_PROJECT_RESOURCES
 from amdockvs.core.configuration import (
@@ -331,6 +332,7 @@ class AMDockVSRuntime(AppRuntime):
             )
         self._rekey_interactions()
         self._rebuild_qsar_tables()
+        self._add_shard_digests()
         # ponytail: a no-op unless an import died before building them; then it blocks the open for
         # as long as the build takes (~seconds per million rows). Run it off-thread if that bites.
         ensure_molecule_indexes(self.workspace.project_db)
@@ -358,6 +360,15 @@ class AMDockVSRuntime(AppRuntime):
             conn.exec_driver_sql(f"DROP TABLE {TABLE_INTERACTION_RESULTS}")
             session.commit()
         InteractionsResult.__table__.create(db.engine)
+
+    def _add_shard_digests(self) -> None:
+        """`shard_preps` before 2026-11 gets the empty ``sha256`` column: a campaign hashes those files itself."""
+        with self.workspace.project_db.get_session() as session:
+            conn = session.connection()
+            columns = conn.exec_driver_sql(f"PRAGMA table_info({TABLE_SHARD_PREPS});").fetchall()
+            if columns and "sha256" not in {str(row[1]) for row in columns}:
+                conn.exec_driver_sql(f"ALTER TABLE {TABLE_SHARD_PREPS} ADD COLUMN sha256 VARCHAR NOT NULL DEFAULT ''")
+                session.commit()
 
     def _rebuild_qsar_tables(self) -> None:
         """`qsar_models` without the registry columns (before 2026-10-30) is dropped and made again,
@@ -500,6 +511,30 @@ class AMDockVSRuntime(AppRuntime):
         if hook is not None:
             try:
                 hook(str(getattr(job, "name", "") or "Job"), job_id)
+            except Exception:  # noqa: BLE001 - feedback must never break a submit
+                pass
+        return job_id
+
+    def is_queue(self, executor_name: Optional[str]) -> bool:
+        """Whether `executor_name` is a cluster's queue: what goes there is a campaign."""
+        executor = self.workspace.settings_manager.settings.executors.get(str(executor_name or ""))
+        return executor is not None and executor.kind == "queue"
+
+    def submit_campaign(self, job, *, params: Any, executor_name: str, priority: int = 0) -> str:
+        """Submit an `ms_flow.campaign` to the queue `executor_name`; its key in the journal is
+        its identity, so the same campaign submitted again is the job that already follows it.
+
+        ponytail: its elements are made now, from what the project has now: it waits for no job.
+        """
+        self._require_active_project()
+        self._job_config()  # what its source and writer read of the project
+        engine_id = self.workspace.submit(job, params, executor=executor_name, priority=priority)
+        job_id = str(self.workspace.engine.status(engine_id).key)
+        self._engine_ids()[job_id] = engine_id
+        hook = getattr(self, "on_job_submitted", None)
+        if hook is not None:
+            try:
+                hook(str(job.__job__["name"]), job_id)
             except Exception:  # noqa: BLE001 - feedback must never break a submit
                 pass
         return job_id

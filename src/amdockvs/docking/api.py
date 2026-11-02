@@ -74,6 +74,7 @@ from amdockvs.docking.shard_jobs import (
     select_hits as select_shard_hits,
 )
 from amdockvs.molecules.storage import has_shards
+from amdockvs.docking.campaign import DockCampaignParams, dock_shards_campaign
 from amdockvs.screening.materialize import PAYLOAD_LIGHT
 from amdockvs.docking.results.tables import receptor_progress
 from amdockvs.docking.preparation.jobs import (
@@ -564,6 +565,7 @@ class DockingAPI:
             selected_from_receptor_id: int | None = None,
             selected_top_n: int | None = None,
             replace_existing: bool = False,
+            off_target_set: MoleculeSetRef | MoleculeScope | int | None = None,
     ) -> str:
         """`run` for a sharded library: the campaign, with the gate that makes it end.
 
@@ -573,8 +575,19 @@ class DockingAPI:
         scored, which is the failure mode `htpvs` exists to prevent. A dependent off-target
         stage sets `selected_from_receptor_id`; its deferred chunker reads that receptor's
         durable Top-N and extracts only those records from the source shards.
+
+        On a cluster's queue (`executor_name` of kind `queue`) the whole of it is one job of the
+        queue (`amdockvs.docking.campaign`): with `off_target_set`, the best `hit_cap` of the one
+        receptor of `receptor_set` are docked against those receptors there too, and no
+        dependent stage is submitted here.
         """
         self.runtime._require_active_project()
+        queue = self.runtime.is_queue(executor_name)
+        if off_target_set is not None and not queue:
+            raise ValueError("off_target_set is for a cluster's queue; here the off-target stage is its own run "
+                             "(selected_from_receptor_id).")
+        if queue and (depends_on or selected_from_receptor_id is not None):
+            raise ValueError("A campaign on a cluster's queue runs its off-target stage itself: use off_target_set.")
         if selected_top_n is not None and selected_from_receptor_id is None:
             raise ValueError("selected_top_n requires selected_from_receptor_id.")
         if selected_from_receptor_id is not None and not str(run_id or "").strip():
@@ -634,13 +647,26 @@ class DockingAPI:
                     params.model_dump(mode="python"), config={"project_db": self.runtime.workspace.project_db},
                 )
             clear_previous_docking(self.runtime.workspace.project_db, program=program_spec)
+        cpu = program_spec.resource_requirements(resolved_engine_config)["cpu_required"]
+        if queue:
+            off_ref = self._set_ref(off_target_set, name="docking_off_target_input")
+            off_scope = scope_payload(off_target_set) if is_molecule_scope(off_target_set) else {}
+            campaign_params = DockCampaignParams(
+                **params.model_dump(mode="python"),
+                off_receptor_set_id=None if off_ref is None else int(off_ref.id),
+                off_receptor_filters=self._program_scope_filters(off_scope, role="receptor", program=program_spec)
+                if off_target_set is not None else {},
+                cpu_required=cpu,
+            )
+            return self.runtime.submit_campaign(dock_shards_campaign, params=campaign_params.model_dump(mode="python"),
+                                                executor_name=executor_name, priority=SHARDS_PRIORITY)
         return self.runtime.submit_job(
             dock_shards_job,
             params=params.model_dump(mode="python"),
             executor_name=executor_name,
             depends_on=depends_on,
             priority=SHARDS_PRIORITY,
-            cpu_required=program_spec.resource_requirements(resolved_engine_config)["cpu_required"],
+            cpu_required=cpu,
             # The gate lives in the parent, like the shard queue at import: it counts across
             # chunks and it writes molecules, neither of which a worker can do.
             result_handler_kwargs={

@@ -4,18 +4,22 @@ No SQL and no job declaration here: a worker loads this module and nothing of `j
 """
 from __future__ import annotations
 
+import json
 import tempfile
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
 from ms_flow.core.data.shard import Shard
+from ms_flow.engine import task
 
 from amdockvs.core.constants import SERIES_POSES
 from amdockvs.core.payloads import structure_payload
 from amdockvs.docking.engines.registry import run_docking_chunk
 from amdockvs.docking.preparation.shards import extract_ligands
-from amdockvs.docking.results.dataset import ResultFragmentWriter, local_pose_path, result_fragment_path, result_row
+from amdockvs.docking.results.dataset import (
+    ResultFragmentWriter, _pose, _selected_payloads, _summary_rows, local_pose_path, result_fragment_path, result_row,
+)
 
 # How the cap is spent: the best `cap` of everything scored per receptor, picked from the result
 # fragments when the run ends. Only an off-target stage, already narrowed to a ranking, streams
@@ -215,3 +219,88 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
     envelope["hits_found"] = hits_found
     envelope["result_shard"] = str(result_path)
     return envelope
+
+
+# --- The stages of a campaign, run on the cluster (see `amdockvs.docking.campaign`) ----------
+
+
+@task()
+def dock_stage(element: dict) -> dict:
+    """`dock_shards` as a stage's task: its envelopes, said which stage and which library they are of."""
+    envelopes = dock_shards(element)
+    for envelope, shard in zip(envelopes, element["shards"]):
+        envelope.update(library=str(shard.get("library") or "library"), import_batch_id=shard.get("import_batch_id"))
+    return {"stage": element["stage"], "envelopes": envelopes}
+
+
+def rank(results, *, cap: int, threshold: float) -> list[dict]:
+    """The best `cap` of each receptor below `threshold`, over every fragment the stage wrote
+    there: as references into them, which is what `hit_poses` and `off_target_elements` read."""
+    from amdockvs.screening.materialize import TopNGate
+
+    gates: dict[int, TopNGate] = {}
+    for result in results:
+        for envelope in result["envelopes"]:
+            path = str(envelope.get("result_shard") or "")
+            if not path:
+                continue
+            for row in _summary_rows(Path(path), {"status": "done", "score__lte": float(threshold)}):
+                if row.get("score") is None or not row.get("has_pose"):
+                    continue
+                gate = gates.setdefault(int(row["receptor_id"]), TopNGate(cap=int(cap), threshold=None))
+                gate.take([{**row, "_result_shard": path, "_shard_id": int(envelope["shard_id"]),
+                            "_library": envelope["library"], "_import_batch_id": envelope["import_batch_id"]}])
+                gate.discarded()  # what fell out is not kept
+    return [row for gate in gates.values() for row in gate.drain()]
+
+
+def by_fragment(refs: list[dict]) -> list[dict]:
+    """The elements of the stage that reads the poses of the ranked: one for each fragment."""
+    fragments: dict[str, list[dict]] = {}
+    for ref in refs:
+        fragments.setdefault(ref["_result_shard"], []).append(ref)
+    return [{"fragment": path, "refs": rows} for path, rows in fragments.items()]
+
+
+@task()
+def hit_poses(element: dict) -> dict:
+    """The ranked of one fragment as hits (the rows `ingest_hits` takes), each with its pose."""
+    refs = element["refs"]
+    payloads = _selected_payloads(Path(element["fragment"]), {(int(r["ligand_id"]), int(r["receptor_id"])) for r in refs})
+    hits = []
+    for ref in refs:
+        payload = payloads.get((int(ref["ligand_id"]), int(ref["receptor_id"])))
+        if payload is None:
+            raise ValueError(f"{element['fragment']}: ligand {ref['ligand_id']} is ranked but not in it")
+        pose_text, pose_suffix = _pose(payload)
+        ligand_id = int(payload["ligand_id"])
+        hits.append({
+            **json.loads(payload.get("metrics_json") or "{}"),
+            "name": f"{ref['_library']}:{ligand_id}",
+            "import_batch_id": ref["_import_batch_id"],
+            "source_index": ligand_id,
+            "smiles": str(payload.get("smiles") or ""),
+            "score": float(payload["score"]),
+            "score_type": str(payload.get("score_type") or ""),
+            "pose_rank": 1,
+            "receptor_molecule_id": int(payload["receptor_id"]),
+            "_pose_text": pose_text,
+            "_pose_suffix": pose_suffix,
+            "_result_shard": element["fragment"],
+            "_result_record_id": ligand_id,
+        })
+    return {"stage": "hits", "hits": hits}
+
+
+def off_target_elements(refs: list[dict], template: dict, targets: list[dict], shards: dict, reference: int,
+                        top: int):
+    """The best `top` of the `reference` receptor docked against each off-target: only their
+    records are taken out of their shards. `refs` are what `rank` made, the best first."""
+    picked: dict[int, set[int]] = {}
+    for ref in [ref for ref in refs if int(ref["receptor_id"]) == int(reference)][:int(top)]:
+        picked.setdefault(int(ref["_shard_id"]), set()).add(int(ref["ligand_id"]))
+    for shard_id, ids in sorted(picked.items()):
+        shard = {**shards[shard_id], "record_ids": sorted(ids), "n_records": len(ids)}
+        for target in targets:
+            yield {**template, **target, "stage": "off", "shards": [shard], "chunks_total": len(targets),
+                   "selected_from_receptor_id": int(reference)}

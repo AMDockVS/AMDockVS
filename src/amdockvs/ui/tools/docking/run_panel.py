@@ -960,12 +960,19 @@ class RunPanel:
                 )
                 continue
             reference_id = int(reference_id)
+            off_target_ids = [value for value in ready_receptor_ids if value != reference_id]
+            if self.runtime.is_queue(common["executor_name"]):  # the cluster runs both stages in one job
+                job_ids[key] = self.runtime.docking.run_shards(
+                    receptor_set=self._resolve_receptor_scope([reference_id]),
+                    off_target_set=self._resolve_receptor_scope(off_target_ids),
+                    **common,
+                )
+                continue
             reference_job = self.runtime.docking.run_shards(
                 receptor_set=self._resolve_receptor_scope([reference_id]),
                 **common,
             )
             job_ids[f"{key}:reference"] = reference_job
-            off_target_ids = [value for value in ready_receptor_ids if value != reference_id]
             job_ids[f"{key}:off-target"] = self.runtime.docking.run_shards(
                 receptor_set=self._resolve_receptor_scope(off_target_ids),
                 depends_on=[reference_job],

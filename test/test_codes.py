@@ -23,7 +23,7 @@ def test_every_written_value_has_a_code():
         vocab.ModelSource: "model_source", vocab.ReprType: "repr_type",
         vocab.BindingSiteSource: "binding_site_source", vocab.RunKind: "run_kind",
         vocab.ActivityKind: "activity_kind", vocab.ComplexPurpose: "complex_purpose",
-        vocab.TargetState: "run_state", vocab.DispatchState: "dispatch_state",
+        vocab.TargetState: "run_state",
         vocab.ClusteringMethod: "clustering_method", vocab.SetPurpose: "set_purpose",
     }
     for cls, domain in domains.items():

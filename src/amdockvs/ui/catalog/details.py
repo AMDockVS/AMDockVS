@@ -218,7 +218,6 @@ class CatalogDetailsView(QWidget):
                 "Import batch": getattr(shard, "import_batch_id", None),
                 "Path": str(path),
                 "Size": f"{path.stat().st_size:,} bytes" if path.is_file() else "missing",
-                "Dispatch": getattr(shard, "dispatch_id", None),
             },
         )
         error = str(getattr(shard, "error", "") or "")

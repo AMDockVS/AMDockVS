@@ -131,14 +131,6 @@ class ProjectMode:
     VS = "vs"          # ligands materialized as rows; the whole catalog UI applies
     HTPVS = "htpvs"    # ligands live in shards; only promoted hits ever become rows
 
-class DispatchState:
-    """What happened to a source file handed to a cluster. Lives as long as the campaign."""
-
-    UPLOADED = "uploaded"
-    RUNNING = "running"
-    RETURNED = "returned"
-    FAILED = "failed"
-
 class TargetState:
     """A receptor inside one campaign: scheduled before anything is docked against it."""
 
@@ -184,7 +176,6 @@ CODES: dict[str, dict[str, int]] = {
     "activity_kind": _domain(900, "continuous", "categorical"),
     "complex_purpose": _domain(1000, "redocking", "rescoring", "reference"),
     "run_state": _domain(1100, "scheduled", "running", "done", "canceled", "failed"),
-    "dispatch_state": _domain(1200, "uploaded", "running", "returned", "failed"),
     "clustering_method": _domain(1300, "bitbirch", "bitbirch_lean", "butina", "kmeans", "hierarchical", "dbscan"),
     "qsar_algorithm": _domain(
         1400, "baseline", "linear_regression", "ridge", "lasso", "random_forest", "gradient_boosting",
@@ -217,6 +208,5 @@ __all__ = [
     "SimilarityMethod",
     "ClusteringMethod",
     "ProjectMode",
-    "DispatchState",
     "TargetState",
 ]

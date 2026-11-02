@@ -55,7 +55,6 @@ TABLE_SCREENING_SHARDS = "screening_shards"
 TABLE_SHARD_GENERATIONS = "shard_generations"
 TABLE_SHARD_PREPS = "shard_preps"
 TABLE_SCREENING_SHARD_RUNS = "screening_shard_runs"
-TABLE_SCREENING_DISPATCHES = "screening_dispatches"
 TABLE_SCREENING_TARGETS = "screening_targets"
 
 # Deprecated aliases kept temporarily while non-model consumers are migrated.

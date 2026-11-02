@@ -1,13 +1,8 @@
 """What an `htpvs` project knows about a library it never materializes.
 
-Two tables, on purpose. A **shard** is inventory: thousands of rows, outlives the campaign,
-answers *what do I have*. A **dispatch** is one source file handed to a cluster: dozens of
-rows, dies with the campaign, answers *where did my work go*. Merging them would mean parent
-rows with null `n_records` — null columns in the inventory to save a widget.
-
-`screening_shards` starts empty and stays empty until something reports back: in an HPC
-campaign the raw source travels and the *cluster* splits it, so the shard count is not known
-when the work is dispatched. The dispatch row is what explains that emptiness.
+A **shard** is inventory: thousands of rows, outlives every campaign, answers *what do I have*.
+Where a campaign's work went is the campaign's business (an ms_flow job in the journal), not a
+table here: only prepared shards travel to a cluster, by the sha256 their `shard_preps` row keeps.
 """
 
 from __future__ import annotations
@@ -22,14 +17,13 @@ from amdockvs.models.codes import code_field
 from amdockvs.core.constants import (
     TABLE_DOCKING_RUNS,
     TABLE_IMPORT_BATCHES,
-    TABLE_SCREENING_DISPATCHES,
     TABLE_SCREENING_SHARD_RUNS,
     TABLE_SCREENING_SHARDS,
     TABLE_SCREENING_TARGETS,
     TABLE_SHARD_PREPS,
     TABLE_SHARD_GENERATIONS,
 )
-from amdockvs.core.vocab import DispatchState, TargetState
+from amdockvs.core.vocab import TargetState
 
 
 class ShardGeneration(SQLModel, table=True):
@@ -81,7 +75,6 @@ class ScreeningShard(SQLModel, table=True):
     path: str = Field(default="")  # the .mshard's payload kind says the format
     n_records: int = Field(default=0)
     error: str = Field(default="")
-    dispatch_id: int | None = Field(default=None, foreign_key=f"{TABLE_SCREENING_DISPATCHES}.id", index=True)
 
 
 class ShardPrep(SQLModel, table=True):
@@ -95,6 +88,7 @@ class ShardPrep(SQLModel, table=True):
     family: str = code_field("prep_family", "ad4", primary_key=True)
     n_records: int = Field(default=0)
     n_failed: int = Field(default=0)  # > 0 = partial
+    sha256: str = Field(default="")  # of the prepared file: a campaign sends it without reading it again
 
 
 class ScreeningShardRun(SQLModel, table=True):
@@ -124,20 +118,6 @@ class ScreeningShardRun(SQLModel, table=True):
     error: str = Field(default="")
 
 
-class ScreeningDispatch(SQLModel, table=True):
-    __tablename__ = TABLE_SCREENING_DISPATCHES
-
-    id: int | None = Field(default=None, primary_key=True)
-    path: str = Field(default="", index=True)
-    bytes: int = Field(default=0)
-    state: str = code_field("dispatch_state", DispatchState.UPLOADED, index=True)
-    # Filled from the cluster's feedback; the count is not knowable at dispatch time.
-    n_shards_returned: int = Field(default=0)
-    note: str = Field(default="")
-    submitted_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
-    updated_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
-
-
 class ScreeningTarget(SQLModel, table=True):
     """One receptor of one campaign: what was scheduled, and how much of it has been docked.
 
@@ -165,7 +145,6 @@ class ScreeningTarget(SQLModel, table=True):
 
 
 __all__ = [
-    "ScreeningDispatch",
     "ScreeningShard",
     "ScreeningShardRun",
     "ScreeningTarget",
