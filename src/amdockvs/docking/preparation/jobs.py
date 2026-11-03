@@ -256,7 +256,7 @@ class PrepareLigandShardsJobSpec(JobSpec):
     supported_executors = AMDOCKVS_OFFLOADABLE_EXECUTORS
     # The key columns are listed: the model default leaves primary keys out of an upsert.
     output_spec = table_sink(
-        model=ShardPrep, columns=("shard_id", "family", "n_records", "n_failed"),
+        model=ShardPrep, columns=("shard_id", "family", "n_records", "n_failed", "sha256"),
         write_mode="upsert", conflict_keys=("shard_id", "family"),
     )
     output_flush_every = DEFAULT_OUTPUT_FLUSH_EVERY

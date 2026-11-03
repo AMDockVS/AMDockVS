@@ -8,6 +8,8 @@ half-installed tool is a failure that costs more to clean up than the wait.
 
 from __future__ import annotations
 
+from contextlib import ExitStack
+
 from PySide6.QtCore import QObject, Signal
 from shiboken6 import isValid
 from PySide6.QtWidgets import (
@@ -22,11 +24,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ms_components.step_dialog import run_steps_dialog
+from ms_components.step_dialog import offer_unlock, run_steps_dialog
+from ms_env import prefix_lock
 
 from amdockvs.integrations.registry import (
     MANAGED_TOOLS,
     ToolStatus,
+    get_tool,
     install_steps,
     tool_statuses,
     uninstall_tool,
@@ -201,12 +205,27 @@ class ExternalToolsPage(QWidget):
             return
         steps = [step for tool_id in pending for step in install_steps(self.runtime, tool_id)]
         title = "Install external tools" if len(pending) > 1 else f"Install {self._rows[pending[0]].tool.label}"
-        run_steps_dialog(self, title, steps, blocking=True, on_success=self.refresh)
+        # The environments are this install's while it runs, as they are for a host Sync or a removal.
+        with ExitStack() as held:
+            try:
+                for tool_id in pending:
+                    if (recipe := get_tool(tool_id).recipe) is not None:
+                        held.enter_context(prefix_lock(recipe(self.runtime).prefix))
+            except Exception as exc:  # noqa: BLE001 - shown to the user, nothing installed yet
+                held.close()
+                forced = offer_unlock(self, exc)
+                if forced is None:
+                    QMessageBox.warning(self, "Install failed", str(exc))
+                    return
+                forced()  # ponytail: these prefixes are local, so the unlock is quick on the GUI thread
+                return self._run_install(tool_ids)
+            run_steps_dialog(self, title, steps, blocking=True, on_success=self.refresh)
         self.refresh()
 
-    def remove(self, tool_id: str) -> None:
+    def remove(self, tool_id: str, unlock=None) -> None:
+        """`unlock`: the lock left behind on its environment, which the user said to remove first."""
         row = self._rows[tool_id]
-        confirm = QMessageBox.question(
+        confirm = QMessageBox.StandardButton.Yes if unlock is not None else QMessageBox.question(
             self,
             f"Remove {row.tool.label}",
             f"Delete {row.tool.label} from disk? It can be installed again from this page.",
@@ -215,10 +234,18 @@ class ExternalToolsPage(QWidget):
         )
         if confirm != QMessageBox.StandardButton.Yes:
             return
+
+        def failed(exc) -> None:
+            forced = offer_unlock(self, exc)
+            if forced is not None:
+                self.remove(tool_id, forced)
+            else:
+                QMessageBox.warning(self, "Removal failed", str(exc))
+
         run_async(
-            lambda: uninstall_tool(self.runtime, tool_id),
+            lambda: (unlock and unlock(), uninstall_tool(self.runtime, tool_id))[1],
             lambda message: (row.status_label.setText(str(message)), self.refresh()),
-            on_error=lambda exc: QMessageBox.warning(self, "Removal failed", str(exc)),
+            on_error=failed,
             busy=row.status_label,
             compact=True,
         )

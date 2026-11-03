@@ -4,6 +4,7 @@ No SQL and no job declaration here: a worker loads this module and nothing of `j
 """
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -73,6 +74,14 @@ def prepare_entities(payload: dict, progress_cb=None):
     return {f"{entity_kind}_preps": preps, "molecule_failures": failures}
 
 
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
 def prepare_ligand_shards(payload: dict, progress_cb=None):
     engine = str(payload.get("engine") or "ad4")
     rows: list[dict[str, Any]] = []
@@ -85,7 +94,8 @@ def prepare_ligand_shards(payload: dict, progress_cb=None):
         stats = profile.prepare_shard(source, output_path, engine=engine)
         if output_path.is_file():  # the row exists = prepared
             rows.append(shard_prep_row(shard_id=int(shard["shard_id"]), family=engine,
-                                       n_records=int(stats["n_records"]), n_failed=int(stats["n_failed"])))
+                                       n_records=int(stats["n_records"]), n_failed=int(stats["n_failed"]),
+                                       sha256=_sha256(output_path)))
         if progress_cb is not None:
             progress_cb(((index + 1) / max(1, len(payload["shards"]))) * 100.0)
     return rows

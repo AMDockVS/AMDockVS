@@ -148,7 +148,7 @@ def test_the_run_panel_submits_a_campaign_instead_of_pairs():
 
     class _Panel(RunPanel):
         def __init__(self):
-            self.runtime = SimpleNamespace(
+            self.runtime = SimpleNamespace(is_queue=lambda _name: False,
                 molecules=SimpleNamespace(shard_counts=lambda: {
                     "shards": 12, "records": 12000, "prepared": 12, "prepared_records": 11969,
                 }),
@@ -195,7 +195,7 @@ def test_the_run_panel_chains_reference_then_off_target_jobs():
 
     class _Panel(RunPanel):
         def __init__(self):
-            self.runtime = SimpleNamespace(
+            self.runtime = SimpleNamespace(is_queue=lambda _name: False,
                 molecules=SimpleNamespace(
                     shard_counts=lambda: {
                         "shards": 4, "records": 4000, "prepared": 4, "prepared_records": 3990,
@@ -768,7 +768,7 @@ def test_both_stores_dock_the_table_then_the_shards():
 
     class _Panel(RunPanel):
         def __init__(self):
-            self.runtime = SimpleNamespace(
+            self.runtime = SimpleNamespace(is_queue=lambda _name: False,
                 molecules=SimpleNamespace(
                     shard_counts=lambda: {"shards": 2, "records": 20, "prepared": 2, "prepared_records": 20},
                     get=lambda receptor_id: SimpleNamespace(name=f"R{receptor_id}"),

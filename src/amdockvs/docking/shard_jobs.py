@@ -16,7 +16,6 @@ cannot afford to keep.
 
 from __future__ import annotations
 
-from collections import Counter
 from contextlib import suppress
 from pathlib import Path
 from typing import Any, Iterator
@@ -93,9 +92,18 @@ def _with_poses(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _count_imported(project_db, docking_run_id: int | None, rows: list[dict[str, Any]]) -> None:
-    """The materialized hits land in their receptors' `imported` counters."""
-    for receptor_id, count in Counter(int(row.get("receptor_molecule_id") or 0) for row in rows).items():
-        advance_target(project_db, docking_run_id=int(docking_run_id or 0), receptor_id=receptor_id, imported=count)
+    """The `imported` counters of the receptors of the materialized hits, counted again from the
+    results: hits that come twice (a campaign submitted again, a replay) are counted once."""
+    run = int(docking_run_id or 0)
+    receptor_ids = {int(row.get("receptor_molecule_id") or 0) for row in rows}
+    with project_db.get_session() as session:
+        for target in session.exec(select(ScreeningTarget).where(
+                ScreeningTarget.docking_run_id == run, ScreeningTarget.receptor_molecule_id.in_(receptor_ids))).all():
+            target.imported = int(session.exec(select(func.count()).select_from(DockingResultRecord).where(
+                DockingResultRecord.docking_run_id == run,
+                DockingResultRecord.receptor_molecule_id == target.receptor_molecule_id)).one())
+            session.add(target)
+        session.commit()
 
 
 def _project_path(project_root: str | Path, value: str) -> Path:
