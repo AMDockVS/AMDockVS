@@ -1,8 +1,8 @@
-"""Dock a sharded library on the vHPC SLURM lab as one campaign: VS, top-N, off-target.
+"""Dock a sharded library on the vHPC SLURM lab as one campaign: prep, VS, top-N, off-target.
 
 Run with MSDD_312 and PYTHONPATH holding this checkout and the ms_flow, ms_env, ms_components
-and ms_contactmap checkouts; the lab must be idle. The library is imported and prepared here,
-with the app's APIs; the docking is `run_shards` on a `queue` executor. The chemistry the lab
+and ms_contactmap checkouts; the lab must be idle. The library is imported here, and one of
+its shards prepared, with the app's APIs; the docking is `run_shards` on a `queue` executor. The chemistry the lab
 lacks goes into the campaign's directory by a job of its queue, never into /opt/venv.
 
     python examples/vhpc_campaign.py ~/PycharmProjects/vhpc --flow ../ms_flow --env ../ms_env \
@@ -60,7 +60,7 @@ def main() -> None:
     from sqlmodel import func, select
 
     from amdockvs import AMDockVSRuntime
-    from amdockvs.models import DockingResultRecord, ScreeningTarget
+    from amdockvs.models import DockingResultRecord, ScreeningShard, ScreeningTarget
 
     trees = {"amdock": REPO, "flow": args.flow, "env": args.env, "components": args.components,
              "contactmap": args.contactmap}
@@ -85,7 +85,10 @@ def main() -> None:
         rt.wait_for_jobs(rt.loader.shard_ligands([local / "lib.smi"], shard_size=3, executor_name=here), timeout_s=600)
         for step in ("standardize", "generate_3d"):
             _ok(rt.chemistry.run_shard_pipeline([step], executor_name=here, wait=True))
-        _ok(rt.wait_for_job(rt.docking.prepare_ligand_shards(executor_name=here)))
+        with rt.workspace.project_db.get_session() as session:
+            one = session.exec(select(func.max(ScreeningShard.id))).one()  # of the latest generation
+        # One shard prepared here; the others the campaign prepares there, and they stay there.
+        _ok(rt.wait_for_job(rt.docking.prepare_ligand_shards(shard_ids=[one], executor_name=here)))
         loaded = rt.loader.load_receptors([DATA / "1iep_receptorH.pdb", DATA / "1iep_receptor.pdbqt"], executor_name=here)
         assert all(row.status == "completed" for row in rt.wait_for_jobs(loaded, timeout_s=600).values())
         receptors = rt.molecules.select(role="receptor", excluded=False)

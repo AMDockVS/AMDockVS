@@ -2,6 +2,7 @@
 
 A sharded library (`dock_shards_campaign`):
 
+    prep  the shards not prepared here, prepared there and left there (only when there are some)
     vs    every prepared shard against the receptors, its fragments left there; ranked there
     hits  the poses of the best `hit_cap` of each receptor, read from those fragments
     off   with off-targets: the reference receptor's best against each of them
@@ -33,7 +34,7 @@ from ms_flow.runner import plain, unplain
 
 from amdockvs.core.jobs import configs
 from amdockvs.core.vocab import TargetState
-from amdockvs.core.worker_io import worker_file
+from amdockvs.core.worker_io import worker_file, worker_output_dir
 from amdockvs.docking.jobs import DockingJobParams, DockingJobSpec, _supersede
 from amdockvs.docking.repository import project_db_path, resolve_docking_output_dir
 from amdockvs.docking.results.repository import find_docking_run, supersede_results
@@ -41,9 +42,11 @@ from amdockvs.docking.shard_jobs import (
     SCREENING_SUBDIR, DockShardsJobParams, DockShardsJobSpec, ShardHitWriter, receptor_targets,
 )
 from amdockvs.docking.tasks import dock_rows
-from amdockvs.docking.shard_tasks import by_fragment, dock_stage, hit_poses, off_target_elements, rank
+from amdockvs.docking.shard_tasks import (
+    by_fragment, dock_stage, hit_poses, off_target_elements, prepare_stage, prepared_elements, rank,
+)
 from amdockvs.io.shards import SHARD_SUFFIX
-from amdockvs.molecules.storage import iter_prepared_shards
+from amdockvs.molecules.storage import iter_prepared_shards, prepared_shard_path
 from amdockvs.screening.campaign import finish_run, plan_targets, stop_run
 
 # What a chunk of `vs` says about one receptor, which an off-target says for itself.
@@ -110,6 +113,22 @@ def _there(chunk: dict, cpu: int) -> dict:
             **({"flex_receptor_path": worker_file(chunk["flex_receptor_path"])} if chunk.get("flex_receptor_path") else {})}
 
 
+def _unprepared(elements: list[dict], engine: str) -> list[dict]:
+    """The `prep` elements of a campaign: a shard not prepared here, once, and where `located`
+    finds it there; its chunks in `elements` are told so (an element of `vs` waits for them)."""
+    prep = {}
+    for element in elements:
+        for place, shard in enumerate(element["shards"]):
+            if shard["shard_path"]:
+                continue
+            twin = prepared_shard_path(shard["molecules"], engine)
+            where = {"prepared_in": worker_output_dir(twin.parent), "prepared_as": twin.name}
+            element["shards"][place] = {**{k: v for k, v in shard.items() if k != "molecules"}, **where}
+            prep.setdefault(shard["shard_id"], {"engine": engine, "shards": [{
+                "shard_id": shard["shard_id"], "shard_path": shard["molecules"], "output_dir": where["prepared_in"]}]})
+    return list(prep.values())
+
+
 @campaign(name="amdock_dock_shards_campaign", params_model=DockCampaignParams, output=_writer,
           volatile=("run_id",), finalize=_ended)
 def dock_shards_campaign(params: DockCampaignParams, project) -> list[Stage]:
@@ -117,16 +136,20 @@ def dock_shards_campaign(params: DockCampaignParams, project) -> list[Stage]:
     project_db = config["project_db"]
     # The whole scope every time: what is already there is found by the campaign, not left out here.
     values = {**params.model_dump(mode="python"), "skip_existing": False}
-    chunks = [chunk for chunk in DockShardsJobSpec.build_chunks(values, config) if chunk.get("shards")]
+    chunks = [chunk for chunk in DockShardsJobSpec.build_chunks(values, {**config, "unprepared": True})
+              if chunk.get("shards")]
     if not chunks:
-        raise RuntimeError("Nothing to dock: no prepared shard against a prepared receptor with a binding site.")
+        raise RuntimeError("Nothing to dock: no shard against a prepared receptor with a binding site.")
     run = chunks[0]["docking_run_id"]
     elements = [_there(chunk, params.cpu_required) for chunk in chunks]
     digests = {worker_file(row["prepared_path"]): row["sha256"]
                for row in iter_prepared_shards(project_db, engine=params.preparation_engine) if row["sha256"]}
-    stages = [Stage("vs", dock_stage, elements, reduce=partial(rank, cap=params.hit_cap, threshold=params.hit_threshold),
-                    digests=digests),
-              Stage("hits", hit_poses, From("vs", by_fragment))]
+    ranked = partial(rank, cap=params.hit_cap, threshold=params.hit_threshold)
+    prep = _unprepared(elements, params.preparation_engine)
+    stages = [Stage("prep", prepare_stage, prep, deliver="none"),
+              Stage("vs", dock_stage, From("prep", prepared_elements, (elements,)), reduce=ranked)] if prep else [
+              Stage("vs", dock_stage, elements, reduce=ranked, digests=digests)]
+    stages.append(Stage("hits", hit_poses, From("vs", by_fragment)))
     if not params.has_off_targets:
         return stages
     references = {int(element["receptor_id"]) for element in elements}

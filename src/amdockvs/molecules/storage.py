@@ -325,11 +325,12 @@ def prepared_shard_path(shard_path: str | Path, family: str) -> Path:
     return shard_path.parent / PREPARED_DIR.format(engine=family) / shard_path.name
 
 
-def iter_prepared_shards(project_db, *, engine: str) -> Iterator[dict[str, Any]]:
+def iter_prepared_shards(project_db, *, engine: str, unprepared: bool = False) -> Iterator[dict[str, Any]]:
     """Prepared artifacts for one family, joined to their shard inventory.
 
     The in-memory map contains only shard metadata, never library molecules. A shard counts as
-    prepared when it has a ``shard_preps`` row and its file is still there.
+    prepared when it has a ``shard_preps`` row and its file is still there. With `unprepared`,
+    the others come too, with an empty ``prepared_path`` and the count of the shard itself.
     """
     from sqlmodel import select
 
@@ -367,6 +368,10 @@ def iter_prepared_shards(project_db, *, engine: str) -> Iterator[dict[str, Any]]
                 "n_records": int(n_records),
                 "sha256": digests.get(int(shard.id or 0)) or "",  # "" = prepared before 2026-11
             }
+        elif unprepared:
+            yield {"id": int(shard.id or 0), "import_batch_id": shard.import_batch_id,
+                   "library": libraries.get(shard.import_batch_id, "library"), "shard_index": int(shard.shard_index),
+                   "path": shard.path, "prepared_path": "", "n_records": int(shard.n_records), "sha256": ""}
 
 
 def prepared_shard_record_count(project_db, *, engine: str) -> int:
