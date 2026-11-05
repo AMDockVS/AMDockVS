@@ -24,7 +24,7 @@ from amdockvs.core.user_env import is_remembered, remember_env_var, shell_profil
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.common.failures import show_failures
 from amdockvs.ui.common.job_follower import JobFollower
-from amdockvs.ui.common.widgets import LigandSources, RunDestinationCombo, gate_workflow_save
+from amdockvs.ui.common.widgets import LigandSources, add_run_on, gate_workflow_save
 from amdockvs.core.vocab import MoleculeType
 from ms_components.ms_table import FilterOperator, FilterSpec
 from ms_components.tool_panel import ToolPanel, format_count, hint_label
@@ -202,11 +202,9 @@ class MoleculeBuildWidget(QWidget):
 
         # One seed for every stochastic stage, so a whole build reproduces from a single number.
         self.ligand_random_seed = _spinbox(minimum=0, maximum=2**31 - 1, value=0xF00D)
-        self.ligand_destination = RunDestinationCombo(small, self.runtime)
         small.advanced.add_row("Random seed", self.ligand_random_seed)
         small.advanced.add_row("Batch size", self.batch_size_ligands)
-        small.advanced.add_row("Run on", self.ligand_destination)
-        small.advanced.form.setRowVisible(self.ligand_destination, self.ligand_destination.count() > 1)
+        self.ligand_destination = add_run_on(small.advanced, self.runtime)
 
         # Protonation -> 3D -> minimization -> conformers as one pass: each molecule is read and
         # written once, and a sharded library gets one new generation instead of a copy per step.
@@ -282,10 +280,8 @@ class MoleculeBuildWidget(QWidget):
         self.receptor_min_section.add_row("Max iterations", self.receptor_max_iterations)
         self.receptor_min_section.add_row("Tolerance (kJ/mol/nm)", self.receptor_tolerance)
 
-        self.receptor_destination = RunDestinationCombo(proteins, self.runtime)
         proteins.advanced.add_row("Batch size", self.batch_size_receptors)
-        proteins.advanced.add_row("Run on", self.receptor_destination)
-        proteins.advanced.form.setRowVisible(self.receptor_destination, self.receptor_destination.count() > 1)
+        self.receptor_destination = add_run_on(proteins.advanced, self.runtime)
 
         protein_bar = proteins.action_bar
         protein_bar.add_action(self._workflow_button(proteins, self._save_proteins))

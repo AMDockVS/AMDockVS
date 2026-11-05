@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.common.failures import show_failures
 from amdockvs.ui.common.job_follower import JobFollower
-from amdockvs.ui.common.widgets import LigandSources, RunDestinationCombo, gate_workflow_save, split_button
+from amdockvs.ui.common.widgets import LigandSources, add_run_on, gate_workflow_save, split_button
 from ms_components.tool_panel import ToolPanel
 from amdockvs.ui.catalog.common import BoundTableWidget
 from amdockvs.docking.api import MissingLigand3DError
@@ -216,9 +216,7 @@ class PreparationPanel:
         self.prepare_ligand_batch_size = _spinbox(minimum=1, maximum=2048, value=64)
         self.prepare_ligand_batch_label = QLabel("Batch size", advanced)
         advanced.add_row(self.prepare_ligand_batch_label, self.prepare_ligand_batch_size)
-        self.ligand_prep_destination = RunDestinationCombo(advanced, self.runtime)
-        advanced.add_row("Run on", self.ligand_prep_destination)
-        advanced.form.setRowVisible(self.ligand_prep_destination, self.ligand_prep_destination.count() > 1)
+        self.ligand_prep_destination = add_run_on(advanced, self.runtime)
 
         # The launch button acts on the whole step, not on the option page that happens to be
         # selected, so it lives on the action bar.
@@ -405,9 +403,7 @@ class PreparationPanel:
         advanced = panel.advanced
         self.prepare_receptor_batch_size = _spinbox(minimum=1, maximum=256, value=8)
         advanced.add_row("Batch size", self.prepare_receptor_batch_size)
-        self.receptor_prep_destination = RunDestinationCombo(advanced, self.runtime)
-        advanced.add_row("Run on", self.receptor_prep_destination)
-        advanced.form.setRowVisible(self.receptor_prep_destination, self.receptor_prep_destination.count() > 1)
+        self.receptor_prep_destination = add_run_on(advanced, self.runtime)
 
         # On the action bar — same reason as the Ligands step.
         self.receptor_bar = panel.action_bar

@@ -18,7 +18,7 @@ from amdockvs.docking.planning import protocol_job_key
 from amdockvs.docking.engines.programs import get_docking_program
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.common.job_follower import JobFollower
-from amdockvs.ui.common.widgets import RunDestinationCombo, gate_workflow_save, split_button
+from amdockvs.ui.common.widgets import add_run_on, gate_workflow_save, split_button
 from amdockvs.core.vocab import MoleculeType
 from ms_components.tool_panel import ToolPanel
 
@@ -109,10 +109,7 @@ class RunPanel:
         self.batch_size_label = QLabel("Batch size", advanced)
         advanced.add_row(self.batch_size_label, self.batch_size)
         self.batch_size.valueChanged.connect(lambda _value: self._show_tasks())
-        self.run_destination = RunDestinationCombo(advanced, self.runtime)
-        advanced.add_row("Run on", self.run_destination)
-        # Hide the label too, not just the combo: a lone "Run on" caption is worse than nothing.
-        advanced.form.setRowVisible(self.run_destination, self.run_destination.count() > 1)
+        self.run_destination = add_run_on(advanced, self.runtime)
         self.skip_existing_check = QCheckBox("Skip pairs already docked", run_box)
         self.skip_existing_check.setChecked(True)
         self.skip_existing_check.setToolTip(
