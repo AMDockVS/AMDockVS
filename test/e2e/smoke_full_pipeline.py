@@ -324,7 +324,7 @@ def htpvs_project(rt, tmp):
         store = ShardStore(rt.workspace.project_db)
         whole = shard_scope_spec()
         assert store.record_count(whole) == len(SMILES), store.record_count(whole)
-        return f"{store.count(whole)} shards / {store.record_count(whole)} records, mode={rt.mode}"
+        return f"{store.count(whole)} shards / {store.record_count(whole)} records, sharded={rt.has_shards()}"
 
     @stage("htpvs: chemistry over shards (generation switch)")
     def _shard_chem():

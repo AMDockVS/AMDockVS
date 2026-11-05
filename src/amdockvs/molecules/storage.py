@@ -17,7 +17,7 @@ it consumes — that is the type gate, and it is why nothing here dispatches on 
 **The invariant**: one screening library per project, in one store. Curated molecules
 (receptors, reference ligands, a QSAR training set) are always rows; the screening library is
 either rows or shards, never both. That is what keeps a scope from ever having to span the two,
-and `library_kind()` reads it off the data instead of off a flag chosen before there was any
+and `has_shards()` reads it off the data instead of off a flag chosen before there was any
 data. `io/api.py` is where it is enforced, at import.
 """
 
@@ -31,7 +31,7 @@ from ms_flow.query import QuerySpec, db_count, db_pages
 
 from amdockvs.core.constants import TABLE_MOLECULES, TABLE_SCREENING_SHARDS
 from amdockvs.screening.materialize import HitGate, PAYLOAD_LIGHT, ingest_hits
-from amdockvs.core.vocab import MoleculeType, MoleculeUsageClass, ProjectMode
+from amdockvs.core.vocab import MoleculeType, MoleculeUsageClass
 
 
 class LigandStore(Protocol):
@@ -305,16 +305,6 @@ def has_shards(project_db) -> bool:
     return db_count(project_db, shard_scope_spec()) > 0
 
 
-def library_kind(project_db) -> str:
-    """Where this project's screening library lives — derived from the data, never declared.
-
-    A project is not "an htpvs project" because someone ticked a box before importing
-    anything; it is one because it holds shards. The badge, and anything else that wants to
-    know, asks here.
-    """
-    return ProjectMode.HTPVS if has_shards(project_db) else ProjectMode.VS
-
-
 # Beside the input, in a folder named after the family: a campaign's stages read as a chain of folders.
 PREPARED_DIR = "prepared_{engine}"
 
@@ -447,7 +437,6 @@ __all__ = [
     "has_shards",
     "has_ligand_rows",
     "has_receptor_rows",
-    "library_kind",
     "PREPARED_DIR",
     "iter_prepared_shards",
     "prepared_shard_path",

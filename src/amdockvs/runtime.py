@@ -35,7 +35,7 @@ from amdockvs.core.jobs import STATUS as JOB_STATUS
 from amdockvs.core.jobs import configs as job_configs
 from amdockvs.core.paths import set_default_project_root
 from amdockvs.project.summaries import JobStatus, ProjectSummary
-from amdockvs.molecules.storage import DbStore, general_ligand_count, library_kind
+from amdockvs.molecules.storage import DbStore, general_ligand_count, has_shards
 
 if TYPE_CHECKING:
     from amdockvs.chemistry.api import ChemistryAPI
@@ -293,15 +293,11 @@ class AMDockVSRuntime(AppRuntime):
         self._require_active_project()
         return self._ligand_store
 
-    @property
-    def mode(self) -> str:
-        """Where the screening library lives, read off the data (`vs` = rows, `htpvs` = shards).
-
-        Not stored anywhere: a project becomes a campaign by holding shards, not by having been
-        declared one before it held anything.
-        """
+    def has_shards(self) -> bool:
+        """Does the screening library live in shards? Read off the data, never declared:
+        a project holds a sharded library by holding shards."""
         self._require_active_project()
-        return library_kind(self.workspace.project_db)
+        return has_shards(self.workspace.project_db)
 
     def general_ligand_count(self) -> int:
         """How many screening ligands are rows here — what the importer asks before offering

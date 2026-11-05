@@ -14,11 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from amdockvs.core.constants import TABLE_SCREENING_SHARDS
-from amdockvs.molecules.storage import (
-    library_kind,
-)
 from amdockvs.runtime import AMDockVSRuntime
-from amdockvs.core.vocab import ProjectMode
 
 
 @pytest.fixture
@@ -45,10 +41,9 @@ def _add_shard(runtime, tmp_path):
 
 
 def test_mode_follows_the_data(runtime, tmp_path):
-    project_db = runtime.workspace.project_db
-    assert library_kind(project_db) == ProjectMode.VS == runtime.mode
+    assert not runtime.has_shards()
     _add_shard(runtime, tmp_path)
-    assert library_kind(project_db) == ProjectMode.HTPVS == runtime.mode
+    assert runtime.has_shards()
 
 
 def test_mode_is_not_stored_anywhere(runtime, tmp_path):
@@ -57,7 +52,7 @@ def test_mode_is_not_stored_anywhere(runtime, tmp_path):
     _add_shard(runtime, tmp_path)
     runtime.close_project()
     runtime.open_project(summary_id)
-    assert runtime.mode == ProjectMode.HTPVS
+    assert runtime.has_shards()
 
 
 def test_shard_table_is_the_only_source_of_truth():
@@ -94,7 +89,7 @@ def test_the_import_dialog_routes_the_library_to_the_chosen_store(runtime, tmp_p
         },
     )()
     submit, _name = dialog.workflow_submit()
-    submit(SimpleNamespace(loader=loader, mode=ProjectMode.VS))
+    submit(SimpleNamespace(loader=loader))
     assert sorted(calls) == [("rows", MoleculeType.PROTEIN), ("shards", MoleculeType.SMALL_MOLECULE)]
     assert dialog._target_sharded  # and the dialog lands on Shards, not on an empty Ligands
 
@@ -142,7 +137,7 @@ def test_the_import_dialog_defaults_to_the_existing_library(runtime, tmp_path):
         "load_ligands": lambda self, paths, **kw: contexts.append(kw["primary_context"]) or ["j1"],
     })()
     submit, _name = dialog.workflow_submit()
-    submit(SimpleNamespace(loader=loader, mode=ProjectMode.HTPVS))
+    submit(SimpleNamespace(loader=loader))
     # Rows and shards coexist: rows in a sharded project are general unless marked As Reference.
     assert contexts == ["general"] and not dialog._target_sharded
 
@@ -185,7 +180,7 @@ def test_activities_only_come_with_the_reference_mark(runtime, tmp_path):
         "load_ligands": lambda self, paths, **kw: record("rows", kw),
     })()
     submit, _name = dialog.workflow_submit()
-    submit(SimpleNamespace(loader=loader, mode=ProjectMode.VS))
+    submit(SimpleNamespace(loader=loader))
     assert sorted(calls) == [("rows", "reference", True), ("shards", None, False)]
 
 

@@ -13,7 +13,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from amdockvs import AMDockVSRuntime
 from amdockvs.molecules.storage import ShardStore, shard_scope_spec
-from amdockvs.core.vocab import ProjectMode
 
 
 def _make_sdf(path: Path, count: int, prefix: str):
@@ -42,7 +41,7 @@ def test_htpvs_import_shards_and_the_pipeline_runs_over_them(tmp_path, monkeypat
     try:
         runtime.create_project(name="htp", folder=tmp_path / "project")
         store = ShardStore(runtime.workspace.project_db)
-        assert runtime.mode == ProjectMode.VS  # nothing imported yet
+        assert not runtime.has_shards()  # nothing imported yet
         runtime.amdock_configuration.set_global_value("shards.records_per_shard", 9)
         runtime.amdock_configuration.set_value("shards.records_per_shard", 8)
         assert runtime.amdock_configuration.get_source("shards.records_per_shard") == "project"
@@ -59,7 +58,7 @@ def test_htpvs_import_shards_and_the_pipeline_runs_over_them(tmp_path, monkeypat
         # The whole point of the mode: no ligand ever became a row.
         assert runtime.molecules.count(runtime.molecules.select(role="ligand")) == 0
         # ...and that, not a flag chosen at creation, is what makes this a campaign project.
-        assert runtime.mode == ProjectMode.HTPVS
+        assert runtime.has_shards()
 
         status = runtime.chemistry.run_shard_pipeline(
             ["standardize", "generate_3d", "minimize"], executor_name="thread", wait=True

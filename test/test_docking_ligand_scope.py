@@ -23,7 +23,7 @@ from amdockvs.ui.view_ids import LIGANDS_VIEW_ID, SHARDS_VIEW_ID
 
 class _Panel(ScopePanel):
     def __init__(self, mode, run_kind):
-        self.runtime = SimpleNamespace(mode=mode)
+        self.runtime = SimpleNamespace(has_shards=lambda: mode == "htpvs")
         self._kind = run_kind
 
     def _run_kind(self):
@@ -58,7 +58,7 @@ def test_a_sharded_project_can_dock_its_rows():
 
 
 def test_no_project_no_shards():
-    """`runtime.mode` blows up with no project open; the step must not."""
+    """`runtime.has_shards()` blows up with no project open; the step must not."""
     panel = _Panel(None, "docking")
-    panel.runtime = SimpleNamespace()  # no `.mode` at all
+    panel.runtime = SimpleNamespace()  # no `.has_shards` at all
     assert panel._library_is_sharded() is False
