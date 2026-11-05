@@ -237,7 +237,7 @@ def pack_rows(chunks: Iterable[dict], folder: Path, cpu: int) -> Path:
     Read by the campaign each time it is submitted, so it is the same campaign however many of
     its pairs came back since. Nothing registers the shards: they are not a library, and the
     project stays one of rows (`screening_shards` is what makes it one of shards).
-    ponytail: the files stay in the cache; removed with it (C6 cleanup).
+    Removed when the campaign ends (`drop_transport`).
     """
     folder.mkdir(parents=True, exist_ok=True)
     packer, elements = _Packer(folder), []
@@ -263,6 +263,25 @@ def transport_folder(project_db) -> Path:
     return project_db_path(project_db).parent / "cache" / "transport"
 
 
+def drop_transport(manifest: Path) -> None:
+    """A manifest and the transport shards no other manifest beside it names: what a campaign of
+    rows leaves once it ended. Shards are named by content, so two campaigns may share one.
+
+    ponytail: a campaign being packed while another ends has no manifest yet, so a shard both
+    would share can go from under it; its submit then fails on the missing file, never docks wrong.
+    """
+    def named(path: Path) -> set[str]:
+        try:
+            return set(json.loads(path.read_text(encoding="utf-8"))["digests"])
+        except (OSError, ValueError, KeyError):
+            return set()
+
+    others = set().union(*(named(path) for path in manifest.parent.glob("*.json") if path != manifest))
+    for shard in named(manifest) - others:
+        Path(shard).unlink(missing_ok=True)
+    manifest.unlink(missing_ok=True)
+
+
 class DockRowsCampaignParams(DockingJobParams):
     """`DockingJobParams`, and the manifest its chunks became when it was submitted (`pack_rows`)."""
 
@@ -277,6 +296,7 @@ def _rows_ended(params: DockRowsCampaignParams, project, snapshot) -> None:
               else TargetState.CANCELED if snapshot.status == "canceled" else TargetState.FAILED)
     _supersede(params.model_dump(mode="python"),
                {"project_db": configs[project]["project_db"], "terminal_status": status})
+    drop_transport(Path(params.elements))  # a resubmit packs again what is left to dock
 
 
 @campaign(name="amdock_dock_rows_campaign", params_model=DockRowsCampaignParams,
@@ -287,4 +307,4 @@ def dock_rows_campaign(params: DockRowsCampaignParams, project) -> list[Stage]:
 
 
 __all__ = ["CampaignWriter", "DockCampaignParams", "DockRowsCampaignParams", "dock_rows_campaign",
-           "dock_shards_campaign", "pack_rows", "transport_folder"]
+           "dock_shards_campaign", "drop_transport", "pack_rows", "transport_folder"]

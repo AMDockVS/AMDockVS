@@ -49,3 +49,21 @@ def test_rows_travel_in_shards_and_are_the_same_chunks_there(tmp_path, monkeypat
         tasks.dock_rows(element)
     assert [chunk["pairs"] for chunk in seen] == [chunk["pairs"] for chunk in chunks]
     assert [chunk["docking_run_id"] for chunk in seen] == [7, 7, 7]
+
+
+def test_an_ended_campaign_takes_its_transport_away_but_not_what_another_still_names(tmp_path, monkeypatch):
+    import amdockvs.docking.campaign as campaign
+
+    receptor = tmp_path / "r.pdbqt"
+    receptor.write_text("RECEPTOR")
+    monkeypatch.setattr(campaign, "TRANSPORT_RECORDS", 2)
+    folder = tmp_path / "transport"
+    first = campaign.pack_rows(_chunks(File(str(receptor)), Dir(str(tmp_path / "out"))), folder, cpu=1)
+    second = campaign.pack_rows(_chunks(File(str(receptor)), Dir(str(tmp_path / "out")))[:1], folder, cpu=1)
+    shared = set(json.loads(second.read_text())["digests"])
+    assert shared < set(json.loads(first.read_text())["digests"])  # ligands 1+2: the same file
+
+    campaign.drop_transport(first)
+    assert {str(path) for path in folder.glob("*.parquet")} == shared and second.exists()
+    campaign.drop_transport(second)
+    assert not list(folder.iterdir())

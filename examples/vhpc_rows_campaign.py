@@ -61,6 +61,7 @@ def main() -> None:
 
     from amdockvs import AMDockVSRuntime
     from amdockvs.models import DockingResultRecord
+    from amdockvs.docking.campaign import transport_folder
 
     trees = {"amdock": REPO, "flow": args.flow, "env": args.env, "components": args.components,
              "contactmap": args.contactmap}
@@ -115,6 +116,8 @@ def main() -> None:
                                  vina_backend="python", vina_cpu=1, seed=1, run_id=run_id,
                                  skip_existing=skip_existing, executor_name="lab")
             _ok(rt.wait_for_job(job, poll_s=1))
+            left = list(transport_folder(ws.project_db).glob("*"))
+            assert not left, left  # an ended campaign takes its transport shards away
             with ws.project_db.get_session() as session:
                 done = dict(session.exec(select(DockingResultRecord.receptor_molecule_id,
                                                 func.count(func.distinct(DockingResultRecord.ligand_molecule_id)))

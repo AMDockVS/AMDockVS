@@ -77,7 +77,7 @@ from amdockvs.docking.shard_jobs import (
 )
 from amdockvs.molecules.storage import has_shards
 from amdockvs.docking.campaign import (
-    DockCampaignParams, dock_rows_campaign, dock_shards_campaign, pack_rows, transport_folder,
+    DockCampaignParams, dock_rows_campaign, dock_shards_campaign, drop_transport, pack_rows, transport_folder,
 )
 from amdockvs.screening.materialize import PAYLOAD_LIGHT
 from amdockvs.docking.results.tables import receptor_progress
@@ -1302,6 +1302,7 @@ class DockingAPI:
         values = params.model_dump(mode="python")
         manifest = pack_rows(DockingJobSpec.build_chunks(values, config), transport_folder(project_db), cpu)
         if not json.loads(manifest.read_text(encoding="utf-8"))["elements"]:
+            drop_transport(manifest)
             raise RuntimeError("Nothing to dock: every pair in scope already has a result.")
         return self.runtime.submit_campaign(dock_rows_campaign, params={**values, "elements": str(manifest)},
                                             executor_name=executor_name)
