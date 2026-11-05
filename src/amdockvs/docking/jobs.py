@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from typing import Any, Iterator, Mapping
+from typing import Any, Callable, Iterator, Mapping
 
 from pydantic import BaseModel, Field
 
@@ -301,6 +301,7 @@ def iter_docking_batches(
     selected_from_receptor_id: int | None = None,
     selected_top_n: int | None = None,
     selected_max_score: float | None = None,
+    keep: Callable[[Mapping[str, Any]], bool] | None = None,
 ) -> Iterator[dict]:
     prep_engine = str(preparation_engine or get_docking_program(engine).preparation_engine)
     normalized_ligand_filters = dict(ligand_filters or {})
@@ -418,6 +419,7 @@ def iter_docking_batches(
         engine=engine,
         preparation_engine=prep_engine,
         requires_binding_site=requires_binding_site,
+        keep=keep,
     )
 
 
@@ -609,8 +611,17 @@ def iter_redocking_batches(
 
 
 class DockingPairsInput(InputSource):
+    """The pairs to dock, already batched by the feed: `iter_chunks` is the source and `iter_items`
+    its pairs. `.filter()` predicates see one pair each.
+
+    ponytail: the job's declared total comes from `count_pending_docking_pairs`, which knows no
+    predicate, and an over-declared streaming job never completes. A job that filters here must
+    declare no total (or count the kept pairs); no job filters yet.
+    """
+
     def iter_items(self, params: dict[str, Any], config: dict[str, Any]) -> Iterator[dict[str, Any]]:
-        raise NotImplementedError("DockingPairsInput uses iter_chunks() directly.")
+        for chunk in self.iter_chunks(params, config):
+            yield from chunk["pairs"]
 
     def iter_chunks(
         self,
@@ -668,6 +679,7 @@ class DockingPairsInput(InputSource):
             selected_from_receptor_id=params_map.get("selected_from_receptor_id"),
             selected_top_n=params_map.get("selected_top_n"),
             selected_max_score=params_map.get("selected_max_score"),
+            keep=(lambda pair: all(test(pair) for test in self.predicates)) if self.predicates else None,
         )
 
 

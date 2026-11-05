@@ -216,3 +216,20 @@ def test_the_off_target_stage_docks_only_the_reference_top_n(tmp_path):
     # By threshold: every ligand at or below the cutoff, the N is only the ceiling.
     assert funnel(selected_max_score=-30.0) == {(2, 30), (2, 31), (2, 32)}
     store.dispose()
+
+
+def test_filter_on_the_pairs_input_drops_pairs_and_keeps_batches_full(tmp_path):
+    """`.filter()` is the InputSource contract: the pairs input used to ignore it in silence."""
+    from amdockvs.docking.jobs import DockingPairsInput
+
+    store = _project(tmp_path)
+    params = {"output_dir": str(tmp_path / "out"), "batch_size": 8, "engine": ENGINE, "preparation_engine": "ad4",
+              "skip_existing": False,
+              "box_center": [0.0, 0.0, 0.0], "box_size": [12.0, 12.0, 12.0]}
+    even = DockingPairsInput(batch_size=8, item_key="pairs").filter(lambda pair: int(pair["ligand_id"]) % 2 == 0)
+    chunks = list(even.iter_chunks(params, {"project_db": store}))
+    pairs = [pair for chunk in chunks for pair in chunk["pairs"]]
+    assert pairs and all(int(pair["ligand_id"]) % 2 == 0 for pair in pairs)
+    assert len(pairs) == N_RECEPTORS * N_LIGANDS // 2
+    assert [len(chunk["pairs"]) for chunk in chunks[:-1]] == [8] * (len(chunks) - 1)
+    assert list(even.iter_items(params, {"project_db": store})) == pairs
