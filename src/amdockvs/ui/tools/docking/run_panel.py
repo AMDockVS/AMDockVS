@@ -37,6 +37,22 @@ from amdockvs.docking.planning import (
 )
 from amdockvs.ui.view_ids import COMPLEXES_VIEW_ID
 
+#: Result rows past which Preview & Run asks before launching: a large campaign keeps one pose.
+LARGE_RUN_ROWS = 1_000_000
+
+
+def stored_rows(pairs_by_program, protocols) -> int:
+    """Result rows a table run would leave: its pairs to run times the poses each protocol keeps."""
+    to_run = {str(program): int(count) for program, count in pairs_by_program}
+    return sum(to_run.get(str(protocol.get("program")), 0) * int((protocol.get("config") or {}).get("num_modes") or 9)
+               for protocol in protocols)
+
+
+def one_pose(protocols) -> list[dict]:
+    """The same protocols keeping their best pose only: not another protocol (`num_modes` is not
+    part of its identity), so a later re-dock for more poses replaces these rows."""
+    return [{**protocol, "config": {**dict(protocol.get("config") or {}), "num_modes": 1}} for protocol in protocols]
+
 
 class RunPanel:
     """Readiness summary, validation and docking launch component."""
@@ -666,6 +682,8 @@ class RunPanel:
             self.run_button.setText("Queued - waits for preparation")
             self.run_button.setEnabled(False)
             return
+        if not self._large_run_confirmed(inp, params):
+            return
         signature = self._docking_signature(inp, params)
         self.run_button.setEnabled(False)
         # No busy overlay here: the disabled Run button already says "working", and dimming the
@@ -675,6 +693,33 @@ class RunPanel:
             lambda conflict: self._after_conflict_check(conflict, inp, params, signature),
             on_error=lambda exc: self._on_docking_error(exc, inp=inp, params=params, signature=signature),
         )
+
+    def _large_run_confirmed(self, inp: dict, params: dict) -> bool:
+        """Warn, never block: a table run past `LARGE_RUN_ROWS` result rows is offered its best pose
+        only; a shard run whose hit cap promotes that many hits asks before it goes."""
+        if params["run_kind"] != "docking":
+            return True
+        if inp.get("sharded"):
+            hits = int(params["hit_cap"]) * max(1, len(self._ready_receptor_options))
+            return hits <= LARGE_RUN_ROWS or QMessageBox.question(
+                self, "Run Docking",
+                f"Up to {hits:,} hits would be kept as rows (hit cap x receptors). A screening library "
+                "usually keeps its best few: lower the cap to keep fewer.\n\nLaunch anyway?",
+            ) == QMessageBox.StandardButton.Yes
+        rows = stored_rows(self._pairs_by_program, params["protocols"])
+        if rows <= LARGE_RUN_ROWS or all(int((p.get("config") or {}).get("num_modes") or 9) == 1
+                                         for p in params["protocols"]):
+            return True
+        box = QMessageBox(QMessageBox.Icon.Question, "Run Docking",
+                          f"This run would store {rows:,} poses. A large campaign needs one pose per "
+                          "docking; more poses of the hits are a re-dock of the same protocol later.", parent=self)
+        best = box.addButton("Keep 1 pose", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("Keep all poses", QMessageBox.ButtonRole.YesRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.exec()
+        if box.clickedButton() is best:
+            params["protocols"] = one_pose(params["protocols"])
+        return box.buttonRole(box.clickedButton()) != QMessageBox.ButtonRole.RejectRole
 
     def _preparing(self) -> list:
         """The Ligands/Receptors bars still following a preparation launched here."""
