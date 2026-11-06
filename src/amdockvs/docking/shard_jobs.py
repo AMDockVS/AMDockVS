@@ -472,8 +472,10 @@ def _shard_docking_scope(
     project_db,
     parsed: DockShardsJobParams,
     output_dir: Path,
+    unprepared: bool = False,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], set[tuple[int, int]]]:
-    """Resolve the immutable shard/receptor pairs shared by counting and dispatch."""
+    """Resolve the immutable shard/receptor pairs shared by counting and dispatch. With
+    `unprepared` (a campaign that prepares them there), a shard not prepared here is in it too."""
     targets = receptor_targets(project_db, parsed, output_dir)
     if parsed.selected_from_receptor_id:
         targets = [
@@ -482,9 +484,9 @@ def _shard_docking_scope(
         ]
     shards = [
         row
-        for row in iter_prepared_shards(project_db, engine=parsed.preparation_engine)
+        for row in iter_prepared_shards(project_db, engine=parsed.preparation_engine, unprepared=unprepared)
         if int(row.get("n_records") or 0) > 0
-        and Path(str(row.get("prepared_path") or "")).is_file()
+        and (not row["prepared_path"] or Path(row["prepared_path"]).is_file())
     ]
     if parsed.selected_from_receptor_id:
         db_path = getattr(project_db, "db_path", None)
@@ -579,7 +581,9 @@ class DockShardsJobSpec(JobSpec):
         if project_db is None:
             raise ValueError("dock_shards_job requires project_db in config.")
         output_dir = resolve_docking_output_dir(params, config_map) / SCREENING_SUBDIR
-        targets, prepared_rows, completed = _shard_docking_scope(project_db, parsed, output_dir)
+        # `unprepared`: what the campaign prepares there (`amdockvs.docking.campaign`), never a job here.
+        targets, prepared_rows, completed = _shard_docking_scope(project_db, parsed, output_dir,
+                                                                 bool(config_map.get("unprepared")))
         prepared_records = sum(int(row.get("n_records") or 0) for row in prepared_rows)
         # Chunk construction is deferred by MF while preparation is active. Resolve and plan
         # here, not in the public API, so totals describe the completed preparation snapshot.
@@ -599,7 +603,8 @@ class DockShardsJobSpec(JobSpec):
         for row in prepared_rows:
             shard = {
                 "shard_id": int(row.get("id") or 0),
-                "shard_path": worker_file(Path(str(row.get("prepared_path") or ""))),
+                "shard_path": worker_file(row["prepared_path"]) if row["prepared_path"] else "",
+                **({} if row["prepared_path"] else {"molecules": worker_file(row["path"])}),
                 "import_batch_id": row.get("import_batch_id"),
                 "library": str(row.get("library") or ""),
                 "shard_index": int(row.get("shard_index") or 0),

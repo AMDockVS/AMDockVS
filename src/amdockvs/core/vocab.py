@@ -120,17 +120,6 @@ class ClusteringMethod:
     HIERARCHICAL = "hierarchical"
     DBSCAN = "dbscan"
 
-class ProjectMode:
-    """Where a project's ligands live. Fixed when the project is created.
-
-    This is a storage contract, not a preference: it decides whether ligands are rows in
-    the project db or records inside shards on disk. Changing it would mean migrating (or
-    discarding) the whole library, so there is no setter.
-    """
-
-    VS = "vs"          # ligands materialized as rows; the whole catalog UI applies
-    HTPVS = "htpvs"    # ligands live in shards; only promoted hits ever become rows
-
 class TargetState:
     """A receptor inside one campaign: scheduled before anything is docked against it."""
 
@@ -207,6 +196,5 @@ __all__ = [
     "FingerprintType",
     "SimilarityMethod",
     "ClusteringMethod",
-    "ProjectMode",
     "TargetState",
 ]

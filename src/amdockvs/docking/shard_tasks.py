@@ -5,6 +5,7 @@ No SQL and no job declaration here: a worker loads this module and nothing of `j
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 from contextlib import suppress
 from pathlib import Path
@@ -225,6 +226,33 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
 
 
 @task()
+def prepare_stage(element: dict) -> dict:
+    """A shard of a library prepared there, by a campaign that found it unprepared here: left
+    where `located` finds it, and not sent back (what is docked is what comes)."""
+    from amdockvs.docking.preparation.tasks import prepare_ligand_shards
+
+    if not prepare_ligand_shards(element):
+        raise RuntimeError(f"shard {element['shards'][0]['shard_id']}: nothing of it could be prepared")
+    return {"shard_id": element["shards"][0]["shard_id"]}
+
+
+def located(shard: dict) -> dict:
+    """A shard as `dock_shards` reads it: one the campaign prepared there is where it left it."""
+    if shard.get("shard_path") or not shard.get("prepared_in"):
+        return shard
+    return {**shard, "shard_path": os.path.join(shard["prepared_in"], shard["prepared_as"])}
+
+
+def prepared_elements(_prepared, elements: list[dict]):
+    """The elements of `vs` after `prep`: those whose shards are all there. A shard that could not
+    be prepared failed its own element of `prep`; its chunks are not docked."""
+    for element in elements:
+        shards = [located(shard) for shard in element["shards"]]
+        if all(os.path.isfile(shard["shard_path"]) for shard in shards):
+            yield {**element, "shards": shards}
+
+
+@task()
 def dock_stage(element: dict) -> dict:
     """`dock_shards` as a stage's task: its envelopes, said which stage and which library they are of."""
     envelopes = dock_shards(element)
@@ -300,7 +328,7 @@ def off_target_elements(refs: list[dict], template: dict, targets: list[dict], s
     for ref in [ref for ref in refs if int(ref["receptor_id"]) == int(reference)][:int(top)]:
         picked.setdefault(int(ref["_shard_id"]), set()).add(int(ref["ligand_id"]))
     for shard_id, ids in sorted(picked.items()):
-        shard = {**shards[shard_id], "record_ids": sorted(ids), "n_records": len(ids)}
+        shard = {**located(shards[shard_id]), "record_ids": sorted(ids), "n_records": len(ids)}
         for target in targets:
             yield {**template, **target, "stage": "off", "shards": [shard], "chunks_total": len(targets),
                    "selected_from_receptor_id": int(reference)}

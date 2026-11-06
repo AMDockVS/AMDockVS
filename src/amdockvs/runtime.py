@@ -35,7 +35,7 @@ from amdockvs.core.jobs import STATUS as JOB_STATUS
 from amdockvs.core.jobs import configs as job_configs
 from amdockvs.core.paths import set_default_project_root
 from amdockvs.project.summaries import JobStatus, ProjectSummary
-from amdockvs.molecules.storage import DbStore, general_ligand_count, library_kind
+from amdockvs.molecules.storage import DbStore, general_ligand_count, has_shards
 
 if TYPE_CHECKING:
     from amdockvs.chemistry.api import ChemistryAPI
@@ -94,6 +94,9 @@ class AMDockVSRuntime(AppRuntime):
         )
         # A host kept with no environment named is given the one of this app.
         self.workspace.host_env = self._host_env
+        # What the jobs sent to each cluster's queue ask of it instead of what its executor asks
+        # (CPUs, time...), for this session: set by the "Queue resources" of any tool.
+        self.queue_asks: dict[str, dict] = {}
         amdock_configuration = create_amdock_configuration()
         self._migrate_legacy_app_settings(amdock_configuration)
         self._configuration_sources = [
@@ -290,15 +293,11 @@ class AMDockVSRuntime(AppRuntime):
         self._require_active_project()
         return self._ligand_store
 
-    @property
-    def mode(self) -> str:
-        """Where the screening library lives, read off the data (`vs` = rows, `htpvs` = shards).
-
-        Not stored anywhere: a project becomes a campaign by holding shards, not by having been
-        declared one before it held anything.
-        """
+    def has_shards(self) -> bool:
+        """Does the screening library live in shards? Read off the data, never declared:
+        a project holds a sharded library by holding shards."""
         self._require_active_project()
-        return library_kind(self.workspace.project_db)
+        return has_shards(self.workspace.project_db)
 
     def general_ligand_count(self) -> int:
         """How many screening ligands are rows here — what the importer asks before offering
@@ -490,11 +489,13 @@ class AMDockVSRuntime(AppRuntime):
         total = total_chunks if total_chunks is not None else job.count_chunks(job_params, config=job_config)
         job_id = uuid4().hex
         engine_ids = self._engine_ids()
+        executor = self._run_on(job, executor_name)
         engine_ids[job_id] = workspace.submit(
             engine_job,
             job_params,
             key=job_id,
-            executor=self._run_on(job, executor_name),
+            executor=executor,
+            **self._asks(executor),
             # A job that ended in an earlier session has nothing left to wait for.
             after=[engine_ids[dep] for dep in depends_on if dep in engine_ids],
             total=total,
@@ -528,7 +529,8 @@ class AMDockVSRuntime(AppRuntime):
         """
         self._require_active_project()
         self._job_config()  # what its source and writer read of the project
-        engine_id = self.workspace.submit(job, params, executor=executor_name, priority=priority)
+        engine_id = self.workspace.submit(job, params, executor=executor_name, priority=priority,
+                                          **self._asks(executor_name))
         job_id = str(self.workspace.engine.status(engine_id).key)
         self._engine_ids()[job_id] = engine_id
         hook = getattr(self, "on_job_submitted", None)
@@ -685,6 +687,10 @@ class AMDockVSRuntime(AppRuntime):
         if job is not None and "hpc" not in job.supported_executors:
             rows = [row for row in rows if row["hosts"] == ["local"]]
         return [(row["name"], row["name"]) for row in sorted(rows, key=lambda row: not row["default"])]
+
+    def _asks(self, executor_name: str) -> dict:
+        asks = self.queue_asks.get(executor_name) if self.is_queue(executor_name) else None
+        return {"resources": dict(asks)} if asks else {}
 
     def _run_on(self, job, asked: Optional[str]) -> str:
         """The executor `job` goes to: the one asked for by name, else the first of

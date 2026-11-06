@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from amdockvs.docking.engines.programs import VINA_PROGRAM
-from amdockvs.core.vocab import ProjectMode
 from amdockvs.ui.view_ids import LIGANDS_VIEW_ID, SHARDS_VIEW_ID
 
 class ScopePanel:
@@ -21,7 +20,7 @@ class ScopePanel:
         would point the step at the wrong table exactly then.
         """
         try:
-            return str(self.runtime.mode) == ProjectMode.HTPVS
+            return bool(self.runtime.has_shards())
         except Exception:  # noqa: BLE001 - no project open yet; the step shows nothing anyway
             return False
 

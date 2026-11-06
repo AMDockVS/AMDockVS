@@ -102,7 +102,10 @@ def iter_docking_batches_from_rows(
     engine: str = "vina",
     preparation_engine: str | None = None,
     requires_binding_site: bool = True,
+    keep: Callable[[Mapping[str, object]], bool] | None = None,
 ) -> Iterator[dict[str, object]]:
+    """Batches of receptor-ligand pairs. `keep` drops pairs before they join a batch: what a
+    query cannot answer (`InputSource.filter`), so a batch stays full."""
     # Prepared inputs/grids are stored under the preparation engine (e.g. AutoDock-GPU
     # reuses Vina pdbqt prep); the chunk's `engine` tag selects the docking runner.
     prep_engine = str(preparation_engine or get_docking_program(engine).preparation_engine)
@@ -172,7 +175,8 @@ def iter_docking_batches_from_rows(
                         method, pair["receptor_path"], effective_center, effective_size
                     ):
                         break  # the receptor does not fit the method: none of its pairs run
-                    batch.append(pair)
+                    if keep is None or keep(pair):
+                        batch.append(pair)
                 except Exception as exc:
                     batch.append(
                         build_failed_docking_pair(

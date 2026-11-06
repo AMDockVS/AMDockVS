@@ -42,9 +42,11 @@ class DockingProtocolMetadata(BaseModel):
         return self.model_dump(mode="python", by_alias=True)
 
 
-#: Search and output settings distinguish results; CPU/backend settings remain execution details.
+#: Search settings distinguish results; CPU/backend settings remain execution details, and so does
+#: `num_modes`: it only says how many poses of the same search are kept (one is enough for a large
+#: campaign; more are a re-dock of the same protocol that replaces its rows).
 IDENTITY_KEYS = ("scoring_function", "exhaustiveness")
-RESULT_KEYS = ("num_modes", "seed", "energy_range", "min_rmsd", "spacing")
+RESULT_KEYS = ("seed", "energy_range", "min_rmsd", "spacing")
 
 
 def protocol_identity(config: Mapping[str, Any] | None, *, program: str = "") -> dict[str, Any]:

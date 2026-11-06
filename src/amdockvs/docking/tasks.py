@@ -9,6 +9,7 @@ from __future__ import annotations
 from contextlib import ExitStack, suppress
 from pathlib import Path
 
+from ms_flow.core.data.shard import Shard
 from ms_flow.engine import chain, report, task
 from ms_flow.payloads import PayloadGroup, PayloadPart, scratch_file
 
@@ -112,3 +113,18 @@ def interaction_results(payload: dict, previous: dict):
 
 
 dock_with_interactions = chain(docking_results, interaction_results)
+
+
+@task()
+def dock_rows(element: dict) -> dict:
+    """A chunk of `docking_job` on a cluster's queue (`amdockvs.docking.campaign.dock_rows_campaign`):
+    what its pairs share said once (`common`), and their ligands read from the transport shard
+    they travelled in (`ligands`: one or more, as a chunk may begin in one and end in another)."""
+    ligands = {}
+    for path in element["ligands"]:
+        with Shard.open(path) as shard:
+            ligands.update((record.id, bytes(record.view())) for record in shard)
+    pairs = [{**element["common"], **pair} for pair in element["pairs"]]
+    chunk = {key: value for key, value in element.items() if key not in ("ligands", "common")}
+    return dock_with_interactions({**chunk, "pairs": [
+        pair if "invalid_reason" in pair else {**pair, "ligand": ligands[pair["ligand_id"]]} for pair in pairs]})

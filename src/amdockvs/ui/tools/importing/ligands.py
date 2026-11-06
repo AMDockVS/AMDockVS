@@ -29,7 +29,6 @@ from amdockvs.io.downloads import discard_temporary
 from amdockvs.io.jobs import SHARD_SUGGEST_RECORDS
 from amdockvs.io.parsers.readers import count_import_records
 from amdockvs.models.molecules import MoleculeType
-from amdockvs.core.vocab import ProjectMode
 from amdockvs.ui.common.drop_area import (
     USER_INPUT_SOURCE,
     TablePlaceholder,
@@ -408,7 +407,7 @@ class LigandImportDialog(QDialog):
     def _lock_shard_choice_to_project(self) -> None:
         """A project that already has a screening library cannot get a second one."""
         try:
-            sharded = self.runtime.mode == ProjectMode.HTPVS
+            sharded = self.runtime.has_shards()
             rows = self.runtime.general_ligand_count()
         except Exception:  # noqa: BLE001 — no active project yet (workflow step config)
             return

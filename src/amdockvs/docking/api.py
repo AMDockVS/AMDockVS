@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 from dataclasses import dataclass
 from itertools import islice
 from pathlib import Path
@@ -54,6 +55,7 @@ from amdockvs.docking.jobs import (
     count_pending_docking_pairs,
     count_pending_redocking_pairs,
     DockingJobParams,
+    DockingJobSpec,
     RedockingJobParams,
     docking_job,
     redocking_job,
@@ -74,7 +76,9 @@ from amdockvs.docking.shard_jobs import (
     select_hits as select_shard_hits,
 )
 from amdockvs.molecules.storage import has_shards
-from amdockvs.docking.campaign import DockCampaignParams, dock_shards_campaign
+from amdockvs.docking.campaign import (
+    DockCampaignParams, dock_rows_campaign, dock_shards_campaign, drop_transport, pack_rows, transport_folder,
+)
 from amdockvs.screening.materialize import PAYLOAD_LIGHT
 from amdockvs.docking.results.tables import receptor_progress
 from amdockvs.docking.preparation.jobs import (
@@ -1254,6 +1258,10 @@ class DockingAPI:
             selected_top_n=selected_top_n,
             selected_max_score=selected_max_score,
         )
+        cpu = program_spec.resource_requirements(resolved_engine_config)["cpu_required"]
+        if self.runtime.is_queue(executor_name):
+            return self._run_rows_on_queue(params, executor_name=executor_name, cpu=cpu, depends_on=depends_on,
+                                           reset_results=reset_results, program_spec=program_spec)
         if reset_results:
             clear_previous_docking(self.runtime.workspace.project_db, program=program_spec)
         job_id = self.runtime.submit_job(
@@ -1264,11 +1272,40 @@ class DockingAPI:
             # Each docking chunk runs one engine process that uses `vina_cpu` threads
             # internally, so reserve that many CPU tokens from the pool to avoid
             # oversubscription (pool limits concurrency to floor(cpus / vina_cpu)).
-            cpu_required=program_spec.resource_requirements(resolved_engine_config)["cpu_required"],
+            cpu_required=cpu,
             # Declare the real chunk total so progress = processed/total (not processed/emitted).
             total_chunks=total_chunks,
         )
         return job_id
+
+    def _run_rows_on_queue(self, params: DockingJobParams, *, executor_name: str, cpu: int, depends_on,
+                           reset_results: bool, program_spec) -> str:
+        """`run` over rows on a cluster's queue: the chunks of `docking_job`, made now, as one job of
+        the queue (`dock_rows_campaign`). Made now, so it waits for no job: what it docks is what is
+        prepared when it is submitted."""
+        if params.selected_from_receptor_id is not None:
+            raise ValueError("An off-target stage over ligand rows does not run on a cluster's queue yet: "
+                             "dock the reference there, then the off-targets here or as a run of their own.")
+        if params.interactions:
+            raise ValueError("Interactions are not computed on a cluster's queue: compute them once the "
+                             "results are back.")
+        if params.hit_cap:
+            raise ValueError("A hit cap over ligand rows stops a run here; on a cluster's queue every pair "
+                             "is docked: leave it out.")
+        if self.runtime.resolve_job_dependencies(docking_job, depends_on):
+            raise ValueError("A run on a cluster's queue docks what is prepared when it is submitted: "
+                             "wait for the preparation (or the job it depends on) to finish.")
+        project_db = self.runtime.workspace.project_db
+        config = self.runtime._job_config()
+        if reset_results:
+            clear_previous_docking(project_db, program=program_spec)
+        values = params.model_dump(mode="python")
+        manifest = pack_rows(DockingJobSpec.build_chunks(values, config), transport_folder(project_db), cpu)
+        if not json.loads(manifest.read_text(encoding="utf-8"))["elements"]:
+            drop_transport(manifest)
+            raise RuntimeError("Nothing to dock: every pair in scope already has a result.")
+        return self.runtime.submit_campaign(dock_rows_campaign, params={**values, "elements": str(manifest)},
+                                            executor_name=executor_name)
 
     def redock(
             self,

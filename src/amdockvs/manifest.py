@@ -42,7 +42,7 @@ except PackageNotFoundError:
     _VERSION = "0+unknown"
 
 
-# Campaign mode is derived from `molecules.storage.library_kind`: a project becomes a campaign
+# A sharded library is read off the data (`molecules.storage.has_shards`): a project holds one
 # when it contains shards, which is decided when the screening library is imported.
 manifest = AppManifest(
     app_id=AMDOCKVS_APP_ID,

@@ -7,10 +7,16 @@ from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMenu,
+    QPushButton,
     QSizePolicy,
+    QSpinBox,
     QStyle,
     QStyleOptionComboBox,
     QStylePainter,
@@ -101,6 +107,111 @@ class RunDestinationCombo(QComboBox):
         return str(self.currentData() or DEFAULT_LOCAL_CPU_EXECUTOR)
 
 
+class QueueResources(QPushButton):
+    """What the jobs sent to a cluster's queue ask of it instead of what its executor asks: CPUs,
+    time... Kept in `runtime.queue_asks` for the session, so every tool sending jobs to that
+    queue asks the same, and never saved (the executor's own are edited in Executors).
+    `queue()` says whether `destination` is a queue, where this means something."""
+
+    # ponytail: the Slurm fields of ms_flow.site_script.RESOURCES; Grid Engine asks through its setup
+    _FIELDS = (("partition", "Partition"), ("account", "Account"), ("nodes", "Nodes"), ("cpus", "CPUs per node"),
+               ("gpus", "GPUs per node"), ("memory_gb", "Memory per node (GB)"), ("time", "Time limit"))
+
+    def __init__(self, parent: QWidget, runtime, destination: RunDestinationCombo) -> None:
+        super().__init__("Queue resources…", parent)
+        self._runtime, self._destination = runtime, destination
+        self.setToolTip("What each job sent to the cluster's queue asks of it, from every tool, until the app "
+                        "closes. CPUs per node are what one node gives the run's tasks, shared among them.")
+        self.clicked.connect(self._edit)
+
+    def _executor(self):
+        try:
+            executor = self._runtime.workspace.settings_manager.settings.executors.get(self._destination.executor_name())
+        except Exception:  # noqa: BLE001 - no settings yet
+            return None
+        return executor if executor is not None and executor.kind == "queue" else None
+
+    def queue(self) -> bool:
+        return self._executor() is not None
+
+    def asks(self) -> dict:
+        """What differs from the executor's own, for the queue chosen; {} anywhere else."""
+        return dict(self._runtime.queue_asks.get(self._destination.executor_name(), {})) if self.queue() else {}
+
+    def _edit(self) -> None:
+        executor, name = self._executor(), self._destination.executor_name()
+        if executor is None:
+            return
+        asked = self._runtime.queue_asks
+        now = {field: getattr(executor, field) for field, _ in self._FIELDS} | asked.get(name, {})
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Resources on {name}")
+        dialog.setMinimumWidth(380)
+        form, editors = QFormLayout(dialog), {}
+        for field, label in self._FIELDS:
+            if isinstance(now[field], int):
+                editor = QSpinBox(dialog)
+                editor.setRange(0, 100_000)
+                editor.setSpecialValueText("Queue default")
+                editor.setValue(now[field])
+            else:
+                editor = QLineEdit(str(now[field]), dialog)
+                editor.setPlaceholderText("Queue default" if field != "time" else "Queue default (e.g. 12:00:00)")
+            editors[field] = editor
+            form.addRow(label, editor)
+        # Warned, not refused: a site may give whole nodes whatever is asked.
+        warning = QLabel("", dialog)
+        warning.setWordWrap(True)
+        form.addRow(warning)
+
+        def warn() -> None:
+            warning.setText("" if editors["cpus"].value() else
+                            "With CPUs left to the queue's default, most sites give a job one CPU: "
+                            "its tasks then run one after another.")
+
+        editors["cpus"].valueChanged.connect(lambda _value: warn())
+        warn()
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+                                   | QDialogButtonBox.StandardButton.RestoreDefaults, dialog)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        restore = buttons.button(QDialogButtonBox.StandardButton.RestoreDefaults)
+        restore.setText("The executor's")
+        restore.clicked.connect(lambda: (asked.pop(name, None), dialog.reject()))
+        form.addRow(buttons)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            values = {field: editor.value() if isinstance(editor, QSpinBox) else editor.text().strip()
+                      for field, editor in editors.items()}
+            asked[name] = {field: value for field, value in values.items() if value != getattr(executor, field)}
+        self.refresh()
+
+    def refresh(self) -> None:
+        self.setText("Queue resources (changed)…" if self.asks() else "Queue resources…")
+
+    def showEvent(self, event) -> None:
+        self.refresh()  # another tool may have changed them
+        super().showEvent(event)
+
+
+def add_run_on(advanced, runtime) -> RunDestinationCombo:
+    """The "Run on" row of a tool's advanced form, and under it "Queue resources…" while what is
+    chosen is a cluster's queue. Rows hidden, label too, when there is nothing to choose."""
+    destination = RunDestinationCombo(advanced, runtime)
+    advanced.add_row("Run on", destination)
+    resources = QueueResources(advanced, runtime, destination)
+    advanced.add_row("", resources)
+    destination.resources = resources
+
+    def show() -> None:
+        advanced.form.setRowVisible(destination, destination.count() > 1)
+        advanced.form.setRowVisible(resources, resources.queue())
+        resources.refresh()
+
+    destination.currentIndexChanged.connect(lambda _index: show())
+    show()
+    return destination
+
+
 class WrapCombo(QComboBox):
     """Combo whose closed face word-wraps its text over two lines ("Biological assembly 1")."""
 
@@ -131,7 +242,7 @@ class WrapCombo(QComboBox):
         )
 
 
-__all__ = ["right_aligned", "RunDestinationCombo", "split_button", "WrapCombo"]
+__all__ = ["add_run_on", "QueueResources", "right_aligned", "RunDestinationCombo", "split_button", "WrapCombo"]
 
 
 class LigandSources(QWidget):

@@ -48,7 +48,9 @@ def _results(store):
 
 def test_changed_configuration_blocks_before_deleting_or_submitting(tmp_path, monkeypatch):
     api, store, old, calls = _fixture(tmp_path, monkeypatch)
-    for change in ({"exhaustiveness": 1}, {"num_modes": 3}):
+    # How many poses are kept is not the protocol: more of them is a re-dock of the same one.
+    assert api.check_protocol(program="vina", engine_config={"num_modes": 3})["hash"] == old["hash"]
+    for change in ({"exhaustiveness": 1}, {"seed": 7}):
         with pytest.raises(DockingProtocolConflictError) as caught:
             api.check_protocol(program="vina", engine_config=change)
         assert caught.value.code == "docking_protocol_conflict"
