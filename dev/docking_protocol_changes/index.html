@@ -22,7 +22,7 @@
       
       
       <link rel="icon" href="../images/favicon.svg">
-      <meta name="generator" content="zensical-0.0.74">
+      <meta name="generator" content="zensical-0.1.0">
     
     
       
@@ -423,6 +423,9 @@ permite varios protocolos para comparar resultados de pruebas.</p>
 <code>docking.run(...)</code> y <code>docking.run_shards(...)</code> lanzan
 <code>DockingProtocolConflictError</code> antes de enviar trabajos o borrar resultados. La UI
 ofrece solamente <strong>Reemplazar resultados de docking</strong> y <strong>Cancelar</strong>.</p>
+<p><code>num_modes</code> no cuenta como cambio: dice cuántas poses de la misma búsqueda se guardan.
+Una campaña grande guarda una; para tener más poses de los hits se re-dockean con el
+mismo protocolo (<code>skip_existing=False</code>) y sus filas reemplazan las anteriores.</p>
 <p>Al confirmar mediante <code>replace_existing=True</code>, se eliminan todos los resultados
 de docking de ese programa en el proyecto, incluidas poses, análisis derivados,
 contadores y recibos/archivos de resultados por shards. La ejecución comienza de
