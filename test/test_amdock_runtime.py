@@ -719,15 +719,12 @@ def test_amdock_runtime_exposes_domain_queries_for_receptors_and_docking_results
         assert runtime.docking.count_docked_pairs(protocol_hash="not-a-hash") == 0
         assert receptor_summaries[0].expected_ligands == 6  # nothing missing here
 
-        # Protocol identity: the search and output settings count. Swapping the vina binding or
-        # changing the thread count is the same protocol -- otherwise the skip-existing guard
-        # (it filters by protocol.hash) would re-dock everything.
+        # Protocol identity: the search settings count. Swapping the vina binding, changing the
+        # thread count or keeping fewer poses is the same protocol -- otherwise the skip-existing
+        # guard (it filters by protocol.hash) would re-dock everything.
         base = {"scoring_function": "vina", "exhaustiveness": 8, "num_modes": 9, "vina_backend": "binary"}
-        same = dict(base, vina_backend="python", vina_cpu=4)
+        same = dict(base, vina_backend="python", vina_cpu=4, num_modes=1)
         assert protocol_hash(program="vina", config=base) == protocol_hash(program="vina", config=same)
-        assert protocol_hash(program="vina", config=base) != protocol_hash(
-            program="vina", config=dict(base, num_modes=20)
-        )
         assert protocol_hash(program="vina", config=base) != protocol_hash(
             program="vina", config=dict(base, exhaustiveness=16)
         )
