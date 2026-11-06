@@ -8,6 +8,10 @@ Si se cambia la configuración de un programa que ya tiene resultados de docking
 `DockingProtocolConflictError` antes de enviar trabajos o borrar resultados. La UI
 ofrece solamente **Reemplazar resultados de docking** y **Cancelar**.
 
+`num_modes` no cuenta como cambio: dice cuántas poses de la misma búsqueda se guardan.
+Una campaña grande guarda una; para tener más poses de los hits se re-dockean con el
+mismo protocolo (`skip_existing=False`) y sus filas reemplazan las anteriores.
+
 Al confirmar mediante `replace_existing=True`, se eliminan todos los resultados
 de docking de ese programa en el proyecto, incluidas poses, análisis derivados,
 contadores y recibos/archivos de resultados por shards. La ejecución comienza de
