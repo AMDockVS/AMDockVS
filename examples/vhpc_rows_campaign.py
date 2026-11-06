@@ -1,4 +1,4 @@
-"""Dock ligand rows on the vHPC SLURM lab: their chunks travel in transport shards, as one campaign.
+"""Dock ligand rows on the vHPC SLURM lab (or its Grid Engine one, `--scheduler sge`): their chunks travel in transport shards, as one campaign.
 
 Run with MSDD_312 and PYTHONPATH holding this checkout and the ms_flow, ms_env, ms_components
 and ms_contactmap checkouts; the lab must be idle. The ligands are imported as rows and prepared
@@ -6,7 +6,7 @@ here, with the app's APIs; the docking is `docking.run` on a `queue` executor. T
 lacks goes into the campaign's directory by a job of its queue, never into /opt/venv.
 
     python examples/vhpc_rows_campaign.py ~/PycharmProjects/vhpc --flow ../ms_flow --env ../ms_env \
-        --components ../ms_components --contactmap ../ms_contactmap
+        --components ../ms_components --contactmap ../ms_contactmap [--scheduler sge]
 """
 from __future__ import annotations
 
@@ -23,7 +23,9 @@ SMILES = ["CCCCCCO", "c1ccccc1CC", "c1ccc2ccccc2c1", "CC(=O)Nc1ccccc1", "CC(=O)O
           "CN1C=NC2=C1C(=O)N(C)C(=O)N2C", "c1ccc(cc1)S(=O)(=O)N", "CCOC(=O)c1ccccc1"]
 
 
-def _sbatch(host, script: str, seconds: float = 1200) -> str:
+def _sbatch(host, script: str, seconds: float = 1200, scheduler: str = "slurm") -> str:
+    if scheduler == "sge":  # qsub waits for the job and exits with its status
+        return host.run(f"qsub -sync y -terse -cwd -S /bin/bash {script}", timeout=seconds).decode().split()[0]
     job = host.run(f"sbatch --parsable {script}").decode().strip().split(";")[0]
     limit = time.monotonic() + seconds
     while time.monotonic() < limit:
@@ -45,6 +47,7 @@ def main() -> None:
     parser.add_argument("vhpc", type=Path)
     for name in ("flow", "env", "components", "contactmap"):
         parser.add_argument(f"--{name}", type=Path, required=True)
+    parser.add_argument("--scheduler", choices=("slurm", "sge"), default="slurm")
     args = parser.parse_args()
     lab = args.vhpc.resolve() / "lab"
     local = lab / "workspace" / f"rows-amdock-{uuid.uuid4().hex[:8]}"
@@ -68,15 +71,18 @@ def main() -> None:
     for name, source in trees.items():
         shutil.copytree(source.resolve() / "src", local / name, ignore=shutil.ignore_patterns("__pycache__"))
     paths = ":".join(f"{there}/{name}" for name in (*trees, "extra"))
+    sge = args.scheduler == "sge"
     host = Host("user@127.0.0.1", ssh=(
-        "ssh", "-p", "2222", "-i", str(lab / "runtime/id_ed25519"), "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
+        "ssh", "-p", "2223" if sge else "2222", "-i", str(lab / "runtime/id_ed25519"), "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
         "-o", f"UserKnownHostsFile={lab / 'runtime/known_hosts'}"))
+    head = (f"#!/bin/sh\n#$ -j y\n#$ -o {there}/extra.log\n" if sge else
+            "#!/bin/sh\n#SBATCH --nodes=1\n#SBATCH --cpus-per-task=1\n#SBATCH --mem=2048\n#SBATCH --time=00:20:00\n"
+            f"#SBATCH --output={there}/extra-%j.log\n")
     (local / "extra.sh").write_text(
-        "#!/bin/sh\n#SBATCH --nodes=1\n#SBATCH --cpus-per-task=1\n#SBATCH --mem=2048\n#SBATCH --time=00:20:00\n"
-        f"#SBATCH --output={there}/extra-%j.log\nset -eu\n"
+        f"{head}set -eu\n"
         f"/opt/venv/bin/python -m pip install -q --target {there}/extra pyarrow rdkit meeko vina scipy pandas gemmi\n"
         f"PYTHONPATH={paths} /opt/venv/bin/python -c 'import amdockvs.docking.tasks'\n")
-    print("extra:", _sbatch(host, f"{there}/extra.sh"), flush=True)
+    print("extra:", _sbatch(host, f"{there}/extra.sh", scheduler=args.scheduler), flush=True)
 
     (local / "lib.smi").write_text("SMILES,Name\n" + "".join(f"{s},m{i}\n" for i, s in enumerate(SMILES)))
     rt = AMDockVSRuntime()
@@ -100,10 +106,12 @@ def main() -> None:
 
         ws = rt.workspace
         ws.save_host("lab", address="user@127.0.0.1", workdir=f"{there}/queue", env="/opt/venv", keep_after=7)
-        ws.save_executor("lab", kind="queue", hosts=["lab"], scheduler="slurm", poll_seconds=2, shared_disk=False,
-                         setup="#SBATCH --no-requeue\n#SBATCH --nodes=2\n#SBATCH --ntasks-per-node=1\n"
-                               "#SBATCH --cpus-per-task=2\n#SBATCH --mem=2048\n#SBATCH --time=00:20:00\n"
-                               f"#SBATCH --output={there}/campaign-%j.log\nexport PYTHONPATH={paths}")
+        setup = (f"#$ -pe smp 2\n#$ -j y\n#$ -o {there}/campaign.log\nexport PYTHONPATH={paths}" if sge else
+                 "#SBATCH --no-requeue\n#SBATCH --nodes=2\n#SBATCH --ntasks-per-node=1\n"
+                 "#SBATCH --cpus-per-task=2\n#SBATCH --mem=2048\n#SBATCH --time=00:20:00\n"
+                 f"#SBATCH --output={there}/campaign-%j.log\nexport PYTHONPATH={paths}")
+        ws.save_executor("lab", kind="queue", hosts=["lab"], scheduler=args.scheduler, poll_seconds=2,
+                         shared_disk=False, setup=setup)
         far = build_executor("lab", ws.settings_manager.settings)
         far.remote = host  # ponytail: the lab's ssh port and key; a real cluster is in ~/.ssh/config
         ws.engine.register("lab", far)
@@ -129,7 +137,6 @@ def main() -> None:
         first, done, poses = dock()
         assert done == {target: ligands, off: ligands}, done
         assert poses > 2 * ligands, poses  # every mode came back, not rank 1 only
-        jobs_before = host.run("sacct -n -X -P -o JobID | wc -l").decode().strip()
         try:
             dock()
         except RuntimeError as error:  # every pair has a result: nothing is packed or queued
@@ -139,7 +146,8 @@ def main() -> None:
         # Forced, under another run id: docked again there, and its rows replace the older ones here.
         again, done_again, poses_again = dock("vhpc-rows-b", skip_existing=False)
         assert again != first and (done_again, poses_again) == (done, poses), (done_again, poses_again)
-        print(host.run(f"ls {there}/queue; sacct -n -X -P -o JobID,State,NNodes | tail -n 3").decode())
+        print(host.run(f"ls {there}/queue; " + ("qacct -o user | tail -n 1" if sge else
+                       "sacct -n -X -P -o JobID,State,NNodes | tail -n 3")).decode())
     finally:
         rt.shutdown()
     print("ok", local)
