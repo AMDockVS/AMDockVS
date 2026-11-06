@@ -1283,6 +1283,21 @@ class DockingAPI:
         """`run` over rows on a cluster's queue: the chunks of `docking_job`, made now, as one job of
         the queue (`dock_rows_campaign`). Made now, so it waits for no job: what it docks is what is
         prepared when it is submitted."""
+        self._check_queue(params, depends_on)
+        project_db = self.runtime.workspace.project_db
+        config = self.runtime._job_config()
+        if reset_results:
+            clear_previous_docking(project_db, program=program_spec)
+        values = params.model_dump(mode="python")
+        manifest = pack_rows(DockingJobSpec.build_chunks(values, config), transport_folder(project_db), cpu)
+        if not json.loads(manifest.read_text(encoding="utf-8"))["elements"]:
+            drop_transport(manifest)
+            raise RuntimeError("Nothing to dock: every pair in scope already has a result.")
+        return self.runtime.submit_campaign(dock_rows_campaign, params={**values, "elements": str(manifest)},
+                                            executor_name=executor_name)
+
+    def _check_queue(self, params: DockingJobParams, depends_on=None) -> None:
+        """What keeps a run over rows from a cluster's queue, raised."""
         if params.selected_from_receptor_id is not None:
             raise ValueError("An off-target stage over ligand rows does not run on a cluster's queue yet: "
                              "dock the reference there, then the off-targets here or as a run of their own.")
@@ -1295,17 +1310,21 @@ class DockingAPI:
         if self.runtime.resolve_job_dependencies(docking_job, depends_on):
             raise ValueError("A run on a cluster's queue docks what is prepared when it is submitted: "
                              "wait for the preparation (or the job it depends on) to finish.")
-        project_db = self.runtime.workspace.project_db
-        config = self.runtime._job_config()
-        if reset_results:
-            clear_previous_docking(project_db, program=program_spec)
-        values = params.model_dump(mode="python")
-        manifest = pack_rows(DockingJobSpec.build_chunks(values, config), transport_folder(project_db), cpu)
-        if not json.loads(manifest.read_text(encoding="utf-8"))["elements"]:
-            drop_transport(manifest)
-            raise RuntimeError("Nothing to dock: every pair in scope already has a result.")
-        return self.runtime.submit_campaign(dock_rows_campaign, params={**values, "elements": str(manifest)},
-                                            executor_name=executor_name)
+
+    def move_to_queue(self, job_id: str, executor_name: str) -> str:
+        """Continue a docking run over rows on a cluster's queue: it is stopped here (waited for,
+        so not from a thread that cannot wait) and what it has not docked goes there as a run of
+        its own (`_run_rows_on_queue`), with its run id. The id of that new job."""
+        params = DockingJobParams(**self.runtime.workspace.origin(str(job_id))["params"])
+        self._check_queue(params)  # before it is stopped here
+        engine_id = self.runtime._engine_ids().get(str(job_id))
+        if engine_id is not None:
+            self.runtime.workspace.engine.cancel(engine_id)
+            self.runtime.workspace.engine.wait(engine_id)
+        program_spec = self.get_program_spec(params.protocol_metadata.program or params.engine)
+        cpu = program_spec.resource_requirements(params.engine_config)["cpu_required"]
+        return self._run_rows_on_queue(params.model_copy(update={"skip_existing": True}), executor_name=executor_name,
+                                       cpu=cpu, depends_on=None, reset_results=False, program_spec=program_spec)
 
     def redock(
             self,

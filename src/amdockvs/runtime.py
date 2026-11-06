@@ -579,6 +579,8 @@ class AMDockVSRuntime(AppRuntime):
         job_id = str(job_id)
         job, was_on = self._recorded_job(job_id)
         executor = self._run_on(job, executor_name or was_on)
+        if job.name == "amdock_docking_job" and self.is_queue(executor):
+            return self.docking.move_to_queue(job_id, executor)  # one job of the queue, not a task per chunk
         self._job_config()
         engine_ids = self._engine_ids()
         waits = [engine_ids[dep] for dep in self.resolve_job_dependencies(job) or ()

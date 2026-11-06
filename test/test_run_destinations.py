@@ -192,3 +192,30 @@ def test_a_job_on_record_is_continued_and_one_that_runs_is_moved(tmp_path, monke
         assert runtime.wait_for_job(again).status == "completed"
     finally:
         runtime.shutdown()
+
+
+def test_a_docking_run_moved_to_a_queue_goes_there_as_a_campaign(monkeypatch):
+    """Not as a task per chunk, which the queue cannot name (its task is a chain); and what keeps
+    it from the queue is said before it is stopped here."""
+    from types import SimpleNamespace
+
+    from amdockvs.docking.api import DockingAPI
+    from amdockvs.docking.jobs import DockingJobParams
+
+    said = []
+    params = DockingJobParams(output_dir="/p/docking", engine="qvina", preparation_engine="ad4",
+                              protocol_metadata={"program": "qvina"}, skip_existing=False).model_dump(mode="python")
+    engine = SimpleNamespace(cancel=lambda n: said.append(("cancel", n)), wait=lambda n: said.append(("wait", n)))
+    runtime = SimpleNamespace(workspace=SimpleNamespace(origin=lambda key: {"params": params}, engine=engine),
+                              _engine_ids=lambda: {"j1": 7}, resolve_job_dependencies=lambda *a: None)
+    api = DockingAPI(runtime)
+    monkeypatch.setattr(api, "_run_rows_on_queue", lambda p, **kw: said.append(("campaign", p.skip_existing,
+                                                                                 kw["executor_name"])) or "j2")
+    assert api.move_to_queue("j1", "vhpc") == "j2"
+    assert said == [("cancel", 7), ("wait", 7), ("campaign", True, "vhpc")]
+
+    said.clear()
+    params["interactions"] = True
+    with pytest.raises(ValueError, match="Interactions are not computed on a cluster's queue"):
+        api.move_to_queue("j1", "vhpc")
+    assert said == []  # still running here
