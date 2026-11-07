@@ -13,6 +13,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 pytest.importorskip("rdkit")
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 from sqlmodel import select
 
@@ -70,6 +71,7 @@ def test_a_run_is_read_in_clusters_and_changes_nothing_until_asked(tmp_path, mon
 
         runtime.qsar.set_activity(ligand_id=ids[0], endpoint="pIC50", value=6.0)
         window = AMDockVSMainWindow(runtime=runtime)
+        window.resize(1440, 900)
         window.show()
         app.processEvents()
 
@@ -98,9 +100,51 @@ def test_a_run_is_read_in_clusters_and_changes_nothing_until_asked(tmp_path, mon
         tool.set_combo.setCurrentIndex(0)
         # The scope can be narrowed to the ligands measured for an activity.
         assert tool._scope_params()["with_activity"] == ""
+        preview_errors = []
+        monkeypatch.setattr("amdockvs.ui.tools.molecules.diversity.QMessageBox.critical",
+                            lambda *a, **k: preview_errors.append(a[2]))
+
+        def preview():
+            tool.run_button.click()
+            _wait(app, lambda: not tool._running)
+            assert not preview_errors
+            return set(tool._last_result["molecule_ids"])
+
+        assert preview() == set(ids)
+        chart = window.qsar_chart_dock
+        preview_ids = set(tool._seen_ids)
+        preview_count = len(tool._selections)
+        tool.size_dist_button.click()
+        assert chart.stack.currentWidget() is chart.chart_plot
+        tool.plot_button.click()
+        assert chart.stack.currentWidget() is chart.universe_view
+        assert tool._seen_ids == preview_ids and len(tool._selections) == preview_count
+        # A scope smaller than a sample is exhausted after one press. Preview must
+        # still restore the scatter, and changed settings must be evaluated anew.
+        tool.size_dist_button.click()
+        assert preview() == set(ids)
+        assert chart.stack.currentWidget() is chart.universe_view
+        assert "Whole scope already previewed" in tool.stats_label.text()
+        assert tool._seen_ids == preview_ids and len(tool._selections) == preview_count
+        from PySide6.QtWidgets import QDoubleSpinBox
+
+        threshold = tool.method_stack.currentWidget().findChild(QDoubleSpinBox)
+        threshold.setValue(0.65)
+        assert preview() == set(ids)
+        assert tool._last_result["threshold"] == 0.65
+        assert len(tool._selections) == 1
         tool.measured_combo.setCurrentIndex(tool.measured_combo.findData("pIC50"))
         assert tool._scope_params()["with_activity"] == "pIC50" and "pIC50" in tool.scope_label.text()
         assert runtime.diversity.scope_count(with_activity="pIC50") == 1
+        assert preview() == {ids[0]}
+        # A singleton has no grey background points, but its representative still
+        # counts as a completed preview and must be restored on the next press.
+        assert not tool._pool_points
+        tool.size_dist_button.click()
+        assert preview() == {ids[0]}
+        assert chart.stack.currentWidget() is chart.universe_view
+        assert "Whole scope already previewed" in tool.stats_label.text()
+        assert window.selection.get("ligand") is None
         tool.measured_combo.setCurrentIndex(0)
 
         # Clusters: the run, its two clusters under a "Representatives" row, members below.
@@ -109,6 +153,44 @@ def test_a_run_is_read_in_clusters_and_changes_nothing_until_asked(tmp_path, mon
         _wait(app, lambda: view.table.rowCount() == 3)
         assert window.aux.occupant is not None and view.members.parent() is not None  # hosted in the aux zone
         _wait(app, lambda: view.members.table._table.model().rowCount() == 2)
+
+        # The tool and result controls must leave room for the plot and movable dividers.
+        assert tool.minimumSizeHint().width() < 480
+        assert view.minimumSizeHint().width() < 540
+        assert window.qsar_chart_dock.width() >= 300
+        window.resize(1440, 900)
+        window.resizeDocks([window.tools_dock], [360], Qt.Horizontal)
+        window.resizeDocks([window.qsar_chart_dock], [420], Qt.Horizontal)
+        app.processEvents()
+        assert window.width() <= 1440
+        assert window.tools_dock.width() < 480
+        assert window.qsar_chart_dock.width() >= 350
+        chart_width = window.qsar_chart_dock.width()
+        window.charts.sync_to_active_view(LIGANDS_VIEW_ID)
+        view.restore_plot()
+        app.processEvents()
+        assert window.qsar_chart_dock.width() == chart_width
+        splitter = window.central_widget.content_splitter
+        before = splitter.sizes()
+        splitter.moveSplitter(splitter.height() // 2, 1)
+        app.processEvents()
+        assert abs(splitter.sizes()[0] - before[0]) > 30
+
+        # Returning from the histogram redraws the saved plot; no clustering or sampling.
+        from unittest.mock import Mock
+
+        with monkeypatch.context() as guard:
+            guard.setattr(runtime.diversity, "cluster_job", Mock(side_effect=AssertionError("reclustered")))
+            guard.setattr(runtime.diversity, "load_universe", Mock(side_effect=AssertionError("resampled")))
+            view.table.selectRow(1)
+            picked_cluster = view._picked_cluster()
+            view.sizes_button.click()
+            assert chart.stack.currentWidget() is chart.chart_plot
+            view.plot_button.click()
+            assert chart.stack.currentWidget() is chart.universe_view
+            assert view._run_id == run_id and view._picked_cluster() == picked_cluster
+            assert window.selection.get("ligand") is None
+        view.table.selectRow(0)
 
         # What represents each cluster is chosen here, on the stored run: nothing is clustered again.
         errors: list[str] = []
@@ -121,11 +203,17 @@ def test_a_run_is_read_in_clusters_and_changes_nothing_until_asked(tmp_path, mon
         pd.read_parquet(sidecar).assign(similarity=[1.0, 0.5, 1.0, 0.5], centrality=float("nan")).to_parquet(sidecar)
         view.apply_button.click()  # lowest and highest of two members: both
         _wait(app, lambda: view.table.item(0, 1).text() == "4")
+        # Apply replaces the data of the already-selected Representatives row.
+        # Both displays must refresh even though the row selection did not change.
+        _wait(app, lambda: view.members.table._table.model().rowCount() == 4)
+        assert "4 representatives" in chart.universe_view.plotItem.titleLabel.text
         view.mode_combo.setCurrentIndex(view.mode_combo.findData("proportional"))
         assert view.amount_spin.suffix() == " %" and view.amount_spin.value() == 10
         view.mode_combo.setCurrentIndex(view.mode_combo.findData("centroid"))
         view.apply_button.click()  # ...and back to the one nearest the centroid
         _wait(app, lambda: view.table.item(0, 1).text() == "2")
+        _wait(app, lambda: view.members.table._table.model().rowCount() == 2)
+        assert "2 representatives" in chart.universe_view.plotItem.titleLabel.text
         assert runtime.diversity.centroid_ids(run_id) == [ids[0], ids[2]]
 
         # Nothing happened to the library by running; "Use as selection" is what selects.

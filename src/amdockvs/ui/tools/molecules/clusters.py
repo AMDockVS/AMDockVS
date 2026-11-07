@@ -100,16 +100,21 @@ class ClustersWidget(QWidget):
         self.save_button = QPushButton("Save as set…", self)
         self.save_button.setToolTip("Save the run's representatives as a ligand set.")
         self.save_button.clicked.connect(self._save_set)
+        self.plot_button = QPushButton("Cluster plot", self)
+        self.plot_button.setToolTip(
+            "Return to this run's scatter plot and selected cluster without clustering again."
+        )
+        self.plot_button.clicked.connect(self.restore_plot)
         self.sizes_button = QPushButton("Size distribution", self)
         self.sizes_button.setToolTip(
             "Histogram of ligands-per-cluster: how many clusters are singletons vs. large. Replaces "
-            "the scatter in the Distribution dock; picking a row redraws it."
+            "the scatter in the Distribution dock; use 'Cluster plot' to return."
         )
         self.sizes_button.clicked.connect(self._show_sizes)
         self.delete_button = QPushButton("Delete run", self)
         self.delete_button.clicked.connect(self._delete)
         buttons = (self.select_button, self.exclude_button, self.save_button,
-                   self.sizes_button, self.delete_button)
+                   self.plot_button, self.sizes_button, self.delete_button)
         actions = FlowLayout(spacing=6)
         for button in buttons:
             actions.addWidget(button)
@@ -276,11 +281,12 @@ class ClustersWidget(QWidget):
             item.setData(Qt.UserRole, cluster_id)
             self.table.setItem(row, 0, item)
             self.table.setItem(row, 1, QTableWidgetItem(str(size)))
-        self.table.blockSignals(False)
         if rows:
-            self.table.selectRow(0)  # fires _on_cluster_picked: the representatives go below
-        else:
-            self._on_cluster_picked()
+            self.table.selectRow(0)
+        self.table.blockSignals(False)
+        # Reloading the same run can change its representatives while row 0 is
+        # still selected. Qt emits no selection change then, so refresh explicitly.
+        self._on_cluster_picked()
         if self._run_id:
             cut = f" (the {len(shown)} largest listed)" if len(shown) < len(self._stats) else ""
             hint = (
