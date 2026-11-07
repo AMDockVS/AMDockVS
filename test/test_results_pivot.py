@@ -319,9 +319,10 @@ def test_live_hits_refreshes_receptor_aggregates_and_only_the_ligand_count():
         session.commit()
 
     assert widget.refresh_counts() is True
-    receptor = widget.receptor_table._model.get_row_data(0)
     # No campaign plan for this receptor, so the counters fall back to the results themselves.
-    assert receptor["ligands"] == 2 and receptor["progress"] == 2
+    # The receptor page may reload in the background when its first load had not landed yet.
+    _wait_for(lambda: (widget.receptor_table._model.get_row_data(0) or {}).get("progress") == 2)
+    assert widget.receptor_table._model.get_row_data(0)["ligands"] == 2
     assert widget.ligand_table._model.loaded_count == 1  # the loaded rows were not reloaded
     _wait_for(lambda: widget.ligand_table.record_total == 2)
     assert "2 records" in widget.ligand_table._result_count_label.text()
