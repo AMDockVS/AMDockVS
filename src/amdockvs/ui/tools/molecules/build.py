@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib.util
 import os
 import shutil
+from pathlib import Path
+from shiboken6 import isValid
 
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -10,6 +12,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -62,15 +65,9 @@ def _checkbox(text: str, *, checked: bool = False) -> QCheckBox:
     return widget
 
 
-def _tool_notice(status) -> str:
-    """Status line for a managed runtime; installing happens in Settings."""
-    if status.installed:
-        return str(status.message)
-    return f"{status.message} Install it from Settings > External tools."
-
-
 def _module_available(name: str) -> bool:
-    return importlib.util.find_spec(str(name)) is not None
+    spec = importlib.util.find_spec(str(name))
+    return spec is not None and (spec.origin in (None, "built-in", "frozen") or Path(spec.origin).is_file())
 
 
 def _executable_available(name: str) -> bool:
@@ -134,6 +131,20 @@ class MoleculeBuildWidget(QWidget):
         self.pkasso_gpu = _checkbox("Request one GPU", checked=False)
         self.pkasso_model.currentIndexChanged.connect(self._sync_pkasso_options)
         self.pkasso_status = hint_label("Checking runtime…", small)
+        self.protonation_settings_button = QPushButton("Open External tools...", small)
+        self.protonation_settings_button.setMinimumHeight(
+            max(32, self.protonation_settings_button.fontMetrics().height() + 12)
+        )
+        self.protonation_settings_button.clicked.connect(self._open_protonation_tool_settings)
+        # Add the layout directly to the form so it sizes the row from the
+        # button, without an intermediate widget clipping it on method changes.
+        self.protonation_status_row = QHBoxLayout()
+        status_layout = self.protonation_status_row
+        status_layout.setContentsMargins(0, 2, 0, 2)
+        status_layout.setSpacing(8)
+        status_layout.addWidget(self.openbabel_status, 1)
+        status_layout.addWidget(self.pkasso_status, 1)
+        status_layout.addWidget(self.protonation_settings_button)
         dimorphite_note = hint_label(
             "Rule-based, pH-aware single-state assignment. Ambiguous microstates are not retained.", small
         )
@@ -149,19 +160,18 @@ class MoleculeBuildWidget(QWidget):
         protonation.add_row("pH", self.ligand_protonation_ph)
         protonation.add_row(dimorphite_note)
         protonation.add_row(openbabel_note)
-        protonation.add_row(self.openbabel_status)
         protonation.add_row(pkasso_note)
         protonation.add_row("Model", self.pkasso_model)
         protonation.add_row("Threads", self.pkasso_threads)
         protonation.add_row(self.pkasso_gpu)
-        protonation.add_row(self.pkasso_status)
+        protonation.add_row(self.protonation_status_row)
         protonation.add_row(explicit_hs_note)
         # Each method's rows show only for that method: a stacked page would reserve the tallest
         # method's height under all of them.
         self.ligand_protonation_rows: dict[str, list[QWidget]] = {
             "dimorphite": [dimorphite_note],
-            "openbabel": [openbabel_note, self.openbabel_status],
-            "pkasso": [pkasso_note, self.pkasso_model, self.pkasso_threads, self.pkasso_gpu, self.pkasso_status],
+            "openbabel": [openbabel_note],
+            "pkasso": [pkasso_note, self.pkasso_model, self.pkasso_threads, self.pkasso_gpu],
             "explicit_hs": [explicit_hs_note],
         }
 
@@ -254,6 +264,11 @@ class MoleculeBuildWidget(QWidget):
             self.fix_keep_water,
         ):
             self.receptor_fix_section.add_row(checkbox)
+        self.receptor_fix_status = hint_label("", proteins)
+        self.receptor_fix_settings_button = QPushButton("Open External tools…", proteins)
+        self.receptor_fix_settings_button.clicked.connect(lambda: self._open_receptor_tool_settings(repair=True))
+        self.receptor_fix_section.add_row(self.receptor_fix_status)
+        self.receptor_fix_section.add_row(self.receptor_fix_settings_button)
 
         self.receptor_protonation_section = proteins.add_section("Protonation", checkable=True)
         self.receptor_protonation_method = QComboBox(proteins)
@@ -268,6 +283,11 @@ class MoleculeBuildWidget(QWidget):
         self.receptor_protonation_section.add_row("Method", self.receptor_protonation_method)
         self.receptor_protonation_section.add_row("pH", self.receptor_protonation_ph)
         self.receptor_protonation_section.add_row("Forcefield", self.receptor_protonation_forcefield)
+        self.receptor_protonation_status = hint_label("", proteins)
+        self.receptor_protonation_settings_button = QPushButton("Open External tools…", proteins)
+        self.receptor_protonation_settings_button.clicked.connect(self._open_receptor_protonation_settings)
+        self.receptor_protonation_section.add_row(self.receptor_protonation_status)
+        self.receptor_protonation_section.add_row(self.receptor_protonation_settings_button)
 
         # Off by default: it moves atoms, and it is the slowest op by far.
         self.receptor_min_section = proteins.add_section("Minimization", checkable=True, checked=False)
@@ -279,6 +299,11 @@ class MoleculeBuildWidget(QWidget):
         self.receptor_min_section.add_row("Forcefields", self.receptor_forcefields)
         self.receptor_min_section.add_row("Max iterations", self.receptor_max_iterations)
         self.receptor_min_section.add_row("Tolerance (kJ/mol/nm)", self.receptor_tolerance)
+        self.receptor_min_status = hint_label("", proteins)
+        self.receptor_min_settings_button = QPushButton("Open External tools…", proteins)
+        self.receptor_min_settings_button.clicked.connect(lambda: self._open_receptor_tool_settings(repair=False))
+        self.receptor_min_section.add_row(self.receptor_min_status)
+        self.receptor_min_section.add_row(self.receptor_min_settings_button)
 
         proteins.advanced.add_row("Batch size", self.batch_size_receptors)
         self.receptor_destination = add_run_on(proteins.advanced, self.runtime)
@@ -312,6 +337,54 @@ class MoleculeBuildWidget(QWidget):
         if tool_id in ("openbabel", "pkasso"):
             self._activate_after_check = tool_id
             self._refresh_protonation_tools()
+        elif tool_id in ("pdbfixer", "openmm"):
+            self._refresh_receptor_tools()
+        elif tool_id in ("reduce", "pdb2pqr"):
+            self._refresh_receptor_protonation_tools()
+
+    def _refresh_receptor_protonation_tools(self) -> None:
+        method = str(self.receptor_protonation_method.currentData())
+        status = getattr(self.runtime.chemistry, "receptor_protonation_tool_status", None)
+
+        def show(installed: bool, message: str) -> None:
+            if not isValid(self) or method != self.receptor_protonation_method.currentData():
+                return
+            self.receptor_protonation_status.setText(message)
+            self.receptor_protonation_settings_button.setVisible(not installed)
+
+        if callable(status):
+            run_async(lambda: status(method), lambda current: show(current.installed, current.message),
+                      on_error=lambda exc: show(False, f"Runtime status unavailable: {exc}"),
+                      compact=True)
+        else:
+            installed = _executable_available(method)
+            self.receptor_protonation_status.setText(f"{method} is {'ready' if installed else 'not installed'}.")
+            self.receptor_protonation_settings_button.setVisible(not installed)
+
+    def _open_receptor_protonation_settings(self) -> None:
+        opener = getattr(self.window(), "open_settings", None)
+        if callable(opener):
+            opener(node="page:External tools", tool=str(self.receptor_protonation_method.currentData()))
+            self._refresh_receptor_protonation_tools()
+
+    def _refresh_receptor_tools(self) -> None:
+        importlib.invalidate_caches()
+        for modules, label, button in (
+            (("pdbfixer", "openmm"), self.receptor_fix_status, self.receptor_fix_settings_button),
+            (("openmm",), self.receptor_min_status, self.receptor_min_settings_button),
+        ):
+            missing = [name for name in modules if not _module_available(name)]
+            names = {"pdbfixer": "PDBFixer", "openmm": "OpenMM"}
+            label.setText("Missing: " + ", ".join(names[name] for name in missing) + "."
+                          if missing else " and ".join(names[name] for name in modules) + " ready.")
+            button.setVisible(bool(missing))
+
+    def _open_receptor_tool_settings(self, *, repair: bool) -> None:
+        opener = getattr(self.window(), "open_settings", None)
+        if callable(opener):
+            tool = "pdbfixer" if repair and not _module_available("pdbfixer") else "openmm"
+            opener(node="page:External tools", tool=tool)
+            self._refresh_receptor_tools()
 
     @staticmethod
     def _structure_combo(parent: QWidget) -> QComboBox:
@@ -383,6 +456,7 @@ class MoleculeBuildWidget(QWidget):
         uses_pdb2pqr = self.receptor_protonation_method.currentData() == "pdb2pqr"
         self.receptor_protonation_ph.setEnabled(uses_pdb2pqr)
         self.receptor_protonation_forcefield.setEnabled(uses_pdb2pqr)
+        self._refresh_receptor_protonation_tools()
 
     def _sync_pkasso_options(self, *_args) -> None:
         mixed = self.pkasso_model.currentData() == "mixed"
@@ -395,8 +469,24 @@ class MoleculeBuildWidget(QWidget):
         for name, widgets in self.ligand_protonation_rows.items():
             for widget in widgets:
                 self.ligand_protonation_section.form.setRowVisible(widget, name == method)
+        self.ligand_protonation_section.form.setRowVisible(
+            self.protonation_status_row, method in ("openbabel", "pkasso"),
+        )
+        self.openbabel_status.setVisible(method == "openbabel")
+        self.pkasso_status.setVisible(method == "pkasso")
+        self.protonation_settings_button.setVisible(
+            method in ("openbabel", "pkasso") and not self._protonation_tool_ready.get(method, False)
+        )
+        self.ligand_protonation_section.form.invalidate()
+        self.ligand_protonation_section.body.updateGeometry()
         self.ligand_protonation_ph.setEnabled(method != "explicit_hs")
         self._sync_build_button()
+
+    def _open_protonation_tool_settings(self) -> None:
+        method = self._active_protonation_method()
+        opener = getattr(self.window(), "open_settings", None)
+        if method in ("openbabel", "pkasso") and callable(opener):
+            opener(node="page:External tools", tool=method)
 
     def _sync_build_button(self, *_args) -> None:
         steps = self._build_steps()
@@ -534,8 +624,8 @@ class MoleculeBuildWidget(QWidget):
     def _apply_protonation_tool_status(self, statuses) -> None:
         openbabel, pkasso = statuses
         # Installing is Settings' job; this panel only reports what is available.
-        self.openbabel_status.setText(_tool_notice(openbabel))
-        self.pkasso_status.setText(_tool_notice(pkasso))
+        self.openbabel_status.setText(str(openbabel.message))
+        self.pkasso_status.setText(str(pkasso.message))
         self._protonation_tool_ready.update(
             openbabel=bool(openbabel.installed),
             pkasso=bool(pkasso.installed),
@@ -559,6 +649,8 @@ class MoleculeBuildWidget(QWidget):
             return
         self._sync_ligand_target()
         self._refresh_protein_summary()
+        self._refresh_receptor_tools()
+        self._refresh_receptor_protonation_tools()
         self._open_catalog_view()
         self._sync_molecules_scope()
 
@@ -593,10 +685,22 @@ class MoleculeBuildWidget(QWidget):
         gate_workflow_save(button)
         return button
 
-    def _require_optional_module(self, *, title: str, modules: tuple[str, ...], detail: str) -> bool:
+    def _require_optional_module(self, *, title: str, modules: tuple[str, ...], detail: str,
+                                 tool_id: str | None = None) -> bool:
+        importlib.invalidate_caches()
         missing = [name for name in modules if not _module_available(name)]
         if not missing:
             return True
+        if tool_id is not None:
+            box = QMessageBox(QMessageBox.Warning, title,
+                              f"{detail}\nMissing module(s): {', '.join(missing)}", parent=self)
+            box.setInformativeText("Install the missing dependencies from Settings → External tools → Protein preparation.")
+            settings = box.addButton("Open External tools…", QMessageBox.ActionRole)
+            box.addButton(QMessageBox.Cancel)
+            box.exec()
+            if box.clickedButton() is settings:
+                self._open_receptor_tool_settings(repair=tool_id == "pdbfixer")
+            return False
         QMessageBox.warning(
             self,
             title,
@@ -605,8 +709,20 @@ class MoleculeBuildWidget(QWidget):
         return False
 
     def _require_executable(self, *, title: str, executable: str, detail: str) -> bool:
-        if _executable_available(executable):
+        status = getattr(self.runtime.chemistry, "receptor_protonation_tool_status", None)
+        managed = executable in ("reduce", "pdb2pqr")
+        available = status(executable).installed if managed and callable(status) else _executable_available(executable)
+        if available:
             return True
+        if managed:
+            box = QMessageBox(QMessageBox.Warning, title, f"{detail}\nMissing executable: {executable}", parent=self)
+            box.setInformativeText("Install it from Settings → External tools → Protein preparation.")
+            settings = box.addButton("Open External tools…", QMessageBox.ActionRole)
+            box.addButton(QMessageBox.Cancel)
+            box.exec()
+            if box.clickedButton() is settings:
+                self._open_receptor_protonation_settings()
+            return False
         QMessageBox.warning(
             self,
             title,
@@ -814,6 +930,7 @@ class MoleculeBuildWidget(QWidget):
                 title="Fix structure",
                 modules=("pdbfixer", "openmm"),
                 detail="Fixing a protein structure currently requires PDBFixer and OpenMM in the active environment.",
+                tool_id="pdbfixer",
             ):
                 return False
             if kind == "protonate_receptors" and not self._require_executable(
@@ -826,6 +943,7 @@ class MoleculeBuildWidget(QWidget):
                 title="Minimization",
                 modules=("openmm",),
                 detail="Protein minimization currently requires OpenMM in the active environment.",
+                tool_id="openmm",
             ):
                 return False
         return True
@@ -857,6 +975,8 @@ class MoleculeBuildWidget(QWidget):
         self._sync_ligand_target()
         self._on_scope_changed()
         self._refresh_protonation_tools()
+        self._refresh_receptor_tools()
+        self._refresh_receptor_protonation_tools()
 
 
 def register_build_workspace(window) -> None:

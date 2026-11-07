@@ -102,8 +102,8 @@ class ExternalToolsPage(QWidget):
         root.setSpacing(10)
 
         intro = QLabel(
-            "Docking runs without these. Each one unlocks one optional feature and is "
-            "installed in its own directory, so removing it cannot break AMDock.",
+            "Each tool enables an optional feature. Python packages are installed in this "
+            "environment; other tools use managed directories. Removing a tool disables the features that use it.",
             self,
         )
         intro.setWordWrap(True)
