@@ -95,19 +95,22 @@ def test_what_comes_back_twice_is_written_once(tmp_path):
         runtime.close_project()
 
 
-def test_an_old_project_gets_the_digest_column(tmp_path):
+def test_an_old_project_gets_the_columns_added_since(tmp_path):
     from amdockvs.runtime import AMDockVSRuntime
 
     runtime = AMDockVSRuntime()
     runtime.create_project(name="digests", folder=tmp_path)
+    added = {"shard_preps": "sha256", "screening_targets": "forced"}
     try:
         with runtime.workspace.project_db.get_session() as session:
             conn = session.connection()
-            conn.exec_driver_sql("ALTER TABLE shard_preps DROP COLUMN sha256")
+            for table, column in added.items():
+                conn.exec_driver_sql(f"ALTER TABLE {table} DROP COLUMN {column}")
             session.commit()
-        runtime._add_shard_digests()
+        runtime._add_columns()
         with runtime.workspace.project_db.get_session() as session:
-            columns = session.connection().exec_driver_sql("PRAGMA table_info(shard_preps)").fetchall()
-        assert "sha256" in {str(row[1]) for row in columns}
+            for table, column in added.items():
+                columns = session.connection().exec_driver_sql(f"PRAGMA table_info({table})").fetchall()
+                assert column in {str(row[1]) for row in columns}
     finally:
         runtime.close_project()

@@ -17,6 +17,7 @@ from amdockvs.core.home import amdock_home
 from amdockvs.runtime import AMDockVSRuntime
 from amdockvs.project.summaries import DockingHitSummary
 from amdockvs.ui.catalog.common import SelectionStore
+from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.shell.main_content import MainContentWidget
 from amdockvs.ui.shell.tutorials_panel import TutorialsPanel
 from amdockvs.ui.monitor import JobsDialog
@@ -254,6 +255,7 @@ class AMDockVSMainWindow(QMainWindow):
         self._set_project_ui_enabled(self._has_active_project())
         if self._has_active_project():
             self._open_default_views()
+            QTimer.singleShot(0, self._offer_resume)
 
     def _open_default_views(self) -> None:
         """Open the tabs that have data; in front goes the first of Docking Results, QSAR
@@ -449,11 +451,11 @@ class AMDockVSMainWindow(QMainWindow):
         corner_row.addWidget(theme_btn)
         menu_bar.setCornerWidget(corner, Qt.TopRightCorner)
 
-    def open_settings(self, *, node: str | None = None, tool: str | None = None) -> None:
+    def open_settings(self, *, node: str | None = None, tool: str | None = None, executor: str | None = None) -> None:
         """Open the Settings dialog, on ``node`` when a feature panel points at its own page;
-        ``tool`` leaves only that one in External tools."""
+        ``tool`` leaves only that one in External tools; ``executor``, on that one in Executors."""
         if self._app_widget is not None:
-            self._app_widget.open_settings(node=node, tool=tool)
+            self._app_widget.open_settings(node=node, tool=tool, executor=executor)
 
     def _on_app_settings_saved(self) -> None:
         # Refresh what's open; saving settings shouldn't pop tabs the user didn't ask for.
@@ -610,11 +612,49 @@ class AMDockVSMainWindow(QMainWindow):
         self.jobs.update_jobs_statusbar()
         return self.jobs_dialog
 
+    def _offer_resume(self) -> None:
+        """The jobs the last session left unfinished: asked once whether to continue them where they were."""
+        workspace = self.runtime.workspace
+        run_async(lambda: [snap for snap in workspace.jobs() if snap.status == "interrupted"], self._ask_resume)
+
+    def _ask_resume(self, left: list) -> None:
+        if not left:
+            return
+        names = "\n".join(f"  {snap.name} ({snap.key[:8]})" for snap in left)
+        reply = QMessageBox.question(
+            self, "Resume Jobs",
+            f"AMDockVS closed before these jobs ended:\n{names}\n\nStart their executors and resume them now?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        runtime, workspace = self.runtime, self.runtime.workspace
+
+        def resume() -> list[str]:  # activating a far executor waits for its hosts: off the GUI thread
+            failed = []
+            for snap in left:
+                try:
+                    executor = workspace.origin(snap.key)["options"].get("executor")
+                    if any(row["name"] == executor and row["state"] != "on" for row in workspace.executors()):
+                        workspace.activate(executor)
+                    runtime.resume_job(snap.key)
+                except Exception as exc:  # noqa: BLE001 - one that cannot go on leaves the others going
+                    failed.append(f"{snap.name}: {exc}")
+            return failed
+
+        def done(failed: list[str]) -> None:
+            self.monitor_bridge.request_refresh()
+            if failed:
+                QMessageBox.warning(self, "Resume Jobs", "Not resumed:\n" + "\n".join(failed))
+
+        run_async(resume, done, lambda exc: QMessageBox.warning(self, "Resume Jobs", str(exc)))
+
     def open_executors_panel(self) -> ExecutorsPanel:
         """The quick window that starts and stops the executors: built once, hidden on close."""
         if self.executors_panel is None:
             self.executors_panel = ExecutorsPanel(self.runtime.workspace, parent=self)
-            self.executors_panel.settings_requested.connect(lambda: self.open_settings(node="page:Executors"))
+            self.executors_panel.settings_requested.connect(
+                lambda name: self.open_settings(node="page:Executors", executor=name or None))
         self.executors_panel.show()
         self.executors_panel.raise_()
         self.executors_panel.activateWindow()
@@ -727,6 +767,7 @@ class AMDockVSMainWindow(QMainWindow):
             self._set_project_ui_enabled(True)
             self.aux.reset()
             self._open_default_views()
+            self._offer_resume()
             self.project_opened.emit(str(project_id))
             return
         reply = QMessageBox.question(

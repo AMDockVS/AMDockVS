@@ -19,6 +19,7 @@ from amdockvs.core.constants import (
     TABLE_QSAR_MODEL_MEMBERS,
     TABLE_QSAR_MODELS,
     TABLE_QSAR_PREDICTIONS,
+    TABLE_SCREENING_TARGETS,
     TABLE_SHARD_PREPS,
 )
 from amdockvs.manifest import AMDOCKVS_PROJECT_RESOURCES
@@ -331,7 +332,7 @@ class AMDockVSRuntime(AppRuntime):
             )
         self._rekey_interactions()
         self._rebuild_qsar_tables()
-        self._add_shard_digests()
+        self._add_columns()
         # ponytail: a no-op unless an import died before building them; then it blocks the open for
         # as long as the build takes (~seconds per million rows). Run it off-thread if that bites.
         ensure_molecule_indexes(self.workspace.project_db)
@@ -360,14 +361,19 @@ class AMDockVSRuntime(AppRuntime):
             session.commit()
         InteractionsResult.__table__.create(db.engine)
 
-    def _add_shard_digests(self) -> None:
-        """`shard_preps` before 2026-11 gets the empty ``sha256`` column: a campaign hashes those files itself."""
+    def _add_columns(self) -> None:
+        """Columns a project made before them lacks: `shard_preps.sha256` (2026-11, empty: a campaign
+        hashes those files itself) and `screening_targets.forced` (2026-11-07, false: those plans
+        skipped what was docked)."""
+        added = ((TABLE_SHARD_PREPS, "sha256", "VARCHAR NOT NULL DEFAULT ''"),
+                 (TABLE_SCREENING_TARGETS, "forced", "BOOLEAN NOT NULL DEFAULT 0"))
         with self.workspace.project_db.get_session() as session:
             conn = session.connection()
-            columns = conn.exec_driver_sql(f"PRAGMA table_info({TABLE_SHARD_PREPS});").fetchall()
-            if columns and "sha256" not in {str(row[1]) for row in columns}:
-                conn.exec_driver_sql(f"ALTER TABLE {TABLE_SHARD_PREPS} ADD COLUMN sha256 VARCHAR NOT NULL DEFAULT ''")
-                session.commit()
+            for table, column, kind in added:
+                columns = conn.exec_driver_sql(f"PRAGMA table_info({table});").fetchall()
+                if columns and column not in {str(row[1]) for row in columns}:
+                    conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
+            session.commit()
 
     def _rebuild_qsar_tables(self) -> None:
         """`qsar_models` without the registry columns (before 2026-10-30) is dropped and made again,
@@ -558,13 +564,17 @@ class AMDockVSRuntime(AppRuntime):
         from ms_flow.engine.flow import named
 
         origin = self.workspace.origin(str(job_id))
-        return named(origin["job"]).definition, origin["options"].get("executor")
+        # a campaign (`ms_flow.campaign`) is a function, not a job declaration: None for it
+        return getattr(named(origin["job"]), "definition", None), origin["options"].get("executor")
 
     def job_destinations(self, job_id: str) -> list[tuple[str, str]]:
         """`run_destinations` for a job on record: where it may be continued now. Nowhere for one
-        that cannot be submitted again."""
+        that cannot be submitted again; a campaign, only to an active queue."""
         try:
-            return self.run_destinations(self._recorded_job(job_id)[0])
+            job, was_on = self._recorded_job(job_id)
+            if job is None:
+                return [(name, label) for name, label in self.run_destinations() if self.is_queue(name)]
+            return self.run_destinations(job)
         except Exception:  # noqa: BLE001 - not on record, or its declaration is gone
             return []
 
@@ -578,7 +588,16 @@ class AMDockVSRuntime(AppRuntime):
         self._require_active_project()
         job_id = str(job_id)
         job, was_on = self._recorded_job(job_id)
+        if job is None:  # a campaign: back to its queue, where what it has there is found again by its key
+            executor = executor_name or was_on
+            if not self.is_queue(executor):
+                raise ValueError(f"a campaign goes to a cluster's queue, and `{executor}` is not one")
+            self._job_config()  # what its writer and its end read of the project
+            self._engine_ids()[job_id] = self.workspace.move(job_id, executor, **self._asks(executor))
+            return job_id
         executor = self._run_on(job, executor_name or was_on)
+        if job.name == "amdock_docking_job" and self.is_queue(executor):
+            return self.docking.move_to_queue(job_id, executor)  # one job of the queue, not a task per chunk
         self._job_config()
         engine_ids = self._engine_ids()
         waits = [engine_ids[dep] for dep in self.resolve_job_dependencies(job) or ()

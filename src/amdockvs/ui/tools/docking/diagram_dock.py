@@ -90,7 +90,10 @@ class InteractionDiagramDock(MSDockWidget):
     def reload(self) -> None:
         """Re-check the cache for the current selection (a diagram job may have just filled it)."""
         if self._hit is not None:
-            self.show_hit(self._hit, self._pose_rank)
+            try:
+                self.show_hit(self._hit, self._pose_rank)
+            except KeyError:  # its pose is gone: a forced re-dock replaced the results it was of
+                self.show_hit(None)
 
     # --- drawing ------------------------------------------------------------
     def _draw(self, diagram, layout, *, label: str) -> None:

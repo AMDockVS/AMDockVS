@@ -23,8 +23,10 @@ def plan_targets(
     receptors: Iterable[Mapping[str, Any]],
     ligands_total: int,
     engine: str = "",
+    forced: bool = False,
 ) -> int:
-    """One row per scheduled receptor. Idempotent: re-planning a run updates its plan."""
+    """One row per scheduled receptor. Idempotent: re-planning a run updates its plan. `forced`:
+    the run docks again the pairs already docked."""
     rows = list(receptors)
     if not rows:
         return 0
@@ -41,6 +43,7 @@ def plan_targets(
             existing.engine = str(engine or existing.engine)
             existing.ligands_total = int(ligands_total)
             existing.state = TargetState.SCHEDULED
+            existing.forced = bool(forced)
             session.add(existing)
         session.commit()
     return len(rows)
