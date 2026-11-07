@@ -794,6 +794,13 @@ class PreparationPanel:
         programs = self._distinct_prep_programs(role="receptor") if target is None else [target]
         try:
             receptor_scope = self._selected_receptor_scope()
+            missing_3d = self.runtime.molecules.count(
+                self.runtime.molecules.filter(receptor_scope, filters={"has_3d": False})
+            )
+            if missing_3d and self._ask_missing_receptor_3d(missing_3d) == "build":
+                build = self.window().tools.open_tool(BUILD_ID)
+                build.tabs.setCurrentWidget(build.proteins_tab)
+                return
             for program in programs:
                 job_ids[program] = self.runtime.docking.prepare_receptors(
                     program=program,
@@ -814,6 +821,24 @@ class PreparationPanel:
             return
         self._follow_prep(self.receptor_prep_jobs, job_ids)
         self.stepper.set_current_index(3)
+
+    def _ask_missing_receptor_3d(self, count: int) -> str:
+        """Offer structure prediction, or keep preparing while skipping sequence-only rows."""
+        box = QMessageBox(
+            QMessageBox.Warning, "Prepare Receptors",
+            f"{int(count)} receptor(s) have no 3D structure and will be skipped if you continue.",
+            parent=self,
+        )
+        box.setInformativeText(
+            "Open Build → Proteins to predict structures from their sequences, "
+            "or continue preparing the receptors that already have 3D coordinates."
+        )
+        build = box.addButton("Open Build → Proteins…", QMessageBox.ActionRole)
+        proceed = box.addButton("Continue and skip", QMessageBox.AcceptRole)
+        box.setDefaultButton(proceed)
+        box.setEscapeButton(proceed)
+        box.exec()
+        return "build" if box.clickedButton() is build else "continue"
 
     def _save_prepare_ligands_to_workflow(self) -> None:
         from amdockvs.ui.tools.workflow_panel import save_to_workflow
