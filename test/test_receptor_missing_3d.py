@@ -7,7 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from amdockvs.runtime import AMDockVSRuntime  # pydantic before PySide6
 
 import pytest
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QThreadPool, QTimer, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMessageBox
 from ms_flow.query import db_pages
@@ -64,6 +64,9 @@ def receptor_studio(tmp_path, monkeypatch):
     finally:
         if window is not None:
             window.close()
+        # The panel reads its scope off the GUI thread. Shutting the runtime down while one of
+        # those reads is still in the project database leaves the next test contending with it.
+        QThreadPool.globalInstance().waitForDone(10_000)
         runtime.shutdown()
         app.processEvents()
 
