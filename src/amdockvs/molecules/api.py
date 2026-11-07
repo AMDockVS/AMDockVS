@@ -12,6 +12,7 @@ from amdockvs.core.normalize import merge_filter_mappings, normalize_ids, normal
 from amdockvs.molecules.scopes import MoleculeScope, as_molecule_scope, is_molecule_scope
 from amdockvs.core.constants import TABLE_LIGAND_ACTIVITIES, TABLE_MOLECULES
 from amdockvs.core.payloads import molecule_payload_id
+from amdockvs.core.vocab import ModelSource
 from amdockvs.models import (
     BindingSite,
     ComplexRecord,
@@ -103,6 +104,8 @@ class MoleculeAPI:
         activities: tuple[LigandActivity, ...]
         current_model: MoleculeModel | None = None  # the model current_payload_id points at (metrics, files)
         current_model_data: dict | None = None  # its data payload (plddt, ptm...), the PAE left out
+        plddt_model: MoleculeModel | None = None  # saved prediction, independent of later preparation
+        plddt_model_data: dict | None = None
 
     def get(self, molecule_id: int) -> MoleculeRecord | None:
         """Return one molecule without exposing the project session to callers."""
@@ -163,15 +166,30 @@ class MoleculeAPI:
                 select(MoleculeModel)
                 .where(MoleculeModel.molecule_id == resolved_id)
                 .where(MoleculeModel.payload_id == int(structure))
+                .order_by(MoleculeModel.id.desc())
             ).first()
-        model_data = None
-        if current_model is not None and current_model.data_payload_id is not None:
+            plddt_model = current_model
+            if current_model is None or current_model.source != ModelSource.ESMFOLD:
+                plddt_model = session.exec(
+                    select(MoleculeModel)
+                    .where(MoleculeModel.molecule_id == resolved_id)
+                    .where(MoleculeModel.source == ModelSource.ESMFOLD)
+                    .where(MoleculeModel.payload_id.is_not(None))
+                    .order_by(MoleculeModel.id.desc())
+                ).first()
+
+        def model_data(model):
+            if model is None or model.data_payload_id is None:
+                return None
             import json
 
             from amdockvs.core.payloads import read_structure
 
-            model_data = json.loads(read_structure(self.runtime.workspace.project_db, current_model.data_payload_id)[0])
-            model_data.pop("pae", None)
+            data = json.loads(read_structure(self.runtime.workspace.project_db, model.data_payload_id)[0])
+            data.pop("pae", None)
+            return data
+
+        current_data = model_data(current_model)
         return self.Details(
             molecule=molecule,
             binding_sites=binding_sites,
@@ -179,7 +197,9 @@ class MoleculeAPI:
             ligand_complexes=ligand_complexes,
             activities=activities,
             current_model=current_model,
-            current_model_data=model_data,
+            current_model_data=current_data,
+            plddt_model=plddt_model,
+            plddt_model_data=current_data if plddt_model is current_model else model_data(plddt_model),
         )
 
     def list_sets(self) -> list[SetRecord]:
