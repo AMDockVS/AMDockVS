@@ -155,6 +155,7 @@ def _protonation_status(name: str) -> Callable[[object], ToolStatus]:
             message=current.message,
             location=current.prefix if current.prefix.is_dir() else None,
             size_bytes=_directory_size(current.prefix),
+            available=current.available,
         )
 
     return status
@@ -255,6 +256,18 @@ MANAGED_TOOLS: tuple[ManagedTool, ...] = (
         location=_sklearn_location,
         category="QSAR",
         on_hosts=False,
+    ),
+    ManagedTool(
+        tool_id="reduce", label="Reduce", purpose=tool_spec("reduce").info["purpose"],
+        footprint=tool_spec("reduce").info["footprint"], status=_protonation_status("reduce"),
+        install_steps=_protonation_steps("reduce"), location=lambda runtime: managed_prefix(runtime, "reduce"),
+        recipe=lambda runtime: protonation_recipe(runtime, "reduce"), category="Protein preparation",
+    ),
+    ManagedTool(
+        tool_id="pdb2pqr", label="PDB2PQR", purpose=tool_spec("pdb2pqr").info["purpose"],
+        footprint=tool_spec("pdb2pqr").info["footprint"], status=_protonation_status("pdb2pqr"),
+        install_steps=_protonation_steps("pdb2pqr"), location=lambda runtime: managed_prefix(runtime, "pdb2pqr"),
+        recipe=lambda runtime: protonation_recipe(runtime, "pdb2pqr"), category="Protein preparation",
     ),
     _recipe_tool("vina", vina_recipe, "Docking engines"),
     _recipe_tool("qvina", qvina_recipe, "Docking engines"),

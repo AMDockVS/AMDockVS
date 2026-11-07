@@ -79,6 +79,26 @@ def test_unknown_tool_is_rejected():
         get_tool("autodock5")
 
 
+@pytest.mark.parametrize("name", ["reduce", "pdb2pqr"])
+def test_protein_protonation_is_managed_and_available_to_host_setup(monkeypatch, tmp_path, name):
+    from amdockvs.integrations.registry import get_tool
+    from amdockvs.integrations.hosts import HOST_PROGRAMS
+
+    monkeypatch.setenv("AMDOCK_TOOLS_HOME", str(tmp_path))
+    tool = get_tool(name)
+    recipe = tool.recipe(None)
+    assert tool.category == "Protein preparation" and name in HOST_PROGRAMS
+    assert recipe.prefix.startswith(str(tmp_path))
+    assert recipe.steps
+    assert recipe.commands == ()  # A tool on PATH must not satisfy a managed install.
+    if name == "reduce":
+        assert "reduce=4.15" in recipe.conda
+        assert "code=$?" in recipe.check[2]
+    else:
+        assert "pdb2pqr==3.7.1" in recipe.pip
+        assert any(candidate.endswith("pdb2pqr30") for candidate in recipe.candidates)
+
+
 @pytest.mark.parametrize("version,code,ready", [
     ("4.15", 0, True), ("4.15.250408", 2, True), ("4.15", 1, False),
     ("3.3.160602", 0, False), ("4.150", 0, False), ("4.16", 2, False),
