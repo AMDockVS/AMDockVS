@@ -801,6 +801,8 @@ class PreparationPanel:
                 build = self.window().tools.open_tool(BUILD_ID)
                 build.tabs.setCurrentWidget(build.proteins_tab)
                 return
+            if not self._confirm_receptor_search_boxes(programs, receptor_scope, title="Prepare Receptors"):
+                return
             for program in programs:
                 job_ids[program] = self.runtime.docking.prepare_receptors(
                     program=program,
@@ -839,6 +841,47 @@ class PreparationPanel:
         box.setEscapeButton(proceed)
         box.exec()
         return "build" if box.clickedButton() is build else "continue"
+
+    def _confirm_receptor_search_boxes(self, programs, receptor_scope, *, title: str) -> bool:
+        missing = set()
+        for program in programs:
+            if not self.runtime.docking.get_program_spec(program).requires_binding_site:
+                continue
+            status = self.runtime.docking.check_receptors(program=program, receptor_set=receptor_scope)
+            missing.update((status.get("missing") or {}).get("receptor_binding_sites") or ())
+        if not missing or self._ask_missing_receptor_box(len(missing), title=title) != "box":
+            return True
+        receptor = self.runtime.molecules.get(min(missing))
+        if receptor is not None:
+            self.stepper.set_current_index(2)
+            self._on_receptor_clicked(receptor)
+            window = self.window()
+            grid = window.grid_dock
+            if grid is not None and not self.runtime.binding_sites.active_site_id(int(receptor.id)):
+                # Select an existing box for review; activation remains the user's choice.
+                site = next((site for site in self.runtime.binding_sites.list_sites(molecule_id=int(receptor.id))
+                             if site.is_defined), None)
+                if site is not None:
+                    grid.focus_binding_site(receptor, site_id=int(site.id), ensure_selected=True)
+            window.viewer.show_grid_panel()
+        return False
+
+    def _ask_missing_receptor_box(self, count: int, *, title: str) -> str:
+        box = QMessageBox(
+            QMessageBox.Warning, title,
+            f"{int(count)} receptor(s) have no defined, active search box and will be skipped during docking.",
+            parent=self,
+        )
+        box.setInformativeText(
+            "Define and activate a search box, or select an existing box and activate it. "
+            "Receptor preparation can still proceed without a box."
+        )
+        define = box.addButton("Define or activate box…", QMessageBox.ActionRole)
+        proceed = box.addButton("Continue and skip", QMessageBox.AcceptRole)
+        box.setDefaultButton(proceed)
+        box.setEscapeButton(proceed)
+        box.exec()
+        return "box" if box.clickedButton() is define else "continue"
 
     def _save_prepare_ligands_to_workflow(self) -> None:
         from amdockvs.ui.tools.workflow_panel import save_to_workflow

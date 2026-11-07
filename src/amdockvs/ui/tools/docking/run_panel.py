@@ -682,6 +682,16 @@ class RunPanel:
             self.run_button.setText("Queued - waits for preparation")
             self.run_button.setEnabled(False)
             return
+        try:
+            if not self._confirm_receptor_search_boxes(
+                [protocol["program"] for protocol in params["protocols"]],
+                self._resolve_receptor_scope(inp["sel_rec"]),
+                title="Run Docking",
+            ):
+                return
+        except Exception as exc:
+            self._error("Run Docking", exc)
+            return
         if not self._large_run_confirmed(inp, params):
             return
         signature = self._docking_signature(inp, params)
