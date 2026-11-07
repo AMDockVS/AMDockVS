@@ -1,11 +1,42 @@
+---
+icon: lucide/code
+---
+
 # API guide
 
 Use `AMDockVSRuntime` as the public facade. A runtime owns the active MolSuite
 project and its executors, so close it with `shutdown()` when the work is done.
 
+## Quick start
+
+Create or open a project, then use the runtime's domain namespaces for your
+workflow:
+
 ```python
 from amdockvs import AMDockVSRuntime
+
+runtime = AMDockVSRuntime()
+try:
+    project = runtime.create_or_open_project(
+        name="screening",
+        folder="./screening-project",
+    )
+    print(project)
+finally:
+    runtime.shutdown()
 ```
+
+| Namespace | Responsibility |
+| --- | --- |
+| `runtime.loader` | Ligand and receptor import |
+| `runtime.molecules` | Queries, scopes, filters, and saved sets |
+| `runtime.chemistry` | Ligand and receptor preparation |
+| `runtime.complexes` | Explicit receptor-ligand relationships |
+| `runtime.qsar` | Activities, descriptors, models, and predictions |
+| `runtime.binding_sites` | Manual sites and P2Rank predictions |
+| `runtime.docking` | Preparation, grids, docking with Vina, QuickVina 2, gnina, AutoDock-GPU or Uni-Dock, and results |
+| `runtime.diversity` | Clustering and representative selection |
+| `runtime.tools` | External tools: status, install, repair |
 
 ## Projects and jobs
 
