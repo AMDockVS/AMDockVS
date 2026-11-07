@@ -1,3 +1,7 @@
+---
+icon: lucide/database
+---
+
 # Where your data lives
 
 A project is one folder. Molecules, prepared inputs and docked poses are not separate
@@ -53,12 +57,12 @@ runtime.compact_storage_if_due()               # compacts when no job runs; None
 
 Since structures are not files, getting them out is an export. Right-click rows in a table:
 
-- **Ligands / Receptors** → **Export structures (ZIP)…**: one file per molecule, in its own
+- **Ligands / Receptors** → **Export structures (ZIP)...**: one file per molecule, in its own
   format (`.sdf`, `.pdb`, `.cif`...), named after the molecule.
-- **Results** → **Export poses (SDF)…**: one SDF with the selected poses. Each pose carries
+- **Results** → **Export poses (SDF)...**: one SDF with the selected poses. Each pose carries
   its ligand, receptor, engine, protocol and score, and its RMSD, ligand efficiency and
   predicted pKi when known, as SDF data fields.
-- **Results** → **Export poses (ZIP)…**: one file per pose, as the engine wrote it.
+- **Results** → **Export poses (ZIP)...**: one file per pose, as the engine wrote it.
 
 From Python, the same functions the menus use:
 
