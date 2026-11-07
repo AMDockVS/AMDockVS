@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 
 from amdockvs.ui.catalog.ligands import LigandWidget, _ligand_table_config
 from amdockvs.ui.common.async_query import run_async
+from ms_components.chips import FlowLayout
 from ms_components.ms_table import FilterOperator, FilterSpec
 from amdockvs.ui.view_ids import CLUSTERS_VIEW_ID
 
@@ -80,6 +81,8 @@ class ClustersWidget(QWidget):
         bar = QHBoxLayout()
         bar.addWidget(QLabel("Run", self))
         self.run_combo = QComboBox(self)
+        self.run_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.run_combo.setMinimumContentsLength(18)
         self.run_combo.currentIndexChanged.connect(self._on_run_changed)
         bar.addWidget(self.run_combo, 1)
         self.select_button = QPushButton("Use as selection", self)
@@ -107,9 +110,11 @@ class ClustersWidget(QWidget):
         self.delete_button.clicked.connect(self._delete)
         buttons = (self.select_button, self.exclude_button, self.save_button,
                    self.sizes_button, self.delete_button)
+        actions = FlowLayout(spacing=6)
         for button in buttons:
-            bar.addWidget(button)
+            actions.addWidget(button)
         layout.addLayout(bar)
+        layout.addLayout(actions)
         layout.addLayout(self._representatives_bar())
         self._buttons = (*buttons, self.apply_button)
 
@@ -131,10 +136,11 @@ class ClustersWidget(QWidget):
         self.members = _ClusterLigands(runtime=runtime, config=_members_config(runtime), parent=None)
         self.refresh()
 
-    def _representatives_bar(self) -> QHBoxLayout:
-        bar = QHBoxLayout()
-        bar.addWidget(QLabel("Representatives", self))
+    def _representatives_bar(self) -> FlowLayout:
+        bar = FlowLayout(spacing=6)
         self.mode_combo = QComboBox(self)
+        self.mode_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.mode_combo.setMinimumContentsLength(14)
         for label, mode in (("Centroid", "centroid"), ("Medoid", "medoid"),
                             ("Extremes (min · mean · max)", "extremes"),
                             ("Quartiles (one per quartile)", "quartiles"),
@@ -151,6 +157,8 @@ class ClustersWidget(QWidget):
         )
         self.amount_spin = QSpinBox(self)
         self.rank_combo = QComboBox(self)
+        self.rank_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.rank_combo.setMinimumContentsLength(14)
         self.rank_combo.setToolTip(
             "What Extremes, Quartiles and Proportional spread over: from the centre of the cluster "
             "to its edge, or from low to high activity (ligands without a value are not picked)."
@@ -159,9 +167,18 @@ class ClustersWidget(QWidget):
         self.apply_button.setToolTip("Choose this run's representatives again with these settings.")
         self.apply_button.clicked.connect(self._pick_representatives)
         self.mode_combo.currentIndexChanged.connect(self._sync_mode)
-        for widget in (self.mode_combo, self.amount_spin, QLabel("Rank by", self), self.rank_combo, self.apply_button):
+
+        def group(label: str, control: QWidget) -> QWidget:
+            widget = QWidget(self)
+            row = QHBoxLayout(widget)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.addWidget(QLabel(label, widget))
+            row.addWidget(control)
+            return widget
+
+        for widget in (group("Representatives", self.mode_combo), self.amount_spin,
+                       group("Rank by", self.rank_combo), self.apply_button):
             bar.addWidget(widget)
-        bar.addStretch(1)
         self._sync_mode()
         return bar
 

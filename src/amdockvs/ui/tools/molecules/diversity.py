@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
 from amdockvs.models.molecules import MoleculeUsageClass
 from amdockvs.diversity.api import DiversityAPI
 from amdockvs.ui.common.async_query import run_async
+from ms_components.chips import FlowLayout
 from ms_components.ms_table import FilterOperator, FilterSpec
 from amdockvs.ui.view_ids import CLUSTERS_VIEW_ID, LIGANDS_VIEW_ID, SELECTION_VIEW_ID
 
@@ -211,9 +212,9 @@ class DiversitySelectionWidget(QWidget):
     # --- controls -------------------------------------------------------------
     def _build_controls(self) -> QWidget:
         box = QGroupBox("Diversity", self)
-        row = QHBoxLayout(box)
+        layout = QVBoxLayout(box)
 
-        # left: shared setup (what to cluster, feature, actions) --------------------------------
+        # Shared scope and fingerprint settings.
         setup = QFormLayout()
         self.set_combo = QComboBox(box)  # Selection scope (usage classes + sets)
         self.set_combo.setToolTip(
@@ -251,7 +252,7 @@ class DiversitySelectionWidget(QWidget):
         setup.addRow("Only with", self.measured_combo)
         setup.addRow("Morgan FP", fp_row)
 
-        buttons = QHBoxLayout()
+        buttons = FlowLayout(spacing=6)
         self.run_button = QPushButton("Preview sample", box)
         self.run_button.setToolTip(
             f"Optional: cluster a fast random sample (up to {RUN_SAMPLE_LIMIT}) just to eyeball the "
@@ -274,15 +275,13 @@ class DiversitySelectionWidget(QWidget):
         self.results_button = QPushButton("Show clusters", box)
         self.results_button.setToolTip("Open the Clusters view: the runs made so far, their clusters and ligands.")
         self.results_button.clicked.connect(lambda: self._show_clusters())
+        buttons.addWidget(self.run_button)
         buttons.addWidget(self.cluster_button)
         buttons.addWidget(self.results_button)
-        buttons.addWidget(self.run_button)
         buttons.addWidget(self.clear_button)
         buttons.addWidget(self.size_dist_button)
-        buttons.addStretch(1)
-        setup.addRow(buttons)
 
-        # right: the selected method's own options (a page per method) --------------------------
+        # Method options stay below the shared setup so the tool dock can be narrowed.
         self.method_stack = QStackedWidget(box)
         self._build_method_pages()
         method_box = QGroupBox("Method options", box)
@@ -294,8 +293,12 @@ class DiversitySelectionWidget(QWidget):
         self.method_combo.currentIndexChanged.connect(self._on_method_changed)
         self._on_method_changed()
 
-        row.addLayout(setup, 3)
-        row.addWidget(method_box, 2)
+        for combo in (self.set_combo, self.method_combo, self.measured_combo):
+            combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+            combo.setMinimumContentsLength(12)
+        layout.addLayout(setup)
+        layout.addWidget(method_box)
+        layout.addLayout(buttons)
         return box
 
     def _build_method_pages(self) -> None:
