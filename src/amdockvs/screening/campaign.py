@@ -83,6 +83,17 @@ def finish_run(project_db, *, docking_run_id: int | None) -> None:
         session.commit()
 
 
+def reopen_run(project_db, *, docking_run_id: int | None) -> None:
+    """A stopped run submitted again (Resume): its receptors that stopped are scheduled again."""
+    with project_db.get_session() as session:
+        for row in session.exec(select(ScreeningTarget).where(
+                ScreeningTarget.docking_run_id == docking_run_id,
+                ScreeningTarget.state.in_((TargetState.CANCELED, TargetState.FAILED)))).all():
+            row.state = TargetState.SCHEDULED
+            session.add(row)
+        session.commit()
+
+
 def stop_run(project_db, *, docking_run_id: int | None, state: str) -> None:
     """Expose a terminal job failure/cancellation in the campaign rows."""
     if state not in (TargetState.CANCELED, TargetState.FAILED):
