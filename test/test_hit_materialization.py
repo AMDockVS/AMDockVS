@@ -1,4 +1,4 @@
-"""§4 of `docs/plan_modos_vs_htpvs_2026-09-03.md`: threshold AND cap, whichever binds first.
+"""§4 of `docs/development/plan_modos_vs_htpvs_2026-09-03.md`: threshold AND cap, whichever binds first.
 
 The check the plan asks for: a gate that lets everything through with `cap=10` materializes
 exactly 10 rows, and a `light` ingest leaves rows with SMILES and pose but no descriptors.

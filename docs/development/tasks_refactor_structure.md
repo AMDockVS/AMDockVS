@@ -1,6 +1,6 @@
 # Tasks para Refactor de Estructura de AMDockVS
 
-Checklist ejecutable derivado de `docs/refactor_structure_plan.md`, ajustado al estado real actual del repo.
+Checklist ejecutable derivado de `docs/development/refactor_structure_plan.md`, ajustado al estado real actual del repo.
 
 Convenciones de lectura:
 
@@ -61,7 +61,7 @@ Convenciones de lectura:
 
 - [x] `R1-5.1` Reescribir `README.md` para describir el runtime publico como frontera oficial y marcar la migracion interna.
 - [x] `R1-5.2` Documentar la ruta oficial vigente: entrypoint y `from amdockvs.api import AMDockRuntime`.
-- [x] `R1-5.3` Revisar `docs/runtime_api.md`, `docs/official_flow.md` y docs auxiliares para evitar que describan como presente una estructura que todavia no existe.
+- [x] `R1-5.3` Revisar `docs/runtime_api.md`, `docs/development/official_flow.md` y docs auxiliares para evitar que describan como presente una estructura que todavia no existe.
 - [x] `R1-5.4` Actualizar este checklist cuando se cierre cada fase para que no vuelva a quedar desfasado del repo.
 
 ## Prioridad media

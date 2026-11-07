@@ -380,7 +380,7 @@ momento.
 
 ## Referencias
 
-- `docs/plan_acceso_datos_2026-08-27.md` — fases 1 y 2, cerradas.
+- `docs/development/plan_acceso_datos_2026-08-27.md` — fases 1 y 2, cerradas.
 - Memoria: `subquery-scopes-everywhere`, `clustering-payload-by-reference`,
   `htp-file-centric-plan`, `job-auto-dependencies`, `docking-skip-existing`,
   `declared-total-chunks-is-a-floor`, `mf-domain-idempotency-contract`.
