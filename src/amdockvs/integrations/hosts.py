@@ -11,11 +11,14 @@ from amdockvs.core.home import amdock_home
 from amdockvs.integrations.envs import tool_spec
 from amdockvs.integrations.registry import MANAGED_TOOLS
 
-# The app whole, its windows included: what the jobs import is not told apart from the rest.
-_PACKAGES = ("amdockvs[all]", "ms_flow[ray]", "ms_components", "ms_contactmap", "ms_env")
-_IMPORTS = ("ms_flow.runner", "amdockvs")
+# The app without its extras: receptor preparation (OpenMM), QSAR, P2Rank and BitBIRCH run here.
+# ms_components and ms_contactmap go only as their own code: the settings of the app import their
+# defaults (monitor, themes, diagram style), never their widgets.
+_PACKAGES = ("amdockvs", "ms_flow[ray]", "ms_components", "ms_contactmap", "ms_env")
+_IMPORTS = ("ms_flow.runner", "amdockvs.docking.campaign")
 # Only jobs run there: no GUI. PyPI's PyMOL wants a newer glibc than most clusters have (2.35).
-_HEADLESS = ("PySide6", "pymol-open-source", "pyqtgraph")
+# Biopython is what ms_contactmap reads structures with: interactions are found here, not there.
+_HEADLESS = ("PySide6", "pymol-open-source", "pyqtgraph", "biopython")
 # What Settings > Hosts > Check connection reads there: the environment the app prepares (under
 # the home of the account, where `ssh` starts) and the versions that matter in it.
 HOST_ENV = ".amdockvs/env"  # the `{home}/env` of `host_recipes`
