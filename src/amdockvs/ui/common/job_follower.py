@@ -19,6 +19,7 @@ class JobFollower(QObject):
     """
 
     finished = Signal(str)  # overall outcome: completed / failed / canceled
+    stage_finished = Signal(str, str)  # tracked job id, normalized outcome
 
     def __init__(self, host: QWidget, bar: ActionBar, *, noun: str, unit: str = "batches") -> None:
         """``host`` owns the follower and provides ``runtime`` (cancel) and the window (bridge)."""
@@ -60,6 +61,7 @@ class JobFollower(QObject):
             return
         status = str(status or "").strip().lower()
         self._outcomes[job_id] = JOB_STATUS.get(status, status)
+        self.stage_finished.emit(job_id, self._outcomes[job_id])
         if len(self._outcomes) < len(self._stages):
             self._render()
             return

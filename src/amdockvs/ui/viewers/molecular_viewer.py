@@ -7,7 +7,7 @@ import contextlib
 import logging
 import math
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import QWidget
 from ms_components.ms_pymol import clear_scene, frame, is_additive, prepare_scene, set_additive
 from ms_components.ms_table import TableInteraction
@@ -30,8 +30,11 @@ from amdockvs.ui.tools.pymol_ribbon import (
 _log = logging.getLogger(__name__)
 
 
-class MolecularViewerController:
+class MolecularViewerController(QObject):
+    catalog_molecule_shown = Signal(object)
+
     def __init__(self, window):
+        super().__init__(window if isinstance(window, QWidget) else None)
         self.w = window
         self.grid_preview_enabled = True
         self._request = 0  # single selection keeps only the latest read; multiple selection keeps all
@@ -497,6 +500,7 @@ class MolecularViewerController:
             source=source,
             object_prefix=object_prefix,
             orient=orient,
+            then=self.catalog_molecule_shown.emit,
         )
 
     def show_molecule(self, molecule, mode: str) -> None:
