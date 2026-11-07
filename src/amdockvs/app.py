@@ -191,15 +191,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                 base_font_pt=saved_base_font_pt())  # ribbon recolor follows in main_window; live switch via Theme menu
     install_shift_hscroll(qt_app)  # Shift+wheel = horizontal, as in the browser/GTK
 
-    print("Creating splash…", time.time() - start)
+    print("Creating splash...", time.time() - start)
     splash = None
     if not _splash_disabled():
         from amdockvs.ui.shell.splash import create_splash
-        print("Creating splash 2…", time.time() - start)
+        print("Creating splash 2...", time.time() - start)
         splash = create_splash()
 
     if splash is not None:
-        splash.status("Starting engine…")
+        splash.status("Starting engine...")
     print("Starting engine WITHOUT IMPORTS...", time.time() - start)
 
     from amdockvs.runtime import AMDockVSRuntime
@@ -208,7 +208,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     startup_error: Exception | None = None
     try:
         if splash is not None:
-            splash.status("Opening project…")
+            splash.status("Opening project...")
         try:
             if args.delete_project_id:
                 _delete_project(runtime, args.delete_project_id)
@@ -221,7 +221,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             startup_error = exc
 
         if splash is not None:
-            splash.status("Loading interface…")
+            splash.status("Loading interface...")
         from amdockvs.ui.main_window import AMDockVSMainWindow
 
         window = AMDockVSMainWindow(runtime=runtime)
