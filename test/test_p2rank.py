@@ -219,6 +219,39 @@ def test_an_unreadable_structure_leaves_the_requested_profile_alone(tmp_path):
     assert effective_profile("default", tmp_path / "missing.pdb") == ("default", "")
 
 
+def test_a_run_resolved_off_the_requested_profile_is_still_reusable(tmp_path):
+    """Without this, asking for the B-factor model would recalculate the same receptors forever.
+
+    The executor resolves "default" to "alphafold" where B-factors say nothing, so what is
+    stored can never equal what was asked for. The recorded reason is what closes the loop.
+    """
+    project_store = ProjectStore.open_at(tmp_path / "project.db")
+    output = tmp_path / "results" / "pockets" / "run" / "receptor_7"
+    _write_outputs(output)
+    resolved = parse_p2rank_outputs(output_dir=output, receptor_id=7, run_id="run",
+                                    profile="alphafold", profile_reason=B_FACTOR_CONSTANT)
+    assert resolved[0]["extra_data"]["profile_reason"] == B_FACTOR_CONSTANT
+    with project_store.get_session() as session:
+        session.add(MoleculeRecord(id=7, name="rec", is_receptor=True))
+        session.commit()
+        session.add(BindingSite(**resolved[0]))
+        session.commit()
+
+    api = _pocket_api(project_store)
+    assert api.plan_prediction(receptor_ids=[7], profile="default").reused_receptor_ids == (7,)
+    assert api.plan_prediction(receptor_ids=[7], profile="alphafold").reused_receptor_ids == (7,)
+
+    # A plain alphafold run carries no reason, so a request for B-factors is a real change.
+    plain = parse_p2rank_outputs(output_dir=output, receptor_id=8, run_id="run", profile="alphafold")
+    with project_store.get_session() as session:
+        session.add(MoleculeRecord(id=8, name="other", is_receptor=True))
+        session.commit()
+        session.add(BindingSite(**plain[0]))
+        session.commit()
+    assert api.plan_prediction(receptor_ids=[8], profile="default").recalculate_receptor_ids == (8,)
+    ProjectStore.clear_cached_stores()
+
+
 def test_prediction_plan_reuses_only_one_coherent_current_run(tmp_path):
     project_store = ProjectStore.open_at(tmp_path / "project.db")
     output = tmp_path / "results" / "pockets" / "old" / "receptor_7"

@@ -22,6 +22,8 @@ from amdockvs.core.payloads import molecule_payload_id, read_structure
 from amdockvs.binding_sites.boxes import box_from_coords
 from amdockvs.binding_sites.jobs import P2RankPredictionParams, p2rank_prediction_job
 from amdockvs.binding_sites.p2rank import (
+    B_FACTOR_CONSTANT,
+    B_FACTOR_PREDICTED,
     P2RANK_VERSION,
     P2RankInstallation,
     ensure_p2rank,
@@ -66,6 +68,25 @@ def _read_atom_coords(text: str, kind: str) -> list[tuple[float, float, float]]:
         (float(p.x), float(p.y), float(p.z))
         for p in (conf.GetAtomPosition(i) for i in range(mol.GetNumAtoms()))
     ]
+
+
+def _profile_matches(extra_data: dict, requested: str) -> bool:
+    """Whether a stored site's profile answers a request for ``requested``.
+
+    The executor resolves "default" to "alphafold" where the B-factor column carries nothing
+    it can use, and records why on the site. Reading that back is what keeps a reused run from
+    looking stale: without it, every run asking for the B-factor model would recalculate the
+    same receptors forever, because what is stored can never equal what was asked for.
+    """
+    stored = str(extra_data.get("profile") or "default")
+    if stored == requested:
+        return True
+    reason = str(extra_data.get("profile_reason") or "")
+    return (
+        requested == "default"
+        and stored == "alphafold"
+        and reason in {B_FACTOR_PREDICTED, B_FACTOR_CONSTANT}
+    )
 
 
 def _latest_run(sites: list[BindingSite]) -> list[BindingSite]:
@@ -237,8 +258,7 @@ class BindingSiteAPI:
             ranks = [str(site.source_ref or "") for site in sites]
             coherent = bool(sites) and len(ranks) == len(set(ranks))
             coherent = coherent and all(
-                str(dict(site.extra_data or {}).get("profile") or "default")
-                == requested_profiles[receptor_id]
+                _profile_matches(dict(site.extra_data or {}), requested_profiles[receptor_id])
                 and str(dict(site.extra_data or {}).get("version") or "")
                 == P2RANK_VERSION
                 and Path(
