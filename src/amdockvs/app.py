@@ -251,6 +251,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             uninstall_shift_hscroll(qt_app)
             shutdown_themed_icons(qt_app)
         finally:
+            # A panel read already in the project's database has to come out of it before the
+            # runtime closes that database under it; waiting is bounded, so a read that never
+            # returns delays the exit rather than preventing it.
+            from amdockvs.ui.common.async_query import drain_async_reads
+
+            if not drain_async_reads(10_000):
+                print("Closing with a background read still running.", file=sys.stderr)
             runtime.shutdown()
             if owns_app:
                 qt_app.quit()
