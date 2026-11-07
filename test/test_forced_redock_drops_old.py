@@ -1,4 +1,4 @@
-"""A forced re-dock drops its pairs' older results when it starts, so Docked counts only what it docks."""
+"""A forced re-dock drops its pairs' older results when it starts, and Docked speaks of the selection."""
 from contextlib import contextmanager
 
 from sqlmodel import Session, SQLModel, create_engine, select
@@ -34,8 +34,11 @@ def test_a_forced_redock_drops_the_older_results_of_its_pairs_only():
         s.add(DockingResultRecord(receptor_molecule_id=1, ligand_molecule_id=2, docking_run_id=2, pose_rank=1))
         s.add(DockingResultRecord(receptor_molecule_id=1, ligand_molecule_id=3, docking_run_id=3, pose_rank=1))
         s.commit()
-    plan_targets(db, docking_run_id=2, receptors=[{"receptor_id": 1}], ligands_total=2, engine="vina")
-    assert receptor_progress(db, [1], "h")[1]["progress"] == 3  # skipping: what was docked is done
+    # Skipping ligands 2 and 3: both were docked before, and the run has 2 of 3 as its selection.
+    plan_targets(db, docking_run_id=2, receptors=[{"receptor_id": 1, "ligands_done": 2}],
+                 ligands_total=2, engine="vina")
+    assert receptor_progress(db, [1], "h")[1]["ligands"] == 2
+    assert receptor_progress(db, [1], "h")[1]["progress"] == 3  # the 2 skipped + the 1 it recorded
 
     # Ligands 2 and 3 are re-docked; 4 is outside the selection, run 3 is another program.
     scope = molecule_scope_spec(entity_kind="ligand", engine="ad4", extra_filters={"id__in": [2, 3]}, order=())
@@ -44,3 +47,8 @@ def test_a_forced_redock_drops_the_older_results_of_its_pairs_only():
     with db.get_session() as s:
         left = {(r.docking_run_id, r.ligand_molecule_id) for r in s.exec(select(DockingResultRecord))}
     assert left == {(1, 4), (2, 2), (3, 3)}
+
+    # Forced: nothing of its pairs is left to count, so Docked is what this run has recorded.
+    plan_targets(db, docking_run_id=2, receptors=[{"receptor_id": 1, "ligands_done": 0}],
+                 ligands_total=2, engine="vina")
+    assert receptor_progress(db, [1], "h")[1]["progress"] == 1

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from functools import partial
 
-from sqlalchemy import String, cast, distinct, exists, func, literal, or_, select
+from sqlalchemy import String, case, cast, distinct, exists, func, literal, or_, select
 from sqlalchemy.orm import aliased
 
 from ms_components.ms_table.table_config import (
@@ -24,7 +24,13 @@ from ms_components.ms_table.table_config import (
 )
 
 from amdockvs.core.vocab import TargetState
-from amdockvs.models import DockingResultRecord, DockingRun, MoleculeRecord, ScreeningTarget
+from amdockvs.models import (
+    DockingResultRecord,
+    DockingRun,
+    MoleculeRecord,
+    ScreeningShardRun,
+    ScreeningTarget,
+)
 
 
 def fmt_float(value: float | None) -> str:
@@ -131,10 +137,17 @@ def _over_plans(protocol_hash: str, value, aggregate=func.sum):
 
 
 def _plan_docked(target, run):
-    # Campaigns count `ligands_done` (their non-hits leave no row); row-mode runs plan with 0
-    # and write a row per docked pair, so the larger of the two is right for both. A forced
-    # re-dock removed its pairs' older rows when it started: what is left is what it docked.
-    return func.max(target.ligands_done, _docked_of(target.receptor_molecule_id, run.protocol_hash))
+    """Of the ligands this run selected, how many are docked: the ones it found docked when it
+    was planned, plus the ones it has recorded since.
+
+    A run by shards writes no row per pair (only the few hits it imports), so the parent counts
+    its ligands into `ligands_done` as its chunks land: there, the plan is the whole count."""
+    result, shard_run = aliased(DockingResultRecord), aliased(ScreeningShardRun)
+    own = (select(func.count(distinct(result.ligand_molecule_id)))
+           .where(result.receptor_molecule_id == target.receptor_molecule_id, result.docking_run_id == run.id)
+           .scalar_subquery())
+    by_shards = exists(select(shard_run.id).where(shard_run.docking_run_id == run.id))
+    return case((by_shards, target.ligands_done), else_=target.ligands_done + own)
 
 
 _STOPPED = (TargetState.FAILED, TargetState.CANCELED)

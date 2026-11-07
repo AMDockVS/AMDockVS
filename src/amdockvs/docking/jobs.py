@@ -366,10 +366,21 @@ def iter_docking_batches(
                                                  order=()),
                 engine=engine, protocol_hash=protocol_hash,
             )
+        # Docked counts inside the selection: each receptor starts from the ligands of this run
+        # that other runs of the program had already docked — none, after a forced re-dock.
+        def already_docked(receptor_id: int) -> int:
+            return count_entity_rows(
+                project_db, entity_kind="ligand", engine=prep_engine, set_id=ligand_set_id,
+                filters=normalized_ligand_filters, extra_filters={**selection, "id__in_subquery":
+                    docked_ligands_spec(receptor_id=int(receptor_id), engine=engine, run_kind="screening",
+                                        protocol_hash=protocol_hash or None, except_run=run)},
+            ) if protocol_hash else 0
+
         plan_targets(
             project_db,
             docking_run_id=run,
-            receptors=[{"receptor_id": row.get("id")} for row in receptors],
+            receptors=[{"receptor_id": row.get("id"), "ligands_done": already_docked(row.get("id"))}
+                       for row in receptors],
             ligands_total=count_entity_rows(
                 project_db, entity_kind="ligand", engine=prep_engine,
                 set_id=ligand_set_id, filters=normalized_ligand_filters, extra_filters=selection,
