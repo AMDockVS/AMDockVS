@@ -681,13 +681,15 @@ class PocketDetectionWidget(QWidget):
         else:
             self._adopt_table_selection()
 
-    def _adopt_table_selection(self) -> None:
+    def _adopt_table_selection(self, *, select_first: bool = False) -> None:
         """Opening the tool over a row that is already selected fires no signal, and the panel
         would sit empty next to a highlighted receptor."""
         table = self._bound_receptor_table
         if table is None:
             return
         selected = next(iter(table.get_selected_objects() or []), None)
+        if selected is None and select_first and table.select_first_row():
+            selected = next(iter(table.get_selected_objects() or []), None)
         if selected is not None:
             # Only ever adopts; a reload that drops the selection must not blank the panel.
             self._focus_receptor(int(getattr(selected, "id", 0) or 0))
@@ -832,6 +834,9 @@ class PocketDetectionWidget(QWidget):
                 receptor_ids=receptor_ids,
                 profile=profile,
             )
+            # The scope can contain receptors without any highlighted row. Give the
+            # results panel a receptor to follow before results arrive or are reused.
+            self._adopt_table_selection(select_first=True)
             if not plan.recalculate_receptor_ids:
                 self._reload_sites()
                 self.job_details_link.hide()

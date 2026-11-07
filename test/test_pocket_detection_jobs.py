@@ -194,3 +194,74 @@ def test_submitting_reveals_a_link_that_opens_the_jobs_monitor(panel, monkeypatc
     assert not widget.job_details_link.isHidden()
     widget.job_details_link.linkActivated.emit("jobs")
     monitor.assert_called_once_with()
+
+
+@pytest.mark.parametrize("selected_row", [None, 1])
+@pytest.mark.parametrize("reuse", [False, True])
+def test_results_appear_without_switching_tabs(tmp_path, monkeypatch, selected_row, reuse):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(PocketDetectionWidget, "refresh", lambda self: None)
+    app = QApplication.instance() or QApplication([])
+    store = ProjectStore.open_at(tmp_path / "project.db")
+    with store.get_session() as session:
+        session.add_all([
+            MoleculeRecord(id=4, name="first", is_receptor=True),
+            MoleculeRecord(id=7, name="selected", is_receptor=True),
+        ])
+        session.commit()
+    runtime = SimpleNamespace(
+        workspace=SimpleNamespace(project_db=store),
+        _require_active_project=lambda: None,
+        list_jobs=lambda **kwargs: [],
+    )
+    runtime.binding_sites = BindingSiteAPI(runtime)
+    runtime.binding_sites.predict = Mock(return_value="pockets")
+    runtime.binding_sites.plan_prediction = Mock(return_value=SimpleNamespace(
+        recalculate_receptor_ids=() if reuse else (4, 7),
+        reused_receptor_ids=(4, 7) if reuse else (),
+    ))
+    host = QWidget()
+    host.monitor_bridge = _Bridge([])
+    table = SmartTableView(db=store, config=TableConfig(
+        model_class=MoleculeRecord, columns=[ColumnDef("id"), ColumnDef("name")],
+    ), parent=host)
+    sites = BindingSitesWidget(runtime=runtime, parent=host)
+    host.aux = SimpleNamespace(page_for=lambda _view: sites)
+    tool = PocketDetectionWidget(runtime=runtime, parent=host)
+    tool._receptors = {4: {"id": 4}, 7: {"id": 7}}
+    tool._bind_receptor_table_signals(SimpleNamespace(table=table))
+    layout = QVBoxLayout(host)
+    for widget in (tool, table, sites):
+        layout.addWidget(widget)
+    host.show()
+    app.processEvents()
+    if selected_row is not None:
+        table.view.selectRow(selected_row)
+
+    def save_results():
+        with store.get_session() as session:
+            session.add_all([
+                BindingSite(id=40, molecule_id=4, name="first pocket", source="p2rank", source_ref="1"),
+                BindingSite(id=70, molecule_id=7, name="selected pocket", source="p2rank", source_ref="1"),
+            ])
+            session.commit()
+
+    try:
+        if reuse:
+            save_results()
+        tool._submit_prediction()
+        if not reuse:
+            save_results()
+            host.monitor_bridge.job_finished.emit("pockets", "completed")
+        deadline = time.monotonic() + 2
+        while sites.table.rowCount() == 0 and time.monotonic() < deadline:
+            app.processEvents()
+            time.sleep(0.01)
+        assert sites.table.rowCount() == 1
+        expected_id = 4 if selected_row is None else 7
+        assert sites._sites[0].molecule_id == expected_id
+        assert table.get_selected_object().id == expected_id
+    finally:
+        host.close()
+        host.deleteLater()
+        app.processEvents()
