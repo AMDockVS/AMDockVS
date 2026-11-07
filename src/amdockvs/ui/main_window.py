@@ -811,6 +811,10 @@ class AMDockVSMainWindow(QMainWindow):
         self.dock_manager.close_windowed_docks()
         try:
             self.monitor_bridge.stop()
+            # The bridge outlives this window: a poll already queued would reach destroyed views.
+            self.monitor_bridge.job_finished.disconnect(self.jobs.on_job_finished)
+            self.monitor_bridge.project_changed.disconnect(self.jobs.on_monitor_project_changed)
+            self.monitor_bridge.project_snapshot_updated.disconnect(self.jobs.on_project_snapshot_updated)
         finally:
             if self._app_widget is not None:
                 self._app_widget.close()
