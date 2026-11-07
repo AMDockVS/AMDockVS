@@ -17,6 +17,7 @@ from typing import Any, Callable
 from PySide6.QtCore import QEvent, QObject, QRunnable, QThreadPool, Qt, QTimer, Signal
 from PySide6.QtGui import QPainter, QPalette, QPen
 from PySide6.QtWidgets import QApplication, QLabel, QProgressBar, QVBoxLayout, QWidget
+from shiboken6 import isValid
 
 
 class BusyOverlay(QWidget):
@@ -165,7 +166,14 @@ def run_async(
     pool: QThreadPool | None = None,
     busy: QWidget | None = None,
     compact: bool = False,
+    owner: QObject | None = None,
 ) -> None:
+    """Run `fn` off the GUI thread and hand its result to `on_result` on the GUI thread.
+
+    `owner` is the object the answer is for — the panel that asked. A read started before
+    that object was destroyed still finishes (a query cannot be interrupted mid-flight),
+    but its result is dropped rather than delivered into a widget that no longer exists.
+    """
     signals = _Signals(QApplication.instance())
     # busy region gets either a full overlay (big areas: tables, previews) or a small inline
     # spinner (compact=True, for a single value/label where the overlay would be overkill).
@@ -174,19 +182,20 @@ def run_async(
         overlay = _ensure_spinner(busy) if compact else _ensure_overlay(busy)
         overlay.start()
 
-    def _done(result: Any) -> None:
+    def _finish() -> bool:
+        """Clean up and say whether the result still has somewhere to go."""
         _ACTIVE_TASKS.pop(task, None)
-        if overlay is not None:
+        if overlay is not None and isValid(overlay):
             overlay.stop()
         signals.deleteLater()
-        on_result(result)
+        return owner is None or isValid(owner)
+
+    def _done(result: Any) -> None:
+        if _finish():
+            on_result(result)
 
     def _err(exc: Any) -> None:
-        _ACTIVE_TASKS.pop(task, None)
-        if overlay is not None:
-            overlay.stop()
-        signals.deleteLater()
-        if on_error is not None:
+        if _finish() and on_error is not None:
             on_error(exc)
 
     signals.done.connect(_done)
@@ -197,3 +206,13 @@ def run_async(
     # QObject alive while the work crosses threads; both references live until done/error.
     _ACTIVE_TASKS[task] = signals
     (pool or QThreadPool.globalInstance()).start(task)
+
+
+def drain_async_reads(timeout_ms: int = 10_000, pool: QThreadPool | None = None) -> bool:
+    """Wait for the reads already running to come out of the database. True if all did.
+
+    They read the project through its own session, so closing that project — or shutting the
+    runtime down — while one is still inside it leaves the two contending over the same
+    SQLite file. Callers that are about to take the database away wait here first.
+    """
+    return (pool or QThreadPool.globalInstance()).waitForDone(int(timeout_ms))
