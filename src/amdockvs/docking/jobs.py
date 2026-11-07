@@ -53,6 +53,7 @@ from amdockvs.docking.results.repository import (
     count_docking_results,
     docking_run_id,
     find_docking_run,
+    drop_redocked_pairs,
     supersede_results,
     existing_result_pairs,
 )
@@ -333,8 +334,7 @@ def iter_docking_batches(
         return
 
     # Lightweight "already computed" guard: skip pairs that already have results (default). A
-    # forced re-dock docks them again, and what it stores replaces the older rows when the job
-    # ends (`_supersede`): never here, where the new result does not exist yet.
+    # forced re-dock docks them again, and their older results go now, so the two never mix.
     protocol_payload = (
         protocol_metadata.as_metrics_payload()
         if isinstance(protocol_metadata, DockingProtocolMetadata)
@@ -356,11 +356,31 @@ def iter_docking_batches(
         # docks receptor by receptor), so Results shows them all with the full ligand count.
         # ponytail: only the plan and its end state (`_supersede`) — Docked still counts
         # `docking_results` rows; the state only colors the Docked bar.
+        run = docking_run_id(project_db, run_id=run_id, engine=engine, run_kind="screening",
+                             protocol=protocol_payload)
+        if not skip_existing:
+            drop_redocked_pairs(
+                project_db, docking_run_id=run, receptor_ids=[row.get("id") for row in receptors],
+                ligand_scope=molecule_scope_spec(entity_kind="ligand", engine=prep_engine, set_id=ligand_set_id,
+                                                 filters=normalized_ligand_filters, extra_filters=selection,
+                                                 order=()),
+                engine=engine, protocol_hash=protocol_hash,
+            )
+        # Docked counts inside the selection: each receptor starts from the ligands of this run
+        # that other runs of the program had already docked — none, after a forced re-dock.
+        def already_docked(receptor_id: int) -> int:
+            return count_entity_rows(
+                project_db, entity_kind="ligand", engine=prep_engine, set_id=ligand_set_id,
+                filters=normalized_ligand_filters, extra_filters={**selection, "id__in_subquery":
+                    docked_ligands_spec(receptor_id=int(receptor_id), engine=engine, run_kind="screening",
+                                        protocol_hash=protocol_hash or None, except_run=run)},
+            ) if protocol_hash else 0
+
         plan_targets(
             project_db,
-            docking_run_id=docking_run_id(project_db, run_id=run_id, engine=engine, run_kind="screening",
-                                          protocol=protocol_payload),
-            receptors=[{"receptor_id": row.get("id")} for row in receptors],
+            docking_run_id=run,
+            receptors=[{"receptor_id": row.get("id"), "ligands_done": already_docked(row.get("id"))}
+                       for row in receptors],
             ligands_total=count_entity_rows(
                 project_db, entity_kind="ligand", engine=prep_engine,
                 set_id=ligand_set_id, filters=normalized_ligand_filters, extra_filters=selection,

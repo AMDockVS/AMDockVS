@@ -52,8 +52,9 @@ class ApplicationWidget(QWidget):
         self._projects_widget.activateWindow()
         self.projects_opened.emit(self._projects_widget)
 
-    def open_settings(self, *, node: str | None = None, tool: str | None = None) -> None:
-        """On `node` when given; `tool` narrows External tools to that one tool."""
+    def open_settings(self, *, node: str | None = None, tool: str | None = None, executor: str | None = None) -> None:
+        """On `node` when given; `tool` narrows External tools to that one tool; `executor`, on
+        that one in Executors."""
         if self._settings_dialog is None:
             from amdockvs.ui.resources.icons import icon
             from amdockvs.integrations.hosts import HOST_ENV, HOST_PACKAGES, HOST_PROGRAMS
@@ -70,15 +71,20 @@ class ApplicationWidget(QWidget):
             self._settings_dialog.panel.add_page(self._tools_page, "External tools")
             self._settings_dialog.panel.add_page(DownloadsPage(self.runtime, parent=self._settings_dialog), "Downloads")
             # The machines that run jobs and who runs them there; started from the bar, not here.
+            self._kept_pages = {}
             for table in ("hosts", "executors"):
-                self._settings_dialog.panel.add_page(
-                    KeptPage(self.runtime.workspace, table, parent=self._settings_dialog,
-                             packages=HOST_PACKAGES, default_env=HOST_ENV, programs=HOST_PROGRAMS), table.capitalize())
+                page = self._kept_pages[table] = KeptPage(self.runtime.workspace, table, parent=self._settings_dialog,
+                                                          packages=HOST_PACKAGES, default_env=HOST_ENV,
+                                                          programs=HOST_PROGRAMS)
+                self._settings_dialog.panel.add_page(page, table.capitalize())
             self._settings_dialog.settings_saved.connect(self.settings_saved.emit)
             self._settings_dialog.destroyed.connect(self._on_settings_dialog_destroyed)
         else:
             self._settings_dialog.panel.reload_values()
         self._tools_page.show_only(tool)
+        if executor:
+            node = "page:Executors"
+            self._kept_pages["executors"].reload(select=executor)
         if node:
             self._settings_dialog.panel.select_node(node)
         self._settings_dialog.show()

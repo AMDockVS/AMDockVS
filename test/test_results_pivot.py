@@ -135,18 +135,29 @@ def test_view_level_activity_tracks_the_current_pivot_and_hides_when_done():
     ]))
 
     assert not widget.activity.isHidden()
-    assert widget.progress_label.text() == "Docking · 8 / 12 dockings"
+    assert widget.progress_label.text() == "Docking · 8 / 12 tasks"
     assert widget.updated_label.text() == "…"
     assert "waiting" in widget.updated_label.toolTip()
 
     widget.pivot_combo.setCurrentIndex(widget.pivot_combo.findData("redocking"))
-    assert widget.progress_label.text() == "Redocking · 2 / 4 dockings"
+    assert widget.progress_label.text() == "Redocking · 2 / 4 tasks"
 
     widget._on_monitor_snapshot(SimpleNamespace(jobs=[
         _job("amdock_docking_job", done=8, total=12),
         _job("amdock_redocking_job", done=4, total=4, status="completed"),
     ]))
     assert widget.activity.isHidden()
+
+
+def test_a_run_in_a_queue_says_what_is_recorded_and_what_was_computed_there():
+    widget = _widget(hits=True)
+    widget._view_visible = True
+    job = _job("amdock_dock_rows_campaign", done=3, total=10)
+    job.note = "running in the queue (job 7): 5 of 10 done"
+    widget._on_monitor_snapshot(SimpleNamespace(jobs=[job]))
+
+    assert widget.progress_label.text() == (
+        "Docking · 3 / 10 tasks recorded · running in the queue (job 7): 5 of 10 done")
 
 
 def test_shard_docking_does_not_mix_chunk_and_molecule_progress():
@@ -308,9 +319,10 @@ def test_live_hits_refreshes_receptor_aggregates_and_only_the_ligand_count():
         session.commit()
 
     assert widget.refresh_counts() is True
-    receptor = widget.receptor_table._model.get_row_data(0)
     # No campaign plan for this receptor, so the counters fall back to the results themselves.
-    assert receptor["ligands"] == 2 and receptor["progress"] == 2
+    # The receptor page may reload in the background when its first load had not landed yet.
+    _wait_for(lambda: (widget.receptor_table._model.get_row_data(0) or {}).get("progress") == 2)
+    assert widget.receptor_table._model.get_row_data(0)["ligands"] == 2
     assert widget.ligand_table._model.loaded_count == 1  # the loaded rows were not reloaded
     _wait_for(lambda: widget.ligand_table.record_total == 2)
     assert "2 records" in widget.ligand_table._result_count_label.text()

@@ -24,7 +24,11 @@ def plan_targets(
     ligands_total: int,
     engine: str = "",
 ) -> int:
-    """One row per scheduled receptor. Idempotent: re-planning a run updates its plan."""
+    """One row per scheduled receptor. Idempotent: re-planning a run updates its plan.
+
+    A receptor may bring `ligands_done`: how many of the run's OWN ligands were already docked
+    when it was planned (what "Skip pairs already docked" takes out of its work). Docked counts
+    from there, so it speaks of the selection and of nothing else."""
     rows = list(receptors)
     if not rows:
         return 0
@@ -40,6 +44,8 @@ def plan_targets(
             existing.receptor_name = str(receptor.get("receptor_name") or existing.receptor_name)
             existing.engine = str(engine or existing.engine)
             existing.ligands_total = int(ligands_total)
+            if receptor.get("ligands_done") is not None:
+                existing.ligands_done = int(receptor["ligands_done"])
             existing.state = TargetState.SCHEDULED
             session.add(existing)
         session.commit()
@@ -73,6 +79,17 @@ def finish_run(project_db, *, docking_run_id: int | None) -> None:
     with project_db.get_session() as session:
         for row in session.exec(select(ScreeningTarget).where(ScreeningTarget.docking_run_id == docking_run_id)).all():
             row.state = TargetState.DONE
+            session.add(row)
+        session.commit()
+
+
+def reopen_run(project_db, *, docking_run_id: int | None) -> None:
+    """A stopped run submitted again (Resume): its receptors that stopped are scheduled again."""
+    with project_db.get_session() as session:
+        for row in session.exec(select(ScreeningTarget).where(
+                ScreeningTarget.docking_run_id == docking_run_id,
+                ScreeningTarget.state.in_((TargetState.CANCELED, TargetState.FAILED)))).all():
+            row.state = TargetState.SCHEDULED
             session.add(row)
         session.commit()
 

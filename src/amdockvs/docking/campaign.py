@@ -47,7 +47,7 @@ from amdockvs.docking.shard_tasks import (
 )
 from amdockvs.io.shards import SHARD_SUFFIX
 from amdockvs.molecules.storage import iter_prepared_shards, prepared_shard_path
-from amdockvs.screening.campaign import finish_run, plan_targets, stop_run
+from amdockvs.screening.campaign import finish_run, plan_targets, reopen_run, stop_run
 
 # What a chunk of `vs` says about one receptor, which an off-target says for itself.
 _RECEPTOR_KEYS = ("receptor_id", "receptor_name", "receptor_path", "flex_receptor_path", "box_center", "box_size",
@@ -219,7 +219,7 @@ class _Packer:
             return
         self._writer.close()
         sha = _sha256(self._writer.path)
-        path = self.folder / f"{sha}{SHARD_SUFFIX}"
+        path = self.folder / f"{sha[:16]}{SHARD_SUFFIX}"  # a name; `digests` keep the whole sha
         os.replace(self._writer.path, path)
         self.shards.append((path, sha))
         self._writer = None
@@ -237,7 +237,7 @@ def pack_rows(chunks: Iterable[dict], folder: Path, cpu: int) -> Path:
     Read by the campaign each time it is submitted, so it is the same campaign however many of
     its pairs came back since. Nothing registers the shards: they are not a library, and the
     project stays one of rows (`screening_shards` is what makes it one of shards).
-    Removed when the campaign ends (`drop_transport`).
+    Removed when the campaign completes (`drop_transport`); a stopped one keeps them for Resume.
     """
     folder.mkdir(parents=True, exist_ok=True)
     packer, elements = _Packer(folder), []
@@ -254,7 +254,7 @@ def pack_rows(chunks: Iterable[dict], folder: Path, cpu: int) -> Path:
         element["ligands"] = [File(str(shards[index][0])) for index in element["ligands"]]
     text = json.dumps({"elements": plain(elements, "a docking chunk"),
                        "digests": {str(path): sha for path, sha in shards}}, sort_keys=True)
-    manifest = folder / f"{hashlib.sha256(text.encode()).hexdigest()}.json"
+    manifest = folder / f"{hashlib.sha256(text.encode()).hexdigest()[:16]}.json"
     manifest.write_text(text, encoding="utf-8")
     return manifest
 
@@ -282,6 +282,17 @@ def drop_transport(manifest: Path) -> None:
     manifest.unlink(missing_ok=True)
 
 
+def clear_transport(project_db) -> int:
+    """Every file campaigns of rows packed for a queue, by hand (Project > Clear queue files): the
+    ones canceled or failed lose their Resume. Returns the bytes freed."""
+    folder = transport_folder(project_db)
+    files = [path for path in folder.glob("*") if path.is_file()] if folder.is_dir() else []
+    freed = sum(path.stat().st_size for path in files)
+    for path in files:
+        path.unlink(missing_ok=True)
+    return freed
+
+
 class DockRowsCampaignParams(DockingJobParams):
     """`DockingJobParams`, and the manifest its chunks became when it was submitted (`pack_rows`)."""
 
@@ -296,15 +307,26 @@ def _rows_ended(params: DockRowsCampaignParams, project, snapshot) -> None:
               else TargetState.CANCELED if snapshot.status == "canceled" else TargetState.FAILED)
     _supersede(params.model_dump(mode="python"),
                {"project_db": configs[project]["project_db"], "terminal_status": status})
-    drop_transport(Path(params.elements))  # a resubmit packs again what is left to dock
+    # Canceled or failed, Resume submits it again from the same manifest: it stays until it completes.
+    # One never resumed leaves its files in cache/transport until they are cleared (`clear_transport`).
+    if status == "completed":
+        drop_transport(Path(params.elements))
 
 
 @campaign(name="amdock_dock_rows_campaign", params_model=DockRowsCampaignParams,
           output=DockingJobSpec.output_spec, finalize=_rows_ended)
 def dock_rows_campaign(params: DockRowsCampaignParams, project) -> list[Stage]:
-    manifest = json.loads(Path(params.elements).read_text(encoding="utf-8"))
+    try:
+        manifest = json.loads(Path(params.elements).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise RuntimeError("Its ligands were packed for the queue and those files are gone (cleared, or "
+                           "it ended before they were kept for Resume). Dock it again: what is docked is skipped.") from None
+    project_db = configs[project]["project_db"]
+    reopen_run(project_db, docking_run_id=find_docking_run(
+        project_db, run_id=params.run_id, engine=params.engine, run_kind="screening",
+        protocol_hash=str(params.protocol_metadata.hash or "")))
     return [Stage("vs", dock_rows, unplain(manifest["elements"]), digests=manifest["digests"])]
 
 
-__all__ = ["CampaignWriter", "DockCampaignParams", "DockRowsCampaignParams", "dock_rows_campaign",
+__all__ = ["CampaignWriter", "clear_transport", "DockCampaignParams", "DockRowsCampaignParams", "dock_rows_campaign",
            "dock_shards_campaign", "drop_transport", "pack_rows", "transport_folder"]

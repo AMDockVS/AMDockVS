@@ -67,3 +67,41 @@ def test_an_ended_campaign_takes_its_transport_away_but_not_what_another_still_n
     assert {str(path) for path in folder.glob("*.parquet")} == shared and second.exists()
     campaign.drop_transport(second)
     assert not list(folder.iterdir())
+
+
+def test_a_stopped_campaign_keeps_its_transport_for_resume(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    import amdockvs.docking.campaign as campaign
+
+    receptor = tmp_path / "r.pdbqt"
+    receptor.write_text("RECEPTOR")
+    manifest = campaign.pack_rows(_chunks(File(str(receptor)), Dir(str(tmp_path / "out"))), tmp_path / "t", cpu=1)
+    assert len(manifest.stem) == 16
+
+    class Project:
+        pass
+
+    project = Project()
+    monkeypatch.setitem(campaign.configs, project, {"project_db": None})
+    monkeypatch.setattr(campaign, "_supersede", lambda *_: None)
+    params = SimpleNamespace(elements=str(manifest), model_dump=lambda mode: {})
+    for status in ("canceled", "failed"):
+        campaign._rows_ended(params, project, SimpleNamespace(status=status))
+        assert manifest.exists()  # Resume reads it again
+    campaign._rows_ended(params, project, SimpleNamespace(status="completed"))
+    assert not list((tmp_path / "t").iterdir())
+
+
+def test_clearing_the_queue_files_by_hand_frees_what_a_stopped_campaign_kept(tmp_path, monkeypatch):
+    import amdockvs.docking.campaign as campaign
+
+    receptor = tmp_path / "r.pdbqt"
+    receptor.write_text("RECEPTOR")
+    folder = tmp_path / "t"
+    campaign.pack_rows(_chunks(File(str(receptor)), Dir(str(tmp_path / "out"))), folder, cpu=1)
+    size = sum(path.stat().st_size for path in folder.iterdir())
+    monkeypatch.setattr(campaign, "transport_folder", lambda _db: folder)
+    assert campaign.clear_transport(None) == size > 0
+    assert not list(folder.iterdir())
+    assert campaign.clear_transport(None) == 0  # nothing left, or never packed
