@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from amdockvs.models import BindingSite, MoleculeRecord
 from amdockvs.binding_sites.jobs import p2rank_prediction_job
+from amdockvs.binding_sites.p2rank import B_FACTOR_CONSTANT, B_FACTOR_PREDICTED
 from amdockvs.core.configuration import DEFAULT_P2RANK_PROFILE, app_config
 from amdockvs.core.payloads import molecule_payload_id, payload_store
 from amdockvs.ui.common.async_query import run_async
@@ -46,6 +47,13 @@ PROFILE_OPTIONS = (
     ("Ignore B-factors (predicted models, NMR, cryo-EM)", "alphafold"),
     ("Use B-factors (X-ray structures)", "default"),
 )
+# Why a pocket's profile is not the one the run asked for, as the executor recorded it.
+PROFILE_REASON_HINTS = {
+    B_FACTOR_PREDICTED: "B-factors ignored: this structure is a prediction, so its B-factor "
+                        "column holds pLDDT confidence rather than flexibility.",
+    B_FACTOR_CONSTANT: "B-factors ignored: this structure carries one single B-factor value on "
+                       "every atom (OpenMM's writer leaves 0.00), so there was nothing to read.",
+}
 P2RANK_SCORE_COLORS = (
     "#440154",
     "#482878",
@@ -204,6 +212,11 @@ class BindingSitesWidget(QWidget):
                 item = QTableWidgetItem(value)
                 if column == 0:
                     item.setData(Qt.UserRole, site)
+                elif column == 4:
+                    item.setToolTip(PROFILE_REASON_HINTS.get(
+                        str(extra.get("profile_reason") or ""),
+                        "The P2Rank model this pocket was predicted with.",
+                    ))
                 elif column == 2:
                     color = QColor(P2RANK_SCORE_COLORS[palette_indices[row]])
                     item.setBackground(QBrush(color))
@@ -797,11 +810,12 @@ class PocketDetectionWidget(QWidget):
         receptor_ids = self._scope_receptor_ids()
         if not receptor_ids:
             return
-        # One profile for the whole run; plan_prediction still takes it per receptor, so
-        # mixing profiles later is a UI change, not an API one.
         profile = str(self.profile_combo.currentData() or DEFAULT_P2RANK_PROFILE)
-        profiles = {receptor_id: profile for receptor_id in receptor_ids}
         try:
+            # One profile for the whole run. Where the B-factor model has nothing to read —
+            # a prediction's pLDDT, or a column OpenMM zeroed — the executor resolves it per
+            # receptor against the structure itself and records why on each site, so nothing
+            # here has to fetch thousands of structures before a job can start.
             # Resume can start a job before the next monitor poll reaches this panel.
             # Read the runtime as well as the local pending set before allowing a submit.
             active = self.runtime.list_jobs(statuses=("pending", "running"))
@@ -816,7 +830,7 @@ class PocketDetectionWidget(QWidget):
                 return
             plan = self.runtime.binding_sites.plan_prediction(
                 receptor_ids=receptor_ids,
-                profiles=profiles,
+                profile=profile,
             )
             if not plan.recalculate_receptor_ids:
                 self._reload_sites()
@@ -828,7 +842,7 @@ class PocketDetectionWidget(QWidget):
                 return
             job_id = self.runtime.binding_sites.predict(
                 receptor_ids=receptor_ids,
-                profiles=profiles,
+                profile=profile,
                 threads=int(self.threads_spin.value()),
             )
         except Exception as exc:

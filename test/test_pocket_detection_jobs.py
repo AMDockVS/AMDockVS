@@ -99,16 +99,44 @@ def test_new_submission_is_guarded_before_its_first_monitor_update(panel):
     assert not widget.run_button.isEnabled()
 
 
-@pytest.mark.parametrize("selected_profile", [None, "default"])
-def test_profile_defaults_to_ignoring_b_factors_and_honors_user_choice(panel, selected_profile):
+@pytest.mark.parametrize("profile", ["alphafold", "default"])
+def test_submitting_sends_one_profile_and_reads_no_structures(panel, profile):
+    """Thousands of receptors must not be fetched before a job can start.
+
+    The executor resolves each receptor's profile against the structure it already has to
+    write for P2Rank, so the panel sends the choice and nothing else.
+    """
     widget, _bridge, _active, api = panel
-    assert widget.profile_combo.currentData() == "alphafold"
-    if selected_profile is not None:
-        widget.profile_combo.setCurrentIndex(widget.profile_combo.findData(selected_profile))
+    assert widget.profile_combo.currentData() == "alphafold"  # the default ignores B-factors
+    widget.profile_combo.setCurrentIndex(widget.profile_combo.findData(profile))
+
     widget._submit_prediction()
-    expected = {1: selected_profile or "alphafold"}
-    assert api.plan_prediction.call_args.kwargs["profiles"] == expected
-    assert api.predict.call_args.kwargs["profiles"] == expected
+
+    for call in (api.plan_prediction.call_args, api.predict.call_args):
+        assert call.kwargs["profile"] == profile
+        assert "profiles" not in call.kwargs
+
+
+def test_a_pocket_explains_a_profile_it_did_not_ask_for(panel):
+    """The Profile column carries what ran; its tooltip carries why."""
+    from amdockvs.binding_sites.p2rank import B_FACTOR_CONSTANT
+    from amdockvs.ui.tools.binding_sites.detection import PROFILE_REASON_HINTS
+
+    widget, _bridge, _active, _api = panel
+    sites = BindingSitesWidget(runtime=widget.runtime, parent=None)
+    sites._fill_results((
+        BindingSite(id=1, molecule_id=1, name="P2Rank pocket 1", source="p2rank", source_ref="1",
+                    extra_data={"rank": 1, "profile": "alphafold",
+                                "profile_reason": B_FACTOR_CONSTANT}),
+        BindingSite(id=2, molecule_id=1, name="P2Rank pocket 2", source="p2rank", source_ref="2",
+                    extra_data={"rank": 2, "profile": "default"}),
+    ))
+
+    assert sites.table.item(0, 4).text() == "alphafold"
+    assert sites.table.item(0, 4).toolTip() == PROFILE_REASON_HINTS[B_FACTOR_CONSTANT]
+    assert sites.table.item(1, 4).text() == "default"
+    assert "B-factors ignored" not in sites.table.item(1, 4).toolTip()
+    sites.deleteLater()
 
 
 def test_unrelated_jobs_do_not_block_prediction(panel):
