@@ -398,12 +398,15 @@ class ResultsPivotWidget(QWidget):
         total = sum(max(0, int(getattr(job, "chunks_total", 0) or 0)) for job in jobs)
         failed = sum(max(0, int(getattr(job, "chunks_failed", 0) or 0)) for job in jobs)
         sharded = any("dock_shard" in str(job.name or "").lower() for job in jobs)
-        unit = "shard tasks" if sharded else "dockings"
-        # A campaign counts no chunks here: what its queue says of it is its progress.
-        note = next((job.note for job in jobs if getattr(job, "note", "")), "")
-        progress = f"{done:,} / {total:,} {unit}" if total else note or f"{done:,} {unit} completed"
+        unit = "shard tasks" if sharded else "tasks"
+        progress = f"{done:,} / {total:,} {unit}" if total else f"{done:,} {unit}"
         if failed:
             progress += f" · {failed:,} failed"
+        # Here a task counts once its rows are written; a run in a cluster's queue also says what
+        # was computed there, which is ahead of it by what is still on its way back.
+        note = next((job.note for job in jobs if getattr(job, "note", "")), "")
+        if note:
+            progress = f"{progress} recorded · {note}"
         progress_text = f"{labels[self._current_key]} · {progress}"
         if self.progress_label.text() != progress_text:
             self.progress_label.setText(progress_text)
