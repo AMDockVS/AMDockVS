@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 31.75 31.75">
+  <title>AMDockVS</title>
+  <style>
+    .mark { fill: #323550; }
+    .bond { fill: none; stroke: #23cda7; stroke-linecap: round; }
+    .atom { fill: #23cda7; stroke: #23cda7; }
+    .core { fill: #23cda7; }
+
+    @media (prefers-color-scheme: dark) {
+      .mark { fill: #dfe3ec; }
+    }
+  </style>
+  <g transform="translate(-153.43 -157.786)">
+    <g transform="matrix(.30592 -.0696 .06602 .32249 113.495 166.773)">
+      <path class="mark" d="m179.353 14.297-.099-.02v.003c-1.113-.242-8.441-1.677-11.262 2.009l-55.424 72.473c-1.939 2.533 2.777 3.24 2.777 3.24l14.906 3.217s2.794.564 5.184-2.536l37.498-48.636 14.103 59.77c.899 3.812 3.677 4.45 3.677 4.45l14.906 3.216s4.59 1.301 3.868-1.806l-20.605-88.88c-1.05-4.522-8.322-6.237-9.433-6.475v-.003z"/>
+      <g transform="translate(.298 -1.068)">
+        <path class="bond" stroke-width="5.0394" d="m149.516 80.388 10.19-6.046"/>
+        <path class="bond" stroke-width="5.48595" d="m153.983 59.23 6.595 5.648"/>
+        <path class="bond" stroke-width="5.28553" d="m171.533 65.197 7.545-9.865"/>
+        <path class="bond" stroke-width="5.28447" d="m172.893 75.626 10.397 10.395"/>
+        <circle class="atom" cx="181.876" cy="50.769" r="5.772" stroke-width="1.79663"/>
+        <circle class="atom" cx="187.714" cy="90.836" r="6.695" stroke-width="1.79663"/>
+        <circle class="atom" cx="150.288" cy="55.706" r="6.155" stroke-width="1.79663"/>
+        <circle class="atom" cx="147.466" cy="81.52" r="5.38" stroke-width="2.33715"/>
+        <path class="core" transform="translate(-.13 -2.888)" d="M165.287 67.85c-2.046.85-3.07 2.88-3.316 4.782a1.175 1.175 0 0 0 1.014 1.317 1.175 1.175 0 0 0 1.316-1.016c.166-1.282.85-2.481 1.89-2.914a1.175 1.175 0 0 0 .633-1.537 1.175 1.175 0 0 0-1.537-.633m10.08 5.476a8.247 8.247 0 0 1-8.248 8.247 8.247 8.247 0 0 1-8.247-8.247 8.247 8.247 0 0 1 8.247-8.247 8.247 8.247 0 0 1 8.247 8.247"/>
+      </g>
+    </g>
+  </g>
+</svg>
