@@ -114,25 +114,27 @@ def scope_spec(params: P2RankPredictionParams) -> QuerySpec:
     )
 
 
-def _profile_for(params: P2RankPredictionParams, receptor_id: int, *, predicted: bool = False) -> str:
-    profile = str(params.profiles.get(int(receptor_id), params.profile) or DEFAULT_P2RANK_PROFILE)
-    # A predicted model has no explicit choice to honour: P2Rank's alphafold profile fits it better.
-    if predicted and profile == "default" and int(receptor_id) not in params.profiles:
-        return "alphafold"
-    return profile
+def _profile_for(params: P2RankPredictionParams, receptor_id: int) -> str:
+    return str(params.profiles.get(int(receptor_id), params.profile) or DEFAULT_P2RANK_PROFILE)
 
 
-def _is_predicted(project_db, receptor: dict) -> bool:
-    structure = receptor.get("current_payload_id") or receptor.get("stored_payload_id")
-    if structure is None:
-        return False
-    # The active model is the one holding the receptor's structure.
+def _predicted_payload_ids(project_db) -> set[int]:
+    """Payloads that are a structure prediction, as (molecule, payload) is unique per model.
+
+    One query for the project, not one per receptor: a scope can hold thousands of receptors,
+    while the predictions in a project are few. Only read when the run asks for the B-factor
+    model, since that is the only case whose outcome can change.
+    """
     spec = QuerySpec(
         table=TABLE_MOLECULE_MODELS,
-        fields=("source",),
-        filters={"molecule_id": int(receptor["id"]), "payload_id": int(structure)},
+        fields=("payload_id",),
+        filters={"source": ModelSource.ESMFOLD},
     )
-    return any(row.get("source") == ModelSource.ESMFOLD for row in db_pages(project_db, spec, page_size=1))
+    return {
+        int(row["payload_id"])
+        for row in db_pages(project_db, spec, page_size=512)
+        if row.get("payload_id") is not None
+    }
 
 
 def _prediction_output_dir(
@@ -189,6 +191,12 @@ def p2rank_prediction_job(params: dict, config: dict | None = None) -> Iterator[
     output_root = _output_root(parsed, config_map)
 
     recalculate_ids = set(parsed.recalculate_receptor_ids)
+    # The executor decides each receptor's profile from the structure itself; this is the half
+    # of that decision only the project database can answer.
+    wants_b_factors = any(
+        _profile_for(parsed, receptor_id) == "default" for receptor_id in recalculate_ids
+    )
+    predicted_payload_ids = _predicted_payload_ids(project_db) if wants_b_factors else set()
     emitted = False
     in_scope = False
     for receptor in db_pages(project_db, scope_spec(parsed), page_size=32):
@@ -196,7 +204,8 @@ def p2rank_prediction_job(params: dict, config: dict | None = None) -> Iterator[
         receptor_id = int(receptor.get("id") or 0)
         if receptor_id not in recalculate_ids:
             continue
-        receptor_path = payload_file(project_db, molecule_payload_id(receptor))  # P2Rank only reads paths
+        payload_id = molecule_payload_id(receptor)
+        receptor_path = payload_file(project_db, payload_id)  # P2Rank only reads paths
         if receptor_path is None:
             raise ValueError(f"Receptor {receptor_id} has no structure.")
         emitted = True
@@ -204,7 +213,8 @@ def p2rank_prediction_job(params: dict, config: dict | None = None) -> Iterator[
             "receptor_id": receptor_id,
             "receptor_name": str(receptor.get("name") or f"receptor_{receptor_id}"),
             "receptor_path": worker_file(receptor_path, cache=True),
-            "profile": _profile_for(parsed, receptor_id, predicted=_is_predicted(project_db, receptor)),
+            "profile": _profile_for(parsed, receptor_id),
+            "predicted": payload_id is not None and int(payload_id) in predicted_payload_ids,
             "threads": int(parsed.threads),
             "run_id": parsed.run_id,
             "version": parsed.version,
