@@ -18,7 +18,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from amdockvs.core.configuration import app_config
+from amdockvs.core.configuration import DEFAULT_P2RANK_PROFILE, app_config
 from amdockvs.core.paths import tools_home
 from amdockvs.core.rows import binding_site_row
 from typing import Any, Iterable
@@ -413,7 +413,7 @@ def run_p2rank_prediction(payload: dict[str, Any]) -> list[dict[str, Any]]:
     if detected_java_version is None or detected_java_version < 17:
         raise RuntimeError(f"P2Rank requires Java 17+; invalid Java command: {java_path}")
 
-    profile = str(payload.get("profile") or "default").strip().lower()
+    profile = str(payload.get("profile") or DEFAULT_P2RANK_PROFILE).strip().lower()
     env = dict(os.environ)
     java_home = java_path.parent.parent
     env["JAVA_HOME"] = str(java_home)

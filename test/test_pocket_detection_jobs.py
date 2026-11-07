@@ -1,15 +1,20 @@
 """Pocket Detection follows P2Rank work continued through the Jobs monitor."""
 from types import SimpleNamespace
 from unittest.mock import Mock
+import time
 
 import pytest
 
 from amdockvs.runtime import AMDockVSRuntime  # noqa: F401 - pydantic before PySide6
 from amdockvs.binding_sites.jobs import p2rank_prediction_job
 from PySide6.QtCore import QObject, Signal
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
+from ms_components.ms_table import ColumnDef, SmartTableView, TableConfig
 from ms_components.ms_monitor.models import JobMonitorState, ProjectMonitorState
-from amdockvs.ui.tools.binding_sites.detection import PocketDetectionWidget
+from ms_flow.core.database import ProjectStore
+from amdockvs.binding_sites.api import BindingSiteAPI
+from amdockvs.models import BindingSite, MoleculeRecord
+from amdockvs.ui.tools.binding_sites.detection import BindingSitesWidget, PocketDetectionWidget
 
 
 class _Bridge(QObject):
@@ -92,6 +97,18 @@ def test_new_submission_is_guarded_before_its_first_monitor_update(panel):
     api.predict.assert_called_once()
     assert widget._pending_job_ids == {"new-job"}
     assert not widget.run_button.isEnabled()
+
+
+@pytest.mark.parametrize("selected_profile", [None, "default"])
+def test_profile_defaults_to_ignoring_b_factors_and_honors_user_choice(panel, selected_profile):
+    widget, _bridge, _active, api = panel
+    assert widget.profile_combo.currentData() == "alphafold"
+    if selected_profile is not None:
+        widget.profile_combo.setCurrentIndex(widget.profile_combo.findData(selected_profile))
+    widget._submit_prediction()
+    expected = {1: selected_profile or "alphafold"}
+    assert api.plan_prediction.call_args.kwargs["profiles"] == expected
+    assert api.predict.call_args.kwargs["profiles"] == expected
 
 
 def test_unrelated_jobs_do_not_block_prediction(panel):

@@ -332,7 +332,9 @@ def test_p2rank_finalize_preserves_predictions_from_partially_finished_job(tmp_p
     assert Path(current.extra_data["points_path"]).is_file()
     assert Path(current.extra_data["predictions_path"]).is_file()
     assert Path(current.extra_data["pymol_script_path"]).is_file()
-    assert _pocket_api(project_store).plan_prediction(receptor_ids=[7]).reused_receptor_ids == (7,)
+    assert _pocket_api(project_store).plan_prediction(
+        receptor_ids=[7], profile="default"
+    ).reused_receptor_ids == (7,)
     ProjectStore.clear_cached_stores()
 
 

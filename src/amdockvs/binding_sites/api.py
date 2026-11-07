@@ -15,7 +15,7 @@ from uuid import uuid4
 from sqlmodel import select
 from ms_flow.selection import Selection
 
-from amdockvs.core.configuration import app_config
+from amdockvs.core.configuration import DEFAULT_P2RANK_PROFILE, app_config
 from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR, RESOURCE_POCKET_PREDICTIONS
 from amdockvs.models import BindingSite, MoleculeRecord
 from amdockvs.core.payloads import molecule_payload_id, read_structure
@@ -184,7 +184,7 @@ class BindingSiteAPI:
         self,
         *,
         receptor_ids: list[int],
-        profile: str = "default",
+        profile: str = DEFAULT_P2RANK_PROFILE,
         profiles: Mapping[int, str] | None = None,
         force: bool = False,
     ) -> P2RankPredictionPlan:
@@ -197,7 +197,7 @@ class BindingSiteAPI:
         }
         requested_profiles = {
             receptor_id: str(
-                normalized_profile_map.get(receptor_id, profile) or "default"
+                normalized_profile_map.get(receptor_id, profile) or DEFAULT_P2RANK_PROFILE
             ).strip().lower()
             for receptor_id in normalized_ids
         }
@@ -286,7 +286,7 @@ class BindingSiteAPI:
         self,
         *,
         receptor_ids: list[int],
-        profile: str = "default",
+        profile: str = DEFAULT_P2RANK_PROFILE,
         profiles: Mapping[int, str] | None = None,
         threads: int = 1,
         executor_name: str = DEFAULT_LOCAL_CPU_EXECUTOR,

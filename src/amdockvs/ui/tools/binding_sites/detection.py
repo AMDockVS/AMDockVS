@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -20,15 +20,18 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
+    QToolButton,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
 
 from amdockvs.models import BindingSite, MoleculeRecord
 from amdockvs.binding_sites.jobs import p2rank_prediction_job
-from amdockvs.core.configuration import app_config
+from amdockvs.core.configuration import DEFAULT_P2RANK_PROFILE, app_config
 from amdockvs.core.payloads import molecule_payload_id, payload_store
 from amdockvs.ui.common.async_query import run_async
+from amdockvs.ui.resources.icons import icon as load_icon
 from amdockvs.ui.tools.pymol_ribbon import (
     apply_receptor_atom_coloring,
     fetch_structures,
@@ -40,8 +43,8 @@ from amdockvs.ui.view_ids import POCKET_DETECTION_VIEW_ID, POCKET_SITES_VIEW_ID,
 
 
 PROFILE_OPTIONS = (
-    ("Standard", "default"),
-    ("AlphaFold / NMR / cryo-EM", "alphafold"),
+    ("Ignore B-factors (predicted models, NMR, cryo-EM)", "alphafold"),
+    ("Use B-factors (X-ray structures)", "default"),
 )
 P2RANK_SCORE_COLORS = (
     "#440154",
@@ -490,10 +493,33 @@ class PocketDetectionWidget(QWidget):
             self.profile_combo.addItem(label, value)
         self.profile_combo.setCurrentIndex(max(0, self.profile_combo.findData(p2rank_defaults.profile)))
         self.profile_combo.setToolTip(
-            "P2Rank model used for the whole run. Changing it replaces the current "
-            "predictions of the receptors in scope once the new calculation succeeds."
+            "<p>Select whether P2Rank uses experimental B-factors when predicting pockets.</p>"
+            "<p>Ignore B-factors when they are missing, uncertain, or contain prediction "
+            "confidence scores.</p><p>Asking to use them is honoured only where they say "
+            "something: a predicted structure holds pLDDT in that column, and a repaired or "
+            "minimized one holds 0.00 on every atom. Those receptors ignore B-factors anyway, "
+            "and the Profile column of each pocket says which model ran.</p>"
+            "<p>The selected profile applies to the whole run. "
+            "Changing it replaces the current predictions of the receptors in scope "
+            "once the new calculation succeeds.</p>"
         )
         profile_row.addWidget(self.profile_combo, 1)
+        self.profile_help_button = QToolButton(prediction_box)
+        self.profile_help_button.setIcon(load_icon("help.svg"))
+        self.profile_help_button.setIconSize(QSize(16, 16))
+        self.profile_help_button.setAutoRaise(True)
+        self.profile_help_button.setFixedSize(22, 22)
+        self.profile_help_button.setStyleSheet("QToolButton { padding: 0; }")
+        self.profile_help_button.setAccessibleName("Profile help")
+        self.profile_help_button.setToolTip(self.profile_combo.toolTip())
+        self.profile_help_button.clicked.connect(
+            lambda: QToolTip.showText(
+                self.profile_help_button.mapToGlobal(self.profile_help_button.rect().bottomLeft()),
+                self.profile_help_button.toolTip(),
+                self.profile_help_button,
+            )
+        )
+        profile_row.addWidget(self.profile_help_button)
         prediction_layout.addLayout(profile_row)
 
         # No scope selector: this runs on the receptors the catalog table is showing.
@@ -773,7 +799,7 @@ class PocketDetectionWidget(QWidget):
             return
         # One profile for the whole run; plan_prediction still takes it per receptor, so
         # mixing profiles later is a UI change, not an API one.
-        profile = str(self.profile_combo.currentData() or "default")
+        profile = str(self.profile_combo.currentData() or DEFAULT_P2RANK_PROFILE)
         profiles = {receptor_id: profile for receptor_id in receptor_ids}
         try:
             # Resume can start a job before the next monitor poll reaches this panel.

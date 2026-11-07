@@ -19,6 +19,7 @@ from amdockvs.core.constants import (
     TABLE_MOLECULE_MODELS,
     TABLE_MOLECULES,
 )
+from amdockvs.core.configuration import DEFAULT_P2RANK_PROFILE
 from amdockvs.core.vocab import ModelSource
 from amdockvs.core.worker_io import worker_file, worker_output_dir
 from amdockvs.models import BindingSite
@@ -29,7 +30,7 @@ from amdockvs.binding_sites.p2rank import P2RANK_VERSION
 
 class P2RankPredictionParams(BaseModel):
     receptor_ids: list[int] = Field(default_factory=list)
-    profile: str = Field(default="default")
+    profile: str = Field(default=DEFAULT_P2RANK_PROFILE)
     profiles: dict[int, str] = Field(default_factory=dict)
     recalculate_receptor_ids: list[int] = Field(default_factory=list)
     threads: int = Field(default=1, ge=1, le=128)
@@ -42,7 +43,7 @@ class P2RankPredictionParams(BaseModel):
     @field_validator("profile")
     @classmethod
     def validate_profile(cls, value: str) -> str:
-        normalized = str(value or "default").strip().lower()
+        normalized = str(value or DEFAULT_P2RANK_PROFILE).strip().lower()
         if normalized not in {"default", "alphafold"}:
             raise ValueError("profile must be 'default' or 'alphafold'.")
         return normalized
@@ -65,7 +66,7 @@ class P2RankPredictionParams(BaseModel):
         normalized: dict[int, str] = {}
         for raw_id, raw_profile in dict(value or {}).items():
             receptor_id = int(raw_id)
-            profile = str(raw_profile or "default").strip().lower()
+            profile = str(raw_profile or DEFAULT_P2RANK_PROFILE).strip().lower()
             if receptor_id <= 0:
                 raise ValueError("profile receptor ids must be positive.")
             if profile not in {"default", "alphafold"}:
@@ -114,7 +115,7 @@ def scope_spec(params: P2RankPredictionParams) -> QuerySpec:
 
 
 def _profile_for(params: P2RankPredictionParams, receptor_id: int, *, predicted: bool = False) -> str:
-    profile = str(params.profiles.get(int(receptor_id), params.profile) or "default")
+    profile = str(params.profiles.get(int(receptor_id), params.profile) or DEFAULT_P2RANK_PROFILE)
     # A predicted model has no explicit choice to honour: P2Rank's alphafold profile fits it better.
     if predicted and profile == "default" and int(receptor_id) not in params.profiles:
         return "alphafold"
