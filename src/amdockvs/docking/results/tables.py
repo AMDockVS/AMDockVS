@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from functools import partial
 
-from sqlalchemy import String, cast, distinct, exists, func, literal, or_, select
+from sqlalchemy import String, case, cast, distinct, exists, func, literal, or_, select
 from sqlalchemy.orm import aliased
 
 from ms_components.ms_table.table_config import (
@@ -132,8 +132,14 @@ def _over_plans(protocol_hash: str, value, aggregate=func.sum):
 
 def _plan_docked(target, run):
     # Campaigns count `ligands_done` (their non-hits leave no row); row-mode runs plan with 0
-    # and write a row per docked pair, so the larger of the two is right for both.
-    return func.max(target.ligands_done, _docked_of(target.receptor_molecule_id, run.protocol_hash))
+    # and write a row per docked pair, so the larger of the two is right for both. A forced
+    # re-dock counts its own rows: the older ones of its pairs are still there until it ends.
+    result = aliased(DockingResultRecord)
+    own = (select(func.count(distinct(result.ligand_molecule_id)))
+           .where(result.receptor_molecule_id == target.receptor_molecule_id, result.docking_run_id == run.id)
+           .scalar_subquery())
+    return func.max(target.ligands_done,
+                    case((target.forced, own), else_=_docked_of(target.receptor_molecule_id, run.protocol_hash)))
 
 
 _STOPPED = (TargetState.FAILED, TargetState.CANCELED)

@@ -366,6 +366,7 @@ def iter_docking_batches(
                 set_id=ligand_set_id, filters=normalized_ligand_filters, extra_filters=selection,
             ),
             engine=engine,
+            forced=not skip_existing,
         )
 
     def ligands_for(receptor_id: int):

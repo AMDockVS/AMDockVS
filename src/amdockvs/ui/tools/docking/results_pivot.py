@@ -366,7 +366,8 @@ class ResultsPivotWidget(QWidget):
             return _REDOCKING
         # `amdock_dock_shard_slice` is a docking job too — and it is the one that shows nothing
         # in the table while it runs, so it is the one that most needs the progress line.
-        if "docking" in task_type or "dock_shard" in task_type:
+        # `amdock_dock_rows_campaign` too: a run moved to a cluster's queue.
+        if "docking" in task_type or "dock_shard" in task_type or "dock_rows" in task_type:
             return _HITS
         return ""
 
@@ -398,7 +399,9 @@ class ResultsPivotWidget(QWidget):
         failed = sum(max(0, int(getattr(job, "chunks_failed", 0) or 0)) for job in jobs)
         sharded = any("dock_shard" in str(job.name or "").lower() for job in jobs)
         unit = "shard tasks" if sharded else "dockings"
-        progress = f"{done:,} / {total:,} {unit}" if total else f"{done:,} {unit} completed"
+        # A campaign counts no chunks here: what its queue says of it is its progress.
+        note = next((job.note for job in jobs if getattr(job, "note", "")), "")
+        progress = f"{done:,} / {total:,} {unit}" if total else note or f"{done:,} {unit} completed"
         if failed:
             progress += f" · {failed:,} failed"
         progress_text = f"{labels[self._current_key]} · {progress}"
