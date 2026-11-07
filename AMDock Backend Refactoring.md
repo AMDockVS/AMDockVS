@@ -13,7 +13,7 @@ Revisa amdock en especial la parte de su "backend" y dime
 
 *Found code context*
 
-*Viewed [notebook_api_and_workflows.md](file:///home/mario/PycharmProjects/AMDockVS/docs/notebook_api_and_workflows.md) *
+*Viewed [notebook_api_and_workflows.md](docs/development/notebook_api_and_workflows.md) *
 
 *Listed directory [amdock](file:///home/mario/PycharmProjects/AMDockVS/src/amdock) *
 
@@ -63,7 +63,7 @@ Tengo suficiente contexto para dar una evaluación completa.
 
 ---
 
-### 2. Qué Falta (vs. [notebook_api_and_workflows.md](file:///home/mario/PycharmProjects/AMDockVS/docs/notebook_api_and_workflows.md:0:0-0:0))
+### 2. Qué Falta (vs. [notebook_api_and_workflows.md](docs/development/notebook_api_and_workflows.md))
 
 | Componente | Estado | Faltante |
 |------------|--------|----------|

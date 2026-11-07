@@ -1,7 +1,7 @@
 # Plan: almacenamiento del docking (2026-10-20)
 
 Origen: `docs/benchmarks/vs_classic_2026-10-18/` y la sección "Almacenamiento del docking" de
-`docs/TODO.md`. Se hace de una vez, antes de que haya proyectos que migrar: los proyectos creados
+`docs/development/TODO.md`. Se hace de una vez, antes de que haya proyectos que migrar: los proyectos creados
 antes de esto **no se migran** (ver decisión D1).
 
 Meta medida en el benchmark: de 27 KB por ligando (9 poses) a unos 10-12 KB, sin perder nada que se

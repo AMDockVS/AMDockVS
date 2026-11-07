@@ -1,6 +1,6 @@
 """The ligand feeds read through the store, not the database.
 
-§2 of `docs/plan_modos_vs_htpvs_2026-09-03.md`: `vs` and `htpvs` differ only in where the
+§2 of `docs/development/plan_modos_vs_htpvs_2026-09-03.md`: `vs` and `htpvs` differ only in where the
 ligands live, so every feed asks a `LigandStore`. This is the check that they actually do —
 a fake store with no database behind it has to be enough to feed them.
 """

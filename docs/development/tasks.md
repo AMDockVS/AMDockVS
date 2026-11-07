@@ -5,12 +5,12 @@ Nota:
 - este checklist mezcla hitos históricos y pendientes
 - donde diga `AMDockRuntime`, la fachada vigente es `AMDockVSRuntime`
 
-Checklist de trabajo derivado de `docs/observaciones_runtime_y_api.md`, ajustado al estado actual de `MolSuite` tras el cierre de su refactor.
+Checklist de trabajo derivado de `docs/development/observaciones_runtime_y_api.md`, ajustado al estado actual de `MolSuite` tras el cierre de su refactor.
 
 Plan estructural complementario:
 
-- `docs/refactor_structure_plan.md`
-- `docs/tasks_refactor_structure.md`
+- `docs/development/refactor_structure_plan.md`
+- `docs/development/tasks_refactor_structure.md`
 
 ## Prioridad alta
 

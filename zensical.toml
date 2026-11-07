@@ -6,6 +6,10 @@ site_url = "https://amdockvs.github.io/AMDockVS/"
 repo_url = "https://github.com/AMDockVS/AMDockVS"
 repo_name = "AMDockVS/AMDockVS"
 copyright = "Copyright &copy; 2026 AMDockVS authors"
+# Internal plans and engineering notes stay in the repository, outside the site.
+exclude_docs = """
+development/
+"""
 
 nav = [
   { "Home" = "index.md" },
