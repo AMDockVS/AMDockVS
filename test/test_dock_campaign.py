@@ -100,7 +100,7 @@ def test_an_old_project_gets_the_columns_added_since(tmp_path):
 
     runtime = AMDockVSRuntime()
     runtime.create_project(name="digests", folder=tmp_path)
-    added = {"shard_preps": "sha256", "screening_targets": "forced"}
+    added = {"shard_preps": "sha256"}
     try:
         with runtime.workspace.project_db.get_session() as session:
             conn = session.connection()

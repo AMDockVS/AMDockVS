@@ -142,8 +142,6 @@ class ScreeningTarget(SQLModel, table=True):
     hits: int = Field(default=0)  # passed the prefilter
     imported: int = Field(default=0)  # of those, materialized as rows (the top-N)
     state: str = code_field("run_state", TargetState.SCHEDULED, index=True)
-    # A forced re-dock docks again what was docked: its Docked counts its own results only.
-    forced: bool = Field(default=False)
 
 
 __all__ = [

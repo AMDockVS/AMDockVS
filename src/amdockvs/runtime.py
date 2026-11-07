@@ -19,7 +19,6 @@ from amdockvs.core.constants import (
     TABLE_QSAR_MODEL_MEMBERS,
     TABLE_QSAR_MODELS,
     TABLE_QSAR_PREDICTIONS,
-    TABLE_SCREENING_TARGETS,
     TABLE_SHARD_PREPS,
 )
 from amdockvs.manifest import AMDOCKVS_PROJECT_RESOURCES
@@ -363,10 +362,8 @@ class AMDockVSRuntime(AppRuntime):
 
     def _add_columns(self) -> None:
         """Columns a project made before them lacks: `shard_preps.sha256` (2026-11, empty: a campaign
-        hashes those files itself) and `screening_targets.forced` (2026-11-07, false: those plans
-        skipped what was docked)."""
-        added = ((TABLE_SHARD_PREPS, "sha256", "VARCHAR NOT NULL DEFAULT ''"),
-                 (TABLE_SCREENING_TARGETS, "forced", "BOOLEAN NOT NULL DEFAULT 0"))
+        hashes those files itself)."""
+        added = ((TABLE_SHARD_PREPS, "sha256", "VARCHAR NOT NULL DEFAULT ''"),)
         with self.workspace.project_db.get_session() as session:
             conn = session.connection()
             for table, column, kind in added:

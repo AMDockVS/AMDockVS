@@ -12,7 +12,8 @@ from sqlite3 import OperationalError
 from typing import Any, Iterable
 
 from ms_flow.query import db_rows
-from sqlalchemy import tuple_
+from ms_flow.query import QuerySpec
+from sqlalchemy import Integer, text, tuple_
 from sqlalchemy.dialects.sqlite import insert
 from sqlmodel import func, select
 
@@ -27,7 +28,7 @@ from amdockvs.core.constants import (
 from amdockvs.models import DockingResultRecord, DockingRun, ScreeningShardRun
 from amdockvs.core.vocab import TargetState
 from amdockvs.models.codes import code_id, code_name_sql
-from amdockvs.docking.repository import project_db_path
+from amdockvs.docking.repository import _runs_spec, project_db_path
 from amdockvs.docking.results.metrics import SCORE_METRICS
 from amdockvs.project.deletion import delete_results_where
 from amdockvs.project.summaries import DockingHitSummary, DockingResultsStatsSummary, ReceptorDockingSummary
@@ -167,6 +168,26 @@ def supersede_results(project_db, *, run_id: str) -> int:
     older = (select(record.id).join(ran, ran.id == record.docking_run_id)
              .where(ran.run_id != run, tuple_(*same).in_(of_run)))
     return delete_results_where(project_db, record.id.in_(older))
+
+
+def drop_redocked_pairs(project_db, *, docking_run_id: int, receptor_ids: Iterable[int], ligand_scope: QuerySpec,
+                        engine: str, protocol_hash: str) -> int:
+    """A forced re-dock starts clean: the results its pairs have from other runs of the program go
+    when it starts, so they never mix with the new ones. The run's own rows stay: resumed, it
+    does not wipe what it already docked."""
+    receptors = [int(value) for value in receptor_ids]
+    if not protocol_hash or not receptors:
+        return 0
+    sql, params = QuerySpec(table=TABLE_DOCKING_RESULTS, fields=("id",), filters={
+        "receptor_molecule_id__in": receptors,
+        "ligand_molecule_id__in_subquery": ligand_scope,
+        "docking_run_id__in_subquery": _runs_spec(engine, "screening", protocol_hash),
+        "docking_run_id__ne": int(docking_run_id),
+    }).compile()
+    parts = sql.split("?")  # ponytail: positional to named binds; the spec carries no literal "?"
+    named = "".join(part + (f":p{index}" if index < len(params) else "") for index, part in enumerate(parts))
+    ids = text(named).bindparams(**{f"p{index}": value for index, value in enumerate(params)})
+    return delete_results_where(project_db, DockingResultRecord.id.in_(ids.columns(id=Integer)))
 
 
 # --- Docking results ---------------------------------------------------------------
