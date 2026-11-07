@@ -63,6 +63,7 @@ def protonate_receptor_pdb2pqr_file(
         [
             executable,
             f"--ff={forcefield}",
+            "--titration-state-method=propka",
             f"--with-ph={float(ph)}",
             "--keep-chain",  # without it the PQR drops chain ids and residue refs stop matching
             f"--pdb-output={output}",

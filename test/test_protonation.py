@@ -127,6 +127,7 @@ def test_pdb2pqr_hands_downstream_a_pdb_not_a_pqr(tmp_path, monkeypatch):
 
     assert output.suffix == ".pdb"
     assert f"--pdb-output={output}" in seen["cmd"]
+    assert "--titration-state-method=propka" in seen["cmd"]
     assert seen["cmd"][-1].endswith("protonated_0.pqr")  # the PQR is the sidecar, not the result
 
 
