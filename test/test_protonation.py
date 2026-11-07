@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from rdkit import Chem
 
 from amdockvs.chemistry.protonation import protonate_molecule_batch
@@ -112,7 +114,7 @@ def test_pdb2pqr_hands_downstream_a_pdb_not_a_pqr(tmp_path, monkeypatch):
     from amdockvs.chemistry.tools import receptors
 
     seen: dict[str, object] = {}
-    monkeypatch.setattr(receptors.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(receptors, "_require_executable", lambda name, command=None: f"/managed/bin/{name}")
     monkeypatch.setattr(
         receptors.subprocess,
         "run",
@@ -126,6 +128,22 @@ def test_pdb2pqr_hands_downstream_a_pdb_not_a_pqr(tmp_path, monkeypatch):
     assert output.suffix == ".pdb"
     assert f"--pdb-output={output}" in seen["cmd"]
     assert seen["cmd"][-1].endswith("protonated_0.pqr")  # the PQR is the sidecar, not the result
+
+
+@pytest.mark.parametrize("method", ["reduce", "pdb2pqr"])
+def test_receptor_api_passes_the_managed_command_to_the_job(monkeypatch, method):
+    from types import SimpleNamespace
+    from amdockvs.chemistry.api import ChemistryAPI
+
+    api = ChemistryAPI(runtime=SimpleNamespace())
+    command = f"/managed/{method}/bin/{method}"
+    monkeypatch.setattr(api, "receptor_protonation_tool_status", lambda name: SimpleNamespace(
+        installed=True, command=command))
+    submitted = {}
+    monkeypatch.setattr(api, "_submit_receptor_operation", lambda operation, **kw: submitted.update(kw) or "job")
+    assert api.protonate_receptors(method=method, ph=6.5) == "job"
+    assert submitted["params"]["tool_command"] == command
+    assert submitted["params"]["ph"] == 6.5
 
 
 def test_external_tools_get_scratch_files_that_are_gone_afterwards(tmp_path):
