@@ -128,3 +128,13 @@ def test_a_structure_already_shown_is_not_read_again():
     assert len(reads) == 1
     viewer._show_molecule(molecule, source="stored", object_prefix="molecule", orient=True)
     assert len(reads) == 2  # same name, other structure
+
+
+@pytest.mark.parametrize("has_3d", [False, True])
+def test_missing_coordinates_only_warn_when_a_structure_was_expected(caplog, has_3d):
+    from amdockvs.ui.viewers.molecular_viewer import MolecularViewerController
+
+    viewer = MolecularViewerController(SimpleNamespace(pymol_dock=SimpleNamespace(cmd=_Cmd())))
+    viewer.show_molecule(SimpleNamespace(id=7, has_3d=has_3d), "current")
+    warnings = [record for record in caplog.records if record.levelname == "WARNING"]
+    assert bool(warnings) is has_3d

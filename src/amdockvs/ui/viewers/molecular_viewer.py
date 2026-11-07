@@ -561,7 +561,8 @@ class MolecularViewerController:
     ) -> None:
         payload_id = payload_id or self._structure_id(molecule, str(source or "").strip().lower())
         if not payload_id:
-            _log.warning("Molecule %s has no %s structure stored", getattr(molecule, "id", None), source)
+            log = _log.warning if getattr(molecule, "has_3d", False) else _log.debug
+            log("Molecule %s has no %s structure stored", getattr(molecule, "id", None), source)
             return
         dock = self.w.pymol_dock
         if dock is None or getattr(dock, "cmd", None) is None:
