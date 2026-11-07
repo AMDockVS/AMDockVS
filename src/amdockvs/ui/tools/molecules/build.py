@@ -116,6 +116,8 @@ class MoleculeBuildWidget(QWidget):
         self.ligand_protonation_method.addItem("Explicit Hs (RDKit)", "explicit_hs")
         # One pH for every pH-aware method; Explicit Hs predicts no states, so it greys the pH out.
         self.ligand_protonation_ph = _double_spinbox(minimum=0.0, maximum=14.0, value=7.4, step=0.1, decimals=1)
+        # Last status seen for reduce/pdb2pqr, as the asynchronous refresh found it.
+        self._receptor_protonation_status: dict[str, object] = {}
         self._protonation_tool_ready = {
             # dimorphite_dl is a declared dependency, but a stale env still ships without it
             "dimorphite": _module_available("dimorphite_dl"),
@@ -352,8 +354,15 @@ class MoleculeBuildWidget(QWidget):
             self.receptor_protonation_status.setText(message)
             self.receptor_protonation_settings_button.setVisible(not installed)
 
+        def remember(current) -> None:
+            # Checking a managed tool runs its version command (pdb2pqr: ~300ms, a Python
+            # interpreter importing the package). Keep what this thread found so pressing Run
+            # does not pay for it again, on the GUI thread this time.
+            self._receptor_protonation_status[method] = current
+            show(current.installed, current.message)
+
         if callable(status):
-            run_async(lambda: status(method), lambda current: show(current.installed, current.message),
+            run_async(lambda: status(method), remember,
                       on_error=lambda exc: show(False, f"Runtime status unavailable: {exc}"),
                       compact=True)
         else:
@@ -709,9 +718,8 @@ class MoleculeBuildWidget(QWidget):
         return False
 
     def _require_executable(self, *, title: str, executable: str, detail: str) -> bool:
-        status = getattr(self.runtime.chemistry, "receptor_protonation_tool_status", None)
         managed = executable in ("reduce", "pdb2pqr")
-        available = status(executable).installed if managed and callable(status) else _executable_available(executable)
+        available = self._receptor_tool_installed(executable) if managed else _executable_available(executable)
         if available:
             return True
         if managed:
@@ -729,6 +737,32 @@ class MoleculeBuildWidget(QWidget):
             f"{detail}\nMissing executable: {executable}",
         )
         return False
+
+    def _receptor_tool_installed(self, name: str) -> bool:
+        """Whether a managed protonation tool is ready, without probing it on this thread.
+
+        The panel refreshes this off-thread whenever it is shown, the method changes or an
+        install finishes, so a click normally reads what is already known. Only a click that
+        beats the first refresh falls back to the blocking check.
+        """
+        known = self._receptor_protonation_status.get(str(name))
+        if known is not None:
+            return bool(getattr(known, "installed", False))
+        status = getattr(self.runtime.chemistry, "receptor_protonation_tool_status", None)
+        if not callable(status):
+            return _executable_available(str(name))
+        current = status(str(name))
+        self._receptor_protonation_status[str(name)] = current
+        return bool(current.installed)
+
+    def _receptor_tool_command(self, name: str) -> str:
+        """The executable this session already resolved, for the submit to reuse.
+
+        The worker re-verifies it and resolves its own installation when it does not fit that
+        host, so this is a hint that saves a second version check, not something trusted.
+        """
+        known = self._receptor_protonation_status.get(str(name))
+        return str(getattr(known, "command", "") or "")
 
     # Each op exposes its CURRENT config as a dict (kind == chemistry API method name), so Run and
     # Save-to-workflow share one source of truth and stay in sync.
@@ -955,8 +989,13 @@ class MoleculeBuildWidget(QWidget):
         stages, depends_on, error = [], None, None
         try:
             for kind, stage, _name, cfg in ops:
+                # The tool was located off the GUI thread; hand that result to the submit so it
+                # does not run the version check again here. Not part of cfg: a saved workflow
+                # must not carry this machine's absolute path.
+                located = ({"tool_command": self._receptor_tool_command(cfg["method"])}
+                           if kind == "protonate_receptors" else {})
                 # Chemistry jobs do not wait for each other on their own: chain them explicitly.
-                job_id = str(getattr(self.runtime.chemistry, kind)(**cfg, depends_on=depends_on))
+                job_id = str(getattr(self.runtime.chemistry, kind)(**cfg, **located, depends_on=depends_on))
                 stages.append((stage, job_id))
                 depends_on = [job_id]
         except Exception as exc:  # noqa: BLE001 - shown below; what was submitted is still followed

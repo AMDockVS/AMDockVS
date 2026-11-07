@@ -152,3 +152,51 @@ def test_outdated_protonation_status_does_not_override_the_selected_method(build
     for work, done in reversed(pending):
         done(work())
     assert build_widget.receptor_protonation_status.text() == "pdb2pqr"
+
+
+@pytest.mark.parametrize("method", ["reduce", "pdb2pqr"])
+def test_run_reuses_the_tool_located_off_the_gui_thread(build_widget, monkeypatch, method):
+    """Locating pdb2pqr runs its version command (~300ms): never on the thread that paints.
+
+    The panel already looks the tool up asynchronously, so pressing Run reads that result and
+    hands the executable to the submit instead of checking a second time.
+    """
+    probes = []
+    build_widget.runtime.chemistry.receptor_protonation_tool_status = lambda name: (
+        probes.append(name) or SimpleNamespace(installed=True, message=f"{name}: ready",
+                                               command=f"/managed/bin/{name}")
+    )
+    monkeypatch.setattr(build_module, "run_async", lambda work, done, **kwargs: done(work()))
+    for section in build_widget._protein_sections():
+        section.setChecked(False)
+    build_widget.receptor_protonation_section.setChecked(True)
+    build_widget.receptor_protonation_method.setCurrentIndex(0 if method == "reduce" else 1)
+    build_widget._refresh_receptor_protonation_tools()  # what being shown does, off-thread
+    assert probes and set(probes) == {method}
+    probes.clear()
+
+    build_widget._run_proteins()
+
+    assert probes == []  # the click located nothing: it used what was already found
+    submitted = dict(build_widget.runtime.chemistry.calls[-1][1])
+    assert submitted["method"] == method
+    assert submitted["tool_command"] == f"/managed/bin/{method}"
+
+
+def test_a_click_that_beats_the_first_lookup_still_checks(build_widget, monkeypatch):
+    """Correctness first: with nothing cached yet, Run falls back to the blocking check."""
+    probes = []
+    build_widget.runtime.chemistry.receptor_protonation_tool_status = lambda name: (
+        probes.append(name) or SimpleNamespace(installed=False, message="Not installed", command=None)
+    )
+    monkeypatch.setattr(build_module, "run_async", lambda work, done, **kwargs: None)  # never lands
+    monkeypatch.setattr(build_widget, "window", lambda: SimpleNamespace(open_settings=lambda **kw: None))
+    for section in build_widget._protein_sections():
+        section.setChecked(False)
+    build_widget.receptor_protonation_section.setChecked(True)
+    QTimer.singleShot(0, lambda: QApplication.activeModalWidget().reject())
+
+    build_widget._run_proteins()
+
+    assert probes == ["reduce"]
+    assert not build_widget.runtime.chemistry.calls  # not installed: nothing submitted

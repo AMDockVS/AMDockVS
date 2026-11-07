@@ -451,16 +451,24 @@ class ChemistryAPI:
         structure_source: str = "current",
         batch_size: int = 32,
         executor_name: str = DEFAULT_LOCAL_CPU_EXECUTOR,
+        tool_command: str = "",
         depends_on: list[str] | None = None,
         wait: bool = False,
     ) -> str | JobStatus:
         method = str(method).strip().lower()
-        status = self.receptor_protonation_tool_status(method)
-        if not status.installed:
-            raise RuntimeError(
-                f"{status.message} Install it from Settings → External tools → Protein preparation."
-            )
-        command = str(status.command)
+        if method not in {"reduce", "pdb2pqr"}:
+            raise ValueError("Protein protonation uses reduce or pdb2pqr.")
+        # Locating a tool runs its version command, which costs ~300ms for pdb2pqr. A caller
+        # that already did it off its UI thread passes the result; the worker re-verifies it
+        # and falls back to its own installation, so an unusable path costs nothing here.
+        command = str(tool_command or "").strip()
+        if not command or not Path(command).expanduser().is_file():
+            status = self.receptor_protonation_tool_status(method)
+            if not status.installed:
+                raise RuntimeError(
+                    f"{status.message} Install it from Settings → External tools → Protein preparation."
+                )
+            command = str(status.command)
         return self._submit_receptor_operation(
             "protonate",
             receptors=receptors,
