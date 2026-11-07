@@ -14,9 +14,9 @@ def test_every_managed_tool_reports_a_status(monkeypatch, tmp_path):
 
     assert [status.tool_id for status in statuses] == [tool.tool_id for tool in MANAGED_TOOLS]
     # Nothing lives under a fresh tools home (a tool already on PATH may still report ready);
-    # scikit-learn is a package of this environment, not a tools-home directory.
+    # Python packages belong to this environment, not a tools-home directory.
     assert all(status.location is None and status.size_bytes == 0
-               for status in statuses if status.tool_id != "scikit-learn")
+               for status in statuses if status.tool_id not in {"scikit-learn", "pdbfixer", "openmm"})
     assert not next(status for status in statuses if status.tool_id == "p2rank").installed
 
 
@@ -77,3 +77,68 @@ def test_unknown_tool_is_rejected():
 
     with pytest.raises(KeyError):
         get_tool("autodock5")
+
+
+@pytest.mark.parametrize("version,code,ready", [
+    ("4.15", 0, True), ("4.15.250408", 2, True), ("4.15", 1, False),
+    ("3.3.160602", 0, False), ("4.150", 0, False), ("4.16", 2, False),
+])
+def test_reduce_version_check_requires_the_recommended_release(tmp_path, monkeypatch, version, code, ready):
+    import os
+    from ms_env import READY, STAMP, locate
+    from amdockvs.integrations.envs import protonation_tool_status, tool_spec
+
+    if os.name == "nt":
+        pytest.skip("Reduce's conda runtime is for Linux and macOS")
+    monkeypatch.setenv("AMDOCK_TOOLS_HOME", str(tmp_path))
+    recipe = tool_spec("reduce").recipe(str(tmp_path))
+    prefix = Path(recipe.prefix)
+    command = prefix / "bin" / "reduce"
+    command.parent.mkdir(parents=True)
+    command.write_text(f"#!/bin/sh\necho reduce.{version}\nexit {code}\n")
+    command.chmod(0o755)
+    assert (locate(recipe)[0] == READY) is ready
+    (prefix / STAMP).write_text("{}")
+    assert protonation_tool_status(None, "reduce").installed is ready
+
+
+@pytest.mark.parametrize("version", ["3.7.1", "3.6.2", "3.7.10"])
+def test_pdb2pqr_version_check_requires_the_recommended_release(tmp_path, monkeypatch, version):
+    import os
+    import sys
+    from ms_env import READY, STAMP, locate
+    from amdockvs.integrations.envs import protonation_tool_status, tool_spec
+
+    if os.name == "nt":
+        pytest.skip("Shell stand-ins for the tool executables")
+    monkeypatch.setenv("AMDOCK_TOOLS_HOME", str(tmp_path))
+    recipe = tool_spec("pdb2pqr").recipe(str(tmp_path))
+    prefix = Path(recipe.prefix)
+    command = prefix / "bin" / "pdb2pqr30"
+    command.parent.mkdir(parents=True)
+    (command.parent / "python").symlink_to(sys.executable)
+    command.write_text(f"#!/bin/sh\necho pdb2pqr {version}\n")
+    command.chmod(0o755)
+    assert (locate(recipe)[0] == READY) is (version == "3.7.1")
+    (prefix / STAMP).write_text("{}")
+    assert protonation_tool_status(None, "pdb2pqr").installed is (version == "3.7.1")
+
+
+@pytest.mark.parametrize("name", ["reduce", "pdb2pqr"])
+def test_system_protonation_tools_do_not_hide_a_missing_managed_install(monkeypatch, tmp_path, name):
+    import os
+    from ms_env import MISSING, locate
+    from amdockvs.integrations.envs import protonation_recipe, protonation_tool_status
+
+    if os.name == "nt":
+        pytest.skip("Shell stand-ins for the tool executables")
+    monkeypatch.setenv("AMDOCK_TOOLS_HOME", str(tmp_path / "managed"))
+    system_bin = tmp_path / "system-bin"
+    system_bin.mkdir()
+    binary = system_bin / name
+    binary.write_text("#!/bin/sh\necho " + ("reduce.4.15" if name == "reduce" else "pdb2pqr 3.7.1") + "\n")
+    binary.chmod(0o755)
+    monkeypatch.setenv("PATH", str(system_bin) + os.pathsep + os.environ.get("PATH", ""))
+    assert locate(protonation_recipe(None, name))[0] == MISSING
+    status = protonation_tool_status(None, name)
+    assert not status.installed and status.command is None
