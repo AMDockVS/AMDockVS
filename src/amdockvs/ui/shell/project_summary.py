@@ -3,6 +3,7 @@ Shows metadata + quick counts; it does not navigate, it only informs
 (with an optional button to jump to the project browser)."""
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any, Callable, Optional
 
 from PySide6.QtCore import Qt
@@ -45,7 +46,8 @@ def _count_box(label: str, value: Optional[int]) -> QFrame:
 
 def _storage_section(dlg: QDialog, runtime) -> QVBoxLayout:
     """Size and dead bytes of the structure volumes, with Check (reads every structure), Repair
-    (clears the leftovers a check finds) and Compact (reclaims the dead bytes). All of it runs off
+    (clears the leftovers a check finds), Compact (reclaims the dead bytes) and Clear queue files
+    (what campaigns of rows packed for a cluster's queue). All of it runs off
     the GUI thread."""
     store = payload_store(runtime)
     layout = QVBoxLayout()
@@ -56,7 +58,10 @@ def _storage_section(dlg: QDialog, runtime) -> QVBoxLayout:
     row = QHBoxLayout()
     check, repair, compact = QPushButton("Check"), QPushButton("Repair"), QPushButton("Compact")
     repair.setToolTip("Delete structures no row points to any more, empty volumes and orphan files. Not while jobs run.")
-    buttons = (check, repair, compact)
+    transport = QPushButton("Clear queue files")
+    transport.setToolTip("Delete the ligands packed for a cluster's queue. A canceled or failed docking there can "
+                         "no longer be resumed; dock it again and what is docked is skipped. Not while jobs run.")
+    buttons = (check, repair, compact, transport)
     for button in buttons:
         row.addWidget(button)
     row.addStretch(1)
@@ -90,9 +95,15 @@ def _storage_section(dlg: QDialog, runtime) -> QVBoxLayout:
         runtime.repair_storage()
         return storage_stats(store)
 
+    def cleared() -> object:
+        freed, stats = runtime.clear_transport(), storage_stats(store)
+        size = f"{freed / 1e6:,.1f} MB" if freed >= 100_000 else f"{freed / 1e3:,.0f} KB"
+        return SimpleNamespace(summary=lambda: f"{stats.summary()}\nQueue files cleared: {size}")
+
     check.clicked.connect(lambda: run(lambda: storage_stats(store, full=True), "Checking every structure…"))
     repair.clicked.connect(lambda: run(repaired, "Repairing…"))
     compact.clicked.connect(lambda: run(compacted, "Compacting…"))
+    transport.clicked.connect(lambda: run(cleared, "Clearing queue files…"))
     run(lambda: storage_stats(store), "Reading…")
     return layout
 

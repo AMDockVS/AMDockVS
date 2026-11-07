@@ -282,6 +282,17 @@ def drop_transport(manifest: Path) -> None:
     manifest.unlink(missing_ok=True)
 
 
+def clear_transport(project_db) -> int:
+    """Every file campaigns of rows packed for a queue, by hand (Project > Clear queue files): the
+    ones canceled or failed lose their Resume. Returns the bytes freed."""
+    folder = transport_folder(project_db)
+    files = [path for path in folder.glob("*") if path.is_file()] if folder.is_dir() else []
+    freed = sum(path.stat().st_size for path in files)
+    for path in files:
+        path.unlink(missing_ok=True)
+    return freed
+
+
 class DockRowsCampaignParams(DockingJobParams):
     """`DockingJobParams`, and the manifest its chunks became when it was submitted (`pack_rows`)."""
 
@@ -297,7 +308,7 @@ def _rows_ended(params: DockRowsCampaignParams, project, snapshot) -> None:
     _supersede(params.model_dump(mode="python"),
                {"project_db": configs[project]["project_db"], "terminal_status": status})
     # Canceled or failed, Resume submits it again from the same manifest: it stays until it completes.
-    # ponytail: one never resumed leaves its files in cache/transport; clear the cache if that bites.
+    # One never resumed leaves its files in cache/transport until they are cleared (`clear_transport`).
     if status == "completed":
         drop_transport(Path(params.elements))
 
@@ -308,8 +319,8 @@ def dock_rows_campaign(params: DockRowsCampaignParams, project) -> list[Stage]:
     try:
         manifest = json.loads(Path(params.elements).read_text(encoding="utf-8"))
     except FileNotFoundError:
-        raise RuntimeError("Its ligands were packed for the queue and those files are gone (it ended "
-                           "before they were kept for Resume). Dock it again: what is docked is skipped.") from None
+        raise RuntimeError("Its ligands were packed for the queue and those files are gone (cleared, or "
+                           "it ended before they were kept for Resume). Dock it again: what is docked is skipped.") from None
     project_db = configs[project]["project_db"]
     reopen_run(project_db, docking_run_id=find_docking_run(
         project_db, run_id=params.run_id, engine=params.engine, run_kind="screening",
@@ -317,5 +328,5 @@ def dock_rows_campaign(params: DockRowsCampaignParams, project) -> list[Stage]:
     return [Stage("vs", dock_rows, unplain(manifest["elements"]), digests=manifest["digests"])]
 
 
-__all__ = ["CampaignWriter", "DockCampaignParams", "DockRowsCampaignParams", "dock_rows_campaign",
+__all__ = ["CampaignWriter", "clear_transport", "DockCampaignParams", "DockRowsCampaignParams", "dock_rows_campaign",
            "dock_shards_campaign", "drop_transport", "pack_rows", "transport_folder"]

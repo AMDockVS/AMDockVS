@@ -428,6 +428,16 @@ class AMDockVSRuntime(AppRuntime):
             self.workspace.project_db, busy=bool(self.list_jobs(statuses=NON_TERMINAL_JOB_STATUSES))
         )
 
+    def clear_transport(self) -> int:
+        """Delete the files campaigns of rows packed for a queue (see `clear_transport`); the bytes
+        freed. Refused while a job is active or interrupted: a campaign going on there needs them."""
+        from amdockvs.docking.campaign import clear_transport
+
+        self._require_active_project()
+        if any(not str(job.status).startswith(("completed", "failed", "canceled")) for job in self.workspace.jobs()):
+            raise RuntimeError("Jobs are running; clear the queue files once they end.")
+        return clear_transport(self.workspace.project_db)
+
     def create_monitor_bridge(self, *, poll_ms: int | None = None, max_recent_jobs: int | None = None):
         from ms_components.ms_monitor import MolSuiteMonitorBridge
 

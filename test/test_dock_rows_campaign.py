@@ -91,3 +91,17 @@ def test_a_stopped_campaign_keeps_its_transport_for_resume(tmp_path, monkeypatch
         assert manifest.exists()  # Resume reads it again
     campaign._rows_ended(params, project, SimpleNamespace(status="completed"))
     assert not list((tmp_path / "t").iterdir())
+
+
+def test_clearing_the_queue_files_by_hand_frees_what_a_stopped_campaign_kept(tmp_path, monkeypatch):
+    import amdockvs.docking.campaign as campaign
+
+    receptor = tmp_path / "r.pdbqt"
+    receptor.write_text("RECEPTOR")
+    folder = tmp_path / "t"
+    campaign.pack_rows(_chunks(File(str(receptor)), Dir(str(tmp_path / "out"))), folder, cpu=1)
+    size = sum(path.stat().st_size for path in folder.iterdir())
+    monkeypatch.setattr(campaign, "transport_folder", lambda _db: folder)
+    assert campaign.clear_transport(None) == size > 0
+    assert not list(folder.iterdir())
+    assert campaign.clear_transport(None) == 0  # nothing left, or never packed
