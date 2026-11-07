@@ -106,3 +106,28 @@ def test_draining_gives_up_rather_than_hanging(app):
     assert drain_async_reads(200) is False  # said so rather than waiting for ever
     release.set()
     assert drain_async_reads(10_000) is True
+
+
+def test_the_preparation_panel_owns_the_reads_it_starts(monkeypatch):
+    """Its results go into the studio's widgets, so a closed studio must not receive them."""
+    from types import SimpleNamespace
+
+    from amdockvs.ui.tools.docking import preparation_panel
+
+    calls = []
+    monkeypatch.setattr(preparation_panel, "run_async",
+                        lambda fn, on_result, on_error=None, **kwargs: calls.append(kwargs))
+    studio = SimpleNamespace(
+        _catalog_receptor_widget=lambda: object(),
+        _push_receptor_scope=lambda _widget: None,
+        _method=lambda: "vina",
+        runtime=SimpleNamespace(docking=SimpleNamespace(method_misfit_receptor_ids=lambda **_kw: []),
+                                molecules=SimpleNamespace(excluded_since=lambda _since: [])),
+        _prep_started={"receptor": 3},
+    )
+    panel = preparation_panel.PreparationPanel
+    panel._sync_receptor_table_filter(studio)
+    panel._report_prep_failures(studio, SimpleNamespace(noun="receptor"))
+
+    assert len(calls) == 2
+    assert [call.get("owner") for call in calls] == [studio, studio]
