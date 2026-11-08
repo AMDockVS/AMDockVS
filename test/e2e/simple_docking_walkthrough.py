@@ -10,7 +10,8 @@ import sys
 import time
 
 
-def main(root, *, cancel_during_preview=False, native=False, slow_submission=False):
+def main(root, *, cancel_during_preview=False, native=False, slow_submission=False, prepare_before_box=False,
+         strict_input=False, program_navigation=False):
     root.mkdir(parents=True, exist_ok=True)
     os.environ.update(AMDOCK_HOME=str(root / "amdock"), MOLSUITE_HOME=str(root / "molsuite"),
                       AMDOCK_CCD_CACHE=str(root / "ccd"))
@@ -55,7 +56,8 @@ def main(root, *, cancel_during_preview=False, native=False, slow_submission=Fal
         app.processEvents()
         window.grab().save(str(root / f"welcome-{width}.png"))
     if native:
-        window.resize(1920, 936)
+        window.resize(*map(int, os.environ.get("AMDOCK_TEST_VIEWPORT", "1920x936").split("x")))
+        window.move(app.primaryScreen().availableGeometry().topLeft())
         app.processEvents()
     # Give the form a temporary default without browsing or touching the user's projects.
     from ms_components.ms_projects.browser import ProjectFormDialog
@@ -87,6 +89,23 @@ def main(root, *, cancel_during_preview=False, native=False, slow_submission=Fal
     QMessageBox.critical = lambda *args: errors.append(str(args[1:3]))
     window.tutorials_panel.start_button.click()
     tutorial = window._docking_tutorial
+    if strict_input:
+        mouse_click = QTest.mouseClick
+
+        def visible_mouse_click(widget, button, *args, **kwargs):
+            pos = kwargs.get("pos", widget.rect().center())
+            point = widget.mapToGlobal(pos)
+            hit = QApplication.widgetAt(point)
+            if hit is not widget and (hit is None or not widget.isAncestorOf(hit)):
+                message = (f"Mouse click on {type(widget).__name__} ({widget.objectName()}) is blocked by "
+                           f"{type(hit).__name__} ({hit.objectName() if hit is not None else ''}); "
+                           f"tutorial target={tutorial.controller._target}; "
+                           f"instruction={tutorial.controller.overlay.body.toPlainText()}")
+                errors.append(message)
+                raise AssertionError(message)
+            mouse_click(hit, button, *args, **{**kwargs, "pos": hit.mapFromGlobal(point)})
+
+        QTest.mouseClick = visible_mouse_click
     started = time.monotonic()
     seen, clicked = set(), set()
     result = [1]
@@ -118,6 +137,8 @@ def main(root, *, cancel_during_preview=False, native=False, slow_submission=Fal
             # Catalog Import enters QDialog.exec(). Schedule outside this timer
             # callback so subsequent ticks can operate that modal dialog.
             def perform_click():
+                if index in ("box-new", "box-saved", "box-active"):
+                    window.grab().save(str(root / f"guidance-{index}.png"))
                 if index == 6:
                     run_clicked_at = time.monotonic()
                     def check_after_run():
@@ -138,6 +159,11 @@ def main(root, *, cancel_during_preview=False, native=False, slow_submission=Fal
     def tick():
         nonlocal inspection_started
         try:
+            if prepare_before_box and isinstance(app.activeModalWidget(), QMessageBox):
+                box = app.activeModalWidget()
+                assert "no defined, active search box" in box.text()
+                next(button for button in box.buttons() if button.text() == "Continue and skip").click()
+                return
             if time.monotonic() - started > 240:
                 raise RuntimeError(f"Tutorial timed out: step {tutorial.controller.index}, {errors}")
             for role, chooser in pickers:
@@ -222,40 +248,40 @@ def main(root, *, cancel_during_preview=False, native=False, slow_submission=Fal
                 if slow_submission:
                     assert "finished-before-result" in seen, "Tutorial did not finish before the calculation"
                 assert not window.tools_dock.isVisible(), "Docking Studio should close after submission"
-                if native:
-                    from amdockvs.ui.view_ids import COMPLEXES_VIEW_ID
+                from amdockvs.ui.view_ids import COMPLEXES_VIEW_ID
 
-                    results_view = window.central_widget.open_view(COMPLEXES_VIEW_ID)
-                    results = results_view.stack.currentWidget()
-                    if "refresh-completed-results" not in seen:
-                        seen.add("refresh-completed-results")
-                        results_view.refresh()
+                results_view = window.central_widget.open_view(COMPLEXES_VIEW_ID)
+                results = results_view.stack.currentWidget()
+                if "refresh-completed-results" not in seen:
+                    seen.add("refresh-completed-results")
+                    results_view.refresh()
+                    return
+                state = {"receptor": results._selected_receptor_id, "ligand": results._selected_ligand_id,
+                         "program": results.protocol_combo.currentData(),
+                         "counts": {name: getattr(results, f"{name}_table").record_total
+                                    for name in ("receptor", "ligand", "pose")}}
+                if graphics.get("result_state") != state:
+                    graphics["result_state"] = state
+                    (root / "graphics.json").write_text(json.dumps(graphics, indent=2))
+                    print("Result inspection:", state, flush=True)
+                if inspection_started is None:
+                    inspection_started = time.monotonic()
+                if time.monotonic() - inspection_started > 30:
+                    raise RuntimeError(f"Result inspection stalled: {state}")
+                for name in ("receptor", "ligand", "pose"):
+                    table = getattr(results, f"{name}_table").view
+                    item = table.model().index(0, 0)
+                    if not item.isValid() or item.data() is None:
                         return
-                    state = {"receptor": results._selected_receptor_id, "ligand": results._selected_ligand_id,
-                             "program": results.protocol_combo.currentData(),
-                             "counts": {name: getattr(results, f"{name}_table").record_total
-                                        for name in ("receptor", "ligand", "pose")}}
-                    if graphics.get("result_state") != state:
-                        graphics["result_state"] = state
-                        (root / "graphics.json").write_text(json.dumps(graphics, indent=2))
-                        print("Result inspection:", state, flush=True)
-                    if inspection_started is None:
-                        inspection_started = time.monotonic()
-                    if time.monotonic() - inspection_started > 30:
-                        counts = {name: getattr(results, f"{name}_table").record_total
-                                  for name in ("receptor", "ligand", "pose")}
-                        raise RuntimeError(f"Result inspection stalled: {counts}, scene={window.pymol_dock.scene_context}")
-                    for name in ("receptor", "ligand", "pose"):
-                        table = getattr(results, f"{name}_table").view
-                        item = table.model().index(0, 0)
-                        if not item.isValid() or item.data() is None:
-                            return
-                        if f"inspect-{name}" not in seen:
-                            seen.add(f"inspect-{name}")
-                            QTest.mouseClick(table.viewport(), Qt.LeftButton, pos=table.visualRect(item).center())
-                            return
+                    if f"inspect-{name}" not in seen:
+                        seen.add(f"inspect-{name}")
+                        QTest.mouseClick(table.viewport(), Qt.LeftButton, pos=table.visualRect(item).center())
+                        return
+                if results.d_score.text() == "-":
+                    return
+                if native:
                     pose_object = window.pymol_dock.scene_context.selections.get("ligand", "")
-                    if not pose_object.startswith("amdock_result_pose") or results.d_score.text() == "-":
+                    if not pose_object.startswith("amdock_result_pose"):
                         return
                     if window.pymol_dock.cmd.count_atoms(pose_object) == 0:
                         return
@@ -299,6 +325,33 @@ def main(root, *, cancel_during_preview=False, native=False, slow_submission=Fal
             elif index == 2:
                 click(window.tools.action_buttons[DOCKING_VIEW_ID], index)
             elif index == 3:
+                if program_navigation and "program-navigation" not in seen:
+                    seen.add("program-navigation")
+                    # Model the installed QuickVina default without requiring that
+                    # executable: this run switches to Vina before doing any work.
+                    tutorial.studio._check_programs = lambda: None
+                    tutorial.studio._apply_missing_programs({
+                        key: reason for key, reason in tutorial.studio._missing_programs.items()
+                        if key != "qvina"
+                    })
+                    for key, check in tutorial.studio._program_checks.items():
+                        check.setChecked(key == "qvina")
+                    tutorial.studio.stepper.go_to(tutorial.studio.step_ligands)
+                    return
+                if program_navigation and "prepare_ligand" not in tutorial.completed_stages:
+                    # Reproduce the screenshot: real ligand preparation finishes
+                    # and opens Receptors while the guide still waits at Programs.
+                    # Set up this pre-existing state directly: the corrected guide
+                    # now restricts mouse input to the header until Programs is fixed.
+                    if "prepare-before-program-recovery" not in clicked:
+                        clicked.add("prepare-before-program-recovery")
+                        tutorial.studio._prepare_ligands()
+                    return
+                if tutorial.studio.stepper.current_index != 0:
+                    assert "Return to Programs" in tutorial._instruction(tutorial.controller.current_step)
+                    window.grab().save(str(root / "program-navigation-recovery.png"))
+                    QTest.mouseClick(tutorial.studio.stepper._header_items[0], Qt.LeftButton)
+                    return
                 from amdockvs.docking.engines.programs import list_docking_programs
                 keys = [spec.key for spec in list_docking_programs()]
                 wrong = next((key for key, check in tutorial.studio._program_checks.items()
@@ -312,14 +365,40 @@ def main(root, *, cancel_during_preview=False, native=False, slow_submission=Fal
                     return
                 check = tutorial.studio._program_checks[key]
                 if check.isChecked() != (key == "vina"):
-                    QTest.mouseClick(check, Qt.LeftButton)
+                    # The form can be wider than its viewport after showing PyMOL.
+                    # Click the visible indicator rather than its clipped center.
+                    QTest.mouseClick(check, Qt.LeftButton, pos=QPoint(8, check.height() // 2))
                     return
+                tutorial.studio.exhaustiveness.setValue(1)
                 button = next(button for button in tutorial.studio.findChildren(QPushButton)
                               if button.text() == "Next" and button.isVisible())
                 click(button, index)
             elif index == 4:
                 click(tutorial.studio.prepare_ligands_button, index)
             elif index == 5:
+                if not tutorial._grid_ready:
+                    assert not tutorial.studio.prepare_receptor_button.isEnabled()
+                if prepare_before_box and "prepare-before-box" not in clicked:
+                    # Simulate preparation started outside the tutorial. Its own button
+                    # must stay disabled until the box has been defined and activated.
+                    clicked.add("prepare-before-box")
+                    tutorial.studio._prepare_receptors()
+                    return
+                if prepare_before_box and "prepared-before-box" not in seen:
+                    if not tutorial._receptor_preparation_ready:
+                        return
+                    assert not tutorial._grid_ready
+                    assert tutorial.studio.stepper.current_index == 3
+                    seen.add("prepared-before-box")
+                    window.grab().save(str(root / "prepared-before-box.png"))
+                    # Revisit Receptors after preparation; its row must still be available
+                    # for box definition, without forcing another preparation job.
+                    tutorial.studio.stepper.set_current_index(2)
+                    grid.clear_molecule()
+                    return
+                if tutorial.studio.stepper.current_index != 2:
+                    QTest.mouseClick(tutorial.studio.stepper._header_items[2], Qt.LeftButton)
+                    return
                 if grid._current_molecule is None:
                     from amdockvs.ui.view_ids import RECEPTOR_VIEW_ID
                     table = window.central_widget.open_view(RECEPTOR_VIEW_ID).table.view
@@ -327,7 +406,7 @@ def main(root, *, cancel_during_preview=False, native=False, slow_submission=Fal
                     if item.isValid():
                         QTest.mouseClick(table.viewport(), Qt.LeftButton, pos=table.visualRect(item).center())
                     return
-                if native and "pymol-detached" not in seen:
+                if native and not strict_input and "pymol-detached" not in seen:
                     viewport = window.pymol_dock.pymol_widget
                     if viewport.context() is None or window.pymol_dock.cmd.count_atoms() == 0:
                         return
@@ -335,7 +414,7 @@ def main(root, *, cancel_during_preview=False, native=False, slow_submission=Fal
                     seen.add("pymol-detached")
                     window.pymol_dock.open_in_window()
                     return
-                if native and "pymol-redocked" not in seen:
+                if native and not strict_input and "pymol-redocked" not in seen:
                     assert window.dock_manager.is_windowed("pymol")
                     tutorial.controller.refresh()
                     assert tutorial.controller.overlay.parentWidget() is window.pymol_dock.window()
@@ -344,7 +423,7 @@ def main(root, *, cancel_during_preview=False, native=False, slow_submission=Fal
                     seen.add("pymol-redocked")
                     window.pymol_dock.dock_to_main_window()
                     return
-                if native and "pymol-reattached" not in seen:
+                if native and not strict_input and "pymol-reattached" not in seen:
                     assert not window.dock_manager.is_windowed("pymol")
                     check_pymol("reattached")
                     seen.add("pymol-reattached")
@@ -361,22 +440,45 @@ def main(root, *, cancel_during_preview=False, native=False, slow_submission=Fal
                     grid.grab().save(str(root / "box-empty.png"))
                     click(grid.new_button, "box-new")
                 elif "box-values" not in clicked:
+                    if strict_input:
+                        for spin, value in zip((grid.cx, grid.cy, grid.cz, grid.sx, grid.sy, grid.sz),
+                                               (*tutorial.example["grid_center"], *tutorial.example["grid_size"])):
+                            if abs(spin.value() - value) > 0.02:
+                                QTest.mouseClick(spin, Qt.LeftButton)
+                                QTest.keyClick(spin, Qt.Key_A, Qt.ControlModifier)
+                                QTest.keyClicks(spin, spin.locale().toString(int(value)))
+                                QTest.keyClick(spin, Qt.Key_Return)
+                                return
                     clicked.add("box-values")
-                    for spin, value in zip((grid.cx, grid.cy, grid.cz, grid.sx, grid.sy, grid.sz),
-                                           (*tutorial.example["grid_center"], *tutorial.example["grid_size"])):
-                        spin.setFocus()
-                        QTest.keyClick(spin, Qt.Key_A, Qt.ControlModifier)
-                        QTest.keyClicks(spin, spin.locale().toString(int(value)))
-                        QTest.keyClick(spin, Qt.Key_Tab)
+                    if not strict_input:
+                        for spin, value in zip((grid.cx, grid.cy, grid.cz, grid.sx, grid.sy, grid.sz),
+                                               (*tutorial.example["grid_center"], *tutorial.example["grid_size"])):
+                            spin.setFocus()
+                            QTest.keyClick(spin, Qt.Key_A, Qt.ControlModifier)
+                            QTest.keyClicks(spin, spin.locale().toString(int(value)))
+                            QTest.keyClick(spin, Qt.Key_Tab)
                     grid.grab().save(str(root / "box-values.png"))
                 elif "box-saved" not in clicked:
                     click(grid.save_button, "box-saved")
                 elif not tutorial._grid_ready:
                     if "box-active" not in clicked:
                         click(grid.activate_button, "box-active")
-                else:
-                    click(tutorial.studio.prepare_receptor_button, index)
-            elif index == 6 and "Ready to run" in tutorial.studio.check_status_label.text():
+            elif index == 6:
+                assert tutorial.controller.current_step.id == "run-docking"
+                assert "Prepare receptor and run docking" in tutorial.controller.current_step.title
+                if not tutorial._receptor_preparation_ready:
+                    if "prepare-receptor" not in clicked:
+                        window.grab().save(str(root / "final-card-before-preparation.png"))
+                        click(tutorial.studio.prepare_receptor_button, "prepare-receptor")
+                    else:
+                        window.grab().save(str(root / "final-card-preparing.png"))
+                    return
+                if tutorial.studio.stepper.current_index != 3:
+                    QTest.mouseClick(tutorial.studio.stepper._header_items[3], Qt.LeftButton)
+                    return
+                if "Ready to run" not in tutorial.studio.check_status_label.text():
+                    return
+                window.grab().save(str(root / "final-card-ready.png"))
                 if slow_submission and "slow-submission" not in seen:
                     seen.add("slow-submission")
                     submit = tutorial.studio._submit_docking
@@ -412,4 +514,7 @@ def main(root, *, cancel_during_preview=False, native=False, slow_submission=Fal
 
 if __name__ == "__main__":
     raise SystemExit(main(Path(sys.argv[1]).resolve(), cancel_during_preview="--cancel-during-preview" in sys.argv[2:],
-                         native="--native" in sys.argv[2:], slow_submission="--slow-submission" in sys.argv[2:]))
+                         native="--native" in sys.argv[2:], slow_submission="--slow-submission" in sys.argv[2:],
+                         prepare_before_box="--prepare-before-box" in sys.argv[2:],
+                         strict_input="--strict-input" in sys.argv[2:],
+                         program_navigation="--program-navigation" in sys.argv[2:]))
