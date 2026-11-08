@@ -80,6 +80,26 @@ interactions** analyzes each pose after docking and stores the interaction data
 with the results. Advanced settings include docking batch size and, when
 available, the execution destination.
 
+### One configuration per program {#one-configuration}
+
+A project keeps a single docking configuration per program, so the results of a program are
+all comparable with each other. Redocking is the exception: it may hold several protocols,
+since comparing them is the point.
+
+Changing a program's search settings once it already has docking results stops the run
+rather than mixing two kinds of result together, and offers to replace that program's
+results or to cancel. What counts as a change is the search itself — scoring function,
+exhaustiveness, seed, energy range, minimum RMSD, grid spacing, and a non-standard method.
+The number of poses kept (`num_modes`) does not: it says how many poses of the same search
+are stored, so asking for more poses later is a redock of the same protocol.
+
+Replacing deletes that program's docking results in the project — poses, the analyses
+derived from them, the counters, and the per-shard result files — and does it after the
+request is checked but before the new run is submitted. A new run that then fails or is
+cancelled does not bring the deleted results back. Redocking results, other programs'
+results and the prepared ligand library are left alone. Through the API the same situation
+raises `DockingProtocolConflictError`, and `replace_existing=True` is the confirmation.
+
 For a sharded screening library, **Screening hits** sets the score threshold
 and the maximum number of hits retained per receptor. Optional off-target
 docking first screens against a reference receptor, then docks the selected
