@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from amdockvs.core.user_env import is_remembered, remember_env_var, shell_profile
+from amdockvs.core.payloads import molecule_payload_id
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.common.failures import show_failures
 from amdockvs.ui.common.job_follower import JobFollower
@@ -288,6 +289,11 @@ class MoleculeBuildWidget(QWidget):
         self.run_proteins_button = protein_bar.add_action(QPushButton("Run", proteins))
         self.run_proteins_button.clicked.connect(self._run_proteins)
         self.protein_jobs = JobFollower(self, protein_bar, noun="Protein build")
+        self.protein_jobs.stage_finished.connect(self._on_protein_stage_finished)
+        self._prediction_job_id = None
+        self._prediction_inputs: dict[int, int | None] = {}
+        self._prediction_finished = False
+        self._prediction_viewer = None
         for section in self._protein_sections():
             section.toggled.connect(self._sync_protein_button)
 
@@ -576,6 +582,7 @@ class MoleculeBuildWidget(QWidget):
 
     def hideEvent(self, event):
         super().hideEvent(event)
+        self._prediction_inputs.clear()
         widget = self._catalog_molecules_widget() if self._ready else None
         if widget is not None:
             widget.pop_scope(self._SCOPE_KEY)
@@ -834,11 +841,28 @@ class MoleculeBuildWidget(QWidget):
         ops = self._protein_ops()
         if not ops or not self._protein_tools_ready(ops):
             return
+        self._prediction_job_id = None
+        self._prediction_inputs.clear()
+        self._prediction_finished = False
         stages, depends_on, error = [], None, None
         try:
             for kind, stage, _name, cfg in ops:
+                prediction_inputs = {}
+                if kind == "predict_receptors":
+                    prediction_inputs = {
+                        int(row.id): molecule_payload_id(row)
+                        for row in self.runtime.molecules.stream(cfg["receptors"])
+                        if cfg["force"] or not row.has_3d
+                    }
                 # Chemistry jobs do not wait for each other on their own: chain them explicitly.
                 job_id = str(getattr(self.runtime.chemistry, kind)(**cfg, depends_on=depends_on))
+                if kind == "predict_receptors":
+                    self._prediction_job_id = job_id
+                    self._prediction_inputs = prediction_inputs
+                    viewer = getattr(self.window(), "viewer", None)
+                    if viewer is not None and viewer is not self._prediction_viewer:
+                        viewer.catalog_molecule_shown.connect(self._on_prediction_structure_shown)
+                        self._prediction_viewer = viewer
                 stages.append((stage, job_id))
                 depends_on = [job_id]
         except Exception as exc:  # noqa: BLE001 - shown below; what was submitted is still followed
@@ -847,6 +871,39 @@ class MoleculeBuildWidget(QWidget):
             self.protein_jobs.follow(stages)
         if error is not None:
             QMessageBox.critical(self, "Build Proteins", str(error))
+
+    def _on_protein_stage_finished(self, job_id: str, status: str) -> None:
+        if job_id != self._prediction_job_id:
+            return
+        self._prediction_finished = status == "completed"
+        if not self._prediction_finished:
+            self._prediction_inputs.clear()
+            return
+        # A manual click may already have loaded the result before the monitor caught up.
+        selection = getattr(getattr(self.window(), "aux", None), "last_selection", None)
+        if selection is not None:
+            self._on_prediction_structure_shown(selection[1])
+
+    def _on_prediction_structure_shown(self, molecule) -> None:
+        if not self._prediction_finished or not self._prediction_inputs or molecule is None:
+            return
+        if not self.isVisible() or self.tabs.currentWidget() is not self.proteins_tab:
+            self._prediction_inputs.clear()
+            return
+        molecule_id = int(molecule.id)
+        payload_id = molecule_payload_id(molecule)
+        if molecule_id not in self._prediction_inputs or payload_id == self._prediction_inputs[molecule_id]:
+            return
+        window = self.window()
+        aux, viewer = window.aux, window.viewer
+        if aux.occupant != aux.AUX_DETAILS:
+            return
+        if not any(viewer._already_shown(f"{prefix}_{molecule_id}", payload_id)
+                   for prefix in ("receptor", "molecule")):
+            return
+        self._prediction_inputs.clear()  # One reveal per prediction, even if the user closes it again.
+        aux.action.setChecked(True)
+        aux.on_toggled(True)
 
     def _save_proteins(self) -> None:
         # One step per op: the workflow already runs same-category steps one after another.
