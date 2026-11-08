@@ -9,4 +9,3 @@ prune tools
 
 # Root-level working notes.  prune only takes directories.
 exclude AGENTS.md ui_refactor.md
-exclude "AMDock Backend Refactoring.md"

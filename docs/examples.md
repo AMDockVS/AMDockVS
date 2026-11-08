@@ -1,3 +1,7 @@
+---
+icon: lucide/flask-conical
+---
+
 # Examples
 
 ## Import, prepare, and dock

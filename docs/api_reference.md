@@ -1,3 +1,7 @@
+---
+icon: lucide/book-open
+---
+
 # API reference
 
 The reference below is generated directly from the current Python sources.

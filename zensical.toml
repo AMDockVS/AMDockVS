@@ -6,21 +6,48 @@ site_url = "https://amdockvs.github.io/AMDockVS/"
 repo_url = "https://github.com/AMDockVS/AMDockVS"
 repo_name = "AMDockVS/AMDockVS"
 copyright = "Copyright &copy; 2026 AMDockVS authors"
+extra_css = ["stylesheets/extra.css"]
 
 nav = [
-  { "Home" = "index.md" },
-  { "API guide" = "runtime_api.md" },
+  { "Home" = [
+    { "Getting started" = "index.md" },
+  ]},
+  { "AMDockVS" = [
+    { "Overview" = "overview.md" },
+    { "Top catalog" = [
+      { "Receptors" = "receptors.md" },
+      { "Ligands" = "ligands.md" },
+    ] },
+    { "Main analysis tools" = [
+      { "Docking Studio" = "docking_studio.md" },
+      { "QSAR" = "qsar.md" },
+    ] },
+    { "Secondary analysis tools" = [
+      { "Build" = "build.md" },
+      { "Pocket Detection" = "pocket_detection.md" },
+      { "Filter" = "filter.md" },
+      { "Diversity" = "diversity.md" },
+    ] },
+    { "Visualization tools" = [
+      { "PyMOL" = "pymol.md" },
+      { "2D Interactions" = "interactions_2d.md" },
+    ] },
+    { "Jobs monitor" = "jobs_monitor.md" },
+  ] },
   { "Data and export" = "data_and_export.md" },
   { "Examples" = "examples.md" },
+  { "API guide" = "runtime_api.md" },
   { "API reference" = "api_reference.md" },
 ]
 
 [project.theme]
+custom_dir = "docs/overrides"
 language = "en"
 favicon = "images/favicon.svg"
 logo = "images/favicon.svg"
 features = [
   "content.code.copy",
+  "navigation.expand",
   "navigation.footer",
   "navigation.path",
   "navigation.sections",
@@ -54,6 +81,10 @@ alternate_style = true
 permalink = true
 
 [project.plugins.search]
+
+[project.plugins.glightbox]
+auto = true
+auto_caption = true
 
 [project.plugins.mkdocstrings.handlers.python]
 paths = ["src"]
