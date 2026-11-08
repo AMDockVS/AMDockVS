@@ -176,7 +176,6 @@ def test_only_fix_structure_can_go_back_to_the_imported_structure(build_widget):
 
 def test_build_run_buttons_use_chemistry_api(build_widget, monkeypatch):
     monkeypatch.setattr(build_widget, "_require_executable", lambda **_kwargs: True)
-    monkeypatch.setattr(build_widget, "_require_optional_module", lambda **_kwargs: True)
 
     build_widget._protonation_tool_ready["dimorphite"] = True
     build_widget._sync_build_button()
@@ -199,7 +198,6 @@ def test_build_run_buttons_use_chemistry_api(build_widget, monkeypatch):
 
 def test_protein_run_follows_the_whole_chain(build_widget, monkeypatch):
     monkeypatch.setattr(build_widget, "_require_executable", lambda **_kwargs: True)
-    monkeypatch.setattr(build_widget, "_require_optional_module", lambda **_kwargs: True)
     cancelled = []
     build_widget.runtime.cancel_job = cancelled.append
     bar = build_widget.proteins_tab.action_bar

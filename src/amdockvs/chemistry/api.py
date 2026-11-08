@@ -42,8 +42,8 @@ class ChemistryAPI:
         return protonation_tool_status(self.runtime, name)
 
     def receptor_protonation_tool_status(self, name: str) -> ProtonationToolStatus:
-        if str(name).strip().lower() not in {"reduce", "pdb2pqr"}:
-            raise ValueError("Protein protonation uses reduce or pdb2pqr.")
+        if str(name).strip().lower() not in {"reduce", "pdb2pqr", "openmm"}:
+            raise ValueError("Protein preparation uses reduce, pdb2pqr or openmm.")
         return protonation_tool_status(self.runtime, name)
 
     def install_small_molecule_protonation_tool(self, name: str) -> ProtonationToolStatus:

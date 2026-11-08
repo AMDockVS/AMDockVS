@@ -14,9 +14,9 @@ def test_every_managed_tool_reports_a_status(monkeypatch, tmp_path):
 
     assert [status.tool_id for status in statuses] == [tool.tool_id for tool in MANAGED_TOOLS]
     # Nothing lives under a fresh tools home (a tool already on PATH may still report ready);
-    # Python packages belong to this environment, not a tools-home directory.
+    # scikit-learn belongs to this environment, not a tools-home directory.
     assert all(status.location is None and status.size_bytes == 0
-               for status in statuses if status.tool_id not in {"scikit-learn", "pdbfixer", "openmm"})
+               for status in statuses if status.tool_id != "scikit-learn")
     assert not next(status for status in statuses if status.tool_id == "p2rank").installed
 
 
@@ -164,76 +164,35 @@ def test_system_protonation_tools_do_not_hide_a_missing_managed_install(monkeypa
     assert not status.installed and status.command is None
 
 
-@pytest.mark.parametrize("name", ["pdbfixer", "openmm"])
-def test_protein_package_installs_into_the_active_python_and_verifies_imports(monkeypatch, tmp_path, name):
+def test_openmm_and_pdbfixer_install_into_their_own_environment(monkeypatch, tmp_path):
+    """Both are heavy (OpenMM pulls CUDA) and optional: a recipe env, never this Python."""
     import sys
     import amdockvs.integrations.registry as tools
-    from ms_env import StepFailed
 
-    files = {}
-    for module in ("pdbfixer", "openmm"):
-        origin = tmp_path / module / "__init__.py"
-        origin.parent.mkdir()
-        origin.write_text("")
-        files[module] = origin
-    monkeypatch.setattr(tools.importlib.util, "find_spec",
-                        lambda module: SimpleNamespace(origin=str(files[module])) if module in files else None)
-    imported = []
-    monkeypatch.setattr(tools.importlib, "import_module", lambda module: imported.append(module))
-    tool = tools.get_tool(name)
-    assert tool.category == "Protein preparation" and tool.recipe is None
-    assert tool.status(None).installed
-    plan = tools.install_steps(None, name)
-    assert plan[0].argv[:4] == [sys.executable, "-m", "pip", "install"]
-    assert "openmm>=8.1" in plan[0].argv
-    if name == "pdbfixer":
-        assert "pdbfixer>=1.9" in plan[0].argv
-    assert "ready" in plan[-1].call()
-    assert "openmm.app" in imported
-    files["openmm"].unlink()  # A cached module spec must not hide removal.
+    monkeypatch.setenv("AMDOCK_TOOLS_HOME", str(tmp_path))
+    tool = tools.get_tool("openmm")
+    recipe = tool.recipe(None)
+    assert tool.category == "Protein preparation"
+    assert Path(recipe.prefix).is_relative_to(tmp_path)
+    assert "openmm=8.6.1" in recipe.conda and "pdbfixer" in recipe.conda
     assert not tool.status(None).installed
-    with pytest.raises(StepFailed, match="openmm"):
-        plan[-1].call()
+    assert all(sys.executable not in (step.argv or []) for step in tools.install_steps(None, "openmm"))
 
 
-def test_pdbfixer_status_reports_an_unloadable_dependency(monkeypatch, tmp_path):
-    import amdockvs.integrations.registry as tools
-
-    origin = tmp_path / "__init__.py"
-    origin.write_text("")
-    monkeypatch.setattr(tools.importlib.util, "find_spec", lambda _name: SimpleNamespace(origin=str(origin)))
-
-    def broken(_module):
-        raise ImportError("OpenMM shared library is missing")
-
-    monkeypatch.setattr(tools.importlib, "import_module", broken)
-    status = tools.get_tool("pdbfixer").status(None)
-    assert not status.installed and "shared library" in status.message
-
-
-@pytest.mark.parametrize("name", ["pdbfixer", "openmm"])
-def test_protein_package_removal_uses_pip_and_preserves_other_packages(monkeypatch, tmp_path, name):
+def test_openmm_runner_repairs_a_structure_in_the_tool_environment(tmp_path):
+    """The runner is the only code that imports OpenMM; here this Python stands in for its env."""
     import sys
-    import threading
+    from amdockvs.chemistry.tools.receptors import fix_receptor_pdb_file
 
-    import amdockvs.integrations.registry as tools
-
-    package = tmp_path / name
-    package.mkdir()
-    origin = package / "__init__.py"
-    origin.write_text("")
-    monkeypatch.setattr(tools.importlib.util, "find_spec", lambda _name: SimpleNamespace(origin=str(origin)))
-    commands = []
-    # Patching run() reaches the whole process, and this fake returns None: a worker thread
-    # another test left behind would get None where it expects a CompletedProcess.
-    ours, real_run = threading.current_thread(), tools.subprocess.run
-
-    def record(argv, **kwargs):
-        if threading.current_thread() is not ours:
-            return real_run(argv, **kwargs)
-        commands.append(argv)
-
-    monkeypatch.setattr(tools.subprocess, "run", record)
-    assert "Removed" in tools.uninstall_tool(None, name)
-    assert commands == [[sys.executable, "-m", "pip", "uninstall", "-y", name]]
-    assert origin.exists()  # The registry itself never deletes package directories.
+    pytest.importorskip("pdbfixer")
+    source = tmp_path / "gly.pdb"
+    # One glycine missing its O: PDBFixer has to add it back.
+    source.write_text(
+        "ATOM      1  N   GLY A   1       0.000   0.000   0.000  1.00  0.00           N\n"
+        "ATOM      2  CA  GLY A   1       1.458   0.000   0.000  1.00  0.00           C\n"
+        "ATOM      3  C   GLY A   1       2.009   1.420   0.000  1.00  0.00           C\n"
+        "END\n"
+    )
+    output = fix_receptor_pdb_file(source_path=source, output_path=tmp_path / "out" / "fixed.pdb",
+                                   command=sys.executable)
+    assert any(line[12:16].strip() == "O" for line in output.read_text().splitlines() if line.startswith("ATOM"))

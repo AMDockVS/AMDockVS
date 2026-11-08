@@ -1,4 +1,4 @@
-"""Build links to managed protein dependencies and notices installs without restarting."""
+"""Build links to managed protein tools and notices installs without restarting."""
 from types import SimpleNamespace
 
 import pytest
@@ -11,9 +11,17 @@ from amdockvs.ui.tools.molecules import build as build_module
 from test_build_ui import build_widget  # noqa: F401 - shared fixture
 
 
-def test_build_routes_each_missing_dependency_to_settings_and_updates_after_install(build_widget, monkeypatch):
+def _openmm_status(build_widget, monkeypatch, installed: set):
+    build_widget.runtime.chemistry.receptor_protonation_tool_status = lambda name: SimpleNamespace(
+        installed=name in installed, message=f"{name}: {'ready' if name in installed else 'not installed'}",
+        command=None)
+    monkeypatch.setattr(build_module, "run_async", lambda work, done, **kwargs: done(work()))
+
+
+def test_build_routes_the_missing_openmm_env_to_settings_and_updates_after_install(build_widget, monkeypatch):
     installed, opened = set(), []
-    monkeypatch.setattr(build_module, "_module_available", lambda name: name in installed)
+    _openmm_status(build_widget, monkeypatch, installed)
+    build_widget.runtime.molecules.count = lambda _scope: 0
     monkeypatch.setattr(build_widget, "window", lambda: SimpleNamespace(
         open_settings=lambda **kwargs: opened.append(kwargs)))
     build_widget.tabs.setCurrentWidget(build_widget.proteins_tab)
@@ -24,23 +32,17 @@ def test_build_routes_each_missing_dependency_to_settings_and_updates_after_inst
     build_widget._refresh_receptor_tools()
     assert build_widget.receptor_fix_settings_button.isVisible()
     assert build_widget.receptor_min_settings_button.isVisible()
-    assert "PDBFixer, OpenMM" in build_widget.receptor_fix_status.text()
+    assert build_widget.receptor_fix_status.text() == "openmm: not installed"
     build_widget.receptor_fix_settings_button.click()
     build_widget.receptor_min_settings_button.click()
-    assert [entry["tool"] for entry in opened] == ["pdbfixer", "openmm"]
+    assert [entry["tool"] for entry in opened] == ["openmm", "openmm"]
     assert all(entry["node"] == "page:External tools" for entry in opened)
-    build_widget.grab().save("/tmp/amdockvs-build-missing-protein-tools.png")
 
-    installed.add("pdbfixer")
-    tool_events.installed.emit("pdbfixer")
-    build_widget.receptor_fix_settings_button.click()
-    assert opened[-1]["tool"] == "openmm"
-    assert "Missing: OpenMM" in build_widget.receptor_fix_status.text()
     installed.add("openmm")
     tool_events.installed.emit("openmm")
     assert not build_widget.receptor_fix_settings_button.isVisible()
     assert not build_widget.receptor_min_settings_button.isVisible()
-    assert "ready" in build_widget.receptor_fix_status.text()
+    assert build_widget.receptor_min_status.text() == "openmm: ready"
     build_widget.receptor_protonation_section.setChecked(False)
     assert build_widget._protein_tools_ready(build_widget._protein_ops())
     assert not build_widget.runtime.chemistry.calls  # Detection does not submit work.
@@ -49,7 +51,7 @@ def test_build_routes_each_missing_dependency_to_settings_and_updates_after_inst
 @pytest.mark.parametrize("answer", ["Open External tools…", "Cancel"])
 def test_run_offers_settings_before_submitting_a_job_with_missing_dependencies(build_widget, monkeypatch, answer):
     opened, seen = [], []
-    monkeypatch.setattr(build_module, "_module_available", lambda _name: False)
+    _openmm_status(build_widget, monkeypatch, set())
     monkeypatch.setattr(build_widget, "window", lambda: SimpleNamespace(
         open_settings=lambda **kwargs: opened.append(kwargs)))
     for section in build_widget._protein_sections():
@@ -67,10 +69,10 @@ def test_run_offers_settings_before_submitting_a_job_with_missing_dependencies(b
     assert not build_widget.runtime.chemistry.calls
     assert bool(opened) is (answer != "Cancel")
     if opened:
-        assert opened == [{"node": "page:External tools", "tool": "pdbfixer"}]
+        assert opened == [{"node": "page:External tools", "tool": "openmm"}]
 
 
-def test_settings_displays_both_protein_packages_and_announces_new_dependencies(build_widget, monkeypatch):
+def test_settings_lists_the_protein_preparation_tools(build_widget, monkeypatch):
     from amdockvs.integrations.registry import MANAGED_TOOLS, ToolStatus
     from amdockvs.ui.shell import settings_tools
 
@@ -82,14 +84,10 @@ def test_settings_displays_both_protein_packages_and_announces_new_dependencies(
         page.show()
         page.search.setText("Protein preparation")
         QApplication.processEvents()
-        assert {key for key, row in page._rows.items() if row.isVisible()} == {"pdbfixer", "openmm", "reduce", "pdb2pqr"}
-        assert all(page._rows[key].install_button.isEnabled() for key in ("pdbfixer", "openmm"))
-        page.grab().save("/tmp/amdockvs-protein-tools-settings.png")
-        installed = {"pdbfixer", "openmm"}
-        monkeypatch.setattr(build_module, "_module_available", lambda name: name in installed)
-        page._apply([ToolStatus(tool.tool_id, tool.tool_id in installed, "ready") for tool in MANAGED_TOOLS])
-        assert "ready" in build_widget.receptor_fix_status.text()
-        assert not page._rows["pdbfixer"].install_button.isEnabled()
+        assert {key for key, row in page._rows.items() if row.isVisible()} == {"openmm", "reduce", "pdb2pqr"}
+        assert page._rows["openmm"].install_button.isEnabled()
+        page._apply([ToolStatus(tool.tool_id, tool.tool_id == "openmm", "ready") for tool in MANAGED_TOOLS])
+        assert not page._rows["openmm"].install_button.isEnabled()
     finally:
         page.close()
 
