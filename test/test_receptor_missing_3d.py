@@ -74,8 +74,12 @@ def receptor_studio(tmp_path, monkeypatch):
 def _answer_dialog(scene, action, *, screenshot=None):
     seen = []
 
-    def answer():
+    def answer(tries=500):
         box = scene.app.activeModalWidget()
+        if not isinstance(box, QMessageBox) and tries:
+            # The dialog opens once the scope check comes back from its thread.
+            QTimer.singleShot(10, lambda: answer(tries - 1))
+            return
         assert isinstance(box, QMessageBox)
         seen.append((box.text(), box.informativeText()))
         if screenshot is not None:
@@ -89,10 +93,18 @@ def _answer_dialog(scene, action, *, screenshot=None):
     return seen
 
 
+def _settle(scene, action):
+    """Click through an action whose scope check runs off the GUI thread, until it has answered."""
+    action()
+    QThreadPool.globalInstance().waitForDone(10_000)
+    for _ in range(5):
+        scene.app.processEvents()
+
+
 def test_continue_warns_about_only_the_selected_sequence_and_prepares_3d_receptors(receptor_studio):
     scene = receptor_studio
     seen = _answer_dialog(scene, "Continue and skip", screenshot="/tmp/amdockvs-receptor-missing-3d.png")
-    scene.studio._prepare_receptors()
+    _settle(scene, scene.studio._prepare_receptors)
     assert len(seen) == 1 and "1 receptor(s)" in seen[0][0]
     assert "will be skipped" in seen[0][0]
     assert "Build → Proteins" in seen[0][1]
@@ -110,7 +122,7 @@ def test_continue_warns_about_only_the_selected_sequence_and_prepares_3d_recepto
 def test_build_choice_opens_proteins_without_submitting_preparation(receptor_studio):
     scene = receptor_studio
     seen = _answer_dialog(scene, "Open Build → Proteins…")
-    scene.studio._prepare_receptors()
+    _settle(scene, scene.studio._prepare_receptors)
     assert len(seen) == 1 and not scene.submitted and not scene.followed
     assert scene.window.tools.active_tool == BUILD_ID
     build = scene.window.tools.widgets[BUILD_ID]
@@ -124,7 +136,7 @@ def test_a_fully_structured_scope_does_not_show_an_alert(receptor_studio, monkey
     scene.window.selection.set("receptor", [scene.ids[0]])
     monkeypatch.setattr(scene.studio, "_ask_missing_receptor_3d",
                         lambda _count: pytest.fail("A 3D receptor should not produce an alert"))
-    scene.studio._prepare_receptors()
+    _settle(scene, scene.studio._prepare_receptors)
     assert scene.submitted and scene.studio.stepper.current_index == 3
 
 
@@ -132,7 +144,7 @@ def test_escape_keeps_the_existing_skip_path_for_an_all_sequence_scope(receptor_
     scene = receptor_studio
     scene.window.selection.set("receptor", [scene.ids[1]])
     seen = _answer_dialog(scene, "escape")
-    scene.studio._prepare_receptors()
+    _settle(scene, scene.studio._prepare_receptors)
     assert len(seen) == 1 and scene.submitted and scene.followed
     for params in scene.submitted:
         assert list(db_pages(scene.runtime.workspace.project_db,

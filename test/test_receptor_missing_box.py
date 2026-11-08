@@ -7,7 +7,7 @@ from ms_flow.query import db_pages
 from amdockvs.docking.preparation.jobs import scope_spec
 from amdockvs.models import BindingSite, MoleculeRecord, ReceptorPrep
 from amdockvs.ui.tools.binding_sites.box import GridBoxSettingDockWidget
-from test_receptor_missing_3d import _answer_dialog, receptor_studio  # noqa: F401 - shared fixture
+from test_receptor_missing_3d import _answer_dialog, _settle, receptor_studio  # noqa: F401 - shared fixture
 
 
 @pytest.fixture
@@ -45,7 +45,7 @@ def _mark_prepared(scene):
 def test_continue_counts_missing_inactive_and_undefined_boxes_but_prepares_all_3d(box_scene):
     scene = box_scene
     seen = _answer_dialog(scene, "Continue and skip", screenshot="/tmp/amdockvs-receptor-missing-box.png")
-    scene.studio._prepare_receptors()
+    _settle(scene, scene.studio._prepare_receptors)
     assert len(seen) == 1 and "3 receptor(s)" in seen[0][0]
     assert "skipped during docking" in seen[0][0]
     assert scene.submitted and scene.studio.stepper.current_index == 3
@@ -72,7 +72,7 @@ def test_fix_opens_box_controls_for_an_affected_receptor_without_activating_it(b
     monkeypatch.setattr(scene.window, "pymol_dock", SimpleNamespace(
         cmd=None, set_side_panel_visible=lambda visible: (opened.append(visible), grid.setVisible(visible))))
     seen = _answer_dialog(scene, "Define or activate box…")
-    scene.studio._prepare_receptors()
+    _settle(scene, scene.studio._prepare_receptors)
     assert len(seen) == 1 and "1 receptor(s)" in seen[0][0]
     assert not scene.submitted and not scene.followed
     assert scene.studio.stepper.current_index == 2
@@ -90,7 +90,7 @@ def test_a_defined_active_box_does_not_show_an_alert(box_scene, monkeypatch):
     scene.window.selection.set("receptor", [scene.ids[0]])
     monkeypatch.setattr(scene.studio, "_ask_missing_receptor_box",
                         lambda *a, **k: pytest.fail("An active, defined box needs no alert"))
-    scene.studio._prepare_receptors()
+    _settle(scene, scene.studio._prepare_receptors)
     assert scene.submitted
 
 
@@ -98,7 +98,7 @@ def test_escape_keeps_preparation_available_when_no_receptor_has_a_box(box_scene
     scene = box_scene
     scene.window.selection.set("receptor", [scene.no_box, scene.inactive])
     seen = _answer_dialog(scene, "escape")
-    scene.studio._prepare_receptors()
+    _settle(scene, scene.studio._prepare_receptors)
     assert len(seen) == 1 and "2 receptor(s)" in seen[0][0] and scene.submitted
     _mark_prepared(scene)
     assert scene.studio.readiness_service.receptors(
@@ -121,7 +121,7 @@ def test_run_checks_boxes_even_when_preparation_is_already_done(box_scene, monke
     monkeypatch.setattr(scene.studio, "_after_conflict_check", lambda *args: submitted.append(args))
     monkeypatch.setattr(run_panel, "run_async", lambda work, done, **kwargs: done(work()))
     seen = _answer_dialog(scene, action)
-    scene.studio._run_docking()
+    _settle(scene, scene.studio._run_docking)
     assert len(seen) == 1 and bool(submitted) is launches
     assert scene.window.selection.get("receptor") == scene.selected
     assert scene.studio.stepper.current_index == (3 if launches else 2)
