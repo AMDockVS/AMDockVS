@@ -26,8 +26,12 @@ from typing import Any, Iterable
 
 # Why a receptor's B-factor column is of no use to P2Rank's default model, as recorded on
 # every site the run writes. Callers phrase these for their own audience.
+# "auto" picks one of the other two per receptor, on the executor (see effective_profile).
+P2RANK_PROFILES = ("auto", "default", "alphafold")
+# Why "auto" chose what it chose, recorded on every pocket of an auto run.
 B_FACTOR_PREDICTED = "predicted"  # the column holds pLDDT, not flexibility
 B_FACTOR_CONSTANT = "constant"  # one value on every atom, e.g. zeroed by OpenMM
+B_FACTOR_VARIES = "varies"  # an experimental column P2Rank's default model can read
 
 P2RANK_VERSION = "2.5.1"
 P2RANK_ARCHIVE_NAME = f"p2rank_{P2RANK_VERSION}.tar.gz"
@@ -458,24 +462,25 @@ def b_factors_vary_in_file(path: str | Path) -> bool | None:
 
 
 def effective_profile(requested: str, path: str | Path, *, predicted: bool = False) -> tuple[str, str]:
-    """The profile P2Rank really runs for one receptor, and why it is not the requested one.
+    """The profile P2Rank really runs for one receptor, and, under "auto", why.
 
-    Asking for the B-factor model only pays off where that column carries flexibility. It does
-    not in two cases: a prediction writes pLDDT there (confidence, where high means *more*
-    reliable — the opposite of what the model reads), and anything OpenMM wrote carries 0.00 on
-    every atom, which happens to experimental structures as much as to predicted ones.
+    The B-factor model only pays off where that column carries flexibility. It does not in two
+    cases: a prediction writes pLDDT there (confidence, where high means *more* reliable — the
+    opposite of what the model reads), and anything OpenMM wrote carries 0.00 on every atom,
+    which happens to experimental structures as much as to predicted ones. An explicit profile
+    is run as asked.
 
     Resolved here, on the executor, against the file P2Rank is about to read: the submitter
     would have to fetch every structure to work this out, and a scope can hold thousands.
     """
     normalized = str(requested or DEFAULT_P2RANK_PROFILE).strip().lower()
-    if normalized != "default":
+    if normalized != "auto":
         return normalized, ""
     if predicted:
         return "alphafold", B_FACTOR_PREDICTED
     if b_factors_vary_in_file(path) is False:
         return "alphafold", B_FACTOR_CONSTANT
-    return normalized, ""
+    return "default", B_FACTOR_VARIES
 
 
 def run_p2rank_prediction(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -539,6 +544,8 @@ __all__ = [
     "P2RANK_VERSION",
     "B_FACTOR_CONSTANT",
     "B_FACTOR_PREDICTED",
+    "B_FACTOR_VARIES",
+    "P2RANK_PROFILES",
     "P2RankInstallation",
     "b_factors_vary",
     "b_factors_vary_in_file",

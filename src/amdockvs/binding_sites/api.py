@@ -22,8 +22,7 @@ from amdockvs.core.payloads import molecule_payload_id, read_structure
 from amdockvs.binding_sites.boxes import box_from_coords
 from amdockvs.binding_sites.jobs import P2RankPredictionParams, p2rank_prediction_job
 from amdockvs.binding_sites.p2rank import (
-    B_FACTOR_CONSTANT,
-    B_FACTOR_PREDICTED,
+    P2RANK_PROFILES,
     P2RANK_VERSION,
     P2RankInstallation,
     ensure_p2rank,
@@ -73,20 +72,13 @@ def _read_atom_coords(text: str, kind: str) -> list[tuple[float, float, float]]:
 def _profile_matches(extra_data: dict, requested: str) -> bool:
     """Whether a stored site's profile answers a request for ``requested``.
 
-    The executor resolves "default" to "alphafold" where the B-factor column carries nothing
-    it can use, and records why on the site. Reading that back is what keeps a reused run from
-    looking stale: without it, every run asking for the B-factor model would recalculate the
-    same receptors forever, because what is stored can never equal what was asked for.
+    An "auto" run records why it chose on every site; reading that back is what keeps a reused
+    auto run from looking stale, since what is stored ("default"/"alphafold") never equals
+    "auto". An explicit profile is answered by any site that ran that model.
     """
-    stored = str(extra_data.get("profile") or "default")
-    if stored == requested:
-        return True
-    reason = str(extra_data.get("profile_reason") or "")
-    return (
-        requested == "default"
-        and stored == "alphafold"
-        and reason in {B_FACTOR_PREDICTED, B_FACTOR_CONSTANT}
-    )
+    if requested == "auto":
+        return bool(extra_data.get("profile_reason"))
+    return str(extra_data.get("profile") or "default") == requested
 
 
 def _latest_run(sites: list[BindingSite]) -> list[BindingSite]:
@@ -226,12 +218,12 @@ class BindingSiteAPI:
             {
                 value
                 for value in requested_profiles.values()
-                if value not in {"default", "alphafold"}
+                if value not in P2RANK_PROFILES
             }
         )
         if invalid_profiles:
             raise ValueError(
-                "P2Rank profiles must be 'default' or 'alphafold': "
+                f"P2Rank profiles must be one of {', '.join(P2RANK_PROFILES)}: "
                 + ", ".join(invalid_profiles)
             )
 

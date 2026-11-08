@@ -13,6 +13,7 @@ import numpy as np
 from amdockvs.binding_sites.from_structure import binding_site_specs_from_components
 from amdockvs.core.normalize import resolved_path
 from amdockvs.core.configuration import DEFAULT_BINDING_SITE_BOX_SIZE
+from amdockvs.core.vocab import ModelSource
 
 
 def _load_hetero_codes() -> dict[str, set[str]]:
@@ -310,12 +311,41 @@ def build_receptor_import_preview(scan: dict[str, Any], options: ReceptorImportO
     }
 
 
+def model_source_of(structure: gemmi.Structure, header: bytes = b"") -> str:
+    """Whether an imported structure is a prediction, and from where.
+
+    ``header`` is the start of the file as it came in: the databases name themselves there
+    (``data_AF-…`` / ``ALPHAFOLD … PREDICTION``, ``ESMFOLD … PREDICTION FOR MGYP…``), and a
+    conversion to PDB keeps none of it. A model with no such name is told by its B-factors:
+    pLDDT is one value per residue on a 0-100 scale (0-1 for ESMFold), where an experimental
+    column varies atom by atom. An experimental method in the header settles it first, since
+    low-resolution refinements do write one B per residue.
+    """
+    head = bytes(header[:4096]).upper()
+    if head.startswith(b"DATA_AF-") or b"ALPHAFOLD" in head:
+        return ModelSource.ALPHAFOLD_DB
+    if b"ESMFOLD" in head and b"MGYP" in head:
+        return ModelSource.ESM_ATLAS
+    if "_exptl.method" in structure.info or not len(structure):
+        return ModelSource.IMPORTED
+    residues = [[round(atom.b_iso, 2) for atom in residue]
+                for chain in structure[0] for residue in chain if residue.het_flag == "A" and len(residue)]
+    values = [value for residue in residues for value in residue]
+    if not values or min(values) < 0 or max(values) > 100 or min(values) == max(values):
+        return ModelSource.IMPORTED  # a constant column is P2Rank's own case, not a model
+    if max(values) <= 1:
+        return ModelSource.UNKNOWN_MODEL
+    uniform = sum(1 for residue in residues if min(residue) == max(residue))
+    return ModelSource.UNKNOWN_MODEL if uniform >= 0.95 * len(residues) else ModelSource.IMPORTED
+
+
 def write_processed_receptor(
     source_file: str | Path,
     output_path: str | Path,
     *,
     scan: dict[str, Any],
     options: ReceptorImportOptions,
+    header: bytes = b"",
 ) -> dict[str, Any]:
     path = Path(source_file).expanduser().resolve()
     output = Path(output_path).expanduser().resolve()
@@ -329,6 +359,7 @@ def write_processed_receptor(
     structure = gemmi.read_structure(str(path))
     if len(structure) == 0:
         raise ValueError(f"No models found in receptor structure: {path}")
+    model_source = model_source_of(structure, header)
     assembly_names = {str(assembly.name) for assembly in structure.assemblies}
     chosen_assembly = str(options.selected_assembly or "")
     if not chosen_assembly and options.use_biological_assembly and structure.assemblies:
@@ -384,6 +415,7 @@ def write_processed_receptor(
     else:
         processed.write_pdb(str(output))
     return {
+        "model_source": model_source,
         "selected_chain_ids": selected_chain_ids,
         "selected_cocrystal_key": str(workflow.get("selected_cocrystal_key") or ""),
         "retained_structural_waters": [
@@ -1038,5 +1070,6 @@ __all__ = [
     "extract_component_to_pdb",
     "preview_receptor_import",
     "scan_receptor_structure",
+    "model_source_of",
     "write_processed_receptor",
 ]
