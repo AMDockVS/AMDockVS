@@ -3,6 +3,8 @@
 Import keeps what its options say to keep; the preparation step decides what of that actually
 reaches Meeko. Both halves used to be overridden by a blanket polymer+metal whitelist.
 """
+import pytest
+
 from amdockvs.docking.preparation.entities import receptor_excluded_resnames
 from amdockvs.docking.preparation.meeko import _without_resnames
 
@@ -41,3 +43,20 @@ def test_a_metal_meeko_cannot_type_is_left_out_even_when_keeping_everything():
     block = _BLOCK.replace("END", "HETATM    5 CD    CD A 701     -20.000 -20.000 -10.000  1.00 20.00          CD\nEND")
 
     assert _resnames(_without_resnames(block, excluded)) == ["ASP", "ZN", "HOH", "HEM"]
+
+
+def test_a_receptor_meeko_refuses_names_the_missing_prody_extra(monkeypatch):
+    """ProDy is an optional extra: without it the fallback says what to install."""
+    import sys
+
+    from meeko import Polymer
+
+    from amdockvs.docking.preparation import meeko as meeko_prep
+
+    def refuse(*_args, **_kwargs):
+        raise ValueError("bad residue")
+
+    monkeypatch.setattr(Polymer, "from_pdb_string", refuse)
+    monkeypatch.setitem(sys.modules, "prody", None)
+    with pytest.raises(RuntimeError, match=r"amdockvs\[prody\]"):
+        meeko_prep._polymer_from_pdb("END\n", None, None)

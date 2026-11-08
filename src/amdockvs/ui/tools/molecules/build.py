@@ -269,7 +269,7 @@ class MoleculeBuildWidget(QWidget):
             self.receptor_fix_section.add_row(checkbox)
         self.receptor_fix_status = hint_label("", proteins)
         self.receptor_fix_settings_button = QPushButton("Open External tools…", proteins)
-        self.receptor_fix_settings_button.clicked.connect(lambda: self._open_receptor_tool_settings(repair=True))
+        self.receptor_fix_settings_button.clicked.connect(lambda: self._open_receptor_tool_settings("openmm"))
         self.receptor_fix_section.add_row(self.receptor_fix_status)
         self.receptor_fix_section.add_row(self.receptor_fix_settings_button)
 
@@ -304,7 +304,7 @@ class MoleculeBuildWidget(QWidget):
         self.receptor_min_section.add_row("Tolerance (kJ/mol/nm)", self.receptor_tolerance)
         self.receptor_min_status = hint_label("", proteins)
         self.receptor_min_settings_button = QPushButton("Open External tools…", proteins)
-        self.receptor_min_settings_button.clicked.connect(lambda: self._open_receptor_tool_settings(repair=False))
+        self.receptor_min_settings_button.clicked.connect(lambda: self._open_receptor_tool_settings("openmm"))
         self.receptor_min_section.add_row(self.receptor_min_status)
         self.receptor_min_section.add_row(self.receptor_min_settings_button)
 
@@ -345,7 +345,8 @@ class MoleculeBuildWidget(QWidget):
         if tool_id in ("openbabel", "pkasso"):
             self._activate_after_check = tool_id
             self._refresh_protonation_tools()
-        elif tool_id in ("pdbfixer", "openmm"):
+        elif tool_id == "openmm":
+            self._receptor_protonation_status.pop("openmm", None)
             self._refresh_receptor_tools()
         elif tool_id in ("reduce", "pdb2pqr"):
             self._refresh_receptor_protonation_tools()
@@ -377,29 +378,35 @@ class MoleculeBuildWidget(QWidget):
             self.receptor_protonation_settings_button.setVisible(not installed)
 
     def _open_receptor_protonation_settings(self) -> None:
-        opener = getattr(self.window(), "open_settings", None)
-        if callable(opener):
-            opener(node="page:External tools", tool=str(self.receptor_protonation_method.currentData()))
-            self._refresh_receptor_protonation_tools()
+        self._open_receptor_tool_settings(str(self.receptor_protonation_method.currentData()))
 
     def _refresh_receptor_tools(self) -> None:
-        importlib.invalidate_caches()
-        for modules, label, button in (
-            (("pdbfixer", "openmm"), self.receptor_fix_status, self.receptor_fix_settings_button),
-            (("openmm",), self.receptor_min_status, self.receptor_min_settings_button),
-        ):
-            missing = [name for name in modules if not _module_available(name)]
-            names = {"pdbfixer": "PDBFixer", "openmm": "OpenMM"}
-            label.setText("Missing: " + ", ".join(names[name] for name in missing) + "."
-                          if missing else " and ".join(names[name] for name in modules) + " ready.")
-            button.setVisible(bool(missing))
+        """PDBFixer and OpenMM share one environment: one off-thread check answers both sections."""
+        status = getattr(self.runtime.chemistry, "receptor_protonation_tool_status", None)
+        if not callable(status):
+            return
 
-    def _open_receptor_tool_settings(self, *, repair: bool) -> None:
+        def show(installed: bool, message: str) -> None:
+            if not isValid(self):
+                return
+            for label, button in ((self.receptor_fix_status, self.receptor_fix_settings_button),
+                                  (self.receptor_min_status, self.receptor_min_settings_button)):
+                label.setText(message)
+                button.setVisible(not installed)
+
+        def remember(current) -> None:
+            self._receptor_protonation_status["openmm"] = current
+            show(current.installed, current.message)
+
+        run_async(lambda: status("openmm"), remember,
+                  on_error=lambda exc: show(False, f"Runtime status unavailable: {exc}"), compact=True)
+
+    def _open_receptor_tool_settings(self, tool: str) -> None:
         opener = getattr(self.window(), "open_settings", None)
         if callable(opener):
-            tool = "pdbfixer" if repair and not _module_available("pdbfixer") else "openmm"
             opener(node="page:External tools", tool=tool)
             self._refresh_receptor_tools()
+            self._refresh_receptor_protonation_tools()
 
     @staticmethod
     def _structure_combo(parent: QWidget) -> QComboBox:
@@ -701,31 +708,8 @@ class MoleculeBuildWidget(QWidget):
         gate_workflow_save(button)
         return button
 
-    def _require_optional_module(self, *, title: str, modules: tuple[str, ...], detail: str,
-                                 tool_id: str | None = None) -> bool:
-        importlib.invalidate_caches()
-        missing = [name for name in modules if not _module_available(name)]
-        if not missing:
-            return True
-        if tool_id is not None:
-            box = QMessageBox(QMessageBox.Warning, title,
-                              f"{detail}\nMissing module(s): {', '.join(missing)}", parent=self)
-            box.setInformativeText("Install the missing dependencies from Settings → External tools → Protein preparation.")
-            settings = box.addButton("Open External tools…", QMessageBox.ActionRole)
-            box.addButton(QMessageBox.Cancel)
-            box.exec()
-            if box.clickedButton() is settings:
-                self._open_receptor_tool_settings(repair=tool_id == "pdbfixer")
-            return False
-        QMessageBox.warning(
-            self,
-            title,
-            f"{detail}\nMissing module(s): {', '.join(missing)}",
-        )
-        return False
-
     def _require_executable(self, *, title: str, executable: str, detail: str) -> bool:
-        managed = executable in ("reduce", "pdb2pqr")
+        managed = executable in ("reduce", "pdb2pqr", "openmm")
         available = self._receptor_tool_installed(executable) if managed else _executable_available(executable)
         if available:
             return True
@@ -736,7 +720,7 @@ class MoleculeBuildWidget(QWidget):
             box.addButton(QMessageBox.Cancel)
             box.exec()
             if box.clickedButton() is settings:
-                self._open_receptor_protonation_settings()
+                self._open_receptor_tool_settings(executable)
             return False
         QMessageBox.warning(
             self,
@@ -967,11 +951,10 @@ class MoleculeBuildWidget(QWidget):
         for kind, _stage, _name, cfg in ops:
             if kind == "predict_receptors" and not os.environ.get(ESM_TOKEN_ENV, "").strip() and not self._ask_esm_token():
                 return False
-            if kind == "fix_receptors" and not self._require_optional_module(
+            if kind == "fix_receptors" and not self._require_executable(
                 title="Fix structure",
-                modules=("pdbfixer", "openmm"),
-                detail="Fixing a protein structure currently requires PDBFixer and OpenMM in the active environment.",
-                tool_id="pdbfixer",
+                executable="openmm",
+                detail="Fixing a protein structure requires the OpenMM + PDBFixer environment.",
             ):
                 return False
             if kind == "protonate_receptors" and not self._require_executable(
@@ -980,11 +963,10 @@ class MoleculeBuildWidget(QWidget):
                 detail=f"Protein protonation with {cfg['method']} requires its command-line tool.",
             ):
                 return False
-            if kind == "minimize_receptors" and not self._require_optional_module(
+            if kind == "minimize_receptors" and not self._require_executable(
                 title="Minimization",
-                modules=("openmm",),
-                detail="Protein minimization currently requires OpenMM in the active environment.",
-                tool_id="openmm",
+                executable="openmm",
+                detail="Protein minimization requires the OpenMM + PDBFixer environment.",
             ):
                 return False
         return True

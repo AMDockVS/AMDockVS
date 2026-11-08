@@ -144,66 +144,6 @@ def _sklearn_steps(_runtime) -> list[Step]:
     ]
 
 
-# --- Protein preparation packages (imported by the application) ------------
-
-PROTEIN_PACKAGE_SPECS = {
-    "pdbfixer": ("pdbfixer>=1.9", "openmm>=8.1"),
-    "openmm": ("openmm>=8.1",),
-}
-
-
-def _protein_package_tool(name: str, label: str, purpose: str) -> ManagedTool:
-    modules = ("pdbfixer", "openmm") if name == "pdbfixer" else ("openmm",)
-
-    def location(_runtime) -> Path:
-        spec = importlib.util.find_spec(name)
-        return Path(spec.origin).parent if spec and spec.origin else Path()
-
-    def status(runtime) -> ToolStatus:
-        importlib.invalidate_caches()
-        path = location(runtime)
-        missing = []
-        for module in modules:
-            spec = importlib.util.find_spec(module)
-            # An imported module can retain its spec after pip removes its files.
-            if spec is None or not spec.origin or not Path(spec.origin).is_file():
-                missing.append(module)
-        ready = not missing
-        message = f"{label} is ready."
-        if missing:
-            message = f"Missing Python package(s): {', '.join(missing)}."
-        else:
-            try:
-                importlib.import_module(name)
-                importlib.import_module("openmm.app")
-            except (ImportError, OSError) as exc:
-                ready = False
-                message = f"{label} cannot be loaded: {exc}"
-        exists = path != Path() and path.is_dir()
-        return ToolStatus(name, ready, message, location=path if exists else None,
-                          size_bytes=_directory_size(path) if exists else 0)
-
-    def steps(runtime) -> list[Step]:
-        def verify() -> str:
-            current = status(runtime)
-            if not current.installed:
-                raise StepFailed(current.message)
-            return current.message
-
-        return [
-            Step(f"install {label}", argv=[sys.executable, "-m", "pip", "install", *PROTEIN_PACKAGE_SPECS[name]],
-                 timeout=1800),
-            Step(f"verify {label}", call=verify, timeout=120),
-        ]
-
-    return ManagedTool(
-        tool_id=name, label=label, purpose=purpose,
-        footprint="Python packages in this environment" if name == "pdbfixer" else "Python package in this environment",
-        status=status, install_steps=steps, location=location,
-        category="Protein preparation", on_hosts=False,
-    )
-
-
 # --- protonation backends --------------------------------------------------
 
 def _protonation_status(name: str) -> Callable[[object], ToolStatus]:
@@ -317,8 +257,12 @@ MANAGED_TOOLS: tuple[ManagedTool, ...] = (
         category="QSAR",
         on_hosts=False,
     ),
-    _protein_package_tool("pdbfixer", "PDBFixer", "Protein structure repair; installs OpenMM too."),
-    _protein_package_tool("openmm", "OpenMM", "Protein minimization and support for PDBFixer."),
+    ManagedTool(
+        tool_id="openmm", label=tool_spec("openmm").info["label"], purpose=tool_spec("openmm").info["purpose"],
+        footprint=tool_spec("openmm").info["footprint"], status=_protonation_status("openmm"),
+        install_steps=_protonation_steps("openmm"), location=lambda runtime: managed_prefix(runtime, "openmm"),
+        recipe=lambda runtime: protonation_recipe(runtime, "openmm"), category="Protein preparation",
+    ),
     ManagedTool(
         tool_id="reduce", label="Reduce", purpose=tool_spec("reduce").info["purpose"],
         footprint=tool_spec("reduce").info["footprint"], status=_protonation_status("reduce"),
@@ -368,7 +312,7 @@ def uninstall_tool(runtime, tool_id: str) -> str:
     location = tool.location(runtime)
     if location == Path() or not location.is_dir():
         return f"{tool.label} is not installed."
-    if tool.tool_id in {"scikit-learn", *PROTEIN_PACKAGE_SPECS}:
+    if tool.tool_id == "scikit-learn":
         subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", tool.tool_id], check=True,
                        capture_output=True)
         importlib.invalidate_caches()

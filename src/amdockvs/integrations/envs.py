@@ -11,7 +11,7 @@ from amdockvs.core.configuration import app_config
 from amdockvs.core.paths import tools_home
 
 
-SUPPORTED_MANAGED_TOOLS = {"openbabel", "pkasso", "reduce", "pdb2pqr"}
+SUPPORTED_MANAGED_TOOLS = {"openbabel", "pkasso", "reduce", "pdb2pqr", "openmm"}
 _TOOL_FILES = Path(__file__).with_name("tools")
 
 

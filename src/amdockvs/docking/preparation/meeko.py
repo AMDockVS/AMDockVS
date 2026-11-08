@@ -231,8 +231,15 @@ def _polymer_from_pdb(receptor_text: str, templates, mk_prep):
         return Polymer.from_pdb_string(
             receptor_text, templates, mk_prep, allow_bad_res=True, default_altloc="A",
         )
-    except ValueError:
-        import prody
+    except ValueError as refused:
+        try:
+            import prody
+        except ImportError:
+            # ponytail: optional fallback; ProDy's wheels miss macOS arm64 and glibc < 2.35.
+            raise RuntimeError(
+                f"Meeko could not read this receptor ({refused}). Its fallback reader, ProDy, is not "
+                "installed: pip install 'amdockvs[prody]'."
+            ) from refused
         from ms_flow.payloads import scratch_file
 
         # ProDy parses a path, not a string: hand it the filtered text, not the file on disk.

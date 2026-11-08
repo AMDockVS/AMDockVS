@@ -1,0 +1,16 @@
+# Installed and looked up by ms_env (format documented there).
+[tool]
+name = "openmm"
+label = "OpenMM + PDBFixer"
+purpose = "Protein structure repair (PDBFixer) and minimization (OpenMM)."
+footprint = "Isolated conda environment (conda-forge picks the CUDA build when a GPU is present)"
+version = "8.6.1"
+prefix = "{tools_home}/receptors/{name}/{version}"
+
+[locate]
+paths = ["{python}"]
+check = ["{exe}", "-c", "import openmm.app, pdbfixer"]
+
+[env]
+channels = ["conda-forge"]
+conda = ["python=3.12", "openmm={version}", "pdbfixer"]

@@ -415,6 +415,7 @@ class ProtonationConfiguration(BaseModel):
     pkasso: ManagedToolConfiguration = ManagedToolConfiguration(version="0.6.1")
     reduce: ManagedToolConfiguration = ManagedToolConfiguration(version="4.15")
     pdb2pqr: ManagedToolConfiguration = ManagedToolConfiguration(version="3.7.1")
+    openmm: ManagedToolConfiguration = ManagedToolConfiguration(version="8.6.1")
 
 
 class TableSortPref(BaseModel):
