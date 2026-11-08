@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import cache
 from pathlib import Path
 
@@ -11,7 +11,7 @@ from amdockvs.core.configuration import app_config
 from amdockvs.core.paths import tools_home
 
 
-SUPPORTED_MANAGED_TOOLS = {"openbabel", "pkasso"}
+SUPPORTED_MANAGED_TOOLS = {"openbabel", "pkasso", "reduce", "pdb2pqr"}
 _TOOL_FILES = Path(__file__).with_name("tools")
 
 
@@ -23,6 +23,7 @@ class ProtonationToolStatus:
     prefix: Path
     command: Path | None
     message: str
+    available: bool = True
 
 
 @cache
@@ -46,12 +47,15 @@ def protonation_recipe(runtime, name: str, remote_tools_home: str = "") -> Recip
     # The user-registered locations: a prefix in the config, or an explicit executable.
     configured = str(getattr(app_config(runtime).protonation, normalized).prefix or "").strip()
     override = str(os.environ.get("AMDOCK_OPENBABEL") or "").strip() if normalized == "openbabel" else ""
-    return spec.recipe(
+    recipe = spec.recipe(
         str(tools_home(runtime)),
         prefix=str(Path(configured).expanduser().resolve()) if configured else "",
         extra_paths=[str(Path(override).expanduser().resolve())] if override else [],
         manager=str(find_environment_manager("AMDOCK_ENV_MANAGER") or ""),
     )
+    if normalized == "reduce" and recipe.platform.startswith("win"):
+        recipe = replace(recipe, unsupported="Reduce's managed conda build requires Linux or macOS.")
+    return recipe
 
 
 def managed_prefix(runtime, name: str) -> Path:
@@ -73,6 +77,9 @@ def protonation_tool_status(runtime, name: str) -> ProtonationToolStatus:
     message = f"{label} {spec.version} is {'ready' if installed else 'not installed'}."
     if lacks:
         message = f"{prefix} does not meet what {label} {spec.version} needs: {'; '.join(lacks)}."
+    available = installed or not bool(recipe.unsupported)
+    if not available:
+        message = recipe.unsupported
     return ProtonationToolStatus(
         name=normalized,
         version=spec.version,
@@ -80,6 +87,7 @@ def protonation_tool_status(runtime, name: str) -> ProtonationToolStatus:
         prefix=prefix,
         command=Path(executable) if installed else None,
         message=message,
+        available=available,
     )
 
 

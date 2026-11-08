@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from rdkit import Chem
 
 from amdockvs.chemistry.protonation import protonate_molecule_batch
@@ -112,7 +114,7 @@ def test_pdb2pqr_hands_downstream_a_pdb_not_a_pqr(tmp_path, monkeypatch):
     from amdockvs.chemistry.tools import receptors
 
     seen: dict[str, object] = {}
-    monkeypatch.setattr(receptors.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(receptors, "_require_executable", lambda name, command=None: f"/managed/bin/{name}")
     monkeypatch.setattr(
         receptors.subprocess,
         "run",
@@ -125,7 +127,81 @@ def test_pdb2pqr_hands_downstream_a_pdb_not_a_pqr(tmp_path, monkeypatch):
 
     assert output.suffix == ".pdb"
     assert f"--pdb-output={output}" in seen["cmd"]
+    assert "--titration-state-method=propka" in seen["cmd"]
     assert seen["cmd"][-1].endswith("protonated_0.pqr")  # the PQR is the sidecar, not the result
+
+
+@pytest.mark.parametrize("method", ["reduce", "pdb2pqr"])
+def test_receptor_api_passes_the_managed_command_to_the_job(monkeypatch, method):
+    from types import SimpleNamespace
+    from amdockvs.chemistry.api import ChemistryAPI
+
+    api = ChemistryAPI(runtime=SimpleNamespace())
+    command = f"/managed/{method}/bin/{method}"
+    monkeypatch.setattr(api, "receptor_protonation_tool_status", lambda name: SimpleNamespace(
+        installed=True, command=command))
+    submitted = {}
+    monkeypatch.setattr(api, "_submit_receptor_operation", lambda operation, **kw: submitted.update(kw) or "job")
+    assert api.protonate_receptors(method=method, ph=6.5) == "job"
+    assert submitted["params"]["tool_command"] == command
+    assert submitted["params"]["ph"] == 6.5
+
+
+def test_reduce_accepts_trim_exit_255_and_uses_the_managed_executable(tmp_path, monkeypatch):
+    import subprocess
+    import threading
+
+    from amdockvs.chemistry.tools import receptors
+
+    calls = []
+    monkeypatch.setattr("ms_env.locate", lambda recipe: ("ready", recipe.candidates[0]))
+    # `receptors.subprocess` is the one subprocess module, so this replaces run() for the whole
+    # process. A worker thread another test left behind would otherwise be handed this fake and
+    # land in `calls`, which is what these assertions are about. Serve only our own thread.
+    ours, real_run = threading.current_thread(), subprocess.run
+
+    def run(argv, **kwargs):
+        if threading.current_thread() is not ours:
+            return real_run(argv, **kwargs)
+        calls.append((argv, kwargs))
+        return subprocess.CompletedProcess(argv, 255 if "-Trim" in argv else 0,
+                                           "TRIMMED\n" if "-Trim" in argv else "PROTONATED\n", "")
+
+    monkeypatch.setattr(receptors.subprocess, "run", run)
+    result = receptors.protonate_receptor_reduce_file(source_path=tmp_path / "in.pdb", output_path=tmp_path / "out.pdb",
+                                                     command="/managed/bin/reduce")
+    assert result.read_text() == "PROTONATED\n"
+    assert [argv[0] for argv, _kw in calls] == ["/managed/bin/reduce"] * 2  # -Trim, then -BUILD
+    assert calls[1][1]["input"] == "TRIMMED\n"
+
+
+def test_a_worker_resolves_its_own_tool_when_the_submitter_path_is_missing(monkeypatch):
+    from types import SimpleNamespace
+    from amdockvs.chemistry.tools import receptors
+    from amdockvs.integrations import envs
+
+    monkeypatch.setattr("ms_env.locate", lambda recipe: ("missing", ""))
+    monkeypatch.setattr(envs, "protonation_tool_status", lambda runtime, name: SimpleNamespace(
+        installed=True, command="/worker/bin/reduce"))
+    assert receptors._require_executable("reduce", "/submitter/bin/reduce") == "/worker/bin/reduce"
+
+
+@pytest.mark.parametrize("command_kind", ["missing", "bare", "old_absolute"])
+def test_worker_never_uses_a_system_reduce_when_the_managed_install_is_missing(tmp_path, monkeypatch, command_kind):
+    import os
+    from amdockvs.chemistry.tools import receptors
+
+    if os.name == "nt":
+        pytest.skip("Shell stand-in for Reduce")
+    monkeypatch.setenv("AMDOCK_TOOLS_HOME", str(tmp_path / "managed"))
+    binary = tmp_path / "amber" / "bin" / "reduce"
+    binary.parent.mkdir(parents=True)
+    binary.write_text("#!/bin/sh\necho reduce.3.3.160602\n")
+    binary.chmod(0o755)
+    monkeypatch.setenv("PATH", str(binary.parent) + os.pathsep + os.environ.get("PATH", ""))
+    command = {"missing": None, "bare": "reduce", "old_absolute": str(binary)}[command_kind]
+    with pytest.raises(RuntimeError, match=r"reduce 4\.15.*Settings"):
+        receptors._require_executable("reduce", command)
 
 
 def test_external_tools_get_scratch_files_that_are_gone_afterwards(tmp_path):

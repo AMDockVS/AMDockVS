@@ -41,6 +41,11 @@ class ChemistryAPI:
     def small_molecule_protonation_tool_status(self, name: str) -> ProtonationToolStatus:
         return protonation_tool_status(self.runtime, name)
 
+    def receptor_protonation_tool_status(self, name: str) -> ProtonationToolStatus:
+        if str(name).strip().lower() not in {"reduce", "pdb2pqr"}:
+            raise ValueError("Protein protonation uses reduce or pdb2pqr.")
+        return protonation_tool_status(self.runtime, name)
+
     def install_small_molecule_protonation_tool(self, name: str) -> ProtonationToolStatus:
         return install_protonation_tool(self.runtime, name)
 
@@ -446,13 +451,29 @@ class ChemistryAPI:
         structure_source: str = "current",
         batch_size: int = 32,
         executor_name: str = DEFAULT_LOCAL_CPU_EXECUTOR,
+        tool_command: str = "",
         depends_on: list[str] | None = None,
         wait: bool = False,
     ) -> str | JobStatus:
+        method = str(method).strip().lower()
+        if method not in {"reduce", "pdb2pqr"}:
+            raise ValueError("Protein protonation uses reduce or pdb2pqr.")
+        # Locating a tool runs its version command, which costs ~300ms for pdb2pqr. A caller
+        # that already did it off its UI thread passes the result; the worker re-verifies it
+        # and falls back to its own installation, so an unusable path costs nothing here.
+        command = str(tool_command or "").strip()
+        if not command or not Path(command).expanduser().is_file():
+            status = self.receptor_protonation_tool_status(method)
+            if not status.installed:
+                raise RuntimeError(
+                    f"{status.message} Install it from Settings → External tools → Protein preparation."
+                )
+            command = str(status.command)
         return self._submit_receptor_operation(
             "protonate",
             receptors=receptors,
-            params={"method": str(method), "ph": float(ph), "forcefield": str(forcefield)},
+            params={"method": method, "ph": float(ph), "forcefield": str(forcefield),
+                    "tool_command": command},
             structure_source=structure_source,
             batch_size=batch_size,
             executor_name=executor_name,

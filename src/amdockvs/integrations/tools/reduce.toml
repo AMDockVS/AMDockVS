@@ -1,0 +1,17 @@
+[tool]
+name = "reduce"
+label = "Reduce"
+purpose = "Add and optimize protein hydrogen atoms."
+footprint = "Isolated conda environment"
+version = "4.15"
+prefix = "{tools_home}/protonation/{name}/{version}"
+
+[locate]
+paths = ["{bin}/reduce"]
+commands = []
+# Reduce uses exit code 2 for its version command (also accepted by Bioconda's checks).
+check = ["sh", "-c", 'version=$("$1" -version 2>&1); code=$?; [ "$code" -eq 0 ] || [ "$code" -eq 2 ] || exit 1; case "$version" in "reduce.$2"|"reduce.$2".*) exit 0 ;; *) exit 1 ;; esac', "reduce-version", "{exe}", "{version}"]
+
+[env]
+channels = ["conda-forge", "bioconda"]
+conda = ["reduce={version}"]

@@ -249,7 +249,8 @@ def transform_receptor_rows(
             method = str(normalized_params.get("method") or "reduce").strip().lower()
             if method == "reduce":
                 def run(source: Path, output: Path) -> None:
-                    protonate_receptor_reduce_file(source_path=source, output_path=output)
+                    protonate_receptor_reduce_file(source_path=source, output_path=output,
+                                                   command=normalized_params.get("tool_command"))
             elif method == "pdb2pqr":
                 def run(source: Path, output: Path) -> None:
                     # pdb2pqr too gives the PDB: it writes the PQR as a sidecar, which is dropped
@@ -258,6 +259,7 @@ def transform_receptor_rows(
                         output_path=output,
                         forcefield=str(normalized_params.get("forcefield", "AMBER")),
                         ph=float(normalized_params.get("ph", 7.0)),
+                        command=normalized_params.get("tool_command"),
                     )
             else:
                 raise ValueError("protonate_receptors method must be 'reduce' or 'pdb2pqr'.")
