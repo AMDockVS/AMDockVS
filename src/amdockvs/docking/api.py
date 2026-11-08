@@ -302,6 +302,18 @@ class DockingAPI:
             return None
         return missing[0] if len(missing) == 1 else or_(*missing)
 
+    def receptor_setup_clause(self, *, engines: list[str] | tuple[str, ...]):
+        """SmartTable clause for receptors needing preparation or an active search box."""
+        unprepared = self.unprepared_molecules_clause(role_type="receptor", engines=engines)
+        if unprepared is None:
+            return None
+        defined_boxes = select(BindingSite.molecule_id).where(
+            BindingSite.is_active == True,  # noqa: E712
+            *(getattr(BindingSite, column).is_not(None) for column in
+              ("center_x", "center_y", "center_z", "size_x", "size_y", "size_z")),
+        )
+        return or_(unprepared, MoleculeRecord.id.not_in(defined_boxes))
+
     def delete_results(self, result_ids: list[int] | tuple[int, ...], *, with_siblings: bool = False) -> int:
         """Delete results, their interactions and files. `with_siblings`: every pose of the same
         receptor, ligand, protocol and run as each id goes too — what a Results ligand row

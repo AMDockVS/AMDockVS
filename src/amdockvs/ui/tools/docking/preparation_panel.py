@@ -552,8 +552,8 @@ class PreparationPanel:
 
     def _unprepared_clause(self, role: str):
         """On its own step the table shows what preparation will actually touch: with
-        `Force re-prepare` off that's only the rows still missing preparation, so the table
-        agrees with the "N / M prepared" counters.
+        `Force re-prepare` off that's only the rows still missing preparation. Receptors
+        also stay visible while their selected programs need a defined, active search box.
 
         One NOT EXISTS per family, OR-ed: a row is worth showing while ANY selected family
         still lacks it. With K=1 (today) that's a single anti-join on the unique
@@ -568,6 +568,9 @@ class PreparationPanel:
         engines = self._selected_prep_engines()
         if not engines:
             return None
+        if role == "receptor" and self._needs_search_box(self._selected_programs()):
+            # A prepared receptor still needs to be selectable to define or activate its box.
+            return self.runtime.docking.receptor_setup_clause(engines=engines)
         return self.runtime.docking.unprepared_molecules_clause(
             role_type=role,
             engines=engines,
@@ -635,7 +638,7 @@ class PreparationPanel:
             self._SCOPE_KEY,
             filters=filters,
             clause=clause,
-            empty_message="Every receptor in this scope is already prepared" if clause is not None else None,
+            empty_message="Every receptor in this scope is ready" if clause is not None else None,
             show_action=clause is None,
         )
         self._bind_receptor_table_signals(widget)

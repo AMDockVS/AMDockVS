@@ -154,6 +154,35 @@ def test_escape_keeps_the_existing_skip_path_for_an_all_sequence_scope(receptor_
     assert scene.studio.stepper.current_index == 3
 
 
+@pytest.mark.parametrize("box_state", ["missing", "inactive", "undefined", "active"])
+def test_prepared_receptors_stay_selectable_until_their_box_is_ready(receptor_studio, box_state):
+    from sqlmodel import select
+    from amdockvs.models import ReceptorPrep
+
+    scene = receptor_studio
+    store = scene.runtime.workspace.project_db
+    with store.get_session() as session:
+        receptor = session.get(MoleculeRecord, scene.ids[0])
+        session.add(ReceptorPrep(receptor_molecule_id=int(receptor.id), family="ad4",
+                                 rigid_payload_id=receptor.current_payload_id))
+        site = session.exec(select(BindingSite).where(BindingSite.molecule_id == receptor.id)).one()
+        if box_state == "missing":
+            session.delete(site)
+        elif box_state == "inactive":
+            site.is_active = False
+            session.add(site)
+        elif box_state == "undefined":
+            site.size_x = None
+            session.add(site)
+        session.commit()
+    clause = scene.studio._unprepared_clause("receptor")
+    assert clause is not None
+    with store.get_session() as session:
+        shown = session.exec(select(MoleculeRecord.id).where(clause)).all()
+    assert (scene.ids[0] in shown) == (box_state != "active")
+    assert scene.ids[1] in shown  # an unprepared row remains visible
+
+
 def test_box_activation_updates_the_visible_grid_count_without_changing_selection(receptor_studio):
     scene = receptor_studio
 
