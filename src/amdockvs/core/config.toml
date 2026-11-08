@@ -31,7 +31,7 @@ n_points = 120
 
 [binding_sites.p2rank]
 home = ""
-profile = "default"
+profile = "alphafold"
 threads = 1
 
 [docking]
