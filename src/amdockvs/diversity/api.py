@@ -251,6 +251,7 @@ class DiversityAPI:
         molecule_filters: dict[str, Any] | None = None,
         fp_radius: int = 2,
         fp_nbits: int = 2048,
+        with_activity: str = "",
         sample_limit: int = DEFAULT_SAMPLE_LIMIT,
         seed: int = 0,
         basis: Any = None,
@@ -261,7 +262,8 @@ class DiversityAPI:
         skipping ``exclude_ids`` (molecules already previewed) so repeated previews cover more of
         the space. Projects onto ``basis`` when given (a prior preview's fitted PCA axes) so runs
         overlay in one comparable space; otherwise fits a new basis and returns it. Heavy (DB read +
-        PCA); call off the GUI thread. Cheap re-clustering then uses ``cluster_loaded``."""
+        PCA); call off the GUI thread. ``with_activity`` restricts the scope to ligands measured
+        for that endpoint, as in ``cluster_job``. Cheap re-clustering then uses ``cluster_loaded``."""
         import random
 
         from amdockvs.diversity.clustering import fit_project_2d, fp_matrix_from_bitstrings, project_2d_onto
@@ -273,6 +275,7 @@ class DiversityAPI:
             molecule_filters=dict(molecule_filters or {}),
             fp_radius=fp_radius,
             fp_nbits=fp_nbits,
+            with_activity=with_activity,
         )
         project_db = self.runtime.workspace.project_db
         skip = {int(i) for i in (exclude_ids or ())}
@@ -319,7 +322,7 @@ class DiversityAPI:
         **method_params: Any,
     ) -> AnalysisResult:
         """Cluster an already-loaded ``UniverseMatrix`` — the cheap step that re-runs on every knob
-        change without touching the DB. ``method_params`` (threshold, batch_size, …) go straight to
+        change without touching the DB. ``method_params`` (threshold, batch_size, ...) go straight to
         the registered method, so each method's own knobs pass through untouched."""
         threshold = float(method_params.get("threshold", 0.65))
         if not universe.molecule_ids:

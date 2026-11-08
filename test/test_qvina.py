@@ -1,5 +1,6 @@
 import io
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -44,7 +45,16 @@ def test_command_line_has_only_the_options_quickvina_knows(monkeypatch, tmp_path
         def wait(self):
             return 0
 
-    monkeypatch.setattr(vina.subprocess, "Popen", FakeProcess)
+    # Patching Popen reaches the whole process: serve this thread, leave other threads
+    # (a worker another test left behind) with the real one.
+    ours, real_popen = threading.current_thread(), vina.subprocess.Popen
+
+    def popen(command, **kwargs):
+        if threading.current_thread() is not ours:
+            return real_popen(command, **kwargs)
+        return FakeProcess(command, **kwargs)
+
+    monkeypatch.setattr(vina.subprocess, "Popen", popen)
     energies, _ = vina._run_vina_binary(
         vina_command=sys.executable,
         receptor_path=tmp_path / "r.pdbqt",

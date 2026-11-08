@@ -18,11 +18,16 @@ from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from amdockvs.core.configuration import app_config
+from amdockvs.core.configuration import DEFAULT_P2RANK_PROFILE, app_config
 from amdockvs.core.paths import tools_home
 from amdockvs.core.rows import binding_site_row
 from typing import Any, Iterable
 
+
+# Why a receptor's B-factor column is of no use to P2Rank's default model, as recorded on
+# every site the run writes. Callers phrase these for their own audience.
+B_FACTOR_PREDICTED = "predicted"  # the column holds pLDDT, not flexibility
+B_FACTOR_CONSTANT = "constant"  # one value on every atom, e.g. zeroed by OpenMM
 
 P2RANK_VERSION = "2.5.1"
 P2RANK_ARCHIVE_NAME = f"p2rank_{P2RANK_VERSION}.tar.gz"
@@ -344,6 +349,7 @@ def parse_p2rank_outputs(
     receptor_id: int,
     run_id: str,
     profile: str,
+    profile_reason: str = "",
     version: str = P2RANK_VERSION,
 ) -> list[dict[str, Any]]:
     output = Path(output_dir).expanduser().resolve()
@@ -378,6 +384,9 @@ def parse_p2rank_outputs(
                         "provider": "p2rank",
                         "version": str(version),
                         "profile": str(profile),
+                        # Empty unless the run asked for one profile and got another;
+                        # plan_prediction reads it back to judge a reuse.
+                        "profile_reason": str(profile_reason),
                         "run_id": str(run_id),
                         "rank": rank,
                         "score": float(record.get("score") or 0.0),
@@ -399,6 +408,76 @@ def parse_p2rank_outputs(
     return rows
 
 
+def _b_factors_vary(structure) -> bool | None:
+    """Whether a parsed structure's B-factor column holds more than one value."""
+    if not len(structure):
+        return None
+    first: float | None = None
+    for chain in structure[0]:
+        for residue in chain:
+            for atom in residue:
+                # The PDB column carries two decimals; compare at that precision.
+                value = round(float(atom.b_iso), 2)
+                if first is None:
+                    first = value
+                elif value != first:
+                    return True
+    return None if first is None else False
+
+
+def b_factors_vary(text: str, kind: str = "") -> bool | None:
+    """Whether a stored structure's B-factor column holds more than one value.
+
+    P2Rank's default model reads that column as per-atom flexibility, so a column with one
+    single value in it has nothing for the model to read. OpenMM's PDB writer produces exactly
+    that: every Fix or Minimize step leaves 0.00 on every atom, experimental or not.
+
+    ``None`` when the structure cannot be parsed or carries no atoms — then nothing can be
+    claimed about its B-factors either way.
+    """
+    import gemmi
+
+    normalized_kind = str(kind or "").lstrip(".").lower()
+    coordinate_format = (
+        gemmi.CoorFormat.Mmcif if normalized_kind in {"cif", "mmcif"} else gemmi.CoorFormat.Unknown
+    )
+    try:
+        return _b_factors_vary(gemmi.read_structure_string(str(text), format=coordinate_format))
+    except Exception:  # noqa: BLE001 - an unreadable structure is one we cannot judge
+        return None
+
+
+def b_factors_vary_in_file(path: str | Path) -> bool | None:
+    """``b_factors_vary`` for a structure already on disk: the worker's own copy."""
+    import gemmi
+
+    try:
+        return _b_factors_vary(gemmi.read_structure(str(path)))
+    except Exception:  # noqa: BLE001 - an unreadable structure is one we cannot judge
+        return None
+
+
+def effective_profile(requested: str, path: str | Path, *, predicted: bool = False) -> tuple[str, str]:
+    """The profile P2Rank really runs for one receptor, and why it is not the requested one.
+
+    Asking for the B-factor model only pays off where that column carries flexibility. It does
+    not in two cases: a prediction writes pLDDT there (confidence, where high means *more*
+    reliable — the opposite of what the model reads), and anything OpenMM wrote carries 0.00 on
+    every atom, which happens to experimental structures as much as to predicted ones.
+
+    Resolved here, on the executor, against the file P2Rank is about to read: the submitter
+    would have to fetch every structure to work this out, and a scope can hold thousands.
+    """
+    normalized = str(requested or DEFAULT_P2RANK_PROFILE).strip().lower()
+    if normalized != "default":
+        return normalized, ""
+    if predicted:
+        return "alphafold", B_FACTOR_PREDICTED
+    if b_factors_vary_in_file(path) is False:
+        return "alphafold", B_FACTOR_CONSTANT
+    return normalized, ""
+
+
 def run_p2rank_prediction(payload: dict[str, Any]) -> list[dict[str, Any]]:
     receptor_path = Path(str(payload.get("receptor_path") or "")).expanduser().resolve()
     if not receptor_path.is_file():
@@ -413,7 +492,7 @@ def run_p2rank_prediction(payload: dict[str, Any]) -> list[dict[str, Any]]:
     if detected_java_version is None or detected_java_version < 17:
         raise RuntimeError(f"P2Rank requires Java 17+; invalid Java command: {java_path}")
 
-    profile = str(payload.get("profile") or "default").strip().lower()
+    requested_profile = str(payload.get("profile") or DEFAULT_P2RANK_PROFILE).strip().lower()
     env = dict(os.environ)
     java_home = java_path.parent.parent
     env["JAVA_HOME"] = str(java_home)
@@ -423,6 +502,9 @@ def run_p2rank_prediction(payload: dict[str, Any]) -> list[dict[str, Any]]:
     from amdockvs.io.formats import as_pdb
 
     with as_pdb(receptor_path) as readable_receptor:
+        profile, profile_reason = effective_profile(
+            requested_profile, readable_receptor, predicted=bool(payload.get("predicted")),
+        )
         command = [
             str(command_path),
             "predict",
@@ -445,6 +527,7 @@ def run_p2rank_prediction(payload: dict[str, Any]) -> list[dict[str, Any]]:
         receptor_id=int(payload.get("receptor_id") or 0),
         run_id=str(payload.get("run_id") or ""),
         profile=profile,
+        profile_reason=profile_reason,
         version=str(payload.get("version") or P2RANK_VERSION),
     )
 
@@ -454,7 +537,12 @@ __all__ = [
     "P2RANK_ARCHIVE_SHA256",
     "P2RANK_DOWNLOAD_URL",
     "P2RANK_VERSION",
+    "B_FACTOR_CONSTANT",
+    "B_FACTOR_PREDICTED",
     "P2RankInstallation",
+    "b_factors_vary",
+    "b_factors_vary_in_file",
+    "effective_profile",
     "ensure_p2rank",
     "find_java_command",
     "java_major_version",

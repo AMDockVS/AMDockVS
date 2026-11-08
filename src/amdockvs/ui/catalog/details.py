@@ -25,7 +25,7 @@ class CatalogDetailsView(QWidget):
     show_binding_site_requested = Signal(object, object)
     show_complex_requested = Signal(object)
     show_payload_requested = Signal(int, str)
-    show_plddt_requested = Signal(object)
+    show_plddt_requested = Signal(object, int)
 
     def __init__(self, *, runtime, parent: QWidget | None = None):
         super().__init__(parent)
@@ -35,6 +35,7 @@ class CatalogDetailsView(QWidget):
         self._current_complex: ComplexRecord | None = None
         self._current_binding_sites: list[BindingSite] = []
         self._current_model = None
+        self._plddt_model = None
         root = self  # ponytail: build straight onto the widget, no wrapper child
         layout = QVBoxLayout(root)
 
@@ -47,7 +48,7 @@ class CatalogDetailsView(QWidget):
         self.show_binding_site_button.clicked.connect(self._emit_binding_site_action)
         # On demand only: predicted models carry pLDDT in the B-factor column.
         self.show_plddt_button = QPushButton("Color by pLDDT", root)
-        self.show_plddt_button.clicked.connect(lambda: self.show_plddt_requested.emit(self._current_molecule))
+        self.show_plddt_button.clicked.connect(self._emit_plddt_action)
         actions.addWidget(self.show_primary_button)
         actions.addWidget(self.show_secondary_button)
         actions.addWidget(self.show_binding_site_button)
@@ -122,12 +123,19 @@ class CatalogDetailsView(QWidget):
             },
         )
         self._current_model = details.current_model
+        self._plddt_model = details.plddt_model
         if details.current_model is not None:
             model = details.current_model
             self._add_section(
                 "Model",
                 {"Model": model.id, "Source": model.source, "Payload": model.payload_id,
                  **dict(details.current_model_data or {})},
+            )
+        if self._plddt_model is not None and self._plddt_model is not self._current_model:
+            self._add_section(
+                "ESMFold prediction",
+                {"Model": self._plddt_model.id, "Source": self._plddt_model.source,
+                 "Payload": self._plddt_model.payload_id, **dict(details.plddt_model_data or {})},
             )
         if binding_sites:
             section = QTreeWidgetItem(["Binding Sites", str(len(binding_sites))])
@@ -249,6 +257,8 @@ class CatalogDetailsView(QWidget):
         self._current_binding_sites = []
         self.summary_tree.clear()
         self.json_text.clear()
+        self._current_model = None
+        self._plddt_model = None
         self._sync_actions()
 
     def _add_section(self, title: str, values: dict[str, object]) -> None:
@@ -311,9 +321,19 @@ class CatalogDetailsView(QWidget):
         self.show_primary_button.setEnabled(primary_enabled)
         self.show_secondary_button.setEnabled(secondary_enabled)
         self.show_binding_site_button.setEnabled(binding_enabled)
-        predicted = self._current_kind == "molecule" and str(getattr(self._current_model, "source", "") or "") == "esmfold"
+        predicted = self._current_kind == "molecule" and bool(getattr(self._plddt_model, "payload_id", None))
+        historical = predicted and self._plddt_model is not self._current_model
+        self.show_plddt_button.setText("Color prediction by pLDDT" if historical else "Color by pLDDT")
+        self.show_plddt_button.setToolTip(
+            "Display the saved ESMFold prediction colored by confidence. "
+            "Show Current returns to the working structure without changing it."
+        )
         self.show_plddt_button.setEnabled(predicted)
         self.plddt_legend.setVisible(predicted)
+
+    def _emit_plddt_action(self) -> None:
+        if self._current_kind == "molecule" and self._current_molecule is not None and self._plddt_model is not None:
+            self.show_plddt_requested.emit(self._current_molecule, int(self._plddt_model.payload_id))
 
     def _emit_primary_action(self) -> None:
         if self._current_kind == "molecule" and self._current_molecule is not None:

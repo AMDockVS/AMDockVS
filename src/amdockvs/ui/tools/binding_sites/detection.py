@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -20,15 +20,19 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
+    QToolButton,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
 
 from amdockvs.models import BindingSite, MoleculeRecord
 from amdockvs.binding_sites.jobs import p2rank_prediction_job
-from amdockvs.core.configuration import app_config
+from amdockvs.binding_sites.p2rank import B_FACTOR_CONSTANT, B_FACTOR_PREDICTED
+from amdockvs.core.configuration import DEFAULT_P2RANK_PROFILE, app_config
 from amdockvs.core.payloads import molecule_payload_id, payload_store
 from amdockvs.ui.common.async_query import run_async
+from amdockvs.ui.resources.icons import icon as load_icon
 from amdockvs.ui.tools.pymol_ribbon import (
     apply_receptor_atom_coloring,
     fetch_structures,
@@ -40,9 +44,16 @@ from amdockvs.ui.view_ids import POCKET_DETECTION_VIEW_ID, POCKET_SITES_VIEW_ID,
 
 
 PROFILE_OPTIONS = (
-    ("Standard", "default"),
-    ("AlphaFold / NMR / cryo-EM", "alphafold"),
+    ("Ignore B-factors (predicted models, NMR, cryo-EM)", "alphafold"),
+    ("Use B-factors (X-ray structures)", "default"),
 )
+# Why a pocket's profile is not the one the run asked for, as the executor recorded it.
+PROFILE_REASON_HINTS = {
+    B_FACTOR_PREDICTED: "B-factors ignored: this structure is a prediction, so its B-factor "
+                        "column holds pLDDT confidence rather than flexibility.",
+    B_FACTOR_CONSTANT: "B-factors ignored: this structure carries one single B-factor value on "
+                       "every atom (OpenMM's writer leaves 0.00), so there was nothing to read.",
+}
 P2RANK_SCORE_COLORS = (
     "#440154",
     "#482878",
@@ -201,6 +212,11 @@ class BindingSitesWidget(QWidget):
                 item = QTableWidgetItem(value)
                 if column == 0:
                     item.setData(Qt.UserRole, site)
+                elif column == 4:
+                    item.setToolTip(PROFILE_REASON_HINTS.get(
+                        str(extra.get("profile_reason") or ""),
+                        "The P2Rank model this pocket was predicted with.",
+                    ))
                 elif column == 2:
                     color = QColor(P2RANK_SCORE_COLORS[palette_indices[row]])
                     item.setBackground(QBrush(color))
@@ -490,10 +506,33 @@ class PocketDetectionWidget(QWidget):
             self.profile_combo.addItem(label, value)
         self.profile_combo.setCurrentIndex(max(0, self.profile_combo.findData(p2rank_defaults.profile)))
         self.profile_combo.setToolTip(
-            "P2Rank model used for the whole run. Changing it replaces the current "
-            "predictions of the receptors in scope once the new calculation succeeds."
+            "<p>Select whether P2Rank uses experimental B-factors when predicting pockets.</p>"
+            "<p>Ignore B-factors when they are missing, uncertain, or contain prediction "
+            "confidence scores.</p><p>Asking to use them is honoured only where they say "
+            "something: a predicted structure holds pLDDT in that column, and a repaired or "
+            "minimized one holds 0.00 on every atom. Those receptors ignore B-factors anyway, "
+            "and the Profile column of each pocket says which model ran.</p>"
+            "<p>The selected profile applies to the whole run. "
+            "Changing it replaces the current predictions of the receptors in scope "
+            "once the new calculation succeeds.</p>"
         )
         profile_row.addWidget(self.profile_combo, 1)
+        self.profile_help_button = QToolButton(prediction_box)
+        self.profile_help_button.setIcon(load_icon("help.svg"))
+        self.profile_help_button.setIconSize(QSize(16, 16))
+        self.profile_help_button.setAutoRaise(True)
+        self.profile_help_button.setFixedSize(22, 22)
+        self.profile_help_button.setStyleSheet("QToolButton { padding: 0; }")
+        self.profile_help_button.setAccessibleName("Profile help")
+        self.profile_help_button.setToolTip(self.profile_combo.toolTip())
+        self.profile_help_button.clicked.connect(
+            lambda: QToolTip.showText(
+                self.profile_help_button.mapToGlobal(self.profile_help_button.rect().bottomLeft()),
+                self.profile_help_button.toolTip(),
+                self.profile_help_button,
+            )
+        )
+        profile_row.addWidget(self.profile_help_button)
         prediction_layout.addLayout(profile_row)
 
         # No scope selector: this runs on the receptors the catalog table is showing.
@@ -642,13 +681,15 @@ class PocketDetectionWidget(QWidget):
         else:
             self._adopt_table_selection()
 
-    def _adopt_table_selection(self) -> None:
+    def _adopt_table_selection(self, *, select_first: bool = False) -> None:
         """Opening the tool over a row that is already selected fires no signal, and the panel
         would sit empty next to a highlighted receptor."""
         table = self._bound_receptor_table
         if table is None:
             return
         selected = next(iter(table.get_selected_objects() or []), None)
+        if selected is None and select_first and table.select_first_row():
+            selected = next(iter(table.get_selected_objects() or []), None)
         if selected is not None:
             # Only ever adopts; a reload that drops the selection must not blank the panel.
             self._focus_receptor(int(getattr(selected, "id", 0) or 0))
@@ -771,11 +812,12 @@ class PocketDetectionWidget(QWidget):
         receptor_ids = self._scope_receptor_ids()
         if not receptor_ids:
             return
-        # One profile for the whole run; plan_prediction still takes it per receptor, so
-        # mixing profiles later is a UI change, not an API one.
-        profile = str(self.profile_combo.currentData() or "default")
-        profiles = {receptor_id: profile for receptor_id in receptor_ids}
+        profile = str(self.profile_combo.currentData() or DEFAULT_P2RANK_PROFILE)
         try:
+            # One profile for the whole run. Where the B-factor model has nothing to read —
+            # a prediction's pLDDT, or a column OpenMM zeroed — the executor resolves it per
+            # receptor against the structure itself and records why on each site, so nothing
+            # here has to fetch thousands of structures before a job can start.
             # Resume can start a job before the next monitor poll reaches this panel.
             # Read the runtime as well as the local pending set before allowing a submit.
             active = self.runtime.list_jobs(statuses=("pending", "running"))
@@ -790,8 +832,11 @@ class PocketDetectionWidget(QWidget):
                 return
             plan = self.runtime.binding_sites.plan_prediction(
                 receptor_ids=receptor_ids,
-                profiles=profiles,
+                profile=profile,
             )
+            # The scope can contain receptors without any highlighted row. Give the
+            # results panel a receptor to follow before results arrive or are reused.
+            self._adopt_table_selection(select_first=True)
             if not plan.recalculate_receptor_ids:
                 self._reload_sites()
                 self.job_details_link.hide()
@@ -802,7 +847,7 @@ class PocketDetectionWidget(QWidget):
                 return
             job_id = self.runtime.binding_sites.predict(
                 receptor_ids=receptor_ids,
-                profiles=profiles,
+                profile=profile,
                 threads=int(self.threads_spin.value()),
             )
         except Exception as exc:

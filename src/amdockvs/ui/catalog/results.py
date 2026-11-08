@@ -1124,9 +1124,16 @@ class DockingResultsWidget(QWidget):
             self.interactions_status.setText(error)
             return
         self._load_interactions(hit)
-        dock = getattr(self.window(), "diagram_dock", None)
+        if not self.isVisible():
+            return  # cache the result without reopening a dock on another tab
+        window = self.window()
+        dock = getattr(window, "diagram_dock", None)
         if dock is not None:
-            dock.reload()
+            opening = not dock.isVisible()
+            dock.show_hit(hit, self._pose_rank(hit))
+            window.dock_manager.toggle("diagram", True)
+            if opening:
+                window._on_diagram_toggled(True)
 
 
 class ComplexWidget(DockingResultsWidget):

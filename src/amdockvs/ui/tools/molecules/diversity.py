@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
 from amdockvs.models.molecules import MoleculeUsageClass
 from amdockvs.diversity.api import DiversityAPI
 from amdockvs.ui.common.async_query import run_async
+from ms_components.chips import FlowLayout
 from ms_components.ms_table import FilterOperator, FilterSpec
 from amdockvs.ui.view_ids import CLUSTERS_VIEW_ID, LIGANDS_VIEW_ID, SELECTION_VIEW_ID
 
@@ -211,9 +212,9 @@ class DiversitySelectionWidget(QWidget):
     # --- controls -------------------------------------------------------------
     def _build_controls(self) -> QWidget:
         box = QGroupBox("Diversity", self)
-        row = QHBoxLayout(box)
+        layout = QVBoxLayout(box)
 
-        # left: shared setup (what to cluster, feature, actions) --------------------------------
+        # Shared scope and fingerprint settings.
         setup = QFormLayout()
         self.set_combo = QComboBox(box)  # Selection scope (usage classes + sets)
         self.set_combo.setToolTip(
@@ -251,21 +252,27 @@ class DiversitySelectionWidget(QWidget):
         setup.addRow("Only with", self.measured_combo)
         setup.addRow("Morgan FP", fp_row)
 
-        buttons = QHBoxLayout()
+        buttons = FlowLayout(spacing=6)
         self.run_button = QPushButton("Preview sample", box)
         self.run_button.setToolTip(
             f"Optional: cluster a fast random sample (up to {RUN_SAMPLE_LIMIT}) just to eyeball the "
-            f"clustering and tune threshold/method - changes nothing. Press it again for another "
-            f"sample. To cluster the whole scope, use 'Cluster'."
+            "clustering and tune threshold/method - changes nothing. Press again to add unseen "
+            "molecules, or restore the plot when the scope is covered. Changing the method or "
+            "its options starts a fresh preview. To cluster the whole scope, use 'Cluster'."
         )
         self.run_button.clicked.connect(self._run)
         self.clear_button = QPushButton("Clear", box)
         self.clear_button.setToolTip("Forget the accumulated preview samples and start a fresh pile.")
         self.clear_button.clicked.connect(self._clear)
+        self.plot_button = QPushButton("Cluster plot", box)
+        self.plot_button.setToolTip(
+            "Return to the accumulated preview scatter plot without sampling or clustering again."
+        )
+        self.plot_button.clicked.connect(self._push_plot)
         self.size_dist_button = QPushButton("Size distribution", box)
         self.size_dist_button.setToolTip(
             "Histogram of compounds-per-cluster for the current previews - how many clusters are "
-            "singletons vs. large. Replaces the scatter in the Distribution dock; Preview redraws it."
+            "singletons vs. large. Use 'Cluster plot' to return to the scatter."
         )
         self.size_dist_button.clicked.connect(self._show_size_distribution)
         self.cluster_button = QPushButton("Cluster", box)
@@ -274,15 +281,14 @@ class DiversitySelectionWidget(QWidget):
         self.results_button = QPushButton("Show clusters", box)
         self.results_button.setToolTip("Open the Clusters view: the runs made so far, their clusters and ligands.")
         self.results_button.clicked.connect(lambda: self._show_clusters())
+        buttons.addWidget(self.run_button)
         buttons.addWidget(self.cluster_button)
         buttons.addWidget(self.results_button)
-        buttons.addWidget(self.run_button)
         buttons.addWidget(self.clear_button)
+        buttons.addWidget(self.plot_button)
         buttons.addWidget(self.size_dist_button)
-        buttons.addStretch(1)
-        setup.addRow(buttons)
 
-        # right: the selected method's own options (a page per method) --------------------------
+        # Method options stay below the shared setup so the tool dock can be narrowed.
         self.method_stack = QStackedWidget(box)
         self._build_method_pages()
         method_box = QGroupBox("Method options", box)
@@ -294,8 +300,12 @@ class DiversitySelectionWidget(QWidget):
         self.method_combo.currentIndexChanged.connect(self._on_method_changed)
         self._on_method_changed()
 
-        row.addLayout(setup, 3)
-        row.addWidget(method_box, 2)
+        for combo in (self.set_combo, self.method_combo, self.measured_combo):
+            combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+            combo.setMinimumContentsLength(12)
+        layout.addLayout(setup)
+        layout.addWidget(method_box)
+        layout.addLayout(buttons)
         return box
 
     def _build_method_pages(self) -> None:
@@ -514,7 +524,7 @@ class DiversitySelectionWidget(QWidget):
         # A narrowed table is another universe: its samples must not pile onto a previous one's.
         narrowed = (len(ids), sum(ids)) if ids is not None else None
         return (self.set_combo.currentData(), int(self.radius_spin.value()), int(self.nbits_spin.value()), narrowed,
-                scope_kw["with_activity"])
+                scope_kw["with_activity"], tuple(sorted(self._cluster_params().items())))
 
     def _cluster_params(self) -> dict[str, Any]:
         method = str(self.method_combo.currentData() or "bitbirch")
@@ -545,7 +555,7 @@ class DiversitySelectionWidget(QWidget):
         if scope_kw is None:
             return
         key = self._scope_key(scope_kw)
-        if key != self._basis_key:  # new scope/FP → the fixed PCA basis no longer applies
+        if key != self._basis_key:  # only accumulate previews made with the same scope and settings
             self._reset_accumulation()
             self._basis_key = key
         if len(self._selections) >= MAX_PREVIEWS:
@@ -580,7 +590,7 @@ class DiversitySelectionWidget(QWidget):
         result = payload["analysis"]
         ids = result.get("molecule_ids") or []
         if not ids:
-            if not self._pool_points:
+            if not self._selections:
                 self.stats_label.setText(
                     "No fingerprintable molecules found in this scope. Import ligands (or compute "
                     "fingerprints) first."
@@ -588,8 +598,10 @@ class DiversitySelectionWidget(QWidget):
             else:
                 self.stats_label.setText(
                     f"Whole scope already previewed ({len(self._seen_ids)} molecules across "
-                    f"{len(self._selections)} previews)."
+                    f"{len(self._selections)} previews). Showing the existing plot. Change the "
+                    "method/options or press Clear to start a fresh preview."
                 )
+                self._push_plot()
             return
         if self._basis is None:  # first preview of this scope fixes the shared PCA axes
             self._basis = payload["basis"]
