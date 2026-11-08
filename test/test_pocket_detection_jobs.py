@@ -99,7 +99,7 @@ def test_new_submission_is_guarded_before_its_first_monitor_update(panel):
     assert not widget.run_button.isEnabled()
 
 
-@pytest.mark.parametrize("profile", ["alphafold", "default"])
+@pytest.mark.parametrize("profile", ["auto", "alphafold", "default"])
 def test_submitting_sends_one_profile_and_reads_no_structures(panel, profile):
     """Thousands of receptors must not be fetched before a job can start.
 
@@ -107,7 +107,7 @@ def test_submitting_sends_one_profile_and_reads_no_structures(panel, profile):
     write for P2Rank, so the panel sends the choice and nothing else.
     """
     widget, _bridge, _active, api = panel
-    assert widget.profile_combo.currentData() == "alphafold"  # the default ignores B-factors
+    assert widget.profile_combo.currentData() == "auto"  # decided per receptor, on the executor
     widget.profile_combo.setCurrentIndex(widget.profile_combo.findData(profile))
 
     widget._submit_prediction()

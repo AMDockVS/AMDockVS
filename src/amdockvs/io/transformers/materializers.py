@@ -239,7 +239,7 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
                 {
                     "molecule_ref": molecule_ref,
                     "payload_id": structure,
-                    "source": ModelSource.IMPORTED,
+                    "source": row.get("model_source") or ModelSource.IMPORTED,
                 }
             )
         molecule_payload = {

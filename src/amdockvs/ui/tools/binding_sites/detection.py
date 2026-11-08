@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
 
 from amdockvs.models import BindingSite, MoleculeRecord
 from amdockvs.binding_sites.jobs import p2rank_prediction_job
-from amdockvs.binding_sites.p2rank import B_FACTOR_CONSTANT, B_FACTOR_PREDICTED
+from amdockvs.binding_sites.p2rank import B_FACTOR_CONSTANT, B_FACTOR_PREDICTED, B_FACTOR_VARIES
 from amdockvs.core.configuration import DEFAULT_P2RANK_PROFILE, app_config
 from amdockvs.core.payloads import molecule_payload_id, payload_store
 from amdockvs.ui.common.async_query import run_async
@@ -44,15 +44,17 @@ from amdockvs.ui.view_ids import POCKET_DETECTION_VIEW_ID, POCKET_SITES_VIEW_ID,
 
 
 PROFILE_OPTIONS = (
+    ("Auto (from each structure)", "auto"),
     ("Ignore B-factors (predicted models, NMR, cryo-EM)", "alphafold"),
     ("Use B-factors (X-ray structures)", "default"),
 )
-# Why a pocket's profile is not the one the run asked for, as the executor recorded it.
+# Why an "auto" run chose a pocket's profile, as the executor recorded it.
 PROFILE_REASON_HINTS = {
-    B_FACTOR_PREDICTED: "B-factors ignored: this structure is a prediction, so its B-factor "
+    B_FACTOR_PREDICTED: "Auto, B-factors ignored: this structure is a prediction, so its B-factor "
                         "column holds pLDDT confidence rather than flexibility.",
-    B_FACTOR_CONSTANT: "B-factors ignored: this structure carries one single B-factor value on "
+    B_FACTOR_CONSTANT: "Auto, B-factors ignored: this structure carries one single B-factor value on "
                        "every atom (OpenMM's writer leaves 0.00), so there was nothing to read.",
+    B_FACTOR_VARIES: "Auto, B-factors used: an experimental structure whose B-factors vary.",
 }
 P2RANK_SCORE_COLORS = (
     "#440154",
@@ -507,11 +509,11 @@ class PocketDetectionWidget(QWidget):
         self.profile_combo.setCurrentIndex(max(0, self.profile_combo.findData(p2rank_defaults.profile)))
         self.profile_combo.setToolTip(
             "<p>Select whether P2Rank uses experimental B-factors when predicting pockets.</p>"
-            "<p>Ignore B-factors when they are missing, uncertain, or contain prediction "
-            "confidence scores.</p><p>Asking to use them is honoured only where they say "
-            "something: a predicted structure holds pLDDT in that column, and a repaired or "
-            "minimized one holds 0.00 on every atom. Those receptors ignore B-factors anyway, "
-            "and the Profile column of each pocket says which model ran.</p>"
+            "<p>Auto decides per receptor: a predicted structure (ESMFold, AlphaFold DB, "
+            "ESM Atlas, or an import whose B-factors look like pLDDT) and one with a single "
+            "B-factor value on every atom (OpenMM leaves 0.00) ignore them; the rest use them. "
+            "The Profile column of each pocket says which model ran and why.</p>"
+            "<p>The other two choices run that model on every receptor.</p>"
             "<p>The selected profile applies to the whole run. "
             "Changing it replaces the current predictions of the receptors in scope "
             "once the new calculation succeeds.</p>"
