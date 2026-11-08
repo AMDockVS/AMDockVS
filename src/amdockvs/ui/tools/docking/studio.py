@@ -255,6 +255,10 @@ class DockingStudioWidget(
         # candidates may differ now → force a reload. Selected residues are receptor-level and stay.
         if int(molecule_id or 0) == int(self._focused_receptor_id or 0) and self._focused_receptor_id:
             self._load_box_residues()
+        if self.isVisible():
+            self._sync_receptor_table_filter()
+            self._dispatch_refresh(force=True)
+            self._check_requirements()
 
     def _on_receptor_clicked(self, receptor) -> None:
         self._focused_receptor_id = int(getattr(receptor, "id", 0) or 0) or None

@@ -1,5 +1,6 @@
 """Missing receptor structures offer Build without preventing the existing skip path."""
 import os
+import time
 from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -151,3 +152,25 @@ def test_escape_keeps_the_existing_skip_path_for_an_all_sequence_scope(receptor_
                              scope_spec(params, entity_kind="receptor"))) == []
     assert scene.window.selection.get("receptor") == [scene.ids[1]]
     assert scene.studio.stepper.current_index == 3
+
+
+def test_box_activation_updates_the_visible_grid_count_without_changing_selection(receptor_studio):
+    scene = receptor_studio
+
+    def wait_for_grid_count(count):
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            scene.app.processEvents()
+            if f"{count} with grid" in scene.studio.receptor_bar.detail.text():
+                return
+            QTest.qWait(10)
+        pytest.fail(f"Stale box count: {scene.studio.receptor_bar.detail.text()}")
+
+    wait_for_grid_count(1)
+    site_id = scene.runtime.binding_sites.active_site_id(scene.ids[0])
+    scene.runtime.binding_sites.set_active_site(molecule_id=scene.ids[0], binding_site_id=None)
+    scene.studio.on_binding_site_changed(scene.ids[0])
+    wait_for_grid_count(0)
+    scene.runtime.binding_sites.set_active_site(molecule_id=scene.ids[0], binding_site_id=site_id)
+    scene.studio.on_binding_site_changed(scene.ids[0])
+    wait_for_grid_count(1)
