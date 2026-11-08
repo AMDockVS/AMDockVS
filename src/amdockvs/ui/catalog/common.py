@@ -315,6 +315,9 @@ class BoundTableWidget(QWidget):
         self._table.data_refreshed.connect(self._publish_selection)
         self._show_first_pending = False  # activated before its rows landed: show row 1 when they do
         self._table.data_refreshed.connect(self._show_first_when_loaded)
+        # ms_table restores highlighted rows after emitting data_refreshed. Wait until
+        # that restoration finishes before reading the selected row's new payload.
+        self._table.data_refreshed.connect(self._refresh_displayed_structure, Qt.QueuedConnection)
         self._table.selection_changed.connect(lambda objs: self.selection_count_changed.emit(len(objs)))
         # Restore this table's saved view prefs (visible columns + sort), then persist
         # any interactive changes back to AMDock's own config, keyed by the widget class.
@@ -580,7 +583,30 @@ class BoundTableWidget(QWidget):
 
     def refresh(self) -> None:
         if self._table is not None:
-            self._table.refresh()
+            if self._pymol_shows_table():
+                self._table.refresh_preserving_view()
+            else:
+                self._table.refresh()
+
+    def _pymol_shows_table(self) -> bool:
+        dock = getattr(self.window(), "pymol_dock", None)
+        return (
+            self.delete_kind == "molecule"
+            and self._table is not None
+            and self.isVisible()
+            and getattr(dock, "_amdock_selection_table", None) is self._table.view
+        )
+
+    def _refresh_displayed_structure(self, *_args) -> None:
+        if not self._pymol_shows_table():
+            return
+        dock = self.window().pymol_dock
+        if getattr(dock, "_amdock_accumulated", False):
+            return  # Leave a scene assembled with Ctrl/Shift clicks intact.
+        selected = self._table.get_selected_objects()
+        if len(selected) == 1:
+            # The viewer skips an unchanged payload, preserving its camera and styles.
+            self._load_object_in_pymol(selected[0])
 
     def set_base_filter(self, field: str, spec=None) -> None:
         """Replace (spec) or remove (None) a base filter on the embedded table, in-place.
