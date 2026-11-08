@@ -622,7 +622,7 @@ class PreparationPanel:
                 self._push_receptor_scope(widget)
 
         run_async(lambda: self.runtime.docking.method_misfit_receptor_ids(method=method), apply,
-                  on_error=lambda _exc: None)
+                  on_error=lambda _exc: None, owner=self)
 
     def _push_receptor_scope(self, widget) -> None:
         clause = self._unprepared_clause("receptor")
@@ -756,7 +756,8 @@ class PreparationPanel:
     def _report_prep_failures(self, follower) -> None:
         since = self._prep_started.pop(follower.noun, None)
         if since is not None:
-            run_async(lambda: self.runtime.molecules.excluded_since(since), lambda rows: self._show_prep_failures(follower.noun, rows))
+            run_async(lambda: self.runtime.molecules.excluded_since(since),
+                      lambda rows: self._show_prep_failures(follower.noun, rows), owner=self)
 
     def _show_prep_failures(self, noun: str, rows: list[tuple[int, str, str]]) -> None:
         self.failures_dialog = show_failures(self, noun, rows) or self.failures_dialog

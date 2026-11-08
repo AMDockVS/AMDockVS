@@ -7,7 +7,7 @@ import contextlib
 import logging
 import math
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import QWidget
 from ms_components.ms_pymol import clear_scene, frame, is_additive, prepare_scene, set_additive
 from ms_components.ms_table import TableInteraction
@@ -30,8 +30,11 @@ from amdockvs.ui.tools.pymol_ribbon import (
 _log = logging.getLogger(__name__)
 
 
-class MolecularViewerController:
+class MolecularViewerController(QObject):
+    catalog_molecule_shown = Signal(object)
+
     def __init__(self, window):
+        super().__init__(window if isinstance(window, QWidget) else None)
         self.w = window
         self.grid_preview_enabled = True
         self._request = 0  # single selection keeps only the latest read; multiple selection keeps all
@@ -497,27 +500,38 @@ class MolecularViewerController:
             source=source,
             object_prefix=object_prefix,
             orient=orient,
+            then=self.catalog_molecule_shown.emit,
         )
 
     def show_molecule(self, molecule, mode: str) -> None:
         self._show_molecule(
             molecule,
             source="current" if str(mode or "").strip().lower() == "current" else "stored",
-            object_prefix="molecule",
+            object_prefix=self._displayed_molecule_prefix(molecule),
             orient=True,
         )
 
-    def show_plddt(self, molecule) -> None:
+    def show_plddt(self, molecule, payload_id: int | None = None) -> None:
         if molecule is None:
             return
-        self._show_molecule(molecule, source="current", object_prefix="molecule", orient=True,
-                            then=self._color_plddt)
+        prefix = self._displayed_molecule_prefix(molecule)
+        self._show_molecule(molecule, source="current", object_prefix=prefix, orient=True, payload_id=payload_id,
+                            then=lambda row: self._color_plddt(row, object_prefix=prefix))
 
-    def _color_plddt(self, molecule) -> None:
+    def _displayed_molecule_prefix(self, molecule) -> str:
+        """Details actions reuse the catalog object's name instead of overlaying a copy."""
+        cmd = getattr(self.w.pymol_dock, "cmd", None)
+        if cmd is not None:
+            for prefix in ("receptor", "molecule"):
+                if self._holds(cmd, f"{prefix}_{getattr(molecule, 'id', 'selected')}"):
+                    return prefix
+        return "molecule"
+
+    def _color_plddt(self, molecule, *, object_prefix: str = "molecule") -> None:
         cmd = getattr(self.w.pymol_dock, "cmd", None)
         if cmd is None:
             return
-        name = f"molecule_{getattr(molecule, 'id', 'selected')}"
+        name = f"{object_prefix}_{getattr(molecule, 'id', 'selected')}"
         for color_name, rgb, condition, _legend in PLDDT_BANDS:
             cmd.set_color(color_name, [value / 255 for value in rgb])
             cmd.color(color_name, f"{name} and {condition}")
@@ -547,10 +561,12 @@ class MolecularViewerController:
         object_prefix: str,
         orient: bool,
         then=None,
+        payload_id: int | None = None,
     ) -> None:
-        payload_id = self._structure_id(molecule, str(source or "").strip().lower())
+        payload_id = payload_id or self._structure_id(molecule, str(source or "").strip().lower())
         if not payload_id:
-            _log.warning("Molecule %s has no %s structure stored", getattr(molecule, "id", None), source)
+            log = _log.warning if getattr(molecule, "has_3d", False) else _log.debug
+            log("Molecule %s has no %s structure stored", getattr(molecule, "id", None), source)
             return
         dock = self.w.pymol_dock
         if dock is None or getattr(dock, "cmd", None) is None:

@@ -32,7 +32,7 @@ dependencies = [
     # MolSuite stack
     "ms_env>=0.4.1",
     "ms_flow>=0.10.0",
-    "ms_components[monitor,projects,pymol,steps,table]>=0.5.5",
+    "ms_components[monitor,projects,pymol,steps,table]>=0.5.6",
     "ms_contactmap>=0.3.2",
     # Chemistry / structure
     "rdkit>=2025.3.5",

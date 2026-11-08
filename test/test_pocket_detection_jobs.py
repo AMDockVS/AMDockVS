@@ -1,15 +1,20 @@
 """Pocket Detection follows P2Rank work continued through the Jobs monitor."""
 from types import SimpleNamespace
 from unittest.mock import Mock
+import time
 
 import pytest
 
 from amdockvs.runtime import AMDockVSRuntime  # noqa: F401 - pydantic before PySide6
 from amdockvs.binding_sites.jobs import p2rank_prediction_job
 from PySide6.QtCore import QObject, Signal
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
+from ms_components.ms_table import ColumnDef, SmartTableView, TableConfig
 from ms_components.ms_monitor.models import JobMonitorState, ProjectMonitorState
-from amdockvs.ui.tools.binding_sites.detection import PocketDetectionWidget
+from ms_flow.core.database import ProjectStore
+from amdockvs.binding_sites.api import BindingSiteAPI
+from amdockvs.models import BindingSite, MoleculeRecord
+from amdockvs.ui.tools.binding_sites.detection import BindingSitesWidget, PocketDetectionWidget
 
 
 class _Bridge(QObject):
@@ -94,6 +99,46 @@ def test_new_submission_is_guarded_before_its_first_monitor_update(panel):
     assert not widget.run_button.isEnabled()
 
 
+@pytest.mark.parametrize("profile", ["alphafold", "default"])
+def test_submitting_sends_one_profile_and_reads_no_structures(panel, profile):
+    """Thousands of receptors must not be fetched before a job can start.
+
+    The executor resolves each receptor's profile against the structure it already has to
+    write for P2Rank, so the panel sends the choice and nothing else.
+    """
+    widget, _bridge, _active, api = panel
+    assert widget.profile_combo.currentData() == "alphafold"  # the default ignores B-factors
+    widget.profile_combo.setCurrentIndex(widget.profile_combo.findData(profile))
+
+    widget._submit_prediction()
+
+    for call in (api.plan_prediction.call_args, api.predict.call_args):
+        assert call.kwargs["profile"] == profile
+        assert "profiles" not in call.kwargs
+
+
+def test_a_pocket_explains_a_profile_it_did_not_ask_for(panel):
+    """The Profile column carries what ran; its tooltip carries why."""
+    from amdockvs.binding_sites.p2rank import B_FACTOR_CONSTANT
+    from amdockvs.ui.tools.binding_sites.detection import PROFILE_REASON_HINTS
+
+    widget, _bridge, _active, _api = panel
+    sites = BindingSitesWidget(runtime=widget.runtime, parent=None)
+    sites._fill_results((
+        BindingSite(id=1, molecule_id=1, name="P2Rank pocket 1", source="p2rank", source_ref="1",
+                    extra_data={"rank": 1, "profile": "alphafold",
+                                "profile_reason": B_FACTOR_CONSTANT}),
+        BindingSite(id=2, molecule_id=1, name="P2Rank pocket 2", source="p2rank", source_ref="2",
+                    extra_data={"rank": 2, "profile": "default"}),
+    ))
+
+    assert sites.table.item(0, 4).text() == "alphafold"
+    assert sites.table.item(0, 4).toolTip() == PROFILE_REASON_HINTS[B_FACTOR_CONSTANT]
+    assert sites.table.item(1, 4).text() == "default"
+    assert "B-factors ignored" not in sites.table.item(1, 4).toolTip()
+    sites.deleteLater()
+
+
 def test_unrelated_jobs_do_not_block_prediction(panel):
     widget, bridge, active, api = panel
     bridge.job_upserted.emit("import", _job(job_id="import", name="amdock_load_receptors_file_job"))
@@ -149,3 +194,74 @@ def test_submitting_reveals_a_link_that_opens_the_jobs_monitor(panel, monkeypatc
     assert not widget.job_details_link.isHidden()
     widget.job_details_link.linkActivated.emit("jobs")
     monitor.assert_called_once_with()
+
+
+@pytest.mark.parametrize("selected_row", [None, 1])
+@pytest.mark.parametrize("reuse", [False, True])
+def test_results_appear_without_switching_tabs(tmp_path, monkeypatch, selected_row, reuse):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(PocketDetectionWidget, "refresh", lambda self: None)
+    app = QApplication.instance() or QApplication([])
+    store = ProjectStore.open_at(tmp_path / "project.db")
+    with store.get_session() as session:
+        session.add_all([
+            MoleculeRecord(id=4, name="first", is_receptor=True),
+            MoleculeRecord(id=7, name="selected", is_receptor=True),
+        ])
+        session.commit()
+    runtime = SimpleNamespace(
+        workspace=SimpleNamespace(project_db=store),
+        _require_active_project=lambda: None,
+        list_jobs=lambda **kwargs: [],
+    )
+    runtime.binding_sites = BindingSiteAPI(runtime)
+    runtime.binding_sites.predict = Mock(return_value="pockets")
+    runtime.binding_sites.plan_prediction = Mock(return_value=SimpleNamespace(
+        recalculate_receptor_ids=() if reuse else (4, 7),
+        reused_receptor_ids=(4, 7) if reuse else (),
+    ))
+    host = QWidget()
+    host.monitor_bridge = _Bridge([])
+    table = SmartTableView(db=store, config=TableConfig(
+        model_class=MoleculeRecord, columns=[ColumnDef("id"), ColumnDef("name")],
+    ), parent=host)
+    sites = BindingSitesWidget(runtime=runtime, parent=host)
+    host.aux = SimpleNamespace(page_for=lambda _view: sites)
+    tool = PocketDetectionWidget(runtime=runtime, parent=host)
+    tool._receptors = {4: {"id": 4}, 7: {"id": 7}}
+    tool._bind_receptor_table_signals(SimpleNamespace(table=table))
+    layout = QVBoxLayout(host)
+    for widget in (tool, table, sites):
+        layout.addWidget(widget)
+    host.show()
+    app.processEvents()
+    if selected_row is not None:
+        table.view.selectRow(selected_row)
+
+    def save_results():
+        with store.get_session() as session:
+            session.add_all([
+                BindingSite(id=40, molecule_id=4, name="first pocket", source="p2rank", source_ref="1"),
+                BindingSite(id=70, molecule_id=7, name="selected pocket", source="p2rank", source_ref="1"),
+            ])
+            session.commit()
+
+    try:
+        if reuse:
+            save_results()
+        tool._submit_prediction()
+        if not reuse:
+            save_results()
+            host.monitor_bridge.job_finished.emit("pockets", "completed")
+        deadline = time.monotonic() + 2
+        while sites.table.rowCount() == 0 and time.monotonic() < deadline:
+            app.processEvents()
+            time.sleep(0.01)
+        assert sites.table.rowCount() == 1
+        expected_id = 4 if selected_row is None else 7
+        assert sites._sites[0].molecule_id == expected_id
+        assert table.get_selected_object().id == expected_id
+    finally:
+        host.close()
+        host.deleteLater()
+        app.processEvents()

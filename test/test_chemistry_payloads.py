@@ -68,6 +68,7 @@ def test_pdb2pqr_receptor_row_comes_back_as_the_pdb_payload(monkeypatch):
     """The tool writes its PDB and a PQR sidecar into a work folder: the row gets the PDB bytes, and
     neither file nor the temp copy of the input outlives the call."""
     import subprocess
+    import threading
 
     from amdockvs.chemistry.service import transform_receptor_rows
     from amdockvs.chemistry.tools import receptors
@@ -75,7 +76,13 @@ def test_pdb2pqr_receptor_row_comes_back_as_the_pdb_payload(monkeypatch):
 
     touched: list[Path] = []
 
+    # Patching run() reaches the whole process: serve this thread, leave other threads
+    # (a worker another test left behind) with the real one.
+    ours, real_run = threading.current_thread(), subprocess.run
+
     def fake_run(cmd, **_kwargs):
+        if threading.current_thread() is not ours:
+            return real_run(cmd, **_kwargs)
         pdb = Path(next(arg for arg in cmd if arg.startswith("--pdb-output=")).split("=", 1)[1])
         source, pqr = Path(cmd[-2]), Path(cmd[-1])
         assert source.read_bytes() == PDB  # the tool read a temp file holding the row's bytes
@@ -84,7 +91,7 @@ def test_pdb2pqr_receptor_row_comes_back_as_the_pdb_payload(monkeypatch):
         touched.extend([source, pdb, pqr])
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
-    monkeypatch.setattr(receptors.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(receptors, "_require_executable", lambda name, command=None: f"/managed/bin/{name}")
     monkeypatch.setattr(receptors.subprocess, "run", fake_run)
 
     update, = transform_receptor_rows(

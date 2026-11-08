@@ -1,0 +1,16 @@
+[tool]
+name = "pdb2pqr"
+label = "PDB2PQR"
+purpose = "pH-dependent protein protonation using PROPKA."
+footprint = "Isolated Python environment"
+version = "3.7.1"
+prefix = "{tools_home}/protonation/{name}/{version}"
+
+[locate]
+paths = ["{prefix}/bin/pdb2pqr", "{prefix}/bin/pdb2pqr30", "{prefix}/Scripts/pdb2pqr.exe", "{prefix}/Scripts/pdb2pqr30.exe"]
+commands = []
+check = ["{python}", "-c", "import subprocess, sys; result = subprocess.run([sys.argv[1], '--version'], capture_output=True, text=True); sys.exit(0 if result.returncode == 0 and result.stdout.split() == ['pdb2pqr', sys.argv[2]] else 1)", "{exe}", "{version}"]
+
+[env]
+conda = ["python=3.12", "pip"]
+pip = ["pdb2pqr=={version}"]
