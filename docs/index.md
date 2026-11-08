@@ -20,29 +20,21 @@ AMDockVS is the next-generation version of [Assisted Molecular Docking (AMDock)]
 
 ## Install
 
-AMDockVS requires Python 3.12 or newer and can be installed in a Conda environment or a Python virtual environment.
+AMDockVS installs into a conda environment (micromamba or conda). The compiled
+scientific stack comes from conda-forge, with builds for Linux and macOS on both
+Intel and ARM; AMDockVS, PySide6, PyMOL (the `pymol-open-source` 3.2 wheels) and
+the MolSuite packages come from PyPI:
 
-=== "Conda"
+```bash
+curl -LO https://raw.githubusercontent.com/AMDockVS/AMDockVS/main/environment.yml
+micromamba create -n amdockvs -f environment.yml   # or: conda env create -f environment.yml
+micromamba activate amdockvs
+```
 
-    - Create and activate a Conda environment, then install AMDockVS with pip:
+Do not `conda install` into that environment afterwards; edit `environment.yml`
+and create it again instead.
 
-        ```bash
-        conda create -n amdockvs python=3.12
-        conda activate amdockvs
-        python -m pip install AMDockVS
-        ```
-
-=== "Python `venv`"
-
-    - Create and activate a Python virtual environment, then install AMDockVS with pip:
-
-        ```bash
-        python3.12 -m venv .venv
-        source .venv/bin/activate
-        python -m pip install AMDockVS
-        ```
-
-Start the desktop application from either environment:
+Start the desktop application with:
 
 ```bash
 amdockvs

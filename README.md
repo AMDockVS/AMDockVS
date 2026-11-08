@@ -6,14 +6,23 @@ engines, and result inspection. It runs its jobs through MolSuite.
 
 ## Installation
 
-Python >= 3.12. The MolSuite packages and PyMOL (the `pymol-open-source` alpha
-wheels, via `ms_components`) are installed automatically from PyPI:
+AMDockVS installs into a conda environment ([micromamba](https://mamba.readthedocs.io/en/latest/installation/micromamba-installation.html)
+or conda): the compiled scientific stack (RDKit, Vina, Gemmi, NumPy, SciPy, …) comes from
+conda-forge, which has builds for Linux and macOS on both Intel and ARM, and AMDockVS itself
+from PyPI, together with what is pip-only (PySide6, the `pymol-open-source` 3.2 wheels and the
+MolSuite packages):
 
 ```bash
-python3.12 -m venv .venv
-source .venv/bin/activate
-pip install AMDockVS
+curl -LO https://raw.githubusercontent.com/AMDockVS/AMDockVS/main/environment.yml
+micromamba create -n amdockvs -f environment.yml   # or: conda env create -f environment.yml
+micromamba activate amdockvs
 ```
+
+Do not `conda install` into that environment afterwards: conda would lay its own builds over
+pip's. To change it, edit `environment.yml` and create it again.
+
+`pip install AMDockVS` alone also works on Linux x86-64; elsewhere pip has no Vina wheel and
+builds some packages from source.
 
 Start the GUI:
 
@@ -38,7 +47,7 @@ pip install "AMDockVS[all]"   # or pick one: bblean, pockets, prody, qsar
 |---|---|
 | `bblean` | BitBIRCH clustering (GPL, invoked through its CLI, never imported) |
 | `pockets` | the jlink-trimmed JDK that P2Rank runs on |
-| `prody` | ProDy, Meeko's fallback reader for receptor PDBs its own parser rejects |
+| `prody` | ProDy, Meeko's fallback reader for receptor PDBs its own parser rejects. In the conda environment, uncomment `prody` in `environment.yml` instead (Linux x86-64 and Intel macOS only) |
 | `qsar` | scikit-learn for QSAR model building and prediction |
 
 ### External tools
