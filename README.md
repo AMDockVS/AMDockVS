@@ -31,14 +31,15 @@ Windows and macOS keep their native backends. Headless runs with
 ### Optional extras
 
 ```bash
-pip install "AMDockVS[all]"   # or pick one: bblean, pockets, receptors
+pip install "AMDockVS[all]"   # or pick one: bblean, pockets, prody, qsar
 ```
 
 | Extra | What it adds |
 |---|---|
 | `bblean` | BitBIRCH clustering (GPL, invoked through its CLI, never imported) |
 | `pockets` | the jlink-trimmed JDK that P2Rank runs on |
-| `receptors` | OpenMM/PDBFixer receptor rebuilding and minimisation, ProDy fallbacks |
+| `prody` | ProDy, Meeko's fallback reader for receptor PDBs its own parser rejects |
+| `qsar` | scikit-learn for QSAR model building and prediction |
 
 ### External tools
 
@@ -54,13 +55,8 @@ Installed by AMDockVS on demand, from **Settings › External tools** or with
 | `gnina` | gnina docking with CNN rescoring (Linux x86_64, NVIDIA GPU) |
 | `unidock` | Uni-Dock GPU-batched docking (Linux, NVIDIA GPU with a CUDA 12.9+ driver) |
 | `openbabel`, `pkasso` | Ligand protonation |
-
-Found on `PATH` (or at the path given in the settings), not installed by AMDockVS:
-
-| Tool | What for | Installation |
-|---|---|---|
-| `reduce` | `runtime.chemistry.protonate_receptors(method="reduce")` | `conda install -c conda-forge reduce` |
-| `pdb2pqr` | `runtime.chemistry.protonate_receptors(method="pdb2pqr")` | `pip install pdb2pqr` |
+| `reduce`, `pdb2pqr` | Receptor protonation |
+| `openmm` | Receptor repair (PDBFixer) and minimization (OpenMM) |
 
 ## Documentation
 
