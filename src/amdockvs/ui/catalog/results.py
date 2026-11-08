@@ -536,6 +536,7 @@ class DockingResultsWidget(QWidget):
             lambda: self.runtime.docking.result_protocols(receptor_id=receptor_id),
             lambda protocols: self._apply_protocols(protocols, auto_select, preserve_view, token, protocols_only),
             on_error=lambda _exc: None if protocols_only else self._apply_protocols([], auto_select, preserve_view, token),
+            owner=self,
         )
 
     def _apply_protocols(
@@ -720,7 +721,7 @@ class DockingResultsWidget(QWidget):
                 self._load_hit_in_pymol(hit, self._pose_rank(hit))
 
         for result_id in sorted(ids):
-            run_async(lambda result_id=result_id: self.runtime.docking.hit(result_id=result_id), load)
+            run_async(lambda result_id=result_id: self.runtime.docking.hit(result_id=result_id), load, owner=self)
 
     def _on_ligand_selection_changed(self, objects: list) -> None:
         if not objects:
@@ -764,6 +765,7 @@ class DockingResultsWidget(QWidget):
             lambda: self.runtime.docking.hit(result_id=result_id),
             lambda hit: self._apply_selected_hit(hit, token),
             on_error=lambda _exc: self._apply_selected_hit(None, token),
+            owner=self,
         )
 
     def _apply_selected_hit(self, hit: DockingHitSummary | None, token: tuple[int, int]) -> None:
@@ -996,6 +998,7 @@ class DockingResultsWidget(QWidget):
             lambda: self.runtime.docking.interaction_stats(result_ids=result_ids),
             self._show_interaction_stats,
             on_error=lambda _exc: self._show_interaction_stats({"by_type": [], "by_residue": []}),
+            owner=self,
         )
 
     def _plot_bar_rows(self, plot, rows: list[dict], *, title: str) -> None:
@@ -1107,6 +1110,7 @@ class DockingResultsWidget(QWidget):
             work,
             lambda built: self._on_diagram_built(result_id, "" if built else "No interactions found."),
             on_error=lambda exc: self._on_diagram_built(result_id, str(exc)),
+            owner=self,
         )
 
     def diagram_saved(self, result_id: int) -> None:
