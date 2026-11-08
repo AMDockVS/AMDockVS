@@ -213,6 +213,7 @@ class RunPanel:
             on_error=lambda _exc: self._on_refresh_done(None, token, sig),
             busy=busy_label,
             compact=True,
+            owner=self,
         )
 
     def _on_refresh_done(self, data: dict | None, token: int, sig) -> None:
@@ -550,6 +551,7 @@ class RunPanel:
             lambda: self._compute_requirement_counts(inputs),
             self._apply_check,
             on_error=lambda exc: self._apply_check({"error": str(exc)}),
+            owner=self,
         )
 
     def _apply_check(self, result: dict) -> None:
