@@ -329,9 +329,10 @@ class P2RankSettings(BaseModel):
         title="Install directory",
         description="Existing P2Rank installation to use instead of the one AMDock manages.",
     )
-    profile: Literal["default", "alphafold"] = Field(
-        "alphafold", title="Profile",
-        description="P2Rank model: 'alphafold' ignores B-factors; 'default' uses experimental X-ray B-factors.",
+    profile: Literal["auto", "default", "alphafold"] = Field(
+        "auto", title="Profile",
+        description="P2Rank model: 'auto' picks per receptor from its structure; 'alphafold' ignores "
+                    "B-factors; 'default' uses experimental X-ray B-factors.",
     )
     threads: int = Field(1, ge=1, le=128, title="Threads", description="Default threads per prediction job.")
 

@@ -21,6 +21,7 @@ from amdockvs.binding_sites.jobs import (
 from amdockvs.binding_sites.p2rank import (
     B_FACTOR_CONSTANT,
     B_FACTOR_PREDICTED,
+    B_FACTOR_VARIES,
     P2RANK_VERSION,
     b_factors_vary,
     b_factors_vary_in_file,
@@ -99,8 +100,8 @@ def _write_outputs(root: Path) -> None:
     (visualizations / "protein.pdb_pymol.pml").write_text("show spheres\n", encoding="utf-8")
 
 
-@pytest.mark.parametrize("profile", [None, "default", "alphafold"])
-def test_prediction_command_ignores_b_factors_unless_explicitly_enabled(tmp_path, monkeypatch, profile):
+@pytest.mark.parametrize("profile", [None, "auto", "default", "alphafold"])
+def test_prediction_command_runs_the_resolved_profile(tmp_path, monkeypatch, profile):
     output = tmp_path / "output"
     _write_outputs(output)
     receptor = tmp_path / "protein.pdb"
@@ -123,7 +124,8 @@ def test_prediction_command_ignores_b_factors_unless_explicitly_enabled(tmp_path
     if profile is not None:
         payload["profile"] = profile
     rows = run_p2rank_prediction(payload)
-    expected = profile or "alphafold"
+    # The receptor is an empty file: "auto" (the default) cannot judge it and keeps P2Rank's own model.
+    expected = profile if profile in {"default", "alphafold"} else "default"
     assert rows[0]["extra_data"]["profile"] == expected
     if expected == "alphafold":
         assert commands[0][-2:] == ["-c", "alphafold"]
@@ -196,16 +198,16 @@ def test_b_factor_variation_is_read_from_the_column_itself(text, kind, expected)
 
 
 @pytest.mark.parametrize("requested, predicted, b_factors, expected", [
-    ("default", False, (23.45, 77.0), ("default", "")),  # real flexibility: use it
-    ("default", True, (88.5, 42.0), ("alphafold", B_FACTOR_PREDICTED)),  # pLDDT, not flexibility
-    ("default", False, (0.0, 0.0), ("alphafold", B_FACTOR_CONSTANT)),  # what OpenMM left
-    ("default", False, (1.0, 1.0), ("alphafold", B_FACTOR_CONSTANT)),
-    ("alphafold", False, (23.45, 77.0), ("alphafold", "")),  # asked for, never second-guessed
-    ("alphafold", True, (0.0, 0.0), ("alphafold", "")),
+    ("auto", False, (23.45, 77.0), ("default", B_FACTOR_VARIES)),  # real flexibility: use it
+    ("auto", True, (88.5, 42.0), ("alphafold", B_FACTOR_PREDICTED)),  # pLDDT, not flexibility
+    ("auto", False, (0.0, 0.0), ("alphafold", B_FACTOR_CONSTANT)),  # what OpenMM left
+    ("auto", False, (1.0, 1.0), ("alphafold", B_FACTOR_CONSTANT)),
+    ("default", True, (0.0, 0.0), ("default", "")),  # asked for, never second-guessed
+    ("alphafold", False, (23.45, 77.0), ("alphafold", "")),
 ])
 def test_the_executor_resolves_the_profile_against_the_structure(tmp_path, requested, predicted,
                                                                  b_factors, expected):
-    """Only a request for the B-factor model can be resolved away, and only with a reason."""
+    """Only "auto" is resolved, and always with its reason; an explicit profile runs as asked."""
     receptor = tmp_path / "receptor.pdb"
     receptor.write_text(_pdb(*b_factors))
     assert effective_profile(requested, receptor, predicted=predicted) == expected
@@ -216,14 +218,14 @@ def test_an_unreadable_structure_leaves_the_requested_profile_alone(tmp_path):
     receptor.write_text("not a structure at all")
     assert b_factors_vary_in_file(receptor) is None
     assert effective_profile("default", receptor) == ("default", "")
-    assert effective_profile("default", tmp_path / "missing.pdb") == ("default", "")
+    assert effective_profile("auto", tmp_path / "missing.pdb")[0] == "default"
 
 
-def test_a_run_resolved_off_the_requested_profile_is_still_reusable(tmp_path):
-    """Without this, asking for the B-factor model would recalculate the same receptors forever.
+def test_an_auto_run_is_reusable(tmp_path):
+    """Without this, an "auto" request would recalculate the same receptors forever.
 
-    The executor resolves "default" to "alphafold" where B-factors say nothing, so what is
-    stored can never equal what was asked for. The recorded reason is what closes the loop.
+    The executor resolves "auto" to one model, so what is stored can never equal what was
+    asked for. The recorded reason is what closes the loop.
     """
     project_store = ProjectStore.open_at(tmp_path / "project.db")
     output = tmp_path / "results" / "pockets" / "run" / "receptor_7"
@@ -238,17 +240,18 @@ def test_a_run_resolved_off_the_requested_profile_is_still_reusable(tmp_path):
         session.commit()
 
     api = _pocket_api(project_store)
-    assert api.plan_prediction(receptor_ids=[7], profile="default").reused_receptor_ids == (7,)
+    assert api.plan_prediction(receptor_ids=[7], profile="auto").reused_receptor_ids == (7,)
     assert api.plan_prediction(receptor_ids=[7], profile="alphafold").reused_receptor_ids == (7,)
+    assert api.plan_prediction(receptor_ids=[7], profile="default").recalculate_receptor_ids == (7,)
 
-    # A plain alphafold run carries no reason, so a request for B-factors is a real change.
+    # A plain alphafold run never looked at the structure, so "auto" is a real change.
     plain = parse_p2rank_outputs(output_dir=output, receptor_id=8, run_id="run", profile="alphafold")
     with project_store.get_session() as session:
         session.add(MoleculeRecord(id=8, name="other", is_receptor=True))
         session.commit()
         session.add(BindingSite(**plain[0]))
         session.commit()
-    assert api.plan_prediction(receptor_ids=[8], profile="default").recalculate_receptor_ids == (8,)
+    assert api.plan_prediction(receptor_ids=[8], profile="auto").recalculate_receptor_ids == (8,)
     ProjectStore.clear_cached_stores()
 
 
@@ -526,7 +529,7 @@ def test_the_job_marks_predicted_receptors_with_one_query_for_the_whole_run(tmp_
     """The flag the executor cannot work out from a file, resolved without a query per receptor.
 
     A scope can hold thousands of receptors, so the predictions of the whole project are read
-    once — and not at all when the run already ignores B-factors.
+    once — and not at all when the run names its profile.
     """
     from amdockvs.binding_sites import jobs
     from amdockvs.models import MoleculeModel
@@ -543,7 +546,8 @@ def test_the_job_marks_predicted_receptors_with_one_query_for_the_whole_run(tmp_
                            stored_payload_id=imported),
         ])
         session.commit()
-        session.add(MoleculeModel(molecule_id=1, payload_id=predicted, source="esmfold"))
+        # A repaired copy is still a prediction: its B-factors are pLDDT or OpenMM's zeros.
+        session.add(MoleculeModel(molecule_id=1, payload_id=predicted, source="alphafold_db"))
         session.commit()
 
     queries = []
@@ -567,9 +571,10 @@ def test_the_job_marks_predicted_receptors_with_one_query_for_the_whole_run(tmp_
         ))
         return {int(chunk["receptor_id"]): bool(chunk["predicted"]) for chunk in chunks}
 
-    assert submitted("default") == {1: True, 2: False}
+    assert submitted("auto") == {1: True, 2: False}
     assert queries.count(TABLE_MOLECULE_MODELS) == 1  # once, not once per receptor
 
-    assert submitted("alphafold") == {1: False, 2: False}  # nothing to resolve, nothing read
-    assert TABLE_MOLECULE_MODELS not in queries
+    for explicit in ("alphafold", "default"):
+        assert submitted(explicit) == {1: False, 2: False}  # nothing to resolve, nothing read
+        assert TABLE_MOLECULE_MODELS not in queries
     ProjectStore.clear_cached_stores()

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -790,11 +791,37 @@ class PreparationPanel:
         self.stepper.set_current_index(2)
 
     def _prepare_receptors(self) -> None:
-        job_ids: dict[str, str] = {}
         target = self._selected_receptor_prep_target()
         programs = self._distinct_prep_programs(role="receptor") if target is None else [target]
         try:
             receptor_scope = self._selected_receptor_scope()
+            needs_box = self._needs_search_box(programs)
+        except Exception as exc:
+            self._error("Prepare Receptor", exc)
+            return
+        self.prepare_receptor_button.setEnabled(False)
+
+        def checked(gaps: dict) -> None:
+            self.prepare_receptor_button.setEnabled(True)
+            self._prepare_receptors_checked(programs, receptor_scope, gaps)
+
+        def failed(exc: Exception) -> None:
+            self.prepare_receptor_button.setEnabled(True)
+            self._error("Prepare Receptor", exc)
+
+        # Two counts over a scope that can hold a whole proteome: off the GUI thread.
+        run_async(lambda: self._receptor_gaps(receptor_scope, needs_3d=True, needs_box=needs_box),
+                  checked, on_error=failed, owner=self)
+
+    def _prepare_receptors_checked(self, programs: list[str], receptor_scope, gaps: dict) -> None:
+        if gaps["no_3d"] and self._ask_missing_receptor_3d(gaps["no_3d"]) == "build":
+            build = self.window().tools.open_tool(BUILD_ID)
+            build.tabs.setCurrentWidget(build.proteins_tab)
+            return
+        if not self._confirm_receptor_search_boxes(gaps, title="Prepare Receptors"):
+            return
+        job_ids: dict[str, str] = {}
+        try:
             for program in programs:
                 job_ids[program] = self.runtime.docking.prepare_receptors(
                     program=program,
@@ -815,6 +842,79 @@ class PreparationPanel:
             return
         self._follow_prep(self.receptor_prep_jobs, job_ids)
         self.stepper.set_current_index(3)
+
+    def _ask_missing_receptor_3d(self, count: int) -> str:
+        """Offer structure prediction, or keep preparing while skipping sequence-only rows."""
+        box = QMessageBox(
+            QMessageBox.Warning, "Prepare Receptors",
+            f"{int(count)} receptor(s) have no 3D structure and will be skipped if you continue.",
+            parent=self,
+        )
+        box.setInformativeText(
+            "Open Build → Proteins to predict structures from their sequences, "
+            "or continue preparing the receptors that already have 3D coordinates."
+        )
+        build = box.addButton("Open Build → Proteins…", QMessageBox.ActionRole)
+        proceed = box.addButton("Continue and skip", QMessageBox.AcceptRole)
+        box.setDefaultButton(proceed)
+        box.setEscapeButton(proceed)
+        box.exec()
+        return "build" if box.clickedButton() is build else "continue"
+
+    def _needs_search_box(self, programs) -> bool:
+        """Whether any of the programs docks inside a box. The box belongs to the receptor, not to
+        a program, so one check answers for all of them."""
+        return any(self.runtime.docking.get_program_spec(program).requires_binding_site for program in programs)
+
+    def _receptor_gaps(self, scope, *, needs_3d: bool, needs_box: bool) -> dict:
+        """What a receptor scope lacks, counted by the database: no receptor row comes into Python."""
+        molecules = self.runtime.molecules
+        gaps = {"no_3d": 0, "no_box": 0, "first_no_box": None}
+        if needs_3d:
+            gaps["no_3d"] = molecules.count(molecules.filter(scope, filters={"has_3d": False}))
+        if needs_box:
+            # A receptor with no structure was already counted above: one reason per receptor.
+            without = molecules.filter(scope, filters={"excluded": False, "has_3d": True, "has_search_box": False},
+                                       order=("id",))
+            gaps["no_box"] = molecules.count(without)
+            if gaps["no_box"]:
+                gaps["first_no_box"] = next(molecules.stream_ids(replace(without.scope, limit=1)), None)
+        return gaps
+
+    def _confirm_receptor_search_boxes(self, gaps: dict, *, title: str) -> bool:
+        if not gaps["no_box"] or self._ask_missing_receptor_box(gaps["no_box"], title=title) != "box":
+            return True
+        receptor = self.runtime.molecules.get(int(gaps["first_no_box"])) if gaps["first_no_box"] else None
+        if receptor is not None:
+            self.stepper.set_current_index(2)
+            self._on_receptor_clicked(receptor)
+            window = self.window()
+            grid = window.grid_dock
+            if grid is not None and not self.runtime.binding_sites.active_site_id(int(receptor.id)):
+                # Select an existing box for review; activation remains the user's choice.
+                site = next((site for site in self.runtime.binding_sites.list_sites(molecule_id=int(receptor.id))
+                             if site.is_defined), None)
+                if site is not None:
+                    grid.focus_binding_site(receptor, site_id=int(site.id), ensure_selected=True)
+            window.viewer.show_grid_panel()
+        return False
+
+    def _ask_missing_receptor_box(self, count: int, *, title: str) -> str:
+        box = QMessageBox(
+            QMessageBox.Warning, title,
+            f"{int(count)} receptor(s) have no defined, active search box and will be skipped during docking.",
+            parent=self,
+        )
+        box.setInformativeText(
+            "Define and activate a search box, or select an existing box and activate it. "
+            "Receptor preparation can still proceed without a box."
+        )
+        define = box.addButton("Define or activate box…", QMessageBox.ActionRole)
+        proceed = box.addButton("Continue and skip", QMessageBox.AcceptRole)
+        box.setDefaultButton(proceed)
+        box.setEscapeButton(proceed)
+        box.exec()
+        return "box" if box.clickedButton() is define else "continue"
 
     def _save_prepare_ligands_to_workflow(self) -> None:
         from amdockvs.ui.tools.workflow_panel import save_to_workflow

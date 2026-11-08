@@ -82,6 +82,12 @@ class ModelSource:
     FIXED = "fixed"  # receptor repaired with PDBFixer
     PROTONATED = "protonated"  # hydrogens added at a pH
     MINIMIZED = "minimized"  # energy-minimized structure
+    ALPHAFOLD_DB = "alphafold_db"  # model from the AlphaFold Protein Structure Database
+    ESM_ATLAS = "esm_atlas"  # model from the ESM Metagenomic Atlas
+    UNKNOWN_MODEL = "unknown_model"  # imported, unnamed, but its B-factor column holds pLDDT
+
+    # Predictions: their B-factor column is confidence, not flexibility.
+    PREDICTED = frozenset({"esmfold", "alphafold_db", "esm_atlas", "unknown_model"})
 
 class SetPurpose:
     QSAR = "qsar"
@@ -153,7 +159,8 @@ CODES: dict[str, dict[str, int]] = {
     "molecule_type": _domain(100, "small_molecule", "protein", "peptide", "nucleotide", "polymer", "unknown"),
     "usage_class": _domain(200, "general", "reference", "derived"),
     "model_source": _domain(
-        300, "imported", "rdkit", "esmfold", "etkdg", "nmr", "fixed", "protonated", "minimized"
+        300, "imported", "rdkit", "esmfold", "etkdg", "nmr", "fixed", "protonated", "minimized",
+        "alphafold_db", "esm_atlas", "unknown_model",
     ),
     "repr_type": _domain(
         400, "smiles_canonical", "smiles_isomeric", "inchi", "inchikey", "sequence_aa", "sequence_nt", "helm"

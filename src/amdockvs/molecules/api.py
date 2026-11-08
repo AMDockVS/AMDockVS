@@ -10,7 +10,7 @@ from ms_flow.selection import Selection
 
 from amdockvs.core.normalize import merge_filter_mappings, normalize_ids, normalize_set_name
 from amdockvs.molecules.scopes import MoleculeScope, as_molecule_scope, is_molecule_scope
-from amdockvs.core.constants import TABLE_LIGAND_ACTIVITIES, TABLE_MOLECULES
+from amdockvs.core.constants import TABLE_BINDING_SITES, TABLE_LIGAND_ACTIVITIES, TABLE_MOLECULES
 from amdockvs.core.payloads import molecule_payload_id
 from amdockvs.core.vocab import ModelSource
 from amdockvs.models import (
@@ -55,6 +55,7 @@ def _molecule_spec(scope: MoleculeScope | Selection[Any]) -> QuerySpec:
         raise ValueError("A molecule scope is required.")
     filters = dict(scope.filters or {})
     in_specs: list[QuerySpec] = []
+    not_in_specs: list[QuerySpec] = []
     if scope.source_set_id is not None:
         in_specs.append(molecule_set_spec(int(scope.source_set_id)))
     has_activity = filters.pop("has_activity", None)
@@ -63,7 +64,15 @@ def _molecule_spec(scope: MoleculeScope | Selection[Any]) -> QuerySpec:
         if has_activity:
             in_specs.append(activities)
         else:
-            filters["id__not_in_subquery"] = activities
+            not_in_specs.append(activities)
+    has_search_box = filters.pop("has_search_box", None)
+    if has_search_box is not None:
+        # A receptor docks inside its active site, and only a site with a centre and a size is a box.
+        box_columns = ("center_x", "center_y", "center_z", "size_x", "size_y", "size_z")
+        boxes = QuerySpec(table=TABLE_BINDING_SITES, fields=("molecule_id",), filters={
+            "is_active": True, **{f"{column}__is_not_null": True for column in box_columns},
+        })
+        (in_specs if has_search_box else not_in_specs).append(boxes)
     prepared = filters.pop("prepared", None)
     # Which preparation family the flag refers to (the `family` of ligand_preps / receptor_preps). Defaults to "ad4",
     # the family Vina, gnina and AutoDock-GPU share (one PDBQT prep for all three).
@@ -83,6 +92,8 @@ def _molecule_spec(scope: MoleculeScope | Selection[Any]) -> QuerySpec:
             )
     if in_specs:
         filters["id__in_subquery"] = in_specs
+    if not_in_specs:
+        filters["id__not_in_subquery"] = not_in_specs
     return QuerySpec(
         table=TABLE_MOLECULES,
         filters=filters,

@@ -25,7 +25,7 @@ from amdockvs.core.worker_io import worker_file, worker_output_dir
 from amdockvs.models import BindingSite
 from amdockvs.core.paths import set_default_project_root
 from amdockvs.core.payloads import molecule_payload_id, payload_file
-from amdockvs.binding_sites.p2rank import P2RANK_VERSION
+from amdockvs.binding_sites.p2rank import P2RANK_PROFILES, P2RANK_VERSION
 
 
 class P2RankPredictionParams(BaseModel):
@@ -44,8 +44,8 @@ class P2RankPredictionParams(BaseModel):
     @classmethod
     def validate_profile(cls, value: str) -> str:
         normalized = str(value or DEFAULT_P2RANK_PROFILE).strip().lower()
-        if normalized not in {"default", "alphafold"}:
-            raise ValueError("profile must be 'default' or 'alphafold'.")
+        if normalized not in P2RANK_PROFILES:
+            raise ValueError(f"profile must be one of {', '.join(P2RANK_PROFILES)}.")
         return normalized
 
     @field_validator("run_id")
@@ -69,8 +69,8 @@ class P2RankPredictionParams(BaseModel):
             profile = str(raw_profile or DEFAULT_P2RANK_PROFILE).strip().lower()
             if receptor_id <= 0:
                 raise ValueError("profile receptor ids must be positive.")
-            if profile not in {"default", "alphafold"}:
-                raise ValueError("profiles values must be 'default' or 'alphafold'.")
+            if profile not in P2RANK_PROFILES:
+                raise ValueError(f"profiles values must be one of {', '.join(P2RANK_PROFILES)}.")
             normalized[receptor_id] = profile
         return normalized
 
@@ -118,23 +118,19 @@ def _profile_for(params: P2RankPredictionParams, receptor_id: int) -> str:
     return str(params.profiles.get(int(receptor_id), params.profile) or DEFAULT_P2RANK_PROFILE)
 
 
-def _predicted_payload_ids(project_db) -> set[int]:
-    """Payloads that are a structure prediction, as (molecule, payload) is unique per model.
+def _predicted_molecule_ids(project_db) -> set[int]:
+    """Receptors with a predicted model among theirs, read once for the project.
 
-    One query for the project, not one per receptor: a scope can hold thousands of receptors,
-    while the predictions in a project are few. Only read when the run asks for the B-factor
-    model, since that is the only case whose outcome can change.
+    By molecule, not by payload: fixing or protonating a prediction makes a new model whose
+    B-factors are still pLDDT (reduce keeps them) or zero (OpenMM). Only read when a run asks
+    for "auto", the only case whose outcome depends on it.
     """
     spec = QuerySpec(
         table=TABLE_MOLECULE_MODELS,
-        fields=("payload_id",),
-        filters={"source": ModelSource.ESMFOLD},
+        fields=("molecule_id",),
+        filters={"source__in": sorted(ModelSource.PREDICTED)},
     )
-    return {
-        int(row["payload_id"])
-        for row in db_pages(project_db, spec, page_size=512)
-        if row.get("payload_id") is not None
-    }
+    return {int(row["molecule_id"]) for row in db_pages(project_db, spec, page_size=512)}
 
 
 def _prediction_output_dir(
@@ -193,10 +189,8 @@ def p2rank_prediction_job(params: dict, config: dict | None = None) -> Iterator[
     recalculate_ids = set(parsed.recalculate_receptor_ids)
     # The executor decides each receptor's profile from the structure itself; this is the half
     # of that decision only the project database can answer.
-    wants_b_factors = any(
-        _profile_for(parsed, receptor_id) == "default" for receptor_id in recalculate_ids
-    )
-    predicted_payload_ids = _predicted_payload_ids(project_db) if wants_b_factors else set()
+    resolves = any(_profile_for(parsed, receptor_id) == "auto" for receptor_id in recalculate_ids)
+    predicted_ids = _predicted_molecule_ids(project_db) if resolves else set()
     emitted = False
     in_scope = False
     for receptor in db_pages(project_db, scope_spec(parsed), page_size=32):
@@ -214,7 +208,7 @@ def p2rank_prediction_job(params: dict, config: dict | None = None) -> Iterator[
             "receptor_name": str(receptor.get("name") or f"receptor_{receptor_id}"),
             "receptor_path": worker_file(receptor_path, cache=True),
             "profile": _profile_for(parsed, receptor_id),
-            "predicted": payload_id is not None and int(payload_id) in predicted_payload_ids,
+            "predicted": receptor_id in predicted_ids,
             "threads": int(parsed.threads),
             "run_id": parsed.run_id,
             "version": parsed.version,

@@ -14,7 +14,7 @@ from amdockvs.io.receptor_preview import (
     scan_receptor_structure,
     write_processed_receptor,
 )
-from amdockvs.core.vocab import BindingSiteSource, MoleculeType, MoleculeUsageClass
+from amdockvs.core.vocab import BindingSiteSource, ModelSource, MoleculeType, MoleculeUsageClass
 from amdockvs.io.import_stats import IMPORTED, bump
 from amdockvs.io.formats import as_pdb, canonical_suffix, normalized_suffix
 from amdockvs.core.constants import SERIES_PREPARED, SERIES_REFERENCES
@@ -97,6 +97,7 @@ def _structure_rows(
                     current_path,
                     scan=scan_payload,
                     options=options,
+                    header=source_bytes[:4096],
                 )
             else:
                 ligand_role = str(batch.primary_role or batch.kind).strip().lower() == "ligand"
@@ -104,6 +105,7 @@ def _structure_rows(
                     ligand_mol = _load_small_molecule_from_path(source_file)
                 if ligand_mol is None:
                     shutil.copy2(structure_source, current_path)
+        model_source = processing_summary.pop("model_source", ModelSource.IMPORTED)
         metadata = {
             **metadata,
             "processing": processing_summary,
@@ -129,6 +131,7 @@ def _structure_rows(
             primary_role=batch.primary_role,
             primary_context=batch.primary_context,
         )
+        row["model_source"] = model_source
         if ligand_mol is None:
             share_current(row, structure_payload(current_path.read_bytes(), current_suffix, series))
         if ligand_mol is not None:
