@@ -3,7 +3,7 @@ universe scatter and the glowing-molecule map."""
 
 from __future__ import annotations
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, Qt
 
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.tools.qsar.chart import render_structure_png
@@ -17,6 +17,7 @@ from amdockvs.ui.view_ids import (
 class ChartController:
     def __init__(self, window):
         self.w = window
+        self._chart_sized = False
         # Hovering a centroid marker previews its molecule; debounce so a sweep across markers
         # renders only where the cursor settles, and render off-thread (DB read + depiction).
         self._hover_molecule_id: int | None = None
@@ -31,7 +32,17 @@ class ChartController:
         return getattr(self.w, "qsar_chart_dock", None)
 
     def _show(self, dock_id: str = "qsar_chart") -> None:
+        chart = self._chart if dock_id == "qsar_chart" else None
+        opening = chart is not None and not chart.isVisible()
+        width = chart.width() if chart is not None and self._chart_sized else self.w._third_width()
         self.w.dock_manager.toggle(dock_id, True)
+        if chart is not None and (opening or not self._chart_sized):
+            # An ignored size hint lets the chart shrink, but otherwise its first
+            # appearance gets only the minimum width. Restore its width when the
+            # exclusive dock region switches back from PyMOL; later sizes are the user's.
+            self._chart_sized = True
+            if not chart.isFloating():
+                self.w.resizeDocks([chart], [width], Qt.Horizontal)
 
     def sync_to_active_view(self, view_id: str | None) -> None:
         """On the Activity view, show the distribution chart (hides PyMOL via EXCLUSIVE region);
