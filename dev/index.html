@@ -1294,34 +1294,17 @@
 <p>Download | <a href="amdock_citation.bib">*.bib</a> | <a href="amdock_citation.ris">*.ris</a></p>
 </div>
 <h2 id="install">Install<a class="headerlink" href="#install" title="Permanent link">&para;</a></h2>
-<p>AMDockVS requires Python 3.12 or newer and can be installed in a Conda environment or a Python virtual environment.</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:2"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Conda</label><label for="__tabbed_1_2">Python <code>venv</code></label></div>
-<div class="tabbed-content">
-<div class="tabbed-block">
-<ul>
-<li>
-<p>Create and activate a Conda environment, then install AMDockVS with pip:</p>
-<div class="highlight"><pre><span></span><code>conda<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>amdockvs<span class="w"> </span><span class="nv">python</span><span class="o">=</span><span class="m">3</span>.12
-conda<span class="w"> </span>activate<span class="w"> </span>amdockvs
-python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>AMDockVS
+<p>AMDockVS installs into a conda environment (micromamba or conda). The compiled
+scientific stack comes from conda-forge, with builds for Linux and macOS on both
+Intel and ARM; AMDockVS, PySide6, PyMOL (the <code>pymol-open-source</code> 3.2 wheels) and
+the MolSuite packages come from PyPI:</p>
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-LO<span class="w"> </span>https://raw.githubusercontent.com/AMDockVS/AMDockVS/main/environment.yml
+micromamba<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>amdockvs<span class="w"> </span>-f<span class="w"> </span>environment.yml<span class="w">   </span><span class="c1"># or: conda env create -f environment.yml</span>
+micromamba<span class="w"> </span>activate<span class="w"> </span>amdockvs
 </code></pre></div>
-</li>
-</ul>
-</div>
-<div class="tabbed-block">
-<ul>
-<li>
-<p>Create and activate a Python virtual environment, then install AMDockVS with pip:</p>
-<div class="highlight"><pre><span></span><code>python3.12<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>.venv
-<span class="nb">source</span><span class="w"> </span>.venv/bin/activate
-python<span class="w"> </span>-m<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>AMDockVS
-</code></pre></div>
-</li>
-</ul>
-</div>
-</div>
-</div>
-<p>Start the desktop application from either environment:</p>
+<p>Do not <code>conda install</code> into that environment afterwards; edit <code>environment.yml</code>
+and create it again instead.</p>
+<p>Start the desktop application with:</p>
 <div class="highlight"><pre><span></span><code>amdockvs
 </code></pre></div>
 <h2 id="amdockvs-in-a-nutshell">AMDockVS in a nutshell<a class="headerlink" href="#amdockvs-in-a-nutshell" title="Permanent link">&para;</a></h2>
