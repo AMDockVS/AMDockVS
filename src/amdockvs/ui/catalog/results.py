@@ -859,8 +859,14 @@ class DockingResultsWidget(QWidget):
         finally:
             self._receptor_refreshing = False
         if self._selected_receptor_id is not None:
-            # Manual/final refresh also reloads the table window while keeping its scope.
-            self._reload_protocols(auto_select=False, preserve_view=True)
+            # Load completed rows now: a live heartbeat can supersede the protocol
+            # lookup, and its count-only response would otherwise leave an empty view.
+            self._ligand_refreshing = True
+            try:
+                self.ligand_table.refresh_preserving_view()
+            finally:
+                self._ligand_refreshing = False
+            self._reload_protocols(auto_select=False, protocols_only=True)
 
     refresh_results_view = refresh_view
 

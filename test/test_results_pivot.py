@@ -582,6 +582,56 @@ def test_final_refresh_during_protocol_lookup_keeps_the_selected_receptor_scope(
     assert widget.ligand_table._model.get_raw_object(0).ligand_molecule_id == 101
 
 
+@pytest.mark.parametrize("scheduled", [False, True])
+def test_results_opened_before_the_first_run_show_new_poses(scheduled, monkeypatch):
+    app = QApplication.instance() or QApplication(["amdockvs-first-result-test"])
+    db = _Db()
+    with db.get_session() as session:
+        session.add_all([
+            MoleculeRecord(id=41, name="Receptor", is_receptor=True),
+            MoleculeRecord(id=101, name="Ligand", is_ligand=True),
+        ])
+        if scheduled:
+            session.add(DockingRun(id=1, engine="vina", protocol_hash="p", protocol_label="Vina"))
+            session.add(ScreeningTarget(docking_run_id=1, receptor_molecule_id=41, ligands_total=1))
+        session.commit()
+    protocols = [("p", "Vina")] if scheduled else []
+    widget = DockingResultsWidget(runtime=SimpleNamespace(
+        workspace=SimpleNamespace(project_db=db),
+        docking=SimpleNamespace(result_protocols=lambda **kwargs: list(protocols), hit=lambda **kwargs: None),
+    ))
+    widget.receptor_table.refresh()
+    for _ in range(10):
+        app.processEvents()
+        time.sleep(0.01)
+    assert widget._selected_receptor_id == (41 if scheduled else None)
+    assert widget.ligand_table.record_total == 0
+    pending = []
+    monkeypatch.setattr("amdockvs.ui.catalog.results.run_async",
+                        lambda fn, done, **kwargs: pending.append((fn, done)))
+    with db.get_session() as session:
+        if not scheduled:
+            session.add(DockingRun(id=1, engine="vina", protocol_hash="p", protocol_label="Vina"))
+        session.flush()
+        session.add(DockingResultRecord(id=11, receptor_molecule_id=41, ligand_molecule_id=101,
+                                        docking_run_id=1, pose_rank=1, score=-8.0))
+        session.commit()
+    if not scheduled:
+        protocols.append(("p", "Vina"))
+    widget.refresh_view()
+    # A heartbeat can supersede the final refresh's protocol lookup. Its count-only
+    # response must not swallow the request to load the newly completed rows.
+    widget.refresh_counts()
+    for read, done in reversed(list(pending)):
+        done(read())
+    for _ in range(100):
+        app.processEvents()
+        if widget.ligand_table.record_total == 1:
+            break
+        time.sleep(0.01)
+    assert widget.ligand_table.record_total == 1
+
+
 def test_result_tables_use_small_two_page_dynamic_windows():
     widget = _widget(hits=True, offtarget=False, redocking=False).current_page()
     assert all(isinstance(table, SmartTableView) for table in (
