@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 from ms_components.theme import color
 
 from amdockvs.io.downloads import discard_temporary
-from amdockvs.io.jobs import SHARD_SUGGEST_RECORDS
+from amdockvs.io.api import shard_suggest_records
 from amdockvs.io.parsers.readers import count_import_records
 from amdockvs.models.molecules import MoleculeType
 from amdockvs.ui.common.drop_area import (
@@ -465,7 +465,7 @@ class LigandImportDialog(QDialog):
             total += self._record_counts[path]
         if self._project_sharded:  # the checkbox already says where this goes; keep that hint
             return total
-        if self.shard_checkbox.isEnabled() and total >= SHARD_SUGGEST_RECORDS:
+        if self.shard_checkbox.isEnabled() and total >= shard_suggest_records(runtime=self.runtime):
             self.shard_checkbox.setChecked(True)
             self._set_shard_hint(
                 f"⚠ ~{total:,} molecules queued - sharding suggested. Importing them as rows "
@@ -535,7 +535,7 @@ class LigandImportDialog(QDialog):
 
         shard = self.shard_checkbox.isChecked()
         queued = self._suggest_shards() if not shard and not self._project_sharded else 0
-        if queued >= SHARD_SUGGEST_RECORDS:
+        if queued and queued >= shard_suggest_records(runtime=self.runtime):
             answer = QMessageBox.question(
                 self,
                 "Import Ligands",
