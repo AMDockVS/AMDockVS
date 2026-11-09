@@ -505,6 +505,18 @@ class MoleculeAPI:
             "prepared_records": sum(int(row.get("n_records") or 0) for row in prepared),
         }
 
+    def library_stats(self):
+        """What the Project dialog shows of a sharded library: see `molecules.library_stats`."""
+        from amdockvs.core.constants import RESOURCE_SHARDS
+        from amdockvs.molecules.library_stats import library_stats
+
+        self.runtime._require_active_project()
+        try:
+            shards_root = self.runtime.get_project_resource_path(RESOURCE_SHARDS)
+        except Exception:  # noqa: BLE001 — no folder: the size is left out
+            shards_root = None
+        return library_stats(self.runtime.workspace.project_db, shards_root)
+
     def shard_preps(self, shard_id: int) -> dict[str, tuple[int, int]]:
         """One shard's preparations: family -> (prepared records, failed records)."""
         from sqlmodel import select

@@ -150,8 +150,7 @@ def _storage_section(dlg: QDialog, runtime) -> QVBoxLayout:
 def _library_section(dlg: QDialog, runtime) -> QVBoxLayout:
     """A sharded project's library: the row counts above read zero for it, since its ligands
     live in shard files. Read off the shard inventory, off the GUI thread."""
-    from amdockvs.core.constants import RESOURCE_SHARDS
-    from amdockvs.molecules.library_stats import format_bytes, library_stats
+    from amdockvs.molecules.library_stats import format_bytes
 
     layout = QVBoxLayout()
     layout.addWidget(QLabel("Screening library (shards)"))
@@ -168,11 +167,6 @@ def _library_section(dlg: QDialog, runtime) -> QVBoxLayout:
     layout.addWidget(text)
     open_ = [True]
     dlg.finished.connect(lambda _code: open_.__setitem__(0, False))
-    project_db = runtime.workspace.project_db
-    try:
-        shards_root = runtime.get_project_resource_path(RESOURCE_SHARDS)
-    except Exception:  # noqa: BLE001 — no folder: the size is left out
-        shards_root = None
 
     def show(stats) -> None:
         if not open_[0]:
@@ -202,7 +196,7 @@ def _library_section(dlg: QDialog, runtime) -> QVBoxLayout:
         if open_[0]:
             text.setText(f"Library error: {exc}")
 
-    run_async(lambda: library_stats(project_db, shards_root), show, on_error=fail)
+    run_async(runtime.molecules.library_stats, show, on_error=fail)
     return layout
 
 
