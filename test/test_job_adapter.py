@@ -73,3 +73,34 @@ def test_handler_and_finalize_follow_the_job(tmp_path, monkeypatch, handler, bad
     lifecycle = [("flush",), ("terminal", status), ("close",)] if handler is Recorder else [("flush",)]
     assert tail == lifecycle + [("finalize", status, ["job_params", "project_context", "project_db",
                                                        "project_resources", "project_store", "terminal_status"])]
+
+
+def test_a_counted_job_says_what_is_left_only_once_it_is_fed():
+    """The total comes from the counter when the engine starts feeding, not at submit: a job that
+    waits for the import of its library counts the library that import built."""
+    from amdockvs.core.jobs import configs
+
+    counted: list = []
+
+    def _count(params, config):
+        counted.append(config["marker"])
+        return params["n"]
+
+    @job(task=_double, name="counted_check", count_chunks=_count)
+    def chunks(params, config):
+        for value in range(params["n"]):
+            yield {"value": value, "bad": -1}
+
+    class Project:  # configs is keyed weakly by the project
+        pass
+
+    project = Project()
+    configs[project] = {"marker": "fed"}
+    source = chunks.engine({"n": 3}, project)
+    assert counted == []  # submitting reads nothing
+    feed = iter(source)
+    next(feed)
+    assert source.remaining() == 2 and counted == ["fed"]
+    assert len(list(feed)) == 2 and source.remaining() == 0
+    assert counted == ["fed"]  # counted once, then followed by what was given
+
