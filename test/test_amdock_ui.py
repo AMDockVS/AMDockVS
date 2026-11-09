@@ -131,6 +131,17 @@ def test_amdock_ui_smoke_instantiates_without_project(tmp_path, monkeypatch):
         assert window.windowTitle() == "AMDockVS"
         assert window.views.jobs_action.text() == "Jobs"
         assert window.jobs_dialog is None  # built on first open
+        theme_menu = window.findChild(QToolButton, "menuBarTheme").menu()
+        spectrum = next(action.menu() for action in theme_menu.actions()
+                        if action.text() == "Spectrum themes")
+        assert [action.text() for action in spectrum.actions()] == ["Light", "Dark"]
+        dark = spectrum.actions()[1].menu()
+        teal = next(action for action in dark.actions() if action.text() == "Teal")
+        teal.trigger()
+        from amdockvs.ui.common.theme import saved_theme_name
+
+        assert saved_theme_name() == "spectrum_dark_teal"
+        assert app.palette().highlight().color().name() == "#00bda4"
     finally:
         if window is not None:
             window.close()

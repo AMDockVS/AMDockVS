@@ -160,7 +160,15 @@ def test_table_view_prefs_persist_per_table(tmp_path, monkeypatch):
     assert list(saved["tables"]) == ["LigandTableWidget"]
 
 
-def test_theme_helpers_persist_choice_in_amdock_config(tmp_path, monkeypatch):
+@pytest.mark.parametrize(("name", "expected"), (
+    ("nord", "nord"),
+    ("spectrum_light_teal", "spectrum_light_teal"),
+    ("spectrum_dark_blue", "spectrum_dark_blue"),
+    ("zensical_teal", "spectrum_dark_teal"),
+    ("zensical_light_teal", "spectrum_light_teal"),
+    ("zensical_dark_blue", "spectrum_dark_blue"),
+))
+def test_theme_helpers_persist_choice_in_amdock_config(tmp_path, monkeypatch, name, expected):
     pytest.importorskip("PySide6")
     monkeypatch.setenv("HOME", str(tmp_path))
     from PySide6.QtWidgets import QApplication
@@ -169,11 +177,11 @@ def test_theme_helpers_persist_choice_in_amdock_config(tmp_path, monkeypatch):
     app = QApplication.instance() or QApplication(["amdockvs-theme-test"])
     assert saved_theme_name() == "auto"
 
-    set_theme("nord", app=app)
+    set_theme(name, app=app)
 
-    assert saved_theme_name() == "nord"
+    assert saved_theme_name() == expected
     saved = toml.load(tmp_path / ".amdockvs" / "config.toml")
-    assert saved["theme"]["name"] == "nord"
+    assert saved["theme"]["name"] == expected
 
 
 def test_retired_theme_preferences_migrate_to_available_themes(tmp_path, monkeypatch):
