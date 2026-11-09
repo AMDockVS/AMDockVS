@@ -120,3 +120,20 @@ def test_the_window_is_two_deep(project, tmp_path):
 
         rows = session.exec(select(ScreeningShard)).all()
     assert {int(row.generation_id) for row in rows} == {parent, child}
+
+
+def test_a_rewrite_counts_its_ligands_against_the_library_it_replaces(project, tmp_path):
+    """What the monitor shows of a shard step: ligands written so far, of the library's."""
+    from amdockvs.molecules.storage import shard_generation_progress
+
+    project_db, root = project
+    first = create_generation(project_db, step="import", shard_dir=root)
+    activate_generation(project_db, first)
+    _populate(project_db, first, tmp_path, count=3, tag="first")
+    second = create_generation(project_db, step="protonate", shard_dir=root)
+    assert shard_generation_progress(project_db, second) == (0, 3000)
+    _populate(project_db, second, tmp_path, count=2, tag="second")
+    assert shard_generation_progress(project_db, second) == (2000, 3000)
+    activate_generation(project_db, second)  # switched: the new library is all of it
+    assert shard_generation_progress(project_db, second) == (2000, 2000)
+
