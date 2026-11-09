@@ -42,6 +42,7 @@ def _count_box(label: str, value: Optional[int]) -> QFrame:
     lay.setContentsMargins(10, 8, 10, 8)
     lay.setSpacing(2)
     num = QLabel("—" if value is None else f"{value:,}")
+    num.setObjectName("summaryCountValue")
     num.setAlignment(Qt.AlignCenter)
     num.setStyleSheet("font-size:18px; font-weight:600;")
     cap = QLabel(label)
@@ -60,6 +61,8 @@ def _storage_section(dlg: QDialog, runtime) -> QVBoxLayout:
     store = payload_store(runtime)
     layout = QVBoxLayout()
     layout.addWidget(QLabel("Structure storage"))
+    if _safe_count(runtime.has_shards):
+        layout.addWidget(_muted_label("Structures of the rows. Shards are files of their own, counted above."))
     text = _muted_label("Reading…")
     layout.addWidget(text)
     row = QHBoxLayout()
@@ -144,6 +147,65 @@ def _storage_section(dlg: QDialog, runtime) -> QVBoxLayout:
     return layout
 
 
+def _library_section(dlg: QDialog, runtime) -> QVBoxLayout:
+    """A sharded project's library: the row counts above read zero for it, since its ligands
+    live in shard files. Read off the shard inventory, off the GUI thread."""
+    from amdockvs.core.constants import RESOURCE_SHARDS
+    from amdockvs.molecules.library_stats import format_bytes, library_stats
+
+    layout = QVBoxLayout()
+    layout.addWidget(QLabel("Screening library (shards)"))
+    grid = QGridLayout()
+    grid.setSpacing(8)
+    boxes = {}
+    for col, label in enumerate(("Ligands", "Shards", "Docked", "Hits")):
+        box = _count_box(label, None)
+        boxes[label] = box.findChild(QLabel, "summaryCountValue")
+        boxes[label].setText("…")
+        grid.addWidget(box, 0, col)
+    layout.addLayout(grid)
+    text = _muted_label("Reading…")
+    layout.addWidget(text)
+    open_ = [True]
+    dlg.finished.connect(lambda _code: open_.__setitem__(0, False))
+    project_db = runtime.workspace.project_db
+    try:
+        shards_root = runtime.get_project_resource_path(RESOURCE_SHARDS)
+    except Exception:  # noqa: BLE001 — no folder: the size is left out
+        shards_root = None
+
+    def show(stats) -> None:
+        if not open_[0]:
+            return
+        for label, value in (("Ligands", stats.ligands), ("Shards", stats.shards),
+                             ("Docked", stats.ligands_docked), ("Hits", stats.hits)):
+            boxes[label].setText(f"{value:,}")
+        lines = []
+        if stats.last_step:
+            lines.append(f"Last step: {stats.last_step}")
+        if stats.previous_step:
+            lines.append(f"Kept for a redo: {stats.previous_step}")
+        for family, (n_shards, n_ligands, n_failed) in sorted(stats.prepared.items()):
+            failed = f", {n_failed:,} failed" if n_failed else ""
+            lines.append(f"Prepared ({family}): {n_shards:,}/{stats.shards:,} shards · {n_ligands:,} ligands{failed}")
+        if stats.campaigns:
+            lines.append(f"Docked: {stats.campaigns:,} campaign(s) · {stats.receptors_docked:,} receptor(s)"
+                         " · counts are ligand-receptor pairs")
+        tail = [f"{format_bytes(stats.disk_bytes)} on disk"] if stats.disk_bytes else []
+        if stats.failed_shards:
+            tail.append(f"{stats.failed_shards:,} failed shard(s): their ligands are missing")
+        if tail:
+            lines.append(" · ".join(tail))
+        text.setText("\n".join(lines) or "No library yet.")
+
+    def fail(exc) -> None:
+        if open_[0]:
+            text.setText(f"Library error: {exc}")
+
+    run_async(lambda: library_stats(project_db, shards_root), show, on_error=fail)
+    return layout
+
+
 def show_project_summary(window) -> None:
     runtime = window.runtime
     if getattr(runtime, "active_context", None) is None:
@@ -197,10 +259,12 @@ def show_project_summary(window) -> None:
     root.addWidget(line)
 
     mols = runtime.molecules
+    sharded = bool(_safe_count(runtime.has_shards))
     counts = [
         ("Molecules", _safe_count(mols.count)),
         ("Receptors", _safe_count(lambda: mols.count(mols.select(role="receptor")))),
-        ("Ligands", _safe_count(lambda: mols.count(mols.select(role="ligand")))),
+        # In a sharded project these are the curated ones (cocrystals, activity sets), not the library.
+        ("Ligand rows" if sharded else "Ligands", _safe_count(lambda: mols.count(mols.select(role="ligand")))),
         ("Complexes", _safe_count(runtime.complexes.count)),
     ]
     grid = QGridLayout()
@@ -208,6 +272,9 @@ def show_project_summary(window) -> None:
     for col, (label, value) in enumerate(counts):
         grid.addWidget(_count_box(label, value), 0, col)
     root.addLayout(grid)
+    if sharded:
+        root.addSpacing(6)
+        root.addLayout(_library_section(dlg, runtime))
     root.addSpacing(6)
     root.addLayout(_storage_section(dlg, runtime))
 
