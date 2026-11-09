@@ -70,6 +70,18 @@ SHARD_FIELDS = (
 )
 
 
+def shard_generation_progress(project_db, generation_id: int) -> tuple[int, int]:
+    """(ligands written into `generation_id`, ligands of the library it rewrites).
+
+    While the step runs the active generation is still its parent; once it switches, both are
+    the new one, so a finished step reads done == total.
+    """
+    store = ShardStore(project_db)
+    spec = shard_scope_spec()
+    done = store.record_count(replace(spec, filters={**spec.filters, "generation_id": int(generation_id)}))
+    return done, store.record_count(spec)
+
+
 def active_generation_id(project_db) -> int | None:
     """Which rewrite of the library is the current one. `None` before the first import."""
     from sqlmodel import select
@@ -435,6 +447,7 @@ __all__ = [
     "as_store",
     "general_ligand_count",
     "has_shards",
+    "shard_generation_progress",
     "has_ligand_rows",
     "has_receptor_rows",
     "PREPARED_DIR",
