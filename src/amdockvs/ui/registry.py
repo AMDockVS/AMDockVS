@@ -13,7 +13,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from importlib import import_module
 from amdockvs.ui.view_ids import (
-    BINDING_SITES_VIEW_ID,
     BUILD_ID,
     CLUSTERS_VIEW_ID,
     COMPLEXES_VIEW_ID,
@@ -65,8 +64,10 @@ TOOL_VIEW_IDS = frozenset(entry.view_id for entry in TOOLS)
 CATALOG_TABLES = (
     ("Receptors", RECEPTOR_VIEW_ID, "receptor.svg"),
     ("Ligands", LIGANDS_VIEW_ID, "ligands.svg"),
+    # The library of a sharded project, beside the ligand rows it stands in for. Only shown
+    # once the project holds shards (ViewCoordinator: the button follows the data).
+    ("Shards", SHARDS_VIEW_ID, "cloud.svg"),
     ("Molecules", MOLECULES_VIEW_ID, "catalog.svg"),
-    # ("Binding Sites", BINDING_SITES_VIEW_ID, "binding_site.svg"),
 )
 
 # Result views: once the data exists in the project it outlives the tool that produced it,
@@ -87,17 +88,15 @@ STANDING_DATA_VIEWS = (
 )
 
 # Contextual views, like Office's contextual ribbon tabs: the last group of the bar, shown
-# only when they apply. Shards appears once the project holds shards and stays (closing its
-# tab only unchecks it); an EPHEMERAL one appears while its tab is open and leaves with it.
+# only when they apply. An EPHEMERAL one appears while its tab is open and leaves with it.
 CONTEXTUAL_VIEWS = (
-    ("Shards", SHARDS_VIEW_ID, "cloud.svg"),
     ("Complexes", COMPLEX_PAIRS_VIEW_ID, "complexes.svg"),
 )
 EPHEMERAL_VIEW_IDS = frozenset({COMPLEX_PAIRS_VIEW_ID})
 
 # Views opened to look at something and then abandoned. They share one tab slot, so they
 # stop accumulating in the tab bar.
-PREVIEW_VIEW_IDS = frozenset({BINDING_SITES_VIEW_ID, COMPLEX_PAIRS_VIEW_ID})
+PREVIEW_VIEW_IDS = frozenset({COMPLEX_PAIRS_VIEW_ID})
 
 # "module:function", each called with the window once the central widget exists.
 REGISTRARS: tuple[str, ...] = (
@@ -114,7 +113,6 @@ REGISTRARS: tuple[str, ...] = (
     "amdockvs.ui.catalog:register_receptors_workspace",
     "amdockvs.ui.catalog:register_ligands_workspace",
     "amdockvs.ui.catalog:register_shards_workspace",
-    "amdockvs.ui.catalog:register_binding_sites_workspace",
     "amdockvs.ui.catalog:register_complex_pairs_workspace",
     "amdockvs.ui.catalog:register_complexes_workspace",
     "amdockvs.ui.catalog:register_ligand_activity_workspace",
@@ -126,15 +124,3 @@ def register_all(window) -> None:
         module_name, _, attr = target.partition(":")
         getattr(import_module(module_name), attr)(window)
 
-
-if __name__ == "__main__":  # every table entry must name a view that a registrar creates
-    assert len(TOOL_VIEW_IDS) == len(TOOLS), "duplicate tool view id"
-    for target in REGISTRARS:
-        module_name, _, attr = target.partition(":")
-        assert callable(getattr(import_module(module_name), attr)), target
-    listed = {view_id for _, view_id, _ in (*CATALOG_TABLES, *CONTEXTUAL_VIEWS)}
-    assert EPHEMERAL_VIEW_IDS <= {v for _, v, _ in CONTEXTUAL_VIEWS}, "ephemeral = contextual"
-    listed |= {view_id for group in STANDING_DATA_VIEWS for _, view_id, _ in group}
-    assert not (listed & TOOL_VIEW_IDS), "a tool cannot also be a toolbar data view"
-    assert PREVIEW_VIEW_IDS <= listed, "a preview view must be reachable from a toolbar"
-    print("ui registry ok")

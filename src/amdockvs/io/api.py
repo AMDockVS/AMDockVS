@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -30,6 +31,18 @@ def import_max_inflight(runtime=None) -> int:
 def default_shard_size(*, runtime=None) -> int:
     """Physical records per shard, independent of the source file format."""
     return int(app_config(runtime).shards.records_per_shard)
+
+
+def shard_suggest_records(*, runtime=None) -> int:
+    """Queued molecules above which the importer proposes shards instead of rows.
+
+    Read at call time from the runtime's settings (project > global > packaged default), so a
+    value changed in the Configuration dialog applies without a restart. The env var still wins.
+    """
+    override = os.environ.get("AMDOCK_SHARD_SUGGEST_RECORDS")
+    if override:
+        return int(override)
+    return int(app_config(runtime).shards.suggest_records)
 
 
 def _total_import_chunks(files: list[Path], *, batch_size: int, ramp: bool = True) -> int:

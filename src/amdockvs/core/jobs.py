@@ -77,6 +77,35 @@ class _Relative:
         return getattr(self._sink, name)
 
 
+class _Counted:
+    """A job's chunks that know how many are left: ms_flow reads `remaining()` at the first chunk
+    and every `_RECOUNT` seconds after, which gives the job its total while it runs.
+
+    Counted once, when the engine first asks: that is after the jobs this one waits for have
+    ended, so a library they build or replace is the one counted, not the one at submit time.
+    ms_flow makes the total exact once the feed ends, so a count that misses is only shown, never
+    waited on.
+    """
+
+    def __init__(self, definition: "JobDefinition", params: Any, project: Any):
+        self._definition, self._params, self._project = definition, params, project
+        self._count: Optional[int] = None
+        self._given = 0
+
+    def remaining(self) -> int:
+        if self._count is None:
+            try:
+                self._count = self._definition.count_chunks(self._params, config=configs[self._project]) or 0
+            except Exception:  # noqa: BLE001 — a total is a hint; it must never fail the feed
+                self._count = 0
+        return max(0, self._count - self._given)
+
+    def __iter__(self) -> Iterator[dict]:
+        for chunk in self._definition.build_chunks(self._params, config=configs[self._project]):
+            self._given += 1
+            yield chunk
+
+
 @dataclass(frozen=True)
 class JobDefinition:
     name: str
@@ -184,6 +213,12 @@ class JobDefinition:
         def source(params, project) -> Iterable[dict]:
             yield from self.build_chunks(params, config=configs[project])
 
+        if self.chunk_counter is not None:
+            # Lazy as well: nothing is read until the engine starts feeding, after the jobs this
+            # one waits for. The source also says what it has left, which gives the job a total.
+            def source(params, project) -> Iterable[dict]:  # noqa: F811
+                return _Counted(self, params, project)
+
         output = (lambda params, project: Writer) if handler is not None else self.output_spec
         if self.relative_paths and handler is None:
             def output(params, project):
@@ -254,7 +289,7 @@ def task(*, name: Optional[str] = None, executor: str = "compute", supported_exe
 def job(*, task, name: Optional[str] = None, params_model: Any = None, executor: str = "",
         supported_executors: Iterable[str] = (), cpu_required: Optional[int] = None, finalize=None,
         output_spec: Any = None, result_handler_factory=None, task_label: Any = None,
-        relative_paths: bool = False, **_described):
+        relative_paths: bool = False, count_chunks=None, **_described):
     """Declare the job a chunker feeds: its payloads go to `task`."""
     def declare(chunker) -> JobDefinition:
         return JobDefinition(
@@ -265,6 +300,7 @@ def job(*, task, name: Optional[str] = None, params_model: Any = None, executor:
             output_spec=output_spec,
             finalize=finalize,
             result_handler_factory=result_handler_factory,
+            chunk_counter=count_chunks,
             task_label=task_label,
             executor=executor or getattr(task, "executor", "compute"),
             supported_executors=tuple(supported_executors) or getattr(task, "supported_executors", ()),

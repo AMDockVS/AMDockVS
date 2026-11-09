@@ -99,11 +99,12 @@ def test_the_import_dialog_suggests_shards_by_molecule_count(runtime, tmp_path, 
     pytest.importorskip("PySide6")
     from PySide6.QtWidgets import QApplication
 
-    from amdockvs.ui.tools.importing import ligands as ligand_import
     from amdockvs.ui.tools.importing import LigandImportDialog
 
     QApplication.instance() or QApplication(["amdockvs-import-test"])
-    monkeypatch.setattr(ligand_import, "SHARD_SUGGEST_RECORDS", 3)
+    # The project's own setting drives it: read at count time, not frozen at import.
+    monkeypatch.delenv("AMDOCK_SHARD_SUGGEST_RECORDS", raising=False)
+    runtime.amdock_configuration.set_value("shards.suggest_records", 3)
     small, library = tmp_path / "small.smi", tmp_path / "lib.smi"
     small.write_text("CCO a\nCCN b\n")
     library.write_text("CCO a\nCCN b\nCCC c\n")

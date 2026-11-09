@@ -1,6 +1,6 @@
 """Which buttons the top data toolbar shows, read off the project's data.
 
-Shards is contextual (there while the project holds shards), Complexes is ephemeral (there
+Shards sits beside Ligands, there while the project holds shards; Complexes is ephemeral (there
 while its tab is open), and Ligands greys out when a sharded project has no rows in it. The
 coordinator is built bare here; the real toolbar is asserted in test_amdock_ui.py.
 """
@@ -84,7 +84,7 @@ def test_complexes_button_lives_only_while_its_tab_is_open():
     complexes, gap = coordinator.catalog_actions[COMPLEX_PAIRS_VIEW_ID], coordinator.contextual_chrome[0]
     complexes.setVisible(False)
     coordinator._sync_contextual_chrome()
-    assert not gap.isVisible()  # Shards hidden too: no empty group
+    assert not gap.isVisible()  # no empty group
     coordinator.sync_catalog_action(COMPLEX_PAIRS_VIEW_ID, True)
     assert complexes.isVisible() and complexes.isChecked() and gap.isVisible()
     coordinator.sync_catalog_action(COMPLEX_PAIRS_VIEW_ID, False)
@@ -96,3 +96,10 @@ def test_shards_button_survives_its_tab_closing():
     shards = coordinator.catalog_actions[SHARDS_VIEW_ID]
     coordinator.sync_catalog_action(SHARDS_VIEW_ID, False)
     assert shards.isVisible() and not shards.isChecked()
+
+
+def test_shards_sits_beside_ligands():
+    """The library and the ligand rows it stands in for are neighbours, not ends of the bar apart."""
+    order = [view_id for _label, view_id, _icon in CATALOG_TABLES]
+    assert order[order.index(LIGANDS_VIEW_ID) + 1] == SHARDS_VIEW_ID
+    assert SHARDS_VIEW_ID not in {view_id for _label, view_id, _icon in CONTEXTUAL_VIEWS}

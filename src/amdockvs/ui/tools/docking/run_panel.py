@@ -213,6 +213,7 @@ class RunPanel:
             on_error=lambda _exc: self._on_refresh_done(None, token, sig),
             busy=busy_label,
             compact=True,
+            owner=self,
         )
 
     def _on_refresh_done(self, data: dict | None, token: int, sig) -> None:
@@ -226,59 +227,49 @@ class RunPanel:
             self._dispatch_refresh(force=force)
 
     def _compute_refresh(self, inp: dict) -> dict:
-        # Worker thread: only DB reads + pure helpers, never widget access. Gated by the
-        # CURRENT step so we don't run the heavy count/check_required scans for panels the
-        # user isn't even looking at. molecules.count() materializes the set, so each call is
-        # O(n) — only pay for what the visible step shows.
-        step = inp["step"]
-        data: dict = {"step": step, "programs_chosen": inp["programs_chosen"], "sources": inp["sources"]}
-        if step == 0:  # Programs — nothing in the DB to show here.
-            return data
-
-        if step == 1:  # Ligands — just the scope label.
-            if inp.get("sharded") or inp.get("count_shards"):
-                # The library on disk: count shards (a small table), not molecule rows.
-                counts = self.runtime.molecules.shard_counts()
-                data["shards_total"] = counts["shards"]
-                data["shard_records"] = counts["records"]
-                data["shards_prepared"] = counts["prepared"]
-                data["shards_selected"] = len(inp["sel_shard"])
-            if inp.get("sharded"):
-                data["sharded"] = True
-                if inp.get("count_shards"):  # the Table box shows its count ticked or not
-                    data["ligands_total"] = self.runtime.molecules.count(
-                        self._resolve_ligand_scope(inp["sel_lig"], run_kind=inp.get("run_kind", "docking")))
-                return data
-            lig_scope = self._resolve_ligand_scope(
-                inp["sel_lig"], run_kind=inp.get("run_kind", "docking")
-            )
-            # One summary per family of the selected programs (K is today 1); Force re-prepare
-            # redoes them all, so it needs no prepared/failed count at all.
-            if inp.get("force_prep") or not inp["prep_engines"]:
-                summaries = {}
-                data["ligands_total"] = self.runtime.molecules.count(lig_scope)
-            else:
-                summaries = {
-                    engine: self.runtime.docking.preparation_summary(lig_scope, role_type="ligand", engine=engine)
-                    for engine in inp["prep_engines"]
-                }
-                data["ligands_total"] = next(iter(summaries.values()))["total"]
-            by_engine = {engine: summary["ready"] for engine, summary in summaries.items()}
-            data["ligands_prepared_by_engine"] = by_engine
-            # For the step badge only: a molecule is "done" when every selected family has it,
-            # and min() is that count exactly when the prepared sets nest (the normal case).
-            data["ligands_prepared"] = min(by_engine.values()) if by_engine else 0
-            data["ligands_failed"] = sum(summary["failed"] for summary in summaries.values())
-            return data
-
-        if step == 3:  # Preview & Run — NO automatic scan at all; verification is explicit.
-            return data
-
-        # Receptors (2): cards + receptor scope label + receptor-only prep/grid status. Receptor
-        # sets are small, so no ligand scan and no full requirement check here.
+        # Worker thread: only DB reads + pure helpers, never widget access. The Ligands and
+        # Receptors check marks follow the data, not the last visit to their step, so both are
+        # computed whatever step is on screen: SQL COUNTs, and receptor sets are small. The
+        # full requirement check (pairs, docked counts) stays on Preview & Run.
+        data: dict = {"step": inp["step"], "programs_chosen": inp["programs_chosen"], "sources": inp["sources"]}
+        self._fill_ligand_data(inp, data)
         self._fill_receptor_data(inp, data)
         data["preview"] = self._compute_receptor_preview(inp, self._resolve_receptor_ids(inp["sel_rec"]))
         return data
+
+    def _fill_ligand_data(self, inp: dict, data: dict) -> None:
+        if inp.get("sharded") or inp.get("count_shards"):
+            # The library on disk: count shards (a small table), not molecule rows.
+            counts = self.runtime.molecules.shard_counts()
+            data["shards_total"] = counts["shards"]
+            data["shard_records"] = counts["records"]
+            data["shards_prepared"] = counts["prepared"]
+            data["shards_selected"] = len(inp["sel_shard"])
+        if inp.get("sharded"):
+            data["sharded"] = True
+            if inp.get("count_shards"):  # the Table box shows its count ticked or not
+                data["ligands_total"] = self.runtime.molecules.count(
+                    self._resolve_ligand_scope(inp["sel_lig"], run_kind=inp.get("run_kind", "docking")))
+            return
+        lig_scope = self._resolve_ligand_scope(
+            inp["sel_lig"], run_kind=inp.get("run_kind", "docking")
+        )
+        # One summary per family of the selected programs (K is today 1).
+        summaries = {
+            engine: self.runtime.docking.preparation_summary(lig_scope, role_type="ligand", engine=engine)
+            for engine in inp["prep_engines"]
+        }
+        data["ligands_total"] = (next(iter(summaries.values()))["total"] if summaries
+                                 else self.runtime.molecules.count(lig_scope))
+        by_engine = {engine: summary["ready"] for engine, summary in summaries.items()}
+        # Force re-prepare redoes every family, so its rows show no prepared/failed count.
+        force = bool(inp.get("force_prep"))
+        data["ligands_prepared_by_engine"] = {} if force else by_engine
+        data["ligands_failed"] = 0 if force else sum(summary["failed"] for summary in summaries.values())
+        # For the step badge: a molecule is "done" when every selected family has it, and min()
+        # is that count exactly when the prepared sets nest (the normal case). Programs that
+        # need no preparation take the ligands as they are.
+        data["ligands_prepared"] = min(by_engine.values()) if by_engine else data["ligands_total"]
 
     def _fill_receptor_data(self, inp: dict, data: dict) -> None:
         # receptors_total is used only as a presence/gate signal + scope label; prep/grid
@@ -366,9 +357,9 @@ class RunPanel:
             self._set_prep_family_counts({}, 0)
             self.prepare_ligands_button.setEnabled(bool(self._ligand_sources()))
             self._mark_step(self.step_ligands, prepared, total)
-            return
-        self.prepare_ligands_button.setEnabled(True)
-        if "ligands_prepared" in data:
+        else:
+            self.prepare_ligands_button.setEnabled(True)
+        if "ligands_prepared" in data and not data.get("sharded"):
             ligand_failed = int(data.get("ligands_failed") or 0)
             # Scope = which ligands (one, shared). "N prepared" is per family, so it lives on
             # the family rows, not here — a single number would be one family's count
@@ -550,6 +541,7 @@ class RunPanel:
             lambda: self._compute_requirement_counts(inputs),
             self._apply_check,
             on_error=lambda exc: self._apply_check({"error": str(exc)}),
+            owner=self,
         )
 
     def _apply_check(self, result: dict) -> None:

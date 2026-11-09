@@ -8,7 +8,8 @@ tools will use for the center tables.
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QWidget
+from PySide6.QtCore import QEvent, QObject, QTimer
+from PySide6.QtWidgets import QDialog, QScrollArea, QVBoxLayout, QWidget
 
 from amdockvs.ui.catalog.details import CatalogDetailsView
 from amdockvs.ui.view_ids import (
@@ -17,6 +18,25 @@ from amdockvs.ui.view_ids import (
     POCKET_SITES_VIEW_ID,
     PREP_STATUS_VIEW_ID,
 )
+
+
+class _LayoutWatcher(QObject):
+    """Calls back once per event-loop turn when a watched occupant's layout changes."""
+
+    def __init__(self, callback):
+        super().__init__()
+        self._callback = callback
+        self._queued = False
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Type.LayoutRequest and not self._queued:
+            self._queued = True
+            QTimer.singleShot(0, self._run)
+        return False
+
+    def _run(self):
+        self._queued = False
+        self._callback()
 
 
 class AuxiliaryPanelController:
@@ -40,6 +60,8 @@ class AuxiliaryPanelController:
         self._user_checked = False  # panel state to give back when a tool releases the slot
         self.last_selection: tuple[str, object] | None = None
         self._details_window: QDialog | None = None
+        # Occupants grow after they show (a picked result adds its fields): refit then too.
+        self._layout_watcher = _LayoutWatcher(self._fit_occupant)
 
     def install_action(self, action) -> None:
         """`action`: the checkable toggle, already wired to `on_toggled`."""
@@ -70,6 +92,35 @@ class AuxiliaryPanelController:
             self.views[aux_id] = page
             self.w.central_widget.aux_widget.addWidget(page)
         return page
+
+    @staticmethod
+    def _content(page: QWidget) -> QWidget:
+        """What an occupant needs room for: inside a scroll area, the widget it scrolls."""
+        if isinstance(page, QScrollArea) and page.widget() is not None:
+            return page.widget()
+        return page
+
+    def _fit_occupant(self) -> None:
+        """Grow the zone until the occupant on screen fits without scrolling.
+
+        Occupants share one splitter height, seeded once; Docking Results' "Selected Result"
+        needs more than Details. Never shrinks (a size you dragged larger stays) and never
+        takes more than half the area, so the table above keeps the rest."""
+        aux = self.w.central_widget.aux_widget
+        page = aux.currentWidget()
+        if page is None or not aux.isVisible():
+            return
+        splitter = self.w.central_widget.content_splitter
+        sizes = splitter.sizes()
+        total = sum(sizes)
+        if len(sizes) != 2 or total <= 0:
+            return  # not laid out yet
+        content = self._content(page)
+        need = max(content.minimumSizeHint().height(), content.sizeHint().height())
+        need += page.height() - page.contentsRect().height()  # the scroll area's frame, if any
+        target = min(need, total // 2)
+        if sizes[1] < target:
+            splitter.setSizes([total - target, target])
 
     def _current_view_aux_panel(self) -> QWidget | None:
         """The panel the tab on screen wants in the slot, if it offers one."""
@@ -127,6 +178,7 @@ class AuxiliaryPanelController:
         page = self._page(self.occupant)
         aux.setCurrentWidget(page)
         aux.setVisible(True)
+        self._content(page).installEventFilter(self._layout_watcher)  # Qt ignores a repeat install
         if self.occupant == self.AUX_DETAILS:
             # It stopped tracking the selection while hidden; catch up now that it shows.
             self._push_selection_to_details(page)
@@ -137,6 +189,7 @@ class AuxiliaryPanelController:
             splitter = self.w.central_widget.content_splitter
             height = splitter.height()
             splitter.setSizes([height * 7 // 10, height * 3 // 10])
+        self._fit_occupant()
 
     def refresh(self) -> None:
         """Same rule as the tabs: only the occupant on screen reloads."""

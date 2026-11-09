@@ -343,7 +343,7 @@ class AMDockVSMainWindow(QMainWindow):
         from PySide6.QtGui import QActionGroup, QDesktopServices
         from PySide6.QtWidgets import QHBoxLayout, QMenu, QToolButton
 
-        from ms_components.theme import THEMES
+        from ms_components.theme import build_theme_menu
 
         from amdockvs.ui.common.theme import saved_theme_name, set_theme
 
@@ -429,16 +429,7 @@ class AMDockVSMainWindow(QMainWindow):
             "QToolButton { padding: 0; margin: 0; border: none; background: transparent; }"
             "QToolButton::menu-indicator { image: none; }"
         )
-        theme_menu = QMenu(theme_btn)
-        tgrp = QActionGroup(self)
-        tgrp.setExclusive(True)
-        current = saved_theme_name()
-        for name in ("auto", *THEMES):
-            act = theme_menu.addAction(" ".join(w[:1].upper() + w[1:] for w in name.split("_")))
-            act.setCheckable(True)
-            act.setData(name)
-            act.setChecked(name == current)
-            tgrp.addAction(act)
+        theme_menu = build_theme_menu(saved_theme_name(), theme_btn)
         theme_menu.triggered.connect(lambda a: set_theme(a.data(), self, QApplication.instance()))
         theme_btn.setMenu(theme_menu)
 

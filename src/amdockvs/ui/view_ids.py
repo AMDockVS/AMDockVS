@@ -10,7 +10,6 @@ MOLECULES_VIEW_ID = "molecules"
 RECEPTOR_VIEW_ID = "receptors"
 LIGANDS_VIEW_ID = "ligands"
 SHARDS_VIEW_ID = "shards"
-BINDING_SITES_VIEW_ID = "binding_sites"
 COMPLEX_PAIRS_VIEW_ID = "complex_pairs"
 LIGAND_ACTIVITY_VIEW_ID = "ligand_activity"
 
