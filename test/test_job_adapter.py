@@ -104,3 +104,8 @@ def test_a_counted_job_says_what_is_left_only_once_it_is_fed():
     assert len(list(feed)) == 2 and source.remaining() == 0
     assert counted == ["fed"]  # counted once, then followed by what was given
 
+
+def test_the_shard_pipeline_declares_one_chunk_per_shard():
+    from amdockvs.chemistry.jobs import count_shard_chemistry_chunks, shard_chemistry_job
+
+    assert shard_chemistry_job.chunk_counter is count_shard_chemistry_chunks
