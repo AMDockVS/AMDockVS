@@ -137,3 +137,10 @@ def test_a_rewrite_counts_its_ligands_against_the_library_it_replaces(project, t
     activate_generation(project_db, second)  # switched: the new library is all of it
     assert shard_generation_progress(project_db, second) == (2000, 2000)
 
+
+def test_the_monitor_measures_only_the_jobs_the_runtime_tracks(tmp_path):
+    runtime = AMDockVSRuntime()
+    runtime.track_job_items("job-1", lambda: (5, 9), unit="ligands")
+    assert runtime.measure_job("job-1") == {"done": 5, "total": 9, "unit": "ligands"}
+    assert runtime.measure_job("other") is None
+
