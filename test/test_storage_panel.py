@@ -31,19 +31,28 @@ def test_storage_panel_reads_checks_and_compacts_off_the_gui_thread(tmp_path, mo
                 time.sleep(0.01)
             return text.text()
 
+        def said() -> str:  # the line under the buttons: "HH:MM:SS  what the last one did"
+            return next((w.text() for w in dlg.findChildren(QLabel) if w.text()[2:3] == ":" and w.text()[:2].isdigit()), "")
+
+        def settle() -> None:
+            deadline = time.monotonic() + 10
+            while not buttons["Repair"].isEnabled() and time.monotonic() < deadline:
+                app.processEvents()
+                time.sleep(0.01)
+
         assert "1 volume(s)" in wait("volume") and "Healthy" in text.text()
         buttons["Check"].click()
         assert not buttons["Compact"].isEnabled()  # one job at a time
         wait("Healthy")
         assert buttons["Compact"].isEnabled()
         assert "1 leftover" in text.text()  # the seeded structure no row points to
+        assert said().endswith("Check: every structure read; 1 leftover item(s), Repair clears them.")
         buttons["Repair"].click()
-        deadline = time.monotonic() + 10
-        while not buttons["Repair"].isEnabled() and time.monotonic() < deadline:
-            app.processEvents()
-            time.sleep(0.01)
+        settle()
         assert text.text().endswith("Healthy")
+        assert said().endswith("Repair: cleared 1 leftover item(s).")
         buttons["Compact"].click()
-        assert "volume(s)" in wait("volume(s)")
+        settle()
+        assert "volume(s)" in text.text() and "  Compact: " in said()
     finally:
         runtime.shutdown()
