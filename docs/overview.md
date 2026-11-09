@@ -76,3 +76,20 @@ Next, we describe the tools and panels available in AMDockVS.
 ### Job monitoring
 
 - <span class="tool-list-icon tool-list-icon--jobs" aria-hidden="true"></span> **[Jobs monitor](jobs_monitor.md)** — Follow background jobs, inspect progress and errors, and cancel, resume, or move work between executors.
+
+## Tutorial
+
+The **Your first docking** card starts an eight-step, hands-on walkthrough
+using the Vps34 receptor and SAR405 ligand. It guides you through creating a
+practice project, importing the example molecules, opening Docking Studio,
+choosing AutoDock Vina, preparing the ligand, defining and activating the docking
+box, preparing the receptor, and launching the calculation. You perform each
+action in the application as the tutorial guides you through the workflow.
+The tutorial ends when the docking job is submitted; poses and scores appear in
+**Docking Results** after the calculation finishes.
+
+Watch the complete tutorial, from creating a practice project and importing the
+example molecules to defining the docking box, running docking, and viewing the
+poses and scores.
+
+<iframe src="https://www.youtube-nocookie.com/embed/HjT4PxUy0yg" title="AMDockVS guided docking tutorial" style="width: 100%; aspect-ratio: 16 / 9; border: 0;" allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>

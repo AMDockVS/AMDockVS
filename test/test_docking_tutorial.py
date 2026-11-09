@@ -304,7 +304,60 @@ def test_starting_from_an_open_project_restarts_into_the_practice_project(practi
     assert calls[0] == (window, "--tutorial", "simple-docking")
 
 
-def test_seven_steps_wait_for_successful_jobs_and_prepared_data(practice, monkeypatch):
+def tutorial_at_programs(app, window):
+    tutorial = start_simple_docking_tutorial(window)
+    tutorial.receptor_loaded.emit()
+    wait_until(app, lambda: tutorial.controller.current_step.id == "load-ligand")
+    tutorial.ligand_loaded.emit()
+    wait_until(app, lambda: tutorial.controller.current_step.id == "docking-studio")
+    window.tools.action_buttons[DOCKING_VIEW_ID].click()
+    wait_until(app, lambda: tutorial.controller.current_step.id == "programs")
+    return tutorial
+
+
+def test_programs_step_handles_navigation_before_its_queued_event(practice):
+    app, _runtime, window, _messages = practice
+    tutorial = tutorial_at_programs(app, window)
+    for key, check in tutorial.studio._program_checks.items():
+        check.setChecked(key == "vina")
+    # QStepper emits QStep objects; the relay delivers later. The current index
+    # may already be Receptors when the Ligands event is finally evaluated.
+    tutorial.studio.stepper.set_current_index(1)
+    tutorial.studio.stepper.set_current_index(2)
+    wait_until(app, lambda: tutorial.controller.current_step.id == "prepare-ligand")
+
+
+def test_unfinished_program_selection_guides_back_and_keeps_completed_preparation(practice, monkeypatch):
+    app, runtime, window, _messages = practice
+    tutorial = tutorial_at_programs(app, window)
+    studio = tutorial.studio
+    for key, check in studio._program_checks.items():
+        check.setChecked(key == "qvina")
+    studio.stepper.set_current_index(1)
+    studio.stepper.set_current_index(2)
+    app.processEvents()
+    assert tutorial.controller.current_step.id == "programs"
+    target = tutorial.controller.targets["programs"].widget()
+    assert target.objectName() == "stepperHeader"
+    assert not target.isAncestorOf(studio.prepare_ligands_button)
+    assert "Return to Programs" in tutorial._instruction(tutorial.controller.current_step)
+    # Match the screenshot: ligand preparation has already completed while the
+    # guide is still waiting for the right program configuration.
+    monkeypatch.setattr(runtime.docking, "preparation_summary",
+                        lambda *a, **k: {"total": 1, "ready": 1, "failed": 0})
+    studio.ligand_prep_jobs.finished.emit("completed")
+    wait_until(app, lambda: "prepare_ligand" in tutorial.completed_stages)
+    studio.stepper.go_to(studio.step_programs)
+    studio._select_program("qvina")
+    assert tutorial.controller.targets["programs"].widget() is studio._program_checks["qvina"]
+    assert "Uncheck Run" in tutorial._instruction(tutorial.controller.current_step)
+    for key, check in studio._program_checks.items():
+        check.setChecked(key == "vina")
+    studio.stepper.next()
+    wait_until(app, lambda: tutorial.controller.current_step.id == "define-box")
+
+
+def test_tutorial_steps_wait_for_successful_jobs_and_prepared_data(practice, monkeypatch):
     app, runtime, window, messages = practice
     tutorial = start_simple_docking_tutorial(window)
     assert tutorial.dialogs == {}  # starting the tutorial must not open an import dialog
@@ -376,6 +429,7 @@ def test_seven_steps_wait_for_successful_jobs_and_prepared_data(practice, monkey
     ready["ready"] = 1
     tutorial.studio.ligand_prep_jobs.finished.emit("completed")
     wait_until(app, lambda: tutorial.controller.index == 5)
+    assert tutorial.controller.current_step.id == "define-box"
     assert tutorial.studio.stepper.current_index == 1  # no tutorial-driven navigation
     assert not tutorial._grid_ready
     grid = window.grid_dock
@@ -395,8 +449,25 @@ def test_seven_steps_wait_for_successful_jobs_and_prepared_data(practice, monkey
     assert not tutorial._grid_ready
     grid.activate_button.click()
     wait_until(app, lambda: tutorial._grid_ready)
+    wait_until(app, lambda: tutorial.controller.current_step.id == "run-docking")
+    final_step = tutorial.controller.current_step
+    final_instruction = tutorial._instruction(final_step)
+    assert "Click Prepare Receptors" in final_instruction
+    assert "Run Docking stays disabled" in final_instruction
+    assert tutorial.controller.targets["run"].widget() is tutorial.studio.prepare_receptor_button
+    # Preparation opens Preview & Run immediately, even when the worker is fast.
+    tutorial.studio.stepper.set_current_index(3)
+    tutorial.studio.run_button.setEnabled(False)
+    tutorial.controller.refresh()
+    assert tutorial.controller.current_step is final_step
+    assert tutorial.controller.targets["run"].widget() is tutorial.studio.run_button
+    assert tutorial._instruction(final_step) == final_instruction
     tutorial.studio.receptor_prep_jobs.finished.emit("completed")
-    wait_until(app, lambda: tutorial.controller.index == 6)
+    wait_until(app, lambda: "prepare_receptor" in tutorial.completed_stages)
+    assert tutorial.controller.index == 6
+    assert tutorial.controller.current_step is final_step
+    assert tutorial._instruction(final_step) == final_instruction
+    assert tutorial.controller.is_active  # only submitting docking ends this card
     tutorial.studio.docking_submission_started.emit()
     wait_until(app, lambda: not tutorial.controller.is_active)
     assert not window.tools_dock.isVisible()
@@ -405,8 +476,73 @@ def test_seven_steps_wait_for_successful_jobs_and_prepared_data(practice, monkey
     assert messages == ["Tutorial completed"]
     assert seen == ["load-receptor", "load-ligand", "load-receptor", "load-ligand",
                     "docking-studio", "programs", "prepare-ligand",
-                    "prepare-receptor", "run-docking"]
+                    "define-box", "run-docking"]
     assert tab_checked == seen
+
+
+def test_preparing_before_activating_the_box_can_recover(practice, monkeypatch):
+    app, runtime, window, _messages = practice
+    from amdockvs.models import MoleculeRecord
+
+    tutorial = start_simple_docking_tutorial(window)
+    with runtime.workspace.project_db.get_session() as session:
+        session.add(MoleculeRecord(name="Vps34", molecule_type="protein", is_receptor=True))
+        session.commit()
+    tutorial.receptor_loaded.emit()
+    wait_until(app, lambda: tutorial.controller.current_step.id == "load-ligand")
+    tutorial.ligand_loaded.emit()
+    wait_until(app, lambda: tutorial.controller.current_step.id == "docking-studio")
+    window.tools.action_buttons[DOCKING_VIEW_ID].click()
+    wait_until(app, lambda: tutorial.controller.current_step.id == "programs")
+    for key, check in tutorial.studio._program_checks.items():
+        check.setChecked(key == "vina")
+    tutorial.studio.stepper.next()
+    wait_until(app, lambda: tutorial.controller.current_step.id == "prepare-ligand")
+    tutorial.ligand_prepared.emit()
+    wait_until(app, lambda: tutorial.controller.current_step.id == "define-box")
+    monkeypatch.setattr(runtime.docking, "preparation_summary",
+                        lambda *a, **k: {"total": 1, "ready": 1, "failed": 0})
+    tutorial.studio.stepper.set_current_index(3)  # preparation opens Preview & Run
+    tutorial.studio.receptor_prep_jobs.finished.emit("completed")
+    wait_until(app, lambda: not tutorial._checking)
+    assert tutorial.controller.current_step.id == "define-box"
+    assert not tutorial._grid_ready
+
+    # Recover using the real editor, without submitting receptor preparation again.
+    tutorial.studio.stepper.set_current_index(2)
+    grid = window.grid_dock
+    grid.parentWidget().show()
+    grid.set_molecule(runtime.molecules.select(role="receptor").one())
+    grid.new_button.click()
+    for spin, value in zip((grid.cx, grid.cy, grid.cz, grid.sx, grid.sy, grid.sz),
+                           (*tutorial.example["grid_center"], *tutorial.example["grid_size"])):
+        spin.setValue(value)
+    grid.save_button.click()
+    wait_until(app, lambda: not tutorial._grid_checking)
+    assert tutorial.controller.current_step.id == "define-box"  # saved is not active
+    grid.activate_button.click()
+    wait_until(app, lambda: tutorial._grid_ready and not tutorial._checking)
+    wait_until(app, lambda: tutorial.controller.current_step.id == "run-docking")
+    assert tutorial.controller.current_step.id == "run-docking"
+
+
+def test_another_molecules_box_does_not_satisfy_the_tutorial(practice):
+    app, runtime, window, _messages = practice
+    from amdockvs.models import MoleculeRecord
+
+    tutorial = start_simple_docking_tutorial(window)
+    with runtime.workspace.project_db.get_session() as session:
+        receptor = MoleculeRecord(name="Vps34", molecule_type="protein", is_receptor=True)
+        ligand = MoleculeRecord(name="SAR405", molecule_type="small_molecule", is_ligand=True)
+        session.add_all([receptor, ligand])
+        session.commit()
+        session.refresh(ligand)
+        ligand_id = int(ligand.id)
+    runtime.binding_sites.save_site(molecule_id=ligand_id, center=tuple(tutorial.example["grid_center"]),
+                                    size=tuple(tutorial.example["grid_size"]), set_active=True)
+    tutorial._grid_changed()
+    wait_until(app, lambda: not tutorial._grid_checking)
+    assert not tutorial._grid_ready
 
 
 def test_cancel_disconnects_and_ignores_late_job_submission(practice, monkeypatch):
@@ -479,15 +615,15 @@ def test_tutorial_readiness_waits_leave_the_gui_responsive(practice, stage):
         assert release.wait(5), "Readiness query was not released"
         return value
 
-    scope = SimpleNamespace(scope=object(), count=lambda: read(1))
-    site = SimpleNamespace(is_active=True, **dict(zip(
+    scope = SimpleNamespace(scope=object(), count=lambda: read(1), one=lambda: SimpleNamespace(id=1))
+    site = SimpleNamespace(is_active=True, is_defined=True, **dict(zip(
         ("center_x", "center_y", "center_z", "size_x", "size_y", "size_z"),
         (*tutorial.example["grid_center"], *tutorial.example["grid_size"]))))
     tutorial.runtime = SimpleNamespace(
         molecules=SimpleNamespace(select=lambda **_: scope),
         docking=SimpleNamespace(
             preparation_summary=lambda *a, **k: read({"total": 1, "ready": 1})),
-        binding_sites=SimpleNamespace(select=lambda: read([site])),
+        binding_sites=SimpleNamespace(select=lambda **_: read([site])),
     )
     tutorial._grid_ready = stage != "grid"
     try:
@@ -515,6 +651,7 @@ def test_run_docking_and_job_wait_leave_the_tutorial_responsive(practice, monkey
     window.tools.open_tool(DOCKING_VIEW_ID)
     tutorial.controller._show_step(6)
     studio = tutorial.studio
+    tutorial._grid_ready = True
     studio.stepper.set_current_index(3)
     entered, release = Event(), Event()
     gui_thread = get_ident()

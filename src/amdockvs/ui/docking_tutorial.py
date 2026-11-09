@@ -8,7 +8,7 @@ from pathlib import Path
 import shutil
 
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
-from PySide6.QtWidgets import QDialog, QFileDialog, QMessageBox, QPushButton
+from PySide6.QtWidgets import QDialog, QFileDialog, QMessageBox, QPushButton, QWidget
 from ms_components.ms_tutorial import Tutorial, TutorialController, TutorialEvent, TutorialStep, TutorialTarget
 
 from amdockvs.core.jobs import STATUS
@@ -66,7 +66,7 @@ class SimpleDockingTutorial(QObject):
     receptor_loaded = Signal()
     ligand_loaded = Signal()
     ligand_prepared = Signal()
-    receptor_prepared = Signal()
+    box_defined = Signal()
 
     def __init__(self, window):
         super().__init__(window)
@@ -96,6 +96,7 @@ class SimpleDockingTutorial(QObject):
         self._generation = 0
         self._feedback = ""
         self._grid_ready = False
+        self._receptor_preparation_ready = False
         self._grid_checking = False
         self._grid_recheck = False
         self.controller = TutorialController(targets={
@@ -103,22 +104,20 @@ class SimpleDockingTutorial(QObject):
             "receptor": TutorialTarget(lambda: self._import_target("receptor"), prepare=lambda: self._bind_import_catalog("receptor"), rect=lambda: self._import_rect("receptor")),
             "ligand": TutorialTarget(lambda: self._import_target("ligand"), prepare=lambda: self._bind_import_catalog("ligand"), rect=lambda: self._import_rect("ligand")),
             "studio": TutorialTarget(window.tools.action_buttons[DOCKING_VIEW_ID]),
-            "programs": TutorialTarget(lambda: self.studio, prepare=self._bind_studio),
+            "programs": TutorialTarget(self._programs_target, prepare=self._bind_studio),
             "prepare_ligand": TutorialTarget(lambda: self.studio, prepare=self._bind_studio),
-            "prepare_receptor": TutorialTarget(self._receptor_target, prepare=self._bind_studio),
-            "run": TutorialTarget(self._run_target, prepare=self._bind_studio),
+            "box": TutorialTarget(self._box_target, prepare=self._bind_studio),
+            "run": TutorialTarget(self._prepare_and_run_target, prepare=self._bind_studio),
         }, events={
             "project_created": TutorialEvent(self.project_created, is_complete=lambda: self.inputs is not None),
             "receptor_loaded": TutorialEvent(self.receptor_loaded, is_complete=lambda: "receptor" in self.completed_stages),
             "ligand_loaded": TutorialEvent(self.ligand_loaded, is_complete=lambda: "ligand" in self.completed_stages),
             "studio_opened": TutorialEvent(window.tools.action_buttons[DOCKING_VIEW_ID].clicked),
             "programs_selected": TutorialEvent(lambda: self.studio.stepper.step_changed,
-                accept=lambda *_: self.studio.stepper.current_index == 1
-                    and self.studio._selected_programs() == ["vina"]
-                    and self.studio._run_kind() == "docking" and self.studio._method() == "standard"
-                    and self.studio._ligand_type() == "small_molecule"),
+                accept=lambda step: step is not self.studio.step_programs and self._programs_valid(),
+                is_complete=lambda: self.studio.stepper.current_index != 0 and self._programs_valid()),
             "ligand_prepared": TutorialEvent(self.ligand_prepared, is_complete=lambda: "prepare_ligand" in self.completed_stages),
-            "receptor_prepared": TutorialEvent(self.receptor_prepared, is_complete=lambda: "prepare_receptor" in self.completed_stages),
+            "box_defined": TutorialEvent(self.box_defined, is_complete=lambda: self._grid_ready),
             "docking_started": TutorialEvent(lambda: self.studio.docking_submission_started),
         }, parent=self, instruction_provider=self._instruction, dim_background=False, close_only=True,
            click_only_close=True, block_tab=True)
@@ -153,12 +152,14 @@ class SimpleDockingTutorial(QObject):
             TutorialStep("prepare-ligand", "prepare_ligand", "5. Prepare ligand",
                 "Click Prepare Ligands to convert SAR405 into the format Vina needs. "
                 "Keep the preparation defaults. The tutorial waits for successful preparation.", "ligand_prepared"),
-            TutorialStep("prepare-receptor", "prepare_receptor", "6. Prepare receptor",
-                "Open Receptors, define and activate the docking box, then click Prepare Receptors. "
-                "Keep a rigid receptor. Wait for preparation to finish.", "receptor_prepared"),
-            TutorialStep("run-docking", "run", "7. Run docking",
-                "Review Preview & Run: one prepared ligand and one prepared receptor. "
-                "Once the checks say Ready to run, click Run Docking. "
+            TutorialStep("define-box", "box", "6. Define and activate the docking box",
+                "Before preparing the receptor, select Vps34 in Receptors. Create a Grid Box, "
+                "enter the example coordinates, save it and click Set Active.", "box_defined"),
+            TutorialStep("run-docking", "run", "7. Prepare receptor and run docking",
+                "Click Prepare Receptors in Docking Studio, keeping a rigid receptor. "
+                "Studio opens Preview & Run while preparation finishes. Run Docking stays disabled "
+                "until the receptor is ready. Review the checks for one prepared ligand and one prepared receptor. "
+                "When they say Ready to run, click Run Docking. "
                 "The tutorial ends when submission starts; poses and scores appear in Docking Results when the calculation finishes.", "docking_started"),
         )
         if project_steps:
@@ -341,11 +342,49 @@ class SimpleDockingTutorial(QObject):
         dialog.import_button.setEnabled(correct and ready)
         self._feedback = ""
 
-    def _receptor_target(self):
+    def _programs_valid(self):
+        return (self.studio._selected_programs() == ["vina"]
+                and self.studio._run_kind() == "docking" and self.studio._method() == "standard"
+                and self.studio._ligand_type() == "small_molecule")
+
+    def _program_correction(self):
+        for combo, expected, instruction in (
+                (self.studio.experiment_kind_combo, "docking", "Choose Docking as the experiment."),
+                (self.studio.method_combo, "standard", "Choose Standard as the method."),
+                (self.studio.ligand_type_combo, "small_molecule", "Choose Small molecule as the ligand type.")):
+            if combo.currentData() != expected:
+                return combo, instruction
+        checks = self.studio._program_checks
+        key = next((key for key, check in checks.items() if key != "vina" and check.isChecked()), "vina")
+        check = checks[key]
+        if key != "vina" or not check.isChecked():
+            label = check.text().removeprefix("Run ")
+            instruction = (f"Uncheck Run {label}. This tutorial uses only AutoDock Vina." if key != "vina" else
+                           "Check Run AutoDock Vina to use it for this tutorial.")
+            if check.isVisible():
+                return check, instruction
+            return self.studio.program_list, f"Select {label} in the program list. {instruction}"
+        return self.studio, "AutoDock Vina is the only selected program. Review its settings, then click Next to continue to Ligands."
+
+    def _programs_target(self):
+        if self.studio.stepper.current_index != 0:
+            return self.studio.stepper.findChild(QWidget, "stepperHeader") or self.studio.stepper
+        return self._program_correction()[0]
+
+    def _prepare_and_run_target(self):
+        if not self.studio.isVisible():
+            return self.window.tools.action_buttons[DOCKING_VIEW_ID]
+        if not self._grid_ready:
+            return self._box_target()
+        if self.studio.stepper.current_index == 3 or self._receptor_preparation_ready:
+            return self._run_target()
         if self.studio.stepper.current_index != 2:
             return self.studio.stepper
-        if self._grid_ready:
-            return self.studio.prepare_receptor_button
+        return self.studio.prepare_receptor_button
+
+    def _box_target(self):
+        if self.studio.stepper.current_index != 2:
+            return self.studio.stepper
         grid = self.window.grid_dock
         if grid is not None and grid.isVisible() and grid._current_molecule is not None:
             if not grid._working.dirty and grid._working.source_site_id is None:
@@ -374,13 +413,18 @@ class SimpleDockingTutorial(QObject):
     def _grid_changed(self, *_):
         if not self.controller.is_active:
             return
+        self._grid_ready = False
         if self._grid_checking:
             self._grid_recheck = True
             return
         self._grid_checking = True
         def read():
-            sites = list(self.runtime.binding_sites.select())
-            return any(site.is_active and all(abs(value - expected) <= 0.02 for value, expected in zip(
+            receptors = self.runtime.molecules.select(role="receptor")
+            if receptors.count() != 1:
+                return False
+            receptor = receptors.one()
+            sites = self.runtime.binding_sites.select(molecule_id=int(receptor.id))
+            return any(site.is_active and site.is_defined and all(abs(value - expected) <= 0.02 for value, expected in zip(
                 (site.center_x, site.center_y, site.center_z, site.size_x, site.size_y, site.size_z),
                 (*self.example["grid_center"], *self.example["grid_size"]))) for site in sites)
         def done(ready):
@@ -390,6 +434,11 @@ class SimpleDockingTutorial(QObject):
                 if self._grid_recheck:
                     self._grid_recheck = False
                     self._grid_changed()
+                elif ready:
+                    self.box_defined.emit()
+                    if self._receptor_preparation_ready:
+                        # Preparation and box definition may finish in either order.
+                        self._check("prepare_receptor")
         def error(exc):
             self._grid_checking = False
             self._note(str(exc))
@@ -433,18 +482,20 @@ class SimpleDockingTutorial(QObject):
             elif not self.catalogs[role].isVisible() and not self.outcomes.get(role):
                 text = f"Click the {role.title()}s tab above the table, then click its central Import button."
         elif step.id == "programs":
-            text = ("Click Programs in Docking Studio if needed. Choose AutoDock Vina in the program list, "
-                    "check Run AutoDock Vina and uncheck other programs. Keep Docking, Standard and Small molecule "
-                    "with the default Vina settings. Click Next in the Programs panel to continue to Ligands.")
+            if self.studio.stepper.current_index != 0:
+                text = ("Return to Programs in the Docking Studio header to finish selecting the tutorial's program. "
+                        "The tutorial needs Docking, Standard, Small molecule and only AutoDock Vina enabled.")
+            else:
+                text = self._program_correction()[1]
         elif step.id == "prepare-ligand":
             if self.studio.ligand_prep_jobs.job_ids:
                 text = "Ligand preparation is running. Wait for it to complete before preparing the receptor."
             elif self.studio.stepper.current_index != 1:
                 text = "Click Ligands in the Docking Studio header, then click Prepare Ligands. Wait for preparation to complete."
-        elif step.id == "prepare-receptor" and not self._grid_ready:
+        elif step.id == "define-box" or (step.id == "run-docking" and not self._grid_ready):
             grid = self.window.grid_dock
             if self.studio.stepper.current_index != 2:
-                text = "Click Receptors in the Docking Studio header to prepare the receptor and define its docking box."
+                text = "Click Receptors in the Docking Studio header. Define and activate its docking box before preparing the receptor."
             elif grid is None or grid._current_molecule is None:
                 text = "Click the Vps34 receptor row in the Receptors table to show its structure and Grid Box controls."
             elif not grid.isVisible():
@@ -468,9 +519,10 @@ class SimpleDockingTutorial(QObject):
                 text = "Checking the saved active box. Then click Prepare Receptors in Docking Studio."
         elif step.id == "run-docking":
             if not self.studio.isVisible():
-                text = "Click Docking Studio to review the run and try again."
-            elif self.studio.isVisible() and self.studio.stepper.current_index != 3:
-                text = "Click Preview & Run in the Docking Studio header. Review the checks, then click Run Docking."
+                text += "\n\nClick Docking Studio to continue."
+            elif self.studio.stepper.current_index not in (2, 3):
+                text += ("\n\nClick Preview & Run in the Docking Studio header." if self._receptor_preparation_ready else
+                         "\n\nClick Receptors in the Docking Studio header to start preparation.")
         return text + ("\n\n" + self._feedback if self._feedback else "")
 
     def _track(self, stage, jobs):
@@ -507,6 +559,8 @@ class SimpleDockingTutorial(QObject):
         if self.controller.is_active and status == "completed":
             self._check(f"prepare_{role}")
         elif self.controller.is_active:
+            if role == "receptor":
+                self._receptor_preparation_ready = False
             self._note("Preparation did not complete successfully. Review the job details and retry preparation.")
 
     def _check(self, stage):
@@ -520,7 +574,7 @@ class SimpleDockingTutorial(QObject):
             scope = self.runtime.molecules.select(role=role)
             if stage.startswith("prepare_"):
                 counts = self.runtime.docking.preparation_summary(scope.scope, role_type=role)
-                return counts["total"] == counts["ready"] == 1 and (role != "receptor" or self._grid_ready)
+                return counts["total"] == counts["ready"] == 1
             if scope.count() != 1:
                 return False
             return True
@@ -529,13 +583,22 @@ class SimpleDockingTutorial(QObject):
             self._checking.discard(stage)
             if not self.controller.is_active or generation != self._generation:
                 return
+            if stage == "prepare_receptor":
+                self._receptor_preparation_ready = ok
+                if ok and not self._grid_ready:
+                    self._note("Receptor preparation is complete. Define, save and activate the example box to continue.")
+                    return
             if not ok:
                 self._note("The expected molecule or result is not ready. Review the job details and retry this step.")
                 return
-            signal = {"receptor": self.receptor_loaded, "ligand": self.ligand_loaded,
-                      "prepare_ligand": self.ligand_prepared, "prepare_receptor": self.receptor_prepared}[stage]
             self.completed_stages.add(stage)
-            signal.emit()
+            # Receptor preparation has no step of its own: it only retargets the final card.
+            signal = {"receptor": self.receptor_loaded, "ligand": self.ligand_loaded,
+                      "prepare_ligand": self.ligand_prepared}.get(stage)
+            if signal is None:
+                self.controller.refresh()
+            else:
+                signal.emit()
 
         def error(exc):
             self._checking.discard(stage)
@@ -557,16 +620,23 @@ class SimpleDockingTutorial(QObject):
         for dialog in self.dialogs.values():
             if dialog.isVisible() or dialog.result() != QDialog.Accepted:
                 dialog.reject()
-        try:
-            self.window.monitor_bridge.job_finished.disconnect(self._job_finished)
-            self.window.import_dialog_opened.disconnect(self._bind_import_dialog)
-            self.window._app_widget.projects_opened.disconnect(self._bind_projects)
-            self.window.project_opened.disconnect(self._project_opened)
-            if self._project_browser is not None:
-                self._project_browser.project_created.disconnect(self._remember_created_project)
-                self._project_browser.project_form_opened.disconnect(self._bind_project_form)
-        except RuntimeError:
-            pass
+        connections = [
+            (self.window.monitor_bridge.job_finished, self._job_finished),
+            (self.window.import_dialog_opened, self._bind_import_dialog),
+            (self.window._app_widget.projects_opened, self._bind_projects),
+            (self.window.project_opened, self._project_opened),
+        ]
+        if self.studio is not None and self.window.grid_dock is not None:
+            connections.append((self.window.grid_dock.binding_site_changed, self._grid_changed))
+        if self._project_browser is not None:
+            connections += [(self._project_browser.project_created, self._remember_created_project),
+                            (self._project_browser.project_form_opened, self._bind_project_form)]
+        # Disconnect each independently: one already gone (cleanup runs twice) must not skip the rest.
+        for signal, slot in connections:
+            try:
+                signal.disconnect(slot)
+            except (RuntimeError, TypeError):
+                pass
 
     def _finish(self, *_):
         self._cleanup()

@@ -319,7 +319,7 @@ def test_selected_ligands_share_the_scene_and_leave_it_when_deselected(viewer_sc
 
     viewer, window, cmd = viewer_scene
     monkeypatch.setattr(SmartTableView, "refresh", lambda self: None)
-    monkeypatch.setattr(results, "run_async", lambda work, done, on_error=None: done(work()))
+    monkeypatch.setattr(results, "run_async", lambda work, done, on_error=None, **_: done(work()))
     hits = {rid: SimpleNamespace(run_kind="screening", receptor_id=7, receptor_payload_id=7, result_id=rid,
                                  pose_payload_id=100 + rid, ligand_payload_id=None, pose_rank=1)
             for rid in (1, 2, 3)}
