@@ -376,11 +376,9 @@ def main(root, *, cancel_during_preview=False, native=False, slow_submission=Fal
             elif index == 4:
                 click(tutorial.studio.prepare_ligands_button, index)
             elif index == 5:
-                if not tutorial._grid_ready:
-                    assert not tutorial.studio.prepare_receptor_button.isEnabled()
                 if prepare_before_box and "prepare-before-box" not in clicked:
-                    # Simulate preparation started outside the tutorial. Its own button
-                    # must stay disabled until the box has been defined and activated.
+                    # Preparation started before the box is active: the guide must
+                    # still continue once the box is defined and activated.
                     clicked.add("prepare-before-box")
                     tutorial.studio._prepare_receptors()
                     return

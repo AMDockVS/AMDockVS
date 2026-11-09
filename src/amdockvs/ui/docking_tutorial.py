@@ -93,13 +93,10 @@ class SimpleDockingTutorial(QObject):
         self.outcomes = {}
         self.completed_stages = set()
         self._checking = set()
-        self._preparation_rechecks = {}
         self._generation = 0
         self._feedback = ""
         self._grid_ready = False
         self._receptor_preparation_ready = False
-        self._receptor_button_enabled = True
-        self._syncing_receptor_button = False
         self._grid_checking = False
         self._grid_recheck = False
         self.controller = TutorialController(targets={
@@ -157,8 +154,7 @@ class SimpleDockingTutorial(QObject):
                 "Keep the preparation defaults. The tutorial waits for successful preparation.", "ligand_prepared"),
             TutorialStep("define-box", "box", "6. Define and activate the docking box",
                 "Before preparing the receptor, select Vps34 in Receptors. Create a Grid Box, "
-                "enter the example coordinates, save it and click Set Active. "
-                "Prepare Receptors stays disabled until the example box is active.", "box_defined"),
+                "enter the example coordinates, save it and click Set Active.", "box_defined"),
             TutorialStep("run-docking", "run", "7. Prepare receptor and run docking",
                 "Click Prepare Receptors in Docking Studio, keeping a rigid receptor. "
                 "Studio opens Preview & Run while preparation finishes. Run Docking stays disabled "
@@ -230,14 +226,6 @@ class SimpleDockingTutorial(QObject):
         self._project_name_entered = bool(name)
 
     def eventFilter(self, watched, event):
-        if (self.studio is not None and watched is self.studio.prepare_receptor_button
-                and event.type() == QEvent.Type.EnabledChange and not self._syncing_receptor_button):
-            parent = watched.parentWidget()
-            if parent is None or parent.isEnabled():
-                # Studio's own state: it disables the button while checking a submission.
-                self._receptor_button_enabled = watched.isEnabled()
-            if self.controller.is_active:
-                self._sync_receptor_button()
         form = self._project_form
         if (form is not None and watched is form.name_input and self.controller.is_active
                 and event.type() == QEvent.Type.KeyPress):
@@ -324,10 +312,6 @@ class SimpleDockingTutorial(QObject):
             self.studio = self.window.tools.widgets[DOCKING_VIEW_ID]
             self.studio.ligand_prep_jobs.finished.connect(lambda status: self._prepared("ligand", status))
             self.studio.receptor_prep_jobs.finished.connect(lambda status: self._prepared("receptor", status))
-            self._receptor_button_enabled = self.studio.prepare_receptor_button.isEnabled()
-            self._receptor_button_tooltip = self.studio.prepare_receptor_button.toolTip()
-            self.studio.prepare_receptor_button.installEventFilter(self)
-            self._sync_receptor_button()
             grid = self.window.grid_dock
             if grid is not None:
                 grid.binding_site_changed.connect(self._grid_changed)
@@ -357,17 +341,6 @@ class SimpleDockingTutorial(QObject):
         ready = dialog.panel.is_ready() if role == "receptor" else bool(dialog.table.rows())
         dialog.import_button.setEnabled(correct and ready)
         self._feedback = ""
-
-    def _sync_receptor_button(self):
-        """Gate Studio's button on the tutorial box without overriding Studio's own disabled state."""
-        button = self.studio.prepare_receptor_button
-        self._syncing_receptor_button = True
-        try:
-            button.setEnabled(self._grid_ready and self._receptor_button_enabled)
-        finally:
-            self._syncing_receptor_button = False
-        button.setToolTip(self._receptor_button_tooltip if self._grid_ready else
-            "Define, save and activate the tutorial docking box first.")
 
     def _programs_valid(self):
         return (self.studio._selected_programs() == ["vina"]
@@ -441,8 +414,6 @@ class SimpleDockingTutorial(QObject):
         if not self.controller.is_active:
             return
         self._grid_ready = False
-        if self.studio is not None:
-            self._sync_receptor_button()
         if self._grid_checking:
             self._grid_recheck = True
             return
@@ -463,14 +434,11 @@ class SimpleDockingTutorial(QObject):
                 if self._grid_recheck:
                     self._grid_recheck = False
                     self._grid_changed()
-                else:
-                    if self.studio is not None:
-                        self._sync_receptor_button()
-                    if ready:
-                        self.box_defined.emit()
-                        if self._receptor_preparation_ready:
-                            # Preparation and box definition may finish in either order.
-                            self._check("prepare_receptor")
+                elif ready:
+                    self.box_defined.emit()
+                    if self._receptor_preparation_ready:
+                        # Preparation and box definition may finish in either order.
+                        self._check("prepare_receptor")
         def error(exc):
             self._grid_checking = False
             self._note(str(exc))
@@ -589,10 +557,8 @@ class SimpleDockingTutorial(QObject):
 
     def _prepared(self, role, status):
         if self.controller.is_active and status == "completed":
-            self._preparation_rechecks[f"prepare_{role}"] = 20
             self._check(f"prepare_{role}")
         elif self.controller.is_active:
-            self._preparation_rechecks.pop(f"prepare_{role}", None)
             if role == "receptor":
                 self._receptor_preparation_ready = False
             self._note("Preparation did not complete successfully. Review the job details and retry preparation.")
@@ -623,22 +589,8 @@ class SimpleDockingTutorial(QObject):
                     self._note("Receptor preparation is complete. Define, save and activate the example box to continue.")
                     return
             if not ok:
-                remaining = self._preparation_rechecks.get(stage, 0)
-                if remaining:
-                    self._preparation_rechecks[stage] = remaining - 1
-                    self._note("Preparation finished. Checking its saved results before continuing.")
-                    # Receptor preparation may finish before the box is active (define-box).
-                    steps = ("define-box", "run-docking") if stage == "prepare_receptor" else (stage.replace("_", "-"),)
-
-                    def retry():
-                        if (self.controller.is_active and generation == self._generation
-                                and self.controller.current_step.id in steps):
-                            self._check(stage)
-                    QTimer.singleShot(250, retry)
-                    return
                 self._note("The expected molecule or result is not ready. Review the job details and retry this step.")
                 return
-            self._preparation_rechecks.pop(stage, None)
             self.completed_stages.add(stage)
             # Receptor preparation has no step of its own: it only retargets the final card.
             signal = {"receptor": self.receptor_loaded, "ligand": self.ligand_loaded,
@@ -662,11 +614,6 @@ class SimpleDockingTutorial(QObject):
     def _cleanup(self, *_):
         self._generation += 1
         self.pending.clear()
-        self._preparation_rechecks.clear()
-        if self.studio is not None:
-            self.studio.prepare_receptor_button.removeEventFilter(self)
-            self.studio.prepare_receptor_button.setEnabled(self._receptor_button_enabled)
-            self.studio.prepare_receptor_button.setToolTip(self._receptor_button_tooltip)
         from shiboken6 import isValid
         if self._project_form is not None and isValid(self._project_form):
             self._project_form.name_input.removeEventFilter(self)

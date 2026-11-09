@@ -430,9 +430,6 @@ def test_tutorial_steps_wait_for_successful_jobs_and_prepared_data(practice, mon
     tutorial.studio.ligand_prep_jobs.finished.emit("completed")
     wait_until(app, lambda: tutorial.controller.index == 5)
     assert tutorial.controller.current_step.id == "define-box"
-    assert not tutorial.studio.prepare_receptor_button.isEnabled()
-    tutorial.studio.prepare_receptor_button.setEnabled(True)
-    assert not tutorial.studio.prepare_receptor_button.isEnabled()
     assert tutorial.studio.stepper.current_index == 1  # no tutorial-driven navigation
     assert not tutorial._grid_ready
     grid = window.grid_dock
@@ -453,7 +450,6 @@ def test_tutorial_steps_wait_for_successful_jobs_and_prepared_data(practice, mon
     grid.activate_button.click()
     wait_until(app, lambda: tutorial._grid_ready)
     wait_until(app, lambda: tutorial.controller.current_step.id == "run-docking")
-    assert tutorial.studio.prepare_receptor_button.isEnabled()
     final_step = tutorial.controller.current_step
     final_instruction = tutorial._instruction(final_step)
     assert "Click Prepare Receptors" in final_instruction
@@ -504,7 +500,6 @@ def test_preparing_before_activating_the_box_can_recover(practice, monkeypatch):
     wait_until(app, lambda: tutorial.controller.current_step.id == "prepare-ligand")
     tutorial.ligand_prepared.emit()
     wait_until(app, lambda: tutorial.controller.current_step.id == "define-box")
-    assert not tutorial.studio.prepare_receptor_button.isEnabled()
     monkeypatch.setattr(runtime.docking, "preparation_summary",
                         lambda *a, **k: {"total": 1, "ready": 1, "failed": 0})
     tutorial.studio.stepper.set_current_index(3)  # preparation opens Preview & Run
@@ -525,90 +520,10 @@ def test_preparing_before_activating_the_box_can_recover(practice, monkeypatch):
     grid.save_button.click()
     wait_until(app, lambda: not tutorial._grid_checking)
     assert tutorial.controller.current_step.id == "define-box"  # saved is not active
-    assert not tutorial.studio.prepare_receptor_button.isEnabled()
     grid.activate_button.click()
     wait_until(app, lambda: tutorial._grid_ready and not tutorial._checking)
     wait_until(app, lambda: tutorial.controller.current_step.id == "run-docking")
     assert tutorial.controller.current_step.id == "run-docking"
-
-
-def test_preparation_readiness_is_rechecked_after_the_completion_signal(practice, monkeypatch):
-    app, runtime, window, _messages = practice
-    tutorial = start_simple_docking_tutorial(window)
-    tutorial.receptor_loaded.emit()
-    wait_until(app, lambda: tutorial.controller.current_step.id == "load-ligand")
-    tutorial.ligand_loaded.emit()
-    wait_until(app, lambda: tutorial.controller.current_step.id == "docking-studio")
-    window.tools.action_buttons[DOCKING_VIEW_ID].click()
-    wait_until(app, lambda: tutorial.controller.current_step.id == "programs")
-    for key, check in tutorial.studio._program_checks.items():
-        check.setChecked(key == "vina")
-    tutorial.studio.stepper.next()
-    wait_until(app, lambda: tutorial.controller.current_step.id == "prepare-ligand")
-    reads = []
-    ready = {"total": 1, "ready": 0, "failed": 0}
-
-    def summary(*args, **kwargs):
-        reads.append(dict(ready))
-        return dict(ready)
-
-    monkeypatch.setattr(runtime.docking, "preparation_summary", summary)
-    tutorial.studio.ligand_prep_jobs.finished.emit("completed")
-    wait_until(app, lambda: bool(reads) and not tutorial._checking)
-    assert tutorial.controller.current_step.id == "prepare-ligand"
-    ready["ready"] = 1
-    # No second job-finished event will arrive for this already completed job.
-    wait_until(app, lambda: tutorial.controller.current_step.id == "define-box")
-
-
-def tutorial_at_box(app, window):
-    tutorial = tutorial_at_programs(app, window)
-    for key, check in tutorial.studio._program_checks.items():
-        check.setChecked(key == "vina")
-    tutorial.studio.stepper.next()
-    wait_until(app, lambda: tutorial.controller.current_step.id == "prepare-ligand")
-    tutorial.ligand_prepared.emit()
-    wait_until(app, lambda: tutorial.controller.current_step.id == "define-box")
-    return tutorial
-
-
-def test_receptor_preparation_finished_before_the_box_is_rechecked(practice, monkeypatch):
-    app, runtime, window, _messages = practice
-    tutorial = tutorial_at_box(app, window)
-    reads = []
-    ready = {"total": 1, "ready": 0, "failed": 0}
-
-    def summary(*args, **kwargs):
-        reads.append(dict(ready))
-        return dict(ready)
-
-    monkeypatch.setattr(runtime.docking, "preparation_summary", summary)
-    tutorial.studio.receptor_prep_jobs.finished.emit("completed")
-    wait_until(app, lambda: bool(reads) and not tutorial._checking)
-    assert not tutorial._receptor_preparation_ready
-    ready["ready"] = 1
-    # The retry must run on define-box too, or the final card asks to prepare again.
-    wait_until(app, lambda: tutorial._receptor_preparation_ready)
-    assert tutorial.controller.current_step.id == "define-box"
-
-
-def test_box_readiness_keeps_studio_busy_state_of_the_prepare_button(practice):
-    app, _runtime, window, _messages = practice
-    tutorial = tutorial_at_box(app, window)
-    button = tutorial.studio.prepare_receptor_button
-    tutorial._grid_ready = True
-    tutorial._sync_receptor_button()
-    assert button.isEnabled()
-    button.setEnabled(False)  # Studio checks the submission off the GUI thread
-    tutorial._sync_receptor_button()  # a box check finishing meanwhile
-    assert not button.isEnabled()
-    button.setEnabled(True)  # Studio's check finished
-    assert button.isEnabled()
-    tutorial._grid_ready = False
-    tutorial._sync_receptor_button()
-    assert not button.isEnabled()
-    tutorial.controller.stop()
-    assert button.isEnabled()  # cleanup restores Studio's current state
 
 
 def test_another_molecules_box_does_not_satisfy_the_tutorial(practice):
