@@ -144,3 +144,39 @@ def test_the_monitor_measures_only_the_jobs_the_runtime_tracks(tmp_path):
     assert runtime.measure_job("job-1") == {"done": 5, "total": 9, "unit": "ligands"}
     assert runtime.measure_job("other") is None
 
+
+def test_the_project_summary_reads_the_library_off_the_inventory(project, tmp_path):
+    """A sharded library is not rows: its stats come from the active generation's shards."""
+    from amdockvs.models import DockingRun
+    from amdockvs.models.screening import ScreeningTarget, ShardPrep
+    from amdockvs.molecules.library_stats import format_bytes, library_stats
+
+    project_db, root = project
+    assert library_stats(project_db).shards == 0  # no library yet
+    first = create_generation(project_db, step="import", shard_dir=root)
+    activate_generation(project_db, first)
+    _populate(project_db, first, tmp_path, count=3, tag="first")
+    second = create_generation(project_db, step="protonate", shard_dir=root)
+    activate_generation(project_db, second)
+    shard_ids = []
+    with project_db.get_session() as session:
+        for index, error in enumerate(("", "", "boom")):
+            row = ScreeningShard(generation_id=second, source="lib.smi", shard_index=index,
+                                 path=str(tmp_path / f"p_{index}.parquet"), input_format="smi",
+                                 n_records=0 if error else 900, error=error)
+            session.add(row)
+            session.flush()
+            shard_ids.append(row.id)
+        session.add(ShardPrep(shard_id=shard_ids[0], family="ad4", n_records=899, n_failed=1))
+        session.add(DockingRun(id=1, engine="vina"))
+        session.flush()
+        session.add(ScreeningTarget(docking_run_id=1, receptor_molecule_id=7, ligands_done=1800, hits=12))
+        session.commit()
+
+    stats = library_stats(project_db, tmp_path)
+    assert (stats.ligands, stats.shards, stats.failed_shards) == (1800, 3, 1)
+    assert (stats.last_step, stats.previous_step) == ("protonate", "import")
+    assert stats.prepared == {"ad4": (1, 899, 1)}
+    assert (stats.campaigns, stats.receptors_docked, stats.ligands_docked, stats.hits) == (1, 1, 1800, 12)
+    assert stats.disk_bytes > 0
+    assert format_bytes(1536) == "1.5 KB" and format_bytes(12) == "12 B"
