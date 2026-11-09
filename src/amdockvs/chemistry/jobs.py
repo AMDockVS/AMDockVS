@@ -271,9 +271,18 @@ class ShardChemistryJobParams(BaseModel):
     output_dir: str = ""
 
 
+def count_shard_chemistry_chunks(params: dict, config: dict | None = None) -> int:
+    """One chunk per shard of the active generation: the same rows the feed walks."""
+    project_db = dict(config or {}).get("project_db")
+    if project_db is None:
+        raise ValueError("shard_chemistry_job requires project_db in config.")
+    return ShardStore(project_db).count(shard_scope_spec())
+
+
 @job(
     task=shard_chemistry_task,
     name="amdock_shard_chemistry_job",
+    count_chunks=count_shard_chemistry_chunks,
     params_model=ShardChemistryJobParams,
     executor="compute",
     supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
