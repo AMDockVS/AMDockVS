@@ -293,6 +293,9 @@ class DockingStudioWidget(
         # Back on the table of the step it was left at. Whatever finished while another tool was
         # up catches up there too (requirement counts and the live poll).
         self._show_step_view()
+        # Jobs that finished off screen left the inputs unchanged, so a plain refresh would be
+        # deduplicated and every step's check mark would stay as it was.
+        self._dispatch_refresh(force=True)
 
     def _on_shared_selection_changed(self, role: str) -> None:
         # Picking or dropping a selection changes what the step's table lists (see

@@ -16,7 +16,6 @@ from amdockvs.core.configuration import (
     DEFAULT_LIGAND_BATCH_SIZE,
     DEFAULT_OUTPUT_FLUSH_EVERY,
     DEFAULT_SHARD_MAX_BYTES,
-    DEFAULT_SHARD_SUGGEST_RECORDS,
 )
 from amdockvs.core.constants import (
     AMDOCKVS_LOCAL_EXECUTORS,
@@ -310,10 +309,6 @@ def iter_import_chunks(
 # The guard, not the knob: it only ever closes a shard *early*, and a shard closed by it says
 # so in its metadata. If it fires in normal operation the records are huge — lower the size.
 SHARD_MAX_BYTES = int(os.environ.get("AMDOCK_SHARD_MAX_BYTES") or DEFAULT_SHARD_MAX_BYTES)
-# Above this many queued molecules, importing as rows is almost certainly a mistake: the
-# importer offers shards instead. Molecules, not bytes — 200 MB is ~4 M SMILES but ~50 k 3D
-# SDF records. The UI counts with count_import_records(approx=True), so no parse, no full scan.
-SHARD_SUGGEST_RECORDS = int(os.environ.get("AMDOCK_SHARD_SUGGEST_RECORDS") or DEFAULT_SHARD_SUGGEST_RECORDS)
 
 
 @job(

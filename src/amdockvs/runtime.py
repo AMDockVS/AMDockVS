@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import time
 from datetime import datetime
 from pathlib import Path
@@ -105,6 +106,8 @@ class AMDockVSRuntime(AppRuntime):
             create_contact_map_configuration(),
         ]
         self._loader_api: LoaderAPI | None = None
+        # job_id -> (count() -> (done, total), unit): what the monitor shows besides chunks.
+        self._job_items: dict[str, tuple] = {}
         self._molecule_api: MoleculeAPI | None = None
         self._complex_api: ComplexAPI | None = None
         self._chemistry_api: ChemistryAPI | None = None
@@ -444,13 +447,37 @@ class AMDockVSRuntime(AppRuntime):
         # Defaults live in the component's MonitorConfig, nested in AMDock's config so
         # the user can persist overrides in AMDock's file; explicit args still win.
         monitor_cfg = self.amdock_configuration.get_value("monitor")
+        # ms_components < 0.5.7 has no `measure`: the monitor then shows chunks alone.
+        # ponytail: drop the check once pyproject requires a release that has it.
+        extra = (
+            {"measure": self.measure_job}
+            if "measure" in inspect.signature(MolSuiteMonitorBridge.__init__).parameters
+            else {}
+        )
         return MolSuiteMonitorBridge(
             workspace=self.workspace,
             poll_ms=monitor_cfg.poll_ms if poll_ms is None else poll_ms,
             max_recent_jobs=monitor_cfg.max_recent_jobs if max_recent_jobs is None else max_recent_jobs,
             resume=self.resume_job,
             destinations=lambda job_id: [name for name, _label in self.job_destinations(job_id)],
+            **extra,
         )
+
+    def track_job_items(self, job_id: str, count, *, unit: str) -> None:
+        """Say what a job's chunks hold, for the monitor: `count() -> (done, total)` in `unit`.
+
+        Kept for this session only; a job of an earlier one shows its chunks alone.
+        """
+        self._job_items[str(job_id)] = (count, str(unit))
+
+    def measure_job(self, job_id: str) -> dict | None:
+        """The monitor's `measure`: called on its polling thread, so `count` only reads."""
+        tracked = self._job_items.get(str(job_id))
+        if tracked is None:
+            return None
+        count, unit = tracked
+        done, total = count()
+        return {"done": int(done), "total": int(total or 0), "unit": unit}
 
     @property
     def workflow(self):

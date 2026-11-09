@@ -23,7 +23,7 @@ from amdockvs.chemistry.jobs import (
 from amdockvs.chemistry.tools.esmfold import ESM_TOKEN_ENV, FAST_MODEL, api_token
 from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR, RESOURCE_SHARDS, SHARDS_PRIORITY
 from amdockvs.molecules.api import ensure_molecule_set_ref
-from amdockvs.molecules.storage import create_generation, has_shards
+from amdockvs.molecules.storage import create_generation, has_shards, shard_generation_progress
 from amdockvs.project.sets import MoleculeSetRef
 from amdockvs.project.summaries import JobStatus
 from amdockvs.molecules.scopes import MoleculeScope, is_molecule_scope, scope_payload
@@ -257,6 +257,9 @@ class ChemistryAPI:
             depends_on=depends_on,
             priority=SHARDS_PRIORITY,
             result_handler_kwargs={"project_db": project_db, "generation_id": generation_id},
+        )
+        self.runtime.track_job_items(
+            job_id, lambda: shard_generation_progress(project_db, generation_id), unit="ligands"
         )
         return self.runtime.wait_for_job(job_id) if wait else job_id
 
