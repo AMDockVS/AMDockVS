@@ -65,6 +65,9 @@ TOOL_VIEW_IDS = frozenset(entry.view_id for entry in TOOLS)
 CATALOG_TABLES = (
     ("Receptors", RECEPTOR_VIEW_ID, "receptor.svg"),
     ("Ligands", LIGANDS_VIEW_ID, "ligands.svg"),
+    # The library of a sharded project, beside the ligand rows it stands in for. Only shown
+    # once the project holds shards (ViewCoordinator: the button follows the data).
+    ("Shards", SHARDS_VIEW_ID, "cloud.svg"),
     ("Molecules", MOLECULES_VIEW_ID, "catalog.svg"),
     # ("Binding Sites", BINDING_SITES_VIEW_ID, "binding_site.svg"),
 )
@@ -87,10 +90,8 @@ STANDING_DATA_VIEWS = (
 )
 
 # Contextual views, like Office's contextual ribbon tabs: the last group of the bar, shown
-# only when they apply. Shards appears once the project holds shards and stays (closing its
-# tab only unchecks it); an EPHEMERAL one appears while its tab is open and leaves with it.
+# only when they apply. An EPHEMERAL one appears while its tab is open and leaves with it.
 CONTEXTUAL_VIEWS = (
-    ("Shards", SHARDS_VIEW_ID, "cloud.svg"),
     ("Complexes", COMPLEX_PAIRS_VIEW_ID, "complexes.svg"),
 )
 EPHEMERAL_VIEW_IDS = frozenset({COMPLEX_PAIRS_VIEW_ID})
