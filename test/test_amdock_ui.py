@@ -741,7 +741,7 @@ def test_tool_buttons_are_flat_and_keep_result_views_available(tmp_path, monkeyp
 def test_preparing_ligands_without_3d_offers_to_generate_it(tmp_path, monkeypatch):
     """SMILES ligands have no coordinates. Preparation used to stop there with an API hint; it
     now asks, and one answer generates the 3D and prepares behind it."""
-    pytest.importorskip("meeko")
+    pytest.importorskip("ms_adtools")
     _patch_fake_home(monkeypatch, tmp_path / "home")
     monkeypatch.setenv("AMDOCK_DISABLE_PYMOL", "1")
     app = QApplication.instance() or QApplication(["amdockvs-ui"])

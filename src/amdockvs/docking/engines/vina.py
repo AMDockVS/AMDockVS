@@ -179,39 +179,15 @@ def attach_flexres(sd_text: str, pdbqt_text: str) -> str:
                    for record, atoms in zip(records, models))
 
 
-def _convert_vina_pdbqt_to_sdf(
-    *,
-    pdbqt_path: Path,
-    sdf_path: Path,
-    only_cluster_leads: bool = False,
-) -> Path:
-    try:
-        from meeko import PDBQTMolecule, RDKitMolCreate
-    except ImportError as exc:
-        raise RuntimeError("Python package 'meeko' is not available in the current environment.") from exc
+def _convert_vina_pdbqt_to_sdf(*, pdbqt_path: Path, sdf_path: Path) -> Path:
+    from amdockvs.docking.preparation.meeko import poses_sd
 
     pdbqt_text = pdbqt_path.read_text(encoding="utf-8", errors="replace")
-    pdbqt_molecule = PDBQTMolecule(
-        pdbqt_text,
-        name=pdbqt_path.stem,
-        poses_to_read=None,
-        energy_range=None,
-        is_dlg=False,
-        skip_typing=False,
-    )
-    # write_sd_string returns (sd_string, failures); writing the tuple repr (str(...)) is what
-    # corrupted the SDF ("('...\\n...', [])") and made PyMOL fail with "bad atom count".
-    sd_string, _failures = RDKitMolCreate.write_sd_string(
-        pdbqt_molecule,
-        only_cluster_leads=bool(only_cluster_leads),
-        keep_flexres=False,
-    )
-    if not str(sd_string or "").strip():
-        raise RuntimeError(f"Meeko could not convert docked PDBQT to SDF: {pdbqt_path.name}")
-    from amdockvs.docking.preparation.meeko import boron_in_sd
-
+    sd_string, _props = poses_sd(pdbqt_text, pdbqt_path.stem)
+    if not sd_string.strip():
+        raise RuntimeError(f"Could not convert docked PDBQT to SDF: {pdbqt_path.name}")
     sdf_path.parent.mkdir(parents=True, exist_ok=True)
-    sdf_path.write_text(attach_flexres(boron_in_sd(str(sd_string)), pdbqt_text), encoding="utf-8")
+    sdf_path.write_text(attach_flexres(sd_string, pdbqt_text), encoding="utf-8")
     return sdf_path
 
 
@@ -527,7 +503,6 @@ def run_vina_docking_rows(
             _convert_vina_pdbqt_to_sdf(
                 pdbqt_path=output_pdbqt_path,
                 sdf_path=output_sdf_path,
-                only_cluster_leads=False,
             )
         except Exception as exc:
             failure = {

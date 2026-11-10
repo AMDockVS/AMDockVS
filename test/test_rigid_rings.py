@@ -18,14 +18,14 @@ def _types(path: Path) -> set[str]:
 
 
 def _azepane(tmp_path: Path) -> Path:
-    from meeko import MoleculePreparation, PDBQTWriterLegacy
+    from ms_adtools import prepare_ligand
     from rdkit import Chem
     from rdkit.Chem import AllChem
 
-    mol = Chem.AddHs(Chem.MolFromSmiles("CC(=O)N1CCCCCC1c1ccccc1O"))  # 7-ring: Meeko opens it
+    mol = Chem.AddHs(Chem.MolFromSmiles("CC(=O)N1CCCCCC1c1ccccc1O"))  # a 7-ring, opened
     AllChem.EmbedMolecule(mol, randomSeed=1)
     path = tmp_path / "azepane.pdbqt"
-    path.write_text(PDBQTWriterLegacy.write_string(MoleculePreparation().prepare(mol)[0])[0])
+    path.write_text(prepare_ligand(mol, open_macrocycles=True))
     return path
 
 

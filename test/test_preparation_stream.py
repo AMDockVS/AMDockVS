@@ -64,7 +64,7 @@ def test_already_prepared_rows_are_skipped_unless_forced(monkeypatch, store):
 
 
 def test_a_ligand_is_prepared_from_its_bytes_and_a_pdbqt_is_not_copied():
-    pytest.importorskip("meeko")
+    pytest.importorskip("ms_adtools")
     from rdkit import Chem
     from rdkit.Chem import AllChem
 

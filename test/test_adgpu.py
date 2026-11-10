@@ -108,12 +108,11 @@ Warning: The following jobs were not successful:
 
 @pytest.mark.skipif(not _installed(), reason="AutoDock-GPU or autogrid4 not installed")
 def test_adgpu_docks_1iep(tmp_path):
-    from meeko import MoleculePreparation, PDBQTWriterLegacy
+    from ms_adtools import prepare_ligand
     from rdkit import Chem
 
     mol = Chem.AddHs(Chem.MolFromMolFile(str(DATA / "1iep_ligand.sdf")), addCoords=True)
-    text, ok, error = PDBQTWriterLegacy.write_string(MoleculePreparation().prepare(mol)[0])
-    assert ok, error
+    text = prepare_ligand(mol, open_macrocycles=True)
     ligand = tmp_path / "ligand.pdbqt"
     ligand.write_text(text)
     broken = tmp_path / "broken.pdbqt"

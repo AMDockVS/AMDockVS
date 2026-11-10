@@ -107,28 +107,17 @@ def _run_adgpu(
 def _cluster_leads(dlg_path: Path, sdf_path: Path, num_modes: int) -> list[dict]:
     """Write the best pose of each cluster (lowest energy first) as SDF, with the side chains
     docked with it when residues were flexible, and return their energies in the same order."""
-    import io
+    from ms_adtools import dlg_to_pdbqt
 
-    from ms_adtools import dlg_to_pdbqt, pdbqt_to_rdkit
-    from rdkit import Chem
-
-    from amdockvs.docking.preparation.meeko import boron_in_sd
+    from amdockvs.docking.preparation.meeko import poses_sd
 
     # The chemistry comes from the SMILES remark, not from the AutoDock types: a type added by a
     # parameter file needs no entry anywhere.
     pdbqt = dlg_to_pdbqt(dlg_path.read_text(encoding="utf-8", errors="replace"))
-    mol = pdbqt_to_rdkit(pdbqt)
-    mol.SetProp("_Name", dlg_path.stem)
-    out = io.StringIO()
-    writer = Chem.SDWriter(out)
-    poses: list[dict] = []
-    for conformer in list(mol.GetConformers())[: max(1, int(num_modes))]:
-        props = conformer.GetPropsAsDict()
-        writer.write(mol, confId=conformer.GetId())
-        poses.append({"free_energy": props["score"], "intermolecular_energy": props.get("intermolecular"),
-                      "internal_energy": props.get("internal"), "cluster_size": props.get("cluster_size")})
-    writer.close()
-    sdf_path.write_text(attach_flexres(boron_in_sd(out.getvalue()), pdbqt), encoding="utf-8")
+    sd_string, props = poses_sd(pdbqt, dlg_path.stem, max(1, int(num_modes)))
+    sdf_path.write_text(attach_flexres(sd_string, pdbqt), encoding="utf-8")
+    poses = [{"free_energy": p["score"], "intermolecular_energy": p.get("intermolecular"),
+              "internal_energy": p.get("internal"), "cluster_size": p.get("cluster_size")} for p in props]
     return poses
 
 

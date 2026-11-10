@@ -5,7 +5,7 @@ from pathlib import Path
 from amdockvs.integrations.contracts import ToolArtifact, ToolResult
 
 
-# Meeko opens every ring of 7+ atoms into CG0/G0 closure pseudo-atoms; only Vina's own scoring
+# Ligand preparation opens every ring of 7+ atoms into CG0/G0 closure pseudo-atoms; only Vina's own scoring
 # functions close them again. Every other program (and scoring) docks those rings rigid.
 OPEN_RING_SCORING: dict[str, tuple[str, ...]] = {"vina": ("vina", "vinardo")}
 
@@ -31,16 +31,13 @@ def rigid_ring_ligand(path: Path, work_dir: Path) -> Path:
     text = path.read_text(encoding="utf-8", errors="replace")
     if not _has_open_rings(text):
         return path
-    from meeko import MoleculePreparation, PDBQTMolecule, PDBQTWriterLegacy, RDKitMolCreate
+    from ms_adtools import pdbqt_to_rdkit, prepare_ligand
 
-    mol = RDKitMolCreate.from_pdbqt_mol(PDBQTMolecule(text, poses_to_read=1, skip_typing=True))[0]
-    if mol is None:
-        raise RuntimeError(f"Meeko could not rebuild the ligand to keep its rings rigid: {path.name}")
-    rigid, ok, error = PDBQTWriterLegacy.write_string(
-        MoleculePreparation(rigid_macrocycles=True).prepare(mol)[0]
-    )
-    if not ok:
-        raise RuntimeError(str(error or f"Meeko could not write the rigid-ring ligand: {path.name}"))
+    try:
+        mol = pdbqt_to_rdkit(text)
+        rigid = prepare_ligand(mol, conf_id=mol.GetConformers()[0].GetId())
+    except Exception as exc:  # noqa: BLE001 - the ligand is unusable rigid, say which one
+        raise RuntimeError(f"Could not rebuild the ligand to keep its rings rigid: {path.name} ({exc})") from exc
     work_dir.mkdir(parents=True, exist_ok=True)
     out = work_dir / f"{path.stem}.rigid.pdbqt"
     out.write_text(rigid, encoding="utf-8")
@@ -49,7 +46,7 @@ def rigid_ring_ligand(path: Path, work_dir: Path) -> Path:
 
 # AutoDock and Vina have no boron type. As EasyDock does, a boron docks as a carbon; the carbon
 # carries isotope BORON_MARK + the boron's formal charge so the pose can turn it back unambiguously
-# (Meeko keeps isotopes in its REMARK SMILES).
+# (the REMARK SMILES keeps isotopes).
 BORON_MARK = 500
 
 
@@ -71,7 +68,7 @@ def boron_as_carbon(mol):
 
 
 def carbon_as_boron(mol):
-    """Undo `boron_as_carbon` on a pose rebuilt by Meeko (in place; returns `mol`)."""
+    """Undo `boron_as_carbon` on a pose rebuilt from its PDBQT (in place; returns `mol`)."""
     for atom in mol.GetAtoms():
         if atom.GetAtomicNum() == 6 and BORON_MARK - 4 <= atom.GetIsotope() <= BORON_MARK + 4:
             atom.SetFormalCharge(atom.GetIsotope() - BORON_MARK)
@@ -81,23 +78,23 @@ def carbon_as_boron(mol):
     return mol
 
 
-def boron_in_sd(sd_string: str) -> str:
-    """The SD text Meeko wrote from a pose, its marked carbons back to boron."""
-    if "M  ISO" not in sd_string:
-        return sd_string
+def poses_sd(pdbqt_text: str, name: str, limit: int | None = None) -> tuple[str, list[dict]]:
+    """The poses of a docked PDBQT (from its REMARK SMILES) as SD text, marked carbons back to
+    boron, and each pose's conformer properties (score, and a DLG's energies and cluster)."""
     from io import StringIO
 
+    from ms_adtools import pdbqt_to_rdkit
     from rdkit import Chem
 
-    supplier = Chem.SDMolSupplier()
-    supplier.SetData(sd_string, sanitize=False, removeHs=False)
+    mol = carbon_as_boron(pdbqt_to_rdkit(pdbqt_text))
+    mol.SetProp("_Name", name)
+    conformers = list(mol.GetConformers())[:limit]
     out = StringIO()
     writer = Chem.SDWriter(out)
-    for mol in supplier:
-        if mol is not None:
-            writer.write(carbon_as_boron(mol))
+    for conformer in conformers:
+        writer.write(mol, confId=conformer.GetId())
     writer.close()
-    return out.getvalue()
+    return out.getvalue(), [conformer.GetPropsAsDict() for conformer in conformers]
 
 
 def _ligand_has_3d(mol) -> bool:
@@ -112,7 +109,7 @@ def _prepare_ligand_3d_with_hs(mol):
     if not _ligand_has_3d(mol):
         raise ValueError(
             "Ligand preparation for Vina requires an existing 3D conformer. "
-            "Run the ligand 3D generation step before Meeko preparation."
+            "Run the ligand 3D generation step before preparing it."
         )
     return Chem.AddHs(Chem.Mol(mol), addCoords=True)
 
@@ -133,19 +130,11 @@ def _load_ligand_mol(source_path: Path):
 
 
 def prepare_ligand_vina_pdbqt_from_mol(mol) -> ToolResult:
-    try:
-        from meeko import MoleculePreparation, PDBQTWriterLegacy
-    except ImportError as exc:
-        raise RuntimeError("Python package 'meeko' is not available in the current environment.") from exc
+    from ms_adtools import prepare_ligand
 
-    prepared_mol = boron_as_carbon(_prepare_ligand_3d_with_hs(mol))
-    mk_prep = MoleculePreparation()
-    molsetups = mk_prep.prepare(prepared_mol)
-    if not molsetups:
-        raise RuntimeError("Meeko did not produce any ligand setup.")
-    pdbqt_string, is_ok, error_msg = PDBQTWriterLegacy.write_string(molsetups[0])
-    if not is_ok:
-        raise RuntimeError(str(error_msg or "Meeko could not write ligand PDBQT."))
+    # Rings of 7+ atoms open into CG/G closure atoms as meeko's default; `dockable_ligand` makes
+    # the rigid-ring copy for the programs that cannot close them.
+    pdbqt_string = prepare_ligand(boron_as_carbon(_prepare_ligand_3d_with_hs(mol)), open_macrocycles=True)
     return ToolResult(
         artifact=ToolArtifact(
             kind="vina_ligand_pdbqt",

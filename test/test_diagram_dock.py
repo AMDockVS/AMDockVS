@@ -4,14 +4,12 @@ import os
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
 def test_the_dock_draws_saved_diagrams_and_never_builds_one(tmp_path):
-    pytest.importorskip("meeko")
-    from meeko import PDBQTMolecule, RDKitMolCreate
+    from ms_adtools import pdbqt_to_rdkit
     from PySide6.QtWidgets import QApplication, QMainWindow
     from rdkit import Chem
 
@@ -20,7 +18,7 @@ def test_the_dock_draws_saved_diagrams_and_never_builds_one(tmp_path):
     from ms_components.ms_dockwidget.widget import DockManager
 
     data = Path(__file__).resolve().parent / "data"
-    mol = RDKitMolCreate.from_pdbqt_mol(PDBQTMolecule.from_file(str(data / "1s63_ligand.pdbqt"), skip_typing=True))[0]
+    mol = pdbqt_to_rdkit((data / "1s63_ligand.pdbqt").read_text())
     pose = tmp_path / "12.sdf"
     pose.write_text(Chem.MolToMolBlock(mol) + "$$$$\n")
     hit = SimpleNamespace(result_id=1, ligand_name="lig", pose_payload_id=12, receptor_payload_id=7,
@@ -54,8 +52,7 @@ def test_the_dock_draws_saved_diagrams_and_never_builds_one(tmp_path):
 
 
 def test_results_build_opens_the_diagram_dock_for_the_current_pose(tmp_path, monkeypatch):
-    pytest.importorskip("meeko")
-    from meeko import PDBQTMolecule, RDKitMolCreate
+    from ms_adtools import pdbqt_to_rdkit
     from PySide6.QtWidgets import QApplication
     from rdkit import Chem
     import time
@@ -80,7 +77,7 @@ def test_results_build_opens_the_diagram_dock_for_the_current_pose(tmp_path, mon
         assert done()
 
     data = Path(__file__).resolve().parent / "data"
-    mol = RDKitMolCreate.from_pdbqt_mol(PDBQTMolecule.from_file(str(data / "1s63_ligand.pdbqt"), skip_typing=True))[0]
+    mol = pdbqt_to_rdkit((data / "1s63_ligand.pdbqt").read_text())
     pose = tmp_path / "12.sdf"
     pose.write_text(Chem.MolToMolBlock(mol) + "$$$$\n")
     hit = SimpleNamespace(result_id=1, ligand_name="lig", pose_rank=2, pose_payload_id=12,
