@@ -30,6 +30,17 @@ from amdockvs.ui.tools.pymol_ribbon import (
 _log = logging.getLogger(__name__)
 
 
+def load_flexres(cmd, pose: tuple, name: str) -> str | None:
+    """The side chains docked with a pose (its SD `flexres` property, a PDB block) as the object
+    `name`, drawn beside the ligand; None when the pose was docked into a rigid receptor."""
+    data = pose[0].decode("utf-8", "replace") if isinstance(pose[0], bytes) else str(pose[0])
+    _, tag, rest = data.partition("> <flexres>\n")
+    if not tag:
+        return None
+    cmd.load_raw(rest.split("\n\n", 1)[0] + "\nEND\n", "pdb", name)
+    return name
+
+
 SWAPS_POSE = "amdock_swaps_pose"  # Qt property of a table view whose rows are docked poses
 
 
@@ -357,6 +368,7 @@ class MolecularViewerController(QObject):
                         cmd.zoom(receptor_obj, 3)
                 else:
                     cmd.delete(ligand_obj)  # keep the receptor; replace only the pose
+                    cmd.delete(f"{ligand_obj}_flexres")
                     from amdockvs.ui.viewers.interactions_3d import interaction_group
                     cmd.delete(interaction_group(receptor_obj, ligand_obj))
                     swapped = True
@@ -372,8 +384,9 @@ class MolecularViewerController(QObject):
                     except Exception:
                         pass
                 selections = {"receptor": receptor_obj}
+                flexres = load_flexres(cmd, found["pose"], f"{ligand_obj}_flexres") if "pose" in found else None
                 if "pose" in found:
-                    selections["ligand"] = ligand_obj
+                    selections["ligand"] = f"({ligand_obj} or {flexres})" if flexres else ligand_obj
                 set_pymol_scene_context(
                     dock,
                     "docking_pose",
@@ -381,6 +394,8 @@ class MolecularViewerController(QObject):
                     selections=selections,
                     default_preset="amdockvs.complex",
                 )
+                if flexres:
+                    apply_receptor_atom_coloring(cmd, flexres)
             except Exception:
                 return
 

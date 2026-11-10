@@ -161,6 +161,24 @@ def count_heavy_atoms(path: Path) -> int:
     return mol.GetNumHeavyAtoms() if mol is not None else 0
 
 
+def attach_flexres(sd_text: str, pdbqt_text: str) -> str:
+    """The SD records with the side chains docked with each pose as their `flexres` property (a
+    PDB block: MODEL n of the docked PDBQT goes with record n), for the viewer to draw beside the
+    ligand; unchanged when nothing was flexible or the poses do not pair up one to one."""
+    if "BEGIN_RES" not in pdbqt_text:
+        return sd_text
+    from ms_adtools import flexres_models
+
+    models = [[line for line in block.splitlines() if line.startswith("ATOM")]
+              for block in flexres_models(pdbqt_text).split("ENDMDL")]
+    models = [atoms for atoms in models if atoms]
+    records = [record for record in sd_text.split("$$$$\n") if record.strip()]
+    if len(records) > len(models):  # ponytail: a pose the SD writer dropped; pairing by rank would lie
+        return sd_text
+    return "".join(f"{record.rstrip(chr(10))}\n> <flexres>\n" + "\n".join(atoms) + "\n\n$$$$\n"
+                   for record, atoms in zip(records, models))
+
+
 def _convert_vina_pdbqt_to_sdf(
     *,
     pdbqt_path: Path,
@@ -172,8 +190,9 @@ def _convert_vina_pdbqt_to_sdf(
     except ImportError as exc:
         raise RuntimeError("Python package 'meeko' is not available in the current environment.") from exc
 
+    pdbqt_text = pdbqt_path.read_text(encoding="utf-8", errors="replace")
     pdbqt_molecule = PDBQTMolecule(
-        pdbqt_path.read_text(encoding="utf-8", errors="replace"),
+        pdbqt_text,
         name=pdbqt_path.stem,
         poses_to_read=None,
         energy_range=None,
@@ -192,7 +211,7 @@ def _convert_vina_pdbqt_to_sdf(
     from amdockvs.docking.preparation.meeko import boron_in_sd
 
     sdf_path.parent.mkdir(parents=True, exist_ok=True)
-    sdf_path.write_text(boron_in_sd(str(sd_string)), encoding="utf-8")
+    sdf_path.write_text(attach_flexres(boron_in_sd(str(sd_string)), pdbqt_text), encoding="utf-8")
     return sdf_path
 
 

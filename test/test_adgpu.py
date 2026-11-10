@@ -154,3 +154,20 @@ def test_adgpu_docks_1iep(tmp_path):
     assert [row["score"] for row in rows] == sorted(row["score"] for row in rows)
     poses = (tmp_path / "out" / "1__2.adgpu.sdf").read_text()
     assert poses.count("$$$$") == len(rows)
+
+
+def test_flexible_residues_travel_with_their_pose_to_the_viewer():
+    from amdockvs.docking.engines.vina import attach_flexres
+    from amdockvs.ui.viewers.molecular_viewer import load_flexres
+
+    side_chain = "ATOM      2  CB  THR A 315       {:.3f}   0.000   0.000  1.00  0.00     0.000 C \n"
+    pdbqt = "".join(f"MODEL {n}\nROOT\n{ATOM.format('C ')}ENDROOT\nTORSDOF 0\nBEGIN_RES THR A 315\n"
+                    f"{side_chain.format(float(n))}END_RES THR A 315\nENDMDL\n" for n in (1, 2))
+    sd = "".join(f"pose{n}\n\n\n  0  0  0  0  0  0  0  0  0  0999 V2000\nM  END\n$$$$\n" for n in (1, 2))
+    poses = attach_flexres(sd, pdbqt).split("$$$$\n")[:2]
+    loaded = []
+    load = type("Cmd", (), {"load_raw": lambda self, text, kind, name: loaded.append(text)})()
+    assert [load_flexres(load, (pose.encode(),), "flex") for pose in poses] == ["flex", "flex"]
+    assert [" 1.000 " in loaded[0], " 2.000 " in loaded[1]] == [True, True]  # MODEL n with pose n
+    assert attach_flexres(sd, pdbqt.replace("BEGIN_RES", "REMARK")) == sd  # rigid docking: untouched
+    assert load_flexres(load, (sd.encode(),), "flex") is None
