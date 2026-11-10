@@ -26,7 +26,7 @@ from amdockvs.core.worker_io import run_program
 from amdockvs.docking.engines.autogrid import map_prefix
 from amdockvs.docking.engines.vina import attach_flexres, count_heavy_atoms
 from amdockvs.docking.methods import check_program, check_receptor
-from amdockvs.docking.preparation.meeko import dockable_ligand
+from amdockvs.docking.preparation.adtools import dockable_ligand
 from amdockvs.docking.results.metrics import docking_row, pose_file_stem
 from amdockvs.docking.results.rmsd import pose_rmsd_detail
 from amdockvs.integrations.envs import tool_spec
@@ -109,7 +109,7 @@ def _cluster_leads(dlg_path: Path, sdf_path: Path, num_modes: int) -> list[dict]
     docked with it when residues were flexible, and return their energies in the same order."""
     from ms_adtools import dlg_to_pdbqt
 
-    from amdockvs.docking.preparation.meeko import poses_sd
+    from amdockvs.docking.preparation.adtools import poses_sd
 
     # The chemistry comes from the SMILES remark, not from the AutoDock types: a type added by a
     # parameter file needs no entry anywhere.

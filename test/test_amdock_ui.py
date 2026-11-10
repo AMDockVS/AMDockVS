@@ -363,7 +363,7 @@ def test_amdock_ui_opens_selected_project_in_place_when_no_active_project(tmp_pa
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
 def test_amdock_ui_domain_views_show_docking_summaries(tmp_path, monkeypatch):
     pytest.importorskip("rdkit")
-    pytest.importorskip("meeko")
+    pytest.importorskip("ms_adtools")
     pytest.importorskip("vina")
     _patch_fake_home(monkeypatch, tmp_path)
 
@@ -531,7 +531,7 @@ def test_amdock_ui_domain_views_show_docking_summaries(tmp_path, monkeypatch):
                 return list(self.objects)
             def delete(self, name):
                 self.objects = [] if name == "all" else [o for o in self.objects if o != name]
-            def load_raw(self, _data, _format, name):
+            def load_raw(self, _data, _format, name, zoom=-1):
                 self.objects.append(name)  # a structure read from the project's volumes
             def create(self, name, _source, _source_state=0, _target_state=0):
                 self.objects.append(name)  # one pose copied out as a single-state object

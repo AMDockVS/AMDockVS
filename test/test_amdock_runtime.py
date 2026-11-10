@@ -74,7 +74,7 @@ def _wait_until(predicate, *, timeout_s: float = 5.0, poll_s: float = 0.05):
 
 def _require_docking_stack():
     pytest.importorskip("rdkit")
-    pytest.importorskip("meeko")
+    pytest.importorskip("ms_adtools")
     pytest.importorskip("vina")
 
 

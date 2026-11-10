@@ -168,7 +168,7 @@ def _run_gnina(
 
 def run_gnina_docking_rows(payload: dict) -> list[dict]:
     from amdockvs.docking.methods import check_program, check_receptor
-    from amdockvs.docking.preparation.meeko import dockable_ligand
+    from amdockvs.docking.preparation.adtools import dockable_ligand
 
     method = check_program(payload.get("method"), "gnina")
     pairs = list(payload.get("pairs") or [])

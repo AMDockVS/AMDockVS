@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from amdockvs.docking.engines.qvina import qvina_command, qvina_dock_runner
 from amdockvs.docking.engines.vina import _count_heavy_atoms_pdbqt
-from amdockvs.docking.preparation.meeko import dockable_ligand, rigid_ring_ligand
+from amdockvs.docking.preparation.adtools import dockable_ligand, rigid_ring_ligand
 
 DATA = Path(__file__).resolve().parents[1] / "data" / "docking"
 BOX = {"box_center": [15.190, 53.903, 16.917], "box_size": [20.0, 20.0, 20.0]}

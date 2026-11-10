@@ -249,7 +249,7 @@ def _read_pdbqt(path: Path, *, sanitize: bool, remove_hs: bool, index: int, resn
         try:
             from ms_adtools import pdbqt_to_rdkit
 
-            from amdockvs.docking.preparation.meeko import carbon_as_boron
+            from amdockvs.docking.preparation.adtools import carbon_as_boron
 
             # One conformer per pose: `index` is the pose.
             mol = pdbqt_to_rdkit(text)

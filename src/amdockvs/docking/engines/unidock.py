@@ -29,7 +29,7 @@ from amdockvs.docking.engines.vina import (
     count_heavy_atoms,
 )
 from amdockvs.docking.methods import check_program, check_receptor
-from amdockvs.docking.preparation.meeko import dockable_ligand
+from amdockvs.docking.preparation.adtools import dockable_ligand
 from amdockvs.docking.results.metrics import docking_row, pose_file_stem
 from amdockvs.docking.results.rmsd import pose_rmsd_detail
 from amdockvs.integrations.envs import tool_spec

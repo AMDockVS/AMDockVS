@@ -3,7 +3,7 @@
 Flexible-residue selection draws its candidates from the residues that have at
 least one atom inside the active binding-site box, so the user picks from a
 handful instead of the receptor's hundreds. Pure PDB/PDBQT column parsing — no
-Meeko/prody dependency — so it stays cheap and unit-testable.
+preparation dependency — so it stays cheap and unit-testable.
 """
 from __future__ import annotations
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from amdockvs.docking.preparation.meeko import poses_sd, prepare_ligand_vina_pdbqt_from_mol
+from amdockvs.docking.preparation.adtools import poses_sd, prepare_ligand_vina_pdbqt_from_mol
 from amdockvs.io.formats import read_mol
 
 

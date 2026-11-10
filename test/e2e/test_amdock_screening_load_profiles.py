@@ -18,7 +18,7 @@ def _patch_fake_home(monkeypatch, fake_home: Path):
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
 def test_amdock_throughput_profile_handles_heavier_screening_volume(tmp_path, monkeypatch):
     pytest.importorskip("rdkit")
-    pytest.importorskip("meeko")
+    pytest.importorskip("ms_adtools")
     pytest.importorskip("vina")
     _patch_fake_home(monkeypatch, tmp_path)
 
@@ -27,7 +27,8 @@ def test_amdock_throughput_profile_handles_heavier_screening_volume(tmp_path, mo
         # The old docking.screen(...) pipeline moved out of DockingAPI; run_screening_benchmark
         # is the current end-to-end screening runner (it provisions its own project + inputs).
         # This exercises a heavier volume (240 ligands x 2 receptors = 480 dockings) under the
-        # throughput batch policy.
+        # throughput batch policy. ponytail: the 2-atom stub receptor is now a real 4-atom PDBQT
+        # (meeko used to write it empty), so Vina has work: ~540 s here, hence the wide timeout.
         result = run_screening_benchmark(
             runtime,
             config=BenchmarkConfig(
@@ -35,7 +36,7 @@ def test_amdock_throughput_profile_handles_heavier_screening_volume(tmp_path, mo
                 receptor_count=2,
                 ligand_file_count=2,
                 policy="throughput",
-                timeout_s=240.0,
+                timeout_s=900.0,
                 poll_s=0.05,
             ),
             workdir=tmp_path / "throughput_run",

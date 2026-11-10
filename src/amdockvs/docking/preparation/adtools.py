@@ -185,14 +185,14 @@ def prepare_ligand_vina_pdbqt(
     )
 
 
-def _flex_meeko_id(key: str) -> str | None:
-    # Our stored key is "chain:resname:resnum"; Meeko's monomer id is "chain:resnum"
-    # (empty chain stays empty, e.g. ":225"). Our "_" sentinel means "no chain".
+def _flex_spec(key: str) -> str | None:
+    """ms_adtools' residue spec ("A:ARG239", "ARG239" without a chain) of our stored key
+    "chain:resname:resnum", whose "_" chain means "no chain"."""
     parts = str(key).split(":")
     if len(parts) != 3:
         return None
-    chain, _resname, resnum = parts
-    return f"{'' if chain == '_' else chain}:{resnum}"
+    chain, resname, resnum = parts
+    return f"{'' if chain == '_' else chain + ':'}{resname}{resnum}"
 
 
 def _without_resnames(text: str, exclude: frozenset[str]) -> str:
@@ -212,31 +212,6 @@ def _without_resnames(text: str, exclude: frozenset[str]) -> str:
     return "".join(kept)
 
 
-def _polymer_from_pdb(receptor_text: str, templates, mk_prep):
-    """Meeko's own PDB reader, falling back to ProDy for the structures it refuses."""
-    from meeko import Polymer
-
-    try:
-        return Polymer.from_pdb_string(
-            receptor_text, templates, mk_prep, allow_bad_res=True, default_altloc="A",
-        )
-    except ValueError as refused:
-        try:
-            import prody
-        except ImportError:
-            # ponytail: optional fallback; ProDy's wheels miss macOS arm64 and glibc < 2.35.
-            raise RuntimeError(
-                f"Meeko could not read this receptor ({refused}). Its fallback reader, ProDy, is not "
-                "installed: pip install 'amdockvs[prody]'."
-            ) from refused
-        from ms_flow.payloads import scratch_file
-
-        # ProDy parses a path, not a string: hand it the filtered text, not the file on disk.
-        with scratch_file(receptor_text.encode(), ".pdb") as filtered:
-            structure = prody.parsePDB(str(filtered), altloc="all")
-        return Polymer.from_prody(structure, templates, mk_prep, allow_bad_res=True, default_altloc="A")
-
-
 def prepare_receptor_vina_pdbqt(
     *,
     source_path: str | Path,
@@ -244,6 +219,10 @@ def prepare_receptor_vina_pdbqt(
     flexible_residues: list[str] | None = None,
     exclude_resnames: frozenset[str] = frozenset(),
 ) -> ToolResult:
+    """Receptor PDBQT (ms_adtools): hydrogens added to the residues that have none, Gasteiger
+    charges, non-polar hydrogens merged. ``flexible_residues`` (stored keys) also write
+    ``{stem}__flex.pdbqt``; a key not in the receptor, or a residue with nothing to rotate, is
+    skipped, not fatal — one typo should not sink the preparation."""
     source = Path(source_path).expanduser().resolve()
     output = Path(output_path).expanduser().resolve()
     if source.suffix.lower() == ".pdbqt":
@@ -257,46 +236,48 @@ def prepare_receptor_vina_pdbqt(
             metadata={"engine": "vina", "format": "pdbqt"},
         )
 
-    try:
-        from meeko import MoleculePreparation, PDBQTWriterLegacy, ResidueChemTemplates
-    except ImportError as exc:
-        raise RuntimeError("Python package 'meeko' is not available in the current environment.") from exc
+    import warnings
 
-    mk_prep = MoleculePreparation()
-    templates = ResidueChemTemplates.create_from_defaults()
+    from ms_adtools import prepare_flexreceptor, prepare_receptor
+    from ms_flow.payloads import scratch_file
+
     from amdockvs.io.formats import as_pdb
 
     with as_pdb(source) as readable:
-        receptor_text = _without_resnames(readable.read_text(encoding="utf-8"), exclude_resnames)
-        polymer = _polymer_from_pdb(receptor_text, templates, mk_prep)
-    # Mark the user-picked residues flexible before writing; this is what makes Meeko emit a
-    # non-empty flex block. A bad/missing key is skipped, not fatal — one typo shouldn't sink prep.
+        text = _without_resnames(readable.read_text(encoding="utf-8"), exclude_resnames)
+    with scratch_file(text.encode(), ".pdb") as filtered:
+        # waters and cofactors were filtered above, by the user's choice: the cleanup leaves them be
+        rigid = prepare_receptor(filtered, repairs="hydrogens", cleanup="nphs_lps")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(rigid, encoding="utf-8")
+    present = {(l[21].strip(), l[17:20].strip() + l[22:27].strip()) for l in rigid.splitlines()
+               if l.startswith(("ATOM", "HETATM"))}
     flex_applied: list[str] = []
     flex_skipped: list[str] = []
-    if flexible_residues:
-        valid = polymer.get_valid_monomers()
-        for key in flexible_residues:
-            mid = _flex_meeko_id(key)
-            if mid is None or mid not in valid:
-                flex_skipped.append(str(key))
-                continue
-            try:
-                polymer.flexibilize_sidechain(mid, mk_prep)
-                flex_applied.append(mid)
-            except Exception:
-                flex_skipped.append(str(key))
-
-    rigid_pdbqt, flex_pdbqt = PDBQTWriterLegacy.write_string_from_polymer(polymer)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(rigid_pdbqt, encoding="utf-8")
+    for key in flexible_residues or []:
+        spec = _flex_spec(key)
+        chain, _, name = (spec or "").rpartition(":")
+        (flex_applied if spec and (chain, name) in present else flex_skipped).append(str(key))
+    flex = ""
+    if flex_applied:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            rigid, flex = prepare_flexreceptor(output, [_flex_spec(k) for k in flex_applied])
+        rigid_ones = " ".join(str(w.message) for w in caught)
+        for key in list(flex_applied):  # "PRO A 227 has no rotatable side chain: kept rigid"
+            chain, resname, resnum = key.split(":")
+            if " ".join(f"{resname} {'' if chain == '_' else chain} {resnum}".split()) in rigid_ones:
+                flex_applied.remove(key)
+                flex_skipped.append(key)
+        output.write_text(rigid, encoding="utf-8")
     extra: dict[str, object] = {"source_format": source.suffix.lstrip("."), "copied": False}
     if flex_applied:
         extra["flex_residues"] = flex_applied
     if flex_skipped:
         extra["flex_skipped"] = flex_skipped
-    if flex_pdbqt.strip():
+    if flex.strip():
         flex_path = output.with_name(f"{output.stem}__flex.pdbqt")
-        flex_path.write_text(flex_pdbqt, encoding="utf-8")
+        flex_path.write_text(flex, encoding="utf-8")
         extra["flex_path"] = str(flex_path)
     return ToolResult(
         artifact=ToolArtifact(

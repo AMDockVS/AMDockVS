@@ -19,7 +19,7 @@ from amdockvs.docking.results.rmsd import pose_rmsd_detail
 from amdockvs.core.paths import get_default_project_root
 from amdockvs.docking.engines.autogrid import map_prefix as _ad4_map_prefix
 from amdockvs.docking.methods import check_program, check_receptor
-from amdockvs.docking.preparation.meeko import dockable_ligand
+from amdockvs.docking.preparation.adtools import dockable_ligand
 
 def _require_pdbqt(path: Path, *, kind: str) -> None:
     if path.suffix.lower() != ".pdbqt":
@@ -180,7 +180,7 @@ def attach_flexres(sd_text: str, pdbqt_text: str) -> str:
 
 
 def _convert_vina_pdbqt_to_sdf(*, pdbqt_path: Path, sdf_path: Path) -> Path:
-    from amdockvs.docking.preparation.meeko import poses_sd
+    from amdockvs.docking.preparation.adtools import poses_sd
 
     pdbqt_text = pdbqt_path.read_text(encoding="utf-8", errors="replace")
     sd_string, _props = poses_sd(pdbqt_text, pdbqt_path.stem)

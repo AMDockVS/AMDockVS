@@ -15,7 +15,7 @@ from ms_flow.payloads import scratch_file
 
 from amdockvs.core.constants import SERIES_PREPARED
 from amdockvs.core.payloads import structure_payload
-from amdockvs.docking.preparation.meeko import (
+from amdockvs.docking.preparation.adtools import (
     prepare_ligand_vina_pdbqt,
     prepare_ligand_vina_pdbqt_from_mol,
     prepare_receptor_vina_pdbqt,
@@ -56,8 +56,8 @@ def _prepare_ligand(
     return output_path
 
 
-# Meeko has templates, and AD4/Vina atom types, only for these coordination metals. Any other
-# (CD, CO, NI...) makes Meeko fail the whole receptor, so it is left out of the PDBQT.
+# The coordination metals that AD4 types (and so autogrid4 maps); any other (CD, CO, NI...) is left
+# out of the PDBQT. ponytail: Vina alone types Co/Ni/Cd/Hg/Cu too, widen per engine if asked.
 TYPED_METALS = frozenset({"ZN", "FE", "MN", "MG", "CA", "CU"})
 
 
