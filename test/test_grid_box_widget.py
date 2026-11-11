@@ -128,7 +128,7 @@ def test_grid_box_actions_are_visible_above_the_editor_and_save_without_a_site_s
     """No menus: every way to make or keep a box is a button, above "Show working box"."""
     widget = grid_box_widget
     create = [widget.new_button, widget.ligand_button, widget.selection_button, widget.predict_button]
-    assert [b.text() for b in create] == ["New", "Ligand", "Selection", "Predict…"]
+    assert [b.text() for b in create] == ["New", "Ligand", "Selection", "Prediction"]
     assert [b.text() for b in (widget.save_button, widget.save_as_button, widget.activate_button)] == [
         "Save", "Save as new", "Set Active"]
     assert all(b.menu() is None for b in create)
