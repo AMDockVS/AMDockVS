@@ -77,12 +77,11 @@ def test_project_switch_and_deleting_the_open_project_hot_restart(tmp_path, monk
         assert restarts == [("--project-id", str(runtime.active_context.id)),
                             ("--project-id", "next-project"),
                             ("--delete-project-id", str(runtime.active_context.id))]
-        assert themed_icons._watcher is not None
+        assert themed_icons._slot is not None
 
         themed_icons.shutdown_themed_icons(app)
 
-        assert themed_icons._watcher is None
-        assert themed_icons._color_scheme_slot is None
+        assert themed_icons._slot is None
         assert not themed_icons.ThemedIconEngine._pixmaps
         assert not themed_icons.ThemedIconEngine._renderers
     finally:
