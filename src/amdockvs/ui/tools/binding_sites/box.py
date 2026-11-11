@@ -966,8 +966,13 @@ class GridBoxSettingDockWidget(QWidget):
         # not just the working one.
         show_faces, show_edges = self._style_flags()
         # Only the marked rows are drawn: a site the user isn't working on (the active one
-        # included) would just hide the box being placed.
-        for site in self._selected_sites():
+        # included) would just hide the box being placed. The site an edited box came from is
+        # the exception: it stays as the reference the edits are measured against.
+        sites = self._selected_sites()
+        source = self._site_by_id(self._working.source_site_id or 0) if self._working.dirty else None
+        if source is not None and source not in sites:
+            sites.append(source)
+        for site in sites:
             self._draw_reference_site(
                 cmd, site, active=(site == self._selected_site()),
                 name=f"amdock_grid_bs_{int(site.id or 0)}",
