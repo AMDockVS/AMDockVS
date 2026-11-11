@@ -321,6 +321,8 @@ class GridBoxSettingDockWidget(QWidget):
 
         for widget in (self.cx, self.cy, self.cz, self.sx, self.sy, self.sz):
             widget.valueChanged.connect(self._on_geometry_changed)
+            # Fit a real coordinate, not the ±1000 range, so the panel stays narrow but unclipped.
+            widget.setMinimumWidth(widget.fontMetrics().horizontalAdvance("-000.00") + 20)
 
         # editor_layout.addRow(style_grid)
         layout.addWidget(self.box_settings)
