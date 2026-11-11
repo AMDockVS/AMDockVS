@@ -196,11 +196,13 @@ class GridBoxSettingDockWidget(QWidget):
             "metals, so it hugs the pocket mouth instead of burying itself in the protein.")
         self.selection_button.setCheckable(True)
         self.predict_button = self._action_button(
-            "Predict…", "binding_site.svg", self._open_pocket_detection,
+            "Prediction", "binding_site.svg", self._open_pocket_detection,
             "Open Pocket Detection to predict this receptor's pockets.")
-        for button in (self.new_button, self.ligand_button, self.selection_button, self.predict_button):
+        # Equal stretches between (not around) the buttons: equal gaps, row spans the full width.
+        for index, button in enumerate((self.new_button, self.ligand_button, self.selection_button, self.predict_button)):
+            if index:
+                create_row.addStretch(1)
             create_row.addWidget(button)
-        create_row.addStretch(1)
         layout.addLayout(create_row)
         # ponytail: PyMOL emits nothing when its selections change, so poll while shown; a
         # selection signal in ms_components' PyMOL widget would replace this timer.
