@@ -184,6 +184,7 @@ class FileDropTable(QTableView):
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.verticalHeader().setVisible(False)
         header = self.horizontalHeader()
+        header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # every column holds text
         # ponytail: content-sized columns measure every row on each insert; Interactive keeps the
         # widths fixed (the user can still drag them), which is what lets 10k files load at once.
         for column, mode in enumerate((QHeaderView.Stretch, QHeaderView.Interactive, QHeaderView.Interactive,
