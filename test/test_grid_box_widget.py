@@ -128,7 +128,7 @@ def test_grid_box_actions_are_visible_above_the_editor_and_save_without_a_site_s
     """No menus: every way to make or keep a box is a button, above "Show working box"."""
     widget = grid_box_widget
     create = [widget.new_button, widget.ligand_button, widget.selection_button, widget.predict_button]
-    assert [b.text() for b in create] == ["New", "Ligand", "Selection", "Predict…"]
+    assert [b.text() for b in create] == ["New", "Ligand", "Selection", "Prediction"]
     assert [b.text() for b in (widget.save_button, widget.save_as_button, widget.activate_button)] == [
         "Save", "Save as new", "Set Active"]
     assert all(b.menu() is None for b in create)
@@ -158,6 +158,20 @@ def test_only_marked_rows_are_drawn_and_edges_is_the_default_style(grid_box_widg
     widget._refresh_preview(force=True)
     assert drawn == [("amdock_grid_working", False)]
     assert widget._working.source_site_id is None  # Save makes a new site, 2 stays as it was
+
+
+def test_editing_a_site_keeps_the_original_drawn_as_reference(grid_box_widget):
+    widget = grid_box_widget
+    drawn = []
+    cmd = SimpleNamespace(get_names=lambda kind: [], delete=lambda name: None,
+                          draw_box=lambda **kw: drawn.append(kw["obj_name"]))
+    widget.pymol_dock = SimpleNamespace(cmd=cmd, isVisible=lambda: True)
+    widget.show()
+    widget.focus_binding_site(widget._current_molecule, site_id=2)
+    widget.cx.setValue(widget.cx.value() + 5.0)  # the edit selects the working row
+    drawn.clear()
+    widget._refresh_preview(force=True)
+    assert sorted(drawn) == ["amdock_grid_bs_2", "amdock_grid_working"]
 
 
 class _FakeCmd:
