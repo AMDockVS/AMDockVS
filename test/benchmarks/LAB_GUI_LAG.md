@@ -1,0 +1,64 @@
+# Prueba de lag de la GUI en el laboratorio (fase A, plan 10 de ms_flow)
+
+Esta prueba mide cuánto se retrasa el hilo de la GUI mientras el motor hace docking e importa en el mismo proceso que la app. Hay que correrla en el Threadripper con 16, 32 y 64 workers.
+
+**Criterio:** con 64 workers, p99 < 50 ms y máximo < 500 ms.
+
+## 1. Instalar las ramas
+
+En el entorno de la app del lab (el que usa `amdockvs`):
+
+```bash
+git clone https://github.com/AMDockVS/AMDockVS.git && cd AMDockVS   # o `git fetch` si ya está
+git switch exp/engine-process          # sonda + fase 0 (fix/lab-freezes)
+pip install -e . --no-deps
+# Fase 0 del monitor (solo afecta a --window):
+pip install --no-deps "git+https://github.com/MolSuite/ms_components@perf/monitor-tasks-diff"
+```
+
+Comprobar que ms_flow es ≥ 0.10.1: `python -c "import ms_flow; print(ms_flow.__version__)"`.
+
+## 2. Preparar
+
+- **Un SDF de moléculas pequeñas** (2D vale), por ejemplo `Enamine_H100K.sdf`. La sonda toma de él los ligandos del docking y lo repite hasta `--big-gb` para el import.
+- **Un disco con espacio** para `--work`: `--big-gb` más unos 5 GB. Todo se borra al terminar, salvo `--keep`.
+- **No hace falta abrir la app ni tener sesión gráfica:** sin `DISPLAY`, corre offscreen.
+- **Máquina libre:** cerrar otras cargas pesadas mientras corre.
+
+## 3. Correr
+
+Desde la carpeta del repo, una corrida por número de workers (cada una tarda ~5 min más la preparación):
+
+```bash
+LIB=/ruta/a/Enamine_H100K.sdf
+WORK=/disco/grande/gui_lag
+mkdir -p $WORK
+for cpus in 0-15 0-31 0-63; do
+  taskset -c $cpus python test/benchmarks/bench_gui_lag.py --library $LIB --work $WORK \
+      --window --big-gb 60 --dump-ms 100 --out $WORK/lag.jsonl
+done
+```
+
+Opcional: una corrida con `--switch-ms 5` y 64 workers sirve para ver cuánto aporta el switch interval de la fase 0.
+
+## 4. Qué devuelve
+
+Por cada fase (`idle`, `dock`, `dock+import`) imprime una línea:
+
+| campo | significado |
+|---|---|
+| `p50_ms`, `p99_ms`, `max_ms` | retraso de los ticks de 20 ms |
+| `max_at_s` | segundo de la fase en que llegó el peor tick |
+| `dock_chunks_per_s` | ritmo del docking |
+| `dock.tasks_running`, `import.tasks_running` | tareas de cada job; si su suma cae muy por debajo de los workers, el despacho se está frenando |
+
+- Al final escribe una línea JSON y la añade a `lag.jsonl`.
+- Con `--dump-ms 100`, cada tick que llega más de 100 ms tarde vuelca las pilas de todos los hilos en `$WORK/gui_lag_stacks.log`. Así se sabe quién tenía el GIL.
+
+## 5. Qué devolver
+
+`$WORK/lag.jsonl` y `$WORK/gui_lag_stacks.log`, más la salida de consola si algo falló.
+
+## 6. Referencia: PC de desarrollo, 16 CPU, 2026-11-11
+
+`dock+import` con la ventana: p99 4,7 ms, máximo 156 ms. Los picos venían de `insert_graph` en el hilo `msflow-delivery`. Detalle en el doc 10 de ms_flow.

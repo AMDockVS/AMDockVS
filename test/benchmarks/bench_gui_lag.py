@@ -43,9 +43,9 @@ def first_records(sdf: Path, n: int, dest: Path) -> Path:
     return dest
 
 
-def big_sdf(dest: Path, gb: float) -> Path:
-    """`LIBRARY` repeated up to `gb`, then dropped from the page cache so the import reads the disk."""
-    chunk = LIBRARY.read_bytes()
+def big_sdf(library: Path, dest: Path, gb: float) -> Path:
+    """`library` repeated up to `gb`, then dropped from the page cache so the import reads the disk."""
+    chunk = library.read_bytes()
     with open(dest, "wb") as out:
         while out.tell() < gb * 1e9:
             out.write(chunk)
@@ -70,6 +70,7 @@ def lag_stats(lags: list[float]) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--work", type=Path, help="where the project and the big SDF go (needs ~gb+5 GB)")
+    ap.add_argument("--library", type=Path, default=LIBRARY, help="SDF the ligands and the big import come from")
     ap.add_argument("--ligands", type=int, default=3000)
     ap.add_argument("--batch", type=int, default=1, help="docking pairs per task")
     ap.add_argument("--big-gb", type=float, default=5.0)
@@ -81,6 +82,8 @@ def main() -> int:
     ap.add_argument("--keep", action="store_true", help="keep the work folder")
     ap.add_argument("--out", type=Path, help="append the JSON report here")
     args = ap.parse_args()
+    if not args.library.is_file():
+        ap.error(f"no SDF at {args.library}: pass --library (any SDF of small molecules, 2D is fine)")
 
     work = Path(tempfile.mkdtemp(prefix="gui_lag_", dir=args.work))
     os.environ["HOME"] = str(work / "home")  # the project registers here, not in the real ~/.molsuite
@@ -105,7 +108,7 @@ def main() -> int:
     try:
         t0 = time.monotonic()
         rt.create_project(name="gui_lag", folder=work / "project")
-        ligands = first_records(LIBRARY, args.ligands, work / "ligands.sdf")
+        ligands = first_records(args.library, args.ligands, work / "ligands.sdf")
         rt.wait_for_jobs([*rt.loader.load_receptors([RECEPTOR]), *rt.loader.load_ligands([ligands])])
         rt.wait_for_jobs([rt.chemistry.generate_3d_ligands()])
         rt.wait_for_jobs([rt.docking.prepare_receptors()])
@@ -113,7 +116,7 @@ def main() -> int:
         (receptor,) = rt.molecules.stream(rt.molecules.select(role="receptor"))
         rt.docking.set_grid(receptor_id=int(receptor.id), center=CENTER, size=BOX)
         receptor_set = rt.molecules.create_set(rt.molecules.select(role="receptor"), name="lag", kind="snapshot")
-        big = big_sdf(work / "big.sdf", args.big_gb)
+        big = big_sdf(args.library, work / "big.sdf", args.big_gb)
         report["setup_s"] = round(time.monotonic() - t0, 1)
         print(f"setup {report['setup_s']} s on {cpus} CPUs", flush=True)
 
