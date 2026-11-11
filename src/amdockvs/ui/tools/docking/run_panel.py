@@ -99,6 +99,10 @@ class RunPanel:
         hits_layout.addRow(self.hit_threshold_label, self.hit_threshold)
         hits_layout.addRow(self.hit_cap_label, self.hit_cap)
         self.offtarget_reference_combo = QComboBox(self.hits_box)
+        # Size from a few characters, not the longest item: long receptor names widened the
+        # panel past the studio (horizontal scrollbar). The closed box elides; the list doesn't.
+        self.offtarget_reference_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.offtarget_reference_combo.setMinimumContentsLength(12)
         self.offtarget_reference_combo.addItem("None - dock the full library against every receptor", None)
         self.offtarget_reference_combo.setToolTip(
             "With a reference, dock the full library against it first, then dock only its "
