@@ -36,6 +36,7 @@ from amdockvs.docking.planning import (
     docking_signature,
 )
 from amdockvs.ui.view_ids import COMPLEXES_VIEW_ID
+from amdockvs.ui.tools.docking.preparation_panel import _FLEX_NEEDS_RECEPTOR
 
 #: Result rows past which Preview & Run asks before launching: a large campaign keeps one pose.
 LARGE_RUN_ROWS = 1_000_000
@@ -301,7 +302,7 @@ class RunPanel:
             focused = int(inp.get("focused") or 0)
             return {
                 "kind": "no_receptors",
-                "focused_has_grid": bool(focused) and self._focused_has_grid(inp, [focused]),
+                "flex_reason": self._flex_block_reason(inp, [focused]) if focused else _FLEX_NEEDS_RECEPTOR,
             }
         try:
             status = self.runtime.docking.check_receptors(
@@ -309,7 +310,8 @@ class RunPanel:
                 receptor_set=self._resolve_receptor_scope(receptor_ids),
             )
         except Exception as exc:
-            return {"kind": "error", "message": str(exc)}
+            return {"kind": "error", "message": str(exc),
+                    "flex_reason": f"The receptor status could not be read: {exc}"}
         counts = dict(status.get("counts") or {})
         rec_ready = int(counts.get("receptors_ready") or 0)
         rec_total = int(counts.get("receptors_total") or 0)
@@ -319,25 +321,27 @@ class RunPanel:
             "rec_ready": rec_ready,
             "rec_total": rec_total,
             "grid_ready": grid_ready,
-            "focused_has_grid": self._focused_has_grid(inp, receptor_ids),
+            "flex_reason": self._flex_block_reason(inp, receptor_ids),
         }
 
-    def _focused_has_grid(self, inp: dict, receptor_ids: list[int]) -> bool:
-        """Does the focused receptor have an active-site grid? (gates the flex-residues panel)
+    def _flex_block_reason(self, inp: dict, receptor_ids: list[int]) -> str:
+        """Why the focused receptor can't take flexible residues; "" when it can.
 
-        The grid itself — which BS, center, size — is displayed by the PyMOL Grid Box panel,
-        so only the yes/no is needed here.
+        They need an active-site grid on that receptor. The grid itself — which BS, center,
+        size — is displayed by the PyMOL Grid Box panel, so only the verdict is needed here.
         """
         focused_id = inp["focused"] if inp["focused"] in receptor_ids else receptor_ids[0]
         if not self._rows_for_ids_scoped(self._receptor_scope(), [focused_id]):
-            return False
+            return _FLEX_NEEDS_RECEPTOR
         program = get_docking_program(inp["program"])
         if not program.requires_binding_site:
-            return False
+            return f"{program.label} docks without a Grid Box, so it takes no flexible residues."
         grid = self.runtime.docking.get_grid(
             receptor_id=int(focused_id), engine=program.preparation_engine
         )
-        return bool(grid) and len(grid.get("center") or []) == 3 and len(grid.get("size") or []) == 3
+        if bool(grid) and len(grid.get("center") or []) == 3 and len(grid.get("size") or []) == 3:
+            return ""
+        return "This receptor has no active Grid Box yet: set one in the Grid Box panel first."
 
     # -- flexible residues -------------------------------------------------
     def _apply_refresh(self, data: dict, token: int) -> None:
@@ -395,13 +399,12 @@ class RunPanel:
 
         p = data["preview"]
         if p["kind"] == "no_receptors":
-            focused_has_grid = bool(p.get("focused_has_grid"))
-            self.flex_box.setEnabled(focused_has_grid)
-            self._sync_flex_for_focus(focused_has_grid)
+            self._set_flex_available(p["flex_reason"])
+            self._sync_flex_for_focus(not p["flex_reason"])
             self.step_receptors.set_done(False)
             return
         if p["kind"] == "error":
-            self.flex_box.setEnabled(False)
+            self._set_flex_available(p["flex_reason"])
             return
         rec_ready, rec_total, grid_ready = p["rec_ready"], p["rec_total"], p["grid_ready"]
         failed_text = f" / failed {receptor_failed}" if receptor_failed else ""
@@ -417,9 +420,8 @@ class RunPanel:
         # A receptor is ready when it's both prepared AND has a grid; mark on the weakest link.
         self._mark_step(self.step_receptors, min(rec_ready, grid_ready), rec_total)
         # Flexible residues need an active site on the focused receptor.
-        focused_has_grid = bool(p.get("focused_has_grid"))
-        self.flex_box.setEnabled(focused_has_grid)
-        self._sync_flex_for_focus(focused_has_grid)
+        self._set_flex_available(p["flex_reason"])
+        self._sync_flex_for_focus(not p["flex_reason"])
 
     @staticmethod
     def _mark_step(step, prepared: int, total: int) -> None:

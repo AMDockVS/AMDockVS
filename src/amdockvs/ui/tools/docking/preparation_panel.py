@@ -36,6 +36,9 @@ from ms_components.ms_table import (
 )
 from amdockvs.ui.view_ids import BUILD_ID, LIGANDS_VIEW_ID, PREP_STATUS_VIEW_ID, RECEPTOR_VIEW_ID, SHARDS_VIEW_ID
 
+# Why "Flexible residues" is off before any receptor is picked (see _set_flex_available).
+_FLEX_NEEDS_RECEPTOR = "Select a receptor in the table to set its flexible residues."
+
 
 def _prep_table_config(*, role_type: str) -> TableConfig:
     """Per-(molecule, family) preparation status, from `ligand_preps` or `receptor_preps`."""
@@ -375,7 +378,7 @@ class PreparationPanel:
             "Flexible residues", checkable=True, checked=False, collapse_when_unchecked=True
         )
         self.flex_box.add_row(self._build_flex_residues_box(self.flex_box.body))
-        self.flex_box.setEnabled(False)
+        self._set_flex_available(_FLEX_NEEDS_RECEPTOR)
 
         # Preparation comes AFTER the binding site: flexible residues chosen above feed into the
         # prepared receptor. Vertical target list (General Options + one page per program that
@@ -675,7 +678,12 @@ class PreparationPanel:
         (or none) is worse than showing nothing."""
         self._focused_receptor_id = None
         self._clear_flex_panel()
-        self.flex_box.setEnabled(False)
+        self._set_flex_available(_FLEX_NEEDS_RECEPTOR)
+
+    def _set_flex_available(self, reason: str) -> None:
+        """Enable "Flexible residues", or disable it and say why in its tooltip."""
+        self.flex_box.setEnabled(not reason)
+        self.flex_box.setToolTip(reason)
 
     def _on_ligand_selection_changed(self, objects: list[object]) -> None:
         # Highlighting rows does not change the scope - narrowing the table does (right-click > Select).
