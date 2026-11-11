@@ -258,9 +258,12 @@ class ReceptorImportPanel(QWidget):
                 toolbar, "shredder.svg", "Remove", "Remove the selected files", self._on_remove_selected_files
             )
             table_row.addWidget(toolbar)
-        table_row.addWidget(self.table, 1)
+        # Table, options and info line form one column right of the rail: one shared left edge.
+        column = QVBoxLayout()
+        column.addWidget(self.table, 1)
+        column.addLayout(options)
+        table_row.addLayout(column, 1)
         root.addLayout(table_row, 1)
-        root.addLayout(options)
 
         self.info_label = QLabel(self)
         self.info_label.setWordWrap(True)
@@ -270,7 +273,7 @@ class ReceptorImportPanel(QWidget):
                 f"{len(self._file_paths)} receptors selected. Preview is disabled above {RECEPTOR_PREVIEW_MAX_FILES} files. "
                 "The import job will be submitted directly."
             )
-        root.addWidget(self.info_label)
+        column.addWidget(self.info_label)
 
         self.remove_non_structural_waters.toggled.connect(self.refresh_preview)
         self.create_binding_sites.toggled.connect(self.refresh_preview)
