@@ -288,7 +288,12 @@ class DockingReadinessService:
         self,
         signature: str,
         launched_signatures: Mapping[str, str],
+        programs: Iterable[str] = (),
+        launched_programs: Mapping[str, frozenset] | None = None,
     ) -> tuple[str, str]:
+        """Only an identical run is refused. A run of other programs than the active ones goes
+        without a word: the engine runs both, or queues one, by what each asks of the executor.
+        One that shares a program with an active run (or with one launched elsewhere) asks."""
         active = [
             job
             for job in self.runtime.list_jobs(statuses=ACTIVE_JOB_STATUSES)
@@ -299,7 +304,19 @@ class DockingReadinessService:
         known = {launched_signatures.get(str(job.job_id)) for job in active}
         if signature in known:
             return ("error", "An identical docking job (same molecules and settings) is already queued or running.")
-        return ("warning", "Another docking job is already queued or running with different settings.")
+        if launched_programs is None:
+            return ("warning", "Another docking job is already queued or running with different settings.")
+        wanted = set(programs)
+        shared = set()
+        for job in active:
+            theirs = launched_programs.get(str(job.job_id))
+            if theirs is None:  # launched elsewhere or in an earlier session: its programs are not known here
+                return ("warning", "Another docking job is already queued or running with different settings.")
+            shared |= wanted & set(theirs)
+        if not shared:
+            return ("none", "")
+        return ("warning", f"A docking job of {', '.join(sorted(shared))} is already queued or running "
+                           "with different settings; this one shares its executor's resources.")
 
 
 __all__ = [

@@ -116,7 +116,7 @@ def test_run_checks_boxes_even_when_preparation_is_already_done(box_scene, monke
     monkeypatch.setattr(scene.studio, "_docking_params", lambda: (inp, params))
     monkeypatch.setattr(scene.studio, "_preparing", lambda: [])
     monkeypatch.setattr(scene.studio, "_docking_signature", lambda *_args: "test")
-    monkeypatch.setattr(scene.studio, "_check_docking_conflict", lambda _sig: ("none", ""))
+    monkeypatch.setattr(scene.studio, "_check_docking_conflict", lambda *_: ("none", ""))
     submitted = []
     monkeypatch.setattr(scene.studio, "_after_conflict_check", lambda *args: submitted.append(args))
     monkeypatch.setattr(run_panel, "run_async", lambda work, done, **kwargs: done(work()))

@@ -373,3 +373,29 @@ def test_a_press_on_a_non_table_item_view_is_ignored(monkeypatch):
     tree.addTopLevelItem(item)
     viewer._on_table_pressed(tree, tree.model().index(0, 1), Qt.NoModifier)
     assert selected == []
+
+
+def test_a_pose_table_swaps_the_pose_and_keeps_the_receptor_and_camera(viewer_scene):
+    viewer, window, cmd = viewer_scene
+    reads, read = [], viewer._read
+    viewer._read = lambda wanted, then: (reads.append(set(wanted)), read(wanted, then))
+    table = QWidget()
+    table.setProperty(molecular_viewer.SWAPS_POSE, True)
+    hits = [SimpleNamespace(run_kind="screening", receptor_id=7, receptor_payload_id=7,
+                            pose_payload_id=p, ligand_payload_id=None) for p in (11, 12, 13)]
+    viewer.select_table_row(table)
+    viewer.load_hit(hits[0])
+    cmd.turn("y", 45)
+    camera = cmd.get_view()
+    for hit in hits[1:]:  # arrows down: one pose at a time, receptor read once
+        viewer.select_table_row(table)
+        viewer.load_hit(hit)
+    assert reads == [{"pose", "receptor"}, {"pose"}, {"pose"}]
+    assert set(cmd.get_names("objects")) == set(viewer._pose_objects(hits[2]))
+    assert cmd.get_view() == camera
+    viewer.select_table_row(table, additive=True)  # Shift adds the pose next to the shown one
+    viewer.load_hit(hits[0])
+    assert len(cmd.get_names("objects")) == 2 + 2
+    viewer.select_table_row(table)  # a plain row after Shift starts over with one pose
+    viewer.load_hit(hits[1])
+    assert set(cmd.get_names("objects")) == set(viewer._pose_objects(hits[1]))

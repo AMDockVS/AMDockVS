@@ -172,3 +172,38 @@ def test_receptor_table_hides_the_misfits():
     panel._push_receptor_scope(widget)
     hidden = pushed["filters"][-1]
     assert (hidden.field, hidden.op, hidden.value) == ("id", FilterOperator.NOT_IN, [7, 8])
+
+
+def test_a_program_is_ticked_on_its_name_in_the_list(monkeypatch, tmp_path):
+    """The list of programs says which run: ticking a name is ticking its "Run <program>"."""
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    monkeypatch.setenv("AMDOCK_DISABLE_PYMOL", "1")
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication
+
+    from amdockvs.runtime import AMDockVSRuntime
+    from amdockvs.ui.tools.docking import preparation_panel, protocol_editor
+    from amdockvs.ui.tools.docking.studio import DockingStudioWidget
+
+    app = QApplication.instance() or QApplication([])  # noqa: F841
+    monkeypatch.setattr(protocol_editor, "run_async", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(preparation_panel, "run_async", lambda *_args, **_kwargs: None)
+    runtime = AMDockVSRuntime()
+    runtime.create_project(name="p", folder=tmp_path / "p", description="")
+    studio = DockingStudioWidget(runtime=runtime)
+    keys = [s.key for s in protocol_editor.list_docking_programs()]
+    item = studio.program_list.item(keys.index("vina"))
+
+    assert item.checkState() == Qt.CheckState.Unchecked and item.flags() & Qt.ItemFlag.ItemIsUserCheckable
+    item.setCheckState(Qt.CheckState.Checked)
+    assert studio._program_checks["vina"].isChecked()
+    studio._program_checks["vina"].setChecked(False)
+    assert item.checkState() == Qt.CheckState.Unchecked
+    studio._program_checks["qvina"].setEnabled(False)
+    studio._sync_program_items()  # one that cannot run is not tickable
+    assert not studio.program_list.item(keys.index("qvina")).flags() & Qt.ItemFlag.ItemIsUserCheckable
+    studio.run_bar.start("Queued")  # a docking running does not take the Run away
+    assert not studio.run_button.isHidden()
+    runtime.close_project()

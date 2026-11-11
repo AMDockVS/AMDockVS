@@ -159,7 +159,9 @@ class RunPanel:
         gate_workflow_save(self.run_button.menu().addAction(
             "Save to workflow…", self._add_docking_to_workflow
         ))
-        bar.add_action(self.run_button)
+        # Stays while a docking runs: another one is ms_flow's to queue or run beside it, and the
+        # conflict check only stops a run identical to an active one.
+        bar.add_action(self.run_button, hide_while_running=False)
         self._on_run_kind_changed()
         return panel
 
@@ -707,7 +709,7 @@ class RunPanel:
         # No busy overlay here: the disabled Run button already says "working", and dimming the
         # scope counts implies THEY are being recomputed, which they aren't.
         run_async(
-            lambda: self._check_docking_conflict(signature),
+            lambda: self._check_docking_conflict(signature, [p["program"] for p in params["protocols"]]),
             lambda conflict: self._after_conflict_check(conflict, inp, params, signature),
             on_error=lambda exc: self._on_docking_error(exc, inp=inp, params=params, signature=signature),
         )
@@ -890,8 +892,9 @@ class RunPanel:
             f"{params.get('offtarget_reference_id') or 'none'}:sources={'+'.join(inp.get('sources') or ())}"
         )
 
-    def _check_docking_conflict(self, signature: str) -> tuple[str, str]:
-        return self.readiness_service.conflict(signature, self._docking_job_sigs)
+    def _check_docking_conflict(self, signature: str, programs: list[str]) -> tuple[str, str]:
+        return self.readiness_service.conflict(signature, self._docking_job_sigs, programs,
+                                               self._docking_job_programs)
 
     def _after_conflict_check(self, conflict: tuple[str, str], inp: dict, params: dict, signature: str) -> None:
         level, message = conflict
@@ -1135,9 +1138,11 @@ class RunPanel:
             self._warn("Run Docking", f"The shards were not docked: {result['notice']}")
         self.docking_submitted.emit(list(result["job_ids"].values()))
         # Remember each launched job's signature so a later launch can detect a duplicate.
+        params = result["params"]
+        programs = frozenset(p["program"] for p in params.get("protocols") or ())
         for job_id in result["job_ids"].values():
             self._docking_job_sigs[str(job_id)] = signature
-        params = result["params"]
+            self._docking_job_programs[str(job_id)] = programs
         self._append_status(
             "Docking Submitted",
             {

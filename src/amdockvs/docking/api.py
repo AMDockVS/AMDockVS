@@ -678,6 +678,7 @@ class DockingAPI:
                                                 executor_name=executor_name, priority=SHARDS_PRIORITY)
         return self.runtime.submit_job(
             dock_shards_job,
+            queue_behind="docking",
             params=params.model_dump(mode="python"),
             executor_name=executor_name,
             depends_on=depends_on,
@@ -1278,6 +1279,7 @@ class DockingAPI:
             clear_previous_docking(self.runtime.workspace.project_db, program=program_spec)
         job_id = self.runtime.submit_job(
             docking_job,
+            queue_behind="docking",
             params=params.model_dump(mode="python"),
             executor_name=executor_name,
             depends_on=depends_on,
@@ -1288,6 +1290,10 @@ class DockingAPI:
             # Declare the real chunk total so progress = processed/total (not processed/emitted).
             total_chunks=total_chunks,
         )
+        if total_chunks:
+            single = int(run_counts.get("receptors_ready") or 0) == 1
+            self.runtime.track_chunk_items(job_id, pending_pairs, resolved_batch_size,
+                                           unit="ligands" if single else "pairs")
         return job_id
 
     def _run_rows_on_queue(self, params: DockingJobParams, *, executor_name: str, cpu: int, depends_on,
@@ -1473,12 +1479,15 @@ class DockingAPI:
         )
         job_id = self.runtime.submit_job(
             redocking_job,
+            queue_behind="docking",
             params=params.model_dump(mode="python"),
             executor_name=executor_name,
             depends_on=depends_on,
             cpu_required=program_spec.resource_requirements(resolved_engine_config)["cpu_required"],
             total_chunks=total_chunks,
         )
+        if total_chunks:
+            self.runtime.track_chunk_items(job_id, pending_pairs, batch_size, unit="complexes")
         return job_id
 
     def list_results(self, *, limit: int = 5000, offset: int = 0):

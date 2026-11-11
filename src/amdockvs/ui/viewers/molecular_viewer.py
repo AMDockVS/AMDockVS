@@ -30,6 +30,14 @@ from amdockvs.ui.tools.pymol_ribbon import (
 _log = logging.getLogger(__name__)
 
 
+SWAPS_POSE = "amdock_swaps_pose"  # Qt property of a table view whose rows are docked poses
+
+
+def _swaps_pose(table) -> bool:
+    prop = getattr(table, "property", None)
+    return bool(prop(SWAPS_POSE)) if callable(prop) else False
+
+
 class MolecularViewerController(QObject):
     catalog_molecule_shown = Signal(object)
 
@@ -83,12 +91,25 @@ class MolecularViewerController(QObject):
 
         run_async(work, done, lambda error: _log.warning("PyMOL could not read its structures: %s", error))
 
-    def select_table_row(self, table, *, additive: bool = False) -> None:
+    def select_table_row(self, table, *, additive: bool = False, restart: bool = False) -> None:
+        """A row of `table` takes the scene. `additive` (Ctrl/Shift in the same table) adds to
+        it; otherwise the scene starts over and the row's structures load additively. A table
+        marked `SWAPS_POSE` keeps one pose on screen instead: a plain row there leaves the scene
+        to its loader, which swaps the ligand and keeps the receptor and the camera.
+        `restart` starts the scene over even when adding (several rows reloaded at once)."""
         dock = self.w.pymol_dock
         if dock is None:
             return
-        additive = additive and table is getattr(dock, "_amdock_selection_table", None)
-        if not additive:
+        current = getattr(dock, "_amdock_selection_table", None)
+        additive = additive and (restart or table is current)
+        if not additive and _swaps_pose(table):
+            if restart or getattr(dock, "_amdock_accumulated", False) or not _swaps_pose(current):
+                self.clear_scene()
+            dock._amdock_selection_table = table
+            dock._amdock_accumulated = False
+            set_additive(dock, False)
+            return
+        if restart or not additive:
             self.clear_scene()
         dock._amdock_selection_table = table
         dock._amdock_accumulated = additive
@@ -323,6 +344,7 @@ class MolecularViewerController(QObject):
         def show(found: dict) -> None:
             try:
                 dock.show()
+                swapped = False
                 if not self._holds(cmd, receptor_obj):
                     if "receptor" not in found and hit.receptor_payload_id and not with_receptor:
                         # Cleared while the pose was being read: ask again, receptor included.
@@ -337,13 +359,16 @@ class MolecularViewerController(QObject):
                     cmd.delete(ligand_obj)  # keep the receptor; replace only the pose
                     from amdockvs.ui.viewers.interactions_3d import interaction_group
                     cmd.delete(interaction_group(receptor_obj, ligand_obj))
+                    swapped = True
                 if "pose" in found:
-                    load_structure(cmd, found["pose"], ligand_obj)  # each pose is its own payload: one state
+                    # each pose is its own payload: one state
+                    load_structure(cmd, found["pose"], ligand_obj, zoom=0 if swapped else -1)
                     self._loaded[ligand_obj] = wanted["pose"]
                     try:
                         cmd.show("sticks", ligand_obj)
                         apply_ligand_atom_coloring(cmd, ligand_obj)
-                        cmd.zoom(ligand_obj, 5)
+                        if not swapped:  # a swapped pose keeps the camera the receptor had
+                            cmd.zoom(ligand_obj, 5)
                     except Exception:
                         pass
                 selections = {"receptor": receptor_obj}

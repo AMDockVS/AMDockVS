@@ -664,7 +664,7 @@ def test_run_docking_and_job_wait_leave_the_tutorial_responsive(practice, monkey
             assert release.wait(5), "Docking submission was not released"
         return value
 
-    monkeypatch.setattr(studio, "_check_docking_conflict", lambda _: worker("conflict", ("", "")))
+    monkeypatch.setattr(studio, "_check_docking_conflict", lambda *_: worker("conflict", ("", "")))
     monkeypatch.setattr(studio, "_submit_docking", lambda *_: worker("submit", {
         "job_ids": {"vina": "slow-docking"}, "params": params, "receptor_ids": [1],
     }))
