@@ -16,7 +16,7 @@ pip install -e . --no-deps
 pip install --no-deps "git+https://github.com/MolSuite/ms_components@perf/monitor-tasks-diff"
 ```
 
-Comprobar que ms_flow es ≥ 0.10.1: `python -c "import ms_flow; print(ms_flow.__version__)"`.
+Comprobar que ms_flow es ≥ 0.10.1: `pip show ms_flow | grep Version`.
 
 ## 2. Preparar
 
