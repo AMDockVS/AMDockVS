@@ -290,9 +290,11 @@ class RunPanel:
             data["rec_scope_failed"] = self._count_failed_preparations(
                 rec_label_scope, role_type="receptor", engine=prep_engine
             )
+            data["rec_prepared_by_engine"] = {prep_engine: data["rec_scope_prepared"]}
         else:
             data["rec_scope_prepared"] = data["rec_scope_total"]
             data["rec_scope_failed"] = 0
+            data["rec_prepared_by_engine"] = {}
 
     def _compute_receptor_preview(self, inp: dict, receptor_ids: list[int]) -> dict:
         if not receptor_ids:
@@ -389,6 +391,7 @@ class RunPanel:
         scope_text = f"{data['rec_scope_total']} receptor(s) in scope"
         prep_text = f"{data['rec_scope_prepared']} prepared{failed_text}"
         self._set_scope_summary(self.receptor_bar, scope_text, prep_text)
+        self._set_prep_family_counts(data["rec_prepared_by_engine"], int(data["rec_scope_total"]), role="receptor")
 
         p = data["preview"]
         if p["kind"] == "no_receptors":

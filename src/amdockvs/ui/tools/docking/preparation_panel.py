@@ -200,7 +200,7 @@ class PreparationPanel:
             # and resolves the engine itself, so the launch path is unchanged.
             item.setData(Qt.UserRole, specs[0].key)
             item.setData(Qt.UserRole + 1, engine)
-            item.setToolTip("Shared by: " + ", ".join(spec.label for spec in specs))
+            item.setToolTip(self._family_tooltip(specs))
             self.prep_target_list.addItem(item)
             self.prep_stack.addWidget(self._build_family_prep_page(engine, specs))
         self.prep_target_list.setCurrentRow(0)
@@ -309,17 +309,26 @@ class PreparationPanel:
             if selected & {spec.key for spec in specs}
         ]
 
-    def _set_prep_family_counts(self, by_engine: dict[str, int], total: int) -> None:
+    def _set_prep_family_counts(self, by_engine: dict[str, int], total: int, *, role: str = "ligand") -> None:
         # "N / total" per family, right on the row that selects it — one scope, K statuses.
-        families = self._prep_families()
-        for index in range(self.prep_target_list.count()):
-            item = self.prep_target_list.item(index)
+        families = self._prep_families(role)
+        target_list = self.prep_target_list if role == "ligand" else self.receptor_prep_target_list
+        for index in range(target_list.count()):
+            item = target_list.item(index)
             engine = item.data(Qt.UserRole + 1)
             if engine is None:
                 continue
-            name = self._prep_family_label(engine, families.get(engine, []))
+            specs = families.get(engine, [])
+            name = self._prep_family_label(engine, specs)
             prepared = by_engine.get(engine)
-            item.setText(name if prepared is None else f"{name}\n{prepared} / {total}")
+            # One line: on a second line the count read as a list item of its own.
+            item.setText(name if prepared is None else f"{name} · {prepared} / {total}")
+            item.setToolTip(self._family_tooltip(
+                specs, "" if prepared is None else f"{prepared} of {total} {role}(s) in scope prepared"))
+
+    @staticmethod
+    def _family_tooltip(specs: list, count: str = "") -> str:
+        return "\n".join(filter(None, ("Shared by: " + ", ".join(spec.label for spec in specs), count)))
 
     def _selected_prep_target(self) -> str | None:
         item = self.prep_target_list.currentItem()
@@ -388,7 +397,7 @@ class PreparationPanel:
             item = QListWidgetItem(self._prep_family_label(engine, specs))
             item.setData(Qt.UserRole, specs[0].key)
             item.setData(Qt.UserRole + 1, engine)
-            item.setToolTip("Shared by: " + ", ".join(spec.label for spec in specs))
+            item.setToolTip(self._family_tooltip(specs))
             self.receptor_prep_target_list.addItem(item)
             self.receptor_prep_stack.addWidget(self._build_receptor_program_prep_page(specs[0]))
         self.receptor_prep_target_list.setCurrentRow(0)
