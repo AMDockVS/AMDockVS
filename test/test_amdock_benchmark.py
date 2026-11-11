@@ -33,7 +33,7 @@ def test_amdock_runtime_exposes_named_screening_batch_policies(tmp_path, monkeyp
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
 def test_amdock_screening_benchmark_reports_counts_and_throughput(tmp_path, monkeypatch):
     pytest.importorskip("rdkit")
-    pytest.importorskip("meeko")
+    pytest.importorskip("ms_adtools")
     pytest.importorskip("vina")
     _patch_fake_home(monkeypatch, tmp_path)
 

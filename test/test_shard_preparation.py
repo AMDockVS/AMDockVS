@@ -6,7 +6,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-pytest.importorskip("meeko")
+pytest.importorskip("ms_adtools")
 from ms_flow.core.data.shard import PayloadKind, Serializer, Shard, ShardWriter
 
 from amdockvs.docking.preparation.shards import prepare_ligand_shard, result_text

@@ -78,12 +78,11 @@ def test_command_line_has_only_the_options_quickvina_knows(monkeypatch, tmp_path
 
 @pytest.mark.skipif(not _installed(), reason="QuickVina 2 binary not installed")
 def test_qvina_docks_1iep(tmp_path):
-    from meeko import MoleculePreparation, PDBQTWriterLegacy
+    from ms_adtools import prepare_ligand
     from rdkit import Chem
 
     mol = Chem.AddHs(Chem.MolFromMolFile(str(DATA / "1iep_ligand.sdf")), addCoords=True)
-    text, ok, error = PDBQTWriterLegacy.write_string(MoleculePreparation().prepare(mol)[0])
-    assert ok, error
+    text = prepare_ligand(mol, open_macrocycles=True)
     ligand = tmp_path / "ligand.pdbqt"
     ligand.write_text(text)
 

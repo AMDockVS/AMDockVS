@@ -31,12 +31,11 @@ def test_program_takes_the_gpu_and_its_search_mode_is_the_protocol():
 
 @pytest.mark.skipif(not _installed(), reason="Uni-Dock not installed")
 def test_unidock_docks_1iep_in_one_run_and_a_bad_ligand_fails_alone(tmp_path):
-    from meeko import MoleculePreparation, PDBQTWriterLegacy
+    from ms_adtools import prepare_ligand
     from rdkit import Chem
 
     mol = Chem.AddHs(Chem.MolFromMolFile(str(DATA / "1iep_ligand.sdf")), addCoords=True)
-    text, ok, error = PDBQTWriterLegacy.write_string(MoleculePreparation().prepare(mol)[0])
-    assert ok, error
+    text = prepare_ligand(mol, open_macrocycles=True)
     ligand = tmp_path / "ligand.pdbqt"
     ligand.write_text(text)
     broken = tmp_path / "broken.pdbqt"

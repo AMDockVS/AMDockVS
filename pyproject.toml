@@ -38,7 +38,7 @@ dependencies = [
     "rdkit>=2025.3.5",
     # 2.1 is the first release whose metadata allows rdkit 2026.x; older ones downgrade it.
     "dimorphite-dl>=2.1.0,<3",
-    "meeko>=0.7.1",
+    "ms_adtools>=0.1",  # ligand/receptor PDBQT, poses back to RDKit
     # PyPI has vina wheels only for Linux x86-64, CPython <= 3.12; elsewhere pip would compile it
     # (Boost + SWIG) and fail. There the engine runs the official binary (Settings > External tools).
     "vina>=1.2.7; sys_platform == 'linux' and platform_machine == 'x86_64' and python_version < '3.13'",
@@ -71,11 +71,7 @@ pockets = ["jdk4py>=21"]
 # QSAR model building and prediction. Installable from Settings > External tools as well:
 # every sklearn import is lazy, so it works without a restart.
 qsar = ["scikit-learn>=1.5"]
-# Meeko's fallback reader for receptors its own PDB parser rejects (docking/preparation/meeko.py).
-# Optional, and out of `all`: PyPI has no macOS wheel and the Linux one needs glibc >= 2.35 (it
-# builds from source elsewhere); conda-forge has it for Linux x86-64 and Intel macOS.
-prody = ["prody>=2.4"]
-all = ["amdockvs[bblean,pockets,qsar]"]  # not prody: see environment.yml
+all = ["amdockvs[bblean,pockets,qsar]"]
 
 [project.urls]
 Homepage = "https://github.com/AMDockVS/AMDockVS"

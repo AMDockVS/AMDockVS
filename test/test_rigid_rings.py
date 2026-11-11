@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from amdockvs.docking.engines.qvina import qvina_command, qvina_dock_runner
 from amdockvs.docking.engines.vina import _count_heavy_atoms_pdbqt
-from amdockvs.docking.preparation.meeko import dockable_ligand, rigid_ring_ligand
+from amdockvs.docking.preparation.adtools import dockable_ligand, rigid_ring_ligand
 
 DATA = Path(__file__).resolve().parents[1] / "data" / "docking"
 BOX = {"box_center": [15.190, 53.903, 16.917], "box_size": [20.0, 20.0, 20.0]}
@@ -18,14 +18,14 @@ def _types(path: Path) -> set[str]:
 
 
 def _azepane(tmp_path: Path) -> Path:
-    from meeko import MoleculePreparation, PDBQTWriterLegacy
+    from ms_adtools import prepare_ligand
     from rdkit import Chem
     from rdkit.Chem import AllChem
 
-    mol = Chem.AddHs(Chem.MolFromSmiles("CC(=O)N1CCCCCC1c1ccccc1O"))  # 7-ring: Meeko opens it
+    mol = Chem.AddHs(Chem.MolFromSmiles("CC(=O)N1CCCCCC1c1ccccc1O"))  # a 7-ring, opened
     AllChem.EmbedMolecule(mol, randomSeed=1)
     path = tmp_path / "azepane.pdbqt"
-    path.write_text(PDBQTWriterLegacy.write_string(MoleculePreparation().prepare(mol)[0])[0])
+    path.write_text(prepare_ligand(mol, open_macrocycles=True))
     return path
 
 

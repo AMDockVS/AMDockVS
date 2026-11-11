@@ -40,14 +40,13 @@ Windows and macOS keep their native backends. Headless runs with
 ### Optional extras
 
 ```bash
-pip install "AMDockVS[all]"   # or pick one: bblean, pockets, prody, qsar
+pip install "AMDockVS[all]"   # or pick one: bblean, pockets, qsar
 ```
 
 | Extra | What it adds |
 |---|---|
 | `bblean` | BitBIRCH clustering (GPL, invoked through its CLI, never imported) |
 | `pockets` | the jlink-trimmed JDK that P2Rank runs on |
-| `prody` | ProDy, Meeko's fallback reader for receptor PDBs its own parser rejects. In the conda environment, uncomment `prody` in `environment.yml` instead (Linux x86-64 and Intel macOS only) |
 | `qsar` | scikit-learn for QSAR model building and prediction |
 
 ### External tools

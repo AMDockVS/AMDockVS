@@ -363,7 +363,7 @@ def test_amdock_ui_opens_selected_project_in_place_when_no_active_project(tmp_pa
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
 def test_amdock_ui_domain_views_show_docking_summaries(tmp_path, monkeypatch):
     pytest.importorskip("rdkit")
-    pytest.importorskip("meeko")
+    pytest.importorskip("ms_adtools")
     pytest.importorskip("vina")
     _patch_fake_home(monkeypatch, tmp_path)
 
@@ -531,7 +531,7 @@ def test_amdock_ui_domain_views_show_docking_summaries(tmp_path, monkeypatch):
                 return list(self.objects)
             def delete(self, name):
                 self.objects = [] if name == "all" else [o for o in self.objects if o != name]
-            def load_raw(self, _data, _format, name):
+            def load_raw(self, _data, _format, name, zoom=-1):
                 self.objects.append(name)  # a structure read from the project's volumes
             def create(self, name, _source, _source_state=0, _target_state=0):
                 self.objects.append(name)  # one pose copied out as a single-state object
@@ -741,7 +741,7 @@ def test_tool_buttons_are_flat_and_keep_result_views_available(tmp_path, monkeyp
 def test_preparing_ligands_without_3d_offers_to_generate_it(tmp_path, monkeypatch):
     """SMILES ligands have no coordinates. Preparation used to stop there with an API hint; it
     now asks, and one answer generates the 3D and prepares behind it."""
-    pytest.importorskip("meeko")
+    pytest.importorskip("ms_adtools")
     _patch_fake_home(monkeypatch, tmp_path / "home")
     monkeypatch.setenv("AMDOCK_DISABLE_PYMOL", "1")
     app = QApplication.instance() or QApplication(["amdockvs-ui"])

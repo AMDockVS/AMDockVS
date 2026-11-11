@@ -18,7 +18,7 @@ from ms_flow.core.data.shard import PayloadKind, Serializer, Shard, ShardWriter
 
 from amdockvs.chemistry.pipeline import run_pipeline
 from amdockvs.chemistry.shards import read_shard
-from amdockvs.docking.preparation.meeko import prepare_ligand_vina_pdbqt_from_mol
+from amdockvs.docking.preparation.adtools import prepare_ligand_vina_pdbqt_from_mol
 
 _SMILES_REMARK = "REMARK SMILES "
 _SMILES_IDX_REMARK = "REMARK SMILES IDX"

@@ -19,7 +19,7 @@ from amdockvs.docking.results.rmsd import pose_rmsd_detail
 from amdockvs.core.paths import get_default_project_root
 from amdockvs.docking.engines.autogrid import map_prefix as _ad4_map_prefix
 from amdockvs.docking.methods import check_program, check_receptor
-from amdockvs.docking.preparation.meeko import dockable_ligand
+from amdockvs.docking.preparation.adtools import dockable_ligand
 
 def _require_pdbqt(path: Path, *, kind: str) -> None:
     if path.suffix.lower() != ".pdbqt":
@@ -161,38 +161,33 @@ def count_heavy_atoms(path: Path) -> int:
     return mol.GetNumHeavyAtoms() if mol is not None else 0
 
 
-def _convert_vina_pdbqt_to_sdf(
-    *,
-    pdbqt_path: Path,
-    sdf_path: Path,
-    only_cluster_leads: bool = False,
-) -> Path:
-    try:
-        from meeko import PDBQTMolecule, RDKitMolCreate
-    except ImportError as exc:
-        raise RuntimeError("Python package 'meeko' is not available in the current environment.") from exc
+def attach_flexres(sd_text: str, pdbqt_text: str) -> str:
+    """The SD records with the side chains docked with each pose as their `flexres` property (a
+    PDB block: MODEL n of the docked PDBQT goes with record n), for the viewer to draw beside the
+    ligand; unchanged when nothing was flexible or the poses do not pair up one to one."""
+    if "BEGIN_RES" not in pdbqt_text:
+        return sd_text
+    from ms_adtools import flexres_models
 
-    pdbqt_molecule = PDBQTMolecule(
-        pdbqt_path.read_text(encoding="utf-8", errors="replace"),
-        name=pdbqt_path.stem,
-        poses_to_read=None,
-        energy_range=None,
-        is_dlg=False,
-        skip_typing=False,
-    )
-    # write_sd_string returns (sd_string, failures); writing the tuple repr (str(...)) is what
-    # corrupted the SDF ("('...\\n...', [])") and made PyMOL fail with "bad atom count".
-    sd_string, _failures = RDKitMolCreate.write_sd_string(
-        pdbqt_molecule,
-        only_cluster_leads=bool(only_cluster_leads),
-        keep_flexres=False,
-    )
-    if not str(sd_string or "").strip():
-        raise RuntimeError(f"Meeko could not convert docked PDBQT to SDF: {pdbqt_path.name}")
-    from amdockvs.docking.preparation.meeko import boron_in_sd
+    models = [[line for line in block.splitlines() if line.startswith("ATOM")]
+              for block in flexres_models(pdbqt_text).split("ENDMDL")]
+    models = [atoms for atoms in models if atoms]
+    records = [record for record in sd_text.split("$$$$\n") if record.strip()]
+    if len(records) > len(models):  # ponytail: a pose the SD writer dropped; pairing by rank would lie
+        return sd_text
+    return "".join(f"{record.rstrip(chr(10))}\n> <flexres>\n" + "\n".join(atoms) + "\n\n$$$$\n"
+                   for record, atoms in zip(records, models))
 
+
+def _convert_vina_pdbqt_to_sdf(*, pdbqt_path: Path, sdf_path: Path) -> Path:
+    from amdockvs.docking.preparation.adtools import poses_sd
+
+    pdbqt_text = pdbqt_path.read_text(encoding="utf-8", errors="replace")
+    sd_string, _props = poses_sd(pdbqt_text, pdbqt_path.stem)
+    if not sd_string.strip():
+        raise RuntimeError(f"Could not convert docked PDBQT to SDF: {pdbqt_path.name}")
     sdf_path.parent.mkdir(parents=True, exist_ok=True)
-    sdf_path.write_text(boron_in_sd(str(sd_string)), encoding="utf-8")
+    sdf_path.write_text(attach_flexres(sd_string, pdbqt_text), encoding="utf-8")
     return sdf_path
 
 
@@ -508,7 +503,6 @@ def run_vina_docking_rows(
             _convert_vina_pdbqt_to_sdf(
                 pdbqt_path=output_pdbqt_path,
                 sdf_path=output_sdf_path,
-                only_cluster_leads=False,
             )
         except Exception as exc:
             failure = {

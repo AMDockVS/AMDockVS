@@ -4,7 +4,7 @@ from __future__ import annotations
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-from amdockvs.docking.preparation.meeko import boron_in_sd, prepare_ligand_vina_pdbqt_from_mol
+from amdockvs.docking.preparation.adtools import poses_sd, prepare_ligand_vina_pdbqt_from_mol
 from amdockvs.io.formats import read_mol
 
 
@@ -26,11 +26,9 @@ def test_a_boron_is_typed_as_carbon_and_read_back_as_boron(tmp_path):
 
 
 def test_a_pose_sd_gets_its_borons_back():
-    from meeko import PDBQTMolecule, RDKitMolCreate
-
     pdbqt = str(prepare_ligand_vina_pdbqt_from_mol(_ligand("OB(O)c1ccccc1")).payload)
-    sd, _ = RDKitMolCreate.write_sd_string(PDBQTMolecule(pdbqt, skip_typing=True))
+    sd, _ = poses_sd(pdbqt, "lig")
     supplier = Chem.SDMolSupplier()
-    supplier.SetData(boron_in_sd(sd))
+    supplier.SetData(sd)
     (mol,) = list(supplier)
     assert Chem.MolToSmiles(Chem.MolFromSmiles(Chem.MolToSmiles(mol))) == "OB(O)c1ccccc1"

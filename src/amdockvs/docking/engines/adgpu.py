@@ -13,7 +13,6 @@ of a ~1.8 s dock (1iep, nrun 20, GTX 1660), so 8 ligands take 10 s instead of 14
 """
 from __future__ import annotations
 
-import json
 import os
 import re
 from contextlib import suppress
@@ -25,9 +24,9 @@ from amdockvs.core.configuration import app_config
 from amdockvs.core.paths import get_default_project_root, tools_home
 from amdockvs.core.worker_io import run_program
 from amdockvs.docking.engines.autogrid import map_prefix
-from amdockvs.docking.engines.vina import count_heavy_atoms
+from amdockvs.docking.engines.vina import attach_flexres, count_heavy_atoms
 from amdockvs.docking.methods import check_program, check_receptor
-from amdockvs.docking.preparation.meeko import dockable_ligand
+from amdockvs.docking.preparation.adtools import dockable_ligand
 from amdockvs.docking.results.metrics import docking_row, pose_file_stem
 from amdockvs.docking.results.rmsd import pose_rmsd_detail
 from amdockvs.integrations.envs import tool_spec
@@ -106,28 +105,19 @@ def _run_adgpu(
 
 
 def _cluster_leads(dlg_path: Path, sdf_path: Path, num_modes: int) -> list[dict]:
-    """Write the best pose of each cluster (lowest energy first) as SDF and return their
-    energies, in the same order."""
-    from meeko import PDBQTMolecule, RDKitMolCreate
+    """Write the best pose of each cluster (lowest energy first) as SDF, with the side chains
+    docked with it when residues were flexible, and return their energies in the same order."""
+    from ms_adtools import dlg_to_pdbqt
 
-    # skip_typing: Meeko's type table has no entry for types added by a parameter file; the
-    # chemistry comes from the SMILES remark, not from the AutoDock types.
-    molecule = PDBQTMolecule(
-        dlg_path.read_text(encoding="utf-8", errors="replace"), name=dlg_path.stem, is_dlg=True, skip_typing=True
-    )
-    from amdockvs.docking.preparation.meeko import boron_in_sd
+    from amdockvs.docking.preparation.adtools import poses_sd
 
-    sd_string, _failures = RDKitMolCreate.write_sd_string(molecule, only_cluster_leads=True, keep_flexres=False)
-    sd_string = boron_in_sd(str(sd_string or ""))
-    blocks = [block for block in str(sd_string or "").split("$$$$\n") if block.strip()][: max(1, int(num_modes))]
-    if not blocks:
-        raise RuntimeError(f"Meeko could not read poses from {dlg_path.name}")
-    sdf_path.write_text("".join(f"{block}$$$$\n" for block in blocks), encoding="utf-8")
-    poses: list[dict] = []
-    for block in blocks:
-        lines = block.splitlines()
-        tag = next(index for index, line in enumerate(lines) if line.startswith(">  <meeko>"))
-        poses.append(json.loads(lines[tag + 1]))
+    # The chemistry comes from the SMILES remark, not from the AutoDock types: a type added by a
+    # parameter file needs no entry anywhere.
+    pdbqt = dlg_to_pdbqt(dlg_path.read_text(encoding="utf-8", errors="replace"))
+    sd_string, props = poses_sd(pdbqt, dlg_path.stem, max(1, int(num_modes)))
+    sdf_path.write_text(attach_flexres(sd_string, pdbqt), encoding="utf-8")
+    poses = [{"free_energy": p["score"], "intermolecular_energy": p.get("intermolecular"),
+              "internal_energy": p.get("internal"), "cluster_size": p.get("cluster_size")} for p in props]
     return poses
 
 

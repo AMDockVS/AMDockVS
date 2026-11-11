@@ -5,7 +5,7 @@ from pathlib import Path
 from amdockvs.integrations.contracts import ToolArtifact, ToolResult
 
 
-# Meeko opens every ring of 7+ atoms into CG0/G0 closure pseudo-atoms; only Vina's own scoring
+# Ligand preparation opens every ring of 7+ atoms into CG0/G0 closure pseudo-atoms; only Vina's own scoring
 # functions close them again. Every other program (and scoring) docks those rings rigid.
 OPEN_RING_SCORING: dict[str, tuple[str, ...]] = {"vina": ("vina", "vinardo")}
 
@@ -31,16 +31,13 @@ def rigid_ring_ligand(path: Path, work_dir: Path) -> Path:
     text = path.read_text(encoding="utf-8", errors="replace")
     if not _has_open_rings(text):
         return path
-    from meeko import MoleculePreparation, PDBQTMolecule, PDBQTWriterLegacy, RDKitMolCreate
+    from ms_adtools import pdbqt_to_rdkit, prepare_ligand
 
-    mol = RDKitMolCreate.from_pdbqt_mol(PDBQTMolecule(text, poses_to_read=1, skip_typing=True))[0]
-    if mol is None:
-        raise RuntimeError(f"Meeko could not rebuild the ligand to keep its rings rigid: {path.name}")
-    rigid, ok, error = PDBQTWriterLegacy.write_string(
-        MoleculePreparation(rigid_macrocycles=True).prepare(mol)[0]
-    )
-    if not ok:
-        raise RuntimeError(str(error or f"Meeko could not write the rigid-ring ligand: {path.name}"))
+    try:
+        mol = pdbqt_to_rdkit(text)
+        rigid = prepare_ligand(mol, conf_id=mol.GetConformers()[0].GetId())
+    except Exception as exc:  # noqa: BLE001 - the ligand is unusable rigid, say which one
+        raise RuntimeError(f"Could not rebuild the ligand to keep its rings rigid: {path.name} ({exc})") from exc
     work_dir.mkdir(parents=True, exist_ok=True)
     out = work_dir / f"{path.stem}.rigid.pdbqt"
     out.write_text(rigid, encoding="utf-8")
@@ -49,7 +46,7 @@ def rigid_ring_ligand(path: Path, work_dir: Path) -> Path:
 
 # AutoDock and Vina have no boron type. As EasyDock does, a boron docks as a carbon; the carbon
 # carries isotope BORON_MARK + the boron's formal charge so the pose can turn it back unambiguously
-# (Meeko keeps isotopes in its REMARK SMILES).
+# (the REMARK SMILES keeps isotopes).
 BORON_MARK = 500
 
 
@@ -71,7 +68,7 @@ def boron_as_carbon(mol):
 
 
 def carbon_as_boron(mol):
-    """Undo `boron_as_carbon` on a pose rebuilt by Meeko (in place; returns `mol`)."""
+    """Undo `boron_as_carbon` on a pose rebuilt from its PDBQT (in place; returns `mol`)."""
     for atom in mol.GetAtoms():
         if atom.GetAtomicNum() == 6 and BORON_MARK - 4 <= atom.GetIsotope() <= BORON_MARK + 4:
             atom.SetFormalCharge(atom.GetIsotope() - BORON_MARK)
@@ -81,23 +78,23 @@ def carbon_as_boron(mol):
     return mol
 
 
-def boron_in_sd(sd_string: str) -> str:
-    """The SD text Meeko wrote from a pose, its marked carbons back to boron."""
-    if "M  ISO" not in sd_string:
-        return sd_string
+def poses_sd(pdbqt_text: str, name: str, limit: int | None = None) -> tuple[str, list[dict]]:
+    """The poses of a docked PDBQT (from its REMARK SMILES) as SD text, marked carbons back to
+    boron, and each pose's conformer properties (score, and a DLG's energies and cluster)."""
     from io import StringIO
 
+    from ms_adtools import pdbqt_to_rdkit
     from rdkit import Chem
 
-    supplier = Chem.SDMolSupplier()
-    supplier.SetData(sd_string, sanitize=False, removeHs=False)
+    mol = carbon_as_boron(pdbqt_to_rdkit(pdbqt_text))
+    mol.SetProp("_Name", name)
+    conformers = list(mol.GetConformers())[:limit]
     out = StringIO()
     writer = Chem.SDWriter(out)
-    for mol in supplier:
-        if mol is not None:
-            writer.write(carbon_as_boron(mol))
+    for conformer in conformers:
+        writer.write(mol, confId=conformer.GetId())
     writer.close()
-    return out.getvalue()
+    return out.getvalue(), [conformer.GetPropsAsDict() for conformer in conformers]
 
 
 def _ligand_has_3d(mol) -> bool:
@@ -112,7 +109,7 @@ def _prepare_ligand_3d_with_hs(mol):
     if not _ligand_has_3d(mol):
         raise ValueError(
             "Ligand preparation for Vina requires an existing 3D conformer. "
-            "Run the ligand 3D generation step before Meeko preparation."
+            "Run the ligand 3D generation step before preparing it."
         )
     return Chem.AddHs(Chem.Mol(mol), addCoords=True)
 
@@ -133,19 +130,11 @@ def _load_ligand_mol(source_path: Path):
 
 
 def prepare_ligand_vina_pdbqt_from_mol(mol) -> ToolResult:
-    try:
-        from meeko import MoleculePreparation, PDBQTWriterLegacy
-    except ImportError as exc:
-        raise RuntimeError("Python package 'meeko' is not available in the current environment.") from exc
+    from ms_adtools import prepare_ligand
 
-    prepared_mol = boron_as_carbon(_prepare_ligand_3d_with_hs(mol))
-    mk_prep = MoleculePreparation()
-    molsetups = mk_prep.prepare(prepared_mol)
-    if not molsetups:
-        raise RuntimeError("Meeko did not produce any ligand setup.")
-    pdbqt_string, is_ok, error_msg = PDBQTWriterLegacy.write_string(molsetups[0])
-    if not is_ok:
-        raise RuntimeError(str(error_msg or "Meeko could not write ligand PDBQT."))
+    # Rings of 7+ atoms open into CG/G closure atoms as meeko's default; `dockable_ligand` makes
+    # the rigid-ring copy for the programs that cannot close them.
+    pdbqt_string = prepare_ligand(boron_as_carbon(_prepare_ligand_3d_with_hs(mol)), open_macrocycles=True)
     return ToolResult(
         artifact=ToolArtifact(
             kind="vina_ligand_pdbqt",
@@ -196,14 +185,14 @@ def prepare_ligand_vina_pdbqt(
     )
 
 
-def _flex_meeko_id(key: str) -> str | None:
-    # Our stored key is "chain:resname:resnum"; Meeko's monomer id is "chain:resnum"
-    # (empty chain stays empty, e.g. ":225"). Our "_" sentinel means "no chain".
+def _flex_spec(key: str) -> str | None:
+    """ms_adtools' residue spec ("A:ARG239", "ARG239" without a chain) of our stored key
+    "chain:resname:resnum", whose "_" chain means "no chain"."""
     parts = str(key).split(":")
     if len(parts) != 3:
         return None
-    chain, _resname, resnum = parts
-    return f"{'' if chain == '_' else chain}:{resnum}"
+    chain, resname, resnum = parts
+    return f"{'' if chain == '_' else chain + ':'}{resname}{resnum}"
 
 
 def _without_resnames(text: str, exclude: frozenset[str]) -> str:
@@ -223,31 +212,6 @@ def _without_resnames(text: str, exclude: frozenset[str]) -> str:
     return "".join(kept)
 
 
-def _polymer_from_pdb(receptor_text: str, templates, mk_prep):
-    """Meeko's own PDB reader, falling back to ProDy for the structures it refuses."""
-    from meeko import Polymer
-
-    try:
-        return Polymer.from_pdb_string(
-            receptor_text, templates, mk_prep, allow_bad_res=True, default_altloc="A",
-        )
-    except ValueError as refused:
-        try:
-            import prody
-        except ImportError:
-            # ponytail: optional fallback; ProDy's wheels miss macOS arm64 and glibc < 2.35.
-            raise RuntimeError(
-                f"Meeko could not read this receptor ({refused}). Its fallback reader, ProDy, is not "
-                "installed: pip install 'amdockvs[prody]'."
-            ) from refused
-        from ms_flow.payloads import scratch_file
-
-        # ProDy parses a path, not a string: hand it the filtered text, not the file on disk.
-        with scratch_file(receptor_text.encode(), ".pdb") as filtered:
-            structure = prody.parsePDB(str(filtered), altloc="all")
-        return Polymer.from_prody(structure, templates, mk_prep, allow_bad_res=True, default_altloc="A")
-
-
 def prepare_receptor_vina_pdbqt(
     *,
     source_path: str | Path,
@@ -255,6 +219,10 @@ def prepare_receptor_vina_pdbqt(
     flexible_residues: list[str] | None = None,
     exclude_resnames: frozenset[str] = frozenset(),
 ) -> ToolResult:
+    """Receptor PDBQT (ms_adtools): hydrogens added to the residues that have none, Gasteiger
+    charges, non-polar hydrogens merged. ``flexible_residues`` (stored keys) also write
+    ``{stem}__flex.pdbqt``; a key not in the receptor, or a residue with nothing to rotate, is
+    skipped, not fatal — one typo should not sink the preparation."""
     source = Path(source_path).expanduser().resolve()
     output = Path(output_path).expanduser().resolve()
     if source.suffix.lower() == ".pdbqt":
@@ -268,46 +236,48 @@ def prepare_receptor_vina_pdbqt(
             metadata={"engine": "vina", "format": "pdbqt"},
         )
 
-    try:
-        from meeko import MoleculePreparation, PDBQTWriterLegacy, ResidueChemTemplates
-    except ImportError as exc:
-        raise RuntimeError("Python package 'meeko' is not available in the current environment.") from exc
+    import warnings
 
-    mk_prep = MoleculePreparation()
-    templates = ResidueChemTemplates.create_from_defaults()
+    from ms_adtools import prepare_flexreceptor, prepare_receptor
+    from ms_flow.payloads import scratch_file
+
     from amdockvs.io.formats import as_pdb
 
     with as_pdb(source) as readable:
-        receptor_text = _without_resnames(readable.read_text(encoding="utf-8"), exclude_resnames)
-        polymer = _polymer_from_pdb(receptor_text, templates, mk_prep)
-    # Mark the user-picked residues flexible before writing; this is what makes Meeko emit a
-    # non-empty flex block. A bad/missing key is skipped, not fatal — one typo shouldn't sink prep.
+        text = _without_resnames(readable.read_text(encoding="utf-8"), exclude_resnames)
+    with scratch_file(text.encode(), ".pdb") as filtered:
+        # waters and cofactors were filtered above, by the user's choice: the cleanup leaves them be
+        rigid = prepare_receptor(filtered, repairs="hydrogens", cleanup="nphs_lps")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(rigid, encoding="utf-8")
+    present = {(l[21].strip(), l[17:20].strip() + l[22:27].strip()) for l in rigid.splitlines()
+               if l.startswith(("ATOM", "HETATM"))}
     flex_applied: list[str] = []
     flex_skipped: list[str] = []
-    if flexible_residues:
-        valid = polymer.get_valid_monomers()
-        for key in flexible_residues:
-            mid = _flex_meeko_id(key)
-            if mid is None or mid not in valid:
-                flex_skipped.append(str(key))
-                continue
-            try:
-                polymer.flexibilize_sidechain(mid, mk_prep)
-                flex_applied.append(mid)
-            except Exception:
-                flex_skipped.append(str(key))
-
-    rigid_pdbqt, flex_pdbqt = PDBQTWriterLegacy.write_string_from_polymer(polymer)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(rigid_pdbqt, encoding="utf-8")
+    for key in flexible_residues or []:
+        spec = _flex_spec(key)
+        chain, _, name = (spec or "").rpartition(":")
+        (flex_applied if spec and (chain, name) in present else flex_skipped).append(str(key))
+    flex = ""
+    if flex_applied:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            rigid, flex = prepare_flexreceptor(output, [_flex_spec(k) for k in flex_applied])
+        rigid_ones = " ".join(str(w.message) for w in caught)
+        for key in list(flex_applied):  # "PRO A 227 has no rotatable side chain: kept rigid"
+            chain, resname, resnum = key.split(":")
+            if " ".join(f"{resname} {'' if chain == '_' else chain} {resnum}".split()) in rigid_ones:
+                flex_applied.remove(key)
+                flex_skipped.append(key)
+        output.write_text(rigid, encoding="utf-8")
     extra: dict[str, object] = {"source_format": source.suffix.lstrip("."), "copied": False}
     if flex_applied:
         extra["flex_residues"] = flex_applied
     if flex_skipped:
         extra["flex_skipped"] = flex_skipped
-    if flex_pdbqt.strip():
+    if flex.strip():
         flex_path = output.with_name(f"{output.stem}__flex.pdbqt")
-        flex_path.write_text(flex_pdbqt, encoding="utf-8")
+        flex_path.write_text(flex, encoding="utf-8")
         extra["flex_path"] = str(flex_path)
     return ToolResult(
         artifact=ToolArtifact(

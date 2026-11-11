@@ -241,28 +241,23 @@ def _read_cif(path: Path, *, sanitize: bool, remove_hs: bool, index: int, resnam
 
 
 def _read_pdbqt(path: Path, *, sanitize: bool, remove_hs: bool, index: int, resname: str):
-    """Exact via meeko's ``REMARK SMILES``; otherwise rebuilt from the AutoDock atom types."""
+    """Exact via the ``REMARK SMILES``; otherwise rebuilt from the AutoDock atom types."""
     from rdkit import Chem
 
     text = path.read_text(errors="replace")
     if "REMARK SMILES" in text:
         try:
-            from meeko import PDBQTMolecule, RDKitMolCreate
+            from ms_adtools import pdbqt_to_rdkit
 
-            molecules = RDKitMolCreate.from_pdbqt_mol(
-                PDBQTMolecule(text, is_dlg=False, skip_typing=True)
-            )
-            candidates = [mol for mol in molecules if mol is not None]
-            if candidates:
-                # meeko yields one mol per ligand with one conformer per pose: `index` is the pose.
-                mol = Chem.Mol(candidates[0])
-                conformer = Chem.Conformer(mol.GetConformers()[min(max(0, int(index)), mol.GetNumConformers() - 1)])
-                mol.RemoveAllConformers()
-                mol.AddConformer(conformer, assignId=True)
-                from amdockvs.docking.preparation.meeko import carbon_as_boron
+            from amdockvs.docking.preparation.adtools import carbon_as_boron
 
-                carbon_as_boron(mol)
-                return Chem.RemoveHs(mol) if remove_hs else mol
+            # One conformer per pose: `index` is the pose.
+            mol = pdbqt_to_rdkit(text)
+            conformer = Chem.Conformer(mol.GetConformers()[min(max(0, int(index)), mol.GetNumConformers() - 1)])
+            mol.RemoveAllConformers()
+            mol.AddConformer(conformer, assignId=True)
+            carbon_as_boron(mol)
+            return Chem.RemoveHs(mol) if remove_hs else mol
         except Exception:  # noqa: BLE001 - fall through to the type-based path
             pass
     with tempfile.TemporaryDirectory() as scratch:
