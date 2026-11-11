@@ -217,6 +217,7 @@ class ReceptorImportPanel(QWidget):
             ["File", "Unit", "Chains", "Ligands", "Metals", "Waters", "Status", "Selected Ligand", "Activity", "As Ligand", "Format", "Path"]
         )
         header = self.table.horizontalHeader()
+        header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # every column holds text
         # Every column is user-resizable (Interactive) with a sensible default width; Chains needs
         # room for its chips+combo so it isn't clipped.
         header.setStretchLastSection(False)
