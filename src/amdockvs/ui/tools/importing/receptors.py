@@ -54,7 +54,7 @@ from amdockvs.ui.common.drop_area import (
 )
 from amdockvs.ui.view_ids import RECEPTOR_VIEW_ID
 from amdockvs.models.molecules import MoleculeType
-from amdockvs.ui.common.widgets import WrapCombo
+from amdockvs.ui.common.widgets import WrapCombo, help_button
 from ms_components.chips import ChipsSelect
 from amdockvs.ui.tools.importing.common import land_on_view, nudge_monitor, submit_import
 from amdockvs.ui.tools.importing.download import download_into, file_label, file_tip
@@ -164,14 +164,27 @@ class ReceptorImportPanel(QWidget):
 
         # Which coordinated metals center a Grid Box: the config's list, more typed in (Mn + Enter).
         metals_label = QLabel("Metals", self)
-        metals_label.setToolTip("Coordinated metals that become the center of a Grid Box.")
+        self.metals_help = help_button(
+            self,
+            "<p>Each coordinated metal in the structure whose PDB code is listed here becomes the "
+            "center of its own Grid Box, sized as set above.</p>"
+            "<p>Remove a metal with its <b>×</b>. Add one with <b>＋ Add</b>: pick it from the "
+            "list, or type its PDB code (e.g. <b>MN</b>) and press Enter.</p>"
+            "<p>Used only while <i>Grid Box from ligands and coordinated metals</i> is on.</p>",
+            name="Metals help",
+        )
+        metals_header = QHBoxLayout()
+        metals_header.setSpacing(2)
+        metals_header.addWidget(metals_label)
+        metals_header.addWidget(self.metals_help)
+        metals_header.addStretch(1)
         self.metals_box = ChipsSelect(self, editable=True, reorderable=True, normalize=lambda text: text.strip().upper())
         self.metals_box.setMinimumWidth(300)  # chips wrap in rows, not one per line
         configured = list(app_config(self._runtime).imports.grid_box_metals)
         self.metals_box.set_items(
             configured + [code for code in COORDINATION_METAL_CODES if code not in configured], selected=configured
         )
-        options.addWidget(metals_label, 1, 2, Qt.AlignTop)
+        options.addLayout(metals_header, 1, 2, Qt.AlignTop)
         options.addWidget(self.metals_box, 1, 3, 3, 1)
         # The size and metals only mean something when boxes are created from the cocrystal components.
         for widget in (box_size_label, self.binding_site_box_size, metals_label, self.metals_box):
