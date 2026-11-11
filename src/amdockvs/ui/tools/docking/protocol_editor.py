@@ -97,6 +97,8 @@ class ProtocolEditorWidget:
         next_button.setToolTip("Continue to Ligands to select and prepare ligands.")
         next_button.clicked.connect(self.stepper.next)
         panel.action_bar.add_action(next_button)
+        self.programs_bar = panel.action_bar
+        self._sync_programs_summary()
         return panel
 
     def _build_protocols_box(self, box) -> None:
@@ -761,6 +763,19 @@ class ProtocolEditorWidget:
             else:
                 item.setData(Qt.ItemDataRole.CheckStateRole, None)
             item.setFlags(flags)
+        self._sync_programs_summary()
+
+    def _sync_programs_summary(self) -> None:
+        """"N program(s) selected" over their names, like the other steps' scope lines."""
+        bar = getattr(self, "programs_bar", None)
+        if bar is None:
+            return
+        labels = {spec.key: spec.label for spec in list_docking_programs()}
+        programs = [labels.get(key, key) for key in self._selected_programs()]
+        headline = f"{len(programs)} program(s) selected"
+        if self._run_kind() != "docking":
+            headline += f" · {len(self._selected_protocols())} protocol(s)"
+        bar.set_summary(headline, ", ".join(programs) or "Select at least one program")
 
     def _on_program_item_changed(self, item) -> None:
         if not item.flags() & Qt.ItemFlag.ItemIsUserCheckable:

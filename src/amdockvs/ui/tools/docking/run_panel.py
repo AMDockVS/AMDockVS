@@ -346,6 +346,7 @@ class RunPanel:
         if token != self._refresh_token:
             return
         self.step_programs.set_done(bool(data.get("programs_chosen")))
+        self._sync_programs_summary()
         if data.get("step") == 1:
             self._set_prep_source_counts(data)
         if data.get("sharded"):
@@ -365,11 +366,10 @@ class RunPanel:
             self.prepare_ligands_button.setEnabled(True)
         if "ligands_prepared" in data and not data.get("sharded"):
             ligand_failed = int(data.get("ligands_failed") or 0)
-            # Scope = which ligands (one, shared). "N prepared" is per family, so it lives on
-            # the family rows, not here — a single number would be one family's count
-            # presented as the total.
+            # Scope = which ligands (one, shared). "N prepared" counts the ligands ready for
+            # EVERY selected family (the step's check mark); the family rows give each count.
             headline = f"{data['ligands_total']} ligand(s) in scope"
-            detail = f"{ligand_failed} failed" if ligand_failed else ""
+            detail = f"{data['ligands_prepared']} prepared" + (f" · {ligand_failed} failed" if ligand_failed else "")
             # Checked only when ALL in scope are prepared.
             done = data["ligands_total"] > 0 and data["ligands_prepared"] >= data["ligands_total"]
             if "shards" in data["sources"] and "shards_total" in data:
