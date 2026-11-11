@@ -76,6 +76,8 @@ _JOB_PREREQS = {
 }
 
 
+_ENDED = ("completed", "completed_with_errors", "failed", "canceled")  # ms_flow's terminal states
+
 def _job_category(name: str) -> Optional[str]:
     lowered = str(name or "").lower()
     for substring, category in _JOB_CATEGORY_RULES:
@@ -470,6 +472,17 @@ class AMDockVSRuntime(AppRuntime):
         """
         self._job_items[str(job_id)] = (count, str(unit))
 
+    def track_chunk_items(self, job_id: str, total: int, per_chunk: int, *, unit: str) -> None:
+        """`track_job_items` for a job whose chunks hold `per_chunk` items each, the last one
+        fewer: read from the engine's own count, so the monitor's poll touches no database."""
+        engine = self.workspace.engine
+
+        def count():
+            done = engine.status(self._engine_ids()[str(job_id)]).chunks_done
+            return min(done * per_chunk, total), total
+
+        self.track_job_items(job_id, count, unit=unit)
+
     def measure_job(self, job_id: str) -> dict | None:
         """The monitor's `measure`: called on its polling thread, so `count` only reads."""
         tracked = self._job_items.get(str(job_id))
@@ -509,8 +522,13 @@ class AMDockVSRuntime(AppRuntime):
         priority: int = 0,
         result_handler_kwargs: Optional[dict] = None,
         auto_depends: bool = True,
+        queue_behind: Optional[str] = None,
     ) -> str:
         """Submit a job, auto-waiting for active prerequisite jobs by default.
+
+        `queue_behind` names a lane (e.g. "docking"): the job goes a priority level below every
+        active job of that lane on the same executor, so long jobs of a kind run one after the
+        other, each on what the ones before it leave free, instead of sharing the machine.
 
         With auto_depends=True (default) the job is held until every active job of its
         prerequisite categories finishes, so a deferred pipeline can be queued at once.
@@ -530,6 +548,8 @@ class AMDockVSRuntime(AppRuntime):
         job_id = uuid4().hex
         engine_ids = self._engine_ids()
         executor = self._run_on(job, executor_name)
+        if queue_behind:
+            priority += self._behind(queue_behind, executor)
         engine_ids[job_id] = workspace.submit(
             engine_job,
             job_params,
@@ -546,6 +566,8 @@ class AMDockVSRuntime(AppRuntime):
             on_error=on_error,
             **({"thread": True} if job.on_thread is not None and job.on_thread(job_params) else {}),
         )
+        if queue_behind:
+            self._lanes()[job_id] = (queue_behind, executor, priority)
         # Single funnel for "a job just started" UI feedback (the main window plugs a toast in
         # here). May fire from a worker thread, so the hook must be thread-safe (a Qt signal).
         hook = getattr(self, "on_job_submitted", None)
@@ -638,6 +660,21 @@ class AMDockVSRuntime(AppRuntime):
                  if dep in engine_ids and dep != job_id]
         engine_ids[job_id] = self.workspace.move(job_id, executor, after=waits)
         return job_id
+
+    def _lanes(self) -> dict[str, tuple[str, str, int]]:
+        """Job id -> (lane, executor, priority) of the `queue_behind` jobs this session submitted."""
+        if getattr(self, "_job_lanes", None) is None:
+            self._job_lanes = {}
+        return self._job_lanes
+
+    def _behind(self, lane: str, executor: str) -> int:
+        """How far below 0 a new job of `lane` on `executor` goes: one level under the lowest
+        active one. Whatever level it was asked at (shards -1) keeps its place inside the step."""
+        engine, lanes = self.workspace.engine, self._lanes()
+        active = [priority for job_id, (name, where, priority) in list(lanes.items())
+                  if name == lane and where == executor
+                  and engine.status(self._engine_ids()[job_id]).status not in _ENDED]
+        return min(active) - 1 if active else 0
 
     def _engine_ids(self) -> dict[str, int]:
         """Job id -> what the engine calls it, for the jobs this session submitted."""

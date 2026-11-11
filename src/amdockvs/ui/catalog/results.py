@@ -46,6 +46,7 @@ from amdockvs.project.summaries import DockingHitSummary
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.catalog.common import project_table
 from amdockvs.ui.catalog.export import export_pose_files, export_poses
+from amdockvs.ui.viewers.molecular_viewer import SWAPS_POSE
 from ms_components.ms_table import FilterOperator, FilterSpec, MetricFilterBar, SmartTableView
 
 try:
@@ -247,6 +248,8 @@ class DockingResultsWidget(QWidget):
         self.pose_table.data_refreshed.connect(self._on_poses_loaded)
         pose_layout.addWidget(self.pose_table)
         splitter.addWidget(pose_box)
+        for table in (self.ligand_table, self.pose_table):
+            table._table.setProperty(SWAPS_POSE, True)  # a click swaps the pose; receptor and camera stay
 
         splitter.setStretchFactor(0, 2)
         splitter.setStretchFactor(1, 3)
@@ -711,8 +714,9 @@ class DockingResultsWidget(QWidget):
             if shown and viewer is not None:
                 viewer.select_table_row(table._table)  # back to one row: the others leave the scene
             return
-        if viewer is not None and not shown <= ids:
-            viewer.select_table_row(table._table)  # a row left the selection: start the scene over
+        if viewer is not None and not (shown and shown <= ids):
+            # A second row joined (the scene held one swapped pose) or a row left: start over.
+            viewer.select_table_row(table._table, additive=True, restart=True)
         epoch = self._scene_epoch()
         self._together = (table, ids, epoch)
 

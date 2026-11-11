@@ -145,6 +145,21 @@ def test_the_monitor_measures_only_the_jobs_the_runtime_tracks(tmp_path):
     assert runtime.measure_job("other") is None
 
 
+def test_chunk_items_count_full_chunks_and_a_short_last_one(monkeypatch):
+    """Docking: 23 pairs in chunks of 10 read 10, 20, then 23 as chunks end, off the engine alone."""
+    from types import SimpleNamespace
+
+    done = [1]
+    engine = SimpleNamespace(status=lambda engine_id: SimpleNamespace(chunks_done=done[0]))
+    runtime = AMDockVSRuntime()
+    monkeypatch.setattr(runtime, "workspace", SimpleNamespace(engine=engine))
+    runtime._engine_ids()["job-1"] = 7
+    runtime.track_chunk_items("job-1", 23, 10, unit="ligands")
+    assert runtime.measure_job("job-1") == {"done": 10, "total": 23, "unit": "ligands"}
+    done[0] = 3
+    assert runtime.measure_job("job-1")["done"] == 23
+
+
 def test_the_project_summary_reads_the_library_off_the_inventory(project, tmp_path):
     """A sharded library is not rows: its stats come from the active generation's shards."""
     from amdockvs.models import DockingRun

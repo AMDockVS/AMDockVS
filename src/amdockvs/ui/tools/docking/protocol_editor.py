@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from PySide6.QtCore import QEvent, Qt
+from PySide6.QtCore import QEvent, QSignalBlocker, Qt
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -72,9 +72,14 @@ class ProtocolEditorWidget:
             self.program_list.addItem(spec.label)
             self.program_pages.addWidget(self._build_program_config(spec))
         self.program_list.setSpacing(2)
-        self.program_list.setFixedWidth(self.program_list.sizeHintForColumn(0) + 32)
+        self.program_list.setFixedWidth(self.program_list.sizeHintForColumn(0) + 52)  # + its box
         self.program_list.currentRowChanged.connect(self.program_pages.setCurrentIndex)
         self.program_list.setCurrentRow(0)
+        # The list says which programs run: each name has its box, the same as "Run <program>".
+        self._programs_checkable = True
+        self.program_list.itemChanged.connect(self._on_program_item_changed)
+        for check in self._program_checks.values():
+            check.toggled.connect(lambda _on: self._sync_program_items())
         self._refresh_program_availability()
         programs = QHBoxLayout()
         programs.addWidget(self.program_list)
@@ -448,6 +453,8 @@ class ProtocolEditorWidget:
                 )
         for check in (getattr(self, "_program_checks", {}) or {}).values():
             check.setVisible(docking)
+        self._programs_checkable = docking  # redocking picks variants, not programs
+        self._sync_program_items()
         if set_box is not None:
             set_box.setVisible(not docking)
         if not docking:
@@ -656,7 +663,7 @@ class ProtocolEditorWidget:
             form, notice, label = self._program_notices[spec.key]
             label.setText(reason)
             form.setRowVisible(notice, bool(reason))
-        self.program_list.setFixedWidth(self.program_list.sizeHintForColumn(0) + 32)
+        self.program_list.setFixedWidth(self.program_list.sizeHintForColumn(0) + 52)  # + its box
         self._sync_variant_buttons()
         self._refresh_program_availability()
         # Just installed (missing on the last check, there now): the user wants to run it.
@@ -730,9 +737,38 @@ class ProtocolEditorWidget:
             if check is not None:
                 check.setChecked(True)
             self._select_program(preferred)
+        self._sync_program_items()
         self._refresh_prep_targets()
         self._refresh_receptor_prep_targets()
         self._refresh_protocol_table()
+
+    def _sync_program_items(self) -> None:
+        """Each program's box in the list, from its "Run <program>" check: ticked, and tickable
+        while it can run; no box at all while redocking."""
+        programs = getattr(self, "program_list", None)
+        if programs is None:
+            return
+        blocker = QSignalBlocker(programs)  # noqa: F841 - held for the loop
+        for index, spec in enumerate(list_docking_programs()):
+            check, item = self._program_checks.get(spec.key), programs.item(index)
+            if check is None or item is None:
+                continue
+            flags = item.flags() & ~Qt.ItemFlag.ItemIsUserCheckable
+            if getattr(self, "_programs_checkable", True):
+                item.setCheckState(Qt.CheckState.Checked if check.isChecked() else Qt.CheckState.Unchecked)
+                if check.isEnabled():
+                    flags |= Qt.ItemFlag.ItemIsUserCheckable
+            else:
+                item.setData(Qt.ItemDataRole.CheckStateRole, None)
+            item.setFlags(flags)
+
+    def _on_program_item_changed(self, item) -> None:
+        if not item.flags() & Qt.ItemFlag.ItemIsUserCheckable:
+            return
+        spec = list(list_docking_programs())[self.program_list.row(item)]
+        check = self._program_checks.get(spec.key)
+        if check is not None:
+            check.setChecked(item.checkState() == Qt.CheckState.Checked)
 
     def _sync_ligand_source_choice(self) -> None:
         """Offer shards vs rows only where both can exist, and only the choices that can run.

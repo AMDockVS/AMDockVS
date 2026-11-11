@@ -17,7 +17,7 @@ class _Cmd:
     def delete(self, name):
         self.objects = [] if name == "all" else [o for o in self.objects if o != name]
 
-    def load_raw(self, data, fmt, name):
+    def load_raw(self, data, fmt, name, zoom=-1):
         self.loaded.append((data, fmt, name))
         self.objects.append(name)
 

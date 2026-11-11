@@ -109,6 +109,8 @@ class ChemistryAPI:
             depends_on=depends_on,
             total_chunks=total_chunks,
         )
+        if total_items:
+            self.runtime.track_chunk_items(job_id, total_items, max(1, int(batch_size)), unit="ligands")
         if wait:
             return self.runtime.wait_for_job(job_id)
         return job_id
@@ -151,6 +153,8 @@ class ChemistryAPI:
             depends_on=depends_on,
             total_chunks=total_chunks,
         )
+        if total_items:
+            self.runtime.track_chunk_items(job_id, total_items, max(1, int(batch_size)), unit="receptors")
         if wait:
             return self.runtime.wait_for_job(job_id)
         return job_id
@@ -587,6 +591,8 @@ class ChemistryAPI:
             depends_on=depends_on,
             total_chunks=total_items or None,
         )
+        if total_items:
+            self.runtime.track_chunk_items(job_id, total_items, 1, unit="proteins")
         if wait:
             return self.runtime.wait_for_job(job_id)
         return job_id

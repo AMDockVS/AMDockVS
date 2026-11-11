@@ -618,7 +618,10 @@ def test_a_ligand_the_engine_cannot_prepare_is_excluded_and_docking_runs_without
         receptor = next(runtime.molecules.stream(_role_scope(runtime, "receptor", limit=1)))
         runtime.docking.set_grid(receptor_id=int(receptor.id or 0), center=(12.0, 13.0, 10.0), size=(20.0, 20.0, 20.0))
         receptor_set = runtime.molecules.create_set(_role_scope(runtime, "receptor"), name="rs", kind="snapshot")
-        _wait_completed(runtime, [runtime.chemistry.generate_3d_ligands(batch_size=4, executor_name="thread")])
+        gen3d = runtime.chemistry.generate_3d_ligands(batch_size=4, executor_name="thread")
+        _wait_completed(runtime, [gen3d])
+        measured = runtime.measure_job(gen3d)  # the monitor counts ligands, not only chunks
+        assert measured["unit"] == "ligands" and measured["done"] == measured["total"] > 0
 
         started = runtime.molecules.excluded_ids()
         _wait_completed(runtime, [
@@ -745,3 +748,21 @@ def test_worker_paths_find_the_project_root_in_the_flat_layout(tmp_path):
     assert project_root_from_output_dir(project / "docking") == project
     assert project_root_from_output_dir(project / "tmp" / "import") == project
     assert inputs_dir(SimpleNamespace(db_path=project / "project.db")) == project / "cache" / "inputs"
+
+
+def test_a_docking_queues_one_level_below_the_active_dockings_on_its_executor():
+    from types import SimpleNamespace
+
+    from amdockvs.runtime import AMDockVSRuntime
+
+    states = {1: "running", 2: "waiting", 3: "completed", 4: "running"}
+    lanes = {"a": ("docking", "local", 0), "b": ("docking", "local", -2),
+             "c": ("docking", "local", -5), "d": ("docking", "ray", -7)}
+    fake = SimpleNamespace(_lanes=lambda: lanes, _engine_ids=lambda: {"a": 1, "b": 2, "c": 3, "d": 4},
+                           workspace=SimpleNamespace(engine=SimpleNamespace(
+                               status=lambda eid: SimpleNamespace(status=states[eid]))))
+    behind = lambda lane, executor: AMDockVSRuntime._behind(fake, lane, executor)
+    assert behind("docking", "local") == -3  # under b; c ended, d is elsewhere
+    assert behind("docking", "gpu") == 0 and behind("other", "local") == 0
+    states[1] = states[2] = "canceled"
+    assert behind("docking", "local") == 0

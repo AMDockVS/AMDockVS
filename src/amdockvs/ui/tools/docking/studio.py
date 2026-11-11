@@ -67,6 +67,7 @@ class DockingStudioWidget(
         # job_id -> payload signature of docking jobs we launched this session, to spot duplicates
         # (same signature = identical settings/molecules) without inspecting each job's payload.
         self._docking_job_sigs: dict[str, str] = {}
+        self._docking_job_programs: dict[str, frozenset] = {}  # the programs of each run launched here
         self._protocols: list[dict] = []
         # False while the widget is the no-project placeholder: none of the steps (tables,
         # flex box) exist, so show/hide must not reach for them.

@@ -101,6 +101,12 @@ def test_readiness_service_detects_active_docking_conflicts_via_runtime_api():
 
     assert service.conflict("same", {"dock-1": "same"})[0] == "error"
     assert service.conflict("different", {"dock-1": "same"})[0] == "warning"
+    # Another program goes ahead (the engine shares the executor out); the same one asks.
+    launched = {"dock-1": frozenset({"unidock"})}
+    assert service.conflict("different", {"dock-1": "same"}, ["qvina"], launched) == ("none", "")
+    level, message = service.conflict("different", {"dock-1": "same"}, ["unidock", "qvina"], launched)
+    assert level == "warning" and "unidock" in message
+    assert service.conflict("different", {}, ["qvina"], {})[0] == "warning"  # one not launched here
 
 
 class _SubmissionMolecules:

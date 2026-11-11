@@ -64,9 +64,10 @@ def _pymol_input(structure: tuple) -> tuple:
     return data, _PYMOL_FORMATS.get(kind, kind)
 
 
-def load_structure(cmd, structure: tuple, name: str) -> None:
-    """Put a stored structure `(bytes, kind)` on the PyMOL canvas straight from its bytes."""
-    cmd.load_raw(*_pymol_input(structure), name)
+def load_structure(cmd, structure: tuple, name: str, *, zoom: int = -1) -> None:
+    """Put a stored structure `(bytes, kind)` on the PyMOL canvas straight from its bytes.
+    `zoom=0` keeps the camera (PyMOL's auto_zoom otherwise frames the new object)."""
+    cmd.load_raw(*_pymol_input(structure), name, zoom=zoom)
 
 
 def replace_comparison_structure(dock, structure: tuple, name: str, *, reference: str, label: str) -> bool:

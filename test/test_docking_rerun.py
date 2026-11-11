@@ -31,6 +31,7 @@ def _fixture(tmp_path, monkeypatch):
         session.commit()
     api = DockingAPI(SimpleNamespace(
         workspace=SimpleNamespace(project_db=store), _require_active_project=lambda: None, is_queue=lambda _name: False,
+        track_chunk_items=lambda *_a, **_k: None,
     ))
     monkeypatch.setattr(api, "check_required", lambda **_kwargs: {
         "ready": True, "counts": {"ligands_ready": 50, "receptors_ready": 2},
