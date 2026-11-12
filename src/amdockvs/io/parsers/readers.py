@@ -208,7 +208,9 @@ def _sdf_offsets(path: Path, block: int = 1 << 20) -> Iterator[tuple[int, int]]:
                 start, search, tail_text = end, end - base - 1, False  # search from the "$$$$" line's newline
                 continue
             if eof:
-                if start < base + len(buf) and (tail_text or buf[start - base:].strip()):
+                # The 4 bytes kept across a block edge can start past `start`: the part of the tail
+                # before them is in `tail_text`, and a negative index would slice from the end.
+                if start < base + len(buf) and (tail_text or buf[max(0, start - base):].strip()):
                     yield start, base + len(buf)
                 return
             # Drop what is searched already, but no part of a "\n$$$$" cut by the block edge.
