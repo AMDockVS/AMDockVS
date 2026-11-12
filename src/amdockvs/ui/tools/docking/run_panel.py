@@ -38,6 +38,7 @@ from amdockvs.docking.planning import (
 )
 from amdockvs.ui.view_ids import COMPLEXES_VIEW_ID
 from amdockvs.ui.tools.docking.preparation_panel import _FLEX_NEEDS_RECEPTOR
+from amdockvs.ui.tools.docking.protocol_editor import NO_PROGRAM_SELECTED
 
 #: Result rows past which Preview & Run asks before launching: a large campaign keeps one pose.
 LARGE_RUN_ROWS = 1_000_000
@@ -550,7 +551,8 @@ class RunPanel:
         self.check_status_label.setText("Checking…")
         inputs = self._requirement_inputs()
         run_async(
-            lambda: self._compute_requirement_counts(inputs),
+            # The selection rides with the counts, so the status line reads only its result.
+            lambda: {**self._compute_requirement_counts(inputs), "no_program": not inputs["protocols"]},
             self._apply_check,
             on_error=lambda exc: self._apply_check({"error": str(exc)}),
             owner=self,
@@ -595,7 +597,8 @@ class RunPanel:
                 )
             self.step_run.set_done(bool(result.get("ready")))
             self.check_status_label.setText(
-                "Ready to run the campaign." if result.get("ready")
+                NO_PROGRAM_SELECTED if result.get("no_program")
+                else "Ready to run the campaign." if result.get("ready")
                 else "Prepare the library and at least one receptor (with a grid) first."
             )
             return
@@ -606,7 +609,7 @@ class RunPanel:
             pairs = len(result.get("ready_complex_ids") or ())
             self._pairs_text(f"{pairs} original pair(s)")
             self.step_run.set_done(result["ready"])
-            notes = []
+            notes = ["no program is selected on the Programs step"] if result.get("no_program") else []
             if int(result.get("total_complexes") or 0) == 0:
                 notes.append("no reference/redocking complexes are available")
             if int(lig.get("ready") or 0) < int(lig.get("total") or 0):
@@ -649,7 +652,7 @@ class RunPanel:
             text = f"{int(pairs.get('to_run') or 0)} of {total_pairs} docking(s) to run"
             self._pairs_text((f"{text} ({done} already docked)" if done else text) + shard_text)
         self.step_run.set_done(result["ready"])
-        notes = []
+        notes = ["no program is selected on the Programs step"] if result.get("no_program") else []
         failures = []
         if int(lig.get("failed") or 0):
             failures.append(f"{int(lig['failed'])} ligand preparation failed")
@@ -677,7 +680,7 @@ class RunPanel:
         # widget state here, then check for a duplicate job, then submit — each step off-thread.
         inp, params = self._docking_params()
         if not params["protocols"]:
-            self._warn("Run Docking", "Select at least one compatible docking software first.")
+            self._warn("Run Docking", NO_PROGRAM_SELECTED)
             return
         if self._preparing():
             # Readiness is counted at submit (prepared receptors, pairs to dock), so a run sent
@@ -837,7 +840,7 @@ class RunPanel:
         "Save to workflow" button and the workflow editor's config dialog (fresh panel instance)."""
         inp, params = self._docking_params()
         if not params["protocols"]:
-            self._warn("Workflow", "Select at least one compatible docking software first.")
+            self._warn("Workflow", NO_PROGRAM_SELECTED)
             return None
         workflow_kind = "redocking" if params.get("run_kind") == "redocking" else "docking"
         protocol_names = [str(protocol.get("label") or protocol.get("program") or "") for protocol in
@@ -996,7 +999,7 @@ class RunPanel:
             return {"warning": "No prepared receptors with a binding-site grid - nothing to dock."}
         protocols = tuple(DockingProtocol.from_mapping(value) for value in (params.get("protocols") or ()))
         if not protocols:
-            return {"warning": "Select at least one compatible docking software first."}
+            return {"warning": NO_PROGRAM_SELECTED}
         reference_id = params.get("offtarget_reference_id")
         if reference_id is not None and int(reference_id) not in ready_receptor_ids:
             return {"warning": "The selected off-target reference receptor is no longer ready."}
@@ -1077,7 +1080,7 @@ class RunPanel:
             for value in (params.get("protocols") or ())
         )
         if not protocols:
-            return {"warning": "Select at least one compatible docking software first."}
+            return {"warning": NO_PROGRAM_SELECTED}
         ready_receptor_ids = tuple(
             int(value) for value in (counts.get("ready_receptor_ids") or ()) if int(value) > 0
         )

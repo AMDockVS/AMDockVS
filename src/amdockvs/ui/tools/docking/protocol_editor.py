@@ -40,6 +40,10 @@ DEFAULT_PROGRAMS = (QVINA_PROGRAM.key, VINA_PROGRAM.key)
 MAX_REDOCKING_PROTOCOLS = 12
 
 
+# Every studio action that needs a program says this when none is selected.
+NO_PROGRAM_SELECTED = "Select at least one compatible program on the Programs step first."
+
+
 def _spinbox(*, minimum: int, maximum: int, value: int) -> QSpinBox:
     widget = QSpinBox()
     widget.setRange(minimum, maximum)
