@@ -312,11 +312,19 @@ class OffTargetResultsWidget(QWidget):
     def _refresh_in_place(self) -> None:
         self._token += 1
         token = self._token
-        target_id = self._columns[0][0]
+        columns = list(self._columns)
+        docking = self.runtime.docking
 
-        def _apply(protocols):
+        def _fetch():
+            # A job may have added a program, and with it more poses than the matrix had.
+            protocols = docking.result_protocols(receptor_id=columns[0][0])
+            return protocols, docking.max_pose_rank(receptor_ids=[rid for rid, _ in columns])
+
+        def _apply(payload):
             if token != self._token or self.table is None:
                 return
+            protocols, max_rank = payload
+            self._set_pose_ranks(max_rank)
             previous = self._protocol
             self._set_protocols(protocols)
             if self._protocol != previous:
@@ -326,7 +334,18 @@ class OffTargetResultsWidget(QWidget):
             self.table.refresh_preserving_view()
             self._emit_refreshed()
 
-        run_async(lambda: self.runtime.docking.result_protocols(receptor_id=target_id), _apply)
+        run_async(_fetch, _apply)
+
+    def _set_pose_ranks(self, max_rank) -> None:
+        """Fill the Pose combo with P1..P<max_rank>, keeping the current pick when it still exists."""
+        previous = self.pose_combo.currentData()
+        self.pose_combo.blockSignals(True)
+        self.pose_combo.clear()
+        for rank in range(1, max(1, int(max_rank or 1)) + 1):
+            self.pose_combo.addItem(f"P{rank}", rank)
+        index = self.pose_combo.findData(previous) if previous is not None else -1
+        self.pose_combo.setCurrentIndex(max(index, 0))
+        self.pose_combo.blockSignals(False)
 
     def _set_protocols(self, protocols) -> None:
         """Fill the Program combo, keeping the current pick when it still exists."""
@@ -364,9 +383,8 @@ class OffTargetResultsWidget(QWidget):
             self._columns = columns
             self._ranks, self._overrides, self._poses = {}, {}, {}
             self._set_protocols(protocols)
-            self.pose_combo.clear()
-            for rank in range(1, max(1, int(max_rank)) + 1):
-                self.pose_combo.addItem(f"P{rank}", rank)
+            self.pose_combo.clear()  # another target: its own poses, from P1
+            self._set_pose_ranks(max_rank)
             self.pose_column_combo.clear()
             self.pose_column_combo.addItem("All receptors", None)
             for i, (rid, name) in enumerate(columns):

@@ -217,3 +217,16 @@ def test_refresh_picks_up_programs_added_by_a_later_run(matrix):
     matrix.refresh()
     assert [matrix.protocol_combo.itemText(i) for i in range(matrix.protocol_combo.count())] == ["Vina", "gnina"]
     assert matrix._protocol == "p" and matrix.table is table  # same pick: rows reload in place
+
+
+def test_refresh_offers_the_poses_a_new_program_brought(matrix):
+    # PR #114 review: a program with nine poses reached the Program list on refresh, but the
+    # Pose selector still offered P1 and P2 until the matrix was reopened.
+    poses = lambda: [matrix.pose_combo.itemText(i) for i in range(matrix.pose_combo.count())]
+    assert poses() == ["P1", "P2"]
+    matrix.pose_combo.setCurrentIndex(1)
+    matrix.runtime.docking.result_protocols = lambda **_k: [("p", "Vina"), ("q", "gnina")]
+    matrix.runtime.docking.max_pose_rank = lambda **_k: 9
+    matrix.refresh()
+    assert poses() == [f"P{rank}" for rank in range(1, 10)]
+    assert matrix.pose_combo.currentData() == 2  # the pick survives the refresh
