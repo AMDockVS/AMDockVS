@@ -30,7 +30,7 @@ def box_scene(receptor_studio, monkeypatch):
         session.commit()
     scene.selected = [scene.ids[0], scene.ids[1], scene.no_box, scene.inactive, scene.undefined]
     scene.window.selection.set("receptor", scene.selected)
-    monkeypatch.setattr(scene.studio, "_ask_missing_receptor_3d", lambda _count: "continue")
+    monkeypatch.setattr(scene.studio, "_ask_missing_receptor_3d", lambda *_args: "continue")
     return scene
 
 
@@ -46,8 +46,12 @@ def test_continue_counts_missing_inactive_and_undefined_boxes_but_prepares_all_3
     scene = box_scene
     seen = _answer_dialog(scene, "Continue and skip", screenshot="/tmp/amdockvs-receptor-missing-box.png")
     _settle(scene, scene.studio._prepare_receptors)
-    assert len(seen) == 1 and "3 receptor(s)" in seen[0][0]
+    # Counted and named (T1): the receptor being dropped can be the target itself.
+    assert len(seen) == 1 and seen[0][0].startswith("3 receptors have no defined, active search box")
+    assert "no box, inactive box and undefined box" in seen[0][0]
     assert "skipped during docking" in seen[0][0]
+    # Defining the box is the default; skipping silently is no longer what Enter does (T1).
+    assert seen[0][2] == "Define or activate box…"
     assert scene.submitted and scene.studio.stepper.current_index == 3
     for params in scene.submitted:
         assert {row["id"] for row in db_pages(scene.runtime.workspace.project_db,
@@ -73,7 +77,7 @@ def test_fix_opens_box_controls_for_an_affected_receptor_without_activating_it(b
         cmd=None, set_side_panel_visible=lambda visible: (opened.append(visible), grid.setVisible(visible))))
     seen = _answer_dialog(scene, "Define or activate box…")
     _settle(scene, scene.studio._prepare_receptors)
-    assert len(seen) == 1 and "1 receptor(s)" in seen[0][0]
+    assert len(seen) == 1 and seen[0][0].startswith(f"{scene.runtime.molecules.get(target).name} has no")
     assert not scene.submitted and not scene.followed
     assert scene.studio.stepper.current_index == 2
     assert scene.studio._focused_receptor_id == target
@@ -99,7 +103,9 @@ def test_escape_keeps_preparation_available_when_no_receptor_has_a_box(box_scene
     scene.window.selection.set("receptor", [scene.no_box, scene.inactive])
     seen = _answer_dialog(scene, "escape")
     _settle(scene, scene.studio._prepare_receptors)
-    assert len(seen) == 1 and "2 receptor(s)" in seen[0][0] and scene.submitted
+    # Escape still continues: preparation itself needs no box, only docking does.
+    assert len(seen) == 1 and "2 receptors" in seen[0][0] and scene.submitted
+    assert "no box and inactive box" in seen[0][0]
     _mark_prepared(scene)
     assert scene.studio.readiness_service.receptors(
         scene.studio._selected_receptor_scope(), program="vina").ready_ids == ()
