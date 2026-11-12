@@ -112,6 +112,8 @@ def _validated_engine_config(
         if field is not None and (shared is None or field.default == shared.default or value != shared.default):
             values[key] = value
     values.update(overrides or {})
+    # The backend stays what was asked for: the host that runs a chunk resolves it (`vina_here`)
+    # and the parent records what it ran with (`record_executed`), not this machine.
     return program.validate_config(values)
 
 

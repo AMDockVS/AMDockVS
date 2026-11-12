@@ -140,6 +140,7 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
         processed = 0
         hits: list[dict] = []
         hits_found = 0
+        backends: set[str] = set()
         with ResultFragmentWriter(
             result_path,
             metadata={
@@ -166,6 +167,7 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
                 nonlocal hits_found, processed
                 if not pair_rows:
                     return
+                backends.update(str((item.get("extra") or {}).get("vina_backend") or "") for item in pair_rows)
                 row = next(
                     (item for item in pair_rows if int(item.get("pose_rank") or 1) == 1),
                     pair_rows[0],
@@ -219,6 +221,8 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
     envelope["hits"] = hits
     envelope["hits_found"] = hits_found
     envelope["result_shard"] = str(result_path)
+    if backends - {""}:
+        envelope["vina_backend"] = sorted(backends - {""})  # what this host docked with
     return envelope
 
 

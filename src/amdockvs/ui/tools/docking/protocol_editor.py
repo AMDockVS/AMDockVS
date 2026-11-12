@@ -31,12 +31,16 @@ from amdockvs.docking.methods import METHODS, get_method
 from amdockvs.integrations.registry import MANAGED_TOOLS
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.docking.protocols import PROTOCOL_SCHEMA, protocol_hash, protocol_identity
+from amdockvs.core.constants import vina_backend
 from amdockvs.core.vocab import MoleculeType
 from ms_components.tool_panel import ToolPanel
 
 # What a docking run starts ticked with: the first of these that can run here. QuickVina 2 scores
 # with Vina's function and gets there sooner; Vina needs no install, so there is always one.
 DEFAULT_PROGRAMS = (QVINA_PROGRAM.key, VINA_PROGRAM.key)
+VINA_BINDINGS_NOTE = ("No AutoDock Vina binary was found on this machine: a run docked here falls back "
+                      "to its Python bindings. A worker with the binary still uses it; each run records "
+                      "the backend it docked with. Install the binary in Settings to use it here.")
 MAX_REDOCKING_PROTOCOLS = 12
 
 
@@ -209,8 +213,10 @@ class ProtocolEditorWidget:
             self.scoring_combo.addItems(list(VINA_PROGRAM.scoring_functions))
             self.scoring_combo.setCurrentText("vina")
             self.backend_combo = QComboBox(page)
-            self.backend_combo.addItem("binary")
+            self.backend_combo.addItems(["binary", "python"])
             self.backend_combo.setCurrentText("binary")
+            self.backend_combo.setToolTip(
+                "binary: the vina executable. python: the vina Python bindings, in the worker itself.")
             form.addRow("Exhaustiveness", self.exhaustiveness)
             form.addRow("Num modes", self.num_modes)
             form.addRow("CPU per task", self.vina_cpu)
@@ -654,15 +660,22 @@ class ProtocolEditorWidget:
         previous = getattr(self, "_missing_programs", None) or {}
         self._missing_programs = dict(missing)
         greyed = self.palette().brush(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text)
+        no_vina_binary = self._sync_vina_backend()
         for index, spec in enumerate(list_docking_programs()):
             reason = self._missing_programs.get(spec.key, "")
             item = self.program_list.item(index)
             why = "not available" if spec.key in unavailable_programs() else "not installed"
-            item.setText(f"{spec.label} - {why}" if reason else spec.label)
+            # Vina still runs without its binary (the bindings): said in its panel, not greyed.
+            if spec.key == VINA_PROGRAM.key and no_vina_binary and not reason:
+                item.setText(f"{spec.label} - no binary")
+                note = VINA_BINDINGS_NOTE
+            else:
+                item.setText(f"{spec.label} - {why}" if reason else spec.label)
+                note = reason
             item.setData(Qt.ItemDataRole.ForegroundRole, greyed if reason else None)
             form, notice, label = self._program_notices[spec.key]
-            label.setText(reason)
-            form.setRowVisible(notice, bool(reason))
+            label.setText(note)
+            form.setRowVisible(notice, bool(note))
         self.program_list.setFixedWidth(self.program_list.sizeHintForColumn(0) + 52)  # + its box
         self._sync_variant_buttons()
         self._refresh_program_availability()
@@ -672,6 +685,14 @@ class ProtocolEditorWidget:
             if check is not None and check.isEnabled():
                 check.setChecked(True)
                 self._select_program(key)
+
+    def _sync_vina_backend(self) -> bool:
+        """True when this machine has no Vina executable. The backend is a request: the host that
+        runs a chunk resolves it (a worker may have the binary this machine lacks), so it is left
+        as picked and the panel only says what a run docked here would fall back to."""
+        if getattr(self, "backend_combo", None) is None:
+            return False
+        return vina_backend(self.runtime) != "binary"
 
     def _sync_variant_buttons(self) -> None:
         # Redocking: a variant of a program that cannot run is not one to add to the set.

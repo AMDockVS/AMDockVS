@@ -109,6 +109,18 @@ def vina_backend(runtime=None) -> str:
     return "binary" if Path(vina_command(runtime)).expanduser().exists() else "python"
 
 
+def vina_here(backend: str, command: str, runtime=None) -> tuple[str, str]:
+    """The backend and executable Vina really runs with on this machine.
+
+    A `binary` whose executable is not found here falls back to the managed one, and to the
+    Python bindings when there is none: what a job records and what its worker runs are this,
+    not what was asked for.
+    """
+    if backend != "binary" or Path(command).expanduser().exists() or shutil.which(command):
+        return backend, command
+    return vina_backend(runtime), vina_command(runtime)
+
+
 def __getattr__(name: str):
     """`DEFAULT_VINA_COMMAND` and `DEFAULT_VINA_BACKEND`: defaults for signatures, read from the
     settings by whoever asks for them, which a module that only runs a task does not."""

@@ -35,7 +35,7 @@ from amdockvs.core.payloads import structure_payload
 from amdockvs.docking.engines.programs import chunk_resources
 from amdockvs.docking.protocols import DockingProtocolMetadata
 from amdockvs.docking.repository import inputs_dir, list_entity_rows, resolve_docking_output_dir, with_input_files
-from amdockvs.docking.results.repository import docking_run_id, find_docking_run, runs_where
+from amdockvs.docking.results.repository import docking_run_id, find_docking_run, record_executed, runs_where
 from amdockvs.docking.results.dataset import (
     completed_result_receipts,
     result_fragment_path,
@@ -325,6 +325,11 @@ class ShardHitWriter:
 
     def handle(self, chunk_id: str, result: Any) -> None:
         for envelope in list(result or []):
+            # The worker resolved the backend on its own host; the run records what it used.
+            record_executed(
+                self.project_db, int(envelope.get("docking_run_id") or self.docking_run_id or 0),
+                vina_backend=envelope.get("vina_backend") or (),
+            )
             shard_id = int(envelope.get("shard_id") or 0)
             hits = list(envelope.get("hits") or [])
             if hits and self.selected_from_receptor_id:  # only an off-target stage streams hits

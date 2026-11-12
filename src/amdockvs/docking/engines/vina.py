@@ -591,18 +591,25 @@ def _vina_here(backend: str, command: str) -> tuple[str, str]:
     The payload carries what the submitting machine found; on another host that path
     may not exist, so the worker looks again (as qvina does).
     """
-    if backend != "binary" or Path(command).expanduser().exists() or shutil.which(command):
-        return backend, command
-    from amdockvs.core.constants import vina_backend, vina_command
+    from amdockvs.core.constants import vina_here
 
-    return vina_backend(), vina_command()
+    return vina_here(backend, command)
 
 
 def _vina_dock_runner(payload: dict) -> list[dict]:
     backend, command = _vina_here(
         str(payload.get("vina_backend") or "python"), str(payload.get("vina_command") or "vina")
     )
-    return run_vina_docking_rows(
+
+    def stamped(rows: list[dict]) -> list[dict]:
+        # Each pose says what this host docked it with: the parent records it on the run
+        # (`record_executed`), since the payload only says what was asked for.
+        for row in rows:
+            row["extra"] = {**dict(row.get("extra") or {}), "vina_backend": backend}
+        return rows
+
+    told = payload.get("_pair_callback")
+    return stamped(run_vina_docking_rows(
         pairs=list(payload.get("pairs") or []),
         output_dir=str(payload.get("output_dir") or ""),
         box_center=[float(value) for value in (payload.get("box_center") or [])],
@@ -618,11 +625,11 @@ def _vina_dock_runner(payload: dict) -> list[dict]:
         run_id=str(payload.get("run_id") or ""),
         protocol_metadata=dict(payload.get("protocol_metadata") or {}),
         report_name=str(payload.get("report_name") or "").strip() or None,
-        pair_callback=payload.get("_pair_callback"),
+        pair_callback=None if told is None else (lambda rows: told(stamped(rows))),
         pair_progress=payload.get("_pair_progress"),
         collect_rows=bool(payload.get("_collect_rows", True)),
         method=str(payload.get("method") or "standard"),
-    )
+    ))
 
 
 from amdockvs.docking.engines.registry import (  # noqa: E402 - compatibility exports
