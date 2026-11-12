@@ -190,6 +190,37 @@ def _split_sdf_spans(lines: Iterator[bytes]) -> Iterator[tuple[bytes, int, int]]
             yield blob, start, pos
 
 
+def _sdf_offsets(path: Path, block: int = 1 << 20) -> Iterator[tuple[int, int]]:
+    """(start, end) of every record, the same ones `_split_sdf_spans` finds, without a Python
+    step per line: the feed runs this in the GUI process, where a per-line loop over a large
+    SDF held the GIL for hundreds of ms at a time. `read()` in blocks, not mmap: a read lets
+    the GIL go while the disk works, a page fault under mmap does not."""
+    with path.open("rb") as handle:
+        buf, base = b"\n", -1  # a virtual newline before byte 0: "$$$$" there starts a line too
+        start = search = 0  # file offset of the record's start; buffer index to search from
+        eof, tail_text = False, False
+        while True:
+            hit = buf.find(b"\n$$$$", search)
+            eol = -1 if hit < 0 else buf.find(b"\n", hit + 1)
+            if eol >= 0 or (hit >= 0 and eof):
+                end = base + (eol + 1 if eol >= 0 else len(buf))
+                yield start, end
+                start, search, tail_text = end, end - base - 1, False  # search from the "$$$$" line's newline
+                continue
+            if eof:
+                # The 4 bytes kept across a block edge can start past `start`: the part of the tail
+                # before them is in `tail_text`, and a negative index would slice from the end.
+                if start < base + len(buf) and (tail_text or buf[max(0, start - base):].strip()):
+                    yield start, base + len(buf)
+                return
+            # Drop what is searched already, but no part of a "\n$$$$" cut by the block edge.
+            keep = search if hit >= 0 else max(search, len(buf) - 4)
+            tail_text = tail_text or bool(buf[search:keep].strip())
+            more = handle.read(block)
+            eof = not more
+            buf, base, search = buf[keep:] + more, base + keep, 0
+
+
 _MOL2_RECORD = b"@<TRIPOS>MOLECULE"
 
 
@@ -275,6 +306,10 @@ def iter_record_spans(
     skip_header = bool(parse_config.get("has_header"))
 
     def spans() -> Iterator[dict[str, Any]]:
+        if input_format == FileFormat.SDF:
+            for index, (start, end) in enumerate(_sdf_offsets(source_path)):
+                yield {"source_index": index, "offset": start, "end": end}
+            return
         with source_path.open("rb") as handle:
             for index, (_raw, start, end) in enumerate(
                 _spans_for(input_format, handle, skip_header=skip_header)
