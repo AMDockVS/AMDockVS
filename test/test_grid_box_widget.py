@@ -253,3 +253,39 @@ def test_a_new_working_box_can_be_discarded_back_to_the_active_site(grid_box_wid
     QTest.keyClick(widget.site_tree, Qt.Key.Key_Delete)
     assert ("working", None) not in rows() and not widget._working.dirty
     assert (widget.cx.value(), widget.cy.value(), widget.cz.value()) == (4.0, 5.0, 6.0)  # the active site again
+
+
+def test_a_box_from_a_ligand_is_saved_as_that_ligands_site(grid_box_widget, monkeypatch):
+    """F3: Grid Box > Ligand used to save "Manual Site"/"manual"; a co-crystal box at import is a
+    "ligand" site named after it. Same provenance, one story; a new box is manual again."""
+    from amdockvs.ui.tools.binding_sites import box as box_module
+
+    widget = grid_box_widget
+    saved = []
+
+    def save_site(**kwargs):
+        saved.append(kwargs)
+        return BindingSite(id=3, molecule_id=4, name=kwargs["name"], source=kwargs["source"])
+
+    widget.runtime.binding_sites.save_site = save_site
+    widget.runtime.binding_sites.suggest_box_from_ligand = lambda *, ligand_id: {
+        "center": (1.0, 2.0, 3.0), "size": (18.0, 18.0, 18.0)}
+    widget.runtime.molecules = SimpleNamespace(
+        select=lambda **_kwargs: "ligands",
+        stream=lambda _scope: [SimpleNamespace(id=7, name="SAR405")],
+    )
+    monkeypatch.setattr(box_module.QInputDialog, "getItem", lambda *_args: ("SAR405 (#7)", True))
+    monkeypatch.setattr(box_module, "run_async", lambda work, done, **_kwargs: done(work()))
+
+    widget._auto_box_from_ligand()
+    working = widget.site_tree.topLevelItem(widget.site_tree.topLevelItemCount() - 1)
+    assert (working.text(1), working.text(2)) == ("* Working Box", "ligand")
+    widget._save_new_site()
+    assert {key: saved[-1][key] for key in ("name", "source", "source_ref")} == {
+        "name": "SAR405 site", "source": "ligand", "source_ref": "7"}
+
+    widget._new_working_box()
+    widget._save_new_site()
+    assert {key: saved[-1][key] for key in ("name", "source", "source_ref")} == {
+        "name": "Manual Site", "source": "manual", "source_ref": ""}
+

@@ -117,6 +117,11 @@ class GridBoxState:
     opacity: float = 0.35
     source_site_id: int | None = None
     dirty: bool = False
+    # Where a new box came from, for the site it is saved as: a box around a reference ligand
+    # is a "ligand" site named after it, as at import; anything else is a manual one.
+    name: str = "Manual Site"
+    source: str = "manual"
+    source_ref: str = ""
 
 
 class GridBoxSettingDockWidget(QWidget):
@@ -459,7 +464,7 @@ class GridBoxSettingDockWidget(QWidget):
             state = f"temporary from #{int(self._working.source_site_id)}"
         else:
             state = "temporary"
-        item = QTreeWidgetItem(["", "* Working Box", "manual"])
+        item = QTreeWidgetItem(["", "* Working Box", self._working.source])
         item.setData(0, Qt.UserRole, ("working", None))
         self._apply_name_color(item, QColor("#FFFFFF"))
         item.setToolTip(1, f"Unsaved working box ({state}).")
@@ -579,13 +584,15 @@ class GridBoxSettingDockWidget(QWidget):
         # ponytail: cap the picker — a VS run may have 100k+ ligands; a dropdown of all is useless.
         cap = 500
         choices: list[tuple[str, int]] = []
+        names: dict[int, str] = {}
         try:
             scope = self.runtime.molecules.select(role="ligand")
             for rec in self.runtime.molecules.stream(scope):
                 mid = int(getattr(rec, "id", 0) or 0)
                 if not mid:
                     continue
-                choices.append((f"{getattr(rec, 'name', '') or 'ligand'} (#{mid})", mid))
+                names[mid] = str(getattr(rec, "name", "") or "ligand")
+                choices.append((f"{names[mid]} (#{mid})", mid))
                 if len(choices) >= cap:
                     break
         except Exception as exc:
@@ -602,17 +609,20 @@ class GridBoxSettingDockWidget(QWidget):
         ligand_id = dict(choices)[label]
         run_async(
             lambda: self.runtime.binding_sites.suggest_box_from_ligand(ligand_id=ligand_id),
-            self._apply_auto_box,
+            lambda box: self._apply_auto_box(box, ligand_id=ligand_id, ligand_name=names[ligand_id]),
             on_error=lambda exc: QMessageBox.warning(self, "Auto box", str(exc)),
             busy=self,
         )
 
-    def _apply_auto_box(self, box: dict) -> None:
+    def _apply_auto_box(self, box: dict, *, ligand_id: int | None = None, ligand_name: str = "") -> None:
         cx, cy, cz = box["center"]
         sx, sy, sz = box["size"]
         self._working.center_x, self._working.center_y, self._working.center_z = cx, cy, cz
         self._working.size_x, self._working.size_y, self._working.size_z = sx, sy, sz
         self._working.source_site_id = None  # a new box: Save must not overwrite the loaded site
+        if ligand_id is not None:  # source_ref of a "ligand" site: the reference ligand's id
+            self._working.name, self._working.source = f"{ligand_name or 'Ligand'} site", "ligand"
+            self._working.source_ref = str(int(ligand_id))
         self._working.dirty = True
         self._sync_editor_from_working()
         self._ensure_working_item_present(select_if_created=True)
@@ -781,6 +791,7 @@ class GridBoxSettingDockWidget(QWidget):
         cx, cy, cz = box["center"]
         self._working.center_x, self._working.center_y, self._working.center_z = cx, cy, cz
         self._working.source_site_id = None  # a new box: Save must not overwrite the loaded site
+        self._working.name, self._working.source, self._working.source_ref = "Manual Site", "manual", ""
         self._working.dirty = True
         self._sync_editor_from_working()
         self._ensure_working_item_present(select_if_created=True)
@@ -874,6 +885,7 @@ class GridBoxSettingDockWidget(QWidget):
                 else:
                     state = "temporary"
                 item.setToolTip(1, f"Unsaved working box ({state}).")
+                item.setText(2, self._working.source)  # a ligand box on top of a manual one
                 if select_if_created:
                     self.site_tree.setCurrentItem(item)
                     item.setSelected(True)
@@ -1069,8 +1081,9 @@ class GridBoxSettingDockWidget(QWidget):
         try:
             site = self.runtime.binding_sites.save_site(
                 molecule_id=int(molecule.id or 0),
-                name="Manual Site",
-                source="manual",
+                name=self._working.name,
+                source=self._working.source,
+                source_ref=self._working.source_ref,
                 center=(self.cx.value(), self.cy.value(), self.cz.value()),
                 size=(self.sx.value(), self.sy.value(), self.sz.value()),
                 set_active=False,
