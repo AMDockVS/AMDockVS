@@ -591,11 +591,9 @@ def _vina_here(backend: str, command: str) -> tuple[str, str]:
     The payload carries what the submitting machine found; on another host that path
     may not exist, so the worker looks again (as qvina does).
     """
-    if backend != "binary" or Path(command).expanduser().exists() or shutil.which(command):
-        return backend, command
-    from amdockvs.core.constants import vina_backend, vina_command
+    from amdockvs.core.constants import vina_here
 
-    return vina_backend(), vina_command()
+    return vina_here(backend, command)
 
 
 def _vina_dock_runner(payload: dict) -> list[dict]:
