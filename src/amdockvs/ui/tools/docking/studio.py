@@ -50,6 +50,9 @@ class DockingStudioWidget(
 ):
     docking_submitted = Signal(object)
     docking_submission_started = Signal()
+    # Opens at its own natural width (every step fits, no horizontal scroll), not the tools
+    # dock's usual third of the window.
+    dock_opens_at_size_hint = True
 
     # Cap on remembered selected ids per side (ligands/receptors) — a few thousand ints is
     # negligible RAM; beyond this the user almost certainly means "All" anyway.

@@ -47,6 +47,17 @@ def _spinbox(*, minimum: int, maximum: int, value: int) -> QSpinBox:
     return widget
 
 
+def _even_field_widths(page: QWidget) -> None:
+    """One width for the program pages' spin boxes and choice boxes, set by the widest integer
+    or choice field: decimal ones would size to their huge range. Text fields still stretch."""
+    fields = [w for w in page.findChildren(QWidget) if isinstance(w, (QSpinBox, QDoubleSpinBox, QComboBox))]
+    sizing = [w for w in fields if not isinstance(w, QDoubleSpinBox)] or fields
+    if sizing:
+        width = max(w.sizeHint().width() for w in sizing)
+        for widget in fields:
+            widget.setFixedWidth(width)
+
+
 class ProtocolEditorWidget:
     """Program and protocol editor component for Docking Studio."""
 
@@ -84,6 +95,7 @@ class ProtocolEditorWidget:
         programs = QHBoxLayout()
         programs.addWidget(self.program_list)
         programs.addWidget(self.program_pages, 1)
+        _even_field_widths(self.program_pages)  # one column across programs: no jump on switch
         self.protocol_mode_box.add_row(programs)
         self._build_protocols_box(panel.add_section("Validation Protocol Set"))
         self._ensure_default_protocol()  # redocking starts from a Vina variant: the one that runs anywhere
@@ -165,6 +177,7 @@ class ProtocolEditorWidget:
         form.addRow("Method", self.method_combo)
         form.addRow("Receptor type", self.receptor_type_combo)
         form.addRow("Ligand type", self.ligand_type_combo)
+        _even_field_widths(box)  # one column of choices, set by the widest (Method)
         self._experiment_form = form
 
     def _build_program_config(self, spec) -> QWidget:
@@ -262,7 +275,7 @@ class ProtocolEditorWidget:
                 widget.setValue(int(default or 0))
             elif field_type == "number":
                 widget = QDoubleSpinBox(parent)
-                widget.setDecimals(6)
+                widget.setDecimals(3)  # 0.375 Å spacing is the finest default
                 widget.setRange(float(field.get("exclusiveMinimum", field.get("minimum", -1e9))),
                                 float(field.get("maximum", 1e9)))
                 widget.setValue(float(default or 0.0))
