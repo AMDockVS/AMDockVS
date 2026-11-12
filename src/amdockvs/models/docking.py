@@ -1,4 +1,5 @@
 from datetime import datetime
+from math import isfinite
 from typing import Any
 
 from sqlalchemy import DateTime, Index, JSON, UniqueConstraint, text
@@ -23,6 +24,23 @@ from amdockvs.core.vocab import BindingSiteSource
 # ---------------------------------------------------------------------------
 # BindingSite
 # ---------------------------------------------------------------------------
+
+def box_error(center, size, spacing: float | None = None) -> str | None:
+    """Why a docking box is unusable (non-finite centre, an edge or spacing <= 0), or None."""
+    try:
+        center, size = [float(v) for v in center], [float(v) for v in size]
+    except (TypeError, ValueError):
+        return "Box center and size must be numbers."
+    if len(center) != 3 or len(size) != 3:
+        return "Box center and size need three values (x, y, z)."
+    if not all(isfinite(v) for v in center):
+        return f"Box center {tuple(center)} is not a finite point."
+    if not all(isfinite(v) and v > 0 for v in size):
+        return f"Box size {tuple(size)} must be greater than 0 Å along every axis."
+    if spacing is not None and not (isfinite(float(spacing)) and float(spacing) > 0):
+        return f"Grid spacing {spacing} must be greater than 0 Å."
+    return None
+
 
 class BindingSite(SQLModel, table=True):
     """
@@ -67,12 +85,11 @@ class BindingSite(SQLModel, table=True):
 
     @property
     def is_defined(self) -> bool:
-        return all(
-            v is not None for v in (
-                self.center_x, self.center_y, self.center_z,
-                self.size_x, self.size_y, self.size_z,
-            )
-        )
+        """A usable box: a site stored before sizes were checked (a negative edge) counts as none,
+        so the run's grid check reports it instead of an engine failing on it."""
+        center = (self.center_x, self.center_y, self.center_z)
+        size = (self.size_x, self.size_y, self.size_z)
+        return None not in (*center, *size) and box_error(center, size) is None
 
     build_row = staticmethod(binding_site_row)
 
