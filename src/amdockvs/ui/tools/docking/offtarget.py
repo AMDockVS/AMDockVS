@@ -4,7 +4,7 @@ The default Docking Results view is receptor -> ligand -> pose. This one flips i
 rows are ligands, columns are receptors, and one matrix holds both what you pick and
 what it means. The target column shows the affinity of its selected pose; every
 off-target cell shows the selectivity of the ligand between that receptor and the
-target (ΔΔG either way round, or fold in Ki), blue where the ligand prefers the
+target (ΔΔScore either way round, or fold in Ki), blue where the ligand prefers the
 target and red where it prefers the off-target, with the pose it uses and that pose's
 own affinity.
 
@@ -61,22 +61,22 @@ from amdockvs.ui.view_ids import OFFTARGET_VIEW_ID
 _log = logging.getLogger(__name__)
 
 RECEPTOR_CAP = 10
-# A difference smaller than the docking error (~2 kcal/mol) says little, so the colours
+# A difference smaller than the docking error (~2 score units) says little, so the colours
 # saturate only at a gap that tells two receptors apart; the spin box retunes it.
 DEFAULT_SCALE = 4.0
 
 _SHOW = (
-    ("ΔΔG off-target − target", "off-minus-target"),
-    ("ΔΔG target − off-target", "target-minus-off"),
+    ("ΔΔScore off-target − target", "off-minus-target"),
+    ("ΔΔScore target − off-target", "target-minus-off"),
     ("Fold (Ki off-target / Ki target)", "fold"),
 )
 _HINTS = {
-    "off-minus-target": "ΔΔG = off-target − target (kcal/mol). A more negative affinity binds better, "
-                        "so a positive ΔΔG means the ligand prefers the target.",
-    "target-minus-off": "ΔΔG = target − off-target (kcal/mol). A more negative affinity binds better, "
-                        "so a negative ΔΔG means the ligand prefers the target.",
+    "off-minus-target": "ΔΔScore = off-target − target. A more negative score binds better, "
+                        "so a positive ΔΔScore means the ligand prefers the target.",
+    "target-minus-off": "ΔΔScore = target − off-target. A more negative score binds better, "
+                        "so a negative ΔΔScore means the ligand prefers the target.",
     "fold": "Fold = Ki(off-target) / Ki(target), from the affinities. ×10 means the target binds "
-            "10 times tighter; below ×1 the off-target binds tighter. Docking scores carry ~2 kcal/mol "
+            "10 times tighter; below ×1 the off-target binds tighter. Docking scores carry ~2 units "
             "of error, about ×30.",
 }
 _DIFFERENCE_PALETTES = (
@@ -207,9 +207,8 @@ class OffTargetResultsWidget(QWidget):
         self.scale_spin.setSingleStep(0.5)
         self.scale_spin.setDecimals(1)
         self.scale_spin.setPrefix("± ")
-        self.scale_spin.setSuffix(" kcal/mol")
         self.scale_spin.setValue(DEFAULT_SCALE)
-        self.scale_spin.setToolTip("ΔΔG at which the colours saturate; values keep their actual magnitude.")
+        self.scale_spin.setToolTip("ΔΔScore at which the colours saturate; values keep their actual magnitude.")
         self.color_bar = QLabel(self)
         self.color_bar.setFixedHeight(10)
         self.color_scale = QLabel(self)
@@ -444,7 +443,7 @@ class OffTargetResultsWidget(QWidget):
         _, ref_score = self._pose_score(row_data, self._columns[0][0])
         if ref_score is None:
             return "—", rank, f"{score:.2f}", None
-        prefers_target = score - ref_score  # ΔΔG off-target − target
+        prefers_target = score - ref_score  # ΔΔScore off-target − target
         mode = self.show_combo.currentData()
         if mode == "fold":
             fold = predicted_ki_m(prefers_target)
@@ -463,10 +462,10 @@ class OffTargetResultsWidget(QWidget):
         rank, score = self._pose_score(row_data, receptor_id)
         if score is None:
             return f"{names[receptor_id]} · P{rank}   no pose"
-        tip = f"{names[receptor_id]} · P{rank}   {score:.2f} kcal/mol"
+        tip = f"{names[receptor_id]} · P{rank}   {score:.2f}"
         ref_rank, ref_score = self._pose_score(row_data, target_id)
         if receptor_id != target_id and ref_score is not None:
-            tip += (f"\n{names[target_id]} (T) · P{ref_rank}   {ref_score:.2f} kcal/mol"
+            tip += (f"\n{names[target_id]} (T) · P{ref_rank}   {ref_score:.2f}"
                     f"\n{self.show_combo.currentText()}   {self.cell(row_data, receptor_id)[0]}")
         return tip
 
@@ -568,7 +567,7 @@ class OffTargetResultsWidget(QWidget):
         menu = QMenu(self.table)
         for pose in poses:
             score = _finite(pose["score"])
-            action = QAction(f"P{pose['pose_rank']}   {'—' if score is None else f'{score:.2f}'} kcal/mol", menu)
+            action = QAction(f"P{pose['pose_rank']}   {'—' if score is None else f'{score:.2f}'}", menu)
             action.setCheckable(True)
             action.setChecked(pose["pose_rank"] == current)
             action.triggered.connect(
