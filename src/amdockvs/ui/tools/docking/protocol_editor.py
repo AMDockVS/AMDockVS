@@ -260,7 +260,8 @@ class ProtocolEditorWidget:
                 widget.setValue(int(default or 0))
             elif field_type == "number":
                 widget = QDoubleSpinBox(parent)
-                widget.setDecimals(6)
+                # A field says how precise it is ("decimals" in its schema); six read as noise.
+                widget.setDecimals(int(field.get("decimals", 2)))
                 widget.setRange(float(field.get("exclusiveMinimum", field.get("minimum", -1e9))),
                                 float(field.get("maximum", 1e9)))
                 widget.setValue(float(default or 0.0))
