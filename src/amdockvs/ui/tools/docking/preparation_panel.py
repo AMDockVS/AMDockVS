@@ -35,6 +35,7 @@ from ms_components.ms_table import (
     TableLoadMode,
 )
 from amdockvs.ui.view_ids import BUILD_ID, LIGANDS_VIEW_ID, PREP_STATUS_VIEW_ID, RECEPTOR_VIEW_ID, SHARDS_VIEW_ID
+from amdockvs.ui.tools.docking.protocol_editor import NO_PROGRAM_SELECTED
 
 # Why "Flexible residues" is off before any receptor is picked (see _set_flex_available).
 _FLEX_NEEDS_RECEPTOR = "Select a receptor in the table to set its flexible residues."
@@ -691,6 +692,9 @@ class PreparationPanel:
         self._req_preview_timer.start()
 
     def _prepare_ligands(self) -> None:
+        if not self._selected_programs():
+            self._warn("Prepare Ligands", NO_PROGRAM_SELECTED)
+            return
         sources = self._ligand_sources()
         # The prep-target list picks scope: "General" → all selected engines, else just one.
         target = self._selected_prep_target()
@@ -811,6 +815,9 @@ class PreparationPanel:
         self.stepper.set_current_index(2)
 
     def _prepare_receptors(self) -> None:
+        if not self._selected_programs():
+            self._warn("Prepare Receptors", NO_PROGRAM_SELECTED)
+            return
         target = self._selected_receptor_prep_target()
         programs = self._distinct_prep_programs(role="receptor") if target is None else [target]
         try:
