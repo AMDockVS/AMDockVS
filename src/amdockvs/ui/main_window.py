@@ -223,6 +223,7 @@ class AMDockVSMainWindow(QMainWindow):
         shell_layout.addWidget(self.central_widget, 1)
         self.tutorials_panel.setVisible(not hide_tutorials)
         self.setCentralWidget(central_shell)
+        self.monitor_bridge.job_upserted.connect(self.jobs.on_job_upserted)
         self.monitor_bridge.job_finished.connect(self.jobs.on_job_finished)
         self.monitor_bridge.project_changed.connect(self.jobs.on_monitor_project_changed)
         self.monitor_bridge.project_snapshot_updated.connect(self.jobs.on_project_snapshot_updated)
@@ -604,7 +605,8 @@ class AMDockVSMainWindow(QMainWindow):
         return self.jobs_dialog
 
     def _offer_resume(self) -> None:
-        """The jobs the last session left unfinished: asked once whether to continue them where they were."""
+        """The jobs left unfinished (by the last session, or by an engine's process that ended):
+        asked whether to continue them where they were."""
         workspace = self.runtime.workspace
         run_async(lambda: [snap for snap in workspace.jobs() if snap.status == "interrupted"], self._ask_resume)
 
@@ -614,7 +616,7 @@ class AMDockVSMainWindow(QMainWindow):
         names = "\n".join(f"  {snap.name} ({snap.key[:8]})" for snap in left)
         reply = QMessageBox.question(
             self, "Resume Jobs",
-            f"AMDockVS closed before these jobs ended:\n{names}\n\nStart their executors and resume them now?",
+            f"These jobs did not end:\n{names}\n\nStart their executors and resume them now?",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes,
         )
         if reply != QMessageBox.Yes:

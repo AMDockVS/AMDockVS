@@ -712,6 +712,7 @@ class RunPanel:
             lambda: self._check_docking_conflict(signature, [p["program"] for p in params["protocols"]]),
             lambda conflict: self._after_conflict_check(conflict, inp, params, signature),
             on_error=lambda exc: self._on_docking_error(exc, inp=inp, params=params, signature=signature),
+            owner=self,  # a panel destroyed meanwhile (the app closing) is told nothing
         )
 
     def _large_run_confirmed(self, inp: dict, params: dict) -> bool:
@@ -918,6 +919,7 @@ class RunPanel:
             lambda: self._submit_docking(inp, params),
             lambda result: self._on_docking_submitted(result, signature),
             on_error=lambda exc: self._on_docking_error(exc, inp=inp, params=params, signature=signature),
+            owner=self,  # a panel destroyed meanwhile (the app closing) is told nothing
         )
 
     def _sync_hit_cap_label(self) -> None:
