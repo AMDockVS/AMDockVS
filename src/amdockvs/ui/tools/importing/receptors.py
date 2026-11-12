@@ -54,6 +54,7 @@ from amdockvs.ui.common.drop_area import (
 )
 from amdockvs.ui.view_ids import RECEPTOR_VIEW_ID
 from amdockvs.models.molecules import MoleculeType
+from amdockvs.ui.common.naming import name_list
 from amdockvs.ui.common.widgets import WrapCombo
 from ms_components.chips import ChipsSelect
 from amdockvs.ui.tools.importing.common import land_on_view, nudge_monitor, submit_import
@@ -619,8 +620,15 @@ class ReceptorImportPanel(QWidget):
                 )
 
             self._apply_mode_visibility()
+            # Named, not just counted: "review: 3" never said which three files.
+            needs_review = name_list(
+                [Path(path).name for path, preview in self._previews_by_path.items()
+                 if str(dict(preview.get("summary") or {}).get("status") or "") != "OK"],
+                review_count,
+            )
             self.status_label.setText(
-                f"{len(self._scan_cache_by_path)}/{len(self._file_paths)} receptor(s) processed | ligand candidates in {candidate_count} file(s) | review: {review_count}"
+                f"{len(self._scan_cache_by_path)}/{len(self._file_paths)} receptor(s) processed | "
+                f"ligand candidates in {candidate_count} file(s) | review: {needs_review or 'none'}"
             )
         finally:
             self._refreshing = False

@@ -19,6 +19,7 @@ class EntityReadiness:
     ready: int = 0
     failed: int = 0
     no_site: int = 0  # receptors left out of a run for having no binding site
+    no_site_ids: tuple[int, ...] = ()  # which ones, so a warning can name them
     needs_selection: bool = False
     ready_ids: tuple[int, ...] = ()
 
@@ -29,6 +30,7 @@ class EntityReadiness:
             "ready": self.ready,
             "failed": self.failed,
             "no_site": self.no_site,
+            "no_site_ids": list(self.no_site_ids),
         }
         if self.ready_ids or not self.needs_selection:
             payload["ready_ids"] = list(self.ready_ids)
@@ -117,6 +119,7 @@ class DockingReadinessService:
             ready=int(counts.get("receptors_ready") or 0),
             failed=prep.failed,
             no_site=len(no_grid),
+            no_site_ids=tuple(sorted(no_grid)),
             ready_ids=ready_ids,
         )
 

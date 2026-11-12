@@ -82,7 +82,8 @@ def _answer_dialog(scene, action, *, screenshot=None):
             QTimer.singleShot(10, lambda: answer(tries - 1))
             return
         assert isinstance(box, QMessageBox)
-        seen.append((box.text(), box.informativeText()))
+        default = box.defaultButton()
+        seen.append((box.text(), box.informativeText(), "" if default is None else default.text()))
         if screenshot is not None:
             box.grab().save(str(screenshot))
         if action == "escape":
@@ -106,7 +107,8 @@ def test_continue_warns_about_only_the_selected_sequence_and_prepares_3d_recepto
     scene = receptor_studio
     seen = _answer_dialog(scene, "Continue and skip", screenshot="/tmp/amdockvs-receptor-missing-3d.png")
     _settle(scene, scene.studio._prepare_receptors)
-    assert len(seen) == 1 and "1 receptor(s)" in seen[0][0]
+    # The warning names the receptor it is about (T1), instead of "1 receptor(s)".
+    assert len(seen) == 1 and seen[0][0].startswith("sequence has no 3D structure")
     assert "will be skipped" in seen[0][0]
     assert "Build → Proteins" in seen[0][1]
     assert scene.submitted and scene.followed
@@ -136,7 +138,7 @@ def test_a_fully_structured_scope_does_not_show_an_alert(receptor_studio, monkey
     scene = receptor_studio
     scene.window.selection.set("receptor", [scene.ids[0]])
     monkeypatch.setattr(scene.studio, "_ask_missing_receptor_3d",
-                        lambda _count: pytest.fail("A 3D receptor should not produce an alert"))
+                        lambda *_args: pytest.fail("A 3D receptor should not produce an alert"))
     _settle(scene, scene.studio._prepare_receptors)
     assert scene.submitted and scene.studio.stepper.current_index == 3
 
