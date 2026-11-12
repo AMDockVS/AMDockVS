@@ -16,7 +16,7 @@ from amdockvs.io.receptor_preview import (
 )
 from amdockvs.core.vocab import BindingSiteSource, ModelSource, MoleculeType, MoleculeUsageClass
 from amdockvs.io.import_stats import IMPORTED, UNREADABLE, bump
-from amdockvs.io.formats import as_pdb, canonical_suffix, normalized_suffix
+from amdockvs.io.formats import canonical_suffix, normalized_suffix, to_pdb
 from amdockvs.core.constants import SERIES_PREPARED, SERIES_REFERENCES
 from amdockvs.core.payloads import series_for, structure_payload
 from amdockvs.core.paths import molecule_storage_key
@@ -70,11 +70,26 @@ def _structure_rows(
         scan_payload = dict(metadata.pop("__scan", {}) or {})
         is_receptor = (batch.primary_role or batch.kind) == "receptor"
         binding_site_specs = list(batch.binding_site_specs or [])
+        small_molecule_ligand = (
+            not is_receptor
+            and str(batch.primary_role or batch.kind).strip().lower() == "ligand"
+            and str(batch.molecule_kind or "").strip().lower() == MoleculeType.SMALL_MOLECULE
+        )
+        structure_source: Path | None = None
+        if not small_molecule_ligand:
+            # A PDBQT is an engine artifact, not a structure format: the scanners get a PDB.
+            # Rendered once per entry, and a file with nothing to render (empty, not a
+            # structure, a CIF with no usable atoms) is unreadable: stored, it was a "molecule"
+            # with 0 atoms and has_3d=True that nothing downstream could use.
+            structure_source = _render_pdb(source_file, scratch / f"{index}_source.pdb")
+            if structure_source is None or not _count_atoms_from_structure_lines(structure_source):
+                bump(tally, UNREADABLE)
+                _progress_update(progress_cb, index, total_entries)
+                continue
         if is_receptor and not scan_payload:
             # A bulk import comes with no preview: derive here what the import dialog would have
             # (selected waters, reference ligands, binding sites) from the global options.
-            with as_pdb(source_file) as structure_source:
-                scan_payload = scan_receptor_structure(structure_source)
+            scan_payload = scan_receptor_structure(structure_source)
             preview = build_receptor_import_preview(scan_payload, _receptor_import_options_from_patch(metadata))
             metadata.update({key: dict(preview.get(key) or {}) for key in ("structure", "precheck", "workflow")})
             binding_site_specs = list(preview.get("binding_site_specs") or [])
@@ -89,11 +104,6 @@ def _structure_rows(
         original = structure_payload(source_bytes, source_kind, series)
         processing_summary: dict[str, Any] = {}
         ligand_mol = None
-        small_molecule_ligand = (
-            options is None
-            and str(batch.primary_role or batch.kind).strip().lower() == "ligand"
-            and str(batch.molecule_kind or "").strip().lower() == MoleculeType.SMALL_MOLECULE
-        )
         if small_molecule_ligand:
             # Its current form is an SDF written from the Mol. No Mol, no molecule: copying the
             # source's PDB rendering under an .sdf name stored a 0-atom row nothing can re-read.
@@ -102,19 +112,21 @@ def _structure_rows(
                 bump(tally, UNREADABLE)
                 _progress_update(progress_cb, index, total_entries)
                 continue
+        elif options is not None:
+            processing_summary = write_processed_receptor(
+                structure_source,
+                current_path,
+                scan=scan_payload,
+                options=options,
+                header=source_bytes[:4096],
+            )
         else:
-            # A PDBQT is an engine artifact, not a structure format: hand the scanners a PDB.
-            with as_pdb(source_file) as structure_source:
-                if options is not None:
-                    processing_summary = write_processed_receptor(
-                        structure_source,
-                        current_path,
-                        scan=scan_payload,
-                        options=options,
-                        header=source_bytes[:4096],
-                    )
-                else:
-                    shutil.copy2(structure_source, current_path)
+            shutil.copy2(structure_source, current_path)
+        if ligand_mol is None and not _count_atoms_from_structure_lines(current_path):
+            # Processing can still leave nothing (every chain deselected, only waters removed).
+            bump(tally, UNREADABLE)
+            _progress_update(progress_cb, index, total_entries)
+            continue
         model_source = processing_summary.pop("model_source", ModelSource.IMPORTED)
         metadata = {
             **metadata,
@@ -252,6 +264,14 @@ def _structure_rows(
                 }
                 yield ligand_row
         _progress_update(progress_cb, index, total_entries)
+
+def _render_pdb(source_file: Path, target: Path) -> Path | None:
+    """`source_file` as a PDB path (itself when it already is one), or None when it can't be
+    rendered. What `as_pdb` does, minus the context: the batch's scratch folder outlives it."""
+    if normalized_suffix(source_file) == ".pdb":
+        return source_file
+    return target if to_pdb(source_file, target) else None
+
 
 def _count_atoms_from_structure_lines(path: Path) -> int:
     count = 0
