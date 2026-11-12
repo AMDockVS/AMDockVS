@@ -206,6 +206,48 @@ def test_a_program_that_is_not_installed_stays_listed_and_cannot_be_run(monkeypa
     assert "qvina" in ticked() and studio._current_program_key() == "qvina"  # and left active
 
 
+def test_vina_without_its_binary_shows_the_backend_it_docks_with(monkeypatch, tmp_path):
+    import pytest
+
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    monkeypatch.setenv("AMDOCK_DISABLE_PYMOL", "1")
+    from PySide6.QtWidgets import QApplication
+
+    from amdockvs.runtime import AMDockVSRuntime
+    from amdockvs.ui.tools.docking import protocol_editor
+    from amdockvs.ui.tools.docking.studio import DockingStudioWidget
+
+    app = QApplication.instance() or QApplication([])  # noqa: F841  (kept alive for the widgets)
+    monkeypatch.setattr(protocol_editor, "run_async", lambda *_args, **_kwargs: None)
+    found = {"backend": "python"}
+    monkeypatch.setattr(protocol_editor, "vina_backend", lambda runtime=None: found["backend"])
+    runtime = AMDockVSRuntime()
+    runtime.create_project(name="p", folder=tmp_path / "p", description="")
+    studio = DockingStudioWidget(runtime=runtime)
+    combo = studio.backend_combo
+    vina_row = lambda: studio.program_list.item(
+        [spec.key for spec in protocol_editor.list_docking_programs()].index("vina")).text()
+    notice = studio._program_notices["vina"]
+
+    studio._apply_missing_programs({})  # no Vina binary on this machine
+
+    assert combo.currentText() == "python"
+    assert not combo.model().item(combo.findText("binary")).isEnabled()
+    assert vina_row() == "AutoDock Vina - no binary"
+    assert not notice[1].isHidden() and "Python bindings" in notice[2].text()
+    assert studio._program_checks["vina"].isEnabled()  # it still runs
+    assert studio._protocol_config_from_widgets("vina")["vina_backend"] == "python"
+
+    found["backend"] = "binary"  # installed from Settings
+    studio._apply_missing_programs({})
+
+    assert combo.currentText() == "binary"
+    assert combo.model().item(combo.findText("binary")).isEnabled()
+    assert vina_row() == "AutoDock Vina" and notice[1].isHidden()
+
+
 def test_redocking_readiness_counts_distinct_receptors_and_keeps_picked_pairs_whole():
     """4 pairs over 3 receptors (receptor 20 holds two ligands); ligands 1,2 prepared, receptors
     20,21 ready. Picking ligands narrows the pairs; their receptors come with them."""
