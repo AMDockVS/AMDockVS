@@ -38,8 +38,9 @@ from ms_components.tool_panel import ToolPanel
 # What a docking run starts ticked with: the first of these that can run here. QuickVina 2 scores
 # with Vina's function and gets there sooner; Vina needs no install, so there is always one.
 DEFAULT_PROGRAMS = (QVINA_PROGRAM.key, VINA_PROGRAM.key)
-VINA_BINDINGS_NOTE = ("No AutoDock Vina binary was found: Vina docks through its Python bindings "
-                      "(backend 'python'). Install the binary in Settings to use it.")
+VINA_BINDINGS_NOTE = ("No AutoDock Vina binary was found on this machine: a run docked here falls back "
+                      "to its Python bindings. A worker with the binary still uses it; each run records "
+                      "the backend it docked with. Install the binary in Settings to use it here.")
 MAX_REDOCKING_PROTOCOLS = 12
 
 
@@ -363,7 +364,6 @@ class ProtocolEditorWidget:
             self.exhaustiveness.setValue(int(config.get("exhaustiveness") or dd.exhaustiveness))
             self.num_modes.setValue(int(config.get("num_modes") or dd.num_modes))
             self.backend_combo.setCurrentText(str(config.get("vina_backend") or "binary"))
-            self._sync_vina_backend()
             self.vina_cpu.setValue(int(config.get("vina_cpu") or dd.cpu_per_task))
         elif program == GNINA_PROGRAM.key:
             dd = docking.gnina
@@ -687,22 +687,12 @@ class ProtocolEditorWidget:
                 self._select_program(key)
 
     def _sync_vina_backend(self) -> bool:
-        """Offer "binary" only when a Vina executable is found: without one Vina docks through
-        its Python bindings, and the panel says so instead of showing a backend that won't run.
-        True when there is no binary."""
-        combo = getattr(self, "backend_combo", None)
-        if combo is None:
+        """True when this machine has no Vina executable. The backend is a request: the host that
+        runs a chunk resolves it (a worker may have the binary this machine lacks), so it is left
+        as picked and the panel only says what a run docked here would fall back to."""
+        if getattr(self, "backend_combo", None) is None:
             return False
-        missing = vina_backend(self.runtime) != "binary"
-        binary = combo.findText("binary")
-        combo.model().item(binary).setEnabled(not missing)
-        if missing and combo.currentIndex() == binary:
-            combo.setCurrentText("python")
-            self._vina_backend_forced = True
-        elif not missing and getattr(self, "_vina_backend_forced", False):
-            combo.setCurrentText("binary")  # installed since: back to what it was
-            self._vina_backend_forced = False
-        return missing
+        return vina_backend(self.runtime) != "binary"
 
     def _sync_variant_buttons(self) -> None:
         # Redocking: a variant of a program that cannot run is not one to add to the set.

@@ -206,7 +206,7 @@ def test_a_program_that_is_not_installed_stays_listed_and_cannot_be_run(monkeypa
     assert "qvina" in ticked() and studio._current_program_key() == "qvina"  # and left active
 
 
-def test_vina_without_its_binary_shows_the_backend_it_docks_with(monkeypatch, tmp_path):
+def test_vina_without_a_local_binary_says_so_and_keeps_the_requested_backend(monkeypatch, tmp_path):
     import pytest
 
     pytest.importorskip("PySide6")
@@ -233,18 +233,20 @@ def test_vina_without_its_binary_shows_the_backend_it_docks_with(monkeypatch, tm
 
     studio._apply_missing_programs({})  # no Vina binary on this machine
 
-    assert combo.currentText() == "python"
-    assert not combo.model().item(combo.findText("binary")).isEnabled()
+    # The backend is a request the worker resolves: a worker may have the binary this one lacks.
+    assert combo.currentText() == "binary"
+    assert combo.model().item(combo.findText("binary")).isEnabled()
     assert vina_row() == "AutoDock Vina - no binary"
     assert not notice[1].isHidden() and "Python bindings" in notice[2].text()
     assert studio._program_checks["vina"].isEnabled()  # it still runs
+    assert studio._protocol_config_from_widgets("vina")["vina_backend"] == "binary"
+    combo.setCurrentText("python")
     assert studio._protocol_config_from_widgets("vina")["vina_backend"] == "python"
 
     found["backend"] = "binary"  # installed from Settings
     studio._apply_missing_programs({})
 
-    assert combo.currentText() == "binary"
-    assert combo.model().item(combo.findText("binary")).isEnabled()
+    assert combo.currentText() == "python"  # what was picked stays picked
     assert vina_row() == "AutoDock Vina" and notice[1].isHidden()
 
 

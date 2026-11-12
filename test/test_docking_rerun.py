@@ -1,5 +1,4 @@
 """Screening replaces its configuration; redocking retains its protocol comparisons."""
-import sys
 from types import SimpleNamespace
 
 import pytest
@@ -176,21 +175,16 @@ def test_api_knobs_are_resolved_and_cpu_does_not_change_configuration_identity()
     )
 
 
-def test_a_vina_run_records_the_backend_it_docks_with(monkeypatch):
-    """Asked for the binary on a machine without one, Vina docks through its bindings: the
-    protocol a run stores says so, and its identity does not move."""
+def test_the_submitting_machine_does_not_resolve_the_vina_backend(monkeypatch):
+    """Asked for the binary on a machine without one, the job still asks for the binary: the
+    worker that runs it resolves it on its own host (PR #119 review)."""
     from amdockvs.core import constants
 
     vina = get_docking_program("vina")
     monkeypatch.setattr(constants, "vina_command", lambda runtime=None: "/nowhere/vina")
     monkeypatch.setattr(constants, "vina_backend", lambda runtime=None: "python")
     config = _validated_engine_config(vina, {"vina_backend": "binary"}, vina_command="/nowhere/vina")
-    assert config["vina_backend"] == "python"
-    assert protocol_hash(program="vina", config=config) == protocol_hash(
-        program="vina", config={**config, "vina_backend": "binary"})
-
-    found = _validated_engine_config(vina, {"vina_backend": "binary"}, vina_command=sys.executable)
-    assert (found["vina_backend"], found["vina_command"]) == ("binary", sys.executable)
+    assert (config["vina_backend"], config["vina_command"]) == ("binary", "/nowhere/vina")
     assert _validated_engine_config(vina, {"vina_backend": "python"})["vina_backend"] == "python"
     assert "vina_backend" not in _validated_engine_config(get_docking_program("qvina"), None)
 

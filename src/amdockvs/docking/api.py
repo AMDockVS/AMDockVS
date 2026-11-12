@@ -21,7 +21,6 @@ from amdockvs.core.constants import (
     DEFAULT_VINA_BACKEND,
     DEFAULT_VINA_COMMAND,
     SHARDS_PRIORITY,
-    vina_here,
 )
 from amdockvs.docking.repository import (
     count_entity_rows,
@@ -113,13 +112,9 @@ def _validated_engine_config(
         if field is not None and (shared is None or field.default == shared.default or value != shared.default):
             values[key] = value
     values.update(overrides or {})
-    config = program.validate_config(values)
-    if "vina_backend" in config:
-        # The protocol the run stores says how it docked: a binary that is not here docks through
-        # the bindings, and the record must not keep saying "binary" (not part of the hash).
-        config["vina_backend"], config["vina_command"] = vina_here(
-            str(config["vina_backend"]), str(config.get("vina_command") or "vina"))
-    return config
+    # The backend stays what was asked for: the host that runs a chunk resolves it (`vina_here`)
+    # and the parent records what it ran with (`record_executed`), not this machine.
+    return program.validate_config(values)
 
 
 # The engine knobs every docking job carries as flat fields, with the type each one is stored as.

@@ -56,6 +56,50 @@ def find_docking_run(project_db, *, run_id: str, engine: str, run_kind: str, pro
         return session.exec(select(DockingRun.id).filter_by(**values)).first()
 
 
+def record_executed(project_db, docking_run_id: int | None, **used: Iterable[str]) -> None:
+    """What the workers of a run really ran with, kept beside the protocol it asked for:
+    `protocol["executed"]["vina_backend"] == ["python"]` for a `binary` run whose hosts had none.
+
+    The request (`protocol["config"]`) is left as it was, so a re-run asks again and each host
+    resolves it for itself. A run whose hosts differed lists every value they used."""
+    found = {key: {str(value) for value in values if value} for key, values in used.items()}
+    found = {key: values for key, values in found.items() if values}
+    if not docking_run_id or not found:
+        return
+    with project_db.get_session() as session:
+        run = session.get(DockingRun, int(docking_run_id))
+        if run is None:
+            return
+        protocol = _decode_metadata(run.protocol)
+        executed = dict(protocol.get("executed") or {})
+        merged = {key: sorted({*executed.get(key, ()), *values}) for key, values in found.items()}
+        if all(executed.get(key) == value for key, value in merged.items()):
+            return
+        run.protocol = {**protocol, "executed": {**executed, **merged}}
+        session.add(run)
+        session.commit()
+
+
+def record_executed_from_results(project_db, *, run_id: str, engine: str, protocol_hash: str) -> None:
+    """`record_executed` for a job whose rows went straight to `docking_results`: the backend
+    each Vina pose was docked with is in its `extra`, where the worker put it."""
+    if str(engine).strip().lower() != "vina":
+        return
+    backend = DockingResultRecord.extra["vina_backend"].as_string()
+    with project_db.get_session() as session:
+        found = session.exec(
+            select(DockingResultRecord.docking_run_id, backend).distinct()
+            .where(DockingResultRecord.docking_run_id.in_(
+                runs_where(run_id=run_id, engine=engine, protocol_hash=protocol_hash)))
+            .where(backend.is_not(None))
+        ).all()
+    by_run: dict[int, set[str]] = {}
+    for docking_run_id, value in found:
+        by_run.setdefault(int(docking_run_id), set()).add(str(value))
+    for docking_run_id, values in by_run.items():
+        record_executed(project_db, docking_run_id, vina_backend=values)
+
+
 def runs_where(*, run_id: str | None = None, engine: str | None = None,
                run_kind: str | None = None, protocol_hash: str | None = None):
     """The ids of the docking runs that match, as a subquery for `docking_run_id IN (...)`."""

@@ -54,6 +54,7 @@ from amdockvs.docking.results.repository import (
     docking_run_id,
     find_docking_run,
     drop_redocked_pairs,
+    record_executed_from_results,
     supersede_results,
     existing_result_pairs,
 )
@@ -733,6 +734,11 @@ def _supersede(params: dict, config: dict) -> None:
     if project_db is None:
         return
     run_id = str(params.get("run_id") or "")
+    # Its rows say what each host docked with (the workers resolve the backend): the run records it.
+    record_executed_from_results(
+        project_db, run_id=run_id, engine=str(params.get("engine") or "vina"),
+        protocol_hash=str(DockingProtocolMetadata.from_mapping(params.get("protocol_metadata")).hash or ""),
+    )
     if not params.get("skip_existing", True):
         supersede_results(project_db, run_id=run_id)
     if run_id:
