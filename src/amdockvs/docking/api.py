@@ -96,7 +96,7 @@ from amdockvs.core.payloads import molecule_payload_id, read_structure
 from amdockvs.io.formats import as_pdb
 from amdockvs.molecules.api import ensure_molecule_set_ref
 from amdockvs.models import BindingSite, MoleculeRecord, ReceptorPrep, prep_table
-from amdockvs.models.docking import box_error
+from amdockvs.models.docking import box_error, defined_box_clauses
 from amdockvs.project.sets import ComplexSetRef, MoleculeSetRef, prepared_molecules_spec
 from amdockvs.workflows.rules import apply_workflow_filters
 
@@ -310,8 +310,7 @@ class DockingAPI:
             return None
         defined_boxes = select(BindingSite.molecule_id).where(
             BindingSite.is_active == True,  # noqa: E712
-            *(getattr(BindingSite, column).is_not(None) for column in
-              ("center_x", "center_y", "center_z", "size_x", "size_y", "size_z")),
+            *defined_box_clauses(),
         )
         return or_(unprepared, MoleculeRecord.id.not_in(defined_boxes))
 

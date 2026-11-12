@@ -89,3 +89,47 @@ def test_a_bad_box_stored_earlier_counts_as_no_grid(runtime):
     assert runtime.docking.get_grid(receptor_id=1) is None
     row = _augment_molecule_rows(db, [{"id": 1}], role_type="receptor", engine="ad4")[0]
     assert row["grid_engine"] is False
+
+
+INF = float("inf")
+
+
+@pytest.mark.parametrize("center, size", [
+    ((0, 0, 0), (20, 22, 24)),  # a real box
+    ((0, 0, 0), (-10, 22, 22)), ((0, 0, 0), (0, 22, 22)), ((0, 0, 0), (INF, 22, 22)),
+    ((0, 0, 0), (float("nan"), 22, 22)),  # SQLite stores a NaN as NULL
+    ((INF, 0, 0), (22, 22, 22)), ((0, -INF, 0), (22, 22, 22)),
+])
+def test_the_database_and_the_model_agree_on_what_a_box_is(tmp_path, center, size):
+    """PR #115 review: `is_defined` refused a legacy (-10, 22, 22) box while `has_search_box`,
+    the receptor setup filter and the receptor status still counted it, so the preparation
+    preflight never offered to repair it."""
+    from ms_flow.core.database.project import ProjectStore
+    from ms_flow.query import db_rows
+
+    from amdockvs.models.docking import defined_box_clauses
+    from amdockvs.molecules.api import _molecule_spec
+    from amdockvs.molecules.repository import _RECEPTOR_STATUS_SQL
+    from amdockvs.molecules.scopes import MoleculeScope
+
+    store = ProjectStore.open_at(tmp_path / "project")
+    with store.get_session() as session:
+        session.add(MoleculeRecord(id=1, name="4OYS", is_receptor=True, has_3d=True))
+        session.commit()
+        session.add(BindingSite(molecule_id=1, name="old", is_active=True, **dict(zip(
+            ("center_x", "center_y", "center_z", "size_x", "size_y", "size_z"), (*center, *size)))))
+        session.commit()
+    with store.get_session() as session:
+        site = session.exec(select(BindingSite)).one()
+        defined = site.is_defined
+        by_clauses = session.exec(select(BindingSite.id).where(*defined_box_clauses())).all() == [site.id]
+
+    def receptors(has_box: bool) -> list[int]:
+        scope = MoleculeScope(filters={"is_receptor": True, "has_search_box": has_box})
+        return [row["id"] for row in db_rows(store, _molecule_spec(scope))]
+
+    status = db_rows(store, query=f"SELECT {_RECEPTOR_STATUS_SQL} AS status FROM molecules m")[0]["status"]
+    assert defined is (box_error(center, size) is None)
+    assert by_clauses is defined
+    assert receptors(True) == ([1] if defined else []) and receptors(False) == ([] if defined else [1])
+    assert (status == "grid_ready") is defined
