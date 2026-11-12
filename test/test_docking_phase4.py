@@ -257,3 +257,15 @@ def test_an_offtarget_reference_chains_a_top_n_stage_after_the_target():
     assert "selected_from_receptor_id" not in target
     assert off["receptor_set"] == request.receptor_scope
     assert (off["depends_on"], off["selected_from_receptor_id"], off["selected_top_n"]) == (["job-1"], 10, 50)
+
+
+def test_a_protocol_label_leaves_out_its_empty_fields():
+    from amdockvs.ui.tools.docking.protocol_editor import ProtocolEditorWidget
+
+    editor = SimpleNamespace(_program_label=ProtocolEditorWidget._program_label)
+    label = lambda program, config: ProtocolEditorWidget._protocol_label(editor, program, config)
+
+    assert label("adgpu", {"nrun": 20, "parameter_file": "", "derived_types": "", "seed": 0}) == (
+        "AutoDock-GPU | nrun=20 | seed=0")  # seed=0 is a value, not an empty field
+    assert label("adgpu", {"nrun": 20, "parameter_file": "/p/zn.dat", "derived_types": "", "seed": 1}) == (
+        "AutoDock-GPU | nrun=20 | parameter_file=/p/zn.dat | seed=1")

@@ -394,7 +394,8 @@ class ProtocolEditorWidget:
         if "exhaustiveness" in identity:
             parts.append(f"exh={int(identity.get('exhaustiveness') or 8)}")
         for key, value in identity.items():
-            if key not in {"scoring_function", "exhaustiveness"}:
+            # An empty field (AutoDock-GPU's parameter file left at the built-in one) says nothing.
+            if key not in {"scoring_function", "exhaustiveness"} and value not in ("", None):
                 parts.append(f"{key}={value}")
         rescoring_text = "None" if not rescoring else "+".join(str(item.get("program") or item) for item in rescoring)
         if rescoring_text != "None":
