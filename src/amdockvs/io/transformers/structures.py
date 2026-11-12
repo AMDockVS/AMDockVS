@@ -15,7 +15,7 @@ from amdockvs.io.receptor_preview import (
     write_processed_receptor,
 )
 from amdockvs.core.vocab import BindingSiteSource, ModelSource, MoleculeType, MoleculeUsageClass
-from amdockvs.io.import_stats import IMPORTED, bump
+from amdockvs.io.import_stats import IMPORTED, UNREADABLE, bump
 from amdockvs.io.formats import as_pdb, canonical_suffix, normalized_suffix
 from amdockvs.core.constants import SERIES_PREPARED, SERIES_REFERENCES
 from amdockvs.core.payloads import series_for, structure_payload
@@ -89,21 +89,31 @@ def _structure_rows(
         original = structure_payload(source_bytes, source_kind, series)
         processing_summary: dict[str, Any] = {}
         ligand_mol = None
-        # A PDBQT is an engine artifact, not a structure format: hand the scanners a PDB.
-        with as_pdb(source_file) as structure_source:
-            if options is not None:
-                processing_summary = write_processed_receptor(
-                    structure_source,
-                    current_path,
-                    scan=scan_payload,
-                    options=options,
-                    header=source_bytes[:4096],
-                )
-            else:
-                ligand_role = str(batch.primary_role or batch.kind).strip().lower() == "ligand"
-                if ligand_role and str(batch.molecule_kind or "").strip().lower() == MoleculeType.SMALL_MOLECULE:
-                    ligand_mol = _load_small_molecule_from_path(source_file)
-                if ligand_mol is None:
+        small_molecule_ligand = (
+            options is None
+            and str(batch.primary_role or batch.kind).strip().lower() == "ligand"
+            and str(batch.molecule_kind or "").strip().lower() == MoleculeType.SMALL_MOLECULE
+        )
+        if small_molecule_ligand:
+            # Its current form is an SDF written from the Mol. No Mol, no molecule: copying the
+            # source's PDB rendering under an .sdf name stored a 0-atom row nothing can re-read.
+            ligand_mol = _load_small_molecule_from_path(source_file)
+            if ligand_mol is None:
+                bump(tally, UNREADABLE)
+                _progress_update(progress_cb, index, total_entries)
+                continue
+        else:
+            # A PDBQT is an engine artifact, not a structure format: hand the scanners a PDB.
+            with as_pdb(source_file) as structure_source:
+                if options is not None:
+                    processing_summary = write_processed_receptor(
+                        structure_source,
+                        current_path,
+                        scan=scan_payload,
+                        options=options,
+                        header=source_bytes[:4096],
+                    )
+                else:
                     shutil.copy2(structure_source, current_path)
         model_source = processing_summary.pop("model_source", ModelSource.IMPORTED)
         metadata = {

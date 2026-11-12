@@ -345,6 +345,39 @@ def pdbqt_to_pdb_text(text: str) -> str:
     return "\n".join(lines)
 
 
+def _chem_comp_structure(source: Path):
+    """A CCD component file (RCSB's ``files.rcsb.org/ligands/<code>.cif``) as a one-residue
+    structure: its ideal coordinates, else the model ones when the entry has no ideal set.
+    None when the file has no _chem_comp_atom coordinates at all (a bond-only table)."""
+    import math
+
+    import gemmi
+
+    try:
+        block = gemmi.cif.read(str(source)).sole_block()
+    except (RuntimeError, ValueError, OSError):
+        return None
+    for which in (gemmi.ChemCompModel.Ideal, gemmi.ChemCompModel.Example):
+        try:
+            structure = gemmi.make_structure_from_chemcomp_block(block, which)
+        except (RuntimeError, ValueError):
+            continue
+        if not len(structure) or not structure[0].count_atom_sites():
+            continue
+        model = structure[0]
+        atoms = [atom for chain in model for residue in chain for atom in residue]
+        if not all(math.isfinite(c) for atom in atoms for c in (atom.pos.x, atom.pos.y, atom.pos.z)):
+            continue  # "?" coordinates in this set
+        while len(structure) > 1:
+            del structure[len(structure) - 1]
+        for chain in model:
+            chain.name = chain.name or "A"  # PDB has no blank chain the readers accept
+            for residue in chain:
+                residue.het_flag = "H"
+        return structure
+    return None
+
+
 def to_pdb(path: str | Path, output: str | Path) -> bool:
     """Write any readable structure out as PDB. Used to hand non-PDB inputs to PDB-only tools."""
     source, target = Path(path).expanduser(), Path(output).expanduser()
@@ -361,6 +394,13 @@ def to_pdb(path: str | Path, output: str | Path) -> bool:
 
         try:
             structure = gemmi.read_structure(str(source))
+            if not (len(structure) and structure[0].count_atom_sites()):
+                # No _atom_site: a CCD / monomer-library definition keeps its atoms in
+                # _chem_comp_atom. Neither has atoms? Then there is nothing to render, and an
+                # empty "PDB" (a bare CRYST1) would only be stored as a molecule with no atoms.
+                structure = _chem_comp_structure(source)
+                if structure is None:
+                    return False
             structure.setup_entities()
             target.write_text(structure.make_pdb_string())
         except (RuntimeError, ValueError, OSError):
