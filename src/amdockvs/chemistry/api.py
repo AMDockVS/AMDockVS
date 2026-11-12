@@ -260,7 +260,6 @@ class ChemistryAPI:
             executor_name=executor_name,
             depends_on=depends_on,
             priority=SHARDS_PRIORITY,
-            result_handler_kwargs={"project_db": project_db, "generation_id": generation_id},
         )
         self.runtime.track_job_items(
             job_id, lambda: shard_generation_progress(project_db, generation_id), unit="ligands"

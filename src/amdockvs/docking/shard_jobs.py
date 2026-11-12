@@ -256,6 +256,7 @@ class DockShardsJobParams(BaseModel):
     # without a cap a generous receptor materializes the library the mode exists to keep out.
     hit_threshold: float
     hit_cap: int = Field(ge=1)
+    payload: str = PAYLOAD_LIGHT  # what a hit keeps of its pose
     # Set only for the dependent off-target stage. Once the reference job completes, its
     # durable ranking supplies the record ids; only those records are extracted from each shard.
     selected_from_receptor_id: int | None = Field(default=None, ge=1)
@@ -400,23 +401,13 @@ class ShardHitWriter:
         self.terminal_status = str(status or "failed")
 
 
-def shard_hit_writer(
-    *,
-    project_db: Any,
-    hit_cap: int,
-    hit_threshold: float,
-    payload: str = PAYLOAD_LIGHT,
-    run_id: str = "",
-    engine: str = "",
-    protocol_hash: str = "",
-    selected_from_receptor_id: int | None = None,
-) -> ShardHitWriter:
-    """Factory for `result_handler_factory`; the runtime passes the kwargs from the API."""
+def shard_hit_writer(params: dict, config: dict) -> ShardHitWriter:
+    """`result_handler_factory` of the docking of shards: the gate, from the run's params."""
     return ShardHitWriter(
-        project_db=project_db, hit_cap=hit_cap, hit_threshold=hit_threshold,
-        payload=payload, run_id=run_id,
-        engine=engine, protocol_hash=protocol_hash,
-        selected_from_receptor_id=selected_from_receptor_id,
+        project_db=config["project_db"], hit_cap=params["hit_cap"], hit_threshold=params["hit_threshold"],
+        payload=params["payload"], run_id=params["run_id"],
+        engine=params["engine"], protocol_hash=str(params["protocol_metadata"].get("hash") or ""),
+        selected_from_receptor_id=params["selected_from_receptor_id"],
     )
 
 

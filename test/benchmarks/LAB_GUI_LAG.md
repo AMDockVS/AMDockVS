@@ -15,7 +15,6 @@ pip install -e . --no-deps
 pip install --no-deps "git+https://github.com/MolSuite/ms_flow@feat/engine-child-process"
 # Fase 0 del monitor (solo afecta a --window):
 pip install --no-deps "git+https://github.com/MolSuite/ms_components@perf/monitor-tasks-diff"
-pip install "cloudpickle>=2.0"   # suele venir ya con loky
 ```
 
 Comprobar con `pip show ms_flow` que la ubicación es la de la rama. `python -c "import ms_flow._api_impl.engine_host"` no debe fallar.

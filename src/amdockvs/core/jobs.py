@@ -3,8 +3,9 @@
 A job is a chunker `(params, config)` that yields payloads, and a `run_chunk(payload)` or
 `run_chunk(payload, progress_cb)` that runs one in a worker. `config` brings the project:
 `project_db`, `project_store`, `project_context` and `project_resources`. The rows a chunk
-returns go to `output_spec`, or to the handler `result_handler_factory` builds (`handle`,
-`on_error`, `flush`, `on_job_terminal`, `close`). `task_label` is what a payload goes by in the
+returns go to `output_spec`, or to the handler `result_handler_factory(params, config)` builds
+(`handle`, `on_error`, `flush`, `on_job_terminal`, `close`): a job is its name and its params,
+and what it reads of the project is read where it runs. `task_label` is what a payload goes by in the
 monitor: a template its keys fill, or a function `(payload)` that returns the text.
 `relative_paths` is for a job whose chunks write files the project keeps by a path relative to
 its folder: a chunk names them by their whole path, which is what an executor on another disk
@@ -15,7 +16,7 @@ is submitted again by that name: `runtime.resume_job`. What it is given of the p
 in it: the runtime says it in `configs`.
 
 ponytail: the declarations stay as they were written for the engine before this one, and
-`engine_job` is the only place that knows both. A job written straight as
+`engine` is the only place that knows both. A job written straight as
 `ms_flow.engine.job` goes to `runtime.workspace.submit` and needs none of this.
 """
 from __future__ import annotations
@@ -36,21 +37,9 @@ from ms_flow.engine.files import swap
 # there a job with a chunk that failed had failed, and a job was never left for another run.
 STATUS = {"waiting": "pending", "completed_with_errors": "failed", "interrupted": "canceled"}
 
-class _Configs(weakref.WeakKeyDictionary):
-    """The `config` of a chunker, by the store the engine hands the job of its project.
-
-    A job travels by value to the engine's process (see `ms_flow`'s `engine_host`), with the
-    globals its closures name: this one travels by name, so there it is that process's own."""
-
-    def __reduce__(self):
-        return _configs, ()
-
-
-def _configs():
-    return configs
-
-
-configs = _Configs()
+# The `config` of a chunker, by the store the engine hands the job of its project: filled where
+# the engine runs (`jobs_setup`), in its process when it has one.
+configs: "weakref.WeakKeyDictionary[Any, dict]" = weakref.WeakKeyDictionary()
 
 
 def jobs_setup(workspace) -> None:
@@ -129,6 +118,10 @@ class _Counted:
             yield chunk
 
 
+# What of a declaration only the application reads: a copy that changes only these runs the same job.
+_APP_SIDE = frozenset({"executor", "supported_executors", "on_thread"})
+
+
 @dataclass(frozen=True)
 class JobDefinition:
     name: str
@@ -151,7 +144,11 @@ class JobDefinition:
 
     def with_options(self, **changes) -> "JobDefinition":
         known = {field.name for field in fields(self)}
-        return replace(self, **{name: value for name, value in changes.items() if name in known})
+        changes = {name: value for name, value in changes.items() if name in known}
+        copy = replace(self, **changes)
+        if set(changes) <= _APP_SIDE:  # the same job of the engine: it goes there by this one's name
+            copy.__dict__["engine"] = self.engine
+        return copy
 
     def validate_params(self, params: Any) -> dict:
         if self.params_model is None:
@@ -170,71 +167,17 @@ class JobDefinition:
     def submit_with_options(self, runtime, *, params: Any, job_options: Optional[dict] = None, **kwargs) -> str:
         return runtime.submit_job(self.with_options(**job_options) if job_options else self, params=params, **kwargs)
 
-    def engine_job(self, *, handler_kwargs: Optional[dict] = None):
-        """This job as `Workspace.submit` takes it, and the `on_error` to submit it with.
-
-        ponytail: a job with a handler is built for each submit, with what that submit gives the
-        handler, so the engine cannot name it and `Workspace.resume` does not know it. A sink in
-        the place of the handler when one of those has to be resumed.
-        """
-        if self.result_handler_factory is None:
-            return self.engine, None
-        return self._made(functools.partial(self.result_handler_factory, **dict(handler_kwargs or {})))
-
     @functools.cached_property
     def engine(self):
-        """The job of a declaration without a handler: one, and named after the declaration.
-        ponytail: a copy (`with_options`) answers to the name of the one it was copied from, so
-        the engine does not take its name for it and it is not resumed."""
-        made, _on_error = self._made(None)
-        if self.where:
-            module, _, name = self.where.partition(":")
-            made.__module__, made.__qualname__ = module, f"{name}.engine"
-        made.definition = self
-        return made
-
-    def _made(self, make_handler):
-        """The chunker starts when the engine reads it, which is once the jobs it waits for ended.
-        The handler is made when the engine opens the job's output, in the engine's process: what
-        travels there is `make_handler`, not a handler with its locks and connections."""
+        """This declaration as the one job of the engine `Workspace.submit` takes, named after
+        it: it goes to the engine's process by that name, and `Workspace.resume` submits it again
+        by it. Its handler is made there, from the params and the project (`configs`).
+        ponytail: a copy (`with_options`) that changes what the engine runs answers to the name
+        of the one it was copied from, so it runs only with the engine in this process and is
+        not resumed. One that changes only `_APP_SIDE` is the same job."""
         run = functools.partial(_run_chunk, run=self.run_chunk)
         run.__task__ = {"cpu": max(1, int(self.cpu_required or 1)), "gpu": 0, "mem_mb": 0, "retries": 0,
                         "batch": None, "batched": False, "label": self.task_label}
-        state = {"failed": 0, "closed": False, "handler": None}
-
-        def close(status: str) -> None:
-            handler = state["handler"]
-            if handler is None or state["closed"]:
-                return
-            state["closed"] = True
-            for name, args in (("on_job_terminal", (status,)), ("close", ())):
-                if hasattr(handler, name):
-                    getattr(handler, name)(*args)
-
-        class Writer:
-            @staticmethod
-            def write(results: list) -> None:
-                for result in results:
-                    state["handler"].handle("", result)
-
-            @staticmethod
-            def finish() -> None:  # every chunk has ended: what it raises fails the job
-                state["handler"].flush()  # once, and never for a job that was stopped halfway
-                close("failed" if state["failed"] else "completed")
-
-        def on_error(key, error) -> None:
-            state["failed"] += 1
-            if hasattr(state["handler"], "on_error"):
-                state["handler"].on_error(str(key), str(error))
-
-        def ended(params, project, snapshot) -> None:
-            status = STATUS.get(snapshot.status, snapshot.status)
-            try:
-                close(status)  # a job that was stopped never got to `finish`
-            finally:
-                if self.finalize is not None:
-                    params = self.validate_params(params)
-                    self.finalize(params, {"job_params": params, "terminal_status": status, **configs[project]})
 
         def source(params, project) -> Iterable[dict]:
             yield from self.build_chunks(params, config=configs[project])
@@ -245,20 +188,64 @@ class JobDefinition:
             def source(params, project) -> Iterable[dict]:  # noqa: F811
                 return _Counted(self, params, project)
 
-        def output(params, project):
-            state["handler"] = make_handler()
-            return Writer
-
-        if make_handler is None:
-            output = self.output_spec
-        if self.relative_paths and make_handler is None:
+        output = self.output_spec
+        if self.result_handler_factory is not None:
+            def output(params, project):
+                params = self.validate_params(params)
+                return _Handled(self.result_handler_factory(params, configs[project]))
+        elif self.relative_paths:
             def output(params, project):
                 root = Path(configs[project]["project_context"].path).expanduser().resolve()
                 return _Relative(writer(self.output_spec, project), root)
+
+        finalize = None
+        if self.finalize is not None:
+            def finalize(params, project, snapshot) -> None:
+                params = self.validate_params(params)
+                status = STATUS.get(snapshot.status, snapshot.status)
+                self.finalize(params, {"job_params": params, "terminal_status": status, **configs[project]})
+
         source.__name__ = self.name
         # With its model the engine keeps the params as JSON, which is what it submits again.
-        return _engine_job(task=run, name=self.name, params_model=self.params_model, output=output,
-                           finalize=ended)(source), on_error
+        made = _engine_job(task=run, name=self.name, params_model=self.params_model, output=output,
+                           finalize=finalize)(source)
+        if self.where:
+            module, _, name = self.where.partition(":")
+            made.__module__, made.__qualname__ = module, f"{name}.engine"
+        made.definition = self
+        return made
+
+
+class _Handled:
+    """The writer of a job whose rows go to its handler (`handle`, `on_error`, `flush`,
+    `on_job_terminal`, `close`)."""
+
+    def __init__(self, handler):
+        self._handler, self._failed, self._closed = handler, 0, False
+
+    def write(self, results: list) -> None:
+        for result in results:
+            self._handler.handle("", result)
+
+    def on_error(self, key, error) -> None:
+        self._failed += 1
+        if hasattr(self._handler, "on_error"):
+            self._handler.on_error(str(key), str(error))
+
+    def finish(self) -> None:  # every chunk has ended: what it raises fails the job
+        self._handler.flush()  # once, and never for a job that was stopped halfway
+        self._close("failed" if self._failed else "completed")
+
+    def ended(self, snapshot) -> None:  # a job that was stopped never got to `finish`
+        self._close(STATUS.get(snapshot.status, snapshot.status))
+
+    def _close(self, status: str) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        for name, args in (("on_job_terminal", (status,)), ("close", ())):
+            if hasattr(self._handler, name):
+                getattr(self._handler, name)(*args)
 
 
 class JobSpec:

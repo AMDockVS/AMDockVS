@@ -242,6 +242,7 @@ class LoaderAPI:
             "batch_size": records,
             "molecule_kind": str(molecule_kind or "small_molecule"),
             **self._batches(normalized_files, force=force, kind=ImportKind.SHARDS, role="ligand"),
+            "generation_id": self._import_generation_id(),  # opened after the batches: one duplicate opens none
         }
         if prefilter:
             params["prefilter"] = dict(prefilter)
@@ -254,15 +255,6 @@ class LoaderAPI:
                 # ramp=False, like the feed: an over-declared total never completes.
                 total_chunks=_total_import_chunks(normalized_files, batch_size=records, ramp=False),
                 max_inflight_tasks=import_max_inflight(self.runtime),
-                # The queue that cuts the shards lives here, in the parent: it needs the
-                # project's shard directory and its database, neither of which a job spec
-                # knows at declaration time.
-                result_handler_kwargs={
-                    "project_db": self.runtime.workspace.project_db,
-                    "shard_dir": self.runtime.get_project_resource_path(RESOURCE_SHARDS),
-                    "shard_size": records,
-                    "generation_id": self._import_generation_id(),
-                },
             )
         ]
 

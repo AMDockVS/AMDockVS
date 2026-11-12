@@ -28,6 +28,7 @@ from ms_flow.core.data.shard import PayloadKind, Serializer, ShardWriter
 from amdockvs.io.parsers import iter_record_span
 from amdockvs.io.payloads import ImportBatchPayload
 from amdockvs.io.rows import cull_mol, htp_mol_filter
+from amdockvs.core.constants import RESOURCE_SHARDS
 from amdockvs.core.vocab import FileFormat
 
 SHARD_SUFFIX = ".parquet"
@@ -257,15 +258,14 @@ class ShardQueueWriter:
             session.commit()
 
 
-def shard_queue_writer(
-    *, project_db: Any, shard_dir: str | Path, shard_size: int, generation_id: int | None = None
-) -> ShardQueueWriter:
-    """Factory for `@job(result_handler_factory=...)`; the runtime passes the kwargs."""
+def shard_queue_writer(params: dict, config: dict) -> ShardQueueWriter:
+    """`result_handler_factory` of the import: shards of `batch_size` records each, in the
+    project's shard directory, into `generation_id`."""
     return ShardQueueWriter(
-        project_db=project_db,
-        shard_dir=shard_dir,
-        shard_size=shard_size,
-        generation_id=generation_id,
+        project_db=config["project_db"],
+        shard_dir=config["project_resources"][RESOURCE_SHARDS]["path"],
+        shard_size=params["batch_size"],
+        generation_id=params.get("generation_id"),
     )
 
 
@@ -335,9 +335,9 @@ class ShardGenerationWriter:
         activate_generation(self._project_db, self._generation_id)
 
 
-def shard_generation_writer(*, project_db: Any, generation_id: int) -> ShardGenerationWriter:
-    """Factory for `@job(result_handler_factory=...)`; the runtime passes the kwargs."""
-    return ShardGenerationWriter(project_db=project_db, generation_id=generation_id)
+def shard_generation_writer(params: dict, config: dict) -> ShardGenerationWriter:
+    """`result_handler_factory` of a step that rewrites the library into `generation_id`."""
+    return ShardGenerationWriter(project_db=config["project_db"], generation_id=params["generation_id"])
 
 
 __all__ = [

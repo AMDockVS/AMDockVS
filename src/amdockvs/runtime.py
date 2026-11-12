@@ -523,7 +523,6 @@ class AMDockVSRuntime(AppRuntime):
         total_chunks: Optional[int] = None,
         depends_on: Optional[list[str]] = None,
         priority: int = 0,
-        result_handler_kwargs: Optional[dict] = None,
         auto_depends: bool = True,
         queue_behind: Optional[str] = None,
     ) -> str:
@@ -545,7 +544,6 @@ class AMDockVSRuntime(AppRuntime):
             depends_on = self.resolve_job_dependencies(job, depends_on) or []
         workspace = self.workspace
         job_config = self._job_config()
-        engine_job, on_error = job.engine_job(handler_kwargs=result_handler_kwargs)
         job_params = job.validate_params(params)
         total = total_chunks if total_chunks is not None else job.count_chunks(job_params, config=job_config)
         job_id = uuid4().hex
@@ -554,7 +552,7 @@ class AMDockVSRuntime(AppRuntime):
         if queue_behind:
             priority += self._behind(queue_behind, executor)
         engine_ids[job_id] = workspace.submit(
-            engine_job,
+            job.engine,
             job_params,
             key=job_id,
             executor=executor,
@@ -566,7 +564,6 @@ class AMDockVSRuntime(AppRuntime):
             window=max_inflight_tasks,
             max_cpu=max_job_cpu,
             priority=priority,
-            on_error=on_error,
             **({"thread": True} if job.on_thread is not None and job.on_thread(job_params) else {}),
         )
         if queue_behind:
@@ -613,7 +610,8 @@ class AMDockVSRuntime(AppRuntime):
 
     def _recorded_job(self, job_id: str):
         """The declaration of a job on record, and the executor it was sent to. Raises for one
-        that cannot be submitted again (a job with a handler, or with params that are not JSON)."""
+        that cannot be submitted again (a declaration that is not module-level, or params that are
+        not JSON)."""
         from ms_flow.engine.flow import named
 
         origin = self.workspace.origin(str(job_id))

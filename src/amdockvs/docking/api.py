@@ -652,6 +652,7 @@ class DockingAPI:
             engine_config=resolved_engine_config,
             hit_threshold=float(hit_threshold),
             hit_cap=int(hit_cap),
+            payload=str(payload),
             selected_from_receptor_id=selected_from_receptor_id,
             selected_top_n=(int(selected_top_n) if selected_top_n is not None else int(hit_cap)),
             skip_existing=skip_existing,
@@ -684,18 +685,6 @@ class DockingAPI:
             depends_on=depends_on,
             priority=SHARDS_PRIORITY,
             cpu_required=cpu,
-            # The gate lives in the parent, like the shard queue at import: it counts across
-            # chunks and it writes molecules, neither of which a worker can do.
-            result_handler_kwargs={
-                "project_db": self.runtime.workspace.project_db,
-                "hit_cap": int(hit_cap),
-                "hit_threshold": float(hit_threshold),
-                "run_id": params.run_id,
-                "engine": params.engine,
-                "protocol_hash": str(params.protocol_metadata.hash or ""),
-                "payload": str(payload),
-                "selected_from_receptor_id": params.selected_from_receptor_id,
-            },
         )
 
     def prepare_receptors(
