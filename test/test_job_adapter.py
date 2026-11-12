@@ -55,6 +55,7 @@ def _declare(handler):
 
 @pytest.mark.parametrize("handler, bad, status", [(Recorder, 0, "completed"), (Recorder, 2, "failed"),
                                                   (FlushOnly, 0, "completed")])
+@pytest.mark.usefixtures("inline_engine")
 def test_handler_and_finalize_follow_the_job(tmp_path, monkeypatch, handler, bad, status):
     monkeypatch.setenv("HOME", str(tmp_path))
     CALLS.clear()

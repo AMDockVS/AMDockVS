@@ -13,7 +13,6 @@ MOL = "pose{n}\n  RDKit          3D\n\n  1  0  0  0  0  0  0  0  0  0999 V2000\n
 
 def test_each_row_keeps_the_pose_of_its_rank_and_no_file_survives(monkeypatch, tmp_path):
     monkeypatch.setattr(docking_registry, "DOCK_RUNNERS", dict(docking_registry.DOCK_RUNNERS))
-    monkeypatch.setattr(docking_registry, "_BUILTINS_LOADED", docking_registry._BUILTINS_LOADED)  # loaded into the copy
     seen = {}
 
     def runner(payload):

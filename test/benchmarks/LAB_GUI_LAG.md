@@ -1,6 +1,6 @@
-# Prueba de lag de la GUI en el laboratorio (fase A, plan 10 de ms_flow)
+# Prueba de lag de la GUI en el laboratorio (fases A y B, plan 10 de ms_flow)
 
-Esta prueba mide cuánto se retrasa el hilo de la GUI mientras el motor hace docking e importa en el mismo proceso que la app. Hay que correrla en el Threadripper con 16, 32 y 64 workers.
+Esta prueba mide cuánto se retrasa el hilo de la GUI mientras el motor hace docking e importa. En la fase B, ms_flow corre el motor en un proceso hijo (`--engine-host process`, el valor por defecto); `--engine-host inline` lo deja en el proceso de la app, como en la fase A. Hay que correrla en el Threadripper con 16, 32 y 64 workers, en los dos modos.
 
 **Criterio:** con 64 workers, p99 < 50 ms y máximo < 500 ms.
 
@@ -10,13 +10,15 @@ En el entorno de la app del lab (el que usa `amdockvs`):
 
 ```bash
 git clone https://github.com/AMDockVS/AMDockVS.git && cd AMDockVS   # o `git fetch` si ya está
-git switch exp/engine-process          # sonda + fase 0 (fix/lab-freezes)
+git switch feat/engine-child-process   # sonda + fase B
 pip install -e . --no-deps
+pip install --no-deps "git+https://github.com/MolSuite/ms_flow@feat/engine-child-process"
 # Fase 0 del monitor (solo afecta a --window):
 pip install --no-deps "git+https://github.com/MolSuite/ms_components@perf/monitor-tasks-diff"
+pip install "cloudpickle>=2.0"   # suele venir ya con loky
 ```
 
-Comprobar que ms_flow es ≥ 0.10.1: `pip show ms_flow | grep Version`.
+Comprobar con `pip show ms_flow` que la ubicación es la de la rama. `python -c "import ms_flow._api_impl.engine_host"` no debe fallar.
 
 ## 2. Preparar
 
@@ -27,15 +29,17 @@ Comprobar que ms_flow es ≥ 0.10.1: `pip show ms_flow | grep Version`.
 
 ## 3. Correr
 
-Desde la carpeta del repo, una corrida por número de workers (cada una tarda ~5 min más la preparación):
+Desde la carpeta del repo, una corrida por número de workers (seis corridas, cada una ~5 min más la preparación):
 
 ```bash
 LIB=/ruta/a/Enamine_H100K.sdf
 WORK=/disco/grande/gui_lag
 mkdir -p $WORK
-for cpus in 0-15 0-31 0-63; do
-  taskset -c $cpus python test/benchmarks/bench_gui_lag.py --library $LIB --work $WORK \
-      --window --big-gb 60 --dump-ms 100 --out $WORK/lag.jsonl
+for host in process inline; do
+  for cpus in 0-15 0-31 0-63; do
+    taskset -c $cpus python test/benchmarks/bench_gui_lag.py --library $LIB --work $WORK \
+        --window --big-gb 60 --dump-ms 100 --engine-host $host --out $WORK/lag.jsonl
+  done
 done
 ```
 
@@ -50,6 +54,7 @@ Por cada fase (`idle`, `dock`, `dock+import`) imprime una línea:
 | `p50_ms`, `p99_ms`, `max_ms` | retraso de los ticks de 20 ms |
 | `max_at_s` | segundo de la fase en que llegó el peor tick |
 | `dock_chunks_per_s` | ritmo del docking |
+| `engine_host` | `process` (fase B) o `inline` (fase A) |
 | `dock.tasks_running`, `import.tasks_running` | tareas de cada job; si su suma cae muy por debajo de los workers, el despacho se está frenando |
 
 - Al final escribe una línea JSON y la añade a `lag.jsonl`.

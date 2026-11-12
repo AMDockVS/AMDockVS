@@ -10,7 +10,7 @@ from amdockvs.core.paths import set_default_project_root
 DockRunner = Callable[[dict[str, Any]], list[dict[str, Any]]]
 
 DOCK_RUNNERS: dict[str, DockRunner] = {}
-_BUILTINS_LOADED = False
+_BUILTINS = ("vina", "adgpu", "gnina", "qvina", "unidock")
 
 
 def register_dock_runner(engine: str, runner: DockRunner, *, replace: bool = False) -> None:
@@ -45,9 +45,9 @@ def register_docking_engine(program, runner: DockRunner, *, replace: bool = Fals
 
 
 def load_builtin_docking_engines() -> None:
-    """Load built-ins explicitly; importing an engine module has no side effects."""
-    global _BUILTINS_LOADED
-    if _BUILTINS_LOADED:
+    """Load built-ins explicitly; importing an engine module has no side effects. A built-in
+    already in `DOCK_RUNNERS` (or replaced there) stays as it is."""
+    if all(name in DOCK_RUNNERS for name in _BUILTINS):
         return
     from amdockvs.docking.engines.adgpu import adgpu_dock_runner
     from amdockvs.docking.engines.vina import _vina_dock_runner
@@ -55,12 +55,9 @@ def load_builtin_docking_engines() -> None:
     from amdockvs.docking.engines.qvina import qvina_dock_runner
     from amdockvs.docking.engines.unidock import unidock_dock_runner
 
-    register_dock_runner("vina", _vina_dock_runner, replace=True)
-    register_dock_runner("adgpu", adgpu_dock_runner, replace=True)
-    register_dock_runner("gnina", gnina_dock_runner, replace=True)
-    register_dock_runner("qvina", qvina_dock_runner, replace=True)
-    register_dock_runner("unidock", unidock_dock_runner, replace=True)
-    _BUILTINS_LOADED = True
+    for name, runner in zip(_BUILTINS, (_vina_dock_runner, adgpu_dock_runner, gnina_dock_runner,
+                                        qvina_dock_runner, unidock_dock_runner)):
+        DOCK_RUNNERS.setdefault(name, runner)
 
 
 def run_docking_chunk(payload: dict, progress_cb=None) -> list[dict]:

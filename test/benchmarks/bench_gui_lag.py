@@ -13,7 +13,8 @@ For each phase it also prints the docking chunks settled per second, which says 
 import's feed slows the dispatch down. The engine sizes itself from the CPUs this process may use,
 so `taskset` sets the number of workers. Criterion of the plan: with 64 workers, p99 < 50 ms and
 max < 500 ms. `--dump-ms 100` says which thread held the GIL in a late tick. `--window` also opens the main window (offscreen without a display), so its
-monitor and tables refresh in the GUI thread as in the app.
+monitor and tables refresh in the GUI thread as in the app. `--engine-host inline` keeps the
+engine in this process, as before phase B.
 """
 from __future__ import annotations
 
@@ -79,6 +80,8 @@ def main() -> int:
     ap.add_argument("--window", action="store_true", help="also open the main window")
     ap.add_argument("--dump-ms", type=float, default=0,
                     help="dump every thread's stack to gui_lag_stacks.log when a tick is this late (0: off)")
+    ap.add_argument("--engine-host", choices=("process", "inline"), default="process",
+                    help="where ms_flow runs the engine: a child process (phase B) or this one")
     ap.add_argument("--keep", action="store_true", help="keep the work folder")
     ap.add_argument("--out", type=Path, help="append the JSON report here")
     args = ap.parse_args()
@@ -88,6 +91,7 @@ def main() -> int:
     work = Path(tempfile.mkdtemp(prefix="gui_lag_", dir=args.work))
     os.environ["HOME"] = str(work / "home")  # the project registers here, not in the real ~/.molsuite
     os.environ.setdefault("AMDOCK_DISABLE_PYMOL", "1")
+    os.environ["MSFLOW_ENGINE_HOST"] = args.engine_host
     if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     sys.setswitchinterval(args.switch_ms / 1000)
@@ -102,7 +106,8 @@ def main() -> int:
     use_en_us_numbers()
     cpus = len(os.sched_getaffinity(0))
     report: dict = {"cpus": cpus, "ligands": args.ligands, "batch": args.batch, "big_gb": args.big_gb,
-                    "switch_ms": args.switch_ms, "window": args.window, "phases": {}}
+                    "switch_ms": args.switch_ms, "window": args.window, "engine_host": args.engine_host,
+                    "phases": {}}
     rt = AMDockVSRuntime()
     window = None
     try:

@@ -34,6 +34,7 @@ from amdockvs.models.molecules import ensure_molecule_indexes
 from amdockvs.models.codes import ensure_codes
 from amdockvs.core.jobs import STATUS as JOB_STATUS
 from amdockvs.core.jobs import configs as job_configs
+from amdockvs.core.jobs import jobs_setup
 from amdockvs.core.paths import set_default_project_root
 from amdockvs.project.summaries import JobStatus, ProjectSummary
 from amdockvs.molecules.storage import DbStore, general_ligand_count, has_shards
@@ -97,6 +98,8 @@ class AMDockVSRuntime(AppRuntime):
         )
         # A host kept with no environment named is given the one of this app.
         self.workspace.host_env = self._host_env
+        # What the jobs read of the project, said in the process that runs them.
+        self.workspace.jobs_setup = jobs_setup
         # What the jobs sent to each cluster's queue ask of it instead of what its executor asks
         # (CPUs, time...), for this session: set by the "Queue resources" of any tool.
         self.queue_asks: dict[str, dict] = {}
@@ -605,14 +608,8 @@ class AMDockVSRuntime(AppRuntime):
 
     def _job_config(self) -> dict:
         """What a chunker is given of the active project, said where its job finds it."""
-        workspace = self.workspace
-        config = job_configs[workspace.project_db] = {
-            "project_db": workspace.project_db,
-            "project_store": workspace.advanced.project_store,
-            "project_context": workspace.active_context,
-            "project_resources": workspace.get_project_resource_map(),
-        }
-        return config
+        jobs_setup(self.workspace)
+        return job_configs[self.workspace.project_db]
 
     def _recorded_job(self, job_id: str):
         """The declaration of a job on record, and the executor it was sent to. Raises for one

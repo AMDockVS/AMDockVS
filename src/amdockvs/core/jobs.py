@@ -36,8 +36,31 @@ from ms_flow.engine.files import swap
 # there a job with a chunk that failed had failed, and a job was never left for another run.
 STATUS = {"waiting": "pending", "completed_with_errors": "failed", "interrupted": "canceled"}
 
-# The `config` of a chunker, by the store the engine hands the job of its project.
-configs = weakref.WeakKeyDictionary()
+class _Configs(weakref.WeakKeyDictionary):
+    """The `config` of a chunker, by the store the engine hands the job of its project.
+
+    A job travels by value to the engine's process (see `ms_flow`'s `engine_host`), with the
+    globals its closures name: this one travels by name, so there it is that process's own."""
+
+    def __reduce__(self):
+        return _configs, ()
+
+
+def _configs():
+    return configs
+
+
+configs = _Configs()
+
+
+def jobs_setup(workspace) -> None:
+    """`Workspace.jobs_setup`: says in `configs` what the jobs of the active project are given of it."""
+    configs[workspace.project_db] = {
+        "project_db": workspace.project_db,
+        "project_store": workspace.advanced.project_store,
+        "project_context": workspace.active_context,
+        "project_resources": workspace.get_project_resource_map(),
+    }
 
 
 def _takes(fn: Callable[..., Any]) -> int:
@@ -156,7 +179,7 @@ class JobDefinition:
         """
         if self.result_handler_factory is None:
             return self.engine, None
-        return self._made(self.result_handler_factory(**dict(handler_kwargs or {})))
+        return self._made(functools.partial(self.result_handler_factory, **dict(handler_kwargs or {})))
 
     @functools.cached_property
     def engine(self):
@@ -170,14 +193,17 @@ class JobDefinition:
         made.definition = self
         return made
 
-    def _made(self, handler):
-        """The chunker starts when the engine reads it, which is once the jobs it waits for ended."""
+    def _made(self, make_handler):
+        """The chunker starts when the engine reads it, which is once the jobs it waits for ended.
+        The handler is made when the engine opens the job's output, in the engine's process: what
+        travels there is `make_handler`, not a handler with its locks and connections."""
         run = functools.partial(_run_chunk, run=self.run_chunk)
         run.__task__ = {"cpu": max(1, int(self.cpu_required or 1)), "gpu": 0, "mem_mb": 0, "retries": 0,
                         "batch": None, "batched": False, "label": self.task_label}
-        state = {"failed": 0, "closed": False}
+        state = {"failed": 0, "closed": False, "handler": None}
 
         def close(status: str) -> None:
+            handler = state["handler"]
             if handler is None or state["closed"]:
                 return
             state["closed"] = True
@@ -189,17 +215,17 @@ class JobDefinition:
             @staticmethod
             def write(results: list) -> None:
                 for result in results:
-                    handler.handle("", result)
+                    state["handler"].handle("", result)
 
             @staticmethod
             def finish() -> None:  # every chunk has ended: what it raises fails the job
-                handler.flush()  # once, and never for a job that was stopped halfway
+                state["handler"].flush()  # once, and never for a job that was stopped halfway
                 close("failed" if state["failed"] else "completed")
 
         def on_error(key, error) -> None:
             state["failed"] += 1
-            if handler is not None and hasattr(handler, "on_error"):
-                handler.on_error(str(key), str(error))
+            if hasattr(state["handler"], "on_error"):
+                state["handler"].on_error(str(key), str(error))
 
         def ended(params, project, snapshot) -> None:
             status = STATUS.get(snapshot.status, snapshot.status)
@@ -219,8 +245,13 @@ class JobDefinition:
             def source(params, project) -> Iterable[dict]:  # noqa: F811
                 return _Counted(self, params, project)
 
-        output = (lambda params, project: Writer) if handler is not None else self.output_spec
-        if self.relative_paths and handler is None:
+        def output(params, project):
+            state["handler"] = make_handler()
+            return Writer
+
+        if make_handler is None:
+            output = self.output_spec
+        if self.relative_paths and make_handler is None:
             def output(params, project):
                 root = Path(configs[project]["project_context"].path).expanduser().resolve()
                 return _Relative(writer(self.output_spec, project), root)

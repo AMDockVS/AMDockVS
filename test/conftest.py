@@ -28,3 +28,10 @@ def _shut_down_runtimes():
     for runtime in list(_made):
         runtime.shutdown()
     _made.clear()
+
+
+@pytest.fixture
+def inline_engine(monkeypatch):
+    """The engine in this process, not in ms_flow's child: for a test that patches or records
+    here what its jobs do."""
+    monkeypatch.setenv("MSFLOW_ENGINE_HOST", "inline")
