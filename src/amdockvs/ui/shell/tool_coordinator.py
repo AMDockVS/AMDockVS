@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QStackedWidget, QWidget
+from PySide6.QtWidgets import QStackedWidget, QStyle, QWidget
 
 from amdockvs.ui.registry import TOOLS
 from amdockvs.ui.resources.icons import icon as load_icon
@@ -70,8 +70,14 @@ class ToolCoordinator:
         window.dock_manager.toggle("tools", True)
         window.tools_dock.raise_()
         if not was_open:
-            try:  # open at ~1/3 of the window, matching the right (PyMOL) dock
-                window.resizeDocks([window.tools_dock], [window._third_width()], Qt.Horizontal)
+            try:  # open at ~1/3 of the window, matching the right (PyMOL) dock...
+                width = window._third_width()
+                if getattr(widget, "dock_opens_at_size_hint", False):
+                    # ...or at the tool's own width, plus room for its vertical scrollbar so a
+                    # tall step doesn't scroll sideways; at most half the window.
+                    scrollbar = widget.style().pixelMetric(QStyle.PixelMetric.PM_ScrollBarExtent)
+                    width = min(window.width() // 2, widget.sizeHint().width() + scrollbar)
+                window.resizeDocks([window.tools_dock], [width], Qt.Horizontal)
             except Exception:
                 pass
         return widget
