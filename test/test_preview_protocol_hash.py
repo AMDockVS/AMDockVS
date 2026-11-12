@@ -37,7 +37,8 @@ def test_the_preview_takes_out_what_the_run_will_skip():
         return 4 if (engine, protocol_hash) == ("vina", stored) else 0
 
     service = DockingReadinessService(type("R", (), {"docking": type("D", (), {
-        "count_docked_pairs": staticmethod(count_docked_pairs)})()})())
+        "count_docked_pairs": staticmethod(count_docked_pairs),
+        "stored_protocol_hash": staticmethod(lambda *, program, protocol_hash: protocol_hash)})()})())
     protocols = [DockingProtocol(program=p, label=p, hash=ProtocolEditorWidget._protocol_hash(p, WIDGETS[p]))
                  for p in sorted(WIDGETS)]
     pairs = service.pairs(ligand_count=1, receptor_ids=[1, 2, 4, 6], protocols=protocols, skip_existing=True)
