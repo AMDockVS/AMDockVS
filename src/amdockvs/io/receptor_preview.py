@@ -364,9 +364,6 @@ def write_processed_receptor(
     chosen_assembly = str(options.selected_assembly or "")
     if not chosen_assembly and options.use_biological_assembly and structure.assemblies:
         chosen_assembly = str(structure.assemblies[0].name)  # legacy bool → first assembly
-    if chosen_assembly and chosen_assembly in assembly_names:
-        structure.transform_to_assembly(chosen_assembly, gemmi.HowToNameCopiedChain.Short)
-    model = structure[0]
 
     workflow = build_receptor_import_preview(scan, options).get("workflow") or {}
     selected_cocrystal_key = str(workflow.get("selected_cocrystal_key") or "")
@@ -374,29 +371,35 @@ def write_processed_receptor(
     removable_components = _components_to_remove(scan, options, selected_cocrystal_key)
     component_keys = {tuple(item) for item in removable_components}
 
+    # The chain and component choices name the file's own chains, so they are applied before
+    # the assembly is built. transform_to_assembly renames the copies (the translated copy of
+    # A comes out as "B"): filtering by name afterwards dropped every copy of a selected chain,
+    # and a copy's components matched no removal key, so its cofactors survived "Remove".
+    _drop_unselected(structure[0], selected_chain_ids, component_keys)
+    if chosen_assembly and chosen_assembly in assembly_names:
+        _restrict_assembly_to_model(structure, chosen_assembly)
+        structure.transform_to_assembly(chosen_assembly, gemmi.HowToNameCopiedChain.Short)
+        if not structure[0].count_atom_sites():
+            raise ValueError(
+                f"Biological assembly {chosen_assembly} of {path.name} contains none of the "
+                f"selected chains ({', '.join(selected_chain_ids)})."
+            )
+    model = structure[0]
+
     processed = gemmi.Structure()
     processed.cell = structure.cell
     processed.spacegroup_hm = structure.spacegroup_hm
     processed_model = gemmi.Model("1")
 
     for chain in model:
-        chain_name = str(chain.name or "-")
-        if selected_chain_ids and chain_name not in selected_chain_ids:
-            continue
         new_chain = gemmi.Chain(chain.name)
         for residue in chain:
             resname = str(residue.name or "").strip().upper()
-            resseq = str(residue.seqid.num)
-            icode = str(residue.seqid.icode or "").strip()
-            residue_key = (resname, chain_name, resseq, icode)
-            if residue_key in component_keys:
-                continue
             # What survives is decided by _components_to_remove() above (that is where the
-            # "Remove cofactors" / "Remove non-structural waters" options are applied). Here we
-            # only classify by resname, never by residue_key: a biological assembly renames the
-            # copied chains, so a copy's key matches nothing and a key-based keep-list would drop
-            # every metal in the copies. Anything the scan could not classify came out "ligand",
-            # so it is already in component_keys and falls through to the last `continue`.
+            # "Remove cofactors" / "Remove non-structural waters" options are applied, and
+            # _drop_unselected() has already taken those residues out). Here we only classify
+            # by resname. Anything the scan could not classify came out "ligand", so it was
+            # removed above, or it falls through to the last `continue`.
             if _is_polymer_residue(resname) or resname in _COORDINATION_METAL_CODES:
                 new_chain.add_residue(residue.clone())
             elif resname in _WATER_CODES or resname in _COFACTOR_CODES:
@@ -932,6 +935,42 @@ def _selected_chain_ids(scan: dict[str, Any], selected_cocrystal_key: str, expli
     if len(chains) == 1:
         return [str(chains[0].get("label") or "-")]
     return []
+
+
+def _drop_unselected(model: gemmi.Model, chain_ids: list[str], component_keys: set[tuple[str, ...]]) -> None:
+    """Remove, in place, the chains not in `chain_ids` (empty = keep all) and the residues
+    whose (resname, chain, resseq, icode) is in `component_keys`. Run on the file's own
+    chains, before any assembly copies them under new names."""
+    for chain_index in reversed(range(len(model))):
+        chain = model[chain_index]
+        chain_name = str(chain.name or "-")
+        if chain_ids and chain_name not in chain_ids:
+            del model[chain_index]
+            continue
+        for residue_index in reversed(range(len(chain))):
+            residue = chain[residue_index]
+            key = (
+                str(residue.name or "").strip().upper(),
+                chain_name,
+                str(residue.seqid.num),
+                str(residue.seqid.icode or "").strip(),
+            )
+            if key in component_keys:
+                del chain[residue_index]
+
+
+def _restrict_assembly_to_model(structure: gemmi.Structure, assembly_name: str) -> None:
+    """Point the assembly's operators only at chains/subchains still in model 0: gemmi refuses
+    to build an assembly that names a chain the user dropped (an A+B dimer, B deselected)."""
+    model = structure[0]
+    chains = {str(chain.name) for chain in model}
+    subchains = {str(residue.subchain) for chain in model for residue in chain}
+    for assembly in structure.assemblies:
+        if str(assembly.name) != assembly_name:
+            continue
+        for generator in assembly.generators:
+            generator.chains = [name for name in generator.chains if name in chains]
+            generator.subchains = [name for name in generator.subchains if name in subchains]
 
 
 def _components_to_remove(scan: dict[str, Any], options: ReceptorImportOptions, selected_cocrystal_key: str) -> list[tuple[str, str, str, str]]:
