@@ -421,6 +421,8 @@ class DockingResultsWidget(QWidget):
         # scoring units, so mixing them in one receptor>ligand>pose tree is apples-to-oranges.
         # Default lands on the first concrete protocol; "All (mixed)" is an explicit opt-in.
         self.protocol_combo = QComboBox(box)
+        # It is filled after it is first shown: sized then, it clips the labels to "AutoDoc".
+        self.protocol_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         self.protocol_combo.setToolTip("Restrict results to one docking program (scores aren't comparable across programs).")
         self.protocol_combo.currentIndexChanged.connect(self._on_protocol_changed)
         top.addWidget(QLabel("Program", box))
