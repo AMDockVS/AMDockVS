@@ -1,4 +1,4 @@
-"""Consultas de la herramienta Moleculas.
+"""Queries behind the Molecules tool.
 
 These statistics feed the headers of the ligand and receptor tables. They are aggregated in
 SQL: the previous version read the whole table and counted in Python, which over a library of
