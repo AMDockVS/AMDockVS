@@ -34,6 +34,7 @@ from amdockvs.models.molecules import ensure_molecule_indexes
 from amdockvs.models.codes import ensure_codes
 from amdockvs.core.jobs import STATUS as JOB_STATUS
 from amdockvs.core.jobs import configs as job_configs
+from amdockvs.core.job_titles import job_title
 from amdockvs.core.paths import set_default_project_root
 from amdockvs.project.summaries import JobStatus, ProjectSummary
 from amdockvs.molecules.storage import DbStore, general_ligand_count, has_shards
@@ -110,6 +111,8 @@ class AMDockVSRuntime(AppRuntime):
         self._loader_api: LoaderAPI | None = None
         # job_id -> (count() -> (done, total), unit): what the monitor shows besides chunks.
         self._job_items: dict[str, tuple] = {}
+        # job_id -> what the monitor and the notices call it, titled when it is submitted.
+        self._job_titles: dict[str, str] = {}
         self._molecule_api: MoleculeAPI | None = None
         self._complex_api: ComplexAPI | None = None
         self._chemistry_api: ChemistryAPI | None = None
@@ -449,13 +452,11 @@ class AMDockVSRuntime(AppRuntime):
         # Defaults live in the component's MonitorConfig, nested in AMDock's config so
         # the user can persist overrides in AMDock's file; explicit args still win.
         monitor_cfg = self.amdock_configuration.get_value("monitor")
-        # ms_components < 0.5.7 has no `measure`: the monitor then shows chunks alone.
-        # ponytail: drop the check once pyproject requires a release that has it.
-        extra = (
-            {"measure": self.measure_job}
-            if "measure" in inspect.signature(MolSuiteMonitorBridge.__init__).parameters
-            else {}
-        )
+        # An ms_components without `measure` or `title` shows chunks alone, under the job's name.
+        # ponytail: drop the check once pyproject requires a release that has both.
+        accepted = inspect.signature(MolSuiteMonitorBridge.__init__).parameters
+        extra = {key: hook for key, hook in (("measure", self.measure_job), ("title", self.job_title))
+                 if key in accepted}
         return MolSuiteMonitorBridge(
             workspace=self.workspace,
             poll_ms=monitor_cfg.poll_ms if poll_ms is None else poll_ms,
@@ -482,6 +483,18 @@ class AMDockVSRuntime(AppRuntime):
             return min(done * per_chunk, total), total
 
         self.track_job_items(job_id, count, unit=unit)
+
+    def job_title(self, job_id: str, name: str) -> str:
+        """The monitor's `title`: "Docking · gnina (CNN)" for `amdock_docking_job`. A job of an
+        earlier session is titled from the params the journal kept of it."""
+        title = self._job_titles.get(str(job_id))
+        if title is None:
+            try:
+                params = self.workspace.origin(str(job_id)).get("params")
+            except Exception:  # noqa: BLE001 - not on record: its kind alone
+                params = None
+            title = self._job_titles[str(job_id)] = job_title(name, params)
+        return title
 
     def measure_job(self, job_id: str) -> dict | None:
         """The monitor's `measure`: called on its polling thread, so `count` only reads."""
@@ -568,12 +581,13 @@ class AMDockVSRuntime(AppRuntime):
         )
         if queue_behind:
             self._lanes()[job_id] = (queue_behind, executor, priority)
+        self._job_titles[job_id] = job_title(str(getattr(job, "name", "") or ""), job_params)
         # Single funnel for "a job just started" UI feedback (the main window plugs a toast in
         # here). May fire from a worker thread, so the hook must be thread-safe (a Qt signal).
         hook = getattr(self, "on_job_submitted", None)
         if hook is not None:
             try:
-                hook(str(getattr(job, "name", "") or "Job"), job_id)
+                hook(self._job_titles[job_id], job_id)
             except Exception:  # noqa: BLE001 - feedback must never break a submit
                 pass
         return job_id
@@ -595,10 +609,11 @@ class AMDockVSRuntime(AppRuntime):
                                           **self._asks(executor_name))
         job_id = str(self.workspace.engine.status(engine_id).key)
         self._engine_ids()[job_id] = engine_id
+        self._job_titles[job_id] = job_title(str(job.__job__["name"]), params)
         hook = getattr(self, "on_job_submitted", None)
         if hook is not None:
             try:
-                hook(str(job.__job__["name"]), job_id)
+                hook(self._job_titles[job_id], job_id)
             except Exception:  # noqa: BLE001 - feedback must never break a submit
                 pass
         return job_id

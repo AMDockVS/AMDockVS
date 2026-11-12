@@ -78,7 +78,7 @@ class AMDockVSMainWindow(QMainWindow):
     The delegating methods below are the window's public surface — widgets and tests call
     them on the window, not on the controllers."""
 
-    job_submitted = Signal(str, str)  # (job name, job id) — emitted from any thread
+    job_submitted = Signal(str, str)  # (job title, job id) — emitted from any thread
     import_dialog_opened = Signal(str, object)
     project_opened = Signal(str)
 
