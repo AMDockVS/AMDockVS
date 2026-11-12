@@ -308,3 +308,33 @@ def test_set_grid_records_where_the_box_came_from():
                  name="SAR405 site", source="ligand", source_ref="7")
     assert [(row["name"], row["source"], row["source_ref"]) for row in saved] == [
         ("Manual Site", "manual", ""), ("SAR405 site", "ligand", "7")]
+
+
+def test_a_loaded_site_brings_its_own_provenance_and_a_hand_edit_makes_it_manual(grid_box_widget, monkeypatch):
+    """PR #121 review: ligand box -> load a P2Rank site -> Save as new saved the P2Rank geometry as
+    "SAR405 site"/ligand/7. A loaded site's provenance travels with its geometry."""
+    from amdockvs.ui.tools.binding_sites import box as box_module
+
+    widget = grid_box_widget
+    saved = []
+    widget.runtime.binding_sites.save_site = lambda **kwargs: saved.append(kwargs) or BindingSite(id=9, molecule_id=4)
+    widget.runtime.binding_sites.suggest_box_from_ligand = lambda *, ligand_id: {
+        "center": (1.0, 2.0, 3.0), "size": (18.0, 18.0, 18.0)}
+    widget.runtime.molecules = SimpleNamespace(
+        select=lambda **_kwargs: "ligands", stream=lambda _scope: [SimpleNamespace(id=7, name="SAR405")])
+    monkeypatch.setattr(box_module.QInputDialog, "getItem", lambda *_args: ("SAR405 (#7)", True))
+    monkeypatch.setattr(box_module, "run_async", lambda work, done, **_kwargs: done(work()))
+    provenance = lambda: {key: saved[-1][key] for key in ("center", "name", "source", "source_ref")}
+
+    widget._auto_box_from_ligand()
+    widget._load_site_into_working(BindingSite(
+        id=8, molecule_id=4, name="P2Rank pocket 1", source="p2rank", source_ref="1",
+        center_x=40.0, center_y=41.0, center_z=42.0, size_x=15.0, size_y=15.0, size_z=15.0))
+    widget._save_new_site()
+    assert provenance() == {"center": (40.0, 41.0, 42.0), "name": "P2Rank pocket 1", "source": "p2rank",
+                            "source_ref": "1"}
+
+    widget._auto_box_from_ligand()
+    widget.cx.setValue(5.0)  # moved by hand: no longer the ligand's box
+    widget._save_new_site()
+    assert provenance() == {"center": (5.0, 2.0, 3.0), "name": "Manual Site", "source": "manual", "source_ref": ""}

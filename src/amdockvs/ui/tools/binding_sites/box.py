@@ -561,6 +561,11 @@ class GridBoxSettingDockWidget(QWidget):
         self._working.size_y = float(site.size_y or 20.0)
         self._working.size_z = float(site.size_z or 20.0)
         self._working.source_site_id = int(site.id or 0)
+        # Its provenance comes with its geometry: saved as new, it is a copy of this site, not of
+        # whatever the working box was made from before.
+        self._working.name = str(site.name or f"Site {int(site.id or 0)}")
+        self._working.source = str(site.source or "manual")
+        self._working.source_ref = str(site.source_ref or "")
         self._working.dirty = False
         self._sync_editor_from_working()
 
@@ -860,6 +865,8 @@ class GridBoxSettingDockWidget(QWidget):
         self._working.size_x = float(self.sx.value())
         self._working.size_y = float(self.sy.value())
         self._working.size_z = float(self.sz.value())
+        # Moved by hand, the box is no longer the one its ligand or predictor gave: a manual one.
+        self._working.name, self._working.source, self._working.source_ref = "Manual Site", "manual", ""
         self._working.dirty = True
         self._ensure_working_item_present(select_if_created=True)
         self._refresh_preview(force=True)
