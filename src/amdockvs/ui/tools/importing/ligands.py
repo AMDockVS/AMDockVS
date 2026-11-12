@@ -184,6 +184,7 @@ class FileDropTable(QTableView):
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.verticalHeader().setVisible(False)
         header = self.horizontalHeader()
+        header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # every column holds text
         # ponytail: content-sized columns measure every row on each insert; Interactive keeps the
         # widths fixed (the user can still drag them), which is what lets 10k files load at once.
         for column, mode in enumerate((QHeaderView.Stretch, QHeaderView.Interactive, QHeaderView.Interactive,
@@ -270,7 +271,10 @@ class LigandImportDialog(QDialog):
         # --- top: vertical add/remove toolbar + file table ---
         top = QHBoxLayout()
         self.table = FileDropTable(self)
-        top.addWidget(self.table, 1)
+        # Table, library box and option tabs form one column right of the rail: one shared left edge.
+        column = QVBoxLayout()
+        column.addWidget(self.table, 1)
+        top.addLayout(column, 1)
 
         self._source_labels: dict[str, str] = {}  # temp carrier path → real origin ("user input")
         self._downloaded: set[str] = set()  # temporary ones not imported are deleted in done()
@@ -320,7 +324,7 @@ class LigandImportDialog(QDialog):
         self.shard_hint.setVisible(False)
         for widget in (self.shard_checkbox, description, self.shard_hint):
             box_layout.addWidget(widget)
-        root.addWidget(self.shard_box)
+        column.addWidget(self.shard_box)
         self.shard_checkbox.toggled.connect(self._style_shard_box)
         self._lock_shard_choice_to_project()
         self._style_shard_box()
@@ -350,7 +354,7 @@ class LigandImportDialog(QDialog):
             self._placeholder_tab("Diversity selection runs after import, over the materialized set. Use Molecule Tools › Diversity for now."),
             "Diverse",
         )
-        root.addWidget(self.tabs)
+        column.addWidget(self.tabs)
         self._reference_count = 0
         self._activity_source: str | None = None
 
