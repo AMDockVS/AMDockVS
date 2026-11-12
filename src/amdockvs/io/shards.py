@@ -99,15 +99,14 @@ def smiles_record(raw: str, parse_config: dict[str, Any]) -> str:
     every reader downstream (`mol_from_record`, the preparation step, the cluster script) gets
     a line it can parse with no knowledge of where it came from.
     """
-    from amdockvs.io.transformers.smiles import smiles_tokens
+    from amdockvs.io.transformers.smiles import smiles_table_columns, smiles_tokens
 
     tokens = smiles_tokens(raw, parse_config or {})
     if not tokens:
         return ""
-    smiles_col = int((parse_config or {}).get("smiles_col") or 0)
-    name_col = int((parse_config or {}).get("name_col") or 1)
+    smiles_col, name_col = smiles_table_columns(parse_config or {})
     smiles = tokens[smiles_col] if 0 <= smiles_col < len(tokens) else tokens[0]
-    name = tokens[name_col] if 0 <= name_col < len(tokens) else ""
+    name = tokens[name_col] if name_col is not None and 0 <= name_col < len(tokens) else ""
     return f"{smiles} {name}".strip()
 
 

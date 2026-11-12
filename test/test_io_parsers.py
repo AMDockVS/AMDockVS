@@ -115,3 +115,72 @@ def test_declared_chunks_never_exceed_what_the_feed_emits(tmp_path):
             )
         )
         assert estimate_import_chunks(path, batch_size=batch_size) <= emitted
+
+
+# --- SMILES tables: quoting, empty cells, column 0 -----------------------------------------
+
+
+def _table_rows(path):
+    _format, entries = iter_import_entries(kind="ligand", file_path=path)
+    return [(row["name"], row.get("source_properties") or {}) for row in entries]
+
+
+def _shard_records(path):
+    from amdockvs.io.parsers.readers import iter_raw_records
+    from amdockvs.io.shards import smiles_record
+
+    _format, config, records = iter_raw_records(kind="ligand", file_path=path)
+    return [smiles_record(record["raw"], config) for record in records]
+
+
+def test_quoted_csv_cell_keeps_its_comma(tmp_path):
+    pytest.importorskip("rdkit")
+    path = tmp_path / "quoted.csv"
+    path.write_text('SMILES,name,IC50\nCCO,"ethanol, quoted",100\nCCN,"amine, quoted",250\n')
+
+    assert _table_rows(path) == [("ethanol, quoted", {"IC50": "100"}), ("amine, quoted", {"IC50": "250"})]
+    assert _shard_records(path) == ["CCO ethanol, quoted", "CCN amine, quoted"]
+
+
+def test_name_in_column_zero_is_the_name(tmp_path):
+    pytest.importorskip("rdkit")
+    path = tmp_path / "reordered.csv"
+    path.write_text("name,IC50,SMILES\nethanol,100,CCO\namine,250,CCN\n")
+
+    assert _table_rows(path) == [("ethanol", {"IC50": "100"}), ("amine", {"IC50": "250"})]
+    assert _shard_records(path) == ["CCO ethanol", "CCN amine"]
+
+
+def test_empty_tsv_cell_does_not_shift_the_next_column(tmp_path):
+    pytest.importorskip("rdkit")
+    path = tmp_path / "sparse_activity.tsv"
+    path.write_text("SMILES\tname\tIC50\tactive\nCCO\tethanol\t\t1\nCCN\tamine\t250\t0\n")
+
+    assert _table_rows(path) == [("ethanol", {"active": "1"}), ("amine", {"IC50": "250", "active": "0"})]
+
+
+def test_header_without_a_name_column_keeps_every_value_column(tmp_path):
+    pytest.importorskip("rdkit")
+    path = tmp_path / "unnamed.csv"
+    path.write_text("SMILES,IC50\nCCO,100\n")
+
+    assert _table_rows(path) == [("unnamed_0", {"IC50": "100"})]
+    assert _shard_records(path) == ["CCO"]
+
+
+def test_comma_in_a_space_delimited_name_is_not_a_delimiter(tmp_path):
+    pytest.importorskip("rdkit")
+    path = tmp_path / "names.smi"
+    path.write_text("CCO ethanol,95%\nCCN amine\n")
+
+    assert _table_rows(path) == [("ethanol,95%", {}), ("amine", {})]
+
+
+def test_parse_config_without_name_col_still_means_column_one():
+    pytest.importorskip("rdkit")
+    from amdockvs.io.shards import smiles_record
+    from amdockvs.io.transformers.smiles import _parse_smiles_line
+
+    legacy = {"delimiter": " ", "smiles_col": 0}
+    assert _parse_smiles_line("CCO ethanol\n", legacy, source_index=0, stem="x")["name"] == "ethanol"
+    assert smiles_record("CCO ethanol\n", legacy) == "CCO ethanol"
