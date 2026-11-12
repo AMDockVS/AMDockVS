@@ -289,3 +289,22 @@ def test_a_box_from_a_ligand_is_saved_as_that_ligands_site(grid_box_widget, monk
     assert {key: saved[-1][key] for key in ("name", "source", "source_ref")} == {
         "name": "Manual Site", "source": "manual", "source_ref": ""}
 
+
+def test_set_grid_records_where_the_box_came_from():
+    from amdockvs.docking.api import DockingAPI
+
+    saved = []
+    runtime = SimpleNamespace(
+        _require_active_project=lambda: None,
+        binding_sites=SimpleNamespace(save_site=lambda **kwargs: saved.append(kwargs) or BindingSite(
+            id=5, molecule_id=4, center_x=0.0, center_y=0.0, center_z=0.0,
+            size_x=20.0, size_y=20.0, size_z=20.0, extra_data=kwargs["extra_data"])),
+    )
+    api = DockingAPI.__new__(DockingAPI)
+    api.runtime = runtime
+
+    api.set_grid(receptor_id=4, center=(0.0, 0.0, 0.0), size=(20.0, 20.0, 20.0))
+    api.set_grid(receptor_id=4, center=(0.0, 0.0, 0.0), size=(20.0, 20.0, 20.0),
+                 name="SAR405 site", source="ligand", source_ref="7")
+    assert [(row["name"], row["source"], row["source_ref"]) for row in saved] == [
+        ("Manual Site", "manual", ""), ("SAR405 site", "ligand", "7")]
