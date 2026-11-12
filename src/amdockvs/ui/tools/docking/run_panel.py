@@ -36,6 +36,8 @@ from amdockvs.docking.planning import (
     docking_signature,
 )
 from amdockvs.ui.view_ids import COMPLEXES_VIEW_ID
+from amdockvs.ui.tools.docking.preparation_panel import _FLEX_NEEDS_RECEPTOR
+from amdockvs.ui.tools.docking.protocol_editor import NO_PROGRAM_SELECTED
 
 #: Result rows past which Preview & Run asks before launching: a large campaign keeps one pose.
 LARGE_RUN_ROWS = 1_000_000
@@ -98,6 +100,10 @@ class RunPanel:
         hits_layout.addRow(self.hit_threshold_label, self.hit_threshold)
         hits_layout.addRow(self.hit_cap_label, self.hit_cap)
         self.offtarget_reference_combo = QComboBox(self.hits_box)
+        # Size from a few characters, not the longest item: long receptor names widened the
+        # panel past the studio (horizontal scrollbar). The closed box elides; the list doesn't.
+        self.offtarget_reference_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.offtarget_reference_combo.setMinimumContentsLength(12)
         self.offtarget_reference_combo.addItem("None - dock the full library against every receptor", None)
         self.offtarget_reference_combo.setToolTip(
             "With a reference, dock the full library against it first, then dock only its "
@@ -290,16 +296,18 @@ class RunPanel:
             data["rec_scope_failed"] = self._count_failed_preparations(
                 rec_label_scope, role_type="receptor", engine=prep_engine
             )
+            data["rec_prepared_by_engine"] = {prep_engine: data["rec_scope_prepared"]}
         else:
             data["rec_scope_prepared"] = data["rec_scope_total"]
             data["rec_scope_failed"] = 0
+            data["rec_prepared_by_engine"] = {}
 
     def _compute_receptor_preview(self, inp: dict, receptor_ids: list[int]) -> dict:
         if not receptor_ids:
             focused = int(inp.get("focused") or 0)
             return {
                 "kind": "no_receptors",
-                "focused_has_grid": bool(focused) and self._focused_has_grid(inp, [focused]),
+                "flex_reason": self._flex_block_reason(inp, [focused]) if focused else _FLEX_NEEDS_RECEPTOR,
             }
         try:
             status = self.runtime.docking.check_receptors(
@@ -307,7 +315,8 @@ class RunPanel:
                 receptor_set=self._resolve_receptor_scope(receptor_ids),
             )
         except Exception as exc:
-            return {"kind": "error", "message": str(exc)}
+            return {"kind": "error", "message": str(exc),
+                    "flex_reason": f"The receptor status could not be read: {exc}"}
         counts = dict(status.get("counts") or {})
         rec_ready = int(counts.get("receptors_ready") or 0)
         rec_total = int(counts.get("receptors_total") or 0)
@@ -317,25 +326,27 @@ class RunPanel:
             "rec_ready": rec_ready,
             "rec_total": rec_total,
             "grid_ready": grid_ready,
-            "focused_has_grid": self._focused_has_grid(inp, receptor_ids),
+            "flex_reason": self._flex_block_reason(inp, receptor_ids),
         }
 
-    def _focused_has_grid(self, inp: dict, receptor_ids: list[int]) -> bool:
-        """Does the focused receptor have an active-site grid? (gates the flex-residues panel)
+    def _flex_block_reason(self, inp: dict, receptor_ids: list[int]) -> str:
+        """Why the focused receptor can't take flexible residues; "" when it can.
 
-        The grid itself — which BS, center, size — is displayed by the PyMOL Grid Box panel,
-        so only the yes/no is needed here.
+        They need an active-site grid on that receptor. The grid itself — which BS, center,
+        size — is displayed by the PyMOL Grid Box panel, so only the verdict is needed here.
         """
         focused_id = inp["focused"] if inp["focused"] in receptor_ids else receptor_ids[0]
         if not self._rows_for_ids_scoped(self._receptor_scope(), [focused_id]):
-            return False
+            return _FLEX_NEEDS_RECEPTOR
         program = get_docking_program(inp["program"])
         if not program.requires_binding_site:
-            return False
+            return f"{program.label} docks without a Grid Box, so it takes no flexible residues."
         grid = self.runtime.docking.get_grid(
             receptor_id=int(focused_id), engine=program.preparation_engine
         )
-        return bool(grid) and len(grid.get("center") or []) == 3 and len(grid.get("size") or []) == 3
+        if bool(grid) and len(grid.get("center") or []) == 3 and len(grid.get("size") or []) == 3:
+            return ""
+        return "This receptor has no active Grid Box yet: set one in the Grid Box panel first."
 
     # -- flexible residues -------------------------------------------------
     def _apply_refresh(self, data: dict, token: int) -> None:
@@ -344,6 +355,7 @@ class RunPanel:
         if token != self._refresh_token:
             return
         self.step_programs.set_done(bool(data.get("programs_chosen")))
+        self._sync_programs_summary()
         if data.get("step") == 1:
             self._set_prep_source_counts(data)
         if data.get("sharded"):
@@ -363,11 +375,10 @@ class RunPanel:
             self.prepare_ligands_button.setEnabled(True)
         if "ligands_prepared" in data and not data.get("sharded"):
             ligand_failed = int(data.get("ligands_failed") or 0)
-            # Scope = which ligands (one, shared). "N prepared" is per family, so it lives on
-            # the family rows, not here — a single number would be one family's count
-            # presented as the total.
+            # Scope = which ligands (one, shared). "N prepared" counts the ligands ready for
+            # EVERY selected family (the step's check mark); the family rows give each count.
             headline = f"{data['ligands_total']} ligand(s) in scope"
-            detail = f"{ligand_failed} failed" if ligand_failed else ""
+            detail = f"{data['ligands_prepared']} prepared" + (f" · {ligand_failed} failed" if ligand_failed else "")
             # Checked only when ALL in scope are prepared.
             done = data["ligands_total"] > 0 and data["ligands_prepared"] >= data["ligands_total"]
             if "shards" in data["sources"] and "shards_total" in data:
@@ -389,16 +400,16 @@ class RunPanel:
         scope_text = f"{data['rec_scope_total']} receptor(s) in scope"
         prep_text = f"{data['rec_scope_prepared']} prepared{failed_text}"
         self._set_scope_summary(self.receptor_bar, scope_text, prep_text)
+        self._set_prep_family_counts(data["rec_prepared_by_engine"], int(data["rec_scope_total"]), role="receptor")
 
         p = data["preview"]
         if p["kind"] == "no_receptors":
-            focused_has_grid = bool(p.get("focused_has_grid"))
-            self.flex_box.setEnabled(focused_has_grid)
-            self._sync_flex_for_focus(focused_has_grid)
+            self._set_flex_available(p["flex_reason"])
+            self._sync_flex_for_focus(not p["flex_reason"])
             self.step_receptors.set_done(False)
             return
         if p["kind"] == "error":
-            self.flex_box.setEnabled(False)
+            self._set_flex_available(p["flex_reason"])
             return
         rec_ready, rec_total, grid_ready = p["rec_ready"], p["rec_total"], p["grid_ready"]
         failed_text = f" / failed {receptor_failed}" if receptor_failed else ""
@@ -414,9 +425,8 @@ class RunPanel:
         # A receptor is ready when it's both prepared AND has a grid; mark on the weakest link.
         self._mark_step(self.step_receptors, min(rec_ready, grid_ready), rec_total)
         # Flexible residues need an active site on the focused receptor.
-        focused_has_grid = bool(p.get("focused_has_grid"))
-        self.flex_box.setEnabled(focused_has_grid)
-        self._sync_flex_for_focus(focused_has_grid)
+        self._set_flex_available(p["flex_reason"])
+        self._sync_flex_for_focus(not p["flex_reason"])
 
     @staticmethod
     def _mark_step(step, prepared: int, total: int) -> None:
@@ -540,7 +550,8 @@ class RunPanel:
         self.check_status_label.setText("Checking…")
         inputs = self._requirement_inputs()
         run_async(
-            lambda: self._compute_requirement_counts(inputs),
+            # The selection rides with the counts, so the status line reads only its result.
+            lambda: {**self._compute_requirement_counts(inputs), "no_program": not inputs["protocols"]},
             self._apply_check,
             on_error=lambda exc: self._apply_check({"error": str(exc)}),
             owner=self,
@@ -585,7 +596,8 @@ class RunPanel:
                 )
             self.step_run.set_done(bool(result.get("ready")))
             self.check_status_label.setText(
-                "Ready to run the campaign." if result.get("ready")
+                NO_PROGRAM_SELECTED if result.get("no_program")
+                else "Ready to run the campaign." if result.get("ready")
                 else "Prepare the library and at least one receptor (with a grid) first."
             )
             return
@@ -596,7 +608,7 @@ class RunPanel:
             pairs = len(result.get("ready_complex_ids") or ())
             self._pairs_text(f"{pairs} original pair(s)")
             self.step_run.set_done(result["ready"])
-            notes = []
+            notes = ["no program is selected on the Programs step"] if result.get("no_program") else []
             if int(result.get("total_complexes") or 0) == 0:
                 notes.append("no reference/redocking complexes are available")
             if int(lig.get("ready") or 0) < int(lig.get("total") or 0):
@@ -639,7 +651,7 @@ class RunPanel:
             text = f"{int(pairs.get('to_run') or 0)} of {total_pairs} docking(s) to run"
             self._pairs_text((f"{text} ({done} already docked)" if done else text) + shard_text)
         self.step_run.set_done(result["ready"])
-        notes = []
+        notes = ["no program is selected on the Programs step"] if result.get("no_program") else []
         failures = []
         if int(lig.get("failed") or 0):
             failures.append(f"{int(lig['failed'])} ligand preparation failed")
@@ -664,7 +676,7 @@ class RunPanel:
         # widget state here, then check for a duplicate job, then submit — each step off-thread.
         inp, params = self._docking_params()
         if not params["protocols"]:
-            self._warn("Run Docking", "Select at least one compatible docking software first.")
+            self._warn("Run Docking", NO_PROGRAM_SELECTED)
             return
         if self._preparing():
             # Readiness is counted at submit (prepared receptors, pairs to dock), so a run sent
@@ -824,7 +836,7 @@ class RunPanel:
         "Save to workflow" button and the workflow editor's config dialog (fresh panel instance)."""
         inp, params = self._docking_params()
         if not params["protocols"]:
-            self._warn("Workflow", "Select at least one compatible docking software first.")
+            self._warn("Workflow", NO_PROGRAM_SELECTED)
             return None
         workflow_kind = "redocking" if params.get("run_kind") == "redocking" else "docking"
         protocol_names = [str(protocol.get("label") or protocol.get("program") or "") for protocol in
@@ -983,7 +995,7 @@ class RunPanel:
             return {"warning": "No prepared receptors with a binding-site grid - nothing to dock."}
         protocols = tuple(DockingProtocol.from_mapping(value) for value in (params.get("protocols") or ()))
         if not protocols:
-            return {"warning": "Select at least one compatible docking software first."}
+            return {"warning": NO_PROGRAM_SELECTED}
         reference_id = params.get("offtarget_reference_id")
         if reference_id is not None and int(reference_id) not in ready_receptor_ids:
             return {"warning": "The selected off-target reference receptor is no longer ready."}
@@ -1064,7 +1076,7 @@ class RunPanel:
             for value in (params.get("protocols") or ())
         )
         if not protocols:
-            return {"warning": "Select at least one compatible docking software first."}
+            return {"warning": NO_PROGRAM_SELECTED}
         ready_receptor_ids = tuple(
             int(value) for value in (counts.get("ready_receptor_ids") or ()) if int(value) > 0
         )

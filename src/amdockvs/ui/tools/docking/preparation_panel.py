@@ -35,6 +35,10 @@ from ms_components.ms_table import (
     TableLoadMode,
 )
 from amdockvs.ui.view_ids import BUILD_ID, LIGANDS_VIEW_ID, PREP_STATUS_VIEW_ID, RECEPTOR_VIEW_ID, SHARDS_VIEW_ID
+from amdockvs.ui.tools.docking.protocol_editor import NO_PROGRAM_SELECTED
+
+# Why "Flexible residues" is off before any receptor is picked (see _set_flex_available).
+_FLEX_NEEDS_RECEPTOR = "Select a receptor in the table to set its flexible residues."
 
 
 def _prep_table_config(*, role_type: str) -> TableConfig:
@@ -200,7 +204,7 @@ class PreparationPanel:
             # and resolves the engine itself, so the launch path is unchanged.
             item.setData(Qt.UserRole, specs[0].key)
             item.setData(Qt.UserRole + 1, engine)
-            item.setToolTip("Shared by: " + ", ".join(spec.label for spec in specs))
+            item.setToolTip(self._family_tooltip(specs))
             self.prep_target_list.addItem(item)
             self.prep_stack.addWidget(self._build_family_prep_page(engine, specs))
         self.prep_target_list.setCurrentRow(0)
@@ -309,17 +313,26 @@ class PreparationPanel:
             if selected & {spec.key for spec in specs}
         ]
 
-    def _set_prep_family_counts(self, by_engine: dict[str, int], total: int) -> None:
+    def _set_prep_family_counts(self, by_engine: dict[str, int], total: int, *, role: str = "ligand") -> None:
         # "N / total" per family, right on the row that selects it — one scope, K statuses.
-        families = self._prep_families()
-        for index in range(self.prep_target_list.count()):
-            item = self.prep_target_list.item(index)
+        families = self._prep_families(role)
+        target_list = self.prep_target_list if role == "ligand" else self.receptor_prep_target_list
+        for index in range(target_list.count()):
+            item = target_list.item(index)
             engine = item.data(Qt.UserRole + 1)
             if engine is None:
                 continue
-            name = self._prep_family_label(engine, families.get(engine, []))
+            specs = families.get(engine, [])
+            name = self._prep_family_label(engine, specs)
             prepared = by_engine.get(engine)
-            item.setText(name if prepared is None else f"{name}\n{prepared} / {total}")
+            # One line: on a second line the count read as a list item of its own.
+            item.setText(name if prepared is None else f"{name} · {prepared} / {total}")
+            item.setToolTip(self._family_tooltip(
+                specs, "" if prepared is None else f"{prepared} of {total} {role}(s) in scope prepared"))
+
+    @staticmethod
+    def _family_tooltip(specs: list, count: str = "") -> str:
+        return "\n".join(filter(None, ("Shared by: " + ", ".join(spec.label for spec in specs), count)))
 
     def _selected_prep_target(self) -> str | None:
         item = self.prep_target_list.currentItem()
@@ -366,7 +379,7 @@ class PreparationPanel:
             "Flexible residues", checkable=True, checked=False, collapse_when_unchecked=True
         )
         self.flex_box.add_row(self._build_flex_residues_box(self.flex_box.body))
-        self.flex_box.setEnabled(False)
+        self._set_flex_available(_FLEX_NEEDS_RECEPTOR)
 
         # Preparation comes AFTER the binding site: flexible residues chosen above feed into the
         # prepared receptor. Vertical target list (General Options + one page per program that
@@ -388,7 +401,7 @@ class PreparationPanel:
             item = QListWidgetItem(self._prep_family_label(engine, specs))
             item.setData(Qt.UserRole, specs[0].key)
             item.setData(Qt.UserRole + 1, engine)
-            item.setToolTip("Shared by: " + ", ".join(spec.label for spec in specs))
+            item.setToolTip(self._family_tooltip(specs))
             self.receptor_prep_target_list.addItem(item)
             self.receptor_prep_stack.addWidget(self._build_receptor_program_prep_page(specs[0]))
         self.receptor_prep_target_list.setCurrentRow(0)
@@ -666,7 +679,12 @@ class PreparationPanel:
         (or none) is worse than showing nothing."""
         self._focused_receptor_id = None
         self._clear_flex_panel()
-        self.flex_box.setEnabled(False)
+        self._set_flex_available(_FLEX_NEEDS_RECEPTOR)
+
+    def _set_flex_available(self, reason: str) -> None:
+        """Enable "Flexible residues", or disable it and say why in its tooltip."""
+        self.flex_box.setEnabled(not reason)
+        self.flex_box.setToolTip(reason)
 
     def _on_ligand_selection_changed(self, objects: list[object]) -> None:
         # Highlighting rows does not change the scope - narrowing the table does (right-click > Select).
@@ -674,6 +692,9 @@ class PreparationPanel:
         self._req_preview_timer.start()
 
     def _prepare_ligands(self) -> None:
+        if not self._selected_programs():
+            self._warn("Prepare Ligands", NO_PROGRAM_SELECTED)
+            return
         sources = self._ligand_sources()
         # The prep-target list picks scope: "General" → all selected engines, else just one.
         target = self._selected_prep_target()
@@ -794,6 +815,9 @@ class PreparationPanel:
         self.stepper.set_current_index(2)
 
     def _prepare_receptors(self) -> None:
+        if not self._selected_programs():
+            self._warn("Prepare Receptors", NO_PROGRAM_SELECTED)
+            return
         target = self._selected_receptor_prep_target()
         programs = self._distinct_prep_programs(role="receptor") if target is None else [target]
         try:

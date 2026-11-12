@@ -40,11 +40,26 @@ DEFAULT_PROGRAMS = (QVINA_PROGRAM.key, VINA_PROGRAM.key)
 MAX_REDOCKING_PROTOCOLS = 12
 
 
+# Every studio action that needs a program says this when none is selected.
+NO_PROGRAM_SELECTED = "Select at least one compatible program on the Programs step first."
+
+
 def _spinbox(*, minimum: int, maximum: int, value: int) -> QSpinBox:
     widget = QSpinBox()
     widget.setRange(minimum, maximum)
     widget.setValue(value)
     return widget
+
+
+def _even_field_widths(page: QWidget) -> None:
+    """One width for the program pages' spin boxes and choice boxes, set by the widest integer
+    or choice field: decimal ones would size to their huge range. Text fields still stretch."""
+    fields = [w for w in page.findChildren(QWidget) if isinstance(w, (QSpinBox, QDoubleSpinBox, QComboBox))]
+    sizing = [w for w in fields if not isinstance(w, QDoubleSpinBox)] or fields
+    if sizing:
+        width = max(w.sizeHint().width() for w in sizing)
+        for widget in fields:
+            widget.setFixedWidth(width)
 
 
 class ProtocolEditorWidget:
@@ -84,6 +99,7 @@ class ProtocolEditorWidget:
         programs = QHBoxLayout()
         programs.addWidget(self.program_list)
         programs.addWidget(self.program_pages, 1)
+        _even_field_widths(self.program_pages)  # one column across programs: no jump on switch
         self.protocol_mode_box.add_row(programs)
         self._build_protocols_box(panel.add_section("Validation Protocol Set"))
         self._ensure_default_protocol()  # redocking starts from a Vina variant: the one that runs anywhere
@@ -97,6 +113,8 @@ class ProtocolEditorWidget:
         next_button.setToolTip("Continue to Ligands to select and prepare ligands.")
         next_button.clicked.connect(self.stepper.next)
         panel.action_bar.add_action(next_button)
+        self.programs_bar = panel.action_bar
+        self._sync_programs_summary()
         return panel
 
     def _build_protocols_box(self, box) -> None:
@@ -163,6 +181,7 @@ class ProtocolEditorWidget:
         form.addRow("Method", self.method_combo)
         form.addRow("Receptor type", self.receptor_type_combo)
         form.addRow("Ligand type", self.ligand_type_combo)
+        _even_field_widths(box)  # one column of choices, set by the widest (Method)
         self._experiment_form = form
 
     def _build_program_config(self, spec) -> QWidget:
@@ -260,7 +279,7 @@ class ProtocolEditorWidget:
                 widget.setValue(int(default or 0))
             elif field_type == "number":
                 widget = QDoubleSpinBox(parent)
-                widget.setDecimals(6)
+                widget.setDecimals(3)  # 0.375 Å spacing is the finest default
                 widget.setRange(float(field.get("exclusiveMinimum", field.get("minimum", -1e9))),
                                 float(field.get("maximum", 1e9)))
                 widget.setValue(float(default or 0.0))
@@ -761,6 +780,19 @@ class ProtocolEditorWidget:
             else:
                 item.setData(Qt.ItemDataRole.CheckStateRole, None)
             item.setFlags(flags)
+        self._sync_programs_summary()
+
+    def _sync_programs_summary(self) -> None:
+        """"N program(s) selected" over their names, like the other steps' scope lines."""
+        bar = getattr(self, "programs_bar", None)
+        if bar is None:
+            return
+        labels = {spec.key: spec.label for spec in list_docking_programs()}
+        programs = [labels.get(key, key) for key in self._selected_programs()]
+        headline = f"{len(programs)} program(s) selected"
+        if self._run_kind() != "docking":
+            headline += f" · {len(self._selected_protocols())} protocol(s)"
+        bar.set_summary(headline, ", ".join(programs) or "Select at least one program")
 
     def _on_program_item_changed(self, item) -> None:
         if not item.flags() & Qt.ItemFlag.ItemIsUserCheckable:
