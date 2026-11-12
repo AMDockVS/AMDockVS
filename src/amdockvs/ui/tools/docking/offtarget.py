@@ -187,6 +187,7 @@ class OffTargetResultsWidget(QWidget):
         self.reference_combo = QComboBox(self)
         self.reference_combo.currentIndexChanged.connect(self._load_target)
         self.protocol_combo = QComboBox(self)
+        self.protocol_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self.protocol_combo.currentIndexChanged.connect(self._on_protocol_changed)
         self.show_combo = QComboBox(self)
         for label, key in _SHOW:
@@ -225,11 +226,10 @@ class OffTargetResultsWidget(QWidget):
         # The groups wrap onto new lines, so a narrow Results pane stays usable.
         controls = QWidget(self)
         flow = FlowLayout(controls, spacing=6)
-        self._protocol_group = self._group(QLabel("Program:", self), self.protocol_combo)
-        self._protocol_group.setVisible(False)
+        # Always shown, even with one program: the numbers on screen must name their engine.
         for group in (
             self._group(QLabel("Target receptor:", self), self.reference_combo),
-            self._protocol_group,
+            self._group(QLabel("Program:", self), self.protocol_combo),
             self._group(QLabel("Show:", self), self.show_combo),
             self._group(self.align_check),
             self._group(QLabel("Colors:", self), self.palette_combo, self.scale_spin),
@@ -304,11 +304,42 @@ class OffTargetResultsWidget(QWidget):
             self._emit_refreshed()
             return
         if self.table is not None and self._columns == self._matrix_columns():
-            # Same matrix, newer rows (a job is writing): reload in place.
-            self.table.refresh_preserving_view()
-            self._emit_refreshed()
+            # Same matrix, newer rows (a job is writing): reload in place. A job may also have
+            # added a program, so the Program list is re-read with the rows.
+            self._refresh_in_place()
             return
         self._load_target()
+
+    def _refresh_in_place(self) -> None:
+        self._token += 1
+        token = self._token
+        target_id = self._columns[0][0]
+
+        def _apply(protocols):
+            if token != self._token or self.table is None:
+                return
+            previous = self._protocol
+            self._set_protocols(protocols)
+            if self._protocol != previous:
+                self._overrides, self._poses = {}, {}
+                self._rebuild()
+                return
+            self.table.refresh_preserving_view()
+            self._emit_refreshed()
+
+        run_async(lambda: self.runtime.docking.result_protocols(receptor_id=target_id), _apply)
+
+    def _set_protocols(self, protocols) -> None:
+        """Fill the Program combo, keeping the current pick when it still exists."""
+        previous = self.protocol_combo.currentData()
+        self.protocol_combo.blockSignals(True)
+        self.protocol_combo.clear()
+        for phash, label in protocols:
+            self.protocol_combo.addItem(label, phash)
+        index = self.protocol_combo.findData(previous) if previous is not None else -1
+        self.protocol_combo.setCurrentIndex(max(index, 0))
+        self.protocol_combo.blockSignals(False)
+        self._protocol = str(self.protocol_combo.currentData() or "")
 
     def _matrix_columns(self) -> list[tuple[int, str]]:
         target_id = self.reference_combo.currentData()
@@ -333,16 +364,7 @@ class OffTargetResultsWidget(QWidget):
             protocols, max_rank = payload
             self._columns = columns
             self._ranks, self._overrides, self._poses = {}, {}, {}
-            previous = self.protocol_combo.currentData()
-            self.protocol_combo.blockSignals(True)
-            self.protocol_combo.clear()
-            for phash, label in protocols:
-                self.protocol_combo.addItem(label, phash)
-            index = self.protocol_combo.findData(previous) if previous is not None else -1
-            self.protocol_combo.setCurrentIndex(max(index, 0))
-            self.protocol_combo.blockSignals(False)
-            self._protocol_group.setVisible(len(protocols) > 1)
-            self._protocol = str(self.protocol_combo.currentData() or "")
+            self._set_protocols(protocols)
             self.pose_combo.clear()
             for rank in range(1, max(1, int(max_rank)) + 1):
                 self.pose_combo.addItem(f"P{rank}", rank)
