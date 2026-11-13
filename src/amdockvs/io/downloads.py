@@ -74,7 +74,8 @@ def _fetch_file(url: str, target: Path, progress: Progress, cancel: threading.Ev
     """Stream ``url`` to ``target`` (gunzipped when the link is ``.gz`` and the target is not).
 
     Written to ``.part`` and renamed at the end, so a cancelled or broken download never poses
-    as a cached file.
+    as a cached file. Broken includes short: a body below its Content-Length, or a gzip stream
+    that never reached its trailer (the CRC and length zlib checks are in those last 8 bytes).
     """
     if target.exists():
         return target
@@ -85,19 +86,47 @@ def _fetch_file(url: str, target: Path, progress: Progress, cancel: threading.Ev
         with _open(url) as response, part.open("wb") as out:
             total = int(response.headers.get("Content-Length") or 0)
             done = 0
-            inflate = zlib.decompressobj(16 + zlib.MAX_WBITS) if gunzip else None
+            inflate = _Gunzip() if gunzip else None
             while chunk := response.read(_CHUNK):
                 if cancel.is_set():
                     raise Cancelled
                 done += len(chunk)
-                out.write(inflate.decompress(chunk) if inflate else chunk)
+                out.write(inflate.feed(chunk) if inflate else chunk)
                 progress(done, total, target.name)
+            if total and done < total:
+                raise OSError(f"the connection closed after {done:,} of {total:,} bytes")
             if inflate:
-                out.write(inflate.flush())
+                out.write(inflate.finish())
         part.replace(target)
     finally:
         part.unlink(missing_ok=True)
     return target
+
+
+class _Gunzip:
+    """Inflate a gzip download as it streams, every member of it, and know whether it ended.
+
+    One ``zlib.decompressobj`` stops at the end of the first member and keeps the rest as
+    ``unused_data``: a concatenated or bgzipped library would lose all but its first block.
+    """
+
+    def __init__(self):
+        self._inflate = zlib.decompressobj(16 + zlib.MAX_WBITS)
+
+    def feed(self, data: bytes) -> bytes:
+        out = []
+        while data:
+            if self._inflate.eof:  # the next member starts here
+                self._inflate = zlib.decompressobj(16 + zlib.MAX_WBITS)
+            out.append(self._inflate.decompress(data))
+            data = self._inflate.unused_data if self._inflate.eof else b""
+        return b"".join(out)
+
+    def finish(self) -> bytes:
+        tail = self._inflate.flush()
+        if not self._inflate.eof:
+            raise OSError("the gzip stream ends early: the download is incomplete")
+        return tail
 
 
 def _write(target: Path, text: str) -> Path:

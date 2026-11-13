@@ -168,3 +168,55 @@ def test_content_sniffing(tmp_path):
         path = tmp_path / f"case{len(suffix)}{suffix.strip('.')}"
         path.write_text(text, encoding="utf-8")
         assert sniff_suffix(path) == suffix, text
+
+
+SMILES = b"CCO ethanol\nc1ccccc1 benzene\n"
+
+
+def _fetch(tmp_path, monkeypatch, body, *, length=None, name="lib.smi.gz"):
+    import contextlib
+    import io
+
+    monkeypatch.setenv("AMDOCK_HOME", str(tmp_path))
+
+    @contextlib.contextmanager
+    def fake_open(url):
+        stream = io.BytesIO(body)
+        stream.headers = {"Content-Length": str(len(body) if length is None else length)}
+        yield stream
+
+    monkeypatch.setattr(downloads, "_open", fake_open)
+    outcome = download("url", [f"https://vendor.example/{name}"])
+    left = [p.name for p in (tmp_path / "downloads").rglob("*") if p.is_file()]
+    return outcome, left
+
+
+def test_a_gzip_cut_before_its_trailer_is_not_cached(tmp_path, monkeypatch):
+    import gzip
+
+    truncated = gzip.compress(SMILES)[:-8]  # CRC + size: all the text is there, the end is not
+    outcome, left = _fetch(tmp_path, monkeypatch, truncated)
+    assert outcome.files == [] and "ends early" in outcome.failures[0]
+    assert left == []  # neither the .part nor a "complete" file
+
+
+def test_a_complete_gzip_is_cached_inflated(tmp_path, monkeypatch):
+    import gzip
+
+    outcome, _left = _fetch(tmp_path, monkeypatch, gzip.compress(SMILES))
+    [(path, _label)] = outcome.files
+    assert path.endswith("/lib.smi") and open(path, "rb").read() == SMILES
+
+
+def test_every_member_of_a_concatenated_gzip_is_kept(tmp_path, monkeypatch):
+    import gzip
+
+    first, second = b"CCO ethanol\n", b"c1ccccc1 benzene\n"
+    outcome, _left = _fetch(tmp_path, monkeypatch, gzip.compress(first) + gzip.compress(second))
+    assert open(outcome.files[0][0], "rb").read() == first + second
+
+
+def test_a_body_short_of_its_content_length_is_not_cached(tmp_path, monkeypatch):
+    outcome, left = _fetch(tmp_path, monkeypatch, SMILES, length=len(SMILES) + 100, name="lib.smi")
+    assert outcome.files == [] and "closed after" in outcome.failures[0]
+    assert left == []
