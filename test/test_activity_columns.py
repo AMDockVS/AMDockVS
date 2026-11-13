@@ -62,3 +62,15 @@ def test_no_table_hides_the_picker(qapp, tables, tmp_path):
     sdf.write_text("", encoding="utf-8")
     form.set_source_files([str(sdf)])
     assert form._chips == {} and form.columns_box.isHidden()
+
+
+@pytest.mark.parametrize("suffix", [".smi", ".txt", ".tsv", ".csv"])
+@pytest.mark.parametrize("separator", ["\t", ",", " "], ids=["tab", "comma", "space"])
+def test_the_picker_reads_a_table_the_way_the_importer_does(qapp, tmp_path, suffix, separator):
+    """Any accepted table suffix, any separator the importer recognizes: tab-separated .smi was empty."""
+    table = tmp_path / f"activities{suffix}"
+    rows = [["SMILES", "name", "IC50"], ["CCO", "ethanol", "100"], ["CCN", "amine", "250"]]
+    table.write_text("".join(separator.join(row) + "\n" for row in rows), encoding="utf-8")
+    form = ImportActivityForm()
+    form.set_source_files([str(table)])
+    assert form._detected_kinds == {"IC50": "continuous"}

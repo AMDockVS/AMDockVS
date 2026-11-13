@@ -145,12 +145,16 @@ def _sniff_activity_columns(path: str) -> dict[str, str]:
     """Read the header + a few rows of a CSV/SMILES table and return {numeric column -> kind}
     ('categorical' if every sampled value is a 0/1 label, else 'continuous'). Non-numeric and
     structural (smiles/name/id) columns are omitted — they can't be activity endpoints."""
+    from amdockvs.io.parsers.readers import _sniff_smiles_table
+
     file_path = Path(path)
     if file_path.suffix.lower() not in {".csv", ".tsv", ".txt", ".smi", ".smiles"}:
         return {}
-    delimiter = "\t" if file_path.suffix.lower() == ".tsv" else ","
+    # The importer's own reading of the table: a tab-separated .smi/.txt is one too, and a
+    # picker that guessed by suffix offered no columns for it.
+    _header, delimiter, _smiles_col, _name_col = _sniff_smiles_table(file_path)
     with file_path.open("r", encoding="utf-8", newline="") as handle:
-        reader = csv.DictReader(handle, delimiter=delimiter)
+        reader = csv.DictReader(handle, delimiter=delimiter, skipinitialspace=delimiter == " ")
         columns = list(reader.fieldnames or [])
         sample = [row for _, row in zip(range(40), reader)]
     kinds: dict[str, str] = {}
