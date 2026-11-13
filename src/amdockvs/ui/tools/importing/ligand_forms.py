@@ -215,24 +215,30 @@ class ImportActivityForm(QWidget):
         self._detected_kinds: dict[str, str] = {}
         self.columns_box.setVisible(False)
 
-    def set_source_file(self, path: str | None) -> None:
-        """Called by the import dialog when the file list changes: sniff the CSV's numeric columns
-        and offer them as unticked chips. Hidden for SDF / no file.
+    def set_source_files(self, paths: list[str]) -> None:
+        """Called by the import dialog when the reference files change: offer the numeric columns
+        of every one of them as chips. Hidden when none is a table.
 
-        Unticked on purpose: a numeric column is not an assay, and pre-ticking turned every
-        tabular import into an activity import."""
+        New columns come unticked: a numeric column is not an assay, and pre-ticking turned every
+        tabular import into an activity import. A column offered before keeps its tick, so
+        marking another file does not undo the picks already made. A column numeric in several
+        files is categorical only if it is 0/1 in all of them.
+        """
+        kinds: dict[str, str] = {}
+        for path in paths:
+            for column, kind in _sniff_activity_columns(path).items():
+                kinds[column] = kind if kinds.get(column, kind) == kind else "continuous"
+        ticked = {column for column, chip in self._chips.items() if chip.isChecked()}
         for chip in self._chips.values():
             chip.setParent(None)
         self._chips.clear()
-        self._detected_kinds = _sniff_activity_columns(path) if path else {}
-        if not self._detected_kinds:
-            self.columns_box.setVisible(False)
-            return
-        for column, kind in self._detected_kinds.items():
+        self._detected_kinds = kinds
+        for column, kind in kinds.items():
             chip = QCheckBox(f"{column}  ({kind})", self._chips_host)
+            chip.setChecked(column in ticked)
             self._chips_layout.addWidget(chip)
             self._chips[column] = chip
-        self.columns_box.setVisible(True)
+        self.columns_box.setVisible(bool(kinds))
 
     def contribute(self, policy: dict[str, Any]) -> None:
         activity_property = self.activity_property.text().strip()
