@@ -71,12 +71,18 @@ def install_freeze_watchdog(qt_app, *, stall_seconds: float | None = None):
     and gdb), so the app reports itself: a 250 ms timer re-arms ``faulthandler``'s timeout,
     which fires from a C thread -- so it still dumps when a worker thread holds the GIL, the
     case a Python watchdog thread would sit out. One dump per stall. ``AMDOCK_FREEZE_SECONDS``
-    sets the threshold (default 10; 1 catches short hitches). ``kill -USR1 <pid>`` forces a
+    sets the threshold (default 10). A low one dumps often, and a dump reads the other threads
+    unsafely: at 0.2 s the app died of it within a minute (2026-11-12). ``kill -USR1 <pid>`` forces a
     dump too (POSIX only: Windows has neither SIGUSR1 nor ``faulthandler.register``).
+    With ``AMDOCK_GUI_LAG=1`` the timer ticks every 20 ms and measures how late each tick
+    comes: a JSON line a minute goes to ``logs/gui_lag.jsonl`` (p50/p99/max in ms, and when the
+    worst one was), with no stacks: those take the threshold above.
     Returns the timer -- Qt drops timers that nobody holds.
     """
     import faulthandler
+    import json
     import signal
+    import time
 
     from PySide6.QtCore import QTimer
 
@@ -94,6 +100,33 @@ def install_freeze_watchdog(qt_app, *, stall_seconds: float | None = None):
     timer = QTimer(qt_app)
     timer.setInterval(250)
     timer.timeout.connect(rearm)
+    if os.environ.get("AMDOCK_GUI_LAG") == "1":
+        lag_log = open(path.with_name("gui_lag.jsonl"), "a", buffering=1)  # noqa: SIM115 - lives as long as the app
+        late: list[tuple[float, float]] = []  # (ms late, when)
+        last = [time.monotonic(), time.time()]  # the last tick; when this minute began
+
+        def flush() -> None:
+            if late:
+                ms = sorted(m for m, _ in late)
+                worst = max(late)
+                lag_log.write(json.dumps({
+                    "at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(last[1])), "ticks": len(ms),
+                    "p50_ms": round(ms[len(ms) // 2], 1), "p99_ms": round(ms[int(len(ms) * 0.99)], 1),
+                    "max_ms": round(worst[0], 1), "max_at": time.strftime("%H:%M:%S", time.localtime(worst[1])),
+                }) + "\n")
+            late.clear()
+            last[1] = time.time()
+
+        def measure() -> None:
+            now = time.monotonic()
+            late.append((max(0.0, (now - last[0]) * 1000 - 20), time.time()))
+            last[0] = now
+            if time.time() - last[1] >= 60:
+                flush()
+
+        timer.setInterval(20)
+        timer.timeout.connect(measure)
+        qt_app.aboutToQuit.connect(flush)
     timer.start()
     rearm()
     return timer

@@ -63,6 +63,22 @@ Por cada fase (`idle`, `dock`, `dock+import`) imprime una línea:
 
 `$WORK/lag.jsonl` y `$WORK/gui_lag_stacks.log`, más la salida de consola si algo falló.
 
-## 6. Referencia: PC de desarrollo, 16 CPU, 2026-11-11
+## 6. Con la app de verdad
+
+La sonda no abre la app. Para medir el lag mientras se usa la app normal (importar, dockear, mirar resultados):
+
+```bash
+taskset -c 0-63 env AMDOCK_GUI_LAG=1 amdockvs   # sin taskset: todas las CPU
+```
+
+- Cada minuto añade una línea a `~/.amdockvs/logs/gui_lag.jsonl`: `{"at", "ticks", "p50_ms", "p99_ms", "max_ms", "max_at"}` (ticks de 20 ms; `max_at` es la hora del peor). Al cerrar la app escribe el minuto en curso.
+- El primer minuto incluye el arranque (en la PC de desarrollo, ~700 ms al abrir la ventana): no cuenta.
+- `~/.amdockvs/logs/freeze_stacks.log` solo recibe pilas si la GUI se queda congelada ≥ 10 s. Debe quedar vacío. **No bajar `AMDOCK_FREEZE_SECONDS`** por debajo de ~1 s: volcar pilas a menudo tumba la app (segfault con 0,2 s).
+- Para saber qué motor se usó: `MSFLOW_ENGINE_HOST=inline` vuelve a la fase A; sin nada, fase B (proceso hijo).
+- Si `--dump-ms` de la sonda acaba en segfault, repetir esa corrida sin `--dump-ms`: es el mismo volcado de pilas.
+
+Devolver `gui_lag.jsonl` junto con lo de la sonda, diciendo qué se hizo en cada minuto (más o menos).
+
+## 7. Referencia: PC de desarrollo, 16 CPU, 2026-11-11
 
 `dock+import` con la ventana: p99 4,7 ms, máximo 156 ms. Los picos venían de `insert_graph` en el hilo `msflow-delivery`. Detalle en el doc 10 de ms_flow.
