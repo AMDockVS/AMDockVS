@@ -260,7 +260,8 @@ class ProtocolEditorWidget:
                 widget.setValue(int(default or 0))
             elif field_type == "number":
                 widget = QDoubleSpinBox(parent)
-                widget.setDecimals(6)
+                # A field says how precise it is ("decimals" in its schema); six read as noise.
+                widget.setDecimals(int(field.get("decimals", 2)))
                 widget.setRange(float(field.get("exclusiveMinimum", field.get("minimum", -1e9))),
                                 float(field.get("maximum", 1e9)))
                 widget.setValue(float(default or 0.0))
@@ -394,7 +395,8 @@ class ProtocolEditorWidget:
         if "exhaustiveness" in identity:
             parts.append(f"exh={int(identity.get('exhaustiveness') or 8)}")
         for key, value in identity.items():
-            if key not in {"scoring_function", "exhaustiveness"}:
+            # An empty field (AutoDock-GPU's parameter file left at the built-in one) says nothing.
+            if key not in {"scoring_function", "exhaustiveness"} and value not in ("", None):
                 parts.append(f"{key}={value}")
         rescoring_text = "None" if not rescoring else "+".join(str(item.get("program") or item) for item in rescoring)
         if rescoring_text != "None":

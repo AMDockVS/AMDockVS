@@ -257,3 +257,40 @@ def test_an_offtarget_reference_chains_a_top_n_stage_after_the_target():
     assert "selected_from_receptor_id" not in target
     assert off["receptor_set"] == request.receptor_scope
     assert (off["depends_on"], off["selected_from_receptor_id"], off["selected_top_n"]) == (["job-1"], 10, 50)
+
+
+def test_a_protocol_label_leaves_out_its_empty_fields():
+    from amdockvs.ui.tools.docking.protocol_editor import ProtocolEditorWidget
+
+    editor = SimpleNamespace(_program_label=ProtocolEditorWidget._program_label)
+    label = lambda program, config: ProtocolEditorWidget._protocol_label(editor, program, config)
+
+    assert label("adgpu", {"nrun": 20, "parameter_file": "", "derived_types": "", "seed": 0}) == (
+        "AutoDock-GPU | nrun=20 | seed=0")  # seed=0 is a value, not an empty field
+    assert label("adgpu", {"nrun": 20, "parameter_file": "/p/zn.dat", "derived_types": "", "seed": 1}) == (
+        "AutoDock-GPU | nrun=20 | parameter_file=/p/zn.dat | seed=1")
+
+
+def test_energy_range_reads_as_kcal_per_mol_not_six_decimals(monkeypatch, tmp_path):
+    import pytest
+
+    pytest.importorskip("PySide6")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    monkeypatch.setenv("AMDOCK_DISABLE_PYMOL", "1")
+    from PySide6.QtWidgets import QApplication
+
+    from amdockvs.runtime import AMDockVSRuntime
+    from amdockvs.ui.tools.docking import protocol_editor
+    from amdockvs.ui.tools.docking.studio import DockingStudioWidget
+
+    app = QApplication.instance() or QApplication([])  # noqa: F841  (kept alive for the widgets)
+    monkeypatch.setattr(protocol_editor, "run_async", lambda *_args, **_kwargs: None)
+    runtime = AMDockVSRuntime()
+    runtime.create_project(name="p", folder=tmp_path / "p", description="")
+    studio = DockingStudioWidget(runtime=runtime)
+    for program in ("qvina", "unidock"):
+        spin = studio._program_config_widgets[program]["energy_range"]
+        assert spin.decimals() == 1 and spin.cleanText().replace(",", ".") == "3.0"
+        spin.setValue(2.5)
+        assert studio._schema_config_from_widgets(program)["energy_range"] == 2.5
