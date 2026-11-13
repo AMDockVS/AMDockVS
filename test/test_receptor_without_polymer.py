@@ -131,3 +131,26 @@ def test_altlocs_are_still_resolved_when_there_are_some(tmp_path):
 def test_a_receptor_left_with_no_atoms_is_refused(tmp_path):
     with pytest.raises(ValueError, match="nothing is left of the receptor"):
         _processed_atoms(tmp_path, "waters.pdb", WATERS_ONLY)
+
+
+@pytest.mark.parametrize("name,text,atoms", [("ethanol.mol", ETHANOL_MOL, 3), ("propanol.pdbqt", PROPANOL_PDBQT, 4)])
+def test_the_scan_made_before_the_import_keeps_every_atom_too(tmp_path, name, text, atoms):
+    """The API and the dialog scan the file before the import job runs, and hand that scan over."""
+    from amdockvs.io.receptor_preview import build_receptor_import_maps
+
+    source = _write(tmp_path, name, text)
+    patches, specs = build_receptor_import_maps([source], base_options=ReceptorImportOptions())
+    assert patches[str(source)]["__scan"]["supported"]
+    payload = {
+        "kind": "receptor",
+        "file_path": str(source),
+        "storage_dir": str(tmp_path / "data"),
+        "input_format": source.suffix[1:],
+        "primary_role": "receptor",
+        "molecule_kind": "protein",
+        "extra_data_patch": patches[str(source)],
+        "binding_site_specs": specs[str(source)],
+        "entries": [{"source_index": 0, "source_file": str(source)}],
+    }
+    [row] = materialize_import_batch(payload)
+    assert row["n_atoms"] == atoms and _stored_atoms(row) == atoms

@@ -84,7 +84,16 @@ def scan_receptor_structure(file_path: str | Path) -> dict[str, Any]:
         return _scan_with_gemmi(path)
     if suffix == ".pdbqt":
         return _scan_pdbqt_fallback(path)
-    return _unsupported_scan(path)
+    # MOL/MDL/MOL2 reach the import through their PDB rendering; scan that same rendering, or
+    # the import keeps nothing of a structure its scan never listed.
+    from amdockvs.io.formats import as_pdb
+
+    try:
+        with as_pdb(path) as rendered:
+            scan = _scan_with_gemmi(rendered)
+    except (ValueError, RuntimeError, OSError):
+        return _unsupported_scan(path)
+    return {**scan, "file_path": str(path), "name": path.stem}
 
 
 def build_receptor_import_maps(
