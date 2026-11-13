@@ -570,9 +570,16 @@ class DockingResultsWidget(QWidget):
             return
         old_protocol = str(self.protocol_combo.currentData() or "")
         self._populate_protocol_combo(list(protocols or []))
-        if protocols_only and str(self.protocol_combo.currentData() or "") == old_protocol:
+        changed = str(self.protocol_combo.currentData() or "") != old_protocol
+        if protocols_only and not changed:
             return
-        if preserve_view and str(self.protocol_combo.currentData() or "") == old_protocol:
+        if changed:
+            # Another program is another list: pick its first ligand, as a manual switch does.
+            # At start-up a refresh's protocols-only lookup can supersede the receptor's own
+            # (auto-selecting) one; without this the reload cleared Selected Result and nothing
+            # was picked again, so the pane stayed empty until the tab was revisited.
+            auto_select = True
+        if preserve_view and not changed:
             self._ligand_refreshing = True
             try:
                 self.ligand_table.refresh_preserving_view()
