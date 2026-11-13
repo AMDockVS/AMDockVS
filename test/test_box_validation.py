@@ -133,3 +133,62 @@ def test_the_database_and_the_model_agree_on_what_a_box_is(tmp_path, center, siz
     assert by_clauses is defined
     assert receptors(True) == ([1] if defined else []) and receptors(False) == ([] if defined else [1])
     assert (status == "grid_ready") is defined
+
+
+# --- the receptor import: the route that used to bypass all of the above ----------------------
+# load_receptors builds one binding site per co-crystal component, every one with the box size it
+# is given, and the import job persists them as they are. An edge of 0, -1, NaN or inf completed
+# and stored a site no engine can use.
+
+BAD_EDGES = [0, -1, float("nan"), float("inf")]
+
+
+class _Loader:
+    """A LoaderAPI that records what would be submitted instead of submitting it."""
+
+    def __init__(self):
+        from amdockvs.io.api import LoaderAPI
+
+        self.submitted = []
+        self.api = LoaderAPI(SimpleNamespace(_require_active_project=lambda: None))
+        self.api._batches = lambda *_a, **_k: {}
+        self.api._temporary = lambda *_a, **_k: {}
+        self.api._submit_job = lambda job, **kwargs: self.submitted.append(kwargs["params"]) or "job"
+
+
+@pytest.fixture
+def receptor(tmp_path):
+    path = tmp_path / "rec.pdb"
+    path.write_text("ATOM      1  CA  ALA A   1       0.000   0.000   0.000  1.00  0.00           C\nEND\n")
+    return path
+
+
+@pytest.mark.parametrize("edge", BAD_EDGES)
+def test_load_receptors_refuses_a_box_size_that_is_not_one_and_submits_nothing(receptor, edge):
+    loader = _Loader()
+    with pytest.raises(ValueError, match="binding_site_box_size.*greater than 0"):
+        loader.api.load_receptors([receptor], binding_site_box_size=edge)
+    assert loader.submitted == []
+
+
+@pytest.mark.parametrize("size", BAD_SIZES)
+def test_load_receptors_refuses_a_bad_site_however_the_map_was_assembled(receptor, size):
+    """A caller can hand over finished maps (the UI does), and a per-file override can carry its
+    own size: the finished map is what gets persisted, so that is what is checked."""
+    loader = _Loader()
+    specs = {str(receptor): [{"name": "LIG A 101", "center": (1.0, 2.0, 3.0), "size": size}]}
+    with pytest.raises(ValueError, match="rec.pdb, LIG A 101: .*greater than 0"):
+        loader.api.load_receptors([receptor], extra_data_patch_by_file={}, binding_site_specs_by_file=specs)
+    assert loader.submitted == []
+
+
+def test_load_receptors_still_submits_a_real_box(receptor):
+    loader = _Loader()
+    specs = {str(receptor): [{"name": "LIG A 101", "center": (1.0, 2.0, 3.0), "size": (22.0, 22.0, 22.0)}]}
+    loader.api.load_receptors(
+        [receptor], binding_site_box_size=22, extra_data_patch_by_file={}, binding_site_specs_by_file=specs,
+    )
+    [params] = loader.submitted
+    assert [spec["size"] for spec in params["binding_site_specs_by_file"][str(receptor.resolve())]] == [
+        (22.0, 22.0, 22.0)
+    ]
