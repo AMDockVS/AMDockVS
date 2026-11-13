@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSplitter,
+    QStyle,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -155,6 +156,10 @@ class DockingResultsWidget(QWidget):
     data_refreshed = Signal(bool)
     filters_changed = Signal()
 
+    # Starting widths of the panes that do not grow (Ligand is sized from its columns).
+    RECEPTOR_PANE_WIDTH = 300  # Receptor + the Docked bar, no horizontal scroll
+    POSE_PANE_WIDTH = 270      # Pose, Score, RMSD ref; any width beyond it is offered to PyMOL
+
     def __init__(self, *, runtime, load_hit_in_pymol: Callable[[DockingHitSummary, int], None] | None = None, parent=None):
         super().__init__(parent)
         self.runtime = runtime
@@ -251,9 +256,20 @@ class DockingResultsWidget(QWidget):
         for table in (self.ligand_table, self.pose_table):
             table._table.setProperty(SWAPS_POSE, True)  # a click swaps the pose; receptor and camera stay
 
-        splitter.setStretchFactor(0, 2)
-        splitter.setStretchFactor(1, 3)
-        splitter.setStretchFactor(2, 2)
+        # Receptor and Ligand are as wide as their columns (Ligand capped at them, so Pose sits
+        # right beside it); Pose takes any extra, and `viewer_spare_width` offers that extra
+        # to the PyMOL dock.
+        self._ligand_box = ligand_box
+        self._pose_box = pose_box
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 0)
+        splitter.setStretchFactor(2, 1)
+        header = self.ligand_table._table.horizontalHeader()
+        header.sectionResized.connect(lambda *_: self._fit_ligand_pane())
+        header.sectionCountChanged.connect(lambda *_: self._fit_ligand_pane())
+        self.ligand_table._table.verticalScrollBar().rangeChanged.connect(lambda *_: self._fit_ligand_pane())
+        self._fit_ligand_pane()
+        splitter.setSizes([self.RECEPTOR_PANE_WIDTH, self._ligand_box.maximumWidth(), self.POSE_PANE_WIDTH])
 
         # "Selected Result" lives in the window's auxiliary zone, not under the tables: it is
         # detail about the row you clicked, which is exactly what that zone is for. Built here
@@ -883,6 +899,24 @@ class DockingResultsWidget(QWidget):
             QMessageBox.information(self, "Delete", f"Deleted {int(deleted)} pose(s).")
 
         delete_objects(self, self.runtime, objects, kind=kind, done=done)
+
+    def _fit_ligand_pane(self) -> None:
+        """Cap the Ligand pane at its columns: wider is empty space Pose and the viewer can use.
+        Follows the columns as they are resized, shown or hidden."""
+        table = self.ligand_table._table
+        bar = table.verticalScrollBar()
+        # Room for the vertical scrollbar only while the rows need one: a few rows, no gap.
+        scrollbar = (table.style().pixelMetric(QStyle.PixelMetric.PM_ScrollBarExtent)
+                     if bar.maximum() > bar.minimum() else 0)
+        self._ligand_box.setMaximumWidth(
+            table.horizontalHeader().length() + 2 * table.frameWidth() + scrollbar)
+
+    def viewer_spare_width(self) -> int:
+        """Width the Pose pane holds beyond what its columns need: what the PyMOL dock can
+        take (the main window asks once, when it sizes the dock or first shows this tab)."""
+        if not self.isVisible():
+            return 0
+        return max(0, self._pose_box.width() - self.POSE_PANE_WIDTH)
 
     def _show_detail(self, hit: DockingHitSummary | None) -> None:
         self._selected_hit = hit
