@@ -128,7 +128,7 @@ def test_grid_box_actions_are_visible_above_the_editor_and_save_without_a_site_s
     """No menus: every way to make or keep a box is a button, above "Show working box"."""
     widget = grid_box_widget
     create = [widget.new_button, widget.ligand_button, widget.selection_button, widget.predict_button]
-    assert [b.text() for b in create] == ["New", "Ligand", "Selection", "Predict…"]
+    assert [b.text() for b in create] == ["New", "Ligand", "Selection", "Prediction"]
     assert [b.text() for b in (widget.save_button, widget.save_as_button, widget.activate_button)] == [
         "Save", "Save as new", "Set Active"]
     assert all(b.menu() is None for b in create)
@@ -158,6 +158,20 @@ def test_only_marked_rows_are_drawn_and_edges_is_the_default_style(grid_box_widg
     widget._refresh_preview(force=True)
     assert drawn == [("amdock_grid_working", False)]
     assert widget._working.source_site_id is None  # Save makes a new site, 2 stays as it was
+
+
+def test_editing_a_site_keeps_the_original_drawn_as_reference(grid_box_widget):
+    widget = grid_box_widget
+    drawn = []
+    cmd = SimpleNamespace(get_names=lambda kind: [], delete=lambda name: None,
+                          draw_box=lambda **kw: drawn.append(kw["obj_name"]))
+    widget.pymol_dock = SimpleNamespace(cmd=cmd, isVisible=lambda: True)
+    widget.show()
+    widget.focus_binding_site(widget._current_molecule, site_id=2)
+    widget.cx.setValue(widget.cx.value() + 5.0)  # the edit selects the working row
+    drawn.clear()
+    widget._refresh_preview(force=True)
+    assert sorted(drawn) == ["amdock_grid_bs_2", "amdock_grid_working"]
 
 
 class _FakeCmd:
@@ -253,3 +267,88 @@ def test_a_new_working_box_can_be_discarded_back_to_the_active_site(grid_box_wid
     QTest.keyClick(widget.site_tree, Qt.Key.Key_Delete)
     assert ("working", None) not in rows() and not widget._working.dirty
     assert (widget.cx.value(), widget.cy.value(), widget.cz.value()) == (4.0, 5.0, 6.0)  # the active site again
+
+
+def test_a_box_from_a_ligand_is_saved_as_that_ligands_site(grid_box_widget, monkeypatch):
+    """F3: Grid Box > Ligand used to save "Manual Site"/"manual"; a co-crystal box at import is a
+    "ligand" site named after it. Same provenance, one story; a new box is manual again."""
+    from amdockvs.ui.tools.binding_sites import box as box_module
+
+    widget = grid_box_widget
+    saved = []
+
+    def save_site(**kwargs):
+        saved.append(kwargs)
+        return BindingSite(id=3, molecule_id=4, name=kwargs["name"], source=kwargs["source"])
+
+    widget.runtime.binding_sites.save_site = save_site
+    widget.runtime.binding_sites.suggest_box_from_ligand = lambda *, ligand_id: {
+        "center": (1.0, 2.0, 3.0), "size": (18.0, 18.0, 18.0)}
+    widget.runtime.molecules = SimpleNamespace(
+        select=lambda **_kwargs: "ligands",
+        stream=lambda _scope: [SimpleNamespace(id=7, name="SAR405")],
+    )
+    monkeypatch.setattr(box_module.QInputDialog, "getItem", lambda *_args: ("SAR405 (#7)", True))
+    monkeypatch.setattr(box_module, "run_async", lambda work, done, **_kwargs: done(work()))
+
+    widget._auto_box_from_ligand()
+    working = widget.site_tree.topLevelItem(widget.site_tree.topLevelItemCount() - 1)
+    assert (working.text(1), working.text(2)) == ("* Working Box", "ligand")
+    widget._save_new_site()
+    assert {key: saved[-1][key] for key in ("name", "source", "source_ref")} == {
+        "name": "SAR405 site", "source": "ligand", "source_ref": "7"}
+
+    widget._new_working_box()
+    widget._save_new_site()
+    assert {key: saved[-1][key] for key in ("name", "source", "source_ref")} == {
+        "name": "Manual Site", "source": "manual", "source_ref": ""}
+
+
+def test_set_grid_records_where_the_box_came_from():
+    from amdockvs.docking.api import DockingAPI
+
+    saved = []
+    runtime = SimpleNamespace(
+        _require_active_project=lambda: None,
+        binding_sites=SimpleNamespace(save_site=lambda **kwargs: saved.append(kwargs) or BindingSite(
+            id=5, molecule_id=4, center_x=0.0, center_y=0.0, center_z=0.0,
+            size_x=20.0, size_y=20.0, size_z=20.0, extra_data=kwargs["extra_data"])),
+    )
+    api = DockingAPI.__new__(DockingAPI)
+    api.runtime = runtime
+
+    api.set_grid(receptor_id=4, center=(0.0, 0.0, 0.0), size=(20.0, 20.0, 20.0))
+    api.set_grid(receptor_id=4, center=(0.0, 0.0, 0.0), size=(20.0, 20.0, 20.0),
+                 name="SAR405 site", source="ligand", source_ref="7")
+    assert [(row["name"], row["source"], row["source_ref"]) for row in saved] == [
+        ("Manual Site", "manual", ""), ("SAR405 site", "ligand", "7")]
+
+
+def test_a_loaded_site_brings_its_own_provenance_and_a_hand_edit_makes_it_manual(grid_box_widget, monkeypatch):
+    """PR #121 review: ligand box -> load a P2Rank site -> Save as new saved the P2Rank geometry as
+    "SAR405 site"/ligand/7. A loaded site's provenance travels with its geometry."""
+    from amdockvs.ui.tools.binding_sites import box as box_module
+
+    widget = grid_box_widget
+    saved = []
+    widget.runtime.binding_sites.save_site = lambda **kwargs: saved.append(kwargs) or BindingSite(id=9, molecule_id=4)
+    widget.runtime.binding_sites.suggest_box_from_ligand = lambda *, ligand_id: {
+        "center": (1.0, 2.0, 3.0), "size": (18.0, 18.0, 18.0)}
+    widget.runtime.molecules = SimpleNamespace(
+        select=lambda **_kwargs: "ligands", stream=lambda _scope: [SimpleNamespace(id=7, name="SAR405")])
+    monkeypatch.setattr(box_module.QInputDialog, "getItem", lambda *_args: ("SAR405 (#7)", True))
+    monkeypatch.setattr(box_module, "run_async", lambda work, done, **_kwargs: done(work()))
+    provenance = lambda: {key: saved[-1][key] for key in ("center", "name", "source", "source_ref")}
+
+    widget._auto_box_from_ligand()
+    widget._load_site_into_working(BindingSite(
+        id=8, molecule_id=4, name="P2Rank pocket 1", source="p2rank", source_ref="1",
+        center_x=40.0, center_y=41.0, center_z=42.0, size_x=15.0, size_y=15.0, size_z=15.0))
+    widget._save_new_site()
+    assert provenance() == {"center": (40.0, 41.0, 42.0), "name": "P2Rank pocket 1", "source": "p2rank",
+                            "source_ref": "1"}
+
+    widget._auto_box_from_ligand()
+    widget.cx.setValue(5.0)  # moved by hand: no longer the ligand's box
+    widget._save_new_site()
+    assert provenance() == {"center": (5.0, 2.0, 3.0), "name": "Manual Site", "source": "manual", "source_ref": ""}

@@ -117,6 +117,11 @@ class GridBoxState:
     opacity: float = 0.35
     source_site_id: int | None = None
     dirty: bool = False
+    # Where a new box came from, for the site it is saved as: a box around a reference ligand
+    # is a "ligand" site named after it, as at import; anything else is a manual one.
+    name: str = "Manual Site"
+    source: str = "manual"
+    source_ref: str = ""
 
 
 class GridBoxSettingDockWidget(QWidget):
@@ -191,11 +196,13 @@ class GridBoxSettingDockWidget(QWidget):
             "metals, so it hugs the pocket mouth instead of burying itself in the protein.")
         self.selection_button.setCheckable(True)
         self.predict_button = self._action_button(
-            "Predict…", "binding_site.svg", self._open_pocket_detection,
+            "Prediction", "binding_site.svg", self._open_pocket_detection,
             "Open Pocket Detection to predict this receptor's pockets.")
-        for button in (self.new_button, self.ligand_button, self.selection_button, self.predict_button):
+        # Equal stretches between (not around) the buttons: equal gaps, row spans the full width.
+        for index, button in enumerate((self.new_button, self.ligand_button, self.selection_button, self.predict_button)):
+            if index:
+                create_row.addStretch(1)
             create_row.addWidget(button)
-        create_row.addStretch(1)
         layout.addLayout(create_row)
         # ponytail: PyMOL emits nothing when its selections change, so poll while shown; a
         # selection signal in ms_components' PyMOL widget would replace this timer.
@@ -321,6 +328,8 @@ class GridBoxSettingDockWidget(QWidget):
 
         for widget in (self.cx, self.cy, self.cz, self.sx, self.sy, self.sz):
             widget.valueChanged.connect(self._on_geometry_changed)
+            # Fit a real coordinate, not the ±1000 range, so the panel stays narrow but unclipped.
+            widget.setMinimumWidth(widget.fontMetrics().horizontalAdvance("-000.00") + 20)
 
         # editor_layout.addRow(style_grid)
         layout.addWidget(self.box_settings)
@@ -459,7 +468,7 @@ class GridBoxSettingDockWidget(QWidget):
             state = f"temporary from #{int(self._working.source_site_id)}"
         else:
             state = "temporary"
-        item = QTreeWidgetItem(["", "* Working Box", "manual"])
+        item = QTreeWidgetItem(["", "* Working Box", self._working.source])
         item.setData(0, Qt.UserRole, ("working", None))
         self._apply_name_color(item, QColor("#FFFFFF"))
         item.setToolTip(1, f"Unsaved working box ({state}).")
@@ -556,6 +565,11 @@ class GridBoxSettingDockWidget(QWidget):
         self._working.size_y = float(site.size_y or 20.0)
         self._working.size_z = float(site.size_z or 20.0)
         self._working.source_site_id = int(site.id or 0)
+        # Its provenance comes with its geometry: saved as new, it is a copy of this site, not of
+        # whatever the working box was made from before.
+        self._working.name = str(site.name or f"Site {int(site.id or 0)}")
+        self._working.source = str(site.source or "manual")
+        self._working.source_ref = str(site.source_ref or "")
         self._working.dirty = False
         self._sync_editor_from_working()
 
@@ -579,13 +593,15 @@ class GridBoxSettingDockWidget(QWidget):
         # ponytail: cap the picker — a VS run may have 100k+ ligands; a dropdown of all is useless.
         cap = 500
         choices: list[tuple[str, int]] = []
+        names: dict[int, str] = {}
         try:
             scope = self.runtime.molecules.select(role="ligand")
             for rec in self.runtime.molecules.stream(scope):
                 mid = int(getattr(rec, "id", 0) or 0)
                 if not mid:
                     continue
-                choices.append((f"{getattr(rec, 'name', '') or 'ligand'} (#{mid})", mid))
+                names[mid] = str(getattr(rec, "name", "") or "ligand")
+                choices.append((f"{names[mid]} (#{mid})", mid))
                 if len(choices) >= cap:
                     break
         except Exception as exc:
@@ -602,17 +618,20 @@ class GridBoxSettingDockWidget(QWidget):
         ligand_id = dict(choices)[label]
         run_async(
             lambda: self.runtime.binding_sites.suggest_box_from_ligand(ligand_id=ligand_id),
-            self._apply_auto_box,
+            lambda box: self._apply_auto_box(box, ligand_id=ligand_id, ligand_name=names[ligand_id]),
             on_error=lambda exc: QMessageBox.warning(self, "Auto box", str(exc)),
             busy=self,
         )
 
-    def _apply_auto_box(self, box: dict) -> None:
+    def _apply_auto_box(self, box: dict, *, ligand_id: int | None = None, ligand_name: str = "") -> None:
         cx, cy, cz = box["center"]
         sx, sy, sz = box["size"]
         self._working.center_x, self._working.center_y, self._working.center_z = cx, cy, cz
         self._working.size_x, self._working.size_y, self._working.size_z = sx, sy, sz
         self._working.source_site_id = None  # a new box: Save must not overwrite the loaded site
+        if ligand_id is not None:  # source_ref of a "ligand" site: the reference ligand's id
+            self._working.name, self._working.source = f"{ligand_name or 'Ligand'} site", "ligand"
+            self._working.source_ref = str(int(ligand_id))
         self._working.dirty = True
         self._sync_editor_from_working()
         self._ensure_working_item_present(select_if_created=True)
@@ -781,6 +800,7 @@ class GridBoxSettingDockWidget(QWidget):
         cx, cy, cz = box["center"]
         self._working.center_x, self._working.center_y, self._working.center_z = cx, cy, cz
         self._working.source_site_id = None  # a new box: Save must not overwrite the loaded site
+        self._working.name, self._working.source, self._working.source_ref = "Manual Site", "manual", ""
         self._working.dirty = True
         self._sync_editor_from_working()
         self._ensure_working_item_present(select_if_created=True)
@@ -849,6 +869,8 @@ class GridBoxSettingDockWidget(QWidget):
         self._working.size_x = float(self.sx.value())
         self._working.size_y = float(self.sy.value())
         self._working.size_z = float(self.sz.value())
+        # Moved by hand, the box is no longer the one its ligand or predictor gave: a manual one.
+        self._working.name, self._working.source, self._working.source_ref = "Manual Site", "manual", ""
         self._working.dirty = True
         self._ensure_working_item_present(select_if_created=True)
         self._refresh_preview(force=True)
@@ -874,6 +896,7 @@ class GridBoxSettingDockWidget(QWidget):
                 else:
                     state = "temporary"
                 item.setToolTip(1, f"Unsaved working box ({state}).")
+                item.setText(2, self._working.source)  # a ligand box on top of a manual one
                 if select_if_created:
                     self.site_tree.setCurrentItem(item)
                     item.setSelected(True)
@@ -943,8 +966,13 @@ class GridBoxSettingDockWidget(QWidget):
         # not just the working one.
         show_faces, show_edges = self._style_flags()
         # Only the marked rows are drawn: a site the user isn't working on (the active one
-        # included) would just hide the box being placed.
-        for site in self._selected_sites():
+        # included) would just hide the box being placed. The site an edited box came from is
+        # the exception: it stays as the reference the edits are measured against.
+        sites = self._selected_sites()
+        source = self._site_by_id(self._working.source_site_id or 0) if self._working.dirty else None
+        if source is not None and source not in sites:
+            sites.append(source)
+        for site in sites:
             self._draw_reference_site(
                 cmd, site, active=(site == self._selected_site()),
                 name=f"amdock_grid_bs_{int(site.id or 0)}",
@@ -1069,8 +1097,9 @@ class GridBoxSettingDockWidget(QWidget):
         try:
             site = self.runtime.binding_sites.save_site(
                 molecule_id=int(molecule.id or 0),
-                name="Manual Site",
-                source="manual",
+                name=self._working.name,
+                source=self._working.source,
+                source_ref=self._working.source_ref,
                 center=(self.cx.value(), self.cy.value(), self.cz.value()),
                 size=(self.sx.value(), self.sy.value(), self.sz.value()),
                 set_active=False,

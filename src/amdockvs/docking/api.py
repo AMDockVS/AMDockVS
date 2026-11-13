@@ -747,14 +747,20 @@ class DockingAPI:
             spacing: float = 0.375,
             engine: str = "vina",
             metadata: dict[str, Any] | None = None,
+            name: str = "Manual Site",
+            source: str = "manual",
+            source_ref: str = "",
     ) -> dict[str, Any]:
+        """Save a box as the receptor's active site. A box drawn around a reference ligand says
+        so (`source="ligand"`, `source_ref=str(ligand_id)`, e.g. `name="SAR405 site"`), as the
+        sites found at import do; the default is a manual one."""
         self.runtime._require_active_project()
         engine_name = str(engine or "vina")
         site = self.runtime.binding_sites.save_site(
             molecule_id=int(receptor_id),
-            name="Manual Site",
-            source="manual",
-            source_ref="",
+            name=str(name or "Manual Site"),
+            source=str(source or "manual"),
+            source_ref=str(source_ref or ""),
             center=tuple(float(value) for value in center),
             size=tuple(float(value) for value in size),
             binding_site_id=None,
