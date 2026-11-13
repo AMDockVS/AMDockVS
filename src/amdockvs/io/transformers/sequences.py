@@ -1,14 +1,24 @@
-"""Materializing a FASTA file: one sequence-only protein per record, no structure yet."""
+"""Materializing a FASTA file: one sequence-only molecule per record, no structure yet."""
 from __future__ import annotations
 
 from typing import Any, Callable, Iterable
 
-from amdockvs.io.import_stats import IMPORTED, UNREADABLE, bump
+from amdockvs.io.import_stats import IMPORTED, INVALID_SEQUENCE, UNREADABLE, bump
 from amdockvs.io.payloads import ImportBatchPayload
 from amdockvs.io.transformers.rows import _build_row, _progress_update
 from amdockvs.core.vocab import MoleculeType
 
 _STATE = {"has_3d": False, "has_hs": False, "is_minimized": False, "conformer_count": 0}
+
+# IUPAC nucleic-acid codes: the bases, then the ambiguity codes; ":" separates chains.
+# Every letter is some amino-acid code (B, J, O, U, X, Z included), so a protein needs no check.
+_NUCLEOTIDE_LETTERS = frozenset("ACGTU" "RYSWKMBDHVN" ":")
+
+
+def _fits_kind(sequence: str, molecule_kind: str) -> bool:
+    if molecule_kind == MoleculeType.NUCLEOTIDE:
+        return set(sequence) <= _NUCLEOTIDE_LETTERS
+    return True
 
 
 def _materialize_fasta_rows(
@@ -25,6 +35,9 @@ def _materialize_fasta_rows(
         sequence = str(entry.get("raw") or "").strip()
         if not sequence:
             bump(tally, UNREADABLE)
+            continue
+        if not _fits_kind(sequence, str(batch.molecule_kind or "")):
+            bump(tally, INVALID_SEQUENCE)
             continue
         source_index = int(entry.get("source_index") or 0)
         row = _build_row(

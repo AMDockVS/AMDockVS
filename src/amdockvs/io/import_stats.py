@@ -16,6 +16,7 @@ UNREADABLE = "unreadable"            # RDKit could not parse the record
 FILTERED_PREFILTER = "filtered_prefilter"   # HTP/streaming cull (SMARTS, ranges, PAINS, QSAR…)
 NO_VALID_FRAGMENT = "no_valid_fragment"     # nothing usable after fragment selection
 FILTERED_PROPERTY = "filtered_property"     # drug-likeness/property filter on the kept fragment
+INVALID_SEQUENCE = "invalid_sequence"       # letters outside the alphabet of the chosen type
 
 
 def bump(tally: dict[str, int], reason: str, count: int = 1) -> None:
@@ -67,6 +68,7 @@ def summarize(tally: dict[str, Any]) -> str:
         FILTERED_PREFILTER: "filtered",
         NO_VALID_FRAGMENT: "no valid fragment",
         FILTERED_PROPERTY: "filtered",
+        INVALID_SEQUENCE: "invalid sequence",
     }
     # Merge the two filter buckets under one label for the summary.
     merged: dict[str, int] = {}
@@ -84,6 +86,7 @@ __all__ = [
     "FILTERED_PREFILTER",
     "NO_VALID_FRAGMENT",
     "FILTERED_PROPERTY",
+    "INVALID_SEQUENCE",
     "bump",
     "write_import_stats",
     "drain_import_stats",
