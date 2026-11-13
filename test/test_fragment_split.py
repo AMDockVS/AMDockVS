@@ -79,3 +79,43 @@ def test_split_fragments_materializes_the_co_component_as_its_own_row(tmp_path):
 
     payload["prefilter"] = {"target_molecule_kinds": ["small_molecule"]}
     assert [row["name"] for row in materialize_import_batch(payload)] == ["pair"]
+
+
+def _smiles_batch(tmp_path, *, split: bool):
+    smi = tmp_path / "pair.smi"
+    smi.write_text("c1ccccc1C(=O)Nc1ccccc1.c1ccc2ccccc2c1O pair\n", encoding="utf-8")
+    return {
+        "kind": "ligand",
+        "file_path": str(smi),
+        "storage_dir": str(tmp_path / "data" / "ligands"),
+        "input_format": "smiles",
+        "primary_role": "ligand",
+        "molecule_kind": "small_molecule",
+        "prefilter": {"target_molecule_kinds": ["small_molecule"], "split_fragments": split},
+        "entries": [{"source_index": 0, "raw": "c1ccccc1C(=O)Nc1ccccc1.c1ccc2ccccc2c1O pair"}],
+    }
+
+
+def test_the_graph_gives_the_fragment_a_ref_of_its_own(tmp_path):
+    """The real failure mode: parent and fragment share source_file/source_index, so without the
+    variant the graph carries two 'molecules' nodes under one $ref and the insert is rejected
+    (DataContractError: duplicate ref) - the whole import job fails and nothing is persisted.
+    """
+    from amdockvs.io.transformers.materializers import build_import_graph_payload, materialize_import_batch
+
+    rows = materialize_import_batch(_smiles_batch(tmp_path, split=True))
+    assert [row["name"] for row in rows] == ["pair", "pair [frag02]"]
+    assert [row["source_variant"] for row in rows] == ["", "frag02"]
+
+    refs = [molecule["$ref"] for molecule in build_import_graph_payload(rows)["molecules"]]
+    assert len(refs) == len(set(refs)) == 2
+    # The record's own molecule keeps the plain ref; only the extra fragment is suffixed.
+    assert refs[0].endswith("::0") and refs[1].endswith("::0::frag02")
+
+
+def test_one_record_keeps_one_plain_ref_without_the_option(tmp_path):
+    from amdockvs.io.transformers.materializers import build_import_graph_payload, materialize_import_batch
+
+    rows = materialize_import_batch(_smiles_batch(tmp_path, split=False))
+    refs = [molecule["$ref"] for molecule in build_import_graph_payload(rows)["molecules"]]
+    assert len(refs) == 1 and refs[0].endswith("::0")

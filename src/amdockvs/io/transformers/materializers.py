@@ -230,7 +230,10 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
     for row in rows:
         source_index = int(row.get("source_index") or 0)
         source_file = row.get("source_file")
-        molecule_ref = f"molecule::{source_file}::{source_index}"
+        # A split fragment shares its parent's source_file/source_index, so the variant has to
+        # be part of the ref or the graph carries two nodes under one $ref and the insert fails.
+        variant = str(row.get("source_variant") or "").strip()
+        molecule_ref = f"molecule::{source_file}::{source_index}" + (f"::{variant}" if variant else "")
         role = str(row.get("primary_role") or "").strip().lower()
         metadata_map = metadata_map_from_row(row)
         structure = row.get("current_payload_id") or row.get("stored_payload_id")
