@@ -189,13 +189,17 @@ def offload_source_properties(rows: list[dict[str, Any]]) -> Any:
     src_idx: list[int] = []
     keys: list[str] = []
     vals: list[str] = []
+    # Split fragments repeat their parent's tags under the same source_index; the parquet holds
+    # the record's tags once, and both rows read them back through it.
+    seen: set[tuple[int, str]] = set()
     for row in rows:
         source_index = int(row.get("source_index") or 0)
         for prop in list(row.get("source_properties") or []):
             key = str(prop.get("key") or "").strip()
             value = str(prop.get("value_text") or "").strip()
-            if not key or not value:
+            if not key or not value or (source_index, key) in seen:
                 continue
+            seen.add((source_index, key))
             src_idx.append(source_index)
             keys.append(key)
             vals.append(value)

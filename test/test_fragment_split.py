@@ -121,6 +121,25 @@ def test_one_record_keeps_one_plain_ref_without_the_option(tmp_path):
     assert len(refs) == 1 and refs[0].endswith("::0")
 
 
+def test_sibling_rows_do_not_duplicate_the_records_sdf_tags(tmp_path):
+    """Both rows read the batch's tag parquet by source_index, which they share: the record's
+    tags belong in it once, not once per sibling."""
+    import io
+
+    import pyarrow.parquet as pq
+
+    from amdockvs.io.transformers.materializers import offload_source_properties
+
+    tags = [{"key": "IC50", "value_text": "12.5"}]
+    rows = [
+        {"source_index": 0, "source_properties": list(tags)},
+        {"source_index": 0, "source_properties": list(tags)},  # the split fragment
+    ]
+    payload = offload_source_properties(rows)
+    table = pq.read_table(io.BytesIO(payload.data)).to_pydict()
+    assert list(zip(table["source_index"], table["key"], table["value"])) == [(0, "IC50", "12.5")]
+
+
 def test_split_fragments_alone_is_enough_to_keep_the_gui_policy():
     """With every filter off and only Split fragments on, the policy still has to reach the
     importer - dropped to None, the option silently never happens."""
