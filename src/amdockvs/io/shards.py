@@ -152,18 +152,20 @@ def filter_ligand_span(payload: dict[str, Any]) -> list[dict[str, Any]]:
             if not raw:
                 continue
         mol = None
-        if passes is not None:
+        if passes is not None or prepare is not None:
             mol = mol_from_record(raw, batch.input_format)
-            if mol is None or not passes(cull_mol(mol, batch)):
-                continue
+            if mol is None:
+                continue  # a record that does not parse is not a molecule: nothing to filter or prepare
+        kept = passes is None or passes(cull_mol(mol, batch))
         source_index = int(record["source_index"])
         if prepare is None:
-            records.append((source_index, raw))
+            if kept:
+                records.append((source_index, raw))
             continue
-        mol = mol if mol is not None else mol_from_record(raw, batch.input_format)
-        if mol is None:
-            continue  # nothing to prepare: a record that does not parse is not a molecule
-        records.extend((source_index, text) for text in prepare(mol, batch.molecule_kind, stored_format))
+        # Each molecule of the record is judged on its own, as a row import judges it: the
+        # record's own may be filtered out while a fragment split off it is kept.
+        texts = prepare(mol, batch.molecule_kind, stored_format, keep_record=kept, passes=passes)
+        records.extend((source_index, text) for text in texts)
     return [
         {
             "import_batch_id": batch.import_batch_id,
@@ -185,22 +187,27 @@ def _preparation(prefilter):
     if prefilter is None or not (prefilter.prep_active() or prefilter.split_fragments):
         return None
 
-    def prepare(mol, molecule_kind: str, stored_format: str) -> list[str]:
+    def prepare(mol, molecule_kind: str, stored_format: str, *, keep_record: bool = True, passes=None) -> list[str]:
+        """``keep_record``: the record's own molecule passed the filter. ``passes`` is that
+        filter, which every split-off fragment has to pass on its own too."""
         from amdockvs.io.rows import evaluate_ligand_mol, prep_ligand_mol
         from amdockvs.molecules.fragments import extra_fragment_molecules
 
-        decision, _reason = evaluate_ligand_mol(mol=mol, metadata=None, prefilter=prefilter, molecule_kind=molecule_kind)
-        if decision is None:
-            return []
         name = mol.GetProp("_Name") if mol.HasProp("_Name") else ""
-        kept = decision.kept_mol
-        for key in mol.GetPropNames():  # the record's SD tags (activity, ids) stay on what it keeps
-            if not kept.HasProp(key):
-                kept.SetProp(key, mol.GetProp(key))
-        kept.SetProp("_Name", name)
-        out = [kept]
+        out = []
+        if keep_record:
+            decision, _reason = evaluate_ligand_mol(mol=mol, metadata=None, prefilter=prefilter, molecule_kind=molecule_kind)
+            if decision is not None:
+                kept = decision.kept_mol
+                for key in mol.GetPropNames():  # the record's SD tags (activity, ids) stay on what it keeps
+                    if not kept.HasProp(key):
+                        kept.SetProp(key, mol.GetProp(key))
+                kept.SetProp("_Name", name)
+                out.append(kept)
         if prefilter.split_fragments:
             for fragment_index, fragment in extra_fragment_molecules(mol):
+                if passes is not None and not passes(fragment):
+                    continue
                 fragment = prep_ligand_mol(fragment, prefilter)
                 fragment.SetProp("_Name", f"{name} [frag{fragment_index:02d}]")
                 out.append(fragment)
