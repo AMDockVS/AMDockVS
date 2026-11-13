@@ -131,6 +131,10 @@ def filter_ligand_span(payload: dict[str, Any]) -> list[dict[str, Any]]:
     """
     batch = ImportBatchPayload.model_validate(payload)
     passes = htp_mol_filter(batch.prefilter, batch.molecule_kind)
+    stored_format = FileFormat.SDF if batch.input_format == FileFormat.MOL2 else batch.input_format
+    prepare = _preparation(batch.prefilter)
+    if prepare is not None and _needs_sdf(batch.prefilter):
+        stored_format = FileFormat.SDF  # explicit Hs and 3D coordinates don't survive a SMILES
     records: list[tuple[int, str]] = []
     for record in iter_record_span(
         file_path=batch.file_path,
@@ -147,18 +151,82 @@ def filter_ligand_span(payload: dict[str, Any]) -> list[dict[str, Any]]:
             raw = _sdf_record(mol_from_record(raw, FileFormat.MOL2))
             if not raw:
                 continue
-        if passes is not None:
-            mol = mol_from_record(raw, batch.input_format)
-            if mol is None or not passes(cull_mol(mol, batch)):
-                continue
-        records.append((int(record["source_index"]), raw))
+        # Every record is parsed, filter or not: one that does not read is not a molecule, and
+        # a library that looks clean but isn't costs more at docking time than the parse here.
+        mol = mol_from_record(raw, batch.input_format)
+        if mol is None:
+            continue
+        kept = passes is None or passes(cull_mol(mol, batch))
+        source_index = int(record["source_index"])
+        if prepare is None:
+            if kept:
+                records.append((source_index, raw))
+            continue
+        # Each molecule of the record is judged on its own, as a row import judges it: the
+        # record's own may be filtered out while a fragment split off it is kept.
+        texts = prepare(mol, batch.molecule_kind, stored_format, keep_record=kept, passes=passes)
+        records.extend((source_index, text) for text in texts)
     return [
         {
             "import_batch_id": batch.import_batch_id,
-            "input_format": FileFormat.SDF if batch.input_format == FileFormat.MOL2 else batch.input_format,
+            "input_format": stored_format,
             "records": records,
         }
     ]
+
+
+def _preparation(prefilter):
+    """The record -> prepared records step when the import asked for any preparation, else None.
+
+    It is what a row import does to a small molecule (`io/rows.evaluate_ligand_mol` and
+    `transformers/rows._split_fragment_rows`): keep the largest ligand fragment, add Hs /
+    3D / canonical tautomer to it, and with `split_fragments` add each co-component worth
+    keeping as its own record, named `<name> [fragNN]` and prepared the same way. Without
+    any of these the shard keeps the raw bytes, which is the cheap path a library import is for.
+    """
+    if prefilter is None or not (prefilter.prep_active() or prefilter.split_fragments):
+        return None
+
+    def prepare(mol, molecule_kind: str, stored_format: str, *, keep_record: bool = True, passes=None) -> list[str]:
+        """``keep_record``: the record's own molecule passed the filter. ``passes`` is that
+        filter, which every split-off fragment has to pass on its own too."""
+        from amdockvs.io.rows import evaluate_ligand_mol, prep_ligand_mol
+        from amdockvs.molecules.fragments import extra_fragment_molecules
+
+        name = mol.GetProp("_Name") if mol.HasProp("_Name") else ""
+        out = []
+        if keep_record:
+            decision, _reason = evaluate_ligand_mol(mol=mol, metadata=None, prefilter=prefilter, molecule_kind=molecule_kind)
+            if decision is not None:
+                kept = decision.kept_mol
+                for key in mol.GetPropNames():  # the record's SD tags (activity, ids) stay on what it keeps
+                    if not kept.HasProp(key):
+                        kept.SetProp(key, mol.GetProp(key))
+                kept.SetProp("_Name", name)
+                out.append(kept)
+        if prefilter.split_fragments:
+            for fragment_index, fragment in extra_fragment_molecules(mol):
+                if passes is not None and not passes(fragment):
+                    continue
+                fragment = prep_ligand_mol(fragment, prefilter)
+                fragment.SetProp("_Name", f"{name} [frag{fragment_index:02d}]")
+                out.append(fragment)
+        return [text for text in (_stored_record(m, stored_format) for m in out) if text]
+
+    return prepare
+
+
+def _needs_sdf(prefilter) -> bool:
+    return bool(prefilter.add_hs or prefilter.gen_3d)
+
+
+def _stored_record(mol, stored_format: str) -> str:
+    if stored_format == FileFormat.SMILES:
+        from rdkit import Chem
+
+        name = mol.GetProp("_Name") if mol.HasProp("_Name") else ""
+        return f"{Chem.MolToSmiles(mol)} {name}".strip()
+    return _sdf_record(mol)
 
 
 class ShardQueueWriter:
