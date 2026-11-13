@@ -1,7 +1,6 @@
 """Materializing a PDB/CIF structure: the receptor, its cofactors and its co-crystal ligands."""
 from __future__ import annotations
 
-import shutil
 import tempfile
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -16,7 +15,7 @@ from amdockvs.io.receptor_preview import (
 )
 from amdockvs.core.vocab import BindingSiteSource, ModelSource, MoleculeType, MoleculeUsageClass
 from amdockvs.io.import_stats import IMPORTED, UNREADABLE, bump
-from amdockvs.io.formats import canonical_suffix, normalized_suffix, to_pdb
+from amdockvs.io.formats import canonical_suffix, normalized_suffix, to_canonical, to_pdb
 from amdockvs.core.constants import SERIES_PREPARED, SERIES_REFERENCES
 from amdockvs.core.payloads import series_for, structure_payload
 from amdockvs.core.paths import molecule_storage_key
@@ -62,10 +61,10 @@ def _structure_rows(
             current_suffix = canonical_suffix(batch.molecule_kind or MoleculeType.PROTEIN)
         elif str(batch.primary_role or batch.kind).strip().lower() == "ligand" and str(batch.molecule_kind or "").strip().lower() == MoleculeType.SMALL_MOLECULE:
             current_suffix = ".sdf"
-        elif suffix == ".pdbqt":
-            current_suffix = ".pdb"
         else:
-            current_suffix = suffix
+            # Stored like a receptor: in the canonical format of its kind, not under the source's
+            # suffix (a polymer from a .cif held the PDB rendering in a payload labelled CIF).
+            current_suffix = canonical_suffix(batch.molecule_kind or "")
         metadata = dict(batch.extra_data_patch or {})
         scan_payload = dict(metadata.pop("__scan", {}) or {})
         is_receptor = (batch.primary_role or batch.kind) == "receptor"
@@ -120,8 +119,10 @@ def _structure_rows(
                 options=options,
                 header=source_bytes[:4096],
             )
-        else:
-            shutil.copy2(structure_source, current_path)
+        elif not to_canonical(source_file, current_path, molecule_kind=str(batch.molecule_kind or "")):
+            bump(tally, UNREADABLE)
+            _progress_update(progress_cb, index, total_entries)
+            continue
         if ligand_mol is None and not _count_atoms_from_structure_lines(current_path):
             # Processing can still leave nothing (every chain deselected, only waters removed).
             bump(tally, UNREADABLE)
