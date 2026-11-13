@@ -109,6 +109,7 @@ def build_receptor_import_maps(
     scans = scans or {}
     extra_data_patch_by_file: dict[str, dict] = {}
     binding_site_specs_by_file: dict[str, list[dict]] = {}
+    problems: list[str] = []
     for raw_path in file_paths:
         path = resolved_path(raw_path)
         if not build_specs:
@@ -134,6 +135,7 @@ def build_receptor_import_maps(
             continue
         scan = scans.get(path) or scans.get(str(raw_path)) or scan_receptor_structure(path)
         state = per_file.get(path) or per_file.get(str(raw_path)) or {}
+        problems.extend(f"{Path(path).name}: {problem}" for problem in _unknown_selections(scan, state))
         refs = state.get("selected_reference_ligands")
         options = replace(
             base_options,
@@ -153,7 +155,44 @@ def build_receptor_import_maps(
             "workflow": dict(preview.get("workflow") or {}),
         }
         binding_site_specs_by_file[path] = list(preview.get("binding_site_specs") or [])
+    if problems:
+        raise ValueError("Unknown receptor selection - " + "; ".join(problems))
     return extra_data_patch_by_file, binding_site_specs_by_file
+
+
+def _unknown_selections(scan: dict[str, Any], state: dict[str, Any]) -> list[str]:
+    """What ``state`` asks for that the structure does not have.
+
+    Every selection narrows the import, and one that names nothing (a typo, the wrong file) is
+    otherwise dropped in silence: an unknown chain or assembly falls back to the whole structure,
+    an unknown metal or ligand to nothing. The dialog only offers what the scan found, so this
+    only ever stops a headless caller.
+    """
+    components = list(scan.get("components") or [])
+
+    def of_class(*classes: str) -> list[str]:
+        return [str(c.get("selector") or "") for c in components if c.get("component_class") in classes]
+
+    available = {
+        "selected_chain_ids": ("chain", [str(chain.get("label")) for chain in list(scan.get("chains") or [])]),
+        "selected_metals": ("metal", of_class("metal")),
+        "selected_reference_ligands": ("reference ligand", of_class("ligand")),
+        "selected_waters": ("water", of_class("water")),
+    }
+    problems = []
+    for key, (label, known) in available.items():
+        wanted = state.get(key)
+        unknown = [str(item) for item in (wanted or ()) if str(item) not in set(known)]
+        if unknown:
+            problems.append(f"no {label} {', '.join(unknown)} (has: {', '.join(known) or 'none'})")
+    assemblies = [str(name) for name in list(scan.get("assemblies") or [])]
+    assembly = str(state.get("selected_assembly") or "")
+    if assembly and assembly not in assemblies:
+        problems.append(f"no assembly {assembly} (has: {', '.join(assemblies) or 'none'})")
+    cocrystal = str(state.get("selected_cocrystal_key") or "")
+    if cocrystal and cocrystal not in {str(c.get("selector") or "") for c in components}:
+        problems.append(f"no component {cocrystal} to select as the co-crystal ligand")
+    return problems
 
 
 def build_receptor_import_preview(scan: dict[str, Any], options: ReceptorImportOptions) -> dict[str, Any]:
