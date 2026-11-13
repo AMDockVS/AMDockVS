@@ -10,11 +10,11 @@ En el entorno de la app del lab (el que usa `amdockvs`):
 
 ```bash
 git clone https://github.com/AMDockVS/AMDockVS.git && cd AMDockVS   # o `git fetch` si ya está
-git switch feat/engine-child-process   # sonda + fase B
+git switch feat/engine-child-process && git pull   # sonda + fase B
 pip install -e . --no-deps
-pip install --no-deps "git+https://github.com/MolSuite/ms_flow@feat/engine-child-process"
+pip install --no-deps --force-reinstall "git+https://github.com/MolSuite/ms_flow@feat/engine-child-process"
 # Fase 0 del monitor (solo afecta a --window):
-pip install --no-deps "git+https://github.com/MolSuite/ms_components@perf/monitor-tasks-diff"
+pip install --no-deps --force-reinstall "git+https://github.com/MolSuite/ms_components@perf/monitor-tasks-diff"
 ```
 
 Comprobar con `pip show ms_flow` que la ubicación es la de la rama. `python -c "import ms_flow._api_impl.engine_host"` no debe fallar.
