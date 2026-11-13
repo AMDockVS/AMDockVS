@@ -151,11 +151,11 @@ def filter_ligand_span(payload: dict[str, Any]) -> list[dict[str, Any]]:
             raw = _sdf_record(mol_from_record(raw, FileFormat.MOL2))
             if not raw:
                 continue
-        mol = None
-        if passes is not None or prepare is not None:
-            mol = mol_from_record(raw, batch.input_format)
-            if mol is None:
-                continue  # a record that does not parse is not a molecule: nothing to filter or prepare
+        # Every record is parsed, filter or not: one that does not read is not a molecule, and
+        # a library that looks clean but isn't costs more at docking time than the parse here.
+        mol = mol_from_record(raw, batch.input_format)
+        if mol is None:
+            continue
         kept = passes is None or passes(cull_mol(mol, batch))
         source_index = int(record["source_index"])
         if prepare is None:

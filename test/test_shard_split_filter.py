@@ -73,3 +73,25 @@ def test_without_a_filter_both_are_kept(runtime, tmp_path):
     path = tmp_path / "pair.smi"
     path.write_text(f"{PAIR} pair\n", encoding="utf-8")
     assert _stored_names(runtime, path, {"split_fragments": True}) == ["pair", "pair [frag02]"]
+
+
+GOOD_SDF = "ethanol\n     RDKit          2D\n\n  3  2  0  0  0  0  0  0  0  0999 V2000\n" + "".join(
+    f"    {x:.4f}    0.0000    0.0000 {el}   0  0  0  0  0  0  0  0  0  0  0  0\n"
+    for x, el in ((0.0, "C"), (1.3, "C"), (2.6, "O"))
+) + "  1  2  1  0\n  2  3  1  0\nM  END\n$$$$\n"
+
+
+@pytest.mark.parametrize(
+    "name,text,expected",
+    [
+        ("invalid.smi", "not_a_smiles bad\nC1CC broken\n", []),
+        ("mixed.smi", "CCO ethanol\nnot_a_smiles bad\nCCN amine\n", ["amine", "ethanol"]),
+        ("mixed.sdf", GOOD_SDF + "garbage\nnot a molfile\n$$$$\n" + GOOD_SDF.replace("ethanol", "again"), ["again", "ethanol"]),
+        ("short_tail.sdf", GOOD_SDF + "truncated\n  RDKit\n", ["ethanol"]),
+    ],
+)
+def test_an_unfiltered_shard_import_stores_only_records_that_read(runtime, tmp_path, name, text, expected):
+    """No filter still means no unreadable records: a raw shard is not a chemistry check skipped."""
+    path = tmp_path / name
+    path.write_text(text, encoding="utf-8")
+    assert _stored_names(runtime, path, None) == expected  # an all-invalid file completes, empty
