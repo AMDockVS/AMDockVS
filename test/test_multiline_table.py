@@ -115,3 +115,12 @@ def test_a_shard_import_keeps_the_name(runtime, tmp_path):
             names += [mol_from_record(record.load(), "smiles").GetProp("_Name") for record in shard]
     assert names == ["ethanol,\nquoted", "amine"]
 
+
+def test_the_sampled_estimate_counts_rows_too(tmp_path, monkeypatch):
+    from amdockvs.io.parsers import readers
+
+    path = tmp_path / "big.csv"
+    path.write_text("SMILES,name\n" + 'CCO,"two\nlines"\n' * 2000, encoding="utf-8")
+    monkeypatch.setattr(readers, "_APPROX_COUNT_MIN_BYTES", 0)  # sample it, as a large file would be
+    estimate = count_import_records(path, approx=True)
+    assert estimate <= 2000  # a floor: lines would claim ~4000 and the job would never complete

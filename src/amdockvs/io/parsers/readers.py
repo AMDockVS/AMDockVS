@@ -106,7 +106,11 @@ def _sampled_record_count(source_path: Path, suffix: str) -> int | None:
     if suffix == ".sdf":
         in_sample = sample.count(b"$$$$")
     else:
-        in_sample = sum(1 for line in sample.splitlines() if line.strip() and not line.startswith(b"#"))
+        # Rows, as the feed splits them: lines would count a quoted multi-line cell twice, and
+        # an over-declared chunk total never completes.
+        _header, delimiter, _smiles_col, _name_col = _sniff_smiles_table(source_path)
+        rows = _split_smiles_spans(iter(sample.splitlines(keepends=True)), skip_header=False, delimiter=delimiter)
+        in_sample = sum(1 for _ in rows)
     if in_sample <= 0 or not sample:
         return None
     # ponytail: 5% down-scale. The estimate feeds declared chunk totals, and a job whose
