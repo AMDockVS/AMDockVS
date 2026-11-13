@@ -22,6 +22,11 @@ class _BindingSitesApi:
         assert molecule_id == 4
         return list(self._sites)
 
+    references = {4: [(9, "RBQ")]}  # receptor id -> its co-crystal ligands
+
+    def reference_ligands(self, receptor_id: int) -> list[tuple[int, str]]:
+        return list(self.references.get(receptor_id, []))
+
 
 @pytest.fixture
 def grid_box_widget():
@@ -253,3 +258,24 @@ def test_a_new_working_box_can_be_discarded_back_to_the_active_site(grid_box_wid
     QTest.keyClick(widget.site_tree, Qt.Key.Key_Delete)
     assert ("working", None) not in rows() and not widget._working.dirty
     assert (widget.cx.value(), widget.cy.value(), widget.cz.value()) == (4.0, 5.0, 6.0)  # the active site again
+
+
+def test_ligand_box_offers_only_the_receptors_reference_ligands(grid_box_widget, monkeypatch):
+    """Not the screening library: those ligands have no pose, and there can be 100k of them."""
+    import amdockvs.ui.tools.binding_sites.box as box
+
+    widget = grid_box_widget
+    offered, told = [], []
+    monkeypatch.setattr(box.QInputDialog, "getItem",
+                        lambda *args: offered.append(args[3]) or ("", False))  # cancelled
+    monkeypatch.setattr(box.QMessageBox, "information", lambda *args: told.append(args[2]))
+    monkeypatch.setattr(box.QMessageBox, "warning", lambda *args: told.append(args[2]))
+
+    widget.ligand_button.click()
+    assert offered == [["RBQ (#9)"]] and told == []
+
+    monkeypatch.setattr(widget.runtime.binding_sites, "references", {})
+    widget.ligand_button.click()
+    assert len(offered) == 1  # no list at all...
+    assert "no reference ligand" in told[0]  # ...but the reason, and what to do instead
+

@@ -576,24 +576,25 @@ class GridBoxSettingDockWidget(QWidget):
             self._suspend_editor = False
 
     def _auto_box_from_ligand(self) -> None:
-        # ponytail: cap the picker — a VS run may have 100k+ ligands; a dropdown of all is useless.
-        cap = 500
-        choices: list[tuple[str, int]] = []
+        # Only the co-crystal ligands this receptor's structure came with: they sit in its
+        # pocket, in its frame. Library ligands have no pose yet, so a box from one is
+        # meaningless (and listing them meant a dropdown of up to the whole screening set).
+        receptor = self._current_molecule
+        if receptor is None:
+            return
         try:
-            scope = self.runtime.molecules.select(role="ligand")
-            for rec in self.runtime.molecules.stream(scope):
-                mid = int(getattr(rec, "id", 0) or 0)
-                if not mid:
-                    continue
-                choices.append((f"{getattr(rec, 'name', '') or 'ligand'} (#{mid})", mid))
-                if len(choices) >= cap:
-                    break
+            found = self.runtime.binding_sites.reference_ligands(int(receptor.id))
         except Exception as exc:
-            QMessageBox.warning(self, "Auto box", f"Could not list ligands: {exc}")
+            QMessageBox.warning(self, "Auto box", f"Could not list reference ligands: {exc}")
             return
-        if not choices:
-            QMessageBox.information(self, "Auto box", "No ligands available in this project.")
+        if not found:
+            QMessageBox.information(
+                self, "Auto box",
+                f"{receptor.name or 'This receptor'} has no reference ligand: none came with its "
+                "structure. Build the box from a PyMOL selection or a predicted pocket, or "
+                "re-import the structure keeping its co-crystal ligand.")
             return
+        choices = [(f"{name or 'ligand'} (#{mid})", mid) for mid, name in found]
         label, ok = QInputDialog.getItem(
             self, "Auto box from ligand", "Reference ligand:", [c[0] for c in choices], 0, False
         )

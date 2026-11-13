@@ -93,3 +93,32 @@ def test_box_from_a_reference_ligand_reads_its_payload(tmp_path):
     assert list(box["center"]) == [0.0, 0.0, 0.0]
     assert "path" not in api.list_receptors()[0]
     store.dispose()
+
+
+def test_box_picker_lists_only_the_receptors_own_reference_ligands(tmp_path):
+    """The Ligand box offers the co-crystal ligands that came with this receptor's structure,
+    never the screening library (no pose yet) nor another structure's ligand."""
+    from amdockvs.binding_sites.api import BindingSiteAPI
+    from amdockvs.models import ComplexRecord
+
+    store = _project(tmp_path)  # 1 = library ligand, 3 = receptor
+    with store.get_session() as session:
+        session.add_all([
+            MoleculeRecord(id=4, name="SAR405", is_ligand=True, usage_class="reference"),
+            MoleculeRecord(id=5, name="other rec", is_receptor=True),
+            MoleculeRecord(id=6, name="its ligand", is_ligand=True, usage_class="reference"),
+        ])
+        session.commit()  # the pairs reference these rows
+        session.add_all([
+            ComplexRecord(receptor_molecule_id=3, ligand_molecule_id=4, purpose="reference"),
+            ComplexRecord(receptor_molecule_id=5, ligand_molecule_id=6, purpose="reference"),
+            # A library ligand paired for redocking is still not a reference ligand.
+            ComplexRecord(receptor_molecule_id=3, ligand_molecule_id=1, purpose="redocking"),
+        ])
+        session.commit()
+    runtime = SimpleNamespace(workspace=SimpleNamespace(project_db=store), _require_active_project=lambda: None)
+    api = BindingSiteAPI(runtime)
+    assert api.reference_ligands(3) == [(4, "SAR405")]
+    assert api.reference_ligands(5) == [(6, "its ligand")]
+    assert api.reference_ligands(2) == []
+    store.dispose()
