@@ -323,7 +323,7 @@ def results_ligand_config() -> TableConfig:
             ColumnDef("fit_quality", label="FQ", kind=ColumnKind.NUMBER,
                       align=AlignHint.RIGHT, formatter=fmt_float, width=55),
             ColumnDef("bei", label="BEI", kind=ColumnKind.NUMBER,
-                      align=AlignHint.RIGHT, formatter=fmt_float, width=60),
+                      align=AlignHint.RIGHT, formatter=fmt_float, width=72),
             ColumnDef("sei", label="SEI", visible=False, kind=ColumnKind.NUMBER,
                       align=AlignHint.RIGHT, formatter=fmt_float, width=65),
             # Hidden: the Pose table beside it already lists (and counts) them.
