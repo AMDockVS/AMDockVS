@@ -21,7 +21,7 @@ from __future__ import annotations
 import io
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from ms_flow.core.data.shard import PayloadKind, Serializer, ShardWriter
 
@@ -122,6 +122,73 @@ def _sdf_record(mol) -> str:
     return buffer.getvalue()
 
 
+def stored_record_format(input_format: str) -> str:
+    """The format a shard stores a record of `input_format` in.
+
+    A container holds molecules, as SDF or as SMILES, and nothing else: everything that is not a
+    SMILES table is stored as the SDF it parses to. This is not always the format the record was
+    read in, which is what makes it worth naming - parsing a converted record back in its source
+    format fails every time, and the header would promise a format the bytes are not in.
+    """
+    return FileFormat.SMILES if input_format == FileFormat.SMILES else FileFormat.SDF
+
+
+def _span_candidates(batch: ImportBatchPayload) -> Iterator[tuple[int, str, Any]]:
+    """The records of a byte range of a library file (SDF, mol2, SMILES table)."""
+    for record in iter_record_span(
+        file_path=batch.file_path,
+        input_format=batch.input_format,
+        offset=batch.span_offset,
+        end=batch.span_end,
+        first_index=batch.span_first_index,
+    ):
+        raw = str(record.get("raw") or "")
+        mol = None
+        if batch.input_format == FileFormat.SMILES:
+            raw = smiles_record(raw, dict(batch.parse_config or {}))
+        if batch.input_format == FileFormat.MOL2:
+            # Parsed once: the molecule the filter judges is the one that was written out, so
+            # the filter decides on chemistry and a filtered import stores what an unfiltered
+            # one would.
+            mol = mol_from_record(raw, FileFormat.MOL2)
+            raw = _sdf_record(mol)
+        yield int(record["source_index"]), raw, mol
+
+
+def _structure_candidates(batch: ImportBatchPayload) -> Iterator[tuple[int, str, Any]]:
+    """The records of a feed that carries no byte range.
+
+    A format with no record separator — one mol/mdl block, a PDB, a PDBQT, an mmCIF — is fed as
+    entries rather than as a byte range, so `span_offset` is -1. There is no offset to seek to
+    (seeking to -1 is the `OSError: [Errno 22]` this used to raise), and no span reader knows how
+    to cut the file into records. It is read here with the reader the row import uses, and each
+    molecule is stored as SDF, so the shard route accepts every format the ligand dialog offers.
+    """
+    from amdockvs.io.formats import is_readable, read_mols
+
+    if not is_readable(batch.file_path):
+        raise ValueError(
+            f"{batch.file_path.name} cannot be stored as a screening-library shard: a shard holds "
+            f"molecules and '{batch.input_format}' is not a molecular format this import reads. "
+            "Import it into the project's molecules instead of as a library."
+        )
+    first_index = int((list(batch.records) or list(batch.entries) or [{}])[0].get("source_index") or 0)
+    stored = 0
+    for position, mol in enumerate(read_mols(batch.file_path)):
+        record = _sdf_record(mol)
+        if not record:
+            continue
+        stored += 1
+        yield first_index + position, record, mol
+    if not stored:
+        # Silence here would be an import that completes with nothing in it: this file is the
+        # whole record, so failing to read it is a failed import, not a filtered-out molecule.
+        raise ValueError(
+            f"No molecule could be read from {batch.file_path.name}: there is nothing to store "
+            "as a shard record."
+        )
+
+
 def filter_ligand_span(payload: dict[str, Any]) -> list[dict[str, Any]]:
     """One span of a source file -> the records that survive the prefilter.
 
@@ -131,31 +198,21 @@ def filter_ligand_span(payload: dict[str, Any]) -> list[dict[str, Any]]:
     """
     batch = ImportBatchPayload.model_validate(payload)
     passes = htp_mol_filter(batch.prefilter, batch.molecule_kind)
+    stored_format = stored_record_format(batch.input_format)
+    spanned = batch.span_count > 0 and batch.span_offset >= 0
     records: list[tuple[int, str]] = []
-    for record in iter_record_span(
-        file_path=batch.file_path,
-        input_format=batch.input_format,
-        offset=batch.span_offset,
-        end=batch.span_end,
-        first_index=batch.span_first_index,
-    ):
-        raw = str(record.get("raw") or "")
-        if batch.input_format == FileFormat.SMILES:
-            raw = smiles_record(raw, dict(batch.parse_config or {}))
-        if batch.input_format == FileFormat.MOL2:
-            # Shards hold SDF or SMILES only: a mol2 record is stored as the SDF it parses to.
-            raw = _sdf_record(mol_from_record(raw, FileFormat.MOL2))
-            if not raw:
-                continue
+    for source_index, raw, mol in (_span_candidates(batch) if spanned else _structure_candidates(batch)):
+        if not raw:
+            continue
         if passes is not None:
-            mol = mol_from_record(raw, batch.input_format)
+            mol = mol if mol is not None else mol_from_record(raw, stored_format)
             if mol is None or not passes(cull_mol(mol, batch)):
                 continue
-        records.append((int(record["source_index"]), raw))
+        records.append((source_index, raw))
     return [
         {
             "import_batch_id": batch.import_batch_id,
-            "input_format": FileFormat.SDF if batch.input_format == FileFormat.MOL2 else batch.input_format,
+            "input_format": stored_format,
             "records": records,
         }
     ]
