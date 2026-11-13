@@ -19,6 +19,7 @@ from amdockvs.core.configuration import app_config
 from amdockvs.core.constants import RESOURCE_IMPORT_STATS, RESOURCE_SHARDS
 from amdockvs.core.vocab import ImportKind
 from amdockvs.io.batches import register_batches, stamp_job
+from amdockvs.models.docking import box_error
 
 
 def import_max_inflight(runtime=None) -> int:
@@ -321,6 +322,10 @@ class LoaderAPI:
         normalized_files = normalize_files(files, label="receptor files")
         if not normalized_files:
             return []
+        if binding_site_box_size is not None:
+            size = (binding_site_box_size,) * 3
+            if (problem := box_error((0.0, 0.0, 0.0), size)) is not None:
+                raise ValueError(f"binding_site_box_size={binding_site_box_size!r}: {problem}")
         effective_prefilter = None if not prefilter else dict(prefilter)
         # This method owns the raw-intent -> import-maps assembly, so a headless caller gets the
         # same result as the UI (which just forwards its selections). Pre-assembled maps still win.
@@ -360,6 +365,15 @@ class LoaderAPI:
             resolved_path(path): [dict(item) for item in list(value or [])]
             for path, value in dict(binding_site_specs_by_file or {}).items()
         }
+        # The import job persists these sites as they are, so this is the last point a bad box
+        # can be refused with the caller still listening. Checked on the finished map, because
+        # the size reaches it three ways: the argument above, a per-file override, or maps a
+        # caller assembled itself.
+        for path, specs in binding_site_specs_map.items():
+            for spec in specs:
+                if (problem := box_error(spec.get("center") or (), spec.get("size") or ())) is not None:
+                    label = spec.get("name") or "binding site"
+                    raise ValueError(f"{Path(path).name}, {label}: {problem}")
         params = {
             "file_paths": [str(file_path) for file_path in normalized_files],
             **self._temporary(normalized_files, temporary_files),
