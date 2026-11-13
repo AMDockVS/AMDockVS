@@ -20,11 +20,12 @@ from amdockvs.io.formats import as_pdb, canonical_suffix, normalized_suffix
 from amdockvs.core.constants import SERIES_PREPARED, SERIES_REFERENCES
 from amdockvs.core.payloads import series_for, structure_payload
 from amdockvs.core.paths import molecule_storage_key
+from amdockvs.io.rows import active_small_molecule_criteria, htp_mol_filter
 from amdockvs.io.transformers.rows import (
     _build_row,
-    _finalize_ligand_row_from_mol,
     share_current,
     _progress_update,
+    record_rows,
 )
 
 
@@ -52,6 +53,8 @@ def _structure_rows(
     scratch: Path,
 ) -> Iterable[dict[str, Any]]:
     tally = tally if tally is not None else {}
+    criteria = active_small_molecule_criteria(batch.prefilter, batch.molecule_kind)
+    htp_passes = htp_mol_filter(batch.prefilter, batch.molecule_kind)
     resolved_entries = entries or [{"source_index": 0, "source_file": str(batch.file_path)}]
     total_entries = len(resolved_entries)
     for index, entry in enumerate(resolved_entries, start=1):
@@ -117,63 +120,68 @@ def _structure_rows(
             "has_hs": ".pdbqt" in {current_suffix, suffix},
             "conformer_count": 1 if has_3d else 0,
         }
-        # A small-molecule ligand gets its current form from the Mol once it survives the filters.
-        row = _build_row(
-            source_file=source_file,
-            source_index=source_index,
-            name=source_file.stem,
-            n_atoms=0 if ligand_mol is not None else _count_atoms_from_structure_lines(current_path),
-            import_batch_id=batch.import_batch_id,
-            stored=original,
-            current=None,
-            metadata=metadata,
-            molecule_kind=batch.molecule_kind,
-            primary_role=batch.primary_role,
-            primary_context=batch.primary_context,
-        )
-        row["model_source"] = model_source
-        if ligand_mol is None:
-            share_current(row, structure_payload(current_path.read_bytes(), current_suffix, series))
-        if ligand_mol is not None:
-            row, reason = _finalize_ligand_row_from_mol(
-                row=row,
-                mol=ligand_mol,
-                prefilter=batch.prefilter,
-            )
-            if reason is not None:
-                bump(tally, reason)
-                _progress_update(progress_cb, index, total_entries)
-                continue
-        if suffix == ".pdbqt":
-            # The imported file already is what preparation would have produced: register it
-            # as the ad4 artifact so the molecule is dockable without re-preparing it.
-            row["prep_specs"] = [
+        def finish(row: dict[str, Any]) -> dict[str, Any]:
+            """What a structure row carries beyond the molecule: provenance, artifacts, sites."""
+            row["model_source"] = model_source
+            if suffix == ".pdbqt":
+                # The imported file already is what preparation would have produced: register it
+                # as the ad4 artifact so the molecule is dockable without re-preparing it.
+                row["prep_specs"] = [
+                    {
+                        "role_type": str(batch.primary_role or batch.kind).strip().lower(),
+                        "family": "ad4",
+                        # Its own copy: re-preparing releases it without touching the original.
+                        "payload_id": structure_payload(source_bytes, source_kind, SERIES_PREPARED),
+                    }
+                ]
+            row["binding_site_specs"] = [
                 {
-                    "role_type": str(batch.primary_role or batch.kind).strip().lower(),
-                    "family": "ad4",
-                    # Its own copy: re-preparing releases it without touching the original.
-                    "payload_id": structure_payload(source_bytes, source_kind, SERIES_PREPARED),
+                    "name": str(item.get("name") or ""),
+                    "source": str(item.get("source") or BindingSiteSource.MANUAL),
+                    "source_ref": str(item.get("source_ref") or ""),
+                    "center": tuple(item.get("center") or (None, None, None)),
+                    "size": tuple(item.get("size") or (None, None, None)),
+                    "extra_data": dict(item.get("extra_data") or {}),
                 }
+                for item in binding_site_specs
             ]
-        row["binding_site_specs"] = [
-            {
-                "name": str(item.get("name") or ""),
-                "source": str(item.get("source") or BindingSiteSource.MANUAL),
-                "source_ref": str(item.get("source_ref") or ""),
-                "center": tuple(item.get("center") or (None, None, None)),
-                "size": tuple(item.get("size") or (None, None, None)),
-                "extra_data": dict(item.get("extra_data") or {}),
-            }
-            for item in binding_site_specs
-        ]
-        workflow = dict(metadata.get("workflow") or {})
-        active_position = _active_binding_site_position(
-            row["binding_site_specs"],
-            selected_source_ref=str(workflow.get("selected_cocrystal_key") or "").strip(),
-            reference_ligands=workflow.get("reference_ligands"),
-        )
-        if active_position is not None:
-            row["active_binding_site_position"] = active_position
+            workflow = dict(metadata.get("workflow") or {})
+            active_position = _active_binding_site_position(
+                row["binding_site_specs"],
+                selected_source_ref=str(workflow.get("selected_cocrystal_key") or "").strip(),
+                reference_ligands=workflow.get("reference_ligands"),
+            )
+            if active_position is not None:
+                row["active_binding_site_position"] = active_position
+            return row
+
+        def make_row(n_atoms: int) -> dict[str, Any]:
+            return finish(_build_row(
+                source_file=source_file,
+                source_index=source_index,
+                name=source_file.stem,
+                n_atoms=n_atoms,
+                import_batch_id=batch.import_batch_id,
+                stored=original,
+                current=None,
+                metadata=metadata,
+                molecule_kind=batch.molecule_kind,
+                primary_role=batch.primary_role,
+                primary_context=batch.primary_context,
+            ))
+
+        if ligand_mol is not None:
+            # A small-molecule ligand takes the path every ligand format takes: the same
+            # filters, its current form from the kept fragment, then the split.
+            yield from record_rows(
+                batch=batch, mol=ligand_mol, name=source_file.stem, source_index=source_index,
+                make_row=lambda: make_row(0), current=None, criteria=criteria, htp_passes=htp_passes,
+                parent_key=molecule_key, source_properties=None, tally=tally,
+            )
+            _progress_update(progress_cb, index, total_entries)
+            continue
+        row = make_row(_count_atoms_from_structure_lines(current_path))
+        share_current(row, structure_payload(current_path.read_bytes(), current_suffix, series))
         bump(tally, IMPORTED)
         yield row
         if options is not None:
