@@ -62,6 +62,7 @@ def materialize_import_batch(
             offset=batch.span_offset,
             end=batch.span_end,
             first_index=batch.span_first_index,
+            delimiter=str((batch.parse_config or {}).get("delimiter") or " "),
         )
         if len(records) != batch.span_count:
             raise ValueError(
