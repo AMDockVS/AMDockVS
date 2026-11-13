@@ -119,3 +119,21 @@ def test_one_record_keeps_one_plain_ref_without_the_option(tmp_path):
     rows = materialize_import_batch(_smiles_batch(tmp_path, split=False))
     refs = [molecule["$ref"] for molecule in build_import_graph_payload(rows)["molecules"]]
     assert len(refs) == 1 and refs[0].endswith("::0")
+
+
+def test_split_fragments_alone_is_enough_to_keep_the_gui_policy():
+    """With every filter off and only Split fragments on, the policy still has to reach the
+    importer - dropped to None, the option silently never happens."""
+    from amdockvs.io.payloads import ImportPrefilterPolicy
+
+    assert ImportPrefilterPolicy(split_fragments=True).changes_import()
+    assert not ImportPrefilterPolicy().changes_import()
+    # It is not an in-memory prep step: it adds rows, it does not change the kept fragment.
+    assert not ImportPrefilterPolicy(split_fragments=True).prep_active()
+
+    pytest.importorskip("PySide6")
+    from amdockvs.ui.tools.importing.ligand_forms import finalize_import_prefilter_policy
+
+    off = {"target_molecule_kinds": ["small_molecule"], "max_rotatable_bonds": None}
+    assert finalize_import_prefilter_policy(dict(off)) is None
+    assert finalize_import_prefilter_policy({**off, "split_fragments": True})["split_fragments"] is True
