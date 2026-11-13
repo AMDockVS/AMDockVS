@@ -254,8 +254,9 @@ def results_receptor_config(protocol_hash: str = "") -> TableConfig:
         model_class=MoleculeRecord,
         columns=[
             ColumnDef("name", label="Receptor", width=120),
-            ColumnDef("ligands", label="Ligands", kind=ColumnKind.INTEGER, align=AlignHint.RIGHT,
-                      expr=progress["ligands"], width=75, sortable=False),
+            # Hidden: the Docked bar already shows "done/total"; kept because it is the bar's max.
+            ColumnDef("ligands", label="Ligands", visible=False, kind=ColumnKind.INTEGER,
+                      align=AlignHint.RIGHT, expr=progress["ligands"], width=75, sortable=False),
             ColumnDef("progress", label="Docked", kind=ColumnKind.PROGRESS, progress_max="ligands",
                       expr=progress["progress"], width=160, sortable=False, filterable=False,
                       tooltip=_progress_tooltip, progress_tone=_progress_tone),
@@ -284,8 +285,28 @@ def results_receptor_config(protocol_hash: str = "") -> TableConfig:
     )
 
 
+# What each Ligand column means, on hover over its header. The formulas are the ones
+# `metrics.docking_metrics` uses; the "good" bars are common rules of thumb, not AMDock's.
+_LIGAND_HELP = {
+    "score": "Best docking score of this ligand (kcal/mol, lower is better).",
+    "ligand_efficiency": ("Ligand efficiency: score / heavy atoms (kcal/mol per atom).\n"
+                          "More negative is better; around -0.3 or better is a common bar."),
+    "lipophilic_efficiency": ("Lipophilic ligand efficiency: pKi - cLogP.\n"
+                              "Higher is better; affinity not bought with greasiness (5+ is good)."),
+    "predicted_pki": ("Predicted pKi: -log10(Ki), Ki estimated from the score as dG = RT ln(Ki).\n"
+                      "Higher is better; 7 is about 100 nM."),
+    "fit_quality": ("Fit quality: |LE| scaled to the LE expected for this size (Reynolds/Hopkins).\n"
+                    "Removes the bias toward small ligands; 0.8 or above is good."),
+    "bei": ("Binding efficiency index: pKi / molecular weight (kDa).\n"
+            "Higher is better; 20+ is typical of good leads."),
+    "sei": ("Surface efficiency index: pKi / (TPSA / 100 Å²).\n"
+            "Higher is better; affinity per unit of polar surface."),
+    "pose_count": "Poses saved for this ligand. Pick it to list them in the Pose table.",
+}
+
+
 def results_ligand_config() -> TableConfig:
-    return TableConfig(
+    config = TableConfig(
         model_class=DockingResultRecord,
         columns=[
             ColumnDef("ligand_name", label="Ligand", width=120,
@@ -297,16 +318,17 @@ def results_ligand_config() -> TableConfig:
             ColumnDef("lipophilic_efficiency", label="LLE", kind=ColumnKind.NUMBER,
                       align=AlignHint.RIGHT, expr=DockingResultRecord.lle, formatter=fmt_float,
                       width=60),
-            ColumnDef("predicted_pki", label="pKi", visible=False, kind=ColumnKind.NUMBER,
-                      align=AlignHint.RIGHT, formatter=fmt_float, width=65),
-            ColumnDef("fit_quality", label="FQ", visible=False, kind=ColumnKind.NUMBER,
-                      align=AlignHint.RIGHT, formatter=fmt_float, width=65),
-            ColumnDef("bei", label="BEI", visible=False, kind=ColumnKind.NUMBER,
-                      align=AlignHint.RIGHT, formatter=fmt_float, width=65),
+            ColumnDef("predicted_pki", label="pKi", kind=ColumnKind.NUMBER,
+                      align=AlignHint.RIGHT, formatter=fmt_float, width=55),
+            ColumnDef("fit_quality", label="FQ", kind=ColumnKind.NUMBER,
+                      align=AlignHint.RIGHT, formatter=fmt_float, width=55),
+            ColumnDef("bei", label="BEI", kind=ColumnKind.NUMBER,
+                      align=AlignHint.RIGHT, formatter=fmt_float, width=72),
             ColumnDef("sei", label="SEI", visible=False, kind=ColumnKind.NUMBER,
                       align=AlignHint.RIGHT, formatter=fmt_float, width=65),
-            ColumnDef("pose_count", label="Poses", kind=ColumnKind.INTEGER, align=AlignHint.RIGHT,
-                      expr=_pose_count_expr(), width=65),
+            # Hidden: the Pose table beside it already lists (and counts) them.
+            ColumnDef("pose_count", label="Poses", visible=False, kind=ColumnKind.INTEGER,
+                      align=AlignHint.RIGHT, expr=_pose_count_expr(), width=65),
             # Shown only under "All programs": a ligand docked by two programs is two rows.
             ColumnDef("protocol_label", label="Program", visible=False, expr=_run_field("protocol_label"),
                       width=110),
@@ -329,7 +351,12 @@ def results_ligand_config() -> TableConfig:
         show_filters=False,
         show_search=False,
         empty_message="No ligands for this receptor and filter scope",
+        # Spare width stays empty instead of padding the last column: room for the viewer.
+        stretch_last_column=False,
     )
+    for column in config.columns:
+        column.header_tooltip = _LIGAND_HELP.get(column.field)
+    return config
 
 
 def _offtarget_score(receptor_id: int, pose_rank: int, protocol_hash: str):

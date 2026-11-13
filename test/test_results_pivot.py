@@ -518,6 +518,77 @@ def test_a_row_mode_plan_counts_docked_from_its_results():
     row = widget.receptor_table._model.get_row_data(0)
     assert row["ligands"] == 901 and row["progress"] == 3
 
+def test_a_program_found_after_the_first_pick_selects_again_and_fills_the_detail():
+    """At startup a refresh's protocols-only lookup can supersede the receptor's own
+    (auto-selecting) one. Its program change reloads the ligands and clears Selected
+    Result; it must pick the first ligand again, or the pane stays empty while the pose
+    is still on screen."""
+    QApplication.instance() or QApplication(["amdockvs-program-arrives-test"])
+    db = _Db()
+    with db.get_session() as session:
+        session.add_all([
+            DockingRun(id=1, engine="vina", protocol_hash="p", protocol_label="Vina"),
+            MoleculeRecord(id=41, name="4OYS", is_receptor=True),
+            MoleculeRecord(id=101, name="SAR405", is_ligand=True),
+            DockingResultRecord(id=11, receptor_molecule_id=41, ligand_molecule_id=101,
+                                docking_run_id=1, pose_rank=1, score=-9.5),
+        ])
+        session.commit()
+    hit = SimpleNamespace(result_id=11)
+    widget = DockingResultsWidget(runtime=SimpleNamespace(
+        workspace=SimpleNamespace(project_db=db),
+        docking=SimpleNamespace(result_protocols=lambda **_kwargs: [], hit=lambda **_kwargs: hit),
+    ))
+    shown = []
+    widget._show_detail = shown.append
+    _wait_for(lambda: widget._selected_receptor_id == 41)
+    # The first pick, made before any program is known ("All programs").
+    _wait_for(lambda: shown and shown[-1] is hit)
+
+    # The refresh's lookup lands first, while the combo is still empty: programs only, no
+    # auto-select, but the program changes from none to the first one.
+    widget.protocol_combo.clear()
+    widget._apply_protocols([("p", "Vina")], auto_select=False, protocols_only=True)
+
+    assert widget.protocol_combo.currentData() == "p"
+    assert shown[-1] is None  # the reload cleared Selected Result...
+    _wait_for(lambda: shown[-1] is hit)  # ...and the new list's first ligand filled it again
+    assert widget._selected_ligand_id == 101
+
+
+def test_the_ligand_pane_widens_for_its_scrollbar_instead_of_scrolling_sideways():
+    """Enough ligands for a vertical scrollbar: the pane takes its width from Pose rather
+    than squeezing its columns behind a horizontal scrollbar."""
+    QApplication.instance() or QApplication(["amdockvs-ligand-pane-test"])
+    db = _Db()
+    with db.get_session() as session:
+        session.add_all([
+            DockingRun(id=1, engine="vina", protocol_hash="p", protocol_label="Vina"),
+            MoleculeRecord(id=1, name="receptor", is_receptor=True),
+            *[MoleculeRecord(id=100 + i, name=f"ZINC{i:012d}", is_ligand=True) for i in range(108)],
+        ])
+        session.commit()
+        session.add_all([
+            DockingResultRecord(id=1000 + i, receptor_molecule_id=1, ligand_molecule_id=100 + i,
+                                docking_run_id=1, pose_rank=1, score=-8.0 + i / 100)
+            for i in range(108)
+        ])
+        session.commit()
+    widget = DockingResultsWidget(runtime=SimpleNamespace(
+        workspace=SimpleNamespace(project_db=db),
+        docking=SimpleNamespace(result_protocols=lambda **_kwargs: [("p", "Vina")],
+                                hit=lambda **_kwargs: None),
+    ))
+    widget.resize(1100, 600)
+    widget.show()
+    table = widget.ligand_table._table
+    _wait_for(lambda: table.verticalScrollBar().maximum() > 0)
+    _wait_for(lambda: widget._ligand_box.width() == widget._ligand_box.maximumWidth())
+    QApplication.processEvents()
+    assert table.horizontalScrollBar().maximum() == 0
+    widget.close()
+
+
 def test_live_ligand_reload_keeps_the_selected_ligand_context():
     QApplication.instance() or QApplication(["amdockvs-live-results-test"])
     db = _Db()

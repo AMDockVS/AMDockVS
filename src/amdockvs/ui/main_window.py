@@ -113,6 +113,7 @@ class AMDockVSMainWindow(QMainWindow):
         self._initial_docks_sized = False
         self._pymol_sized = False
         self._last_sized_width = 0  # see resizeEvent: breaks the resize/resizeDocks ping-pong
+        self._viewer_room_given: set[str] = set()  # views whose spare width PyMOL already took
         self.dock_manager = DockManager(self)
         self.pymol_dock = None
         self.grid_dock = None
@@ -331,8 +332,27 @@ class AMDockVSMainWindow(QMainWindow):
             if self.pymol_dock is not None and self.pymol_dock.isVisible():
                 self.resizeDocks([self.pymol_dock], [self._third_width()], Qt.Horizontal)
                 self._pymol_sized = True
+                QTimer.singleShot(0, lambda: self._give_viewer_spare_width(force=True))
         except Exception:
             pass
+
+    def _give_viewer_spare_width(self, *, force: bool = False) -> None:
+        """A view that cannot use its full width (see `viewer_spare_width`) hands the rest to
+        PyMOL. Once per view, so a PyMOL the user narrowed is not pushed back on every tab
+        switch; `force` re-applies it after the startup sizing resets the dock to a third."""
+        dock = self.pymol_dock
+        view_id, view = self.views.current_view()
+        if (view is None or dock is None or not dock.isVisible() or dock.isFloating()
+                or (view_id in self._viewer_room_given and not force)):
+            return
+        page = next((w for w in [view, *view.findChildren(QWidget)]
+                     if hasattr(w, "viewer_spare_width") and w.isVisible()), None)
+        if page is None:
+            return
+        self._viewer_room_given.add(view_id)
+        spare = page.viewer_spare_width()
+        if spare > 0:
+            self.resizeDocks([dock], [dock.width() + spare], Qt.Horizontal)
 
     def _create_menu_bar(self):
         """Plain QMenuBar: File (Projects/Settings/Restart/Exit), View (Catalog Bar), Help.
@@ -549,6 +569,7 @@ class AMDockVSMainWindow(QMainWindow):
         self._sync_viewer_docks_to_view(view_id)  # before the charts reopen theirs
         self.charts.sync_to_active_view(view_id)
         self.viewer.sync_to_active_view(view_id)
+        QTimer.singleShot(0, self._give_viewer_spare_width)
         # Switching tabs changes whether a jobs surface is on screen, so the status
         # bar indicator (the always-visible fallback) has to be re-evaluated.
         self.jobs.update_jobs_statusbar()
