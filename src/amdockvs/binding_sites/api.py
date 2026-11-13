@@ -17,7 +17,8 @@ from ms_flow.selection import Selection
 
 from amdockvs.core.configuration import DEFAULT_P2RANK_PROFILE, app_config
 from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR, RESOURCE_POCKET_PREDICTIONS
-from amdockvs.models import BindingSite, MoleculeRecord
+from amdockvs.core.vocab import ComplexPurpose
+from amdockvs.models import BindingSite, ComplexRecord, MoleculeRecord
 from amdockvs.core.payloads import molecule_payload_id, read_structure
 from amdockvs.binding_sites.boxes import box_from_coords
 from amdockvs.binding_sites.jobs import P2RankPredictionParams, p2rank_prediction_job
@@ -398,6 +399,21 @@ class BindingSiteAPI:
             session.commit()
             session.refresh(site)
             return site
+
+    def reference_ligands(self, receptor_id: int) -> list[tuple[int, str]]:
+        """(id, name) of the reference ligands that came with this receptor's structure: the
+        co-crystal ligands its import paired with it. Library (screening) ligands never are,
+        so this is the short, meaningful list to build a box from."""
+        self.runtime._require_active_project()
+        statement = (
+            select(MoleculeRecord.id, MoleculeRecord.name)
+            .join(ComplexRecord, ComplexRecord.ligand_molecule_id == MoleculeRecord.id)
+            .where(ComplexRecord.receptor_molecule_id == int(receptor_id),
+                   ComplexRecord.purpose == ComplexPurpose.REFERENCE)
+            .order_by(MoleculeRecord.id)
+        )
+        with self.runtime.workspace.project_db.get_session() as session:
+            return [(int(mid), str(name or "")) for mid, name in session.exec(statement).all()]
 
     def suggest_box_from_ligand(
             self,

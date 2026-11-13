@@ -22,6 +22,11 @@ class _BindingSitesApi:
         assert molecule_id == 4
         return list(self._sites)
 
+    references = {4: [(9, "RBQ")]}  # receptor id -> its co-crystal ligands
+
+    def reference_ligands(self, receptor_id: int) -> list[tuple[int, str]]:
+        return list(self.references.get(receptor_id, []))
+
 
 @pytest.fixture
 def grid_box_widget():
@@ -284,10 +289,7 @@ def test_a_box_from_a_ligand_is_saved_as_that_ligands_site(grid_box_widget, monk
     widget.runtime.binding_sites.save_site = save_site
     widget.runtime.binding_sites.suggest_box_from_ligand = lambda *, ligand_id: {
         "center": (1.0, 2.0, 3.0), "size": (18.0, 18.0, 18.0)}
-    widget.runtime.molecules = SimpleNamespace(
-        select=lambda **_kwargs: "ligands",
-        stream=lambda _scope: [SimpleNamespace(id=7, name="SAR405")],
-    )
+    widget.runtime.binding_sites.references = {4: [(7, "SAR405")]}
     monkeypatch.setattr(box_module.QInputDialog, "getItem", lambda *_args: ("SAR405 (#7)", True))
     monkeypatch.setattr(box_module, "run_async", lambda work, done, **_kwargs: done(work()))
 
@@ -334,8 +336,7 @@ def test_a_loaded_site_brings_its_own_provenance_and_a_hand_edit_makes_it_manual
     widget.runtime.binding_sites.save_site = lambda **kwargs: saved.append(kwargs) or BindingSite(id=9, molecule_id=4)
     widget.runtime.binding_sites.suggest_box_from_ligand = lambda *, ligand_id: {
         "center": (1.0, 2.0, 3.0), "size": (18.0, 18.0, 18.0)}
-    widget.runtime.molecules = SimpleNamespace(
-        select=lambda **_kwargs: "ligands", stream=lambda _scope: [SimpleNamespace(id=7, name="SAR405")])
+    widget.runtime.binding_sites.references = {4: [(7, "SAR405")]}
     monkeypatch.setattr(box_module.QInputDialog, "getItem", lambda *_args: ("SAR405 (#7)", True))
     monkeypatch.setattr(box_module, "run_async", lambda work, done, **_kwargs: done(work()))
     provenance = lambda: {key: saved[-1][key] for key in ("center", "name", "source", "source_ref")}
@@ -352,3 +353,24 @@ def test_a_loaded_site_brings_its_own_provenance_and_a_hand_edit_makes_it_manual
     widget.cx.setValue(5.0)  # moved by hand: no longer the ligand's box
     widget._save_new_site()
     assert provenance() == {"center": (5.0, 2.0, 3.0), "name": "Manual Site", "source": "manual", "source_ref": ""}
+
+
+def test_ligand_box_offers_only_the_receptors_reference_ligands(grid_box_widget, monkeypatch):
+    """Not the screening library: those ligands have no pose, and there can be 100k of them."""
+    import amdockvs.ui.tools.binding_sites.box as box
+
+    widget = grid_box_widget
+    offered, told = [], []
+    monkeypatch.setattr(box.QInputDialog, "getItem",
+                        lambda *args: offered.append(args[3]) or ("", False))  # cancelled
+    monkeypatch.setattr(box.QMessageBox, "information", lambda *args: told.append(args[2]))
+    monkeypatch.setattr(box.QMessageBox, "warning", lambda *args: told.append(args[2]))
+
+    widget.ligand_button.click()
+    assert offered == [["RBQ (#9)"]] and told == []
+
+    monkeypatch.setattr(widget.runtime.binding_sites, "references", {})
+    widget.ligand_button.click()
+    assert len(offered) == 1  # no list at all...
+    assert "no reference ligand" in told[0]  # ...but the reason, and what to do instead
+
