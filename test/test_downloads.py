@@ -89,3 +89,82 @@ def test_a_labelled_temporary_receptor_with_a_ligand_imports_and_its_file_goes(t
         assert not receptor.exists()
     finally:
         runtime.shutdown()
+
+
+ASPIRIN_SDF = """2244
+  -OEChem-11122616012D
+
+  3  2  0     0  0  0  0  0  0999 V2000
+    0.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+    1.2990    0.7500    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+    2.5980    0.0000    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0
+  1  2  1  0
+  2  3  1  0
+M  END
+$$$$
+"""
+
+
+def _serving(body: bytes):
+    import contextlib
+    import io
+
+    served = []
+
+    @contextlib.contextmanager
+    def fake_open(url):
+        served.append(url)
+        stream = io.BytesIO(body)
+        stream.headers = {"Content-Length": str(len(body))}
+        yield stream
+
+    return fake_open, served
+
+
+def test_a_link_without_a_suffix_is_named_by_what_it_downloaded(tmp_path, monkeypatch):
+    """PubChem's .../cid/2244/SDF downloads as "SDF": the readers pick by suffix, so it failed."""
+    from amdockvs.io.formats import is_readable, read_mols
+
+    monkeypatch.setenv("AMDOCK_HOME", str(tmp_path))
+    fake_open, served = _serving(ASPIRIN_SDF.encode())
+    monkeypatch.setattr(downloads, "_open", fake_open)
+    url = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/2244/SDF"
+
+    [(path, _label)] = download("url", [url]).files
+    assert path.endswith("/SDF.sdf") and is_readable(path)
+    assert [mol.GetNumAtoms() for mol in read_mols(path)] == [3]
+
+    again = download("url", [url]).files  # kept: reused under its new name, not fetched again
+    assert again[0][0] == path and served == [url]
+
+
+def test_a_link_with_a_suffix_keeps_its_name(tmp_path, monkeypatch):
+    monkeypatch.setenv("AMDOCK_HOME", str(tmp_path))
+    monkeypatch.setattr(downloads, "_open", _serving(ASPIRIN_SDF.encode())[0])
+    [(path, _label)] = download("url", ["https://vendor.example/lib/library.sdf"]).files
+    assert path.endswith("/library.sdf")
+
+
+def test_unrecognized_content_keeps_the_name_it_came_with(tmp_path, monkeypatch):
+    monkeypatch.setenv("AMDOCK_HOME", str(tmp_path))
+    monkeypatch.setattr(downloads, "_open", _serving(b"<html>Not found</html>\n")[0])
+    [(path, _label)] = download("url", ["https://vendor.example/get?id=7"]).files
+    assert path.endswith("/get")
+
+
+def test_content_sniffing(tmp_path):
+    from amdockvs.io.formats import sniff_suffix
+
+    cases = {
+        ".sdf": ASPIRIN_SDF,
+        ".mol2": "@<TRIPOS>MOLECULE\nethanol\n",
+        ".cif": "# comment\ndata_1IEP\n_entry.id 1IEP\n",
+        ".pdb": "HEADER    TEST\nATOM      1  N   ALA A   1       0.000   0.000   0.000  1.00  0.00           N\n",
+        ".pdbqt": "ROOT\nATOM      1  C   UNL     1       0.000   0.000   0.000  1.00  0.00     0.000 C \nENDROOT\nTORSDOF 0\n",
+        ".fasta": ">P00533\nMRPSGTAGAALLALLAALCPASRA\n",
+        "": "CCO ethanol\nc1ccccc1 benzene\n",  # could be SMILES, could be anything: left alone
+    }
+    for suffix, text in cases.items():
+        path = tmp_path / f"case{len(suffix)}{suffix.strip('.')}"
+        path.write_text(text, encoding="utf-8")
+        assert sniff_suffix(path) == suffix, text

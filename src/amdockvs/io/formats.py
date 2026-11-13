@@ -68,6 +68,37 @@ def is_readable(path: str | Path) -> bool:
     return normalized_suffix(path) in READABLE_SUFFIXES
 
 
+def sniff_suffix(path: str | Path, *, sample: int = 65536) -> str:
+    """The suffix the content of ``path`` calls for (``.sdf``, ``.cif``…), or "" if unclear.
+
+    For files whose name says nothing: a link such as PubChem's ``.../cid/2244/SDF`` downloads
+    as ``SDF``, and every reader here dispatches on the suffix. Only what the first ``sample``
+    bytes show unambiguously is named; SMILES tables are left alone (any text could be one).
+    """
+    try:
+        with Path(path).open("rb") as handle:
+            head = handle.read(sample).decode("utf-8", errors="ignore")
+    except OSError:
+        return ""
+    lines = [line.rstrip() for line in head.splitlines()]
+    content = [line for line in lines if line.strip() and not line.startswith("#")]
+    if not content:
+        return ""
+    if any(line.startswith("@<TRIPOS>MOLECULE") for line in content):
+        return ".mol2"
+    if "$$$$" in lines or any(line.startswith("M  END") for line in lines):
+        return ".sdf"  # a lone molfile is an SDF of one record
+    first = content[0].lstrip()
+    if first.startswith("data_"):
+        return ".cif"
+    if first.startswith(">"):
+        return ".fasta"
+    records = {line[:6].strip() for line in content}
+    if records & {"ATOM", "HETATM"}:
+        return ".pdbqt" if records & {"ROOT", "TORSDOF", "BRANCH"} else ".pdb"
+    return ""
+
+
 def canonical_suffix(molecule_kind: str) -> str:
     """Where a molecule of this kind belongs: SDF for small molecules, mmCIF for everything else.
 

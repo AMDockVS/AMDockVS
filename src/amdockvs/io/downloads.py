@@ -18,12 +18,14 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
+from glob import escape as glob_escape
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from urllib.parse import quote, unquote, urlsplit
 from urllib.request import Request, urlopen
 
 from amdockvs.core.home import amdock_home
+from amdockvs.io.formats import READABLE_SUFFIXES, normalized_suffix, sniff_suffix
 
 try:
     _VERSION = version("AMDockVS")
@@ -171,13 +173,35 @@ def _uniprot(ids, folder, progress, cancel):
     return _per_id(ids, folder, progress, cancel, label="UniProt", file_for=one)
 
 
+# What the importers dispatch on; a downloaded name without one of these is named by its content.
+_IMPORTABLE_SUFFIXES = READABLE_SUFFIXES | {".fasta", ".csv", ".tsv", ".txt"}
+
+
+def _named_by_content(path: Path) -> Path:
+    """``SDF`` (PubChem's ``.../cid/2244/SDF``) becomes ``SDF.sdf``: the importers pick the
+    reader by suffix, and without one the file went to the structure route and failed."""
+    if normalized_suffix(path) in _IMPORTABLE_SUFFIXES:
+        return path
+    suffix = sniff_suffix(path)
+    if not suffix:
+        return path
+    named = path.with_name(path.name + suffix)
+    path.replace(named)
+    return named
+
+
 def _urls(ids, folder, progress, cancel):
     def one(url: str, folder: Path) -> Path:
         name = unquote(Path(urlsplit(url).path).name) or "download"
         # Keyed by the whole URL: two vendors may both serve "library.sdf".
         digest = hashlib.sha1(url.encode()).hexdigest()[:8]
         name = name[:-3] if name.endswith(".gz") and not name.endswith(".tar.gz") else name
-        return _fetch_file(url, folder / digest / name, progress, cancel)
+        target = folder / digest / name
+        # A kept download named by its content last time is reused under that name.
+        named = [p for p in target.parent.glob(f"{glob_escape(name)}.*") if not p.name.endswith(".part")]
+        if not target.exists() and named:
+            return named[0]
+        return _named_by_content(_fetch_file(url, target, progress, cancel))
 
     return _per_id(ids, folder, progress, cancel, label="URL", file_for=one, upper=False)
 
