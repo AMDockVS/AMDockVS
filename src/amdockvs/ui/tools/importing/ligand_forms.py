@@ -60,6 +60,8 @@ class ImportFilterCriteriaForm(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         layout = QFormLayout(self)
+        # Spin boxes keep their natural width (arrows beside the value); the SMARTS fields stretch.
+        layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
         self.exclude_pains = _checkbox("Exclude PAINS matches", checked=False)
         self.require_ro5 = _checkbox("Require Rule of 5 compliance", checked=False)
         self.max_ro5_violations = _optional_spinbox(minimum=0, maximum=4)

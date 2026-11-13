@@ -34,7 +34,7 @@ from ms_components.tool_panel import PROGRESS_NAME
 
 from amdockvs.core.configuration import app_config
 from amdockvs.io.downloads import discard_temporary
-from amdockvs.io.formats import QT_FILE_FILTER
+from amdockvs.io.formats import QT_RECEPTOR_FILE_FILTER
 from amdockvs.io.receptor_preview import (
     COORDINATION_METAL_CODES,
     ReceptorImportOptions,
@@ -54,7 +54,7 @@ from amdockvs.ui.common.drop_area import (
 )
 from amdockvs.ui.view_ids import RECEPTOR_VIEW_ID
 from amdockvs.models.molecules import MoleculeType
-from amdockvs.ui.common.widgets import WrapCombo
+from amdockvs.ui.common.widgets import WrapCombo, help_button
 from ms_components.chips import ChipsSelect
 from amdockvs.ui.tools.importing.common import land_on_view, nudge_monitor, submit_import
 from amdockvs.ui.tools.importing.download import download_into, file_label, file_tip
@@ -164,14 +164,27 @@ class ReceptorImportPanel(QWidget):
 
         # Which coordinated metals center a Grid Box: the config's list, more typed in (Mn + Enter).
         metals_label = QLabel("Metals", self)
-        metals_label.setToolTip("Coordinated metals that become the center of a Grid Box.")
+        self.metals_help = help_button(
+            self,
+            "<p>Each coordinated metal in the structure whose PDB code is listed here becomes the "
+            "center of its own Grid Box, sized as set above.</p>"
+            "<p>Remove a metal with its <b>×</b>. Add one with <b>＋ Add</b>: pick it from the "
+            "list, or type its PDB code (e.g. <b>MN</b>) and press Enter.</p>"
+            "<p>Used only while <i>Grid Box from ligands and coordinated metals</i> is on.</p>",
+            name="Metals help",
+        )
+        metals_header = QHBoxLayout()
+        metals_header.setSpacing(2)
+        metals_header.addWidget(metals_label)
+        metals_header.addWidget(self.metals_help)
+        metals_header.addStretch(1)
         self.metals_box = ChipsSelect(self, editable=True, reorderable=True, normalize=lambda text: text.strip().upper())
         self.metals_box.setMinimumWidth(300)  # chips wrap in rows, not one per line
         configured = list(app_config(self._runtime).imports.grid_box_metals)
         self.metals_box.set_items(
             configured + [code for code in COORDINATION_METAL_CODES if code not in configured], selected=configured
         )
-        options.addWidget(metals_label, 1, 2, Qt.AlignTop)
+        options.addLayout(metals_header, 1, 2, Qt.AlignTop)
         options.addWidget(self.metals_box, 1, 3, 3, 1)
         # The size and metals only mean something when boxes are created from the cocrystal components.
         for widget in (box_size_label, self.binding_site_box_size, metals_label, self.metals_box):
@@ -204,6 +217,7 @@ class ReceptorImportPanel(QWidget):
             ["File", "Unit", "Chains", "Ligands", "Metals", "Waters", "Status", "Selected Ligand", "Activity", "As Ligand", "Format", "Path"]
         )
         header = self.table.horizontalHeader()
+        header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # every column holds text
         # Every column is user-resizable (Interactive) with a sensible default width; Chains needs
         # room for its chips+combo so it isn't clipped.
         header.setStretchLastSection(False)
@@ -245,9 +259,12 @@ class ReceptorImportPanel(QWidget):
                 toolbar, "shredder.svg", "Remove", "Remove the selected files", self._on_remove_selected_files
             )
             table_row.addWidget(toolbar)
-        table_row.addWidget(self.table, 1)
+        # Table, options and info line form one column right of the rail: one shared left edge.
+        column = QVBoxLayout()
+        column.addWidget(self.table, 1)
+        column.addLayout(options)
+        table_row.addLayout(column, 1)
         root.addLayout(table_row, 1)
-        root.addLayout(options)
 
         self.info_label = QLabel(self)
         self.info_label.setWordWrap(True)
@@ -257,7 +274,7 @@ class ReceptorImportPanel(QWidget):
                 f"{len(self._file_paths)} receptors selected. Preview is disabled above {RECEPTOR_PREVIEW_MAX_FILES} files. "
                 "The import job will be submitted directly."
             )
-        root.addWidget(self.info_label)
+        column.addWidget(self.info_label)
 
         self.remove_non_structural_waters.toggled.connect(self.refresh_preview)
         self.create_binding_sites.toggled.connect(self.refresh_preview)
@@ -363,7 +380,7 @@ class ReceptorImportPanel(QWidget):
             self,
             "Add Receptor Files",
             self.file_dialog_directory,
-            QT_FILE_FILTER,
+            QT_RECEPTOR_FILE_FILTER,
             options=self.file_dialog_options,
         )
         self._add_paths(paths)
@@ -397,7 +414,7 @@ class ReceptorImportPanel(QWidget):
         self._add_paths([path for path, _label in files])
 
     def _add_paths(self, paths) -> None:
-        resolved = expand_folders(paths or [])
+        resolved = expand_folders(paths or [], file_filter=QT_RECEPTOR_FILE_FILTER)
         if resolved:
             self.set_files(list(dict.fromkeys(self._file_paths + resolved)))
 
