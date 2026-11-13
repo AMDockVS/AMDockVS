@@ -259,6 +259,7 @@ class DockingResultsWidget(QWidget):
         # Receptor and Ligand are as wide as their columns (Ligand capped at them, so Pose sits
         # right beside it); Pose takes any extra, and `viewer_spare_width` offers that extra
         # to the PyMOL dock.
+        self._splitter = splitter
         self._ligand_box = ligand_box
         self._pose_box = pose_box
         splitter.setStretchFactor(0, 0)
@@ -913,10 +914,22 @@ class DockingResultsWidget(QWidget):
         table = self.ligand_table._table
         bar = table.verticalScrollBar()
         # Room for the vertical scrollbar only while the rows need one: a few rows, no gap.
-        scrollbar = (table.style().pixelMetric(QStyle.PixelMetric.PM_ScrollBarExtent)
+        # Its own width hint, not the style default: the app theme draws it wider.
+        scrollbar = (max(bar.sizeHint().width(),
+                         table.style().pixelMetric(QStyle.PixelMetric.PM_ScrollBarExtent))
                      if bar.maximum() > bar.minimum() else 0)
-        self._ligand_box.setMaximumWidth(
-            table.horizontalHeader().length() + 2 * table.frameWidth() + scrollbar)
+        cap = table.horizontalHeader().length() + 2 * table.frameWidth() + scrollbar
+        self._ligand_box.setMaximumWidth(cap)
+        # A cap that grew (rows brought the scrollbar, a column widened) is not width the
+        # pane gets by itself: it does not stretch, so take what it lacks from Pose.
+        sizes = self._splitter.sizes()
+        lacking = min(cap - sizes[1], sizes[2] - self._pose_box.minimumSizeHint().width())
+        if self._splitter.isVisible() and lacking > 0:
+            self._splitter.setSizes([sizes[0], sizes[1] + lacking, sizes[2] - lacking])
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._fit_ligand_pane()  # rows may have loaded (and brought a scrollbar) while hidden
 
     def viewer_spare_width(self) -> int:
         """Width the Pose pane holds beyond what its columns need: what the PyMOL dock can

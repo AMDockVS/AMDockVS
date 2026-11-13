@@ -556,6 +556,39 @@ def test_a_program_found_after_the_first_pick_selects_again_and_fills_the_detail
     assert widget._selected_ligand_id == 101
 
 
+def test_the_ligand_pane_widens_for_its_scrollbar_instead_of_scrolling_sideways():
+    """Enough ligands for a vertical scrollbar: the pane takes its width from Pose rather
+    than squeezing its columns behind a horizontal scrollbar."""
+    QApplication.instance() or QApplication(["amdockvs-ligand-pane-test"])
+    db = _Db()
+    with db.get_session() as session:
+        session.add_all([
+            DockingRun(id=1, engine="vina", protocol_hash="p", protocol_label="Vina"),
+            MoleculeRecord(id=1, name="receptor", is_receptor=True),
+            *[MoleculeRecord(id=100 + i, name=f"ZINC{i:012d}", is_ligand=True) for i in range(108)],
+        ])
+        session.commit()
+        session.add_all([
+            DockingResultRecord(id=1000 + i, receptor_molecule_id=1, ligand_molecule_id=100 + i,
+                                docking_run_id=1, pose_rank=1, score=-8.0 + i / 100)
+            for i in range(108)
+        ])
+        session.commit()
+    widget = DockingResultsWidget(runtime=SimpleNamespace(
+        workspace=SimpleNamespace(project_db=db),
+        docking=SimpleNamespace(result_protocols=lambda **_kwargs: [("p", "Vina")],
+                                hit=lambda **_kwargs: None),
+    ))
+    widget.resize(1100, 600)
+    widget.show()
+    table = widget.ligand_table._table
+    _wait_for(lambda: table.verticalScrollBar().maximum() > 0)
+    _wait_for(lambda: widget._ligand_box.width() == widget._ligand_box.maximumWidth())
+    QApplication.processEvents()
+    assert table.horizontalScrollBar().maximum() == 0
+    widget.close()
+
+
 def test_live_ligand_reload_keeps_the_selected_ligand_context():
     QApplication.instance() or QApplication(["amdockvs-live-results-test"])
     db = _Db()
