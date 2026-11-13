@@ -130,7 +130,12 @@ def filter_ligand_span(payload: dict[str, Any]) -> list[dict[str, Any]]:
     """
     batch = ImportBatchPayload.model_validate(payload)
     passes = htp_mol_filter(batch.prefilter, batch.molecule_kind)
-    stored_format = FileFormat.SDF if batch.input_format == FileFormat.MOL2 else batch.input_format
+    # The format the record is *read back* in, which is not always the format it was read in:
+    # shards hold SDF or SMILES only, so a mol2 record becomes the SDF it parses to. Parsing a
+    # converted record back in its source format fails every time and would drop it before the
+    # filter it was meant to be judged by ever runs.
+    record_format = FileFormat.SDF if batch.input_format == FileFormat.MOL2 else batch.input_format
+    stored_format = record_format
     prepare = _preparation(batch.prefilter)
     if prepare is not None and _needs_sdf(batch.prefilter):
         stored_format = FileFormat.SDF  # explicit Hs and 3D coordinates don't survive a SMILES
@@ -144,16 +149,20 @@ def filter_ligand_span(payload: dict[str, Any]) -> list[dict[str, Any]]:
         delimiter=str((batch.parse_config or {}).get("delimiter") or " "),
     ):
         raw = str(record.get("raw") or "")
+        mol = None
         if batch.input_format == FileFormat.SMILES:
             raw = smiles_record(raw, dict(batch.parse_config or {}))
         if batch.input_format == FileFormat.MOL2:
-            # Shards hold SDF or SMILES only: a mol2 record is stored as the SDF it parses to.
-            raw = _sdf_record(mol_from_record(raw, FileFormat.MOL2))
+            # Parsed once: the molecule the filter judges is the one that was written out, so
+            # the filter decides on chemistry and a filtered import stores what an unfiltered
+            # one would.
+            mol = mol_from_record(raw, FileFormat.MOL2)
+            raw = _sdf_record(mol)
             if not raw:
                 continue
         # Every record is parsed, filter or not: one that does not read is not a molecule, and
         # a library that looks clean but isn't costs more at docking time than the parse here.
-        mol = mol_from_record(raw, batch.input_format)
+        mol = mol if mol is not None else mol_from_record(raw, record_format)
         if mol is None:
             continue
         kept = passes is None or passes(cull_mol(mol, batch))
