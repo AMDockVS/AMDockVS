@@ -1,7 +1,8 @@
-"""A receptor with no polymer in it is all receptor.
+"""A receptor with no polymer in it is all receptor, and no atom is lost to a name clash.
 
-Worth a test because the failure is silent: the import succeeds and stores an empty model
-(every HETATM residue taken for a co-crystal ligand and stripped).
+Worth a test because both failures are silent: the import succeeds and stores an empty model
+(every HETATM residue taken for a co-crystal ligand and stripped), or one atom per name (gemmi's
+altloc removal deduplicates by atom name, and a ligand PDBQT names its atoms by element).
 """
 from pathlib import Path
 import sys
@@ -31,6 +32,16 @@ ETHANOL_MOL = """ethanol
   1  2  1  0
   2  3  1  0
 M  END
+"""
+
+# What a ligand PDBQT looks like: every atom named after its element alone.
+PROPANOL_PDBQT = """ROOT
+ATOM      1  C   UNL     1       0.000   0.000   0.000  1.00  0.00     0.000 C
+ATOM      2  C   UNL     1       1.520   0.000   0.000  1.00  0.00     0.000 C
+ATOM      3  C   UNL     1       2.040   1.430   0.000  1.00  0.00     0.000 C
+ATOM      4  O   UNL     1       3.460   1.430   0.000  1.00  0.00     0.000 OA
+ENDROOT
+TORSDOF 1
 """
 
 PROTEIN_WITH_LIGAND = """ATOM      1  N   ALA A   1       0.000   0.000   0.000  1.00  0.00           N
@@ -89,7 +100,7 @@ def _processed_atoms(tmp_path, name, text, options=ReceptorImportOptions()):
     return gemmi.read_structure(str(output))[0]
 
 
-@pytest.mark.parametrize("name,text,atoms", [("ethanol.mol", ETHANOL_MOL, 3)])
+@pytest.mark.parametrize("name,text,atoms", [("ethanol.mol", ETHANOL_MOL, 3), ("propanol.pdbqt", PROPANOL_PDBQT, 4)])
 def test_a_small_molecule_receptor_keeps_every_atom(tmp_path, name, text, atoms):
     rows = _receptor_rows(_write(tmp_path, name, text))
     assert [row["primary_role"] for row in rows] == ["receptor"]
@@ -109,6 +120,12 @@ def test_a_protein_still_loses_its_cocrystal_ligand(tmp_path):
     model = _processed_atoms(tmp_path, "complex.pdb", PROTEIN_WITH_LIGAND)
     assert [residue.name for chain in model for residue in chain] == ["ALA"]
     assert model.count_atom_sites() == 5
+
+
+def test_altlocs_are_still_resolved_when_there_are_some(tmp_path):
+    assert _processed_atoms(tmp_path, "altloc.pdb", ALTLOC_PROTEIN).count_atom_sites() == 5
+    keep = ReceptorImportOptions(remove_altloc=False)
+    assert _processed_atoms(tmp_path, "altloc_kept.pdb", ALTLOC_PROTEIN, keep).count_atom_sites() == 6
 
 
 def test_a_receptor_left_with_no_atoms_is_refused(tmp_path):

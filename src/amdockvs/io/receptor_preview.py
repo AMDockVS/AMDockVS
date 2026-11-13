@@ -409,7 +409,9 @@ def write_processed_receptor(
         if len(new_chain):
             processed_model.add_chain(new_chain)
 
-    if options.remove_altloc:
+    # gemmi keeps one atom per name in a residue, altloc or not: a PDBQT names its atoms by
+    # element, so on a model with no altlocs this would keep one C, one N and one O of a ligand.
+    if options.remove_altloc and _has_altlocs(processed_model):
         processed_model.remove_alternative_conformations()
     if processed_model.count_atom_sites() == 0:
         raise ValueError(f"{path.name}: nothing is left of the receptor after the import options are applied.")
@@ -832,6 +834,10 @@ def _polymer_type_for_resname(resname: str) -> str:
     if resname in _NUCLEOTIDE_CODES:
         return "nucleotide"
     return "polymer"
+
+
+def _has_altlocs(model: gemmi.Model) -> bool:
+    return any(atom.has_altloc() for chain in model for residue in chain for atom in residue)
 
 
 def _claim_for_the_receptor(components: list[dict[str, Any]], *, has_polymer: bool) -> None:
