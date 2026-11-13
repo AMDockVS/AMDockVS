@@ -18,23 +18,22 @@ from amdockvs.core.vocab import (
     BindingSiteSource,
     FileFormat,
     ModelSource,
-    MoleculeType,
     MoleculeUsageClass,
     ReprType,
 )
-from amdockvs.io.import_stats import FILTERED_PREFILTER, IMPORTED, UNREADABLE, bump, write_import_stats
+from amdockvs.io.import_stats import UNREADABLE, bump, write_import_stats
 from amdockvs.io.rows import (
-    active_small_molecule_criteria, cull_mol, htp_mol_filter, identity_representations, metadata_map_from_row,
+    active_small_molecule_criteria, htp_mol_filter, identity_representations, metadata_map_from_row,
 )
 from amdockvs.core.constants import SERIES_PROPERTIES
 from amdockvs.core.payloads import series_for, structure_payload
+from amdockvs.core.paths import molecule_storage_key
 from amdockvs.io.transformers.rows import (
     _apply_sdf_activity,
     _build_row,
-    _finalize_ligand_row_from_mol,
-    share_current,
     _progress_update,
     _source_properties_from_mapping,
+    record_rows,
 )
 from amdockvs.io.transformers.sdf import _materialize_sdf_rows, _mol_source_properties
 from amdockvs.io.transformers.sequences import _materialize_fasta_rows
@@ -110,7 +109,7 @@ def materialize_multithreaded_sdf_file(
     criteria = active_small_molecule_criteria(batch.prefilter, batch.molecule_kind)
     htp_passes = htp_mol_filter(batch.prefilter, batch.molecule_kind)
     tally: dict[str, int] = {}
-    rows_by_index: dict[int, dict[str, Any]] = {}
+    rows_by_index: dict[int, list[dict[str, Any]]] = {}
     captured = 0
     processed = 0
     for fallback_index, mol in enumerate(supplier):
@@ -123,58 +122,46 @@ def materialize_multithreaded_sdf_file(
             _progress_update(progress_cb, captured, expected_records)
             continue
 
-        # HTP pre-materialization cull: filter on the in-memory mol before any payload is built.
-        if htp_passes is not None and not htp_passes(cull_mol(mol, batch)):
-            bump(tally, FILTERED_PREFILTER)
-            captured = min(expected_records, processed)
-            _progress_update(progress_cb, captured, expected_records)
-            continue
-
         mol_block = Chem.MolToMolBlock(mol)
         name = mol.GetProp("_Name") if mol.HasProp("_Name") else f"{batch.file_path.stem}_{source_index}"
-        row = _build_row(
-            source_file=batch.file_path,
-            source_index=source_index,
-            name=name,
-            n_atoms=mol.GetNumHeavyAtoms(),
-            import_batch_id=batch.import_batch_id,
-            stored=structure_payload(mol_block, "sdf", series_for(batch.primary_role or batch.kind)),
-            current=None,
-            metadata={
-                **molecule_state_metadata(mol),
-                "reader": "MultithreadedSDMolSupplier",
-                "num_threads": batch.num_threads,
-            },
-            molecule_kind=batch.molecule_kind,
-            primary_role=batch.primary_role,
-            primary_context=batch.primary_context,
-        )
-        row["source_properties"] = _source_properties_from_mapping(_mol_source_properties(mol))
-        _apply_sdf_activity(row, getattr(batch, "prefilter", None))
-        if str(batch.primary_role or batch.kind).strip().lower() == "ligand" and str(batch.molecule_kind or "").strip().lower() == MoleculeType.SMALL_MOLECULE:
-            row, reason = _finalize_ligand_row_from_mol(
-                row=row,
-                mol=mol,
-                prefilter=batch.prefilter,
-                criteria=criteria,
+        stored = structure_payload(mol_block, "sdf", series_for(batch.primary_role or batch.kind))
+
+        def make_row(mol=mol, name=name, source_index=source_index, stored=stored):
+            row = _build_row(
+                source_file=batch.file_path,
+                source_index=source_index,
+                name=name,
+                n_atoms=mol.GetNumHeavyAtoms(),
+                import_batch_id=batch.import_batch_id,
+                stored=stored,
+                current=None,
+                metadata={
+                    **molecule_state_metadata(mol),
+                    "reader": "MultithreadedSDMolSupplier",
+                    "num_threads": batch.num_threads,
+                },
                 molecule_kind=batch.molecule_kind,
+                primary_role=batch.primary_role,
+                primary_context=batch.primary_context,
             )
-            if reason is not None:
-                bump(tally, reason)
-                captured = min(expected_records, processed)
-                _progress_update(progress_cb, captured, expected_records)
-                continue
-        else:
-            share_current(row, structure_payload(mol_block, "sdf", series_for(batch.primary_role or batch.kind)))
-        bump(tally, IMPORTED)
-        rows_by_index[source_index] = row
+            row["source_properties"] = _source_properties_from_mapping(_mol_source_properties(mol))
+            _apply_sdf_activity(row, getattr(batch, "prefilter", None))
+            return row
+
+        # Every row of the record, its split fragments included: keyed by record, kept in order.
+        rows_by_index[source_index] = list(record_rows(
+            batch=batch, mol=mol, name=name, source_index=source_index, make_row=make_row,
+            current=stored, criteria=criteria, htp_passes=htp_passes,
+            parent_key=molecule_storage_key(batch.primary_role or batch.kind, batch.file_path, source_index),
+            source_properties=_mol_source_properties(mol), tally=tally,
+        ))
         captured = min(expected_records, processed)
         _progress_update(progress_cb, captured, expected_records)
         if captured >= expected_records:
             break
 
     write_import_stats(batch.storage_dir, tally)
-    return [row for _, row in sorted(rows_by_index.items(), key=lambda item: item[0])]
+    return [row for _, rows in sorted(rows_by_index.items(), key=lambda item: item[0]) for row in rows]
 
 def offload_source_properties(rows: list[dict[str, Any]]) -> Any:
     """Move the heavy per-molecule SDF tags out of the graph payload into one parquet payload

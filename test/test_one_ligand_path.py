@@ -91,3 +91,22 @@ def test_a_mol_row_splits_its_fragments(tmp_path):
     path = _write(tmp_path, ".mol", smiles=PAIR, name="pair")
     assert [row["name"] for row in _rows(path, {"split_fragments": True})] == ["pair", "pair [frag02]"]
     assert [row["name"] for row in _rows(path, {})] == ["pair"]
+
+
+def test_the_multithreaded_sdf_reader_splits_and_keeps_every_row(tmp_path):
+    sdf = tmp_path / "library.sdf"
+    writer = Chem.SDWriter(str(sdf))
+    writer.write(_with_coordinates(PAIR, "pair"))
+    writer.write(_with_coordinates("CCO", "ethanol"))
+    writer.close()
+    payload = {
+        "kind": "ligand",
+        "file_path": str(sdf),
+        "storage_dir": str(tmp_path / "data"),
+        "num_threads": 2,
+        "primary_role": "ligand",
+        "molecule_kind": "small_molecule",
+        "prefilter": {"target_molecule_kinds": ["small_molecule"], "split_fragments": True},
+    }
+    rows = materialize_multithreaded_sdf_file(payload)
+    assert [row["name"] for row in rows] == ["pair", "pair [frag02]", "ethanol"]
