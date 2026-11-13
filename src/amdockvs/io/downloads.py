@@ -18,12 +18,14 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
+from glob import escape as glob_escape
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from urllib.parse import quote, unquote, urlsplit
 from urllib.request import Request, urlopen
 
 from amdockvs.core.home import amdock_home
+from amdockvs.io.formats import READABLE_SUFFIXES, normalized_suffix, sniff_suffix
 
 try:
     _VERSION = version("AMDockVS")
@@ -72,7 +74,8 @@ def _fetch_file(url: str, target: Path, progress: Progress, cancel: threading.Ev
     """Stream ``url`` to ``target`` (gunzipped when the link is ``.gz`` and the target is not).
 
     Written to ``.part`` and renamed at the end, so a cancelled or broken download never poses
-    as a cached file.
+    as a cached file. Broken includes short: a body below its Content-Length, or a gzip stream
+    that never reached its trailer (the CRC and length zlib checks are in those last 8 bytes).
     """
     if target.exists():
         return target
@@ -83,19 +86,47 @@ def _fetch_file(url: str, target: Path, progress: Progress, cancel: threading.Ev
         with _open(url) as response, part.open("wb") as out:
             total = int(response.headers.get("Content-Length") or 0)
             done = 0
-            inflate = zlib.decompressobj(16 + zlib.MAX_WBITS) if gunzip else None
+            inflate = _Gunzip() if gunzip else None
             while chunk := response.read(_CHUNK):
                 if cancel.is_set():
                     raise Cancelled
                 done += len(chunk)
-                out.write(inflate.decompress(chunk) if inflate else chunk)
+                out.write(inflate.feed(chunk) if inflate else chunk)
                 progress(done, total, target.name)
+            if total and done < total:
+                raise OSError(f"the connection closed after {done:,} of {total:,} bytes")
             if inflate:
-                out.write(inflate.flush())
+                out.write(inflate.finish())
         part.replace(target)
     finally:
         part.unlink(missing_ok=True)
     return target
+
+
+class _Gunzip:
+    """Inflate a gzip download as it streams, every member of it, and know whether it ended.
+
+    One ``zlib.decompressobj`` stops at the end of the first member and keeps the rest as
+    ``unused_data``: a concatenated or bgzipped library would lose all but its first block.
+    """
+
+    def __init__(self):
+        self._inflate = zlib.decompressobj(16 + zlib.MAX_WBITS)
+
+    def feed(self, data: bytes) -> bytes:
+        out = []
+        while data:
+            if self._inflate.eof:  # the next member starts here
+                self._inflate = zlib.decompressobj(16 + zlib.MAX_WBITS)
+            out.append(self._inflate.decompress(data))
+            data = self._inflate.unused_data if self._inflate.eof else b""
+        return b"".join(out)
+
+    def finish(self) -> bytes:
+        tail = self._inflate.flush()
+        if not self._inflate.eof:
+            raise OSError("the gzip stream ends early: the download is incomplete")
+        return tail
 
 
 def _write(target: Path, text: str) -> Path:
@@ -171,13 +202,35 @@ def _uniprot(ids, folder, progress, cancel):
     return _per_id(ids, folder, progress, cancel, label="UniProt", file_for=one)
 
 
+# What the importers dispatch on; a downloaded name without one of these is named by its content.
+_IMPORTABLE_SUFFIXES = READABLE_SUFFIXES | {".fasta", ".csv", ".tsv", ".txt"}
+
+
+def _named_by_content(path: Path) -> Path:
+    """``SDF`` (PubChem's ``.../cid/2244/SDF``) becomes ``SDF.sdf``: the importers pick the
+    reader by suffix, and without one the file went to the structure route and failed."""
+    if normalized_suffix(path) in _IMPORTABLE_SUFFIXES:
+        return path
+    suffix = sniff_suffix(path)
+    if not suffix:
+        return path
+    named = path.with_name(path.name + suffix)
+    path.replace(named)
+    return named
+
+
 def _urls(ids, folder, progress, cancel):
     def one(url: str, folder: Path) -> Path:
         name = unquote(Path(urlsplit(url).path).name) or "download"
         # Keyed by the whole URL: two vendors may both serve "library.sdf".
         digest = hashlib.sha1(url.encode()).hexdigest()[:8]
         name = name[:-3] if name.endswith(".gz") and not name.endswith(".tar.gz") else name
-        return _fetch_file(url, folder / digest / name, progress, cancel)
+        target = folder / digest / name
+        # A kept download named by its content last time is reused under that name.
+        named = [p for p in target.parent.glob(f"{glob_escape(name)}.*") if not p.name.endswith(".part")]
+        if not target.exists() and named:
+            return named[0]
+        return _named_by_content(_fetch_file(url, target, progress, cancel))
 
     return _per_id(ids, folder, progress, cancel, label="URL", file_for=one, upper=False)
 
