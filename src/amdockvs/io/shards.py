@@ -131,6 +131,11 @@ def filter_ligand_span(payload: dict[str, Any]) -> list[dict[str, Any]]:
     """
     batch = ImportBatchPayload.model_validate(payload)
     passes = htp_mol_filter(batch.prefilter, batch.molecule_kind)
+    # The format the record is *stored* in, which is not always the format it was read in:
+    # shards hold SDF or SMILES only, so a mol2 record becomes the SDF it parses to. Parsing a
+    # converted record back in its source format fails every time and would drop it before the
+    # filter it was meant to be judged by ever runs.
+    stored_format = FileFormat.SDF if batch.input_format == FileFormat.MOL2 else batch.input_format
     records: list[tuple[int, str]] = []
     for record in iter_record_span(
         file_path=batch.file_path,
@@ -140,22 +145,26 @@ def filter_ligand_span(payload: dict[str, Any]) -> list[dict[str, Any]]:
         first_index=batch.span_first_index,
     ):
         raw = str(record.get("raw") or "")
+        mol = None
         if batch.input_format == FileFormat.SMILES:
             raw = smiles_record(raw, dict(batch.parse_config or {}))
         if batch.input_format == FileFormat.MOL2:
-            # Shards hold SDF or SMILES only: a mol2 record is stored as the SDF it parses to.
-            raw = _sdf_record(mol_from_record(raw, FileFormat.MOL2))
+            # Parsed once: the molecule the filter judges is the one that was written out, so
+            # the filter decides on chemistry and a filtered import stores what an unfiltered
+            # one would.
+            mol = mol_from_record(raw, FileFormat.MOL2)
+            raw = _sdf_record(mol)
             if not raw:
                 continue
         if passes is not None:
-            mol = mol_from_record(raw, batch.input_format)
+            mol = mol if mol is not None else mol_from_record(raw, stored_format)
             if mol is None or not passes(cull_mol(mol, batch)):
                 continue
         records.append((int(record["source_index"]), raw))
     return [
         {
             "import_batch_id": batch.import_batch_id,
-            "input_format": FileFormat.SDF if batch.input_format == FileFormat.MOL2 else batch.input_format,
+            "input_format": stored_format,
             "records": records,
         }
     ]
