@@ -84,7 +84,16 @@ def scan_receptor_structure(file_path: str | Path) -> dict[str, Any]:
         return _scan_with_gemmi(path)
     if suffix == ".pdbqt":
         return _scan_pdbqt_fallback(path)
-    return _unsupported_scan(path)
+    # MOL/MDL/MOL2 reach the import through their PDB rendering; scan that same rendering, or
+    # the import keeps nothing of a structure its scan never listed.
+    from amdockvs.io.formats import as_pdb
+
+    try:
+        with as_pdb(path) as rendered:
+            scan = _scan_with_gemmi(rendered)
+    except (ValueError, RuntimeError, OSError):
+        return _unsupported_scan(path)
+    return {**scan, "file_path": str(path), "name": path.stem}
 
 
 def build_receptor_import_maps(
@@ -373,6 +382,11 @@ def write_processed_receptor(
     selected_chain_ids = _selected_chain_ids(scan, selected_cocrystal_key, options.selected_chain_ids)
     removable_components = _components_to_remove(scan, options, selected_cocrystal_key)
     component_keys = {tuple(item) for item in removable_components}
+    receptor_codes = {
+        str(component.get("resname") or "").upper()
+        for component in list(scan.get("components") or [])
+        if component.get("component_class") == "receptor"
+    }
 
     processed = gemmi.Structure()
     processed.cell = structure.cell
@@ -399,13 +413,17 @@ def write_processed_receptor(
             # so it is already in component_keys and falls through to the last `continue`.
             if _is_polymer_residue(resname) or resname in _COORDINATION_METAL_CODES:
                 new_chain.add_residue(residue.clone())
-            elif resname in _WATER_CODES or resname in _COFACTOR_CODES:
+            elif resname in _WATER_CODES or resname in _COFACTOR_CODES or resname in receptor_codes:
                 new_chain.add_residue(residue.clone())
         if len(new_chain):
             processed_model.add_chain(new_chain)
 
-    if options.remove_altloc:
+    # gemmi keeps one atom per name in a residue, altloc or not: a PDBQT names its atoms by
+    # element, so on a model with no altlocs this would keep one C, one N and one O of a ligand.
+    if options.remove_altloc and _has_altlocs(processed_model):
         processed_model.remove_alternative_conformations()
+    if processed_model.count_atom_sites() == 0:
+        raise ValueError(f"{path.name}: nothing is left of the receptor after the import options are applied.")
     processed.add_model(processed_model)
     output.parent.mkdir(parents=True, exist_ok=True)
     if output.suffix.lower() in {".cif", ".mmcif"}:
@@ -578,6 +596,7 @@ def _scan_with_gemmi(path: Path) -> dict[str, Any]:
             }
 
     components = list(grouped_components.values())
+    _claim_for_the_receptor(components, has_polymer=bool(chains_map))
     polar_by_ligand = [
         _points_array([point for point, element in zip(component["atom_points"], component["atom_elements"]) if element in {"O", "N", "S"}])
         for component in components
@@ -696,6 +715,7 @@ def _scan_pdbqt_fallback(path: Path) -> dict[str, Any]:
         payload["elements"] = sorted(payload["elements"])
         payload["is_selected"] = payload["component_class"] != "water"
         components.append(payload)
+    _claim_for_the_receptor(components, has_polymer=bool(chains_map))
     ligand_centers = [component["center"] for component in components if component["component_class"] == "ligand"]
     metal_centers = [component["center"] for component in components if component["component_class"] == "metal"]
     for component in components:
@@ -823,6 +843,24 @@ def _polymer_type_for_resname(resname: str) -> str:
     if resname in _NUCLEOTIDE_CODES:
         return "nucleotide"
     return "polymer"
+
+
+def _has_altlocs(model: gemmi.Model) -> bool:
+    return any(atom.has_altloc() for chain in model for residue in chain for atom in residue)
+
+
+def _claim_for_the_receptor(components: list[dict[str, Any]], *, has_polymer: bool) -> None:
+    """With no polymer around them, the hetero groups are the receptor, not what binds to it.
+
+    A host (cyclodextrin, cucurbituril) or any small-molecule target has nothing but HETATM
+    residues. Classified as co-crystal ligands they are stripped, and the stored receptor is an
+    empty model. Waters and metals keep their own rules.
+    """
+    if has_polymer:
+        return
+    for component in components:
+        if component["component_class"] not in {"water", "metal"}:
+            component["component_class"] = "receptor"
 
 
 def _classify_component(resname: str, elements: list[str]) -> str:
