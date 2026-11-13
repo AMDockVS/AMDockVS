@@ -352,7 +352,7 @@ class LigandImportDialog(QDialog):
         )
         root.addWidget(self.tabs)
         self._reference_count = 0
-        self._activity_source: str | None = None
+        self._activity_sources: list[str] = []
 
         # --- footer ---
         buttons = QDialogButtonBox(self)
@@ -491,16 +491,15 @@ class LigandImportDialog(QDialog):
         if len(references) > self._reference_count:
             self.tabs.setCurrentWidget(self.activity_form)
         self._reference_count = len(references)
-        # The first tabular reference file feeds the column picker; re-sniffed only when it
-        # changes, so ticking another row does not reset the chips the user already picked.
-        tabular = next(
-            (path for path, _kind in self.table.rows()
-             if path in references and Path(path).suffix.lower() in {".csv", ".tsv", ".txt", ".smi", ".smiles"}),
-            None,
-        )
-        if tabular != self._activity_source:
-            self._activity_source = tabular
-            self.activity_form.set_source_file(tabular)
+        # Every tabular reference file feeds the column picker (each may carry its own assays);
+        # re-sniffed only when that set changes, and the picks already made survive it.
+        tabular = [
+            path for path, _kind in self.table.rows()
+            if path in references and Path(path).suffix.lower() in {".csv", ".tsv", ".txt", ".smi", ".smiles"}
+        ]
+        if tabular != self._activity_sources:
+            self._activity_sources = tabular
+            self.activity_form.set_source_files(tabular)
 
     def _sync_tabs_enabled(self) -> None:
         # Item 9: every option tab is off until a small-molecule candidate exists.

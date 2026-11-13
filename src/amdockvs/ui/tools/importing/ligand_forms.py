@@ -145,12 +145,16 @@ def _sniff_activity_columns(path: str) -> dict[str, str]:
     """Read the header + a few rows of a CSV/SMILES table and return {numeric column -> kind}
     ('categorical' if every sampled value is a 0/1 label, else 'continuous'). Non-numeric and
     structural (smiles/name/id) columns are omitted — they can't be activity endpoints."""
+    from amdockvs.io.parsers.readers import _sniff_smiles_table
+
     file_path = Path(path)
     if file_path.suffix.lower() not in {".csv", ".tsv", ".txt", ".smi", ".smiles"}:
         return {}
-    delimiter = "\t" if file_path.suffix.lower() == ".tsv" else ","
+    # The importer's own reading of the table: a tab-separated .smi/.txt is one too, and a
+    # picker that guessed by suffix offered no columns for it.
+    _header, delimiter, _smiles_col, _name_col = _sniff_smiles_table(file_path)
     with file_path.open("r", encoding="utf-8", newline="") as handle:
-        reader = csv.DictReader(handle, delimiter=delimiter)
+        reader = csv.DictReader(handle, delimiter=delimiter, skipinitialspace=delimiter == " ")
         columns = list(reader.fieldnames or [])
         sample = [row for _, row in zip(range(40), reader)]
     kinds: dict[str, str] = {}
@@ -215,24 +219,30 @@ class ImportActivityForm(QWidget):
         self._detected_kinds: dict[str, str] = {}
         self.columns_box.setVisible(False)
 
-    def set_source_file(self, path: str | None) -> None:
-        """Called by the import dialog when the file list changes: sniff the CSV's numeric columns
-        and offer them as unticked chips. Hidden for SDF / no file.
+    def set_source_files(self, paths: list[str]) -> None:
+        """Called by the import dialog when the reference files change: offer the numeric columns
+        of every one of them as chips. Hidden when none is a table.
 
-        Unticked on purpose: a numeric column is not an assay, and pre-ticking turned every
-        tabular import into an activity import."""
+        New columns come unticked: a numeric column is not an assay, and pre-ticking turned every
+        tabular import into an activity import. A column offered before keeps its tick, so
+        marking another file does not undo the picks already made. A column numeric in several
+        files is categorical only if it is 0/1 in all of them.
+        """
+        kinds: dict[str, str] = {}
+        for path in paths:
+            for column, kind in _sniff_activity_columns(path).items():
+                kinds[column] = kind if kinds.get(column, kind) == kind else "continuous"
+        ticked = {column for column, chip in self._chips.items() if chip.isChecked()}
         for chip in self._chips.values():
             chip.setParent(None)
         self._chips.clear()
-        self._detected_kinds = _sniff_activity_columns(path) if path else {}
-        if not self._detected_kinds:
-            self.columns_box.setVisible(False)
-            return
-        for column, kind in self._detected_kinds.items():
+        self._detected_kinds = kinds
+        for column, kind in kinds.items():
             chip = QCheckBox(f"{column}  ({kind})", self._chips_host)
+            chip.setChecked(column in ticked)
             self._chips_layout.addWidget(chip)
             self._chips[column] = chip
-        self.columns_box.setVisible(True)
+        self.columns_box.setVisible(bool(kinds))
 
     def contribute(self, policy: dict[str, Any]) -> None:
         activity_property = self.activity_property.text().strip()
