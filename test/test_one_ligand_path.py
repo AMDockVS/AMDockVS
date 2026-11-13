@@ -62,6 +62,15 @@ def _rows(path, prefilter, input_format=None, entries=None):
     return materialize_import_batch(payload)
 
 
+@pytest.mark.parametrize("suffix", [".mol", ".mdl", ".pdb", ".pdbqt"])
+@pytest.mark.parametrize("prefilter", [{"max_heavy_atoms": 1}, {"include_smarts": ["N"]}],
+                         ids=["legacy-criteria", "streaming-filter"])
+def test_a_structure_format_ligand_obeys_the_filters(tmp_path, suffix, prefilter):
+    path = _write(tmp_path, suffix)
+    assert _rows(path, prefilter) == []
+    assert len(_rows(path, {"max_heavy_atoms": 50})) == 1  # and passes one it meets
+
+
 def test_a_split_fragment_obeys_the_streaming_filter(tmp_path):
     smi = tmp_path / "pair.smi"
     smi.write_text(f"{PAIR} pair\n", encoding="utf-8")
@@ -76,3 +85,9 @@ def test_each_molecule_of_a_record_is_judged_on_its_own(tmp_path):
     entries = [{"source_index": 0, "raw": f"{PAIR} pair"}]
     drop_n = _rows(smi, {"split_fragments": True, "exclude_smarts": ["N"]}, "smiles", entries)
     assert [row["name"] for row in drop_n] == ["pair [frag02]"]  # the anilide goes, naphthol stays
+
+
+def test_a_mol_row_splits_its_fragments(tmp_path):
+    path = _write(tmp_path, ".mol", smiles=PAIR, name="pair")
+    assert [row["name"] for row in _rows(path, {"split_fragments": True})] == ["pair", "pair [frag02]"]
+    assert [row["name"] for row in _rows(path, {})] == ["pair"]
