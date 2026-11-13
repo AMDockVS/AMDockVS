@@ -39,17 +39,36 @@ def _optional_spinbox(*, minimum: int, maximum: int, step: int = 1, default: int
 
 
 def _smarts_list(text: str) -> list[str]:
-    return [s.strip() for s in text.split(",") if s.strip()]
+    """Split on the commas between patterns, never on the OR inside an atom: ``[N,O]`` is one.
+
+    SMARTS only allows a comma inside ``[...]`` (an atom list, or a ``$(...)`` within one), so a
+    comma outside every bracket can only be a separator.
+    """
+    patterns: list[str] = []
+    current: list[str] = []
+    depth = 0
+    for char in text:
+        if char in "[(":
+            depth += 1
+        elif char in "])":
+            depth = max(depth - 1, 0)
+        elif char == "," and depth == 0:
+            patterns.append("".join(current))
+            current = []
+            continue
+        current.append(char)
+    patterns.append("".join(current))
+    return [pattern.strip() for pattern in patterns if pattern.strip()]
 
 
 def finalize_import_prefilter_policy(policy: dict[str, Any]) -> dict[str, Any] | None:
     """Return the policy only if it actually filters or carries an activity mapping."""
-    from amdockvs.io.payloads import ImportPrefilterPolicy
+    from amdockvs.io.payloads import validate_prefilter
 
     # Activity isn't "active" filtering but must still reach the materializer.
     activity_property = str(policy.get("activity_property") or "").strip()
     activity_columns = tuple(policy.get("activity_columns") or ())
-    validated = ImportPrefilterPolicy.model_validate(policy)
+    validated = validate_prefilter(policy)  # ValueError: the dialog shows it, nothing is queued
     keep = validated.is_active() or validated.prep_active() or activity_property or activity_columns
     return policy if keep else None
 

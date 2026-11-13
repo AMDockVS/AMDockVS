@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,10 @@ from amdockvs.io._common import normalize_context, normalize_kind, normalize_mol
 # Concentration units -> molar; pX = -log10(M). ponytail: mirrors qsar.activities._to_pchem (4 lines,
 # duplicated to keep io out of the qsar/sklearn import path).
 _UNIT_TO_MOLAR = {"m": 1.0, "mm": 1e-3, "um": 1e-6, "µm": 1e-6, "nm": 1e-9, "pm": 1e-12, "": 1.0}
+
+
+# pX = -log10(M) holds for any concentration endpoint; the label only names it (pIC50, pKd, pGI50).
+_PCHEM_LABEL = re.compile(r"p[A-Za-z][A-Za-z0-9]*")
 
 
 def _to_pchem(value: float, unit: str) -> float | None:
@@ -84,6 +89,47 @@ class ImportPrefilterPolicy(BaseModel):
         if "target_molecule_kinds" not in payload:
             payload["target_molecule_kinds"] = ("small_molecule",)
         return payload
+
+    @field_validator("property_ranges")
+    @classmethod
+    def _check_property_ranges(
+        cls, ranges: dict[str, tuple[float | None, float | None]]
+    ) -> dict[str, tuple[float | None, float | None]]:
+        # Each of these filters silently: an unknown key is never computed (every molecule fails
+        # it), NaN compares False both ways, and low > high leaves nothing to keep.
+        from amdockvs.screening.filters import PROPERTY_KEYS
+
+        for key, (low, high) in ranges.items():
+            if key not in PROPERTY_KEYS:
+                raise ValueError(f"unknown property {key!r}; use one of: {', '.join(PROPERTY_KEYS)}")
+            for bound in (low, high):
+                if bound is not None and not math.isfinite(bound):
+                    raise ValueError(f"{key}: the bounds must be finite numbers, got {bound!r}")
+            if low is not None and high is not None and low > high:
+                raise ValueError(f"{key}: the minimum {low:g} is above the maximum {high:g}")
+        return ranges
+
+    @field_validator("qsar_op")
+    @classmethod
+    def _check_qsar_op(cls, op: str) -> str:
+        if op not in {">=", "<="}:
+            raise ValueError(f"qsar_op must be '>=' or '<=', got {op!r}")
+        return op
+
+    @model_validator(mode="after")
+    def _check_activity_transform(self) -> "ImportPrefilterPolicy":
+        transform = str(self.activity_transform or "").strip()
+        if not transform:
+            return self
+        if not _PCHEM_LABEL.fullmatch(transform):
+            raise ValueError(f"activity_transform {transform!r} is not a pX label such as pIC50 or pKi")
+        # An unknown unit makes _to_pchem drop every value: the import would load no activity.
+        if str(self.activity_unit or "").strip().lower() not in _UNIT_TO_MOLAR:
+            raise ValueError(
+                f"activity_unit {self.activity_unit!r} cannot be converted to molar for {transform}; "
+                "use M, mM, uM, nM or pM"
+            )
+        return self
 
     @field_validator("target_molecule_kinds", mode="before")
     @classmethod
@@ -248,6 +294,17 @@ class ImportPrefilterPolicy(BaseModel):
             "target_molecule_kinds": list(self.target_molecule_kinds),
             "criteria": self.to_criteria().to_mapping(),
         }
+
+
+def validate_prefilter(policy: Any) -> ImportPrefilterPolicy:
+    """The policy, or a ValueError naming every problem in it, written for whoever typed it."""
+    from pydantic import ValidationError
+
+    try:
+        return ImportPrefilterPolicy.model_validate(policy)
+    except ValidationError as exc:
+        problems = [str(error["msg"]).removeprefix("Value error, ") for error in exc.errors()]
+        raise ValueError("Invalid import filter: " + "; ".join(problems)) from None
 
 
 class ImportBatchPayload(BaseModel):

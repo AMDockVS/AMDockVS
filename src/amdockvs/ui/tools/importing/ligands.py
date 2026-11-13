@@ -524,8 +524,12 @@ class LigandImportDialog(QDialog):
         if not rows:
             QMessageBox.information(self, "Import Ligands", "Add at least one ligand file.")
             return None
-        policy = self._policy_mapping()
-        reference_policy = self._policy_mapping(reference=True)
+        try:
+            policy = self._policy_mapping()
+            reference_policy = self._policy_mapping(reference=True)
+        except ValueError as exc:  # a contradictory or unknown filter: say so instead of importing
+            QMessageBox.warning(self, "Import Ligands", str(exc))
+            return None
         references = self.table.reference_paths()
         source_labels = {path: self._source_labels[path] for path, _kind in rows if path in self._source_labels}
         groups: dict[tuple[str, bool], list[str]] = {}

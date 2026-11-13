@@ -19,6 +19,7 @@ from amdockvs.core.configuration import app_config
 from amdockvs.core.constants import RESOURCE_IMPORT_STATS, RESOURCE_SHARDS
 from amdockvs.core.vocab import ImportKind
 from amdockvs.io.batches import register_batches, stamp_job
+from amdockvs.io.payloads import validate_prefilter
 
 
 def import_max_inflight(runtime=None) -> int:
@@ -43,6 +44,15 @@ def shard_suggest_records(*, runtime=None) -> int:
     if override:
         return int(override)
     return int(app_config(runtime).shards.suggest_records)
+
+
+def _checked_prefilter(prefilter: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """Refuse a policy the job would reject (or worse, apply and filter everything away) before
+    any job is queued."""
+    if not prefilter:
+        return None
+    validate_prefilter(prefilter)
+    return dict(prefilter)
 
 
 def _total_import_chunks(files: list[Path], *, batch_size: int, ramp: bool = True) -> int:
@@ -137,7 +147,7 @@ class LoaderAPI:
         normalized_files = normalize_files(files, label="molecule files")
         if not normalized_files:
             return []
-        effective_prefilter = None if not prefilter else dict(prefilter)
+        effective_prefilter = _checked_prefilter(prefilter)
         # One job streams all files (like receptors): N files no longer means N jobs.
         params = {
             "file_paths": [str(file_path) for file_path in normalized_files],
@@ -182,7 +192,7 @@ class LoaderAPI:
         normalized_files = normalize_files(files, label="ligand files")
         if not normalized_files:
             return []
-        effective_prefilter = None if not prefilter else dict(prefilter)
+        effective_prefilter = _checked_prefilter(prefilter)
         # One job streams all files (like receptors): N files no longer means N jobs.
         params = {
             "file_paths": [str(file_path) for file_path in normalized_files],
@@ -243,8 +253,8 @@ class LoaderAPI:
             "molecule_kind": str(molecule_kind or "small_molecule"),
             **self._batches(normalized_files, force=force, kind=ImportKind.SHARDS, role="ligand"),
         }
-        if prefilter:
-            params["prefilter"] = dict(prefilter)
+        if prefilter := _checked_prefilter(prefilter):
+            params["prefilter"] = prefilter
         return [
             self._submit_job(
                 shard_ligands_job,
@@ -321,7 +331,7 @@ class LoaderAPI:
         normalized_files = normalize_files(files, label="receptor files")
         if not normalized_files:
             return []
-        effective_prefilter = None if not prefilter else dict(prefilter)
+        effective_prefilter = _checked_prefilter(prefilter)
         # This method owns the raw-intent -> import-maps assembly, so a headless caller gets the
         # same result as the UI (which just forwards its selections). Pre-assembled maps still win.
         if extra_data_patch_by_file is None and binding_site_specs_by_file is None:
@@ -403,7 +413,7 @@ class LoaderAPI:
         if invalid:
             raise ValueError(f"load_ligands_multithreaded_sdf only supports .sdf files: {invalid}")
 
-        effective_prefilter = None if not prefilter else dict(prefilter)
+        effective_prefilter = _checked_prefilter(prefilter)
         job_ids: list[str] = []
         for group in group_files(normalized_files, files_per_job=files_per_job):
             params = {
