@@ -499,15 +499,18 @@ class DiversityAPI:
                 for cid, size in frame.groupby("cluster_id").size().items()
             ]
             snapshot_path = str(snapshot)
+            # Empty when the sidecar predates it: "not recorded", never a made-up 0.0%.
+            evr = [float(value) for value in frame.attrs.get("evr") or []]
         else:  # sidecar missing (e.g. write failed) → counts-only summary, no graph
             n_molecules = n_clusters = n_reps = 0
             cluster_stats = []
             snapshot_path = ""
+            evr = []
         row = ClusteringRun(
             run_id=cluster_run_id, method=str(method), threshold=float(threshold),
             scope_label=str(scope_label), fp_radius=int(fp_radius), fp_nbits=int(fp_nbits),
             n_molecules=n_molecules, n_clusters=n_clusters, n_reps=n_reps,
-            snapshot_path=snapshot_path, evr=[0.0, 0.0], cluster_stats=cluster_stats,
+            snapshot_path=snapshot_path, evr=evr, cluster_stats=cluster_stats,
         )
         with self.runtime.workspace.project_db.get_session() as session:
             session.add(row)
@@ -780,7 +783,9 @@ class DiversityAPI:
         return {
             "run_id": row.run_id, "method": row.method, "threshold": row.threshold,
             "scope_label": row.scope_label, "n_molecules": row.n_molecules, "n_clusters": row.n_clusters,
-            "n_reps": row.n_reps, "evr": list(row.evr or [0.0, 0.0]),
+            # Runs registered before the variance was kept stored exactly [0.0, 0.0]; no real
+            # projection explains nothing on both axes, so that reads as "not recorded".
+            "n_reps": row.n_reps, "evr": list(row.evr) if any(row.evr or []) else [],
             "cluster_stats": list(row.cluster_stats or []), "points": frame.to_dict("records"),
         }
 

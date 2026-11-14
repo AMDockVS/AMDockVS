@@ -156,6 +156,9 @@ def _write_graph_sidecar(
             "similarity": np.zeros(n, dtype=np.float32) if similarity is None else similarity,
             "centrality": np.full(n, np.nan, dtype=np.float32) if centrality is None else centrality,
         })
+        # The axes' explained variance travels in the file's own metadata, so registering the run
+        # can label the saved plot with what this projection actually captured.
+        frame.attrs["evr"] = [float(value) for value in list(_evr)[:2]]
         out_dir = Path(output_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
         frame.to_parquet(out_dir / f"{run_id}.parquet", index=False)

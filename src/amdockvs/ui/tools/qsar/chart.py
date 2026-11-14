@@ -251,7 +251,7 @@ class QSARChartDockWidget(MSDockWidget):
         plot.setLabel("bottom", "Observed")
         plot.setLabel("left", "Predicted")
 
-    def show_universe(self, pool_points, selection_groups, evr=(0.0, 0.0), highlight_points=None) -> None:
+    def show_universe(self, pool_points, selection_groups, evr=(), highlight_points=None) -> None:
         """Chemical-universe scatter (top-2 PCA axes, pyqtgraph) that ACCUMULATES across previews:
         ``pool_points`` is the grey cloud sampled so far, ``selection_groups`` a list of per-preview
         representative sets — ``[{"points": [(x, y), ...], "color": (r, g, b), "label": str}, ...]`` —
@@ -260,7 +260,8 @@ class QSARChartDockWidget(MSDockWidget):
         Preview' placeholder (tab entry / after a merge). ``highlight_points`` — when given, the pool
         and every centroid are dimmed and those points are drawn bright + ringed (a picked cluster)."""
         self.stack.setCurrentWidget(self.universe_view)
-        evr = (list(evr or []) + [0.0, 0.0])[:2]
+        evr = list(evr or [])[:2]
+        known = len(evr) == 2  # a saved run may not have recorded it: say so, don't print 0.0%
         groups = list(selection_groups or [])
         highlight = np.asarray(highlight_points, dtype=float) if len(highlight_points or []) else None
         dim = highlight is not None
@@ -276,14 +277,17 @@ class QSARChartDockWidget(MSDockWidget):
             return
 
         n_reps = sum(len(g.get("points") or []) for g in groups)
-        pct = f"{evr[0] * 100:.1f}% + {evr[1] * 100:.1f}% = {(evr[0] + evr[1]) * 100:.1f}% variance"
+        pct = (
+            f"{evr[0] * 100:.1f}% + {evr[1] * 100:.1f}% = {(evr[0] + evr[1]) * 100:.1f}% variance"
+            if known else "variance not recorded"
+        )
         plot.setTitle(
             f"Chemical universe (PCA) - {pool.shape[0]} sampled · {n_reps} representatives "
             f"({len(groups)} previews) · {pct}",
             color=_AXIS_GREY,
         )
-        plot.setLabel("bottom", f"PC1 ({evr[0] * 100:.1f}%)")
-        plot.setLabel("left", f"PC2 ({evr[1] * 100:.1f}%)")
+        plot.setLabel("bottom", f"PC1 ({evr[0] * 100:.1f}%)" if known else "PC1")
+        plot.setLabel("left", f"PC2 ({evr[1] * 100:.1f}%)" if known else "PC2")
 
         if pool.shape[0]:
             item = pg.ScatterPlotItem(

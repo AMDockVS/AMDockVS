@@ -268,7 +268,7 @@ class ClustersWidget(QWidget):
         points = data.get("points") or []
         self._pool = [[p["x"], p["y"]] for p in points if not p["is_centroid"]]
         self._reps = [p for p in points if p["is_centroid"]]
-        self._evr = list(data.get("evr") or [0.0, 0.0])
+        self._evr = list(data.get("evr") or [])  # empty: the run did not record it
         self._stats = sorted(data.get("cluster_stats") or [], key=lambda c: -int(c.get("size") or 0))
         shown = self._stats[:_MAX_CLUSTER_ROWS]
         rows = [("Representatives (one per cluster)" if data.get("n_reps") == data.get("n_clusters")
