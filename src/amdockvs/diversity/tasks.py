@@ -37,7 +37,8 @@ def cluster_molecules_task(payload: dict) -> dict | list:
     packed = np.load(payload["fp_path"], mmap_mode="r")[:count]
     x_matrix = PackedFingerprints(packed, int(payload.get("nbits") or 0))
     per_cluster = int(payload.get("per_cluster") or 1)
-    threshold = float(payload.get("threshold") or 0.65)
+    # 0 is a valid threshold (one cluster), not "unset": only a missing key takes the default.
+    threshold = float(payload["threshold"] if payload.get("threshold") is not None else 0.65)
     num_processes = int(payload.get("num_processes") or 1)
     method = str(payload.get("method") or "bitbirch")
     if num_processes > 1:
