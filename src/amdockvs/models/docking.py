@@ -11,6 +11,7 @@ from amdockvs.models.codes import code_field
 
 from amdockvs.core.rows import binding_site_row, interaction_rows
 from amdockvs.core.constants import (
+    MIN_BOX_EDGE,
     TABLE_PAYLOADS,
     TABLE_BINDING_SITES,
     TABLE_DOCKING_RESULTS,
@@ -28,7 +29,7 @@ from amdockvs.core.vocab import BindingSiteSource
 # ---------------------------------------------------------------------------
 
 def box_error(center, size, spacing: float | None = None) -> str | None:
-    """Why a docking box is unusable (non-finite centre, an edge or spacing <= 0), or None."""
+    """Why a docking box is unusable (non-finite centre, an edge under MIN_BOX_EDGE, spacing <= 0), or None."""
     try:
         center, size = [float(v) for v in center], [float(v) for v in size]
     except (TypeError, ValueError):
@@ -37,8 +38,8 @@ def box_error(center, size, spacing: float | None = None) -> str | None:
         return "Box center and size need three values (x, y, z)."
     if not all(isfinite(v) for v in center):
         return f"Box center {tuple(center)} is not a finite point."
-    if not all(isfinite(v) and v > 0 for v in size):
-        return f"Box size {tuple(size)} must be greater than 0 Å along every axis."
+    if not all(isfinite(v) and v >= MIN_BOX_EDGE for v in size):
+        return f"Box size {tuple(size)} must be at least {MIN_BOX_EDGE:g} Å along every axis."
     if spacing is not None and not (isfinite(float(spacing)) and float(spacing) > 0):
         return f"Grid spacing {spacing} must be greater than 0 Å."
     return None
@@ -51,7 +52,7 @@ _FINITE = sys.float_info.max
 DEFINED_BOX = (
     *((column, "gte", -_FINITE) for column in ("center_x", "center_y", "center_z")),
     *((column, "lte", _FINITE) for column in ("center_x", "center_y", "center_z")),
-    *((column, "gt", 0.0) for column in ("size_x", "size_y", "size_z")),
+    *((column, "gte", MIN_BOX_EDGE) for column in ("size_x", "size_y", "size_z")),
     *((column, "lte", _FINITE) for column in ("size_x", "size_y", "size_z")),
 )
 _COMPARE = {"gt": (operator.gt, ">"), "gte": (operator.ge, ">="), "lte": (operator.le, "<=")}

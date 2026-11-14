@@ -11,7 +11,7 @@ from amdockvs.docking.repository import _augment_molecule_rows, persist_receptor
 from amdockvs.models import BindingSite, MoleculeRecord
 from amdockvs.models.docking import box_error
 
-BAD_SIZES = [(-10.0, 22.0, 22.0), (0.0, 22.0, 22.0), (float("nan"), 22.0, 22.0), (float("inf"), 22.0, 22.0)]
+BAD_SIZES = [(-10.0, 22.0, 22.0), (5.0, 22.0, 22.0), (0.0, 22.0, 22.0), (float("nan"), 22.0, 22.0), (float("inf"), 22.0, 22.0)]
 
 
 class _Db:
@@ -43,7 +43,7 @@ def _sites(runtime):
 def test_box_error_accepts_a_real_box_only():
     assert box_error((0, 0, 0), (22, 22, 22), 0.375) is None
     for size in BAD_SIZES:
-        assert "greater than 0" in box_error((0, 0, 0), size)
+        assert "at least 8" in box_error((0, 0, 0), size)
     assert "spacing" in box_error((0, 0, 0), (22, 22, 22), 0.0)
     assert "finite" in box_error((float("nan"), 0, 0), (22, 22, 22))
     assert "three values" in box_error((0, 0), (22, 22, 22))
@@ -51,7 +51,7 @@ def test_box_error_accepts_a_real_box_only():
 
 @pytest.mark.parametrize("size", BAD_SIZES)
 def test_set_grid_refuses_a_box_that_is_not_one_and_stores_nothing(runtime, size):
-    with pytest.raises(ValueError, match="greater than 0"):
+    with pytest.raises(ValueError, match="at least 8"):
         runtime.docking.set_grid(receptor_id=1, center=(0, 0, 0), size=size)
     assert _sites(runtime) == []
 
@@ -69,9 +69,9 @@ def test_a_valid_grid_is_still_stored(runtime):
 
 
 def test_save_site_and_the_job_writer_refuse_it_too(runtime):
-    with pytest.raises(ValueError, match="greater than 0"):
+    with pytest.raises(ValueError, match="at least 8"):
         runtime.binding_sites.save_site(molecule_id=1, center=(0, 0, 0), size=(-10, 22, 22))
-    with pytest.raises(ValueError, match="greater than 0"):
+    with pytest.raises(ValueError, match="at least 8"):
         persist_receptor_grid(runtime.workspace.project_db, receptor_id=1, metadata_json="{}",
                               grid_payload={"center": (0, 0, 0), "size": (-10, 22, 22)})
     assert _sites(runtime) == []
@@ -96,7 +96,7 @@ INF = float("inf")
 
 @pytest.mark.parametrize("center, size", [
     ((0, 0, 0), (20, 22, 24)),  # a real box
-    ((0, 0, 0), (-10, 22, 22)), ((0, 0, 0), (0, 22, 22)), ((0, 0, 0), (INF, 22, 22)),
+    ((0, 0, 0), (-10, 22, 22)), ((0, 0, 0), (0, 22, 22)), ((0, 0, 0), (5, 22, 22)), ((0, 0, 0), (INF, 22, 22)),
     ((0, 0, 0), (float("nan"), 22, 22)),  # SQLite stores a NaN as NULL
     ((INF, 0, 0), (22, 22, 22)), ((0, -INF, 0), (22, 22, 22)),
 ])
@@ -140,7 +140,7 @@ def test_the_database_and_the_model_agree_on_what_a_box_is(tmp_path, center, siz
 # is given, and the import job persists them as they are. An edge of 0, -1, NaN or inf completed
 # and stored a site no engine can use.
 
-BAD_EDGES = [0, -1, float("nan"), float("inf")]
+BAD_EDGES = [5, 0, -1, float("nan"), float("inf")]
 
 
 class _Loader:
@@ -166,7 +166,7 @@ def receptor(tmp_path):
 @pytest.mark.parametrize("edge", BAD_EDGES)
 def test_load_receptors_refuses_a_box_size_that_is_not_one_and_submits_nothing(receptor, edge):
     loader = _Loader()
-    with pytest.raises(ValueError, match="binding_site_box_size.*greater than 0"):
+    with pytest.raises(ValueError, match="binding_site_box_size.*at least 8"):
         loader.api.load_receptors([receptor], binding_site_box_size=edge)
     assert loader.submitted == []
 
@@ -177,7 +177,7 @@ def test_load_receptors_refuses_a_bad_site_however_the_map_was_assembled(recepto
     own size: the finished map is what gets persisted, so that is what is checked."""
     loader = _Loader()
     specs = {str(receptor): [{"name": "LIG A 101", "center": (1.0, 2.0, 3.0), "size": size}]}
-    with pytest.raises(ValueError, match="rec.pdb, LIG A 101: .*greater than 0"):
+    with pytest.raises(ValueError, match="rec.pdb, LIG A 101: .*at least 8"):
         loader.api.load_receptors([receptor], extra_data_patch_by_file={}, binding_site_specs_by_file=specs)
     assert loader.submitted == []
 

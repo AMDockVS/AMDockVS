@@ -33,6 +33,7 @@ from PySide6.QtWidgets import QDialog, QDialogButtonBox
 from ms_components.tool_panel import PROGRESS_NAME
 
 from amdockvs.core.configuration import app_config
+from amdockvs.core.constants import MIN_BOX_EDGE
 from amdockvs.io.downloads import discard_temporary
 from amdockvs.io.formats import QT_RECEPTOR_FILE_FILTER
 from amdockvs.io.receptor_preview import (
@@ -152,7 +153,7 @@ class ReceptorImportPanel(QWidget):
 
         box_size_label = QLabel("Grid Box (Å)", self)
         self.binding_site_box_size = QDoubleSpinBox(self)
-        self.binding_site_box_size.setRange(8.0, 40.0)
+        self.binding_site_box_size.setRange(MIN_BOX_EDGE, 40.0)
         self.binding_site_box_size.setDecimals(1)
         self.binding_site_box_size.setSingleStep(1.0)
         self.binding_site_box_size.setValue(app_config(self._runtime).docking.box_size)
