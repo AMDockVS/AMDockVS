@@ -238,3 +238,20 @@ def test_opening_an_older_project_keys_its_results_by_receptor_payload(tmp_path)
     AMDockVSRuntime._add_columns(SimpleNamespace(workspace=SimpleNamespace(project_db=store)))
     assert sorted(row.input_key for row in _results(store)) == sorted([legacy_input_key(payload), "legacy:0"])
     store.dispose()
+
+
+def test_a_campaign_keys_its_receptors_as_a_row_fed_run_does(tmp_path, monkeypatch):
+    """A sharded campaign's hits become results too: keyed the same, a later run over those
+    ligands skips them for the same receptor and box, and docks them again for another."""
+    from amdockvs.docking import shard_jobs
+
+    _fake_engine(monkeypatch)
+    store = _project(tmp_path)
+    _dock(store, tmp_path, "r1")
+    key = _results(store)[0].input_key
+    params = shard_jobs.DockShardsJobParams(hit_threshold=-5.0, hit_cap=10)
+    targets = lambda: shard_jobs.receptor_targets(store, params, tmp_path / "campaign")  # noqa: E731
+    assert [target["input_key"] for target in targets()] == [key]
+    _move_site(store, 100.0)
+    assert [target["input_key"] for target in targets()] != [key]
+    store.dispose()

@@ -348,6 +348,8 @@ def select_hits(
             "score_type": str(payload.get("score_type") or ""),
             "pose_rank": 1,
             "receptor_molecule_id": int(payload.get("receptor_id") or receipt.receptor_molecule_id),
+            # The fragment's (one receptor, one box): "" from before fragments recorded it.
+            "input_key": str(metadata_by_path[path].get("input_key") or ""),
             "_pose_text": pose_text,
             "_pose_suffix": pose_suffix,
             "_result_shard": str(path),
