@@ -130,7 +130,6 @@ class AMDockVSMainWindow(QMainWindow):
                 starts_visible=False,
             )
             self.grid_dock = GridBoxSettingDockWidget(runtime=runtime, parent=self.pymol_dock)
-            self.grid_dock.setMinimumWidth(220)
             self.grid_dock.set_auto_preview_enabled(False)
             self.pymol_dock.set_side_panel(self.grid_dock, title="Grid Box", visible=False)
 
