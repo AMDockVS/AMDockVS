@@ -43,14 +43,14 @@ def _smarts_list(text: str) -> list[str]:
 
 
 def finalize_import_prefilter_policy(policy: dict[str, Any]) -> dict[str, Any] | None:
-    """Return the policy only if it actually filters or carries an activity mapping."""
+    """Return the policy only if it filters, prepares, splits fragments or maps an activity."""
     from amdockvs.io.payloads import ImportPrefilterPolicy
 
     # Activity isn't "active" filtering but must still reach the materializer.
     activity_property = str(policy.get("activity_property") or "").strip()
     activity_columns = tuple(policy.get("activity_columns") or ())
     validated = ImportPrefilterPolicy.model_validate(policy)
-    keep = validated.is_active() or validated.prep_active() or activity_property or activity_columns
+    keep = validated.is_active() or validated.changes_import() or activity_property or activity_columns
     return policy if keep else None
 
 

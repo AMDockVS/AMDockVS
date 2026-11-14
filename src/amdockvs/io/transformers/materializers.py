@@ -189,13 +189,17 @@ def offload_source_properties(rows: list[dict[str, Any]]) -> Any:
     src_idx: list[int] = []
     keys: list[str] = []
     vals: list[str] = []
+    # Split fragments repeat their parent's tags under the same source_index; the parquet holds
+    # the record's tags once, and both rows read them back through it.
+    seen: set[tuple[int, str]] = set()
     for row in rows:
         source_index = int(row.get("source_index") or 0)
         for prop in list(row.get("source_properties") or []):
             key = str(prop.get("key") or "").strip()
             value = str(prop.get("value_text") or "").strip()
-            if not key or not value:
+            if not key or not value or (source_index, key) in seen:
                 continue
+            seen.add((source_index, key))
             src_idx.append(source_index)
             keys.append(key)
             vals.append(value)
@@ -230,7 +234,10 @@ def build_import_graph_payload(rows: list[dict[str, Any]]) -> dict[str, list[dic
     for row in rows:
         source_index = int(row.get("source_index") or 0)
         source_file = row.get("source_file")
-        molecule_ref = f"molecule::{source_file}::{source_index}"
+        # A split fragment shares its parent's source_file/source_index, so the variant has to
+        # be part of the ref or the graph carries two nodes under one $ref and the insert fails.
+        variant = str(row.get("source_variant") or "").strip()
+        molecule_ref = f"molecule::{source_file}::{source_index}" + (f"::{variant}" if variant else "")
         role = str(row.get("primary_role") or "").strip().lower()
         metadata_map = metadata_map_from_row(row)
         structure = row.get("current_payload_id") or row.get("stored_payload_id")

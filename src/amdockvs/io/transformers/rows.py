@@ -36,6 +36,7 @@ def _build_row(
     primary_role: str,
     primary_context: str,
     usage_class: str = "",
+    variant: str = "",
 ) -> dict[str, Any]:
     # ponytail: usage_class is derived from the context unless the caller states one. Only the
     # `general` context is the screening library; anything imported into a named context
@@ -62,6 +63,10 @@ def _build_row(
     return {
         **built,
         "source_file": str(source_file.resolve()),  # graph refs only; the batch says the source
+        # Several molecules can be born from one source record (split fragments). The variant is
+        # what tells them apart - in the storage key (molecule_storage_key) and in the graph ref,
+        # which would otherwise collide on source_file::source_index.
+        "source_variant": str(variant or ""),
         "molecule_kind": str(built.get("molecule_type") or molecule_kind or "unknown"),
         "primary_role": str(primary_role or ""),
         "status_flags": 0,
@@ -151,6 +156,7 @@ def _split_fragment_rows(
             source_file=batch.file_path,
             source_index=source_index,
             name=f"{name} [{variant}]",
+            variant=variant,
             n_atoms=fragment.GetNumAtoms(),
             import_batch_id=batch.import_batch_id,
             stored=structure_payload(Chem.MolToMolBlock(fragment), "sdf"),

@@ -100,9 +100,14 @@ class ImportPrefilterPolicy(BaseModel):
         return self.to_criteria().is_active() or self._htp_active()
 
     def prep_active(self) -> bool:
-        """Any structure-prep step is on — the policy must reach the materializer even when it
-        filters nothing."""
+        """Any in-memory prep step is on (the ones prep_ligand_mol runs on the kept fragment)."""
         return bool(self.add_hs or self.gen_3d or self.canonical_tautomer)
+
+    def changes_import(self) -> bool:
+        """The policy changes what is imported even when it filters nothing, so it must reach the
+        materializer: the prep steps, and split_fragments, which adds rows instead of changing the
+        kept one."""
+        return bool(self.prep_active() or self.split_fragments)
 
     def activity_spec_from_properties(self, source_properties) -> dict[str, Any] | None:
         """Build an activity_spec from an SDF tag (source_properties = [{key, value_text}]).
