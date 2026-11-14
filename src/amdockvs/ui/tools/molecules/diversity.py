@@ -743,7 +743,8 @@ class DiversitySelectionWidget(QWidget):
         cpus = int(cpus)
         run_id = uuid.uuid4().hex
         method = str(cluster_kw.get("method") or "bitbirch")
-        threshold = float(cluster_kw.get("threshold") or 0.35)
+        # The control allows 0.00, which is a threshold, not "unset": submit what it shows.
+        threshold = float(cluster_kw.get("threshold", 0.35))
         try:
             job_id = self.runtime.diversity.cluster_job(
                 method=method, threshold=threshold, with_activity=scope_kw["with_activity"],

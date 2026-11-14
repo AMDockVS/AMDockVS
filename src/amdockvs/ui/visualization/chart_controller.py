@@ -149,7 +149,7 @@ class ChartController:
         self._show()
 
     def show_diversity_universe(
-            self, pool_points, selection_groups, evr=(0.0, 0.0), highlight_points=None
+            self, pool_points, selection_groups, evr=(), highlight_points=None
     ) -> None:
         """Accumulated chemical-universe scatter for the Diversity view, drawn in PyMOL's region.
         Empty inputs draw a placeholder (tab entry with no preview yet / after a merge).

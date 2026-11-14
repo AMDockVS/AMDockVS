@@ -203,6 +203,13 @@ class DiversityAPI:
         representatives become molecule rows; every member stays in the run's sidecar by
         ``io.shards.shard_key``. Both jobs run at ``SHARDS_PRIORITY``."""
         self.runtime._require_active_project()
+        if cluster_run_id and self._run_id_in_use(cluster_run_id):
+            # The worker writes the run's graph sidecar before its rows reach the UNIQUE
+            # constraint: a second job under this id would fail AND overwrite the first's graph.
+            raise ValueError(
+                f"Clustering run '{cluster_run_id}' already exists; choose another run id "
+                "(or leave it blank for a new one)."
+            )
         if num_cpus is None and shards:
             num_cpus = plan_cpus(ShardStore(self.runtime.workspace.project_db).record_count())
         if num_cpus is None:
@@ -492,20 +499,37 @@ class DiversityAPI:
                 for cid, size in frame.groupby("cluster_id").size().items()
             ]
             snapshot_path = str(snapshot)
+            # Empty when the sidecar predates it: "not recorded", never a made-up 0.0%.
+            evr = [float(value) for value in frame.attrs.get("evr") or []]
         else:  # sidecar missing (e.g. write failed) → counts-only summary, no graph
             n_molecules = n_clusters = n_reps = 0
             cluster_stats = []
             snapshot_path = ""
+            evr = []
         row = ClusteringRun(
             run_id=cluster_run_id, method=str(method), threshold=float(threshold),
             scope_label=str(scope_label), fp_radius=int(fp_radius), fp_nbits=int(fp_nbits),
             n_molecules=n_molecules, n_clusters=n_clusters, n_reps=n_reps,
-            snapshot_path=snapshot_path, evr=[0.0, 0.0], cluster_stats=cluster_stats,
+            snapshot_path=snapshot_path, evr=evr, cluster_stats=cluster_stats,
         )
         with self.runtime.workspace.project_db.get_session() as session:
             session.add(row)
             session.commit()
         return cluster_run_id
+
+    def _run_id_in_use(self, cluster_run_id: str) -> bool:
+        """Rows, a registered summary or a graph sidecar: any of them means a run has this id."""
+        run_id = str(cluster_run_id)
+        if (self._project_root() / "clustering_runs" / f"{run_id}.parquet").exists():
+            return True
+        with self.runtime.workspace.project_db.get_session() as session:
+            return any(
+                session.exec(select(model.id).where(column == run_id).limit(1)).first() is not None
+                for model, column in (
+                    (ClusteringResult, ClusteringResult.cluster_run_id),
+                    (ClusteringRun, ClusteringRun.run_id),
+                )
+            )
 
     # --- reading persisted runs ----------------------------------------------
     def list_runs(self) -> list[dict[str, Any]]:
@@ -759,7 +783,9 @@ class DiversityAPI:
         return {
             "run_id": row.run_id, "method": row.method, "threshold": row.threshold,
             "scope_label": row.scope_label, "n_molecules": row.n_molecules, "n_clusters": row.n_clusters,
-            "n_reps": row.n_reps, "evr": list(row.evr or [0.0, 0.0]),
+            # Runs registered before the variance was kept stored exactly [0.0, 0.0]; no real
+            # projection explains nothing on both axes, so that reads as "not recorded".
+            "n_reps": row.n_reps, "evr": list(row.evr) if any(row.evr or []) else [],
             "cluster_stats": list(row.cluster_stats or []), "points": frame.to_dict("records"),
         }
 
