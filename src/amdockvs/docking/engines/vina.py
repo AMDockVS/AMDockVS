@@ -11,7 +11,7 @@ import uuid
 from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
+from typing import IO, Callable
 
 
 from amdockvs.docking.results.metrics import docking_row, pose_file_stem
@@ -208,8 +208,10 @@ def _vina_args(
 
 
 def _run_vina(command: list[str], progress: Callable[[float], None] | None = None,
-              next_ligand: Callable[[], None] | None = None) -> str:
-    """Run a Vina command line to its end and return what it printed; raise if it failed."""
+              next_ligand: Callable[[], None] | None = None, *,
+              follow: Callable[[IO[str]], str] | None = None, program: str = "vina binary") -> str:
+    """Run a Vina command line to its end and return what it printed; raise if it failed.
+    `follow` reads the program's stdout in place of the Vina progress line (Uni-Dock has its own)."""
     process: subprocess.Popen[str] | None = None
 
     def _kill_child_process() -> None:
@@ -261,7 +263,8 @@ def _run_vina(command: list[str], progress: Callable[[float], None] | None = Non
                 start_new_session=(os.name == "posix"),
             )
             try:
-                stdout_text = _follow_progress_line(process.stdout, progress, next_ligand)
+                stdout_text = (follow(process.stdout) if follow is not None
+                               else _follow_progress_line(process.stdout, progress, next_ligand))
             except BaseException:  # a callback failed or the task was cancelled: the run stops here
                 _kill_child_process()
                 raise
@@ -276,7 +279,7 @@ def _run_vina(command: list[str], progress: Callable[[float], None] | None = Non
     stderr_text = str(stderr_text or "")
     if process.returncode != 0:
         raise RuntimeError(
-            f"vina binary failed with exit code {process.returncode}: "
+            f"{program} failed with exit code {process.returncode}: "
             f"{stderr_text.strip() or stdout_text.strip() or 'unknown error'}"
         )
     return stdout_text
