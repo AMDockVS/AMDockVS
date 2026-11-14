@@ -152,6 +152,34 @@ def test_minimize_after_conformers_still_writes_the_ensemble():
     assert update["current_payload_id"] is update["model_rows"][0]["payload_id"]
 
 
+def _is_3d(payload) -> bool:
+    mol = Chem.MolFromMolBlock(payload.data.decode(), removeHs=False)
+    z = [mol.GetConformer().GetAtomPosition(i).z for i in range(mol.GetNumAtoms())]
+    return mol.GetConformer().Is3D() and max(z) - min(z) > 0.1
+
+
+def test_protonating_a_2d_structure_keeps_it_2d():
+    from amdockvs.chemistry.service import transform_ligand_rows
+
+    # The row's structure is a flat 2D SDF, as left by an earlier 2D-only Build pass.
+    result = transform_ligand_rows(operations=[("protonate", {"method": "explicit_hs"})], rows=[_row(1, "CCO")])
+
+    update, = result["updates"]
+    assert update["state"]["has_3d"] is False
+    assert not _is_3d(update["current_payload_id"])
+
+
+def test_minimizing_a_2d_structure_embeds_it_in_3d_first():
+    from amdockvs.chemistry.service import transform_ligand_rows
+
+    result = transform_ligand_rows(operations=[("minimize", {})], rows=[_row(1, "CCCCCCO")])
+
+    update, = result["updates"]
+    assert update["state"]["has_3d"] is True
+    assert update["state"]["is_minimized"] is True
+    assert _is_3d(update["current_payload_id"])
+
+
 def test_a_broken_row_does_not_take_the_batch_down():
     from amdockvs.chemistry.service import transform_ligand_rows
 
@@ -190,3 +218,60 @@ def test_3d_builds_fused_rings_etkdg_rejects_and_refuses_impossible_stereo():
         assert "stereochemistry" in str(exc)
     else:
         raise AssertionError("an impossible ring fusion must not get coordinates")
+
+def _api_without_a_project():
+    from types import SimpleNamespace
+
+    from amdockvs.chemistry.api import ChemistryAPI
+
+    def no_submission():
+        raise AssertionError("an invalid force field must be refused before anything is submitted")
+
+    return ChemistryAPI(SimpleNamespace(_require_active_project=no_submission))
+
+
+def test_an_unknown_force_field_is_refused_before_submission():
+    import pytest
+
+    api = _api_without_a_project()
+    with pytest.raises(ValueError, match="mmff_typo"):
+        api.minimize_ligands(forcefield="mmff_typo")
+    for submit in (api.run_ligand_pipeline, api.run_shard_pipeline):
+        with pytest.raises(ValueError, match="mmff_typo"):
+            submit([("generate_3d", {}), ("minimize", {"forcefield": "mmff_typo"})])
+
+
+def test_an_unknown_force_field_never_falls_back_to_uff_in_the_worker():
+    import pytest
+
+    from amdockvs.chemistry.tools import minimize_ligand_molecule
+
+    mol = generate_ligand_3d(Chem.MolFromSmiles("CCO"))
+    with pytest.raises(ValueError, match="mmff_typo"):
+        minimize_ligand_molecule(mol, forcefield="mmff_typo")
+    # The names the Build dropdown offers still work, in any case.
+    for name in ("mmff", "UFF", " Mmff "):
+        assert minimize_ligand_molecule(mol, forcefield=name).GetNumConformers() == 1
+
+def test_build_writes_the_built_structures_descriptors_back_to_the_row():
+    from amdockvs.chemistry.descriptors import BASIC_DESCRIPTOR_FIELDS, calculate_basic_descriptors
+    from amdockvs.chemistry.jobs import CHEMISTRY_GRAPH_OUTPUT
+    from amdockvs.chemistry.service import transform_ligand_rows
+    from amdockvs.chemistry.tasks import _chemistry_graph_payload
+
+    # The sink's column list is this tuple: a key it misses would be silently dropped.
+    assert set(BASIC_DESCRIPTOR_FIELDS) == set(calculate_basic_descriptors(Chem.MolFromSmiles("CCO")))
+
+    # Standardize neutralizes the imported acetate: charge -1 -> 0; then explicit Hs.
+    result = transform_ligand_rows(
+        operations=[("standardize", {}), ("protonate", {"method": "explicit_hs"})],
+        rows=[_row(1, "CC(=O)[O-]")],
+    )
+
+    molecule, = _chemistry_graph_payload(result["updates"], [])["molecules"]
+    assert molecule["formal_charge"] == 0
+    assert molecule["n_atoms"] == 8
+    assert set(BASIC_DESCRIPTOR_FIELDS) | {"n_atoms"} <= set(molecule)
+    nodes = CHEMISTRY_GRAPH_OUTPUT.meta["graph"]["nodes"]
+    columns = next(node for node in nodes if node["name"] == "molecules")["columns"]
+    assert set(molecule) <= set(columns)

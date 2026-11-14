@@ -31,6 +31,11 @@ def _yes_no(value) -> str:
     return "Yes" if value else "No"
 
 
+def _signed_charge(value) -> str:
+    """-1, 0, +2: a charge reads as one at a glance. Blank when it was never computed."""
+    return "" if value is None else f"{int(value):+d}" if value else "0"
+
+
 def _ligand_table_config(*, runtime, window=None) -> TableConfig:
     get_window = window or QApplication.activeWindow
     return TableConfig(
@@ -56,10 +61,14 @@ def _ligand_table_config(*, runtime, window=None) -> TableConfig:
             ColumnDef("name", label="Name", width=220, sortable=True, filterable=True),
             ColumnDef("usage_class", label="Usage", width=110, sortable=True, filterable=True, visible=True,
                       kind=ColumnKind.CHOICE, choices=choices_from_class(MoleculeUsageClass)),
-            *batch_columns(MoleculeRecord),
+            # Same widths as the Molecules table: Format's sort and search icons need the room.
+            *batch_columns(MoleculeRecord, source_width=320, format_width=115),
+            # Of the current structure: Build rewrites it when protonation changes the charge.
+            ColumnDef("formal_charge", label="Charge", width=125, sortable=True, filterable=True,
+                      align=AlignHint.LEFT, kind=ColumnKind.INTEGER, formatter=_signed_charge),
             # ponytail: flags as INTEGER so the numeric filter (= 0 / = 1) works on SQLite booleans;
             # a real boolean kind in ms_table if Yes/No checkboxes are wanted in the filter.
-            ColumnDef("has_3d", label="3D", width=60, sortable=True, filterable=True,
+            ColumnDef("has_3d", label="3D", width=85, sortable=True, filterable=True,
                       kind=ColumnKind.INTEGER, formatter=_yes_no),
             ColumnDef("has_hs", label="Explicit H", width=80, sortable=True, filterable=True, visible=False,
                       kind=ColumnKind.INTEGER, formatter=_yes_no),

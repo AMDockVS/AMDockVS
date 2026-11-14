@@ -178,8 +178,9 @@ class ChemistryAPI:
         With no explicit row scope, a sharded library dispatches whole shards automatically.
         Passing ``ligands`` always selects the row adapter for curated/reference molecules.
 
-        ponytail: the single-step methods below validate their own arguments (pH range, method
-        names, tool installs). Here the step params go through as given and the worker raises.
+        Protonate and minimize steps are checked as their single-step methods check them (pH
+        range, method and force-field names, tool installs). ponytail: the other steps' params go
+        through as given and the worker raises.
         """
         normalized = normalize_steps(steps)
         if not normalized:
@@ -187,10 +188,7 @@ class ChemistryAPI:
         for name, _params in normalized:
             if name not in LIGAND_STEPS:
                 raise ValueError(f"Unsupported ligand chemistry operation: {name}")
-        normalized = [
-            (name, self._protonate_params(**params) if name == "protonate" else params)
-            for name, params in normalized
-        ]
+        normalized = [(name, self._step_params(name, params)) for name, params in normalized]
         if ligands is None:
             self.runtime._require_active_project()
             if has_shards(self.runtime.workspace.project_db):
@@ -232,10 +230,7 @@ class ChemistryAPI:
         for name, _params in normalized:
             if name not in LIGAND_STEPS:
                 raise ValueError(f"Unsupported ligand chemistry operation: {name}")
-        normalized = [
-            (name, self._protonate_params(**params) if name == "protonate" else params)
-            for name, params in normalized
-        ]
+        normalized = [(name, self._step_params(name, params)) for name, params in normalized]
         if any(name == "conformers" for name, _params in normalized):
             raise ValueError(
                 "Sharded conformer ensembles are not supported: one shard record currently "
@@ -361,6 +356,21 @@ class ChemistryAPI:
             params["tool_command"] = str(status.command)
         return params
 
+    @staticmethod
+    def _minimize_params(*, forcefield: str = "mmff", **rest: Any) -> dict[str, Any]:
+        """Validate minimization settings for `minimize_ligands` and the pipelines alike."""
+        from amdockvs.chemistry.tools.ligands import normalize_ligand_forcefield
+
+        return {**rest, "forcefield": normalize_ligand_forcefield(forcefield)}
+
+    def _step_params(self, name: str, params: dict[str, Any]) -> dict[str, Any]:
+        """A pipeline step's params, checked the way its single-step method checks them."""
+        if name == "protonate":
+            return self._protonate_params(**params)
+        if name == "minimize":
+            return self._minimize_params(**params)
+        return params
+
     def generate_3d_ligands(
         self,
         *,
@@ -410,7 +420,7 @@ class ChemistryAPI:
         return self._submit_ligand_operation(
             "minimize",
             ligands=ligands,
-            params={"forcefield": str(forcefield), "max_iters": int(max_iters)},
+            params=self._minimize_params(forcefield=forcefield, max_iters=int(max_iters)),
             structure_source=structure_source,
             batch_size=batch_size,
             executor_name=executor_name,
