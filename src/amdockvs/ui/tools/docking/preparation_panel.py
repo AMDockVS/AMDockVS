@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from amdockvs.ui.common.async_query import run_async
-from amdockvs.ui.common.failures import show_failures
+from amdockvs.ui.common.failures import recover_with, show_failures
 from amdockvs.ui.common.job_follower import JobFollower
 from amdockvs.ui.common.naming import NAMED, about
 from amdockvs.ui.common.widgets import LigandSources, add_run_on, gate_workflow_save, split_button
@@ -786,7 +786,9 @@ class PreparationPanel:
                       lambda rows: self._show_prep_failures(follower.noun, rows), owner=self)
 
     def _show_prep_failures(self, noun: str, rows: list[tuple[int, str, str]]) -> None:
-        self.failures_dialog = show_failures(self, noun, rows) or self.failures_dialog
+        self.failures_dialog = show_failures(
+            self, noun, rows, recover_with(self.runtime, self.refresh),
+        ) or self.failures_dialog
 
     def _set_sharded_prep_mode(self, sharded: bool) -> None:
         """A physical shard is already the HTP task, so no second batch control applies."""
