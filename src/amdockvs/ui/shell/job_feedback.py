@@ -176,10 +176,10 @@ class JobFeedbackController:
         self.jobs_status = (len(active_jobs), progress)
         self.update_jobs_statusbar(snapshot)
 
-    def on_job_submitted_notice(self, job_name: str, _job_id: str) -> None:
-        label = re.sub(r"^amdockvs[_ ]|[_ ]job$", "", str(job_name)).replace("_", " ").strip() or "Job"
+    def on_job_submitted_notice(self, job_title: str, _job_id: str) -> None:
+        # The runtime sends the job's title ("Docking · gnina (CNN)"), not its function name.
         self.post_notification(
-            f"{label.capitalize()} started.", "Running in the background - double-click to open the Jobs monitor.",
+            f"{job_title or 'Job'} started.", "Running in the background - double-click to open the Jobs monitor.",
             open=self.w.open_jobs_monitor,
         )
         # Show its progress bar now instead of waiting for the monitor's idle poll.
