@@ -89,3 +89,134 @@ def test_a_labelled_temporary_receptor_with_a_ligand_imports_and_its_file_goes(t
         assert not receptor.exists()
     finally:
         runtime.shutdown()
+
+
+ASPIRIN_SDF = """2244
+  -OEChem-11122616012D
+
+  3  2  0     0  0  0  0  0  0999 V2000
+    0.0000    0.0000    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+    1.2990    0.7500    0.0000 C   0  0  0  0  0  0  0  0  0  0  0  0
+    2.5980    0.0000    0.0000 O   0  0  0  0  0  0  0  0  0  0  0  0
+  1  2  1  0
+  2  3  1  0
+M  END
+$$$$
+"""
+
+
+def _serving(body: bytes):
+    import contextlib
+    import io
+
+    served = []
+
+    @contextlib.contextmanager
+    def fake_open(url):
+        served.append(url)
+        stream = io.BytesIO(body)
+        stream.headers = {"Content-Length": str(len(body))}
+        yield stream
+
+    return fake_open, served
+
+
+def test_a_link_without_a_suffix_is_named_by_what_it_downloaded(tmp_path, monkeypatch):
+    """PubChem's .../cid/2244/SDF downloads as "SDF": the readers pick by suffix, so it failed."""
+    from amdockvs.io.formats import is_readable, read_mols
+
+    monkeypatch.setenv("AMDOCK_HOME", str(tmp_path))
+    fake_open, served = _serving(ASPIRIN_SDF.encode())
+    monkeypatch.setattr(downloads, "_open", fake_open)
+    url = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/2244/SDF"
+
+    [(path, _label)] = download("url", [url]).files
+    assert path.endswith("/SDF.sdf") and is_readable(path)
+    assert [mol.GetNumAtoms() for mol in read_mols(path)] == [3]
+
+    again = download("url", [url]).files  # kept: reused under its new name, not fetched again
+    assert again[0][0] == path and served == [url]
+
+
+def test_a_link_with_a_suffix_keeps_its_name(tmp_path, monkeypatch):
+    monkeypatch.setenv("AMDOCK_HOME", str(tmp_path))
+    monkeypatch.setattr(downloads, "_open", _serving(ASPIRIN_SDF.encode())[0])
+    [(path, _label)] = download("url", ["https://vendor.example/lib/library.sdf"]).files
+    assert path.endswith("/library.sdf")
+
+
+def test_unrecognized_content_keeps_the_name_it_came_with(tmp_path, monkeypatch):
+    monkeypatch.setenv("AMDOCK_HOME", str(tmp_path))
+    monkeypatch.setattr(downloads, "_open", _serving(b"<html>Not found</html>\n")[0])
+    [(path, _label)] = download("url", ["https://vendor.example/get?id=7"]).files
+    assert path.endswith("/get")
+
+
+def test_content_sniffing(tmp_path):
+    from amdockvs.io.formats import sniff_suffix
+
+    cases = {
+        ".sdf": ASPIRIN_SDF,
+        ".mol2": "@<TRIPOS>MOLECULE\nethanol\n",
+        ".cif": "# comment\ndata_1IEP\n_entry.id 1IEP\n",
+        ".pdb": "HEADER    TEST\nATOM      1  N   ALA A   1       0.000   0.000   0.000  1.00  0.00           N\n",
+        ".pdbqt": "ROOT\nATOM      1  C   UNL     1       0.000   0.000   0.000  1.00  0.00     0.000 C \nENDROOT\nTORSDOF 0\n",
+        ".fasta": ">P00533\nMRPSGTAGAALLALLAALCPASRA\n",
+        "": "CCO ethanol\nc1ccccc1 benzene\n",  # could be SMILES, could be anything: left alone
+    }
+    for suffix, text in cases.items():
+        path = tmp_path / f"case{len(suffix)}{suffix.strip('.')}"
+        path.write_text(text, encoding="utf-8")
+        assert sniff_suffix(path) == suffix, text
+
+
+SMILES = b"CCO ethanol\nc1ccccc1 benzene\n"
+
+
+def _fetch(tmp_path, monkeypatch, body, *, length=None, name="lib.smi.gz"):
+    import contextlib
+    import io
+
+    monkeypatch.setenv("AMDOCK_HOME", str(tmp_path))
+
+    @contextlib.contextmanager
+    def fake_open(url):
+        stream = io.BytesIO(body)
+        stream.headers = {"Content-Length": str(len(body) if length is None else length)}
+        yield stream
+
+    monkeypatch.setattr(downloads, "_open", fake_open)
+    outcome = download("url", [f"https://vendor.example/{name}"])
+    left = [p.name for p in (tmp_path / "downloads").rglob("*") if p.is_file()]
+    return outcome, left
+
+
+def test_a_gzip_cut_before_its_trailer_is_not_cached(tmp_path, monkeypatch):
+    import gzip
+
+    truncated = gzip.compress(SMILES)[:-8]  # CRC + size: all the text is there, the end is not
+    outcome, left = _fetch(tmp_path, monkeypatch, truncated)
+    assert outcome.files == [] and "ends early" in outcome.failures[0]
+    assert left == []  # neither the .part nor a "complete" file
+
+
+def test_a_complete_gzip_is_cached_inflated(tmp_path, monkeypatch):
+    import gzip
+
+    outcome, _left = _fetch(tmp_path, monkeypatch, gzip.compress(SMILES))
+    [(path, _label)] = outcome.files
+    assert path.endswith("/lib.smi") and open(path, "rb").read() == SMILES
+
+
+def test_every_member_of_a_concatenated_gzip_is_kept(tmp_path, monkeypatch):
+    import gzip
+
+    first, second = b"CCO ethanol\n", b"c1ccccc1 benzene\n"
+    outcome, _left = _fetch(tmp_path, monkeypatch, gzip.compress(first) + gzip.compress(second))
+    assert open(outcome.files[0][0], "rb").read() == first + second
+
+
+def test_a_body_short_of_its_content_length_is_not_cached(tmp_path, monkeypatch):
+    outcome, left = _fetch(tmp_path, monkeypatch, SMILES, length=len(SMILES) + 100, name="lib.smi")
+    assert outcome.files == [] and "closed after" in outcome.failures[0]
+    assert left == []
