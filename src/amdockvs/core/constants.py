@@ -16,6 +16,8 @@ RESOURCE_DOCKING_RESULTS = "docking_results"
 RESOURCE_QSAR_MODELS = "qsar_models"
 RESOURCE_POCKET_PREDICTIONS = "pocket_predictions"
 RESOURCE_SHARDS = "shards"
+# Shortest docking-box edge (Å) anywhere: below it a drug-sized ligand cannot turn in the box.
+MIN_BOX_EDGE = 8.0
 
 TABLE_MOLECULES = "molecules"
 TABLE_IMPORT_BATCHES = "import_batches"

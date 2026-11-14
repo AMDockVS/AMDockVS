@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 from ms_components.theme import color, contrast_ratio
 
 from amdockvs.core.configuration import app_config
+from amdockvs.core.constants import MIN_BOX_EDGE
 from amdockvs.models import BindingSite, MoleculeRecord
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.resources.icons import icon as load_icon
@@ -369,7 +370,7 @@ class GridBoxSettingDockWidget(QWidget):
     @staticmethod
     def _size_spinbox() -> QDoubleSpinBox:
         widget = QDoubleSpinBox()
-        widget.setRange(10.0, 200.0)
+        widget.setRange(MIN_BOX_EDGE, 200.0)
         widget.setDecimals(1)
         widget.setSingleStep(0.5)
         widget.setValue(22.0)

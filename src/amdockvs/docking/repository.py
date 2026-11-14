@@ -26,6 +26,7 @@ from amdockvs.core.payloads import molecule_payload_id, payload_store
 from amdockvs.docking.preparation.state import docking_input_payload_id
 from amdockvs.binding_sites.repository import active_site, set_active
 from amdockvs.models import BindingSite, MoleculeRecord, prep_table
+from amdockvs.models.docking import box_error
 from amdockvs.models.molecules import sanitize_molecule_extra_data
 from amdockvs.project.sets import (
     list_complex_set_ids,
@@ -572,6 +573,8 @@ def persist_receptor_grid(
     size = tuple(float(value) for value in (grid_payload.get("size") or ()))
     if len(center) != 3 or len(size) != 3:
         raise ValueError("Grid payload requires center and size with three coordinates each.")
+    if (problem := box_error(center, size)) is not None:
+        raise ValueError(problem)
     with project_db.get_session() as session:
         receptor = session.get(MoleculeRecord, int(receptor_id))
         if receptor is None or not bool(getattr(receptor, "is_receptor", False)):

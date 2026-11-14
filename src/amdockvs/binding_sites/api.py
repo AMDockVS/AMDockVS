@@ -19,6 +19,7 @@ from amdockvs.core.configuration import DEFAULT_P2RANK_PROFILE, app_config
 from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR, RESOURCE_POCKET_PREDICTIONS
 from amdockvs.core.vocab import ComplexPurpose
 from amdockvs.models import BindingSite, ComplexRecord, MoleculeRecord
+from amdockvs.models.docking import box_error
 from amdockvs.core.payloads import molecule_payload_id, read_structure
 from amdockvs.binding_sites.boxes import box_from_coords
 from amdockvs.binding_sites.jobs import P2RankPredictionParams, missing_structure_message, p2rank_prediction_job
@@ -390,6 +391,8 @@ class BindingSiteAPI:
     ) -> BindingSite:
         """Saves a site. Without `binding_site_id` it creates a new one; with it, rewrites that one."""
         self.runtime._require_active_project()
+        if (problem := box_error(center, size)) is not None:
+            raise ValueError(problem)
         with self.runtime.workspace.project_db.get_session() as session:
             molecule = session.get(MoleculeRecord, int(molecule_id))
             if molecule is None:

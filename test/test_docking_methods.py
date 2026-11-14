@@ -14,7 +14,7 @@ from amdockvs.docking.protocols import protocol_hash
 DATA = Path(__file__).resolve().parent / "data"
 # 1s63 (farnesyltransferase): the box and Zn of the AutoDock-Vina zinc example.
 ZN_BOX = {"center": [18.0, 134.0, -1.0], "size": [15.0, 11.25, 18.75]}
-ZINC_BOX, EMPTY_BOX = ([10, 10, 10], [4, 4, 4]), ([0, 0, 0], [4, 4, 4])
+ZINC_BOX, EMPTY_BOX = ([10, 10, 10], [8, 8, 8]), ([0, 0, 0], [8, 8, 8])  # MIN_BOX_EDGE; the atoms are 17 Å apart
 
 
 def _autogrid() -> bool:

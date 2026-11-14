@@ -97,6 +97,7 @@ from amdockvs.core.payloads import molecule_payload_id, read_structure
 from amdockvs.io.formats import as_pdb
 from amdockvs.molecules.api import ensure_molecule_set_ref
 from amdockvs.models import BindingSite, MoleculeRecord, ReceptorPrep, prep_table
+from amdockvs.models.docking import box_error, defined_box_clauses
 from amdockvs.project.sets import ComplexSetRef, MoleculeSetRef, prepared_molecules_spec
 from amdockvs.workflows.rules import apply_workflow_filters
 
@@ -316,8 +317,7 @@ class DockingAPI:
             return None
         defined_boxes = select(BindingSite.molecule_id).where(
             BindingSite.is_active == True,  # noqa: E712
-            *(getattr(BindingSite, column).is_not(None) for column in
-              ("center_x", "center_y", "center_z", "size_x", "size_y", "size_z")),
+            *defined_box_clauses(),
         )
         return or_(unprepared, MoleculeRecord.id.not_in(defined_boxes))
 
@@ -617,6 +617,8 @@ class DockingAPI:
             raise ValueError("Off-target selection requires the reference run_id.")
         if (box_center is None) ^ (box_size is None):
             raise ValueError("docking.run requires both box_center and box_size when either one is provided.")
+        if box_center is not None and (problem := box_error(box_center, box_size)) is not None:
+            raise ValueError(problem)
         program_spec = self.get_program_spec(program)
         if not program_spec.supports_shards:
             raise ValueError(f"Docking program '{program_spec.key}' does not support sharded libraries.")
@@ -762,6 +764,8 @@ class DockingAPI:
         so (`source="ligand"`, `source_ref=str(ligand_id)`, e.g. `name="SAR405 site"`), as the
         sites found at import do; the default is a manual one."""
         self.runtime._require_active_project()
+        if (problem := box_error(center, size, spacing)) is not None:
+            raise ValueError(problem)
         engine_name = str(engine or "vina")
         site = self.runtime.binding_sites.save_site(
             molecule_id=int(receptor_id),
@@ -1213,6 +1217,8 @@ class DockingAPI:
                 box_center, box_size, knobs["spacing"] = resolved_grid
         if (box_center is None) ^ (box_size is None):
             raise ValueError("docking.run requires both box_center and box_size when either one is provided.")
+        if box_center is not None and (problem := box_error(box_center, box_size)) is not None:
+            raise ValueError(problem)
         # Always resolve counts: they gate readiness (when requested) AND give the true
         # chunk total so progress is computed against the real pair count instead of
         # completed/emitted-so-far (a lazy generator otherwise leaves total_chunks unknown,

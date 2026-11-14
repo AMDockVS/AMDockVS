@@ -25,6 +25,7 @@ from ms_contactmap.style import (
 )
 from ms_flow.core.configuration import PydanticConfiguration
 
+from amdockvs.core.constants import MIN_BOX_EDGE
 from amdockvs.core.home import amdock_home
 
 
@@ -129,7 +130,7 @@ class DockingConfiguration(BaseModel):
 
     box_size: float = Field(
         22.0,
-        ge=8.0,
+        ge=MIN_BOX_EDGE,
         le=120.0,
         title="Binding site box (A)",
         description="Default cubic search-box edge seeded in the receptor import panel.",
@@ -354,7 +355,7 @@ class BindingSitesConfiguration(BaseModel):
         4.0, ge=0.0, le=20.0, title="Box padding (A)", description="Constant margin added around the scaled radius."
     )
     box_min_edge: float = Field(
-        12.0, ge=6.0, le=60.0, title="Minimum box edge (A)", description="Lower clamp for a derived box edge."
+        12.0, ge=MIN_BOX_EDGE, le=60.0, title="Minimum box edge (A)", description="Lower clamp for a derived box edge."
     )
     box_max_edge: float = Field(
         30.0, ge=10.0, le=120.0, title="Maximum box edge (A)", description="Upper clamp for a derived box edge."

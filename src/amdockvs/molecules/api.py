@@ -9,6 +9,7 @@ from ms_flow.query import QuerySpec, db_count, db_pages
 from ms_flow.selection import Selection
 
 from amdockvs.core.normalize import merge_filter_mappings, normalize_ids, normalize_set_name
+from amdockvs.models.docking import defined_box_filters
 from amdockvs.molecules.scopes import MoleculeScope, as_molecule_scope, is_molecule_scope
 from amdockvs.core.constants import TABLE_BINDING_SITES, TABLE_LIGAND_ACTIVITIES, TABLE_MOLECULES
 from amdockvs.core.payloads import molecule_payload_id
@@ -67,10 +68,9 @@ def _molecule_spec(scope: MoleculeScope | Selection[Any]) -> QuerySpec:
             not_in_specs.append(activities)
     has_search_box = filters.pop("has_search_box", None)
     if has_search_box is not None:
-        # A receptor docks inside its active site, and only a site with a centre and a size is a box.
-        box_columns = ("center_x", "center_y", "center_z", "size_x", "size_y", "size_z")
+        # A receptor docks inside its active site, and only a box `is_defined` accepts is one.
         boxes = QuerySpec(table=TABLE_BINDING_SITES, fields=("molecule_id",), filters={
-            "is_active": True, **{f"{column}__is_not_null": True for column in box_columns},
+            "is_active": True, **defined_box_filters(),
         })
         (in_specs if has_search_box else not_in_specs).append(boxes)
     prepared = filters.pop("prepared", None)
