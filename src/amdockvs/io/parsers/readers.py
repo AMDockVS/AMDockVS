@@ -45,14 +45,11 @@ def count_import_records(file_path: str | Path, *, approx: bool = False) -> int:
         with source_path.open("rb") as handle:
             return max(1, sum(1 for line in handle if line.startswith(_MOL2_RECORD)))
     if suffix in {".smi", ".smiles", ".txt", ".csv", ".tsv"}:
-        has_header, _delimiter, _smiles_col, _name_col = _sniff_smiles_table(source_path)
-        data_lines = 0
-        with source_path.open("r", encoding="utf-8", errors="ignore") as handle:
-            for line in handle:
-                stripped = line.strip()
-                if stripped and not stripped.startswith("#"):
-                    data_lines += 1
-        return max(0, data_lines - (1 if has_header else 0))
+        # Rows, not lines: the same splitter the import walks, so a quoted cell holding a
+        # newline is one record here too (an overcount declares chunks the feed never sends).
+        has_header, delimiter, _smiles_col, _name_col = _sniff_smiles_table(source_path)
+        with source_path.open("rb") as handle:
+            return sum(1 for _ in _split_smiles_spans(handle, skip_header=has_header, delimiter=delimiter))
     if suffix == ".fasta":
         return len(parse_fasta(source_path.read_text(encoding="utf-8", errors="ignore"), stem=source_path.stem))
     return 1
@@ -109,7 +106,11 @@ def _sampled_record_count(source_path: Path, suffix: str) -> int | None:
     if suffix == ".sdf":
         in_sample = sample.count(b"$$$$")
     else:
-        in_sample = sum(1 for line in sample.splitlines() if line.strip() and not line.startswith(b"#"))
+        # Rows, as the feed splits them: lines would count a quoted multi-line cell twice, and
+        # an over-declared chunk total never completes.
+        _header, delimiter, _smiles_col, _name_col = _sniff_smiles_table(source_path)
+        rows = _split_smiles_spans(iter(sample.splitlines(keepends=True)), skip_header=False, delimiter=delimiter)
+        in_sample = sum(1 for _ in rows)
     if in_sample <= 0 or not sample:
         return None
     # ponytail: 5% down-scale. The estimate feeds declared chunk totals, and a job whose
@@ -150,17 +151,21 @@ def iter_raw_records(
             "name_col": name_col,
             "header_names": header_names,
         }
-        return FileFormat.SMILES, config, _iter_raw_from_spans(source_path, FileFormat.SMILES, skip_header=has_header)
+        return FileFormat.SMILES, config, _iter_raw_from_spans(
+            source_path, FileFormat.SMILES, skip_header=has_header, delimiter=delimiter
+        )
     if suffix == ".fasta":
         # ponytail: whole-file read, fine for sequence sets; stream by '>' if genome-sized FASTAs show up.
         return FileFormat.FASTA, {}, _iter_fasta_records(source_path)
     return suffix.lstrip(".") or "dat", {}, _iter_single_structure_entries(source_path)
 
 
-def _iter_raw_from_spans(source_path: Path, input_format: str, *, skip_header: bool) -> Iterator[dict[str, Any]]:
+def _iter_raw_from_spans(
+    source_path: Path, input_format: str, *, skip_header: bool, delimiter: str = " "
+) -> Iterator[dict[str, Any]]:
     with source_path.open("rb") as handle:
         for index, (raw, _start, _end) in enumerate(
-            _spans_for(input_format, handle, skip_header=skip_header)
+            _spans_for(input_format, handle, skip_header=skip_header, delimiter=delimiter)
         ):
             yield {"source_index": index, "raw": raw.decode("utf-8", errors="ignore")}
 
@@ -225,28 +230,75 @@ def _split_mol2_spans(lines: Iterator[bytes]) -> Iterator[tuple[bytes, int, int]
         yield b"".join(buffer), start, pos
 
 
-def _split_smiles_spans(lines: Iterator[bytes], *, skip_header: bool) -> Iterator[tuple[bytes, int, int]]:
+def _split_smiles_spans(
+    lines: Iterator[bytes], *, skip_header: bool, delimiter: str = " "
+) -> Iterator[tuple[bytes, int, int]]:
+    """(record bytes, start offset, end offset) for every row of a SMILES table.
+
+    A row is a line, except in a comma or tab table, where a quoted cell may hold a newline
+    (`CCO,"ethanol,\nquoted",100` is one row): the row runs on until its quotes close.
+    """
+    quoting = delimiter.encode() if delimiter in {",", "\t"} else b""
     pos = 0
     header_skipped = not skip_header
+    buffer: list[bytes] = []
+    start = 0
+    in_quotes = False
     for line in lines:
-        start = pos
+        line_start = pos
         pos += len(line)
-        stripped = line.strip()
-        if not stripped or stripped.startswith(b"#"):
-            continue
+        if not buffer:
+            stripped = line.strip()
+            if not stripped or stripped.startswith(b"#"):
+                continue
+            start = line_start
+        buffer.append(line)
+        if quoting and (in_quotes or b'"' in line):
+            in_quotes = _ends_in_quotes(line, quoting, in_quotes)
+            if in_quotes:
+                continue
+        record, buffer = b"".join(buffer), []
         if not header_skipped:
             header_skipped = True
             continue
-        yield line.rstrip(b"\n"), start, pos
+        yield record.rstrip(b"\n"), start, pos
+    if buffer:  # a quote never closed: the rest is one malformed row, the parser's to refuse
+        yield b"".join(buffer).rstrip(b"\n"), start, pos
 
 
-def _spans_for(input_format: str, lines: Iterator[bytes], *, skip_header: bool) -> Iterator[tuple[bytes, int, int]]:
+def _ends_in_quotes(line: bytes, delimiter: bytes, in_quotes: bool) -> bool:
+    """Whether a CSV line ends inside a quoted cell. As `csv` reads it: a quote opens a cell
+    only at the cell's start (spaces aside), `""` inside one is a literal quote, and a quote
+    anywhere else is just a character (`5"-x`)."""
+    at_cell_start = not in_quotes
+    index, size = 0, len(line)
+    while index < size:
+        char = line[index:index + 1]
+        if in_quotes:
+            if char == b'"':
+                if line[index + 1:index + 2] == b'"':
+                    index += 2
+                    continue
+                in_quotes = False
+        elif char == delimiter:
+            at_cell_start = True
+        elif char == b'"' and at_cell_start:
+            in_quotes, at_cell_start = True, False
+        elif char != b" ":
+            at_cell_start = False
+        index += 1
+    return in_quotes
+
+
+def _spans_for(
+    input_format: str, lines: Iterator[bytes], *, skip_header: bool, delimiter: str = " "
+) -> Iterator[tuple[bytes, int, int]]:
     if input_format == FileFormat.SDF:
         return _split_sdf_spans(lines)
     if input_format == FileFormat.MOL2:
         return _split_mol2_spans(lines)
     if input_format == FileFormat.SMILES:
-        return _split_smiles_spans(lines, skip_header=skip_header)
+        return _split_smiles_spans(lines, skip_header=skip_header, delimiter=delimiter)
     raise ValueError(f"Record spans are not defined for input format '{input_format}'.")
 
 
@@ -274,11 +326,12 @@ def iter_record_spans(
 
     source_path = Path(file_path).expanduser().resolve()
     skip_header = bool(parse_config.get("has_header"))
+    delimiter = str(parse_config.get("delimiter") or " ")
 
     def spans() -> Iterator[dict[str, Any]]:
         with source_path.open("rb") as handle:
             for index, (_raw, start, end) in enumerate(
-                _spans_for(input_format, handle, skip_header=skip_header)
+                _spans_for(input_format, handle, skip_header=skip_header, delimiter=delimiter)
             ):
                 yield {"source_index": index, "offset": start, "end": end}
 
@@ -292,12 +345,14 @@ def iter_record_span(
     offset: int,
     end: int,
     first_index: int = 0,
+    delimiter: str = " ",
 ) -> Iterator[dict[str, Any]]:
     """The records in a byte range, one at a time, in the usual `{source_index, raw}` shape.
 
     Streamed because a shard writer hands each record straight to disk: the span never has to
     exist in memory as a list, which is what lets the shard size be counted in records without
-    the record count dragging memory behind it.
+    the record count dragging memory behind it. ``delimiter`` is the table's, as the feed
+    sniffed it: the worker has to split the range into the same rows the feed counted.
     """
     source_path = Path(file_path).expanduser().resolve()
     with source_path.open("rb") as handle:
@@ -305,7 +360,9 @@ def iter_record_span(
         blob = handle.read(max(0, int(end) - int(offset)))
     # The range starts at a complete record, so there is never a header to skip here.
     lines = iter(blob.splitlines(keepends=True))
-    for position, (raw, _start, _end) in enumerate(_spans_for(input_format, lines, skip_header=False)):
+    for position, (raw, _start, _end) in enumerate(
+        _spans_for(input_format, lines, skip_header=False, delimiter=delimiter)
+    ):
         yield {"source_index": int(first_index) + position, "raw": raw.decode("utf-8", errors="ignore")}
 
 

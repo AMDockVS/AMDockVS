@@ -137,6 +137,7 @@ def filter_ligand_span(payload: dict[str, Any]) -> list[dict[str, Any]]:
         offset=batch.span_offset,
         end=batch.span_end,
         first_index=batch.span_first_index,
+        delimiter=str((batch.parse_config or {}).get("delimiter") or " "),
     ):
         raw = str(record.get("raw") or "")
         if batch.input_format == FileFormat.SMILES:
