@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from amdockvs.models import BindingSite, MoleculeRecord
-from amdockvs.binding_sites.jobs import p2rank_prediction_job
+from amdockvs.binding_sites.jobs import MISSING_STRUCTURE_HINT, missing_structure_message, p2rank_prediction_job
 from amdockvs.binding_sites.p2rank import B_FACTOR_CONSTANT, B_FACTOR_PREDICTED, B_FACTOR_VARIES
 from amdockvs.core.configuration import DEFAULT_P2RANK_PROFILE, app_config
 from amdockvs.core.payloads import molecule_payload_id, payload_store
@@ -459,8 +459,6 @@ class PocketDetectionWidget(QWidget):
         self._job_signal_connected = False
         self._bound_receptor_table = None
         self._tool_ready = False
-        # A job that finished while another tool had the panel: showEvent reloads the receptors.
-        self._stale = False
         # Without a project this widget is a label: show/hideEvent must not touch the rest.
         self._ready = False
 
@@ -514,9 +512,10 @@ class PocketDetectionWidget(QWidget):
             "B-factor value on every atom (OpenMM leaves 0.00) ignore them; the rest use them. "
             "The Profile column of each pocket says which model ran and why.</p>"
             "<p>The other two choices run that model on every receptor.</p>"
-            "<p>The selected profile applies to the whole run. "
-            "Changing it replaces the current predictions of the receptors in scope "
-            "once the new calculation succeeds.</p>"
+            "<p>The selected profile applies to the whole run. Each run adds its pockets "
+            "next to the earlier ones; nothing is replaced, the Profile column tells the runs "
+            "apart, and the active docking site stays until you choose another. Running the "
+            "profile of a receptor's latest run again reuses those results.</p>"
         )
         profile_row.addWidget(self.profile_combo, 1)
         self.profile_help_button = QToolButton(prediction_box)
@@ -722,9 +721,9 @@ class PocketDetectionWidget(QWidget):
             # The tool has no table of its own: the receptors it works on are the catalog's.
             opener(RECEPTOR_VIEW_ID)
         self._sync_receptor_scope()
-        if self._stale:
-            self._stale = False
-            self.refresh()
+        # Receptors may have been imported or deleted while the tool was hidden; the panel keeps
+        # its widget, so reopening it is where its receptor list catches up.
+        self.refresh()
 
     def hideEvent(self, event):
         super().hideEvent(event)
@@ -836,6 +835,12 @@ class PocketDetectionWidget(QWidget):
                 receptor_ids=receptor_ids,
                 profile=profile,
             )
+            if plan.missing_structure_ids:
+                # P2Rank reads coordinates; a sequence-only receptor would just drop out of the
+                # run while the job still reported the scope as done. Say so, by name.
+                receptor_ids = [r for r in receptor_ids if r not in set(plan.missing_structure_ids)]
+                if not self._confirm_skipping_unstructured(plan, runnable=len(receptor_ids)):
+                    return
             # The scope can contain receptors without any highlighted row. Give the
             # results panel a receptor to follow before results arrive or are reused.
             self._adopt_table_selection(select_first=True)
@@ -863,15 +868,45 @@ class PocketDetectionWidget(QWidget):
             if plan.reused_receptor_ids
             else ""
         )
+        skipped_text = (
+            f"; {len(plan.missing_structure_ids)} without a 3D structure skipped"
+            if plan.missing_structure_ids
+            else ""
+        )
         self.status_label.setText(
             "P2Rank submitted for "
-            f"{len(plan.recalculate_receptor_ids)} receptor(s){reused_text}."
+            f"{len(plan.recalculate_receptor_ids)} receptor(s){reused_text}{skipped_text}."
         )
         self.job_details_link.show()
+
+    def _confirm_skipping_unstructured(self, plan, *, runnable: int) -> bool:
+        """Name the receptors P2Rank cannot read. With nothing else in scope, that is the whole
+        answer; otherwise the rest may still run, but only if the user says so."""
+        names = list(plan.missing_structure_names)
+        shown = ", ".join(names[:5]) + (f" and {len(names) - 5} more" if len(names) > 5 else "")
+        if not runnable:
+            self.status_label.setText(missing_structure_message([shown]))
+            QMessageBox.information(self, "No 3D structure", missing_structure_message([shown]))
+            return False
+        answer = QMessageBox.question(
+            self,
+            "Receptors without a 3D structure",
+            f"{len(names)} receptor(s) in scope have no 3D structure and will be skipped: {shown}.\n\n"
+            f"{MISSING_STRUCTURE_HINT}\n\n"
+            f"Predict pockets for the other {runnable} receptor(s)?",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            self.status_label.setText("P2Rank was not run.")
+            return False
+        return True
 
     def _on_job_finished(self, job_id: str, status: str) -> None:
         normalized_job_id = str(job_id)
         if normalized_job_id not in self._pending_job_ids:
+            # Not ours, but an import (or any other job) can add or remove receptors: an open
+            # tool reloads them so its scope and Run follow. A hidden one does it on showEvent.
+            if self.isVisible():
+                self.refresh()
             return
         self._pending_job_ids.discard(normalized_job_id)
         self.run_button.setEnabled(bool(self._receptors) and not self._pending_job_ids)
@@ -881,11 +916,8 @@ class PocketDetectionWidget(QWidget):
             if normalized_status == "completed"
             else f"P2Rank job {normalized_status}."
         )
-        if normalized_status == "completed":
-            if self.isVisible():
-                self.refresh()
-            else:
-                self._stale = True
+        if normalized_status == "completed" and self.isVisible():
+            self.refresh()
         self._reload_sites()
 
     def _show_error(self, title: str, exc: Exception) -> None:
