@@ -106,18 +106,11 @@ def vina_command(runtime=None) -> str:
         or shutil.which(managed.name, path=str(managed.parent)) or shutil.which("vina") or "vina"
 
 
-def vina_backend(runtime=None) -> str:
-    """`binary` when the executable is really there, `python` (the bindings) otherwise."""
-    return "binary" if Path(vina_command(runtime)).expanduser().exists() else "python"
-
-
 def __getattr__(name: str):
-    """`DEFAULT_VINA_COMMAND` and `DEFAULT_VINA_BACKEND`: defaults for signatures, read from the
+    """`DEFAULT_VINA_COMMAND`: the default for signatures, read from the
     settings by whoever asks for them, which a module that only runs a task does not."""
     if name == "DEFAULT_VINA_COMMAND":
         value = vina_command()
-    elif name == "DEFAULT_VINA_BACKEND":
-        value = vina_backend()
     else:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     globals()[name] = value

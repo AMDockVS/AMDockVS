@@ -48,7 +48,6 @@ def qvina_dock_runner(payload: dict) -> list[dict]:
         box_center=[float(value) for value in (payload.get("box_center") or [])],
         box_size=[float(value) for value in (payload.get("box_size") or [])],
         scoring_function="vina",  # the only one QuickVina has
-        vina_backend="binary",
         vina_command=qvina_command(),
         vina_cpu=int(payload.get("vina_cpu") or 1),
         seed=int(payload.get("seed") or 0),

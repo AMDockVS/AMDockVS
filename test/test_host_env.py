@@ -3,15 +3,14 @@ import sys
 
 from ms_env import Host
 
-from amdockvs.core.constants import vina_backend, vina_command
+from amdockvs.core.constants import vina_command
 from amdockvs.docking.engines.vina import _vina_here
 from amdockvs.integrations import hosts
 
 
 def test_a_vina_that_is_not_on_the_machine_that_runs_is_looked_for_again():
-    assert _vina_here("python", "/nowhere/vina") == ("python", "/nowhere/vina")
-    assert _vina_here("binary", sys.executable) == ("binary", sys.executable)
-    assert _vina_here("binary", "/nowhere/vina") == (vina_backend(), vina_command())
+    assert _vina_here(sys.executable) == sys.executable
+    assert _vina_here("/nowhere/vina") == vina_command()
 
 
 def test_a_host_gets_the_env_and_the_tools_under_its_amdockvs_home(monkeypatch):

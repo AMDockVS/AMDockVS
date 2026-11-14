@@ -2,6 +2,7 @@
 writes files only while the chunk runs, and each result row carries the record of its rank."""
 from pathlib import Path
 
+import shutil
 import pytest
 
 import amdockvs.docking.engines.registry as docking_registry
@@ -91,7 +92,9 @@ def test_the_interaction_job_reads_the_pose_bytes_and_the_receptor_it_was_docked
 def test_vina_docks_with_the_ligand_as_bytes_and_the_receptor_carried(where, tmp_path):
     """A real Vina run away from the parent: the receptor is a `File` mark, so on Ray without a shared
     disk (`shared=False`) ms_flow carries it; the pose comes back as bytes, nothing stays on disk."""
-    pytest.importorskip("vina")
+    from amdockvs.core.constants import vina_command
+    if not shutil.which(vina_command()):
+        pytest.skip("the vina program is not installed")
     from ms_flow.engine import Engine, File, ProcessExecutor
     from rdkit import Chem
 
@@ -103,7 +106,7 @@ def test_vina_docks_with_the_ligand_as_bytes_and_the_receptor_carried(where, tmp
             "exhaustiveness": 1, "num_modes": 2,
             "box_center": [18.0, 134.0, -1.0], "box_size": [15.0, 11.25, 18.75], "spacing": 0.375}
     chunk = {"engine": "vina", "pairs": [pair], "output_dir": str(tmp_path / "out"), "scoring_function": "vina",
-             "vina_backend": "python", "vina_cpu": 1, "seed": 1, "energy_range": 3.0, "min_rmsd": 1.0}
+             "vina_cpu": 1, "seed": 1, "energy_range": 3.0, "min_rmsd": 1.0}
     if where == "ray":
         pytest.importorskip("ray")
         from ms_flow.engine import RayExecutor
@@ -133,7 +136,9 @@ def test_vina_docks_with_the_ligand_as_bytes_and_the_receptor_carried(where, tmp
 def test_a_chunk_finds_the_interactions_of_its_poses_and_stores_each_pose_once(tmp_path):
     """Docking and interactions in one task (`dock_with_interactions`): the detection runs in an
     interpreter of its own on the pose bytes, and the sink gives the pose one id in both tables."""
-    pytest.importorskip("vina")
+    from amdockvs.core.constants import vina_command
+    if not shutil.which(vina_command()):
+        pytest.skip("the vina program is not installed")
     from ms_flow.core.database.project import ProjectStore
     from ms_flow.engine import writer
 
@@ -149,7 +154,7 @@ def test_a_chunk_finds_the_interactions_of_its_poses_and_stores_each_pose_once(t
             "receptor_path": str(receptor), "receptor_payload_id": 7, "exhaustiveness": 1, "num_modes": 2,
             "box_center": [18.0, 134.0, -1.0], "box_size": [15.0, 11.25, 18.75], "spacing": 0.375}
     chunk = {"engine": "vina", "pairs": [pair], "output_dir": str(tmp_path / "out"), "scoring_function": "vina",
-             "vina_backend": "python", "vina_cpu": 1, "seed": 1, "energy_range": 3.0, "min_rmsd": 1.0,
+             "vina_cpu": 1, "seed": 1, "energy_range": 3.0, "min_rmsd": 1.0,
              "docking_run_id": 1}
 
     assert dock_with_interactions(chunk)["interaction_results"] == []  # not asked for

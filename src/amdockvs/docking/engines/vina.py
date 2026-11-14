@@ -29,75 +29,24 @@ def _require_pdbqt(path: Path, *, kind: str) -> None:
         )
 
 
-def _prepared_vina(
-    *,
-    cache: dict[tuple, object],
-    receptor_path: Path,
-    box_center: list[float],
-    box_size: list[float],
-    spacing: float,
-    scoring_function: str,
-    cpu: int,
-    seed: int,
-    flex_receptor_path: Path | None = None,
-    ad4_map_prefix: str | None = None,
-):
-    cache_key = (
-        str(receptor_path),
-        str(flex_receptor_path or ""),
-        tuple(float(value) for value in box_center),
-        tuple(float(value) for value in box_size),
-        float(spacing),
-        str(scoring_function),
-        str(ad4_map_prefix or ""),
-        int(cpu),
-        int(seed),
-    )
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached
-
-    try:
-        from vina import Vina
-    except ImportError as exc:
-        raise RuntimeError(
-            "Python package 'vina' is not available in the current environment."
-        ) from exc
-
-    vina_obj = Vina(sf_name=str(scoring_function), cpu=int(cpu), seed=int(seed), verbosity=0)
-    if ad4_map_prefix:
-        # ad4: the rigid receptor is baked into the autogrid maps -> load them instead of
-        # set_receptor + compute_vina_maps (which can't produce ad4 maps).
-        if flex_receptor_path is not None:
-            vina_obj.set_receptor(flex_pdbqt_filename=str(flex_receptor_path))
-        vina_obj.load_maps(str(ad4_map_prefix))
-    else:
-        if flex_receptor_path is not None:
-            vina_obj.set_receptor(str(receptor_path), str(flex_receptor_path))
-        else:
-            vina_obj.set_receptor(str(receptor_path))
-        vina_obj.compute_vina_maps(
-            center=[float(value) for value in box_center],
-            box_size=[float(value) for value in box_size],
-            spacing=float(spacing),
-        )
-    cache[cache_key] = vina_obj
-    return vina_obj
-
-
 _PROGRESS_STARS = 51  # the line Vina and QuickVina fill while they search: one star per 2 %
 
 
 def _follow_progress_line(stream, progress: Callable[[float], None] | None = None) -> str:
-    """Read `stream` to its end and return it; tell `progress` how full the progress line is."""
+    """Read `stream` to its end and return it; tell `progress` how many ligands are docked, the one
+    on its progress line counting by how full the line is (a batch prints one line per ligand)."""
     if progress is None:
         return stream.read()
-    text, line = [], ""
+    text, line, finished = [], "", 0
     for char in iter(lambda: stream.read(1), ""):
         text.append(char)
-        line = "" if char == "\n" else line + char
+        if char == "\n":
+            finished += bool(line) and not line.strip("*")
+            line = ""
+            continue
+        line += char
         if char == "*" and not line.strip("*"):  # a line of stars only: the banner has none
-            progress(min(1.0, len(line) / _PROGRESS_STARS))
+            progress(finished + min(1.0, len(line) / _PROGRESS_STARS))
     return "".join(text)
 
 
@@ -191,12 +140,10 @@ def _convert_vina_pdbqt_to_sdf(*, pdbqt_path: Path, sdf_path: Path) -> Path:
     return sdf_path
 
 
-def _run_vina_binary(
+def _vina_args(
     *,
     vina_command: str,
     receptor_path: Path,
-    ligand_path: Path,
-    output_path: Path,
     flex_receptor_path: Path | None = None,
     box_center: list[float],
     box_size: list[float],
@@ -210,44 +157,36 @@ def _run_vina_binary(
     energy_range: float,
     ad4_map_prefix: str | None = None,
     quickvina: bool = False,
-    progress: Callable[[float], None] | None = None,
-) -> tuple[list[list[float]], str]:
+    progress: bool = False,
+) -> list[str]:
+    """The command line of one Vina run, all but its ligands and where the poses go."""
     resolved_command = shutil.which(str(vina_command)) if not Path(str(vina_command)).expanduser().exists() else str(
         Path(str(vina_command)).expanduser().resolve()
     )
     if not resolved_command:
         raise RuntimeError(
             f"vina binary is not available. Command not found: {vina_command!r}. "
-            "Install AutoDock Vina or pass vina_command explicitly."
+            "Install AutoDock Vina (Programs) or set its path in the settings."
         )
+    flex = ["--flex", str(flex_receptor_path)] if flex_receptor_path is not None else []
     if ad4_map_prefix:
         # ad4: the autogrid maps carry the rigid receptor and the box, so --maps replaces
         # --receptor, the box (--center_*/--size_*) and --spacing (docking_basic.html, ad4 section).
-        grid_args = [
-            "--maps", str(ad4_map_prefix),
-            *(["--flex", str(flex_receptor_path)] if flex_receptor_path is not None else []),
-        ]
+        grid_args = ["--maps", str(ad4_map_prefix), *flex]
     else:
         grid_args = [
-            "--receptor", str(receptor_path),
-            *(["--flex", str(flex_receptor_path)] if flex_receptor_path is not None else []),
-            "--center_x", str(float(box_center[0])),
-            "--center_y", str(float(box_center[1])),
-            "--center_z", str(float(box_center[2])),
-            "--size_x", str(float(box_size[0])),
-            "--size_y", str(float(box_size[1])),
-            "--size_z", str(float(box_size[2])),
+            "--receptor", str(receptor_path), *flex,
+            *(arg for axis, value in zip("xyz", box_center) for arg in (f"--center_{axis}", str(float(value)))),
+            *(arg for axis, value in zip("xyz", box_size) for arg in (f"--size_{axis}", str(float(value)))),
         ]
     command = [
         str(resolved_command),
-        "--ligand", str(ligand_path),
         *grid_args,
         "--cpu", str(int(cpu)),
         "--seed", str(int(seed)),
         "--exhaustiveness", str(int(exhaustiveness)),
         "--num_modes", str(int(num_modes)),
         "--energy_range", str(float(energy_range)),
-        "--out", str(output_path),
     ]
     if not quickvina:
         # QuickVina 2.1 forked Vina 1.1.2 and exits with a usage error on any of these.
@@ -257,11 +196,14 @@ def _run_vina_binary(
             "--verbosity", "1" if progress else "0",  # 1 prints the progress line
             *([] if ad4_map_prefix else ["--spacing", str(float(spacing))]),
         ]
+    return command
+
+
+def _run_vina(command: list[str], progress: Callable[[float], None] | None = None) -> str:
+    """Run a Vina command line to its end and return what it printed; raise if it failed."""
     process: subprocess.Popen[str] | None = None
-    previous_handlers: dict[int, object] = {}
 
     def _kill_child_process() -> None:
-        nonlocal process
         if process is None or process.poll() is not None:
             return
         if os.name == "posix":
@@ -324,13 +266,39 @@ def _run_vina_binary(
             f"vina binary failed with exit code {process.returncode}: "
             f"{stderr_text.strip() or stdout_text.strip() or 'unknown error'}"
         )
+    return stdout_text
+
+
+def _run_vina_binary(
+    *, ligand_path: Path, output_path: Path, progress: Callable[[float], None] | None = None, **grid,
+) -> tuple[list[list[float]], str]:
+    """Dock one ligand: the energies of its poses, written to `output_path`, and what Vina printed."""
+    command = [*_vina_args(**grid, progress=progress is not None),
+               "--ligand", str(ligand_path), "--out", str(output_path)]
+    stdout_text = _run_vina(command, progress)
     energies = _parse_vina_pose_energies(output_path=output_path, stdout_text=stdout_text)
     if not energies:
         raise RuntimeError(
             "vina binary did not produce parseable pose energies. "
-            f"output_file={output_path} stdout={stdout_text.strip()!r} stderr={stderr_text.strip()!r}"
+            f"output_file={output_path} stdout={stdout_text.strip()!r}"
         )
     return energies, stdout_text
+
+
+def _run_vina_batch(
+    *, ligand_paths: list[Path], output_dir: Path, progress: Callable[[float], None] | None = None, **grid,
+) -> None:
+    """Dock many ligands into one receptor and box with one `vina --batch`: the maps are computed
+    once. Each ligand's poses go to `<output_dir>/<stem>_out.pdbqt`; Vina skips a ligand it cannot
+    read and writes nothing for it."""
+    command = [*_vina_args(**grid, progress=progress is not None),
+               *(arg for path in ligand_paths for arg in ("--batch", str(path))), "--dir", str(output_dir)]
+    _run_vina(command, progress)
+
+
+# ponytail: ligands per `vina --batch`. The maps are computed once per batch and rows come back
+# per batch, so a larger one saves map time but makes a shard's results arrive later.
+_BATCH_LIGANDS = 32
 
 
 def run_vina_docking_rows(
@@ -345,7 +313,6 @@ def run_vina_docking_rows(
     spacing: float = 0.375,
     energy_range: float = 3.0,
     min_rmsd: float = 1.0,
-    vina_backend: str = "python",
     vina_command: str = "vina",
     run_id: str = "",
     protocol_metadata: dict | None = None,
@@ -356,11 +323,11 @@ def run_vina_docking_rows(
     engine: str = "vina",
     method: str = "standard",
 ) -> list[dict]:
+    """Dock `pairs` with the Vina (or QuickVina) binary. Consecutive pairs with the same receptor,
+    box and settings dock together in one `vina --batch`; what a batch did not dock is docked alone,
+    which says why it fails. QuickVina has no batch mode: it docks one ligand per run."""
     resolved_output_dir = Path(output_dir).expanduser().resolve()
     resolved_output_dir.mkdir(parents=True, exist_ok=True)
-    normalized_backend = str(vina_backend or "python").strip().lower() or "python"
-    if normalized_backend not in {"python", "binary"}:
-        raise ValueError(f"Unsupported vina backend: {vina_backend}")
     quickvina = engine == "qvina"  # same search and files as Vina, through its own binary
     docking_method = check_program(method, engine, scoring_function)
 
@@ -368,162 +335,93 @@ def run_vina_docking_rows(
     failures: list[dict] = []
     success_count = 0
     project_root = get_default_project_root()
-    vina_cache: dict[tuple, object] = {}
     ad4_map_cache: dict[tuple, str] = {}
     ad4_maps_dir = resolved_output_dir / "_ad4_maps"
     protocol_payload = dict(protocol_metadata or {})
-    for pair in pairs:
-        complex_id = int(pair.get("complex_id") or 0) or None
-        run_kind = str(pair.get("run_kind") or "screening")
-        ligand_id = int(pair.get("ligand_id") or 0)
-        receptor_id = int(pair.get("receptor_id") or 0)
-        invalid_reason = str(pair.get("invalid_reason") or "").strip()
-        ligand_path = Path(str(pair.get("ligand_path") or "")).expanduser().resolve()
-        receptor_path = Path(str(pair.get("receptor_path") or "")).expanduser().resolve()
-        ligand_path_logical = str(pair.get("ligand_path_logical") or ligand_path)
-        receptor_path_logical = str(pair.get("receptor_path_logical") or receptor_path)
-        reference_ligand_logical = str(
-            pair.get("reference_ligand_path_logical") or pair.get("reference_ligand_path") or ""
-        )
-        reference_receptor_logical = str(
-            pair.get("reference_receptor_path_logical") or pair.get("reference_receptor_path") or ""
-        )
+
+    def report(pair_rows: list[dict]) -> None:
+        if collect_rows:
+            rows.extend(pair_rows)
+        if pair_callback is not None:
+            pair_callback(pair_rows)
+
+    def fail(pair: dict, error: str, **detail) -> None:
+        failures.append({
+            "complex_id": int(pair.get("complex_id") or 0) or None,
+            "run_kind": str(pair.get("run_kind") or "screening"),
+            "ligand_id": int(pair.get("ligand_id") or 0),
+            "receptor_id": int(pair.get("receptor_id") or 0),
+            "ligand_path": str(pair.get("ligand_path_logical") or _resolved(pair.get("ligand_path"))),
+            "receptor_path": str(pair.get("receptor_path_logical") or _resolved(pair.get("receptor_path"))),
+            **detail,
+            "error": error,
+        })
+        report([docking_row(pair, score_type="vina_score", error=error)])
+
+    def prepare(pair: dict) -> dict:
+        """What docking `pair` takes: its files checked and made dockable, and its Vina arguments."""
+        ligand_path, receptor_path = _resolved(pair.get("ligand_path")), _resolved(pair.get("receptor_path"))
         pair_box_center = [float(value) for value in (pair.get("box_center") or box_center or [])]
         pair_box_size = [float(value) for value in (pair.get("box_size") or box_size or [])]
         pair_spacing = float(pair.get("spacing") or spacing)
+        if not ligand_path.exists():
+            raise FileNotFoundError(f"ligand file missing: {ligand_path}")
+        if not receptor_path.exists():
+            raise FileNotFoundError(f"receptor file missing: {receptor_path}")
+        _require_pdbqt(ligand_path, kind="ligand")
+        _require_pdbqt(receptor_path, kind="receptor")
+        check_receptor(docking_method, receptor_path, pair_box_center, pair_box_size)
+        ligand_path = dockable_ligand(ligand_path, program=engine, scoring_function=scoring_function,
+                                      output_dir=resolved_output_dir)
+        # Flexible-residue prep writes "<receptor>__flex.pdbqt" next to the rigid receptor;
+        # if it's there, dock with flexible side chains. Deterministic name → no extra plumbing.
+        explicit_flex = str(pair.get("flex_receptor_path") or "").strip()
+        flex_candidate = receptor_path.with_name(f"{receptor_path.stem}__flex.pdbqt")
+        flex_receptor_path = Path(explicit_flex).expanduser().resolve() if explicit_flex else (
+            flex_candidate if flex_candidate.exists() else None
+        )
+        ad4_map_prefix = None
+        if str(scoring_function).lower() == "ad4":
+            ad4_map_prefix = _ad4_map_prefix(
+                cache=ad4_map_cache,
+                maps_dir=ad4_maps_dir,
+                receptor_path=receptor_path,
+                ligand_path=ligand_path,
+                box_center=pair_box_center,
+                box_size=pair_box_size,
+                spacing=pair_spacing,
+                flex_receptor_path=flex_receptor_path,
+                zinc=docking_method.zinc_site,
+            )
         output_stem = pose_file_stem(pair, protocol_payload)
-        output_pdbqt_path = resolved_output_dir / f"{output_stem}.dock.pdbqt"
-        output_sdf_path = resolved_output_dir / f"{output_stem}.dock.sdf"
-        grid_payload = {
-            "box_center": list(pair_box_center),
-            "box_size": list(pair_box_size),
-            "spacing": float(pair_spacing),
-            "scoring_function": str(scoring_function),
+        return {
+            "pair": pair,
+            "ligand_path": ligand_path,
+            "pdbqt": resolved_output_dir / f"{output_stem}.dock.pdbqt",
+            "sdf": resolved_output_dir / f"{output_stem}.dock.sdf",
+            "grid": {
+                "vina_command": vina_command,
+                "receptor_path": receptor_path,
+                "flex_receptor_path": flex_receptor_path,
+                "box_center": pair_box_center,
+                "box_size": pair_box_size,
+                "spacing": pair_spacing,
+                "scoring_function": scoring_function,
+                "cpu": vina_cpu,
+                "seed": seed,
+                "exhaustiveness": int(pair.get("exhaustiveness") or 8),
+                "num_modes": int(pair.get("num_modes") or 9),
+                "min_rmsd": float(min_rmsd),
+                "energy_range": float(energy_range),
+                "ad4_map_prefix": ad4_map_prefix,
+                "quickvina": quickvina,
+            },
         }
-        if invalid_reason:
-            failure = {
-                "complex_id": complex_id,
-                "run_kind": run_kind,
-                "ligand_id": ligand_id,
-                "receptor_id": receptor_id,
-                "ligand_path": ligand_path_logical,
-                "receptor_path": receptor_path_logical,
-                "error": invalid_reason,
-            }
-            failures.append(failure)
-            failed_row = docking_row(pair, score_type="vina_score", error=invalid_reason)
-            if collect_rows:
-                rows.append(failed_row)
-            if pair_callback is not None:
-                pair_callback([failed_row])
-            continue
-        try:
-            if not ligand_path.exists():
-                raise FileNotFoundError(f"ligand file missing: {ligand_path}")
-            if not receptor_path.exists():
-                raise FileNotFoundError(f"receptor file missing: {receptor_path}")
-            _require_pdbqt(ligand_path, kind="ligand")
-            _require_pdbqt(receptor_path, kind="receptor")
-            check_receptor(docking_method, receptor_path, pair_box_center, pair_box_size)
-            ligand_path = dockable_ligand(ligand_path, program=engine, scoring_function=scoring_function,
-                                          output_dir=resolved_output_dir)
-            # Flexible-residue prep writes "<receptor>__flex.pdbqt" next to the rigid receptor;
-            # if it's there, dock with flexible side chains. Deterministic name → no extra plumbing.
-            explicit_flex = str(pair.get("flex_receptor_path") or "").strip()
-            flex_candidate = receptor_path.with_name(f"{receptor_path.stem}__flex.pdbqt")
-            flex_receptor_path = Path(explicit_flex).expanduser().resolve() if explicit_flex else (
-                flex_candidate if flex_candidate.exists() else None
-            )
 
-            ad4_map_prefix = None
-            if str(scoring_function).lower() == "ad4":
-                ad4_map_prefix = _ad4_map_prefix(
-                    cache=ad4_map_cache,
-                    maps_dir=ad4_maps_dir,
-                    receptor_path=receptor_path,
-                    ligand_path=ligand_path,
-                    box_center=pair_box_center,
-                    box_size=pair_box_size,
-                    spacing=pair_spacing,
-                    flex_receptor_path=flex_receptor_path,
-                    zinc=docking_method.zinc_site,
-                )
-
-            if normalized_backend == "python":
-                vina_obj = _prepared_vina(
-                    cache=vina_cache,
-                    receptor_path=receptor_path,
-                    flex_receptor_path=flex_receptor_path,
-                    box_center=pair_box_center,
-                    box_size=pair_box_size,
-                    spacing=pair_spacing,
-                    scoring_function=scoring_function,
-                    cpu=vina_cpu,
-                    seed=seed,
-                    ad4_map_prefix=ad4_map_prefix,
-                )
-                vina_obj.set_ligand_from_file(str(ligand_path))
-                vina_obj.dock(
-                    exhaustiveness=int(pair.get("exhaustiveness") or 8),
-                    n_poses=int(pair.get("num_modes") or 9),
-                    min_rmsd=float(min_rmsd),
-                )
-                vina_obj.write_poses(
-                    str(output_pdbqt_path),
-                    n_poses=int(pair.get("num_modes") or 9),
-                    energy_range=float(energy_range),
-                    overwrite=True,
-                )
-                energies = vina_obj.energies(
-                    n_poses=int(pair.get("num_modes") or 9),
-                    energy_range=float(energy_range),
-                )
-                energies_list = energies.tolist() if hasattr(energies, "tolist") else list(energies)
-            else:
-                energies_list, _ = _run_vina_binary(
-                    vina_command=vina_command,
-                    receptor_path=receptor_path,
-                    flex_receptor_path=flex_receptor_path,
-                    ligand_path=ligand_path,
-                    output_path=output_pdbqt_path,
-                    box_center=pair_box_center,
-                    box_size=pair_box_size,
-                    spacing=pair_spacing,
-                    scoring_function=scoring_function,
-                    ad4_map_prefix=ad4_map_prefix,
-                    progress=pair_progress,
-                    cpu=vina_cpu,
-                    seed=seed,
-                    exhaustiveness=int(pair.get("exhaustiveness") or 8),
-                    num_modes=int(pair.get("num_modes") or 9),
-                    min_rmsd=float(min_rmsd),
-                    energy_range=float(energy_range),
-                    quickvina=quickvina,
-                )
-            _convert_vina_pdbqt_to_sdf(
-                pdbqt_path=output_pdbqt_path,
-                sdf_path=output_sdf_path,
-            )
-        except Exception as exc:
-            failure = {
-                "complex_id": complex_id,
-                "run_kind": run_kind,
-                "ligand_id": ligand_id,
-                "receptor_id": receptor_id,
-                "ligand_path": ligand_path_logical,
-                "receptor_path": receptor_path_logical,
-                "reference_ligand_path": reference_ligand_logical,
-                "reference_receptor_path": reference_receptor_logical,
-                "error": str(exc),
-                "grid": grid_payload,
-            }
-            failures.append(failure)
-            failed_row = docking_row(pair, score_type="vina_score", error=str(exc))
-            if collect_rows:
-                rows.append(failed_row)
-            if pair_callback is not None:
-                pair_callback([failed_row])
-            continue
+    def finish(item: dict, energies: list[list[float]]) -> None:
+        nonlocal success_count
+        pair, ligand_path, output_sdf_path = item["pair"], item["ligand_path"], item["sdf"]
+        _convert_vina_pdbqt_to_sdf(pdbqt_path=item["pdbqt"], sdf_path=output_sdf_path)
         pose_path_text = str(output_sdf_path)
         if project_root is not None:
             with suppress(Exception):
@@ -531,27 +429,83 @@ def run_vina_docking_rows(
         heavy_atoms = 0
         with suppress(Exception):
             heavy_atoms = _count_heavy_atoms_pdbqt(ligand_path)
-        pair_rows: list[dict] = []
-        for index, energy_row in enumerate(energies_list, start=1):
-            rmsd_detail = pose_rmsd_detail(
-                reference_ligand_path=pair.get("reference_ligand_path"),
-                pose_path=output_sdf_path,
-                pose_rank=index,
-            ) if str(run_kind or "") == "redocking" else None
-            pair_rows.append(docking_row(
+        pair_rows = [
+            docking_row(
                 pair,
                 score_type="vina_score",
                 pose_rank=index,
                 score=float(energy_row[0]) if len(energy_row) else 0.0,
                 pose_path=pose_path_text,
-                rmsd=rmsd_detail,
+                rmsd=pose_rmsd_detail(
+                    reference_ligand_path=pair.get("reference_ligand_path"),
+                    pose_path=output_sdf_path,
+                    pose_rank=index,
+                ) if str(pair.get("run_kind") or "") == "redocking" else None,
                 heavy_atoms=heavy_atoms,
-            ))
+            )
+            for index, energy_row in enumerate(energies, start=1)
+        ]
         success_count += 1
-        if collect_rows:
-            rows.extend(pair_rows)
-        if pair_callback is not None:
-            pair_callback(pair_rows)
+        report(pair_rows)
+
+    def dock(items: list[dict]) -> None:
+        """Dock items that share their Vina arguments: in one batch when there are several."""
+        batch_dir = resolved_output_dir / f"_batch_{uuid.uuid4().hex[:12]}"
+        if len(items) > 1 and not quickvina:
+            batch_dir.mkdir()
+            # ponytail: a failed batch (a crash, a kill) keeps what it wrote; the rest docks alone below.
+            with suppress(Exception):
+                _run_vina_batch(ligand_paths=[item["ligand_path"] for item in items], output_dir=batch_dir,
+                                progress=pair_progress, **items[0]["grid"])
+        try:
+            for item in items:
+                pair = item["pair"]
+                try:
+                    batched = batch_dir / f"{item['ligand_path'].stem}_out.pdbqt"
+                    energies = _parse_vina_pose_energies(output_path=batched) if batched.exists() else []
+                    if energies:
+                        os.replace(batched, item["pdbqt"])
+                    else:
+                        energies, _ = _run_vina_binary(ligand_path=item["ligand_path"], output_path=item["pdbqt"],
+                                                       progress=pair_progress, **item["grid"])
+                    finish(item, energies)
+                except Exception as exc:
+                    fail(
+                        pair, str(exc),
+                        reference_ligand_path=str(pair.get("reference_ligand_path_logical")
+                                                  or pair.get("reference_ligand_path") or ""),
+                        reference_receptor_path=str(pair.get("reference_receptor_path_logical")
+                                                    or pair.get("reference_receptor_path") or ""),
+                        grid={key: item["grid"][key] for key in ("box_center", "box_size", "spacing",
+                                                                  "scoring_function")},
+                    )
+        finally:
+            shutil.rmtree(batch_dir, ignore_errors=True)
+
+    batch: list[dict] = []
+    for pair in pairs:
+        invalid_reason = str(pair.get("invalid_reason") or "").strip()
+        if invalid_reason:
+            fail(pair, invalid_reason)
+            continue
+        try:
+            item = prepare(pair)
+        except Exception as exc:
+            fail(pair, str(exc), grid={
+                "box_center": [float(value) for value in (pair.get("box_center") or box_center or [])],
+                "box_size": [float(value) for value in (pair.get("box_size") or box_size or [])],
+                "spacing": float(pair.get("spacing") or spacing),
+                "scoring_function": str(scoring_function),
+            })
+            continue
+        # Vina names a batch's outputs after the ligand files, so two of one name go apart.
+        if batch and (item["grid"] != batch[0]["grid"] or len(batch) >= _BATCH_LIGANDS
+                      or item["ligand_path"].stem in {other["ligand_path"].stem for other in batch}):
+            dock(batch)
+            batch = []
+        batch.append(item)
+    if batch:
+        dock(batch)
     if failures:
         report_dir = resolved_output_dir / "_reports"
         report_dir.mkdir(parents=True, exist_ok=True)
@@ -560,7 +514,6 @@ def run_vina_docking_rows(
             json.dumps(
                 {
                     "engine": engine,
-                    "backend": normalized_backend,
                     "generated_at": datetime.now().isoformat(),
                     "pair_count": len(pairs),
                     "success_count": success_count,
@@ -570,10 +523,15 @@ def run_vina_docking_rows(
                 },
                 indent=2,
                 ensure_ascii=True,
+                default=str,
             ),
             encoding="utf-8",
         )
     return rows
+
+
+def _resolved(path) -> Path:
+    return Path(str(path or "")).expanduser().resolve()
 
 
 # ---------------------------------------------------------------------------
@@ -585,31 +543,27 @@ def run_vina_docking_rows(
 # (e.g. AutoDock-GPU) without touching the job/sink plumbing.
 # ---------------------------------------------------------------------------
 
-def _vina_here(backend: str, command: str) -> tuple[str, str]:
-    """The backend and executable for the machine that runs the chunk.
+def _vina_here(command: str) -> str:
+    """The Vina executable for the machine that runs the chunk.
 
     The payload carries what the submitting machine found; on another host that path
     may not exist, so the worker looks again (as qvina does).
     """
-    if backend != "binary" or Path(command).expanduser().exists() or shutil.which(command):
-        return backend, command
-    from amdockvs.core.constants import vina_backend, vina_command
+    if Path(command).expanduser().exists() or shutil.which(command):
+        return command
+    from amdockvs.core.constants import vina_command
 
-    return vina_backend(), vina_command()
+    return vina_command()
 
 
 def _vina_dock_runner(payload: dict) -> list[dict]:
-    backend, command = _vina_here(
-        str(payload.get("vina_backend") or "python"), str(payload.get("vina_command") or "vina")
-    )
     return run_vina_docking_rows(
         pairs=list(payload.get("pairs") or []),
         output_dir=str(payload.get("output_dir") or ""),
         box_center=[float(value) for value in (payload.get("box_center") or [])],
         box_size=[float(value) for value in (payload.get("box_size") or [])],
         scoring_function=str(payload.get("scoring_function") or "vina"),
-        vina_backend=backend,
-        vina_command=command,
+        vina_command=_vina_here(str(payload.get("vina_command") or "vina")),
         vina_cpu=int(payload.get("vina_cpu") or 1),
         seed=int(payload.get("seed") or 0),
         spacing=float(payload.get("spacing") or 0.375),

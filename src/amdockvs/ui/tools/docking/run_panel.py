@@ -1022,7 +1022,6 @@ class RunPanel:
                 "exhaustiveness": int(config.get("exhaustiveness") or 8),
                 "num_modes": int(config.get("num_modes") or 9),
                 "scoring_function": str(config.get("scoring_function") or "vina"),
-                "vina_backend": str(config.get("vina_backend") or "binary"),
                 "vina_cpu": int(config.get("vina_cpu") or 1),
                 "executor_name": str(params["executor_name"]),
                 "skip_existing": bool(params.get("skip_existing", True)),

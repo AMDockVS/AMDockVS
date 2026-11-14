@@ -1,3 +1,4 @@
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -364,7 +365,9 @@ def test_amdock_ui_opens_selected_project_in_place_when_no_active_project(tmp_pa
 def test_amdock_ui_domain_views_show_docking_summaries(tmp_path, monkeypatch):
     pytest.importorskip("rdkit")
     pytest.importorskip("ms_adtools")
-    pytest.importorskip("vina")
+    from amdockvs.core.constants import vina_command
+    if not shutil.which(vina_command()):
+        pytest.skip("the vina program is not installed")
     _patch_fake_home(monkeypatch, tmp_path)
 
     from test_amdock_runtime import _make_receptor_pdb, _make_smiles_file

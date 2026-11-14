@@ -1,3 +1,4 @@
+import shutil
 import sys
 from pathlib import Path
 
@@ -34,7 +35,9 @@ def test_amdock_runtime_exposes_named_screening_batch_policies(tmp_path, monkeyp
 def test_amdock_screening_benchmark_reports_counts_and_throughput(tmp_path, monkeypatch):
     pytest.importorskip("rdkit")
     pytest.importorskip("ms_adtools")
-    pytest.importorskip("vina")
+    from amdockvs.core.constants import vina_command
+    if not shutil.which(vina_command()):
+        pytest.skip("the vina program is not installed")
     _patch_fake_home(monkeypatch, tmp_path)
 
     runtime = AMDockVSRuntime()
