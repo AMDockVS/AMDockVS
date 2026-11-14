@@ -28,7 +28,7 @@ Comprobar con `pip show ms_flow` que la ubicación es la de la rama. `python -c 
 
 ## 3. Correr
 
-Desde la carpeta del repo, una corrida por número de workers (seis corridas, cada una ~5 min más la preparación):
+Desde la carpeta del repo, una corrida por número de workers. Son seis corridas de ~5 min cada una, más la preparación. La primera escribe el SDF grande (`$WORK/gui_lag_big_60gb.sdf`, unos minutos) y las demás lo reutilizan; antes lo reescribía cada corrida, por eso el bucle pasaba de 40 min:
 
 ```bash
 LIB=/ruta/a/Enamine_H100K.sdf
@@ -37,7 +37,7 @@ mkdir -p $WORK
 for host in process inline; do
   for cpus in 0-15 0-31 0-63; do
     taskset -c $cpus python test/benchmarks/bench_gui_lag.py --library $LIB --work $WORK \
-        --window --big-gb 60 --dump-ms 100 --engine-host $host --out $WORK/lag.jsonl
+        --window --big-gb 60 --engine-host $host --out $WORK/lag.jsonl
   done
 done
 ```
@@ -57,11 +57,12 @@ Por cada fase (`idle`, `dock`, `dock+import`) imprime una línea:
 | `dock.tasks_running`, `import.tasks_running` | tareas de cada job; si su suma cae muy por debajo de los workers, el despacho se está frenando |
 
 - Al final escribe una línea JSON y la añade a `lag.jsonl`.
-- Con `--dump-ms 100`, cada tick que llega más de 100 ms tarde vuelca las pilas de todos los hilos en `$WORK/gui_lag_stacks.log`. Así se sabe quién tenía el GIL.
+- Cada tick que llega 100 ms tarde o más deja una línea en `$WORK/gui_lag.jsonl` (ver la sección 6). Indica cuándo pasó y cuánto tardó el gc. Cada corrida empieza con una línea `{"run": …}`.
+- El hueco entre dos fases también sale como una parada de ~5 s con la pila `bench_gui_lag.py … main`: es la sonda, no cuenta. Los números de cada fase son los de la consola y `lag.jsonl`. Su `ended_at` sirve para ubicar las paradas por fase.
 
 ## 5. Qué devolver
 
-`$WORK/lag.jsonl` y `$WORK/gui_lag_stacks.log`, más la salida de consola si algo falló.
+`$WORK/lag.jsonl` y `$WORK/gui_lag.jsonl`, más la salida de consola si algo falló.
 
 ## 6. Con la app de verdad
 
@@ -72,10 +73,17 @@ taskset -c 0-63 env AMDOCK_GUI_LAG=1 amdockvs   # sin taskset: todas las CPU
 ```
 
 - Cada minuto añade una línea a `~/.amdockvs/logs/gui_lag.jsonl`: `{"at", "ticks", "p50_ms", "p99_ms", "max_ms", "max_at"}` (ticks de 20 ms; `max_at` es la hora del peor). Al cerrar la app escribe el minuto en curso.
-- El primer minuto incluye el arranque (en la PC de desarrollo, ~700 ms al abrir la ventana): no cuenta.
+- Empieza a medir cuando la ventana ya está abierta, así que el arranque no cuenta. Antes sí contaba: el ~1 s del primer minuto era eso.
+- Cada parada de 100 ms o más tiene su propia línea, `{"stall_ms", "at", "gc_ms"}`. `gc_ms` es lo que tardó el recolector de basura dentro de la parada.
+- Para saber dónde se fue el tiempo, py-spy, desde fuera. La app no lee pilas de sus propios hilos: probado con faulthandler y con `sys._current_frames`, las dos formas la tumban. Se lanza así:
+
+  ```bash
+  AMDOCK_GUI_LAG=1 py-spy record --idle --threads --nonblocking --rate 100 -f speedscope -o $WORK/app.speedscope.json -- amdockvs
+  ```
+
+  Devolver ese archivo junto con `gui_lag.jsonl`.
 - `~/.amdockvs/logs/freeze_stacks.log` solo recibe pilas si la GUI se queda congelada ≥ 10 s. Debe quedar vacío. **No bajar `AMDOCK_FREEZE_SECONDS`** por debajo de ~1 s: volcar pilas a menudo tumba la app (segfault con 0,2 s).
 - Para saber qué motor se usó: `MSFLOW_ENGINE_HOST=inline` vuelve a la fase A; sin nada, fase B (proceso hijo).
-- Si `--dump-ms` de la sonda acaba en segfault, repetir esa corrida sin `--dump-ms`: es el mismo volcado de pilas.
 
 Devolver `gui_lag.jsonl` junto con lo de la sonda, diciendo qué se hizo en cada minuto (más o menos).
 

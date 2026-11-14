@@ -12,8 +12,10 @@ Plan 10 of ms_flow, phase A: a 20 ms QTimer in the GUI thread records how late e
 For each phase it also prints the docking chunks settled per second, which says whether the
 import's feed slows the dispatch down. The engine sizes itself from the CPUs this process may use,
 so `taskset` sets the number of workers. Criterion of the plan: with 64 workers, p99 < 50 ms and
-max < 500 ms. `--dump-ms 100` says which thread held the GIL in a late tick. `--window` also opens the main window (offscreen without a display), so its
-monitor and tables refresh in the GUI thread as in the app. `--engine-host inline` keeps the
+max < 500 ms. Each tick 100 ms late or more also gets a line in `gui_lag.jsonl` (next to `--work`)
+with the app's own lag log: when, and how much of it the gc took (for where, run under py-spy).
+The gap between two phases shows there too, as a stall in this script. `--window` also opens the
+main window (offscreen without a display), so its monitor and tables refresh in the GUI thread as in the app. `--engine-host inline` keeps the
 engine in this process, as before phase B.
 """
 from __future__ import annotations
@@ -45,13 +47,17 @@ def first_records(sdf: Path, n: int, dest: Path) -> Path:
 
 
 def big_sdf(library: Path, dest: Path, gb: float) -> Path:
-    """`library` repeated up to `gb`, then dropped from the page cache so the import reads the disk."""
-    chunk = library.read_bytes()
-    with open(dest, "wb") as out:
-        while out.tell() < gb * 1e9:
-            out.write(chunk)
-        out.flush()
-        os.fsync(out.fileno())
+    """`library` repeated up to `gb`, then dropped from the page cache so the import reads the disk.
+
+    Kept between runs: writing 60 GB took most of each run's time.
+    """
+    if not (dest.is_file() and dest.stat().st_size >= gb * 1e9):
+        chunk = library.read_bytes()
+        with open(dest, "wb") as out:
+            while out.tell() < gb * 1e9:
+                out.write(chunk)
+            out.flush()
+            os.fsync(out.fileno())
     fd = os.open(dest, os.O_RDONLY)
     try:
         os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
@@ -70,7 +76,7 @@ def lag_stats(lags: list[float]) -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--work", type=Path, help="where the project and the big SDF go (needs ~gb+5 GB)")
+    ap.add_argument("--work", type=Path, help="where the project and the big SDF go (needs ~gb+5 GB; the SDF stays for the next run)")
     ap.add_argument("--library", type=Path, default=LIBRARY, help="SDF the ligands and the big import come from")
     ap.add_argument("--ligands", type=int, default=3000)
     ap.add_argument("--batch", type=int, default=1, help="docking pairs per task")
@@ -78,8 +84,6 @@ def main() -> int:
     ap.add_argument("--seconds", type=float, default=60.0, help="length of each phase")
     ap.add_argument("--switch-ms", type=float, default=1.0, help="sys.setswitchinterval, as the app sets it")
     ap.add_argument("--window", action="store_true", help="also open the main window")
-    ap.add_argument("--dump-ms", type=float, default=0,
-                    help="dump every thread's stack to gui_lag_stacks.log when a tick is this late (0: off)")
     ap.add_argument("--engine-host", choices=("process", "inline"), default="process",
                     help="where ms_flow runs the engine: a child process (phase B) or this one")
     ap.add_argument("--keep", action="store_true", help="keep the work folder")
@@ -100,7 +104,7 @@ def main() -> int:
     from PySide6.QtWidgets import QApplication
 
     from amdockvs import AMDockVSRuntime
-    from amdockvs.app import use_en_us_numbers
+    from amdockvs.app import freeze_log, install_gui_lag_log, use_en_us_numbers
 
     qt_app = QApplication.instance() or QApplication(["bench_gui_lag"])
     use_en_us_numbers()
@@ -121,7 +125,8 @@ def main() -> int:
         (receptor,) = rt.molecules.stream(rt.molecules.select(role="receptor"))
         rt.docking.set_grid(receptor_id=int(receptor.id), center=CENTER, size=BOX)
         receptor_set = rt.molecules.create_set(rt.molecules.select(role="receptor"), name="lag", kind="snapshot")
-        big = big_sdf(args.library, work / "big.sdf", args.big_gb)
+        big = big_sdf(args.library, (args.work or Path(tempfile.gettempdir())) / f"gui_lag_big_{args.big_gb:g}gb.sdf",
+                      args.big_gb)
         report["setup_s"] = round(time.monotonic() - t0, 1)
         print(f"setup {report['setup_s']} s on {cpus} CPUs", flush=True)
 
@@ -138,15 +143,9 @@ def main() -> int:
         timer.setInterval(20)
         timer.setTimerType(Qt.TimerType.PreciseTimer)
 
-        stacks = None
-        if args.dump_ms:
-            import faulthandler
-
-            stacks = open((args.work or Path.cwd()) / "gui_lag_stacks.log", "a", buffering=1)  # noqa: SIM115
+        lag_log = install_gui_lag_log(qt_app)  # noqa: F841 - the timer must outlive this scope
 
         def tick() -> None:
-            if stacks is not None:  # fires from a C thread, so it dumps while another thread holds the GIL
-                faulthandler.dump_traceback_later((20 + args.dump_ms) / 1000, file=stacks, exit=False)
             now = time.perf_counter()
             lags.append(max(0.0, (now - last[0]) * 1000 - 20))
             at.append(now - last[1])
@@ -171,11 +170,9 @@ def main() -> int:
             QTimer.singleShot(int(args.seconds * 1000), qt_app.quit)
             qt_app.exec()
             timer.stop()
-            if stacks is not None:
-                faulthandler.cancel_dump_traceback_later()
-                stacks.write(f"--- end of phase {name}\n")
             elapsed = time.monotonic() - start
             stats = lag_stats(lags)
+            stats["ended_at"] = time.strftime("%H:%M:%S")  # to read gui_lag.jsonl by phase
             if lags:
                 stats["max_at_s"] = round(at[lags.index(max(lags))], 1)
             stats["dock_chunks_per_s"] = round((done(dock) - before) / elapsed, 2)
@@ -207,6 +204,11 @@ def main() -> int:
         if window is not None and isValid(window):
             window.close()
         rt.shutdown()
+        lag = freeze_log().with_name("gui_lag.jsonl")
+        if lag.is_file():  # the work folder goes: keep the stalls beside it, one header line per run
+            with open((args.work or Path.cwd()) / "gui_lag.jsonl", "a", encoding="utf-8") as out:
+                out.write(json.dumps({"run": {k: report[k] for k in ("cpus", "engine_host", "window")}}) + "\n")
+                out.write(lag.read_text())
         if not args.keep:
             shutil.rmtree(work, ignore_errors=True)
     line = json.dumps(report)
