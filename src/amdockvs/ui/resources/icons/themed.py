@@ -5,8 +5,8 @@ parallel Catppuccin-only palette system that duplicated `ui/theme.py`). This kee
 only what AmDock needs: one QIconEngine that resolves its color at paint time from
 the app palette, plus a watcher that drops the pixmap cache when the theme changes.
 
-`theme.py`'s `apply_theme` calls `app.setPalette(...)`, which fires
-`ApplicationPaletteChange` — the watcher catches it and every icon repaints in the
+`theme.py`'s `apply_theme` calls `app.setPalette(...)`, which emits the app's
+`paletteChanged` — the watcher catches it and every icon repaints in the
 new theme's color. No call site has to know a theme changed.
 
 Color source is a `QPalette.ColorRole` (default `ButtonText`, i.e. the theme's
@@ -22,7 +22,7 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Callable, Union
 
-from PySide6.QtCore import QByteArray, QEvent, QObject, QRect, QRectF, QSize, QSizeF, Qt
+from PySide6.QtCore import QByteArray, QRect, QRectF, QSize, QSizeF, Qt
 from PySide6.QtGui import (
     QColor, QGuiApplication, QIcon, QIconEngine, QPainter, QPalette, QPixmap,
 )
@@ -34,47 +34,34 @@ from PySide6.QtSvg import QSvgRenderer
 ColorSource = Union[QPalette.ColorRole, QColor, Callable[[], QColor]]
 
 
-class _PaletteWatcher(QObject):
-    def eventFilter(self, obj: QObject, event: QEvent) -> bool:
-        if event.type() == QEvent.Type.ApplicationPaletteChange:
-            ThemedIconEngine.invalidate_caches()
-        return False
-
-
-_watcher: _PaletteWatcher | None = None
-_color_scheme_slot: Callable[..., None] | None = None
+# Signals, not an app-wide eventFilter: a filter on the QApplication runs Python for every
+# event of every widget, and each of those calls waits for the GIL while worker threads
+# hold it (the lab's GUI stalled inside that filter).
+_slot: Callable[..., None] | None = None
 
 
 def _ensure_watcher() -> None:
-    global _color_scheme_slot, _watcher
+    global _slot
     app = QGuiApplication.instance()
-    if app is not None and _watcher is None:
-        _watcher = _PaletteWatcher(app)
-        app.installEventFilter(_watcher)
-        # OS light/dark switch doesn't fire ApplicationPaletteChange; catch it so a
+    if app is not None and _slot is None:
+        _slot = lambda *_: ThemedIconEngine.invalidate_caches()
+        app.paletteChanged.connect(_slot)
+        # OS light/dark switch doesn't change the app palette; catch it so a
         # callable ColorSource (e.g. the OS-scheme window icon) repaints.
-        _color_scheme_slot = lambda *_: ThemedIconEngine.invalidate_caches()
-        app.styleHints().colorSchemeChanged.connect(_color_scheme_slot)
+        app.styleHints().colorSchemeChanged.connect(_slot)
 
 
 def shutdown_themed_icons(app: QGuiApplication | None = None) -> None:
     """Detach Qt callbacks and release GUI resources before QApplication teardown."""
-    global _color_scheme_slot, _watcher
+    global _slot
     app = app or QGuiApplication.instance()
-    watcher, color_scheme_slot = _watcher, _color_scheme_slot
-    _watcher = None
-    _color_scheme_slot = None
-
-    if app is not None and watcher is not None:
-        try:
-            app.removeEventFilter(watcher)
-        except RuntimeError:
-            pass
-    if app is not None and color_scheme_slot is not None:
-        try:
-            app.styleHints().colorSchemeChanged.disconnect(color_scheme_slot)
-        except (RuntimeError, TypeError):
-            pass
+    slot, _slot = _slot, None
+    if app is not None and slot is not None:
+        for signal in (app.paletteChanged, app.styleHints().colorSchemeChanged):
+            try:
+                signal.disconnect(slot)
+            except (RuntimeError, TypeError):
+                pass
 
     # QPixmap and QSvgRenderer objects must not survive their QGuiApplication.
     ThemedIconEngine._pixmaps.clear()

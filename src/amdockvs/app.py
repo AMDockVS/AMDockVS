@@ -143,6 +143,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not os.environ.get("QT_QPA_PLATFORMTHEME") and \
             os.environ.get("QT_QPA_PLATFORM", "").strip().lower() != "offscreen":
         os.environ["QT_QPA_PLATFORMTHEME"] = "xdgdesktopportal"
+    # Wayland sessions (Ubuntu 26.04 default) spew errors with PyMOL's GL widget and docks:
+    # prefer XWayland, falling back to Wayland where xcb is missing (needs libxcb-cursor0).
+    if sys.platform.startswith("linux") and os.environ.get("WAYLAND_DISPLAY") \
+            and os.environ.get("DISPLAY") and not os.environ.get("QT_QPA_PLATFORM"):
+        os.environ["QT_QPA_PLATFORM"] = "xcb;wayland"
+    # Engine threads share the GIL with the GUI thread; every Qt call that releases it then
+    # waits up to the switch interval to get it back. 5 ms → 1 ms cut a 200-row table update
+    # under 3 busy threads from ~0.2-0.45 s to ~0.03 s.
+    sys.setswitchinterval(0.001)
 
     from PySide6.QtCore import QCoreApplication, Qt
     from PySide6.QtWidgets import QApplication
