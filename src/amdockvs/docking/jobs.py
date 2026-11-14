@@ -26,7 +26,10 @@ from amdockvs.core.constants import (
 from amdockvs.docking.pairs import (
     build_docking_pair,
     build_failed_docking_pair,
+    docking_input_key,
     iter_docking_batches_from_rows,
+    matching_input_keys,
+    receptor_box,
 )
 from amdockvs.docking.preparation.state import grid_from_row
 from amdockvs.docking.methods import excludes
@@ -36,7 +39,6 @@ from amdockvs.docking.repository import (
     count_entity_rows,
     docked_ligands_spec,
     top_ligands_spec,
-    entity_ids,
     inputs_dir,
     iter_entity_rows,
     molecule_scope_spec,
@@ -77,6 +79,23 @@ def _transport_docking_chunk(chunk: dict[str, Any]) -> dict[str, Any]:
     return chunk
 
 
+_RECEPTOR_FIELDS = ("id", "stored_payload_id", "current_payload_id", "metadata_json",
+                    "prepared_payload_id", "flex_payload_id", "grid_engine_payload")
+
+
+def screening_input_keys(receptor_rows, *, box_center, box_size, spacing, preparation_engine,
+                         requires_binding_site) -> dict[int, list[str]]:
+    """Per receptor, the stored `input_key`s that mean "docked against what it would dock now"."""
+    keys: dict[int, list[str]] = {}
+    for row in receptor_rows:
+        center, size, grid_spacing = receptor_box(
+            row, box_center=box_center, box_size=box_size, spacing=spacing,
+            preparation_engine=preparation_engine, requires_binding_site=requires_binding_site,
+        )
+        keys[int(row.get("id") or 0)] = matching_input_keys(row, docking_input_key(row, center, size, grid_spacing))
+    return keys
+
+
 def count_pending_docking_pairs(
     *,
     project_db,
@@ -90,11 +109,16 @@ def count_pending_docking_pairs(
     skip_existing: bool,
     requires_ligand_preparation: bool = True,
     requires_receptor_preparation: bool = True,
+    requires_binding_site: bool = True,
+    box_center: tuple[float, float, float] | None = None,
+    box_size: tuple[float, float, float] | None = None,
+    spacing: float = 0.375,
 ) -> int:
     """Count exactly the receptor-ligand pairs that ``iter_docking_batches`` will emit.
 
     Receptors are few, so they are listed; ligands are a library, so they are only counted —
     once per receptor, with the "already docked" guard pushed into the query as a subquery.
+    Docked counts only against the receptor's current input and box, as the feed skips.
     """
     ligand_scope = dict(ligand_filters or {})
     receptor_scope = dict(receptor_filters or {})
@@ -102,14 +126,15 @@ def count_pending_docking_pairs(
         ligand_scope["prepared_engine"] = True
     if requires_receptor_preparation:
         receptor_scope["prepared_engine"] = True
-    receptor_ids = entity_ids(
+    receptor_rows = list_entity_rows(
         project_db,
         entity_kind="receptor",
         engine=preparation_engine,
         set_id=receptor_set_id,
         filters=receptor_scope,
+        fields=_RECEPTOR_FIELDS,
     )
-    if not receptor_ids:
+    if not receptor_rows:
         return 0
 
     def _count(extra_filters: Mapping[str, Any] | None = None) -> int:
@@ -126,11 +151,14 @@ def count_pending_docking_pairs(
         )
 
     if not skip_existing:
-        return _count() * len(receptor_ids)
+        return _count() * len(receptor_rows)
 
     protocol_hash = str(
         DockingProtocolMetadata.from_mapping(protocol_metadata).as_metrics_payload().get("hash") or ""
     ).strip()
+    keys = screening_input_keys(receptor_rows, box_center=box_center, box_size=box_size, spacing=spacing,
+                                preparation_engine=preparation_engine,
+                                requires_binding_site=requires_binding_site)
     return sum(
         _count({
             "id__not_in_subquery": docked_ligands_spec(
@@ -138,9 +166,10 @@ def count_pending_docking_pairs(
                 engine=engine,
                 run_kind="screening",
                 protocol_hash=protocol_hash or None,
+                input_keys=receptor_keys,
             )
         })
-        for receptor_id in receptor_ids
+        for receptor_id, receptor_keys in keys.items()
     )
 
 
@@ -312,21 +341,18 @@ def iter_docking_batches(
         engine=prep_engine,
         set_id=receptor_set_id,
         filters=normalized_receptor_filters,
-        fields=(
-            "id",
-            "stored_payload_id",
-            "current_payload_id",
-            "metadata_json",
-            "prepared_payload_id",
-            "flex_payload_id",
-            "grid_engine_payload",
-        ),
+        fields=_RECEPTOR_FIELDS,
     )
     if selected_from_receptor_id:
         receptor_rows = [row for row in receptor_rows if int(row.get("id") or 0) != int(selected_from_receptor_id)]
     receptors = [with_input_files(project_db, row, inputs_dir(project_db)) for row in receptor_rows]
     if not receptors:
         return
+    # What each receptor would dock against now: a result counts as already docked only if it
+    # was docked against the same (another box or a new preparation docks the pair again).
+    input_keys = screening_input_keys(receptors, box_center=box_center, box_size=box_size, spacing=spacing,
+                                      preparation_engine=prep_engine,
+                                      requires_binding_site=requires_binding_site)
 
     # Lightweight "already computed" guard: skip pairs that already have results (default). A
     # forced re-dock docks them again, and their older results go now, so the two never mix.
@@ -368,7 +394,8 @@ def iter_docking_batches(
                 project_db, entity_kind="ligand", engine=prep_engine, set_id=ligand_set_id,
                 filters=normalized_ligand_filters, extra_filters={**selection, "id__in_subquery":
                     docked_ligands_spec(receptor_id=int(receptor_id), engine=engine, run_kind="screening",
-                                        protocol_hash=protocol_hash or None, except_run=run)},
+                                        protocol_hash=protocol_hash or None, except_run=run,
+                                        input_keys=input_keys.get(int(receptor_id), []))},
             ) if protocol_hash else 0
 
         plan_targets(
@@ -396,6 +423,7 @@ def iter_docking_batches(
                 engine=engine,
                 run_kind="screening",
                 protocol_hash=protocol_hash or None,
+                input_keys=input_keys.get(int(receptor_id), []),
             )
         return with_input_bytes(project_db, iter_entity_rows(
             project_db,
@@ -708,16 +736,17 @@ def _waits_for_program(params: dict) -> bool:
 
 
 def _supersede(params: dict, config: dict) -> None:
-    """When a forced re-dock ends, however it ends: what it stored replaces the older rows of the
-    same pairs. A pair it did not get to (canceled, failed) keeps the result it had.
+    """When a run ends, however it ends: what it stored replaces the older rows of the same
+    pairs. A forced re-dock docks every pair again; one with skip_existing docks again only the
+    pairs whose inputs changed (another box, a new preparation), and their stale rows go too.
+    A pair it did not get to (canceled, failed) keeps the result it had.
 
     Any run with a plan also leaves its end state there, so Results shows a stopped run."""
     project_db = config.get("project_db")
     if project_db is None:
         return
     run_id = str(params.get("run_id") or "")
-    if not params.get("skip_existing", True):
-        supersede_results(project_db, run_id=run_id)
+    supersede_results(project_db, run_id=run_id)
     if run_id:
         run = find_docking_run(
             project_db, run_id=run_id, engine=str(params.get("engine") or "vina"), run_kind="screening",

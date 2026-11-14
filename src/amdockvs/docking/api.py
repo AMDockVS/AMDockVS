@@ -1250,6 +1250,10 @@ class DockingAPI:
             skip_existing=False if reset_results else skip_existing,
             requires_ligand_preparation=program_spec.requires_ligand_preparation,
             requires_receptor_preparation=program_spec.requires_receptor_preparation,
+            requires_binding_site=program_spec.requires_binding_site,
+            box_center=box_center,
+            box_size=box_size,
+            spacing=_engine_fields(resolved_engine_config, knobs)["spacing"],
         )
         # The Top-N does not exist yet when an off-target stage is submitted: declare nothing
         # (a floor of 0) rather than a count that could over-declare and never complete.

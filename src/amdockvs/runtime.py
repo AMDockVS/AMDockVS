@@ -15,6 +15,7 @@ from amdockvs.core.constants import (
     AMDOCKVS_SCOPE_ID,
     RESOURCE_DOCKING_RESULTS,
     RESOURCE_QSAR_MODELS,
+    TABLE_DOCKING_RESULTS,
     TABLE_INTERACTION_RESULTS,
     TABLE_MOLECULES,
     TABLE_QSAR_MODEL_MEMBERS,
@@ -370,14 +371,22 @@ class AMDockVSRuntime(AppRuntime):
 
     def _add_columns(self) -> None:
         """Columns a project made before them lacks: `shard_preps.sha256` (2026-11, empty: a campaign
-        hashes those files itself)."""
-        added = ((TABLE_SHARD_PREPS, "sha256", "VARCHAR NOT NULL DEFAULT ''"),)
+        hashes those files itself) and `docking_results.input_key` (2026-11). The box of an older
+        result is unknown; its key is its receptor payload (`legacy_input_key`), so skip_existing
+        still docks again a receptor prepared since, without docking the whole library again."""
+        added = (
+            (TABLE_SHARD_PREPS, "sha256", "VARCHAR NOT NULL DEFAULT ''", None),
+            (TABLE_DOCKING_RESULTS, "input_key", "VARCHAR NOT NULL DEFAULT ''",
+             "UPDATE {table} SET input_key = 'legacy:' || COALESCE(receptor_payload_id, 0)"),
+        )
         with self.workspace.project_db.get_session() as session:
             conn = session.connection()
-            for table, column, kind in added:
+            for table, column, kind, backfill in added:
                 columns = conn.exec_driver_sql(f"PRAGMA table_info({table});").fetchall()
                 if columns and column not in {str(row[1]) for row in columns}:
                     conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
+                    if backfill:
+                        conn.exec_driver_sql(backfill.format(table=table))
             session.commit()
 
     def _rebuild_qsar_tables(self) -> None:
