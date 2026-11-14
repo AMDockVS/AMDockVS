@@ -1694,7 +1694,11 @@ class DockingAPI:
             program: str | None = None,
     ) -> int:
         """`program` counts only the pairs docked against what its run would dock now: each
-        receptor's current preparation and stored grid (skip_existing docks the others again)."""
+        receptor's current preparation and stored grid (skip_existing docks the others again).
+
+        The spacing is the stored grid's, which is what the run docks with as well: a defined
+        site always carries one, so the fallback here is only reached where there is no grid —
+        and then there is nothing docked to count, every program requiring a site."""
         input_keys = None
         if program and receptor_ids is not None:
             spec = self.get_program_spec(program)

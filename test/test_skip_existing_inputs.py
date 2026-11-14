@@ -255,3 +255,21 @@ def test_a_campaign_keys_its_receptors_as_a_row_fed_run_does(tmp_path, monkeypat
     _move_site(store, 100.0)
     assert [target["input_key"] for target in targets()] != [key]
     store.dispose()
+
+
+def test_a_sites_own_spacing_is_what_both_the_run_and_the_preview_key_by(tmp_path, monkeypatch):
+    """The grid's spacing wins over any default, so the preview agrees with the feed: it would
+    otherwise count a docked pair as pending and the job would wait on a chunk never emitted."""
+    _fake_engine(monkeypatch)
+    store = _project(tmp_path)
+    with store.get_session() as session:
+        site = session.exec(select(BindingSite)).one()
+        site.extra_data = {"spacing": 0.5}
+        session.add(site)
+        session.commit()
+    _dock(store, tmp_path, "r1")  # asserts the declared count matches what the feed emits
+    api = DockingAPI(SimpleNamespace(workspace=SimpleNamespace(project_db=store), _require_active_project=lambda: None))
+    receptor = _results(store)[0].receptor_molecule_id
+    assert api.count_docked_pairs(engine="vina", receptor_ids=[receptor], program="vina") == N_LIGANDS
+    assert _counted(store) == 0  # nothing left pending
+    store.dispose()
