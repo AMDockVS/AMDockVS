@@ -218,3 +218,38 @@ def test_3d_builds_fused_rings_etkdg_rejects_and_refuses_impossible_stereo():
         assert "stereochemistry" in str(exc)
     else:
         raise AssertionError("an impossible ring fusion must not get coordinates")
+
+def _api_without_a_project():
+    from types import SimpleNamespace
+
+    from amdockvs.chemistry.api import ChemistryAPI
+
+    def no_submission():
+        raise AssertionError("an invalid force field must be refused before anything is submitted")
+
+    return ChemistryAPI(SimpleNamespace(_require_active_project=no_submission))
+
+
+def test_an_unknown_force_field_is_refused_before_submission():
+    import pytest
+
+    api = _api_without_a_project()
+    with pytest.raises(ValueError, match="mmff_typo"):
+        api.minimize_ligands(forcefield="mmff_typo")
+    for submit in (api.run_ligand_pipeline, api.run_shard_pipeline):
+        with pytest.raises(ValueError, match="mmff_typo"):
+            submit([("generate_3d", {}), ("minimize", {"forcefield": "mmff_typo"})])
+
+
+def test_an_unknown_force_field_never_falls_back_to_uff_in_the_worker():
+    import pytest
+
+    from amdockvs.chemistry.tools import minimize_ligand_molecule
+
+    mol = generate_ligand_3d(Chem.MolFromSmiles("CCO"))
+    with pytest.raises(ValueError, match="mmff_typo"):
+        minimize_ligand_molecule(mol, forcefield="mmff_typo")
+    # The names the Build dropdown offers still work, in any case.
+    for name in ("mmff", "UFF", " Mmff "):
+        assert minimize_ligand_molecule(mol, forcefield=name).GetNumConformers() == 1
+

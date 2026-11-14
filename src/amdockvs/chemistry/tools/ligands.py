@@ -183,6 +183,19 @@ def generate_ligand_3d(
     return work_mol
 
 
+LIGAND_FORCEFIELDS = ("mmff", "uff")
+
+
+def normalize_ligand_forcefield(forcefield: str | None) -> str:
+    """The force-field name as minimization uses it; an unknown name is an error, never UFF."""
+    normalized = str(forcefield or "mmff").strip().lower()
+    if normalized not in LIGAND_FORCEFIELDS:
+        raise ValueError(
+            f"Unsupported small-molecule force field: {forcefield!r}. Use one of: {', '.join(LIGAND_FORCEFIELDS)}."
+        )
+    return normalized
+
+
 def minimize_ligand_molecule(
     mol,
     *,
@@ -195,12 +208,13 @@ def minimize_ligand_molecule(
 
     from amdockvs.chemistry.state import mol_has_3d
 
+    normalized_forcefield = normalize_ligand_forcefield(forcefield)
     work_mol = Chem.Mol(mol)
     # A flat 2D conformer (e.g. from a 2D-only Build pass) can't be minimized: embed it first.
     if not mol_has_3d(work_mol):
         work_mol = generate_ligand_3d(work_mol)
-    normalized_forcefield = str(forcefield or "mmff").strip().lower()
     # Every conformer, so an ensemble minimizes as a whole; a single conformer is the same call.
+    # MMFF falls back to UFF only when MMFF lacks parameters for this molecule.
     if normalized_forcefield == "mmff" and AllChem.MMFFHasAllMoleculeParams(work_mol):
         results = AllChem.MMFFOptimizeMoleculeConfs(work_mol, numThreads=1, maxIters=int(max_iters))
     else:
@@ -236,8 +250,10 @@ def _prune_minimized_conformers(mol, energies, threshold: float):
 
 
 __all__ = [
+    "LIGAND_FORCEFIELDS",
     "generate_ligand_3d",
     "minimize_ligand_molecule",
+    "normalize_ligand_forcefield",
     "protonate_ligand_molecule",
     "standardize_ligand_molecule",
 ]
