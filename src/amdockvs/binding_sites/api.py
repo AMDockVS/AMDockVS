@@ -20,7 +20,7 @@ from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR, RESOURCE_POCKET_
 from amdockvs.models import BindingSite, MoleculeRecord
 from amdockvs.core.payloads import molecule_payload_id, read_structure
 from amdockvs.binding_sites.boxes import box_from_coords
-from amdockvs.binding_sites.jobs import P2RankPredictionParams, p2rank_prediction_job
+from amdockvs.binding_sites.jobs import P2RankPredictionParams, missing_structure_message, p2rank_prediction_job
 from amdockvs.binding_sites.p2rank import (
     P2RANK_PROFILES,
     P2RANK_VERSION,
@@ -98,6 +98,9 @@ class P2RankPredictionPlan:
     receptor_ids: tuple[int, ...]
     recalculate_receptor_ids: tuple[int, ...]
     reused_receptor_ids: tuple[int, ...]
+    # Requested, but with nothing P2Rank can read: a sequence-only receptor, say.
+    missing_structure_ids: tuple[int, ...] = ()
+    missing_structure_names: tuple[str, ...] = ()
 
 
 @dataclass
@@ -230,8 +233,17 @@ class BindingSiteAPI:
         by_receptor: dict[int, list[BindingSite]] = {
             receptor_id: [] for receptor_id in normalized_ids
         }
+        missing: dict[int, str] = {}
         if normalized_ids:
             with self.runtime.workspace.project_db.get_session() as session:
+                # The job's scope only reads receptors with coordinates; name the others here
+                # instead of letting them drop out of the run unexplained.
+                for row in session.exec(
+                    select(MoleculeRecord)
+                    .where(MoleculeRecord.id.in_(normalized_ids))
+                    .where(MoleculeRecord.has_3d == False)  # noqa: E712
+                ).all():
+                    missing[int(row.id)] = str(row.name or f"receptor_{int(row.id)}")
                 rows = session.exec(
                     select(BindingSite)
                     .where(BindingSite.source == "p2rank")
@@ -244,6 +256,8 @@ class BindingSiteAPI:
         recalculate: list[int] = []
         reused: list[int] = []
         for receptor_id in normalized_ids:
+            if receptor_id in missing:
+                continue
             # Prediction is additive, so a receptor can accumulate runs. Consistency is judged
             # only on the latest one: the earlier ones are history the user keeps.
             sites = _latest_run(by_receptor.get(receptor_id, []))
@@ -269,6 +283,8 @@ class BindingSiteAPI:
             receptor_ids=tuple(normalized_ids),
             recalculate_receptor_ids=tuple(recalculate),
             reused_receptor_ids=tuple(reused),
+            missing_structure_ids=tuple(missing),
+            missing_structure_names=tuple(missing.values()),
         )
 
     def list_predictions(
@@ -329,6 +345,9 @@ class BindingSiteAPI:
             profiles=normalized_profiles,
             force=force,
         )
+        if plan.missing_structure_ids:
+            # A run over part of the scope would report "completed" for receptors it never saw.
+            raise ValueError(missing_structure_message(plan.missing_structure_names))
         resolved_run_id = str(run_id or uuid4().hex)
         output_dir = self.runtime.get_project_resource_path(RESOURCE_POCKET_PREDICTIONS)
         params = P2RankPredictionParams(

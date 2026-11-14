@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from amdockvs.models import BindingSite, MoleculeRecord
-from amdockvs.binding_sites.jobs import p2rank_prediction_job
+from amdockvs.binding_sites.jobs import MISSING_STRUCTURE_HINT, missing_structure_message, p2rank_prediction_job
 from amdockvs.binding_sites.p2rank import B_FACTOR_CONSTANT, B_FACTOR_PREDICTED, B_FACTOR_VARIES
 from amdockvs.core.configuration import DEFAULT_P2RANK_PROFILE, app_config
 from amdockvs.core.payloads import molecule_payload_id, payload_store
@@ -834,6 +834,12 @@ class PocketDetectionWidget(QWidget):
                 receptor_ids=receptor_ids,
                 profile=profile,
             )
+            if plan.missing_structure_ids:
+                # P2Rank reads coordinates; a sequence-only receptor would just drop out of the
+                # run while the job still reported the scope as done. Say so, by name.
+                receptor_ids = [r for r in receptor_ids if r not in set(plan.missing_structure_ids)]
+                if not self._confirm_skipping_unstructured(plan, runnable=len(receptor_ids)):
+                    return
             # The scope can contain receptors without any highlighted row. Give the
             # results panel a receptor to follow before results arrive or are reused.
             self._adopt_table_selection(select_first=True)
@@ -861,11 +867,37 @@ class PocketDetectionWidget(QWidget):
             if plan.reused_receptor_ids
             else ""
         )
+        skipped_text = (
+            f"; {len(plan.missing_structure_ids)} without a 3D structure skipped"
+            if plan.missing_structure_ids
+            else ""
+        )
         self.status_label.setText(
             "P2Rank submitted for "
-            f"{len(plan.recalculate_receptor_ids)} receptor(s){reused_text}."
+            f"{len(plan.recalculate_receptor_ids)} receptor(s){reused_text}{skipped_text}."
         )
         self.job_details_link.show()
+
+    def _confirm_skipping_unstructured(self, plan, *, runnable: int) -> bool:
+        """Name the receptors P2Rank cannot read. With nothing else in scope, that is the whole
+        answer; otherwise the rest may still run, but only if the user says so."""
+        names = list(plan.missing_structure_names)
+        shown = ", ".join(names[:5]) + (f" and {len(names) - 5} more" if len(names) > 5 else "")
+        if not runnable:
+            self.status_label.setText(missing_structure_message([shown]))
+            QMessageBox.information(self, "No 3D structure", missing_structure_message([shown]))
+            return False
+        answer = QMessageBox.question(
+            self,
+            "Receptors without a 3D structure",
+            f"{len(names)} receptor(s) in scope have no 3D structure and will be skipped: {shown}.\n\n"
+            f"{MISSING_STRUCTURE_HINT}\n\n"
+            f"Predict pockets for the other {runnable} receptor(s)?",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            self.status_label.setText("P2Rank was not run.")
+            return False
+        return True
 
     def _on_job_finished(self, job_id: str, status: str) -> None:
         normalized_job_id = str(job_id)

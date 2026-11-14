@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
 from ms_components.ms_table import ColumnDef, SmartTableView, TableConfig
 from ms_components.ms_monitor.models import JobMonitorState, ProjectMonitorState
 from ms_flow.core.database import ProjectStore
-from amdockvs.binding_sites.api import BindingSiteAPI
+from amdockvs.binding_sites.api import BindingSiteAPI, P2RankPredictionPlan
 from amdockvs.models import BindingSite, MoleculeRecord
 from amdockvs.ui.tools.binding_sites.detection import BindingSitesWidget, PocketDetectionWidget
 
@@ -41,7 +41,10 @@ def panel(tmp_path, monkeypatch):
     active = []
     api = SimpleNamespace(
         predict=Mock(return_value="new-job"),
-        plan_prediction=Mock(return_value=SimpleNamespace(recalculate_receptor_ids=(1,), reused_receptor_ids=())),
+        plan_prediction=Mock(return_value=SimpleNamespace(
+            recalculate_receptor_ids=(1,), reused_receptor_ids=(),
+            missing_structure_ids=(), missing_structure_names=(),
+        )),
     )
     runtime = SimpleNamespace(binding_sites=api, list_jobs=lambda **kwargs: list(active))
     widget = PocketDetectionWidget(runtime=runtime, parent=host)
@@ -216,7 +219,8 @@ def test_results_appear_without_switching_tabs(tmp_path, monkeypatch, selected_r
     )
     runtime.binding_sites = BindingSiteAPI(runtime)
     runtime.binding_sites.predict = Mock(return_value="pockets")
-    runtime.binding_sites.plan_prediction = Mock(return_value=SimpleNamespace(
+    runtime.binding_sites.plan_prediction = Mock(return_value=P2RankPredictionPlan(
+        receptor_ids=(4, 7),
         recalculate_receptor_ids=() if reuse else (4, 7),
         reused_receptor_ids=(4, 7) if reuse else (),
     ))
@@ -266,6 +270,7 @@ def test_results_appear_without_switching_tabs(tmp_path, monkeypatch, selected_r
         host.deleteLater()
         app.processEvents()
 
+
 def _count_refreshes(widget, monkeypatch):
     calls = []
     monkeypatch.setattr(PocketDetectionWidget, "refresh", lambda self: calls.append(self))
@@ -293,4 +298,47 @@ def test_reopening_the_tool_refreshes_receptors_that_changed_while_it_was_hidden
     widget.parentWidget().show()
     QApplication.processEvents()
     assert refreshes == [widget]
+
+
+def _scope_with_a_sequence_only_receptor(widget, api, *, runnable=True):
+    from PySide6.QtWidgets import QMessageBox
+
+    widget._receptors = {1: {"id": 1}, 2: {"id": 2}} if runnable else {2: {"id": 2}}
+    api.plan_prediction.return_value = SimpleNamespace(
+        recalculate_receptor_ids=(1,) if runnable else (), reused_receptor_ids=(),
+        missing_structure_ids=(2,), missing_structure_names=("no_structure",),
+    )
+    return QMessageBox
+
+
+@pytest.mark.parametrize("answer, submitted", [("Yes", True), ("No", False)])
+def test_a_receptor_without_3d_is_named_and_skipped_only_if_the_user_agrees(panel, monkeypatch, answer, submitted):
+    widget, _bridge, _active, api = panel
+    box = _scope_with_a_sequence_only_receptor(widget, api)
+    asked = []
+    monkeypatch.setattr(box, "question", lambda _parent, _title, text, *a, **k: asked.append(text)
+                        or getattr(box.StandardButton, answer))
+
+    widget._submit_prediction()
+
+    assert "no_structure" in asked[0] and "3D generation" in asked[0]
+    if submitted:
+        api.predict.assert_called_once()
+        assert api.predict.call_args.kwargs["receptor_ids"] == [1]
+        assert "1 without a 3D structure skipped" in widget.status_label.text()
+    else:
+        api.predict.assert_not_called()
+
+
+def test_a_scope_of_only_sequence_receptors_explains_instead_of_failing_vaguely(panel, monkeypatch):
+    widget, _bridge, _active, api = panel
+    box = _scope_with_a_sequence_only_receptor(widget, api, runnable=False)
+    shown = []
+    monkeypatch.setattr(box, "information", lambda _parent, _title, text, *a, **k: shown.append(text))
+
+    widget._submit_prediction()
+
+    api.predict.assert_not_called()
+    assert "no_structure" in shown[0] and "no 3D structure" in shown[0]
+    assert "no_structure" in widget.status_label.text()
 
