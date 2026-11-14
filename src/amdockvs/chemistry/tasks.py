@@ -42,6 +42,7 @@ def _chemistry_graph_payload(
         for key in ("has_3d", "has_hs", "is_minimized", "conformer_count"):
             if key in state:
                 mol_row[key] = state[key]
+        mol_row.update(update.get("descriptors") or {})
         if "current_payload_id" in update:
             mol_row["current_payload_id"] = update["current_payload_id"]
         molecules.append(mol_row)

@@ -253,3 +253,25 @@ def test_an_unknown_force_field_never_falls_back_to_uff_in_the_worker():
     for name in ("mmff", "UFF", " Mmff "):
         assert minimize_ligand_molecule(mol, forcefield=name).GetNumConformers() == 1
 
+def test_build_writes_the_built_structures_descriptors_back_to_the_row():
+    from amdockvs.chemistry.descriptors import BASIC_DESCRIPTOR_FIELDS, calculate_basic_descriptors
+    from amdockvs.chemistry.jobs import CHEMISTRY_GRAPH_OUTPUT
+    from amdockvs.chemistry.service import transform_ligand_rows
+    from amdockvs.chemistry.tasks import _chemistry_graph_payload
+
+    # The sink's column list is this tuple: a key it misses would be silently dropped.
+    assert set(BASIC_DESCRIPTOR_FIELDS) == set(calculate_basic_descriptors(Chem.MolFromSmiles("CCO")))
+
+    # Standardize neutralizes the imported acetate: charge -1 -> 0; then explicit Hs.
+    result = transform_ligand_rows(
+        operations=[("standardize", {}), ("protonate", {"method": "explicit_hs"})],
+        rows=[_row(1, "CC(=O)[O-]")],
+    )
+
+    molecule, = _chemistry_graph_payload(result["updates"], [])["molecules"]
+    assert molecule["formal_charge"] == 0
+    assert molecule["n_atoms"] == 8
+    assert set(BASIC_DESCRIPTOR_FIELDS) | {"n_atoms"} <= set(molecule)
+    nodes = CHEMISTRY_GRAPH_OUTPUT.meta["graph"]["nodes"]
+    columns = next(node for node in nodes if node["name"] == "molecules")["columns"]
+    assert set(molecule) <= set(columns)

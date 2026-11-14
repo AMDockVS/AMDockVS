@@ -766,3 +766,30 @@ def test_a_docking_queues_one_level_below_the_active_dockings_on_its_executor():
     assert behind("docking", "gpu") == 0 and behind("other", "local") == 0
     states[1] = states[2] = "canceled"
     assert behind("docking", "local") == 0
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+def test_build_keeps_descriptors_and_property_filters_on_the_built_structure(tmp_path, monkeypatch):
+    pytest.importorskip("rdkit")
+    pytest.importorskip("dimorphite_dl")
+    _patch_fake_home(monkeypatch, tmp_path)
+
+    runtime = AMDockVSRuntime()
+    try:
+        runtime.create_project(name="build_descriptors", folder=tmp_path / "build_descriptors")
+        ligands_file = tmp_path / "acid.smi"
+        ligands_file.write_text("CC(=O)O ACETIC_ACID\n", encoding="utf-8")
+        _wait_completed(runtime, runtime.loader.load_ligands([ligands_file], executor_name="thread"))
+        imported, = runtime.molecules.filter(filters={"is_ligand": True})
+        assert (imported.formal_charge, imported.n_atoms) == (0, 4)
+
+        # Dimorphite at pH 7.4 deprotonates the acid, and the built structure carries explicit Hs.
+        _wait_completed(runtime, [runtime.chemistry.protonate_ligands(method="dimorphite", ph=7.4, executor_name="thread")])
+
+        built = runtime.molecules.get(imported.id)
+        assert built.formal_charge == -1
+        assert built.n_atoms > imported.n_atoms  # the explicit Hs are counted now
+        assert [m.id for m in runtime.molecules.filter(filters={"formal_charge": -1})] == [imported.id]
+        assert list(runtime.molecules.filter(filters={"formal_charge": 0})) == []
+    finally:
+        runtime.shutdown()

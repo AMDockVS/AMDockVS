@@ -11,6 +11,7 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 
 from ms_flow.payloads import PayloadGroup, scratch_file
 
+from amdockvs.chemistry.descriptors import calculate_basic_descriptors
 from amdockvs.chemistry.pipeline import LIGAND_STEPS, normalize_steps, run_pipeline
 from amdockvs.chemistry.state import mol_has_3d, mol_has_explicit_hs
 from amdockvs.chemistry.structures import mol_from_bytes, sdf_payload
@@ -181,6 +182,12 @@ def transform_ligand_rows(
                 "entity_id": ligand_id,
                 "extra_data": clean_metadata(row.get("extra_data")),
                 "state": state,
+                # Protonation and standardization change charge, H counts, TPSA...: the row's
+                # descriptors (what property filters read) follow the structure Build wrote.
+                "descriptors": {
+                    **calculate_basic_descriptors(result),
+                    "n_atoms": int(result.GetNumAtoms()),
+                },
                 "model_rows": model_rows,
             }
             if current is not None:

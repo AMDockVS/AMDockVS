@@ -24,6 +24,13 @@ def inchikey(mol) -> str:
         return ""
 
 
+# The keys `calculate_basic_descriptors` returns; Build writes them back with `n_atoms`.
+BASIC_DESCRIPTOR_FIELDS = (
+    "mw", "logp", "hbd", "hba", "tpsa", "rotatable_bonds", "fragment_count", "ring_count",
+    "aromatic_ring_count", "hetero_atom_count", "heavy_atom_count", "formal_charge", "fraction_csp3",
+)
+
+
 def calculate_basic_descriptors(mol) -> dict[str, float | int]:
     from rdkit import Chem
     from rdkit.Chem import Descriptors
@@ -153,6 +160,7 @@ def calculate_descriptor_rows(items: list[dict], *, fingerprint: dict | None = N
 
 __all__ = [
     "calculate_alert_rows",
+    "BASIC_DESCRIPTOR_FIELDS",
     "calculate_basic_descriptors",
     "calculate_descriptor_rows",
     "calculate_rdkit2d_descriptors",

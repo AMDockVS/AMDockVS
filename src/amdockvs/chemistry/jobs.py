@@ -21,6 +21,7 @@ from amdockvs.chemistry.repository import (
     scope_spec,
     sequences_by_molecule_ids,
 )
+from amdockvs.chemistry.descriptors import BASIC_DESCRIPTOR_FIELDS
 from amdockvs.chemistry.pipeline import normalize_steps
 from amdockvs.chemistry.structures import with_structures
 from amdockvs.chemistry.tools.esmfold import FAST_MODEL
@@ -43,7 +44,9 @@ CHEMISTRY_GRAPH_OUTPUT = graph_sink(
                 "is_minimized",
                 "conformer_count",
                 "current_payload_id",
-               
+                # Recomputed from the built structure; a receptor row carries none and keeps its own.
+                *BASIC_DESCRIPTOR_FIELDS,
+                "n_atoms",
             ],
             "write_mode": "upsert",
             "conflict_keys": ["id"],
