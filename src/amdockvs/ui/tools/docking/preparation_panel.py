@@ -459,6 +459,11 @@ class PreparationPanel:
         form.addRow(self.force_prepare_receptors)
         form.addRow(self.keep_waters_receptors)
         form.addRow(self.keep_cofactors_receptors)
+        # Hidden until keeping waters/cofactors is finished end to end: they are built, wired and
+        # still read below, so unhiding is these two lines and nothing else. Hidden they stay
+        # unchecked, which is what a receptor is prepared as today — dry, cofactor pocket empty.
+        form.setRowVisible(self.keep_waters_receptors, False)
+        form.setRowVisible(self.keep_cofactors_receptors, False)
         return self._in_scroll(page)
 
     def _build_receptor_program_prep_page(self, spec) -> QWidget:
