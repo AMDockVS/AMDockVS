@@ -1470,6 +1470,9 @@ class DockingAPI:
             purpose=purpose_text,
             protocol_metadata=protocol_metadata,
             skip_existing=skip_existing,
+            box_center=box_center,
+            box_size=box_size,
+            spacing=_engine_fields(resolved_engine_config, knobs)["spacing"],
         )
         batch_size = self.pairs_per_task(program_spec, batch_size)
         total_chunks = (

@@ -96,6 +96,23 @@ def screening_input_keys(receptor_rows, *, box_center, box_size, spacing, prepar
     return keys
 
 
+def _complex_box(receptor_row, *, box_center, box_size, spacing, preparation_engine):
+    """The box a redocking pair docks in: each explicit value, else the receptor's grid."""
+    grid = grid_from_row(receptor_row, engine=preparation_engine) or {}
+    center = tuple(float(v) for v in (box_center if box_center is not None else grid.get("center", ())))
+    size = tuple(float(v) for v in (box_size if box_size is not None else grid.get("size", ())))
+    return center, size, float(grid.get("spacing") or spacing)
+
+
+def _redocking_key(receptor_row, **box) -> str:
+    return docking_input_key(receptor_row, *_complex_box(receptor_row, **box))
+
+
+def _already_redocked(skip: set, receptor_row, ligand_id: int, key: str) -> bool:
+    receptor_id = int(receptor_row.get("id") or 0)
+    return any((receptor_id, int(ligand_id), each) in skip for each in matching_input_keys(receptor_row, key))
+
+
 def count_pending_docking_pairs(
     *,
     project_db,
@@ -183,6 +200,9 @@ def count_pending_redocking_pairs(
     purpose: str,
     protocol_metadata: Mapping[str, Any] | None,
     skip_existing: bool,
+    box_center: tuple[float, float, float] | None = None,
+    box_size: tuple[float, float, float] | None = None,
+    spacing: float = 0.375,
 ) -> int:
     """Count exactly the valid complex rows that ``iter_redocking_batches`` will emit."""
     complex_rows = list_complex_rows(project_db, set_id=complex_set_id, purpose=purpose)
@@ -195,7 +215,8 @@ def count_pending_redocking_pairs(
         for value in (row.get("receptor_molecule_id"), row.get("ligand_molecule_id"))
         if int(value or 0) > 0
     ]
-    molecules = get_molecule_rows_by_ids(project_db, molecule_ids, engine=preparation_engine or get_docking_program(engine).preparation_engine)
+    prep_engine = str(preparation_engine or get_docking_program(engine).preparation_engine)
+    molecules = get_molecule_rows_by_ids(project_db, molecule_ids, engine=prep_engine)
     candidates = [
         row for row in complex_rows
         if int(row.get("id") or 0) > 0
@@ -213,14 +234,13 @@ def count_pending_redocking_pairs(
         run_kind="redocking",
         protocol_hash=protocol_hash or None,
     )
-    return sum(
-        1
-        for row in candidates
-        if (
-            int(row.get("receptor_molecule_id") or 0),
-            int(row.get("ligand_molecule_id") or 0),
-        ) not in skipped_pairs
-    )
+    box = {"box_center": box_center, "box_size": box_size, "spacing": spacing, "preparation_engine": prep_engine}
+    pending = 0
+    for row in candidates:
+        receptor_row = molecules[int(row["receptor_molecule_id"])]
+        key = _redocking_key(receptor_row, **box)
+        pending += not _already_redocked(skipped_pairs, receptor_row, int(row["ligand_molecule_id"]), key)
+    return pending
 
 
 class DockingJobParams(BaseModel):
@@ -544,26 +564,17 @@ def iter_redocking_batches(
         ligand_row = molecule_rows.get(int(complex_row.get("ligand_molecule_id") or 0))
         if complex_id <= 0 or receptor_row is None or ligand_row is None:
             continue
-        if (int(receptor_row.get("id") or 0), int(ligand_row.get("id") or 0)) in skip_pairs:
-            continue  # already docked for this engine — lightweight skip
+        effective_center, effective_size, effective_spacing = _complex_box(
+            receptor_row, box_center=box_center, box_size=box_size, spacing=spacing, preparation_engine=prep_engine)
+        input_key = docking_input_key(receptor_row, effective_center, effective_size, effective_spacing)
+        if _already_redocked(skip_pairs, receptor_row, int(ligand_row.get("id") or 0), input_key):
+            continue  # already docked for this engine, against these inputs — lightweight skip
         # The frozen snapshot captured at pair creation, not the molecules' live structures.
         reference_ligand_path, reference_receptor_path = (
             store.materialize(pid, directory) if pid else ""
             for pid in (complex_row.get("reference_ligand_payload_id"),
                         complex_row.get("reference_receptor_payload_id"))
         )
-        pair_grid = grid_from_row(receptor_row, engine=prep_engine)
-        effective_center = (
-            tuple(float(value) for value in box_center)
-            if box_center is not None
-            else tuple(float(value) for value in (pair_grid or {}).get("center", ()))
-        )
-        effective_size = (
-            tuple(float(value) for value in box_size)
-            if box_size is not None
-            else tuple(float(value) for value in (pair_grid or {}).get("size", ()))
-        )
-        effective_spacing = float((pair_grid or {}).get("spacing") or spacing)
         if requires_binding_site and (len(effective_center) != 3 or len(effective_size) != 3):
             batch.append(
                 build_failed_docking_pair(
@@ -575,6 +586,7 @@ def iter_redocking_batches(
                         f"Complex {complex_id} requires explicit box_center/box_size "
                         "or a stored receptor grid."
                     ),
+                    input_key=input_key,
                 )
             )
         else:
@@ -591,6 +603,7 @@ def iter_redocking_batches(
                     spacing=effective_spacing,
                     reference_ligand_path=reference_ligand_path,
                     reference_receptor_path=reference_receptor_path,
+                    input_key=input_key,
                 )
                 if len(effective_center) == 3 and excludes(method, pair["receptor_path"], effective_center, effective_size):
                     continue  # the complex's site does not fit the docking method
@@ -603,6 +616,7 @@ def iter_redocking_batches(
                         complex_id=complex_id,
                         run_kind="redocking",
                         reason=str(exc),
+                        input_key=input_key,
                     )
                 )
         if len(batch) >= normalized_batch_size:

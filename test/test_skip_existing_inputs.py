@@ -14,10 +14,13 @@ from amdockvs.docking.jobs import (
     _supersede,
     _with_docking_run,
     count_pending_docking_pairs,
+    count_pending_redocking_pairs,
     iter_docking_batches,
+    iter_redocking_batches,
 )
 from amdockvs.docking.pairs import legacy_input_key
 from amdockvs.docking.results.repository import docking_run_id
+from amdockvs.models.complexes import ComplexRecord
 from amdockvs.models.docking import BindingSite, DockingResult, LigandPrep, ReceptorPrep
 from amdockvs.models.molecules import MoleculeRecord
 
@@ -169,6 +172,37 @@ def test_an_older_projects_results_are_kept_until_the_receptor_changes(tmp_path,
 def _hash():
     from amdockvs.docking.protocols import DockingProtocolMetadata
     return str(DockingProtocolMetadata.from_mapping(None).as_metrics_payload().get("hash") or "")
+
+
+def test_redocking_docks_a_complex_again_when_its_box_moves(tmp_path, monkeypatch):
+    _fake_engine(monkeypatch)
+    store = _project(tmp_path)
+    with store.get_session() as session:
+        receptor = session.exec(select(MoleculeRecord).where(MoleculeRecord.is_receptor == True)).first()  # noqa: E712
+        ligand = session.exec(select(MoleculeRecord).where(MoleculeRecord.is_ligand == True)).first()  # noqa: E712
+        session.add(ComplexRecord(receptor_molecule_id=receptor.id, ligand_molecule_id=ligand.id, purpose="redocking"))
+        session.commit()
+
+    def redock(run_id):
+        pending = count_pending_redocking_pairs(project_db=store, engine="vina", complex_set_id=None, complex_ids=None,
+                                                purpose="redocking", protocol_metadata=None, skip_existing=True)
+        docked = 0
+        feed = iter_redocking_batches(project_db=store, output_dir=tmp_path / run_id, batch_size=4, engine="vina",
+                                      run_id=run_id, skip_existing=True)
+        with store.get_session() as session:
+            for chunk in _with_docking_run(feed, store, "redocking"):
+                rows = tasks.dock_pairs(chunk)
+                docked += len(rows)
+                session.add_all(DockingResult(**DockingResult.build_row(**row)) for row in rows)
+            session.commit()
+        assert docked == pending
+        return docked
+
+    assert redock("d1") == 1
+    assert redock("d2") == 0
+    _move_site(store, 100.0)
+    assert redock("d3") == 1
+    store.dispose()
 
 
 def test_opening_an_older_project_keys_its_results_by_receptor_payload(tmp_path):

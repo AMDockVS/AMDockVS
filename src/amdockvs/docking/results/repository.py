@@ -81,16 +81,18 @@ def existing_result_pairs(
     engine: str,
     run_kind: str | None = None,
     protocol_hash: str | None = None,
-) -> set[tuple[int, int]]:
+) -> set[tuple[int, int, str]]:
+    """`(receptor, ligand, input_key)` of the results there are: the key says what each was
+    docked against, for the caller to compare with what it would dock now."""
     record = DockingResultRecord
-    pairs: set[tuple[int, int]] = set()
+    pairs: set[tuple[int, int, str]] = set()
     with suppress(OperationalError):  # results table not created until the first docking run
         with project_db.get_session() as session:
-            statement = select(record.receptor_molecule_id, record.ligand_molecule_id).where(
+            statement = select(record.receptor_molecule_id, record.ligand_molecule_id, record.input_key).where(
                 record.docking_run_id.in_(runs_where(engine=engine, run_kind=run_kind,
                                                      protocol_hash=str(protocol_hash or "").strip())))
-            for receptor_id, ligand_id in session.exec(statement.distinct()).all():
-                pairs.add((int(receptor_id), int(ligand_id)))
+            for receptor_id, ligand_id, input_key in session.exec(statement.distinct()).all():
+                pairs.add((int(receptor_id), int(ligand_id), str(input_key or "")))
     return pairs
 
 
