@@ -512,9 +512,10 @@ class PocketDetectionWidget(QWidget):
             "B-factor value on every atom (OpenMM leaves 0.00) ignore them; the rest use them. "
             "The Profile column of each pocket says which model ran and why.</p>"
             "<p>The other two choices run that model on every receptor.</p>"
-            "<p>The selected profile applies to the whole run. "
-            "Changing it replaces the current predictions of the receptors in scope "
-            "once the new calculation succeeds.</p>"
+            "<p>The selected profile applies to the whole run. Each run adds its pockets "
+            "next to the earlier ones; nothing is replaced, the Profile column tells the runs "
+            "apart, and the active docking site stays until you choose another. Running the "
+            "profile of a receptor's latest run again reuses those results.</p>"
         )
         profile_row.addWidget(self.profile_combo, 1)
         self.profile_help_button = QToolButton(prediction_box)

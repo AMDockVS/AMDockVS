@@ -342,3 +342,9 @@ def test_a_scope_of_only_sequence_receptors_explains_instead_of_failing_vaguely(
     assert "no_structure" in shown[0] and "no 3D structure" in shown[0]
     assert "no_structure" in widget.status_label.text()
 
+
+def test_profile_help_describes_runs_as_added_not_replaced(panel):
+    widget, _bridge, _active, _api = panel
+    help_text = widget.profile_help_button.toolTip()
+    # Prediction is additive (see test_p2rank's second-run test); the help must say so.
+    assert "adds its pockets" in help_text and "replaces" not in help_text

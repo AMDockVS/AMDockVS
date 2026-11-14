@@ -58,9 +58,11 @@ P2Rank and Java 17 or later must be available. When the runtime is missing,
 the **P2Rank Runtime** section reports its status and provides **Open Settings**
 to reach **Settings → External tools**.
 
-Running another profile replaces the current predictions for the receptors
-in scope after the new calculation succeeds. Review or record the sites you
-need before submitting a replacement run.
+Each run adds its pockets next to the earlier ones; a run with another profile
+does not replace them. The **Profile** column of the results table tells the
+runs apart, and the receptor's active docking site stays as it is until you
+choose another. Running the profile of a receptor's latest run again reuses
+those results instead of calculating them again.
 
 ## 3. Run P2Rank
 
