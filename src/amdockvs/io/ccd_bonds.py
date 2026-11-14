@@ -124,7 +124,8 @@ def ligand_from_cif(source_file: Path, ligand_pdb: Path, resname: str) -> Any | 
     ``source_file`` supplies their bonds. Returns None whenever anything is missing or the result
     does not sanitize — a wrong molecule is worse than no molecule once a filter reads its MW.
     """
-    if source_file.suffix.lower() not in _CIF_SUFFIXES or not ligand_pdb.exists():
+    name = source_file.name.lower()
+    if not name.endswith(tuple(_CIF_SUFFIXES | {s + ".gz" for s in _CIF_SUFFIXES})) or not ligand_pdb.exists():
         return None
     bonds = _chem_comp_bonds(source_file, resname)
     if not bonds:
@@ -135,11 +136,32 @@ def ligand_from_cif(source_file: Path, ligand_pdb: Path, resname: str) -> Any | 
 
     try:
         structure = gemmi.read_structure(str(ligand_pdb))
-        structure.remove_hydrogens()
         structure.remove_alternative_conformations()
     except (RuntimeError, ValueError, OSError):
         return None
-    atoms = [atom for chain in structure[0] for residue in chain for atom in residue]
+    if not len(structure):
+        return None
+    heavy = structure.clone()
+    heavy.remove_hydrogens()
+    mol = _mol_from_named_atoms(heavy[0], bonds)
+    if mol is None and any(atom.is_hydrogen() for chain in structure[0] for residue in chain for atom in residue):
+        # Heavy atoms alone can't say where an aromatic N carries its H (a pyrazole NH does
+        # not kekulize without it). A CCD component lists every hydrogen with its bond, so
+        # build with them and drop them afterwards.
+        with_h = _mol_from_named_atoms(structure[0], bonds)
+        if with_h is not None:
+            try:
+                mol = Chem.RemoveHs(with_h)
+            except Exception:  # noqa: BLE001 - RDKit sanitization errors
+                mol = None
+    return mol
+
+
+def _mol_from_named_atoms(model, bonds: list[tuple[str, str, str, bool]]) -> Any | None:
+    """RDKit Mol from a model's atoms and the CCD bonds between their names, or None."""
+    from rdkit import Chem
+
+    atoms = [atom for chain in model for residue in chain for atom in residue]
     names = [atom.name for atom in atoms]
     if not names or len(set(names)) != len(names):  # duplicate names: bonds cannot be matched
         return None
