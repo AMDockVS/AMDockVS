@@ -137,10 +137,14 @@ class DockingReadinessService:
             docked = 0
             if receptors and total:
                 engine = str(get_docking_program(protocol.program).docking_engine)
+                # Under the hash the run will skip with: an older project's, for an unchanged
+                # configuration (`check_protocol`), not the one the editor computes.
+                stored = self.runtime.docking.stored_protocol_hash(
+                    program=protocol.program, protocol_hash=protocol.hash) if protocol.hash else ""
                 docked = min(each, self.runtime.docking.count_docked_pairs(
                     engine=engine,
                     receptor_ids=list(receptors),
-                    protocol_hash=protocol.hash or None,
+                    protocol_hash=stored or None,
                 ))
             already += docked
             by_program.append((protocol.program, each - docked if skip_existing else each))

@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
     QWidget, )
 
 from amdockvs.docking.engines.programs import (
-    GNINA_PROGRAM, QVINA_PROGRAM, VINA_PROGRAM, list_docking_programs, missing_programs, unavailable_programs)
+    GNINA_PROGRAM, QVINA_PROGRAM, VINA_PROGRAM, get_docking_program, list_docking_programs, missing_programs, unavailable_programs)
 from amdockvs.docking.engines.autogrid import AUTOGRID_UNAVAILABLE
 from amdockvs.docking.methods import METHODS, get_method
 from amdockvs.integrations.registry import MANAGED_TOOLS
@@ -381,6 +381,13 @@ class ProtocolEditorWidget:
 
     @staticmethod
     def _protocol_hash(program: str, config: dict, rescoring: list[dict] | None = None) -> str:
+        # The hash the run stores: of the config as the program validates it, with its defaults
+        # (seed, energy_range, min_rmsd, spacing) filled in. Hashing the widgets alone gave
+        # another hash, so the preview never found the pairs a run had already docked.
+        try:
+            config = get_docking_program(program).validate_config(config)
+        except Exception:  # noqa: BLE001 - a half-typed value: the hash of what is there
+            pass
         return protocol_hash(program=program, config=config, rescoring=rescoring)
 
     def _protocol_label(self, program: str, config: dict, rescoring: list[dict] | None = None) -> str:

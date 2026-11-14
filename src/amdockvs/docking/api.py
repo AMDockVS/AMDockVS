@@ -67,7 +67,8 @@ from amdockvs.docking.results.jobs import (
     interactions_job,
 )
 from amdockvs.docking.protocols import DockingProtocolMetadata
-from amdockvs.docking.rerun import check_protocol_conflict, clear_previous_docking, resolved_protocol
+from amdockvs.docking.rerun import (
+    check_protocol_conflict, clear_previous_docking, resolved_protocol, stored_protocol_hash)
 from amdockvs.docking.shard_jobs import (
     DockShardsJobParams,
     dock_shards_job,
@@ -186,6 +187,12 @@ class DockingAPI:
             replace_existing=replace_existing,
         )
         return protocol
+
+    def stored_protocol_hash(self, *, program: str, protocol_hash: str) -> str:
+        """The hash a run of this configuration will dock and skip under (`check_protocol` keeps an
+        older project's hash for an unchanged configuration), without checking for a conflict."""
+        return stored_protocol_hash(
+            self._project_db(), program=self.get_program_spec(program), protocol_hash=str(protocol_hash or ""))
 
     def live_campaign_progress(
         self,

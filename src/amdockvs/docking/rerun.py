@@ -48,15 +48,24 @@ def _program_runs(project_db, program, *, with_results: bool = True) -> list[Doc
     return [run for run in runs if (_decode_metadata(run.protocol).get("program") or program.key) == program.key]
 
 
-def check_protocol_conflict(project_db, *, program, protocol: dict, replace_existing: bool) -> bool:
-    runs = _program_runs(project_db, program)
-    # Older projects hashed fewer fields; an unchanged saved configuration can still resume.
+def stored_protocol_hash(project_db, *, program, protocol_hash: str, runs: list[DockingRun] | None = None) -> str:
+    """The hash a run of this configuration docks and skips under: `protocol_hash`, or the hash
+    its results are stored under when an older project hashed the same configuration with fewer
+    fields, so an unchanged saved configuration still resumes. Never raises a conflict: the run
+    preview asks it too, and must count what the run will skip."""
+    runs = _program_runs(project_db, program) if runs is None else runs
     if runs and len({run.protocol_hash for run in runs}) == 1:
         saved = _decode_metadata(runs[0].protocol)
         if saved.get("config") and resolved_protocol(
             program, program.validate_config(saved["config"]), saved,
-        )["hash"] == protocol["hash"]:
-            protocol["hash"] = runs[0].protocol_hash
+        )["hash"] == protocol_hash:
+            return str(runs[0].protocol_hash)
+    return str(protocol_hash)
+
+
+def check_protocol_conflict(project_db, *, program, protocol: dict, replace_existing: bool) -> bool:
+    runs = _program_runs(project_db, program)
+    protocol["hash"] = stored_protocol_hash(project_db, program=program, protocol_hash=protocol["hash"], runs=runs)
     previous = [run.model_dump(mode="python") for run in runs if run.protocol_hash != protocol["hash"]]
     if previous and not replace_existing:
         raise DockingProtocolConflictError(requested=protocol, previous=previous)

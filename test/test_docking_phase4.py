@@ -61,6 +61,9 @@ class _ReadinessDocking:
     def count_docked_pairs(self, **_kwargs):
         return 1
 
+    def stored_protocol_hash(self, *, program, protocol_hash):
+        return protocol_hash
+
 
 class _ReadinessRuntime:
     def __init__(self):

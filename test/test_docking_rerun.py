@@ -236,3 +236,36 @@ def test_ui_requires_confirmation_of_deletion(monkeypatch, confirmed):
     if confirmed:
         assert calls[0][2] == {"run_id": "new", "replace_existing": True}
     assert params == {"run_id": "new"}
+
+
+def test_the_preview_counts_under_the_legacy_hash_a_resume_keeps(tmp_path, monkeypatch):
+    """PR #117 review: for an unchanged configuration of an older project, `check_protocol` keeps
+    the stored legacy hash, but the preview counted under the current one, found nothing docked
+    and said every pair would run."""
+    from amdockvs.docking.readiness import DockingReadinessService
+
+    api, store, old, _calls = _fixture(tmp_path, monkeypatch)
+    with store.get_session() as session:
+        run = session.get(DockingRun, 1)
+        run.protocol_hash = "legacy-hash"
+        session.add(run)
+        session.commit()
+    receptors = sorted({row.receptor_molecule_id for row in _results(store)})
+    docked = api.count_docked_pairs(engine="vina", receptor_ids=receptors, protocol_hash="legacy-hash")
+    assert docked > 0 and api.count_docked_pairs(engine="vina", protocol_hash=old["hash"]) == 0
+
+    resumed = api.check_protocol(program="vina", engine_config=old["config"])["hash"]
+    assert api.stored_protocol_hash(program="vina", protocol_hash=old["hash"]) == resumed == "legacy-hash"
+    preview = DockingReadinessService(SimpleNamespace(docking=api)).pairs(
+        ligand_count=50, receptor_ids=receptors, protocols=[
+            DockingProtocol(program="vina", label="Vina", hash=old["hash"])],  # what the editor computes
+        skip_existing=True,
+    )
+    assert preview.already == docked
+    assert preview.to_run == 50 * len(receptors) - docked
+
+    # A changed configuration keeps its own hash: nothing is docked under it.
+    changed = resolved_protocol(get_docking_program("vina"), get_docking_program("vina").validate_config(
+        {"exhaustiveness": 16}), None)["hash"]
+    assert api.stored_protocol_hash(program="vina", protocol_hash=changed) == changed
+    store.dispose()
