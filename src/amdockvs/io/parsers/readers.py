@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -313,14 +314,54 @@ def read_record_span(**kwargs) -> list[dict[str, Any]]:
     return list(iter_record_span(**kwargs))
 
 
-def _smiles_header_names(file_path: Path, delimiter: str) -> list[str]:
+def split_table_line(line: str, delimiter: str) -> list[str]:
+    """The cells of one SMILES-table line.
+
+    Comma and tab lines are read as CSV, so a quoted cell keeps the delimiter inside it and an
+    empty cell is still a column: the cells after it keep their header. Whitespace-delimited
+    lines (.smi) split on runs of whitespace, as RDKit reads them.
+    """
+    line = line.rstrip("\r\n")
+    if delimiter in {",", "\t"}:
+        cells = next(csv.reader([line], delimiter=delimiter, skipinitialspace=True), [])
+    else:
+        cells = line.split()
+    return [cell.strip() for cell in cells]
+
+
+def _first_table_line(file_path: Path) -> str:
+    """The first line that is not blank or an RDKit-style `#` comment."""
     with file_path.open("r", encoding="utf-8", errors="ignore") as handle:
         for line in handle:
             stripped = line.strip()
             if stripped and not stripped.startswith("#"):
-                tokens = stripped.split("," if delimiter == "," else None)
-                return [t.strip() for t in tokens]
-    return []
+                return line.rstrip("\r\n")
+    return ""
+
+
+def _table_delimiter(file_path: Path, first_line: str) -> str:
+    """The delimiter of a SMILES table: the extension's when the line has it, else sniffed.
+
+    A SMILES never contains a comma or whitespace, so a comma inside the first
+    whitespace-separated token is a delimiter, while one later on is part of a name
+    (`CCO ethanol, 95%` is a space-delimited line).
+    """
+    suffix = normalized_suffix(file_path)
+    if suffix == ".tsv" and "\t" in first_line:
+        return "\t"
+    if suffix == ".csv" and "," in first_line:
+        return ","
+    if "\t" in first_line:
+        return "\t"
+    head = first_line.split(maxsplit=1)
+    if head and "," in head[0]:
+        return ","
+    return " "
+
+
+def _smiles_header_names(file_path: Path, delimiter: str) -> list[str]:
+    first = _first_table_line(file_path)
+    return split_table_line(first, delimiter) if first else []
 
 
 def iter_import_entries(
@@ -362,52 +403,50 @@ def _iter_sdf_entries(file_path: Path) -> Iterator[dict[str, Any]]:
         }
 
 
-def _sniff_smiles_table(file_path: Path) -> tuple[bool, str, int, int]:
-    """(has_header, delimiter, smiles_col, name_col) for a .smi/.csv ligand file.
-    Header = the first line's first token isn't a valid SMILES. # ponytail: header sniff only."""
+_NAME_HEADERS = {"name", "id", "title", "compound", "molecule", "mol_id", "molecule_id"}
+
+
+def _sniff_smiles_table(file_path: Path) -> tuple[bool, str, int, int | None]:
+    """(has_header, delimiter, smiles_col, name_col) for a .smi/.csv/.tsv ligand file.
+
+    Header = the first line's first non-empty cell isn't a valid SMILES. `name_col` is None
+    when a header has no name column: falling back to column 1 would store whatever sits
+    there (an IC50, say) as the molecule's name. # ponytail: header sniff only."""
     from rdkit import Chem
 
-    first = ""
-    with file_path.open("r", encoding="utf-8", errors="ignore") as handle:
-        for line in handle:
-            stripped = line.strip()
-            if stripped and not stripped.startswith("#"):  # skip blanks + RDKit-style comments
-                first = line.rstrip("\n")
-                break
-    delimiter = "," if "," in first else ("\t" if "\t" in first else " ")
-    tokens = [t.strip() for t in first.split("," if delimiter == "," else None) if t.strip()]
-    has_header = bool(tokens) and Chem.MolFromSmiles(tokens[0]) is None
-    smiles_col, name_col = 0, 1
+    first = _first_table_line(file_path)
+    delimiter = _table_delimiter(file_path, first)
+    tokens = split_table_line(first, delimiter)
+    leading = next((t for t in tokens if t), "")
+    has_header = bool(leading) and Chem.MolFromSmiles(leading) is None
+    smiles_col: int = 0
+    name_col: int | None = 1
     if has_header:
         lower = [t.lower() for t in tokens]
         smiles_col = next((i for i, t in enumerate(lower) if "smiles" in t), 0)
-        name_col = next((i for i, t in enumerate(lower) if t in {"name", "id", "title", "compound", "molecule", "mol_id", "molecule_id"}), 1)
+        name_col = next((i for i, t in enumerate(lower) if t in _NAME_HEADERS), None)
+        if name_col is None:  # "Compound name", "molecule_name", ...
+            name_col = next((i for i, t in enumerate(lower) if "name" in t and i != smiles_col), None)
     return has_header, delimiter, smiles_col, name_col
 
 
 def _iter_smiles_entries(file_path: Path) -> Iterator[dict[str, Any]]:
+    # The same line parse the import worker runs, so this view of a table can't disagree with it.
     from rdkit import Chem
+    from amdockvs.io.transformers.smiles import _parse_smiles_line
 
-    has_header, delimiter, smiles_col, name_col = _sniff_smiles_table(file_path)
-    supplier = Chem.SmilesMolSupplier(
-        str(file_path), delimiter=delimiter, smilesColumn=smiles_col, nameColumn=name_col,
-        titleLine=has_header, sanitize=True,
-    )
-    for source_index, mol in enumerate(supplier):
+    _format, config, records = iter_raw_records(kind="ligand", file_path=file_path)
+    for record in records:
+        source_index = int(record["source_index"])
+        parsed = _parse_smiles_line(record["raw"], config, source_index=source_index, stem=file_path.stem)
+        mol = parsed["mol"]
         if mol is None:
             continue
-        name = mol.GetProp("_Name") if mol.HasProp("_Name") else f"{file_path.stem}_{source_index}"
-        # With a header, extra columns land as mol properties — surface them like SDF tags so the
-        # activity-from-column hook can read them.
-        source_properties = {
-            str(key): str(mol.GetProp(key) or "")
-            for key in mol.GetPropNames(includePrivate=False, includeComputed=False)
-            if str(key or "").strip() and str(key) != "_Name" and str(mol.GetProp(key) or "").strip()
-        }
+        source_properties = parsed["source_properties"]
         entry = {
             "source_index": source_index,
             "smiles": Chem.MolToSmiles(mol, canonical=False),
-            "name": name,
+            "name": parsed["name"],
             "mol_block": Chem.MolToMolBlock(mol),
         }
         if source_properties:  # only when a header surfaced extra columns (keeps plain .smi rows lean)
