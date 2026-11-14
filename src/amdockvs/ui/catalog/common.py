@@ -31,7 +31,7 @@ _PREVIEW_HEIGHT = 192
 PREVIEW_2D_COLUMN_FIELD = "__preview_2d__"
 
 
-def batch_columns(model, *, source_width: int = 360, format_width: int = 90) -> list[ColumnDef]:
+def batch_columns(model, *, source_width: int = 360, format_width: int = 115) -> list[ColumnDef]:
     """Source and Format of the file a row was imported from, read from its import batch.
 
     ponytail: not filterable — an expression filter has no QuerySpec form, so a tool scoped to

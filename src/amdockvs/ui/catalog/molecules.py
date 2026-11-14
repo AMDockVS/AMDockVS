@@ -49,7 +49,7 @@ def _molecule_table_config(*, runtime) -> TableConfig:
             ColumnDef("usage_class", label="Usage", width=110, sortable=True, filterable=True,
                       kind=ColumnKind.CHOICE, choices=choices_from_class(MoleculeUsageClass)),
             ColumnDef("n_atoms", label="Atoms", width=105, sortable=True, align=AlignHint.RIGHT),
-            *batch_columns(MoleculeRecord, source_width=320, format_width=115),
+            *batch_columns(MoleculeRecord, source_width=320),
             ColumnDef("current_payload_id", label="Current Payload", width=130, sortable=True, visible=False),
             ColumnDef("stored_payload_id", label="Stored Payload", width=130, sortable=True, visible=False),
         ],
