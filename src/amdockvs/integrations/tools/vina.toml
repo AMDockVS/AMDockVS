@@ -2,7 +2,7 @@
 [tool]
 name = "vina"
 label = "AutoDock Vina"
-purpose = "The Vina program, for where its Python package has no build (Windows, macOS, ARM Linux)."
+purpose = "The Vina program, for an install without conda-forge's vina (pip, or a host without conda)."
 footprint = "~5 MB (one official release binary)"
 version = "1.2.7"
 prefix = "{tools_home}/docking/{name}/{version}"

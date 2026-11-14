@@ -39,9 +39,8 @@ dependencies = [
     # 2.1 is the first release whose metadata allows rdkit 2026.x; older ones downgrade it.
     "dimorphite-dl>=2.1.0,<3",
     "ms_adtools>=0.1",  # ligand/receptor PDBQT, poses back to RDKit
-    # PyPI has vina wheels only for Linux x86-64, CPython <= 3.12; elsewhere pip would compile it
-    # (Boost + SWIG) and fail. There the engine runs the official binary (Settings > External tools).
-    "vina>=1.2.7; sys_platform == 'linux' and platform_machine == 'x86_64' and python_version < '3.13'",
+    # Vina docks through its program, not a Python package: conda-forge's `vina` (environment.yml)
+    # or the official binary that Programs installs.
     # Non-pip runtime tool: ad4 scoring needs the autogrid4 binary on PATH (or $AMDOCK_AUTOGRID4).
     #   conda install -c conda-forge autogrid
     "gemmi>=0.6",

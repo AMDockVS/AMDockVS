@@ -1,3 +1,4 @@
+import shutil
 import sys
 import time
 from importlib.metadata import PackageNotFoundError, version
@@ -75,7 +76,9 @@ def _wait_until(predicate, *, timeout_s: float = 5.0, poll_s: float = 0.05):
 def _require_docking_stack():
     pytest.importorskip("rdkit")
     pytest.importorskip("ms_adtools")
-    pytest.importorskip("vina")
+    from amdockvs.core.constants import vina_command
+    if not shutil.which(vina_command()):
+        pytest.skip("the vina program is not installed")
 
 
 def _wait_completed(runtime: AMDockVSRuntime, job_ids: list[str], *, timeout_s: float = 120.0):
@@ -722,11 +725,11 @@ def test_amdock_runtime_exposes_domain_queries_for_receptors_and_docking_results
         assert runtime.docking.count_docked_pairs(protocol_hash="not-a-hash") == 0
         assert receptor_summaries[0].expected_ligands == 6  # nothing missing here
 
-        # Protocol identity: the search settings count. Swapping the vina binding, changing the
+        # Protocol identity: the search settings count. Changing the
         # thread count or keeping fewer poses is the same protocol -- otherwise the skip-existing
         # guard (it filters by protocol.hash) would re-dock everything.
-        base = {"scoring_function": "vina", "exhaustiveness": 8, "num_modes": 9, "vina_backend": "binary"}
-        same = dict(base, vina_backend="python", vina_cpu=4, num_modes=1)
+        base = {"scoring_function": "vina", "exhaustiveness": 8, "num_modes": 9}
+        same = dict(base, vina_cpu=4, num_modes=1)
         assert protocol_hash(program="vina", config=base) == protocol_hash(program="vina", config=same)
         assert protocol_hash(program="vina", config=base) != protocol_hash(
             program="vina", config=dict(base, exhaustiveness=16)

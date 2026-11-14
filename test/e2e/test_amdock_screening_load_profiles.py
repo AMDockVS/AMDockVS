@@ -1,3 +1,4 @@
+import shutil
 import sys
 from pathlib import Path
 
@@ -19,7 +20,9 @@ def _patch_fake_home(monkeypatch, fake_home: Path):
 def test_amdock_throughput_profile_handles_heavier_screening_volume(tmp_path, monkeypatch):
     pytest.importorskip("rdkit")
     pytest.importorskip("ms_adtools")
-    pytest.importorskip("vina")
+    from amdockvs.core.constants import vina_command
+    if not shutil.which(vina_command()):
+        pytest.skip("the vina program is not installed")
     _patch_fake_home(monkeypatch, tmp_path)
 
     runtime = AMDockVSRuntime()

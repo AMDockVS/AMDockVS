@@ -15,7 +15,7 @@ from amdockvs.ui.tools.docking.protocol_editor import ProtocolEditorWidget
 
 # What the editor's widgets give for each program at their defaults.
 WIDGETS = {
-    "vina": {"scoring_function": "vina", "exhaustiveness": 8, "num_modes": 9, "vina_backend": "binary", "vina_cpu": 1},
+    "vina": {"scoring_function": "vina", "exhaustiveness": 8, "num_modes": 9, "vina_cpu": 1},
     "gnina": {"scoring_function": "rescore", "exhaustiveness": 8, "num_modes": 9, "vina_cpu": 1},
     "qvina": {"exhaustiveness": 8}, "adgpu": {"nrun": 20}, "unidock": {"search_mode": "fast"},
 }

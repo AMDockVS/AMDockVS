@@ -264,7 +264,7 @@ def vs_project(rt, tmp):
         rt.docking.set_grid(receptor_id=receptor_id, center=center, size=size)
         assert rt.docking.get_grid(receptor_id=receptor_id)
         job = rt.docking.run(ligand_set=dock_set, receptor_set=rec_scope, batch_size=4,
-                             exhaustiveness=4, num_modes=5, vina_backend="binary", vina_cpu=2,
+                             exhaustiveness=4, num_modes=5, vina_cpu=2,
                              executor_name=EXECUTOR)
         row = rt.wait_for_job(job, poll_s=0.5)
         assert row.status == "completed", _why(row)

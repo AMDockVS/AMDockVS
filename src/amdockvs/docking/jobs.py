@@ -6,7 +6,6 @@ reached through :mod:`amdockvs.docking.engines.registry`. Post-processing jobs
 """
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping
 
@@ -22,7 +21,6 @@ from amdockvs.core.payloads import payload_store
 from amdockvs.core.worker_io import worker_output_dir
 from amdockvs.core.constants import (
     AMDOCKVS_OFFLOADABLE_EXECUTORS,
-    DEFAULT_VINA_BACKEND,
     DEFAULT_VINA_COMMAND,
 )
 from amdockvs.docking.pairs import (
@@ -216,7 +214,6 @@ class DockingJobParams(BaseModel):
     box_center: tuple[float, float, float] | None = None
     box_size: tuple[float, float, float] | None = None
     scoring_function: str = "vina"
-    vina_backend: str = DEFAULT_VINA_BACKEND
     vina_command: str = DEFAULT_VINA_COMMAND
     vina_cpu: int = Field(default=1, ge=0)
     seed: int = 0
@@ -252,7 +249,6 @@ class RedockingJobParams(BaseModel):
     box_center: tuple[float, float, float] | None = None
     box_size: tuple[float, float, float] | None = None
     scoring_function: str = "vina"
-    vina_backend: str = DEFAULT_VINA_BACKEND
     vina_command: str = DEFAULT_VINA_COMMAND
     vina_cpu: int = Field(default=1, ge=0)
     seed: int = 0
@@ -284,7 +280,6 @@ def iter_docking_batches(
     box_center: tuple[float, float, float] | None = None,
     box_size: tuple[float, float, float] | None = None,
     scoring_function: str = "vina",
-    vina_backend: str = DEFAULT_VINA_BACKEND,
     vina_command: str = DEFAULT_VINA_COMMAND,
     vina_cpu: int = 1,
     seed: int = 0,
@@ -427,7 +422,6 @@ def iter_docking_batches(
         box_size=box_size,
         scoring_function=scoring_function,
         vina_cpu=vina_cpu,
-        vina_backend=vina_backend,
         vina_command=vina_command,
         seed=seed,
         spacing=spacing,
@@ -458,7 +452,6 @@ def iter_redocking_batches(
     box_center: tuple[float, float, float] | None = None,
     box_size: tuple[float, float, float] | None = None,
     scoring_function: str = "vina",
-    vina_backend: str = DEFAULT_VINA_BACKEND,
     vina_command: str = DEFAULT_VINA_COMMAND,
     vina_cpu: int = 1,
     seed: int = 0,
@@ -593,7 +586,6 @@ def iter_redocking_batches(
                 "box_center": [],
                 "box_size": [],
                 "scoring_function": str(scoring_function),
-                "vina_backend": str(vina_backend or "python"),
                 "vina_command": str(vina_command or "vina"),
                 "vina_cpu": int(vina_cpu),
                 "seed": int(seed),
@@ -615,7 +607,6 @@ def iter_redocking_batches(
             "box_center": [],
             "box_size": [],
             "scoring_function": str(scoring_function),
-            "vina_backend": str(vina_backend or "python"),
             "vina_command": str(vina_command or "vina"),
             "vina_cpu": int(vina_cpu),
             "seed": int(seed),
@@ -682,7 +673,6 @@ class DockingPairsInput(InputSource):
             box_center=None if not box_center else tuple(float(value) for value in box_center),
             box_size=None if not box_size else tuple(float(value) for value in box_size),
             scoring_function=str(params_map.get("scoring_function") or "vina"),
-            vina_backend=str(params_map.get("vina_backend") or "python"),
             vina_command=str(params_map.get("vina_command") or "vina"),
             vina_cpu=int(params_map.get("vina_cpu", 1)),
             seed=int(params_map.get("seed", 0)),
@@ -712,16 +702,9 @@ def pairs_label(payload: dict) -> str:
 
 def _waits_for_program(params: dict) -> bool:
     """Whether the tasks of these params only start a program and wait for it, telling the engine
-    of it: the engines that are programs. The Python bindings of Vina dock in the process itself,
-    and so may an engine registered from outside. A Vina binary that is not found here falls back
-    to the bindings in the task (`_vina_here`), which would hold the GIL of the app for the whole
-    dock: only a binary that resolves goes on a thread."""
-    engine = str(params.get("engine") or "vina")
-    if engine == "vina":
-        command = str(params.get("vina_command") or "vina")
-        return str(params.get("vina_backend")) == "binary" and bool(
-            Path(command).expanduser().exists() or shutil.which(command))
-    return engine in {"qvina", "gnina", "adgpu", "unidock"}
+    of it: the engines that are programs. An engine registered from outside may dock in the
+    process itself, which would hold the GIL of the app: only the built-in programs go on a thread."""
+    return str(params.get("engine") or "vina") in {"vina", "qvina", "gnina", "adgpu", "unidock"}
 
 
 def _supersede(params: dict, config: dict) -> None:
@@ -844,7 +827,6 @@ class RedockingJobSpec(JobSpec):
             box_center=parsed.box_center,
             box_size=parsed.box_size,
             scoring_function=parsed.scoring_function,
-            vina_backend=parsed.vina_backend,
             vina_command=parsed.vina_command,
             vina_cpu=parsed.vina_cpu,
             seed=parsed.seed,

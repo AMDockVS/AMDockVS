@@ -29,7 +29,7 @@ from amdockvs.docking.shard_tasks import HIT_MODE_TOP_N, dock_shards
 
 from amdockvs.core.worker_io import worker_file, worker_output_dir
 from amdockvs.core.constants import (
-    AMDOCKVS_OFFLOADABLE_EXECUTORS, DEFAULT_VINA_BACKEND, DEFAULT_VINA_COMMAND, SERIES_POSES,
+    AMDOCKVS_OFFLOADABLE_EXECUTORS, DEFAULT_VINA_COMMAND, SERIES_POSES,
 )
 from amdockvs.core.payloads import structure_payload
 from amdockvs.docking.engines.programs import chunk_resources
@@ -242,7 +242,6 @@ class DockShardsJobParams(BaseModel):
     box_center: tuple[float, float, float] | None = None
     box_size: tuple[float, float, float] | None = None
     scoring_function: str = "vina"
-    vina_backend: str = DEFAULT_VINA_BACKEND
     vina_command: str = DEFAULT_VINA_COMMAND
     vina_cpu: int = Field(default=1, ge=0)
     seed: int = 0
@@ -633,7 +632,6 @@ class DockShardsJobSpec(JobSpec):
                     "exhaustiveness": parsed.exhaustiveness,
                     "num_modes": parsed.num_modes,
                     "scoring_function": parsed.scoring_function,
-                    "vina_backend": parsed.vina_backend,
                     "vina_command": parsed.vina_command,
                     "vina_cpu": parsed.vina_cpu,
                     "seed": parsed.seed,

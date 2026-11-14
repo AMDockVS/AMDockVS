@@ -1,4 +1,3 @@
-import locale
 import shutil
 from pathlib import Path
 
@@ -126,18 +125,8 @@ def test_api_lists_the_receptors_the_method_hides(monkeypatch, tmp_path):
     assert runtime.docking.method_misfit_receptor_ids(method="zinc") == [ids["plain"]]  # no box: not judged
 
 
-@pytest.fixture
-def c_numeric_locale():
-    # A QApplication (the studio test) applies the user's LC_NUMERIC, e.g. es_CO with a decimal
-    # comma; the in-process Vina library then misreads the ad4 maps. Jobs dock in a worker process.
-    previous = locale.setlocale(locale.LC_NUMERIC)
-    locale.setlocale(locale.LC_NUMERIC, "C")
-    yield
-    locale.setlocale(locale.LC_NUMERIC, previous)
-
-
 @pytest.mark.skipif(not _autogrid(), reason="autogrid4 not installed")
-def test_zinc_method_docks_into_a_zinc_site(tmp_path, c_numeric_locale):
+def test_zinc_method_docks_into_a_zinc_site(tmp_path):
     pair = {"ligand_id": 1, "receptor_id": 2, "ligand_path": str(DATA / "1s63_ligand.pdbqt"),
             "receptor_path": str(DATA / "1s63_zn_site.pdbqt"), "exhaustiveness": 8, "num_modes": 1}
     dock = lambda method, scoring: run_vina_docking_rows(

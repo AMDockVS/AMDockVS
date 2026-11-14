@@ -21,7 +21,6 @@ class DockingEngineConfig(BaseModel):
     exhaustiveness: int = Field(default=8, ge=1)
     num_modes: int = Field(default=9, ge=1)
     scoring_function: str = "vina"
-    vina_backend: str = "python"
     vina_command: str = "vina"
     vina_cpu: int = Field(default=1, ge=1)
     seed: int = 0

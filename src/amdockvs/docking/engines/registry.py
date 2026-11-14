@@ -66,11 +66,12 @@ def load_builtin_docking_engines() -> None:
 def run_docking_chunk(payload: dict, progress_cb=None) -> list[dict]:
     """Dock the pairs of one chunk. `progress_cb` takes the percentage of them that are done.
 
-    The pair being docked counts by its share: an engine told `_pair_progress` says how far it
-    is, from 0 to 1.
+    The pairs being docked count by their share: an engine told `_pair_progress` says how many
+    pairs past the ones it has reported it has docked (a fraction of one while it docks one pair,
+    up to a batch's size while it docks a batch).
 
-    ponytail: only the Vina and QuickVina binaries say how far a pair is (their progress line);
-    Vina's Python bindings count a pair when it ends, and gnina and AutoDock-GPU tell nothing.
+    ponytail: only the Vina and QuickVina binaries say how far they are (their progress line);
+    gnina and AutoDock-GPU tell nothing.
     """
     load_builtin_docking_engines()
     payload = dict(payload)

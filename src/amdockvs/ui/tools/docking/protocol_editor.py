@@ -227,14 +227,10 @@ class ProtocolEditorWidget:
             self.scoring_combo = QComboBox(page)
             self.scoring_combo.addItems(list(VINA_PROGRAM.scoring_functions))
             self.scoring_combo.setCurrentText("vina")
-            self.backend_combo = QComboBox(page)
-            self.backend_combo.addItem("binary")
-            self.backend_combo.setCurrentText("binary")
             form.addRow("Exhaustiveness", self.exhaustiveness)
             form.addRow("Num modes", self.num_modes)
             form.addRow("CPU per task", self.vina_cpu)
             form.addRow("Scoring", self.scoring_combo)
-            form.addRow("Backend", self.backend_combo)
         elif spec.key == GNINA_PROGRAM.key:
             # gnina reuses the Vina PDBQT prep; "Scoring" here is the --cnn_scoring mode.
             dd = self._docking_defaults().gnina
@@ -351,7 +347,6 @@ class ProtocolEditorWidget:
                 "scoring_function": self.scoring_combo.currentText(),
                 "exhaustiveness": int(self.exhaustiveness.value()),
                 "num_modes": int(self.num_modes.value()),
-                "vina_backend": self.backend_combo.currentText(),
                 "vina_cpu": int(self.vina_cpu.value()),
             }
         if program == GNINA_PROGRAM.key:
@@ -377,7 +372,6 @@ class ProtocolEditorWidget:
             self.scoring_combo.setCurrentText(str(config.get("scoring_function") or "vina"))
             self.exhaustiveness.setValue(int(config.get("exhaustiveness") or dd.exhaustiveness))
             self.num_modes.setValue(int(config.get("num_modes") or dd.num_modes))
-            self.backend_combo.setCurrentText(str(config.get("vina_backend") or "binary"))
             self.vina_cpu.setValue(int(config.get("vina_cpu") or dd.cpu_per_task))
         elif program == GNINA_PROGRAM.key:
             dd = docking.gnina
@@ -412,7 +406,7 @@ class ProtocolEditorWidget:
 
     def _protocol_label(self, program: str, config: dict, rescoring: list[dict] | None = None) -> str:
         # Same subset as the hash (`protocol_identity`): the label names what makes this protocol
-        # different, so num_modes/backend/cpu stay out of it -- they don't move a pose.
+        # different, so num_modes/cpu stay out of it -- they don't move a pose.
         identity = protocol_identity(config, program=program)
         parts = [self._program_label(program)]
         scoring = str(identity.get("scoring_function") or "").strip()

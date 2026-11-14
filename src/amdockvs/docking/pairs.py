@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable, Iterable, Iterator, Mapping
 
-from amdockvs.core.constants import DEFAULT_VINA_BACKEND, DEFAULT_VINA_COMMAND
+from amdockvs.core.constants import DEFAULT_VINA_COMMAND
 from amdockvs.docking.engines.programs import chunk_resources, get_docking_program
 from amdockvs.docking.methods import excludes
 from amdockvs.docking.preparation.state import grid_from_row
@@ -89,7 +89,6 @@ def iter_docking_batches_from_rows(
     box_center: list[float] | tuple[float, float, float] | None = None,
     box_size: list[float] | tuple[float, float, float] | None = None,
     scoring_function: str = "vina",
-    vina_backend: str = DEFAULT_VINA_BACKEND,
     vina_command: str = DEFAULT_VINA_COMMAND,
     vina_cpu: int = 1,
     seed: int = 0,
@@ -194,7 +193,6 @@ def iter_docking_batches_from_rows(
                     "box_center": [],
                     "box_size": [],
                     "scoring_function": str(scoring_function),
-                    "vina_backend": str(vina_backend or "python"),
                     "vina_command": str(vina_command or "vina"),
                     "vina_cpu": int(vina_cpu),
                     "seed": int(seed),
@@ -217,7 +215,6 @@ def iter_docking_batches_from_rows(
             "box_center": [],
             "box_size": [],
             "scoring_function": str(scoring_function),
-            "vina_backend": str(vina_backend or "python"),
             "vina_command": str(vina_command or "vina"),
             "vina_cpu": int(vina_cpu),
             "seed": int(seed),

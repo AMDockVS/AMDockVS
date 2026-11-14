@@ -21,8 +21,8 @@ micromamba activate amdockvs
 Do not `conda install` into that environment afterwards: conda would lay its own builds over
 pip's. To change it, edit `environment.yml` and create it again.
 
-`pip install AMDockVS` alone also works on Linux x86-64; elsewhere pip has no Vina wheel and
-builds some packages from source.
+`pip install AMDockVS` alone also works; the Vina program then comes from **Programs**, which
+downloads the official release binary (about 5 MB).
 
 Start the GUI:
 

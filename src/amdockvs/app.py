@@ -103,7 +103,7 @@ def use_en_us_numbers() -> None:
     """One number format whatever the OS locale: 18.93, never 18,93.
 
     Qt widgets read QLocale's default, which follows LC_NUMERIC. QApplication() also calls
-    setlocale(LC_ALL, ""), so in-process C/C++ code (Vina reading its maps, strtod) would parse
+    setlocale(LC_ALL, ""), so in-process C/C++ code (strtod and the like) would parse
     "18.93" as 18 under a comma locale. Reset both, after QApplication() and before any widget.
     """
     import locale
