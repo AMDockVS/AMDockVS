@@ -1425,9 +1425,11 @@ configurations.</p>
 <p>P2Rank and Java 17 or later must be available. When the runtime is missing,
 the <strong>P2Rank Runtime</strong> section reports its status and provides <strong>Open Settings</strong>
 to reach <strong>Settings → External tools</strong>.</p>
-<p>Running another profile replaces the current predictions for the receptors
-in scope after the new calculation succeeds. Review or record the sites you
-need before submitting a replacement run.</p>
+<p>Each run adds its pockets next to the earlier ones; a run with another profile
+does not replace them. The <strong>Profile</strong> column of the results table tells the
+runs apart, and the receptor's active docking site stays as it is until you
+choose another. Running the profile of a receptor's latest run again reuses
+those results instead of calculating them again.</p>
 <h2 id="3-run-p2rank">3. Run P2Rank<a class="headerlink" href="#3-run-p2rank" title="Permanent link">&para;</a></h2>
 <p>Select <strong>Run P2Rank</strong>. While prediction is running, the status line reports
 progress and <strong>See details</strong> opens the <a href="../jobs_monitor/">Jobs monitor</a>. The tool prevents another
