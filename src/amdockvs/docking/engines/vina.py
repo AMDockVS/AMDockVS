@@ -32,20 +32,28 @@ def _require_pdbqt(path: Path, *, kind: str) -> None:
 _PROGRESS_STARS = 51  # the line Vina and QuickVina fill while they search: one star per 2 %
 
 
-def _follow_progress_line(stream, progress: Callable[[float], None] | None = None) -> str:
+# A batch prints one of these before each ligand it docks or skips: the ligands before it are written.
+_NEXT_LIGAND = ("Performing docking", "Failed parsing")
+
+
+def _follow_progress_line(stream, progress: Callable[[float], None] | None = None,
+                          next_ligand: Callable[[], None] | None = None) -> str:
     """Read `stream` to its end and return it; tell `progress` how many ligands are docked, the one
-    on its progress line counting by how full the line is (a batch prints one line per ligand)."""
-    if progress is None:
+    on its progress line counting by how full the line is (a batch prints one line per ligand), and
+    call `next_ligand` as a batch moves to its next ligand."""
+    if progress is None and next_ligand is None:
         return stream.read()
     text, line, finished = [], "", 0
     for char in iter(lambda: stream.read(1), ""):
         text.append(char)
         if char == "\n":
             finished += bool(line) and not line.strip("*")
+            if next_ligand is not None and line.startswith(_NEXT_LIGAND):
+                next_ligand()
             line = ""
             continue
         line += char
-        if char == "*" and not line.strip("*"):  # a line of stars only: the banner has none
+        if progress is not None and char == "*" and not line.strip("*"):  # the banner has no star-only line
             progress(finished + min(1.0, len(line) / _PROGRESS_STARS))
     return "".join(text)
 
@@ -199,7 +207,8 @@ def _vina_args(
     return command
 
 
-def _run_vina(command: list[str], progress: Callable[[float], None] | None = None) -> str:
+def _run_vina(command: list[str], progress: Callable[[float], None] | None = None,
+              next_ligand: Callable[[], None] | None = None) -> str:
     """Run a Vina command line to its end and return what it printed; raise if it failed."""
     process: subprocess.Popen[str] | None = None
 
@@ -251,7 +260,11 @@ def _run_vina(command: list[str], progress: Callable[[float], None] | None = Non
                 text=True,
                 start_new_session=(os.name == "posix"),
             )
-            stdout_text = _follow_progress_line(process.stdout, progress)
+            try:
+                stdout_text = _follow_progress_line(process.stdout, progress, next_ligand)
+            except BaseException:  # a callback failed or the task was cancelled: the run stops here
+                _kill_child_process()
+                raise
             process.wait()
             errors.seek(0)
             stderr_text = errors.read()
@@ -286,19 +299,20 @@ def _run_vina_binary(
 
 
 def _run_vina_batch(
-    *, ligand_paths: list[Path], output_dir: Path, progress: Callable[[float], None] | None = None, **grid,
+    *, ligand_paths: list[Path], output_dir: Path, progress: Callable[[float], None] | None = None,
+    next_ligand: Callable[[], None] | None = None, **grid,
 ) -> None:
     """Dock many ligands into one receptor and box with one `vina --batch`: the maps are computed
-    once. Each ligand's poses go to `<output_dir>/<stem>_out.pdbqt`; Vina skips a ligand it cannot
-    read and writes nothing for it."""
-    command = [*_vina_args(**grid, progress=progress is not None),
+    once. Each ligand's poses go to `<output_dir>/<stem>_out.pdbqt` as soon as it is docked, and
+    `next_ligand` is called then; Vina skips a ligand it cannot read and writes nothing for it."""
+    command = [*_vina_args(**grid, progress=True),  # verbosity 1 marks where each ligand starts
                *(arg for path in ligand_paths for arg in ("--batch", str(path))), "--dir", str(output_dir)]
-    _run_vina(command, progress)
+    _run_vina(command, progress, next_ligand)
 
 
-# ponytail: ligands per `vina --batch`. The maps are computed once per batch and rows come back
-# per batch, so a larger one saves map time but makes a shard's results arrive later.
-_BATCH_LIGANDS = 32
+# ponytail: characters of ligand paths per `vina --batch`, so the command line stays under the
+# ~32k of Windows (a few hundred ligands). The maps are computed once per batch; rows come per ligand.
+_BATCH_CHARS = 30_000
 
 
 def run_vina_docking_rows(
@@ -449,38 +463,59 @@ def run_vina_docking_rows(
         report(pair_rows)
 
     def dock(items: list[dict]) -> None:
-        """Dock items that share their Vina arguments: in one batch when there are several."""
+        """Dock items that share their Vina arguments: in one batch when there are several, each
+        ligand reported as soon as the batch has docked it."""
         batch_dir = resolved_output_dir / f"_batch_{uuid.uuid4().hex[:12]}"
-        if len(items) > 1 and not quickvina:
-            batch_dir.mkdir()
-            # ponytail: a failed batch (a crash, a kill) keeps what it wrote; the rest docks alone below.
-            with suppress(Exception):
-                _run_vina_batch(ligand_paths=[item["ligand_path"] for item in items], output_dir=batch_dir,
-                                progress=pair_progress, **items[0]["grid"])
+        reported: set[int] = set()
+
+        def collect() -> None:
+            """Report the ligands whose batch poses are written."""
+            for index, item in enumerate(items):
+                batched = batch_dir / f"{item['ligand_path'].stem}_out.pdbqt"
+                energies = _parse_vina_pose_energies(output_path=batched) if (
+                    index not in reported and batched.exists()) else []
+                if energies:
+                    reported.add(index)
+                    settle(item, energies, batched)
+
+        def batch_progress(docked: float) -> None:  # pair_progress counts past the reported pairs
+            if pair_progress is not None:
+                pair_progress(docked - len(reported))
+
         try:
-            for item in items:
-                pair = item["pair"]
-                try:
-                    batched = batch_dir / f"{item['ligand_path'].stem}_out.pdbqt"
-                    energies = _parse_vina_pose_energies(output_path=batched) if batched.exists() else []
-                    if energies:
-                        os.replace(batched, item["pdbqt"])
-                    else:
-                        energies, _ = _run_vina_binary(ligand_path=item["ligand_path"], output_path=item["pdbqt"],
-                                                       progress=pair_progress, **item["grid"])
-                    finish(item, energies)
-                except Exception as exc:
-                    fail(
-                        pair, str(exc),
-                        reference_ligand_path=str(pair.get("reference_ligand_path_logical")
-                                                  or pair.get("reference_ligand_path") or ""),
-                        reference_receptor_path=str(pair.get("reference_receptor_path_logical")
-                                                    or pair.get("reference_receptor_path") or ""),
-                        grid={key: item["grid"][key] for key in ("box_center", "box_size", "spacing",
-                                                                  "scoring_function")},
-                    )
+            if len(items) > 1 and not quickvina:
+                batch_dir.mkdir()
+                # ponytail: a failed batch (a crash, a kill) keeps what it wrote; the rest docks alone below.
+                with suppress(RuntimeError, OSError):
+                    _run_vina_batch(ligand_paths=[item["ligand_path"] for item in items], output_dir=batch_dir,
+                                    progress=batch_progress, next_ligand=collect, **items[0]["grid"])
+                collect()
+            for index, item in enumerate(items):
+                if index not in reported:
+                    settle(item, [], None)
         finally:
             shutil.rmtree(batch_dir, ignore_errors=True)
+
+    def settle(item: dict, energies: list[list[float]], batched: Path | None) -> None:
+        """Report `item` from its batch poses, or dock it alone when the batch has none for it."""
+        pair = item["pair"]
+        try:
+            if energies:
+                os.replace(batched, item["pdbqt"])
+            else:
+                energies, _ = _run_vina_binary(ligand_path=item["ligand_path"], output_path=item["pdbqt"],
+                                               progress=pair_progress, **item["grid"])
+            finish(item, energies)
+        except Exception as exc:
+            fail(
+                pair, str(exc),
+                reference_ligand_path=str(pair.get("reference_ligand_path_logical")
+                                          or pair.get("reference_ligand_path") or ""),
+                reference_receptor_path=str(pair.get("reference_receptor_path_logical")
+                                            or pair.get("reference_receptor_path") or ""),
+                grid={key: item["grid"][key] for key in ("box_center", "box_size", "spacing",
+                                                          "scoring_function")},
+            )
 
     batch: list[dict] = []
     for pair in pairs:
@@ -499,7 +534,8 @@ def run_vina_docking_rows(
             })
             continue
         # Vina names a batch's outputs after the ligand files, so two of one name go apart.
-        if batch and (item["grid"] != batch[0]["grid"] or len(batch) >= _BATCH_LIGANDS
+        if batch and (item["grid"] != batch[0]["grid"]
+                      or sum(len(str(other["ligand_path"])) + 9 for other in batch) >= _BATCH_CHARS
                       or item["ligand_path"].stem in {other["ligand_path"].stem for other in batch}):
             dock(batch)
             batch = []
