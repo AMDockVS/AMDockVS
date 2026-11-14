@@ -7,19 +7,17 @@ from typing import Any, Callable, Iterable
 from amdockvs.chemistry.state import molecule_state_metadata
 from amdockvs.io.formats import mol_from_mol2_block
 from amdockvs.io.payloads import ImportBatchPayload
-from amdockvs.core.vocab import FileFormat, MoleculeType
-from amdockvs.io.import_stats import FILTERED_PREFILTER, IMPORTED, UNREADABLE, bump
-from amdockvs.io.rows import active_small_molecule_criteria, cull_mol, htp_mol_filter
+from amdockvs.core.vocab import FileFormat
+from amdockvs.io.import_stats import UNREADABLE, bump
+from amdockvs.io.rows import active_small_molecule_criteria, htp_mol_filter
 from amdockvs.core.payloads import series_for, structure_payload
 from amdockvs.core.paths import molecule_storage_key
 from amdockvs.io.transformers.rows import (
     _apply_sdf_activity,
     _build_row,
-    _finalize_ligand_row_from_mol,
-    share_current,
     _progress_update,
     _source_properties_from_mapping,
-    _split_fragment_rows,
+    record_rows,
 )
 
 
@@ -60,45 +58,30 @@ def _materialize_sdf_rows(
                 bump(tally, UNREADABLE)
                 _progress_update(progress_cb, index, total_entries)
                 continue
-        if htp_passes is not None and not htp_passes(cull_mol(mol, batch)):
-            bump(tally, FILTERED_PREFILTER)
-            _progress_update(progress_cb, index, total_entries)
-            continue
-        row = _build_row(
-            source_file=batch.file_path,
-            source_index=source_index,
-            name=name,
-            n_atoms=mol.GetNumAtoms(),
-            import_batch_id=batch.import_batch_id,
-            stored=structure_payload(mol_block, "sdf", series_for(batch.primary_role or batch.kind)),
-            current=None,
-            metadata=molecule_state_metadata(mol),
-            molecule_kind=batch.molecule_kind,
-            primary_role=batch.primary_role,
-            primary_context=batch.primary_context,
-        )
-        row["source_properties"] = _source_properties_from_mapping(entry.get("source_properties"))
-        _apply_sdf_activity(row, getattr(batch, "prefilter", None))
-        if str(batch.primary_role or batch.kind).strip().lower() == "ligand" and str(batch.molecule_kind or "").strip().lower() == MoleculeType.SMALL_MOLECULE:
-            row, reason = _finalize_ligand_row_from_mol(
-                row=row,
-                mol=mol,
-                prefilter=batch.prefilter,
-                criteria=criteria,
+        stored = structure_payload(mol_block, "sdf", series_for(batch.primary_role or batch.kind))
+
+        def make_row(mol=mol, name=name, source_index=source_index, entry=entry, stored=stored):
+            row = _build_row(
+                source_file=batch.file_path,
+                source_index=source_index,
+                name=name,
+                n_atoms=mol.GetNumAtoms(),
+                import_batch_id=batch.import_batch_id,
+                stored=stored,
+                current=None,
+                metadata=molecule_state_metadata(mol),
                 molecule_kind=batch.molecule_kind,
+                primary_role=batch.primary_role,
+                primary_context=batch.primary_context,
             )
-            if reason is not None:
-                bump(tally, reason)
-                _progress_update(progress_cb, index, total_entries)
-                continue
-        else:
-            share_current(row, structure_payload(mol_block, "sdf", series_for(batch.primary_role or batch.kind)))
-        bump(tally, IMPORTED)
-        yield row
-        yield from _split_fragment_rows(
-            batch=batch, source_index=source_index, name=name, mol=mol,
+            row["source_properties"] = _source_properties_from_mapping(entry.get("source_properties"))
+            _apply_sdf_activity(row, getattr(batch, "prefilter", None))
+            return row
+
+        yield from record_rows(
+            batch=batch, mol=mol, name=name, source_index=source_index, make_row=make_row,
+            current=stored, criteria=criteria, htp_passes=htp_passes,
             parent_key=molecule_storage_key(batch.primary_role or batch.kind, batch.file_path, source_index),
-            criteria=criteria,
             source_properties=entry.get("source_properties"), tally=tally,
         )
         _progress_update(progress_cb, index, total_entries)

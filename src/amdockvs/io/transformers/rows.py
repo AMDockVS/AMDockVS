@@ -16,9 +16,9 @@ from amdockvs.chemistry.state import molecule_state_metadata
 from amdockvs.io.payloads import ImportBatchPayload, ImportPrefilterPolicy
 from amdockvs.core.payloads import structure_payload
 from amdockvs.core.rows import molecule_row
-from amdockvs.core.vocab import MoleculeUsageClass
-from amdockvs.io.import_stats import IMPORTED, bump
-from amdockvs.io.rows import evaluate_ligand_mol, ligand_row_fields
+from amdockvs.core.vocab import MoleculeType, MoleculeUsageClass
+from amdockvs.io.import_stats import FILTERED_PREFILTER, IMPORTED, bump
+from amdockvs.io.rows import cull_mol, evaluate_ligand_mol, ligand_row_fields
 from amdockvs.molecules.fragments import extra_fragment_molecules
 
 
@@ -128,6 +128,59 @@ def _progress_update(progress_cb: Callable[[float], None] | None, completed: int
         return
     progress_cb((max(0, completed) / max(1, total)) * 100.0)
 
+def is_small_molecule_ligand(batch: ImportBatchPayload) -> bool:
+    return (
+        str(batch.primary_role or batch.kind).strip().lower() == "ligand"
+        and str(batch.molecule_kind or "").strip().lower() == MoleculeType.SMALL_MOLECULE
+    )
+
+
+def record_rows(
+    *,
+    batch: ImportBatchPayload,
+    mol,
+    name: str,
+    source_index: int,
+    make_row: Callable[[], dict[str, Any]],
+    current: Payload | None,
+    criteria,
+    htp_passes,
+    parent_key: str,
+    source_properties: Any,
+    tally: dict[str, int],
+) -> Iterable[dict[str, Any]]:
+    """Every molecule one source record becomes: its own, then each fragment split off it.
+
+    The one path every format takes, so no format can skip a step: the streaming filter on the
+    fragment import keeps, the row, the ligand criteria and preparation, then the split. Each
+    molecule is judged on its own, so a fragment that fails the filters is dropped and one that
+    passes is kept even when the record's own molecule was not.
+
+    ``make_row`` builds the record's row only once it passed the streaming filter: a culled
+    record costs no payload. ``current`` is the current form of anything that is not a
+    small-molecule ligand (whose current form comes from the kept fragment instead).
+    """
+    if htp_passes is not None and not htp_passes(cull_mol(mol, batch)):
+        bump(tally, FILTERED_PREFILTER)
+    else:
+        row: dict[str, Any] | None = make_row()
+        if is_small_molecule_ligand(batch):
+            row, reason = _finalize_ligand_row_from_mol(
+                row=row, mol=mol, prefilter=batch.prefilter, criteria=criteria, molecule_kind=batch.molecule_kind
+            )
+            if reason is not None:
+                bump(tally, reason)
+        elif current is not None:
+            share_current(row, current)
+        if row is not None:
+            bump(tally, IMPORTED)
+            yield row
+    yield from _split_fragment_rows(
+        batch=batch, source_index=source_index, name=name, mol=mol, parent_key=parent_key,
+        criteria=criteria, htp_passes=htp_passes, source_properties=source_properties, tally=tally,
+    )
+
+
 def _split_fragment_rows(
     *,
     batch: ImportBatchPayload,
@@ -136,6 +189,7 @@ def _split_fragment_rows(
     mol,
     parent_key: str,
     criteria,
+    htp_passes=None,
     source_properties: Any,
     tally: dict[str, int],
 ) -> Iterable[dict[str, Any]]:
@@ -144,12 +198,17 @@ def _split_fragment_rows(
     The record's own row already carries the kept fragment; these are the co-components that
     would otherwise be lost. They share the source record, so the `variant` tells them apart in
     the name. No activity is copied onto them: the assay measured the parent record, not a salt.
+    Each one is a molecule of its own, so it passes the same filters as the record's (an
+    ``include_smarts`` the parent matched says nothing about its co-components).
     """
     from rdkit import Chem
 
     if not bool(getattr(batch.prefilter, "split_fragments", False)):
         return
     for fragment_index, fragment in extra_fragment_molecules(mol):
+        if htp_passes is not None and not htp_passes(fragment):
+            bump(tally, FILTERED_PREFILTER)
+            continue
         variant = f"frag{fragment_index:02d}"
         fragment.SetProp("_Name", f"{name} [{variant}]")
         row = _build_row(
