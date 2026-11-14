@@ -17,3 +17,11 @@ def test_ligands_show_and_filter_the_hidden_state_flags():
         assert columns[field].kind == ColumnKind.INTEGER and columns[field].filterable
         assert (columns[field].formatter(True), columns[field].formatter(False)) == ("Yes", "No")
     assert columns["exclusion_reason"].filterable
+
+
+def test_ligands_show_and_filter_the_formal_charge_of_the_current_structure():
+    columns = {c.field: c for c in _ligand_table_config(runtime=SimpleNamespace()).columns}
+
+    charge = columns["formal_charge"]
+    assert charge.visible and charge.filterable and charge.kind == ColumnKind.INTEGER
+    assert [charge.formatter(v) for v in (-2, 0, 1, None)] == ["-2", "0", "+1", ""]
