@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.common.failures import show_failures
 from amdockvs.ui.common.job_follower import JobFollower
+from amdockvs.ui.common.naming import NAMED, about
 from amdockvs.ui.common.widgets import LigandSources, add_run_on, gate_workflow_save, split_button
 from ms_components.tool_panel import ToolPanel
 from amdockvs.ui.catalog.common import BoundTableWidget
@@ -817,7 +818,7 @@ class PreparationPanel:
                   checked, on_error=failed, owner=self)
 
     def _prepare_receptors_checked(self, programs: list[str], receptor_scope, gaps: dict) -> None:
-        if gaps["no_3d"] and self._ask_missing_receptor_3d(gaps["no_3d"]) == "build":
+        if gaps["no_3d"] and self._ask_missing_receptor_3d(gaps["no_3d"], gaps["no_3d_names"]) == "build":
             build = self.window().tools.open_tool(BUILD_ID)
             build.tabs.setCurrentWidget(build.proteins_tab)
             return
@@ -846,11 +847,12 @@ class PreparationPanel:
         self._follow_prep(self.receptor_prep_jobs, job_ids)
         self.stepper.set_current_index(3)
 
-    def _ask_missing_receptor_3d(self, count: int) -> str:
+    def _ask_missing_receptor_3d(self, count: int, names=()) -> str:
         """Offer structure prediction, or keep preparing while skipping sequence-only rows."""
         box = QMessageBox(
             QMessageBox.Warning, "Prepare Receptors",
-            f"{int(count)} receptor(s) have no 3D structure and will be skipped if you continue.",
+            about(count, names, "receptor", "has no 3D structure and will be skipped if you continue",
+                  sep=":\n"),
             parent=self,
         )
         box.setInformativeText(
@@ -870,22 +872,38 @@ class PreparationPanel:
         return any(self.runtime.docking.get_program_spec(program).requires_binding_site for program in programs)
 
     def _receptor_gaps(self, scope, *, needs_3d: bool, needs_box: bool) -> dict:
-        """What a receptor scope lacks, counted by the database: no receptor row comes into Python."""
+        """What a receptor scope lacks, counted by the database, and the first few names so the
+        warning can say which ones: a scope holding a whole proteome still brings in NAMED rows."""
         molecules = self.runtime.molecules
-        gaps = {"no_3d": 0, "no_box": 0, "first_no_box": None}
+        gaps = {"no_3d": 0, "no_3d_names": (), "no_box": 0, "no_box_names": (), "first_no_box": None}
         if needs_3d:
-            gaps["no_3d"] = molecules.count(molecules.filter(scope, filters={"has_3d": False}))
+            flat = molecules.filter(scope, filters={"has_3d": False}, order=("id",))
+            gaps["no_3d"] = molecules.count(flat)
+            if gaps["no_3d"]:
+                gaps["no_3d_names"] = self._first_names(flat)
         if needs_box:
             # A receptor with no structure was already counted above: one reason per receptor.
             without = molecules.filter(scope, filters={"excluded": False, "has_3d": True, "has_search_box": False},
                                        order=("id",))
             gaps["no_box"] = molecules.count(without)
             if gaps["no_box"]:
-                gaps["first_no_box"] = next(molecules.stream_ids(replace(without.scope, limit=1)), None)
+                first = list(molecules.stream(replace(without.scope, limit=NAMED)))
+                gaps["first_no_box"] = int(first[0].id) if first else None
+                gaps["no_box_names"] = tuple(self._receptor_label(row) for row in first)
         return gaps
 
+    def _first_names(self, selection) -> tuple[str, ...]:
+        """The names of this selection's first NAMED receptors, for a warning that names them."""
+        return tuple(self._receptor_label(row)
+                     for row in self.runtime.molecules.stream(replace(selection.scope, limit=NAMED)))
+
+    @staticmethod
+    def _receptor_label(row) -> str:
+        return str(getattr(row, "name", "") or f"#{int(getattr(row, 'id', 0) or 0)}")
+
     def _confirm_receptor_search_boxes(self, gaps: dict, *, title: str) -> bool:
-        if not gaps["no_box"] or self._ask_missing_receptor_box(gaps["no_box"], title=title) != "box":
+        if not gaps["no_box"] or self._ask_missing_receptor_box(
+                gaps["no_box"], gaps["no_box_names"], title=title) != "box":
             return True
         receptor = self.runtime.molecules.get(int(gaps["first_no_box"])) if gaps["first_no_box"] else None
         if receptor is not None:
@@ -902,10 +920,11 @@ class PreparationPanel:
             window.viewer.show_grid_panel()
         return False
 
-    def _ask_missing_receptor_box(self, count: int, *, title: str) -> str:
+    def _ask_missing_receptor_box(self, count: int, names=(), *, title: str) -> str:
         box = QMessageBox(
             QMessageBox.Warning, title,
-            f"{int(count)} receptor(s) have no defined, active search box and will be skipped during docking.",
+            about(count, names, "receptor",
+                  "has no defined, active search box and will be skipped during docking", sep=":\n"),
             parent=self,
         )
         box.setInformativeText(
@@ -914,7 +933,10 @@ class PreparationPanel:
         )
         define = box.addButton("Define or activate box…", QMessageBox.ActionRole)
         proceed = box.addButton("Continue and skip", QMessageBox.AcceptRole)
-        box.setDefaultButton(proceed)
+        # Defining the box is the default: skipping a receptor silently is the destructive
+        # choice, so Enter no longer takes it. Escape still continues, because preparation
+        # itself needs no box — only docking does.
+        box.setDefaultButton(define)
         box.setEscapeButton(proceed)
         box.exec()
         return "box" if box.clickedButton() is define else "continue"

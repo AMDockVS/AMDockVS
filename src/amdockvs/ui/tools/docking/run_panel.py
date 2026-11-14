@@ -18,6 +18,7 @@ from amdockvs.docking.planning import protocol_job_key
 from amdockvs.docking.engines.programs import get_docking_program
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.common.job_follower import JobFollower
+from amdockvs.ui.common.naming import NAMED, about
 from amdockvs.ui.common.widgets import add_run_on, gate_workflow_save, split_button
 from amdockvs.core.vocab import MoleculeType
 from ms_components.tool_panel import ToolPanel
@@ -648,7 +649,10 @@ class RunPanel:
         if failures:
             notes.append("; ".join(failures))
         if int(rec.get("no_site") or 0):  # prepared or not, they are not docked: said, not dropped
-            notes.append(f"{int(rec['no_site'])} receptor(s) have no binding site and are left out")
+            # Named, not just counted: the one left out can be the target itself.
+            left_out = [name for _id, name in self._receptor_names((rec.get("no_site_ids") or ())[:NAMED])]
+            notes.append(about(int(rec["no_site"]), left_out, "receptor",
+                               "has no binding site and will be left out", end=""))
         if shards and not int(shards["prepared"]):
             notes.append("no shard is prepared yet")
         if notes:
