@@ -34,7 +34,7 @@ from ms_components.tool_panel import PROGRESS_NAME
 
 from amdockvs.core.configuration import app_config
 from amdockvs.io.downloads import discard_temporary
-from amdockvs.io.formats import QT_FILE_FILTER
+from amdockvs.io.formats import QT_RECEPTOR_FILE_FILTER
 from amdockvs.io.receptor_preview import (
     COORDINATION_METAL_CODES,
     ReceptorImportOptions,
@@ -363,7 +363,7 @@ class ReceptorImportPanel(QWidget):
             self,
             "Add Receptor Files",
             self.file_dialog_directory,
-            QT_FILE_FILTER,
+            QT_RECEPTOR_FILE_FILTER,
             options=self.file_dialog_options,
         )
         self._add_paths(paths)
@@ -397,7 +397,7 @@ class ReceptorImportPanel(QWidget):
         self._add_paths([path for path, _label in files])
 
     def _add_paths(self, paths) -> None:
-        resolved = expand_folders(paths or [])
+        resolved = expand_folders(paths or [], file_filter=QT_RECEPTOR_FILE_FILTER)
         if resolved:
             self.set_files(list(dict.fromkeys(self._file_paths + resolved)))
 

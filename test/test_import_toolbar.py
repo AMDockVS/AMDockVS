@@ -37,6 +37,39 @@ def test_receptor_folder_brings_in_its_structure_files(tmp_path, monkeypatch):
     assert sorted(Path(p).name for p in panel.file_paths) == ["1abc.pdb", "2xyz.CIF"]
 
 
+def test_the_receptor_picker_does_not_offer_formats_that_cannot_be_a_receptor(tmp_path, monkeypatch):
+    """F7: the filter listed .smi/.csv/.tsv, which are SMILES tables — ligands, never receptors.
+    FASTA stays: a sequence is a receptor whose structure is predicted."""
+    import amdockvs.core.configuration  # noqa: F401  - pydantic before PySide6
+    from pathlib import Path
+
+    from PySide6.QtWidgets import QApplication
+
+    from amdockvs.io.formats import QT_FILE_FILTER, QT_RECEPTOR_FILE_FILTER
+    from amdockvs.ui.tools.importing import receptors
+    from amdockvs.ui.tools.importing.receptors import ReceptorImportPanel
+
+    QApplication.instance() or QApplication(["toolbar-test"])
+    offered = QT_RECEPTOR_FILE_FILTER.split("(", 1)[1].split(")", 1)[0].split()
+    assert not {"*.smi", "*.smiles", "*.txt", "*.csv", "*.tsv"} & set(offered)
+    assert {"*.pdb", "*.cif", "*.mmcif", "*.pdbqt", "*.fasta"} <= set(offered)
+    assert "*.csv" in QT_FILE_FILTER  # the ligand importer still takes SMILES tables
+
+    for name in ("1abc.pdb", "seq.fasta", "library.smi", "table.csv"):
+        (tmp_path / name).touch()
+    monkeypatch.setattr(ReceptorImportPanel, "start_scan", lambda self: None)
+    asked = []
+    monkeypatch.setattr(receptors.QFileDialog, "getOpenFileNames",
+                        lambda *args, **kwargs: asked.append(args[3]) or ([], ""))
+    panel = ReceptorImportPanel(show_file_controls=True)
+    panel._on_add_files()
+    assert asked == [QT_RECEPTOR_FILE_FILTER]
+
+    panel._add_paths([str(tmp_path)])  # Add folder, or the folder dropped on the table
+
+    assert sorted(Path(p).name for p in panel.file_paths) == ["1abc.pdb", "seq.fasta"]
+
+
 def test_large_receptor_import_lists_files_without_processing(tmp_path, monkeypatch):
     import amdockvs.core.configuration  # noqa: F401 - pydantic before PySide6
     from PySide6.QtCore import Qt

@@ -39,10 +39,19 @@ SUFFIX_ALIASES = {
 READABLE_SUFFIXES = frozenset({".sdf", ".mol", ".mol2", ".pdb", ".pdbqt", ".cif", ".smi"})
 #: What a molecule of each kind is stored as once imported. Anything else is a conversion input.
 CANONICAL_SUFFIXES = frozenset({".sdf", ".cif"})
+_STRUCTURE_PATTERNS = "*.sdf *.sd *.mol *.mdl *.mol2 *.pdb *.ent *.pdb1 *.pdbqt *.cif *.mmcif"
+_SMILES_PATTERNS = "*.smi *.smiles *.txt *.csv *.tsv"   # SMILES columns: ligands only
+_SEQUENCE_PATTERNS = "*.fasta *.fa *.faa *.fas"         # a receptor without a structure (yet)
 #: Qt file-dialog filter. Table-ish text formats are import-only (SMILES columns), not readers.
 QT_FILE_FILTER = (
-    "Molecule files (*.sdf *.sd *.mol *.mdl *.mol2 *.pdb *.ent *.pdb1 *.pdbqt *.cif *.mmcif "
-    "*.smi *.smiles *.txt *.csv *.tsv *.fasta *.fa *.faa *.fas);;All files (*)"
+    f"Molecule files ({_STRUCTURE_PATTERNS} {_SMILES_PATTERNS} {_SEQUENCE_PATTERNS});;All files (*)"
+)
+#: What a receptor can be imported from: a structure, or a sequence to fold. A SMILES table
+#: cannot be one, so it is not offered (and a folder of them contributes nothing).
+QT_RECEPTOR_FILE_FILTER = (
+    f"Receptor files ({_STRUCTURE_PATTERNS} {_SEQUENCE_PATTERNS});;"
+    f"Structures ({_STRUCTURE_PATTERNS});;"
+    f"Sequences ({_SEQUENCE_PATTERNS});;All files (*)"
 )
 
 # AutoDock atom types are not element symbols: NA is an acceptor nitrogen, not sodium, and A is an

@@ -14,14 +14,24 @@ from amdockvs.io.formats import QT_FILE_FILTER
 from amdockvs.ui.resources.icons import icon
 
 # The file dialog's own patterns ("*.sdf ...") decide what a folder contributes, so both routes agree.
-_IMPORT_SUFFIXES = frozenset(p[1:] for p in QT_FILE_FILTER.split("(", 1)[1].split(")", 1)[0].split())
+def _filter_suffixes(file_filter: str) -> frozenset[str]:
+    """The suffixes of a Qt filter's first group — what that dialog would let through."""
+    return frozenset(p[1:] for p in file_filter.split("(", 1)[1].split(")", 1)[0].split())
 
 
-def expand_folders(paths) -> list[str]:
-    """Resolved file paths; a folder (picked or dropped) brings in every molecule file below it."""
+_IMPORT_SUFFIXES = _filter_suffixes(QT_FILE_FILTER)
+
+
+def expand_folders(paths, *, file_filter: str = QT_FILE_FILTER) -> list[str]:
+    """Resolved file paths; a folder (picked or dropped) brings in every molecule file below it.
+
+    `file_filter` is the dialog filter of the importer asking, so a folder contributes exactly
+    what its Add Files… would have offered — no SMILES tables under a receptor importer.
+    """
+    suffixes = _IMPORT_SUFFIXES if file_filter == QT_FILE_FILTER else _filter_suffixes(file_filter)
     files: list[str] = []
     for path in (Path(p).expanduser() for p in paths if p):
-        found = sorted(f for f in path.rglob("*") if f.suffix.lower() in _IMPORT_SUFFIXES) if path.is_dir() else [path]
+        found = sorted(f for f in path.rglob("*") if f.suffix.lower() in suffixes) if path.is_dir() else [path]
         files.extend(str(f.resolve()) for f in found)
     return files
 
