@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from contextlib import suppress
 from sqlite3 import OperationalError
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from ms_flow.query import db_rows
 from ms_flow.query import QuerySpec
@@ -727,10 +727,12 @@ def count_docked_pairs(
     receptor_ids: list[int] | None = None,
     protocol_hash: str | None = None,
     run_kind: str | None = "screening",
+    input_keys: Mapping[int, Iterable[str]] | None = None,
 ) -> int:
     """How many receptor-ligand pairs already have a result. A COUNT, not the pair set:
     the run's skip-existing guard materializes the pairs because it has to compare them
-    one by one; a preview only needs the number."""
+    one by one; a preview only needs the number. `input_keys` (receptor → keys) counts only
+    the results docked against those inputs, as the run's skip does."""
     runs = ["1=1"]  # the docking runs that count
     if str(engine or "").strip():
         runs.append(f"engine = {code_id('engine', str(engine).strip().lower())}")
@@ -744,6 +746,13 @@ def count_docked_pairs(
         # An explicit selection that resolves to nothing means "no receptors", not "all of
         # them": IN (NULL) is never true, so the count is 0 instead of the whole project.
         clauses.append(f"receptor_molecule_id IN ({','.join(str(value) for value in ids) or 'NULL'})")
+    if input_keys is not None:
+        def quoted(key) -> str:
+            return "'{}'".format(str(key).replace("'", "''"))
+
+        current = [f"(receptor_molecule_id = {int(receptor)} AND input_key IN ({','.join(map(quoted, keys)) or 'NULL'}))"
+                   for receptor, keys in input_keys.items()]
+        clauses.append(f"({' OR '.join(current) or '0'})")
     rows = db_rows(
         project_db,
         query=(

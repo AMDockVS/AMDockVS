@@ -10,6 +10,7 @@ from ms_flow.core.database.project import ProjectStore
 from sqlmodel import select
 
 from amdockvs.docking import tasks
+from amdockvs.docking.api import DockingAPI
 from amdockvs.docking.jobs import (
     _supersede,
     _with_docking_run,
@@ -172,6 +173,20 @@ def test_an_older_projects_results_are_kept_until_the_receptor_changes(tmp_path,
 def _hash():
     from amdockvs.docking.protocols import DockingProtocolMetadata
     return str(DockingProtocolMetadata.from_mapping(None).as_metrics_payload().get("hash") or "")
+
+
+def test_the_preview_counts_only_results_for_the_current_inputs(tmp_path, monkeypatch):
+    _fake_engine(monkeypatch)
+    store = _project(tmp_path)
+    _dock(store, tmp_path, "r1")
+    api = DockingAPI(SimpleNamespace(workspace=SimpleNamespace(project_db=store), _require_active_project=lambda: None))
+    receptor = _results(store)[0].receptor_molecule_id
+    count = lambda: api.count_docked_pairs(engine="vina", receptor_ids=[receptor], program="vina")  # noqa: E731
+    assert count() == N_LIGANDS
+    _move_site(store, 100.0)
+    assert count() == 0
+    assert api.count_docked_pairs(engine="vina", receptor_ids=[receptor]) == N_LIGANDS  # without a program: any
+    store.dispose()
 
 
 def test_redocking_docks_a_complex_again_when_its_box_moves(tmp_path, monkeypatch):
