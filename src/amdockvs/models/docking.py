@@ -175,6 +175,9 @@ class DockingResult(SQLModel, table=True):
     pose_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
     # The receptor structure the pose was docked into. ponytail: no FK, a re-prepared receptor may drop it.
     receptor_payload_id: int | None = Field(default=None)
+    # What the pair was docked against: receptor input, flex side chains and box, hashed
+    # (`docking_input_key`). skip_existing reuses a result only when it matches the current one.
+    input_key: str = Field(default="")
 
     # From the score and the ligand (`docking_metrics`); Ki is 10^-pKi.
     ligand_efficiency: float | None = Field(default=None)

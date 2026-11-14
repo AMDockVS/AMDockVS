@@ -71,9 +71,12 @@ def dock_pairs(payload: dict, progress_cb=None):
         rows = _poses_as_payloads(run_docking_chunk({**payload, "pairs": pairs}, progress_cb))
     # The receptor the pose was docked into, for what is computed from the pose later.
     receptors = {pair.get("receptor_id"): pair.get("receptor_payload_id") for pair in pairs}
+    # And what it was docked against (`docking_input_key`), which skip_existing compares.
+    keys = {(pair.get("receptor_id"), pair.get("ligand_id")): pair.get("input_key") or "" for pair in pairs}
     for row in rows:
         row["docking_run_id"] = payload.get("docking_run_id")
         row["receptor_payload_id"] = receptors.get(row.get("receptor_molecule_id"))
+        row["input_key"] = keys.get((row.get("receptor_molecule_id"), row.get("ligand_molecule_id")), "")
     threshold = payload.get("hit_threshold")
     if threshold is None:
         return rows

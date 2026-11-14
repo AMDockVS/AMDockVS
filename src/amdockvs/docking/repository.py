@@ -229,14 +229,19 @@ def docked_ligands_spec(
     run_kind: str | None = None,
     protocol_hash: str | None = None,
     except_run: int | None = None,
+    input_keys: Iterable[str] | None = None,
 ) -> QuerySpec:
     """Ligands already docked against this receptor — the "already computed" guard.
 
-    `except_run` leaves one run's own results out: what the OTHERS had docked before it."""
+    `except_run` leaves one run's own results out: what the OTHERS had docked before it.
+    `input_keys` counts only results docked against these inputs (`docking_input_key`): a
+    result for another box or an older preparation of the receptor is not "already docked"."""
     filters: dict[str, Any] = {
         "receptor_molecule_id": int(receptor_id),
         "docking_run_id__in_subquery": _runs_spec(engine, run_kind, protocol_hash),
     }
+    if input_keys is not None:
+        filters["input_key__in"] = [str(key) for key in input_keys]
     if except_run:
         filters["docking_run_id__ne"] = int(except_run)
     return QuerySpec(table=TABLE_DOCKING_RESULTS, fields=("ligand_molecule_id",), filters=filters)

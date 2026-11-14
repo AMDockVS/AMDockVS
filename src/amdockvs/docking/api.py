@@ -54,6 +54,7 @@ from amdockvs.docking.engines.programs import (
 from amdockvs.docking.jobs import (
     count_pending_docking_pairs,
     count_pending_redocking_pairs,
+    screening_input_keys,
     DockingJobParams,
     DockingJobSpec,
     RedockingJobParams,
@@ -1250,6 +1251,10 @@ class DockingAPI:
             skip_existing=False if reset_results else skip_existing,
             requires_ligand_preparation=program_spec.requires_ligand_preparation,
             requires_receptor_preparation=program_spec.requires_receptor_preparation,
+            requires_binding_site=program_spec.requires_binding_site,
+            box_center=box_center,
+            box_size=box_size,
+            spacing=_engine_fields(resolved_engine_config, knobs)["spacing"],
         )
         # The Top-N does not exist yet when an off-target stage is submitted: declare nothing
         # (a floor of 0) rather than a count that could over-declare and never complete.
@@ -1468,6 +1473,9 @@ class DockingAPI:
             purpose=purpose_text,
             protocol_metadata=protocol_metadata,
             skip_existing=skip_existing,
+            box_center=box_center,
+            box_size=box_size,
+            spacing=_engine_fields(resolved_engine_config, knobs)["spacing"],
         )
         batch_size = self.pairs_per_task(program_spec, batch_size)
         total_chunks = (
@@ -1685,13 +1693,24 @@ class DockingAPI:
             receptor_ids: list[int] | None = None,
             protocol_hash: str | None = None,
             run_kind: str | None = "screening",
+            program: str | None = None,
     ) -> int:
+        """`program` counts only the pairs docked against what its run would dock now: each
+        receptor's current preparation and stored grid (skip_existing docks the others again)."""
+        input_keys = None
+        if program and receptor_ids is not None:
+            spec = self.get_program_spec(program)
+            rows = get_molecule_rows_by_ids(self._project_db(), list(receptor_ids), engine=spec.preparation_engine)
+            input_keys = screening_input_keys(rows.values(), box_center=None, box_size=None, spacing=0.375,
+                                              preparation_engine=spec.preparation_engine,
+                                              requires_binding_site=spec.requires_binding_site)
         return results_repo.count_docked_pairs(
             self._project_db(),
             engine=engine,
             receptor_ids=receptor_ids,
             protocol_hash=protocol_hash,
             run_kind=run_kind,
+            input_keys=input_keys,
         )
 
     def receptor_summaries(self):

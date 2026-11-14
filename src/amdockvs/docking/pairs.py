@@ -7,13 +7,76 @@ which is what lets a chunk run on another machine.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 from typing import Callable, Iterable, Iterator, Mapping
 
 from amdockvs.core.constants import DEFAULT_VINA_BACKEND, DEFAULT_VINA_COMMAND
 from amdockvs.docking.engines.programs import chunk_resources, get_docking_program
 from amdockvs.docking.methods import excludes
-from amdockvs.docking.preparation.state import grid_from_row
+from amdockvs.docking.preparation.state import docking_input_payload_id, grid_from_row
+
+
+def docking_input_key(
+    receptor_row: Mapping[str, object],
+    center: Iterable[float] | None,
+    size: Iterable[float] | None,
+    spacing: float | None,
+) -> str:
+    """What a pair was docked against, as a short hash: the receptor's docked input and flexible
+    side chains (the payloads a re-preparation replaces) and the box. Stored on each result
+    (`input_key`), it is what lets skip_existing reuse a result only for the same inputs."""
+    try:
+        receptor = int(receptor_row.get("input_payload_id") or docking_input_payload_id(receptor_row))
+    except ValueError:
+        receptor = 0
+
+    def numbers(values):
+        return None if values is None or not len(tuple(values)) else [round(float(v), 4) for v in values]
+
+    identity = [receptor, int(receptor_row.get("flex_payload_id") or 0), numbers(center), numbers(size),
+                None if spacing is None else round(float(spacing), 4)]
+    return hashlib.sha1(json.dumps(identity).encode()).hexdigest()[:16]
+
+
+def legacy_input_key(receptor_payload_id: object) -> str:
+    """The key a result from before `input_key` was given (`_add_columns`): only its receptor
+    payload is known, not its box."""
+    return f"legacy:{int(receptor_payload_id or 0)}"
+
+
+def matching_input_keys(receptor_row: Mapping[str, object], key: str) -> list[str]:
+    """The stored keys that count as this receptor's current inputs: its key, and the legacy one
+    of its current payload."""
+    try:
+        payload = receptor_row.get("input_payload_id") or docking_input_payload_id(receptor_row)
+    except ValueError:
+        return [key]
+    return [key, legacy_input_key(payload)]
+
+
+def receptor_box(
+    receptor_row: Mapping[str, object],
+    *,
+    box_center: Iterable[float] | None,
+    box_size: Iterable[float] | None,
+    spacing: float,
+    preparation_engine: str,
+    requires_binding_site: bool = True,
+) -> tuple[tuple[float, ...] | None, tuple[float, ...] | None, float]:
+    """The box a receptor's screening pairs dock in: the explicit one, else its stored grid
+    (only when the program needs a site). `(None, None, spacing)` without one."""
+    center = None if box_center is None else tuple(float(v) for v in box_center)
+    size = None if box_size is None else tuple(float(v) for v in box_size)
+    if requires_binding_site and (center is None or size is None):
+        grid = grid_from_row(receptor_row, engine=preparation_engine)
+        if grid is not None:
+            grid_center = tuple(float(v) for v in (grid.get("center") or ()))
+            grid_size = tuple(float(v) for v in (grid.get("size") or ()))
+            if len(grid_center) == 3 and len(grid_size) == 3:
+                return grid_center, grid_size, float(grid.get("spacing") or spacing)
+    return center, size, float(spacing)
 
 
 def _ligand_descriptors_from_row(ligand_row: Mapping[str, object]) -> dict[str, float]:
@@ -38,6 +101,7 @@ def build_docking_pair(
     spacing: float | None = None,
     reference_ligand_path: object = "",
     reference_receptor_path: object = "",
+    input_key: str = "",
 ) -> dict[str, object]:
     if ligand_row.get("ligand") is None:
         raise ValueError(f"Ligand {ligand_row.get('id')} has no structure to dock.")
@@ -58,6 +122,7 @@ def build_docking_pair(
         "box_center": None if box_center is None else [float(value) for value in box_center],
         "box_size": None if box_size is None else [float(value) for value in box_size],
         "spacing": None if spacing is None else float(spacing),
+        "input_key": str(input_key or ""),
     }
 
 
@@ -68,6 +133,7 @@ def build_failed_docking_pair(
     reason: str,
     complex_id: int | None = None,
     run_kind: str = "screening",
+    input_key: str = "",
 ) -> dict[str, object]:
     return {
         "complex_id": None if complex_id is None else int(complex_id),
@@ -75,6 +141,7 @@ def build_failed_docking_pair(
         "ligand_id": int(ligand_row.get("id") or 0),
         "receptor_id": int(receptor_row.get("id") or 0),
         "invalid_reason": str(reason or "Invalid docking pair."),
+        "input_key": str(input_key or ""),
     }
 
 
@@ -134,21 +201,13 @@ def iter_docking_batches_from_rows(
 
     batch: list[dict[str, object]] = []
     for receptor_row in receptor_rows:
+        effective_center, effective_size, effective_spacing = receptor_box(
+            receptor_row, box_center=box_center, box_size=box_size, spacing=spacing,
+            preparation_engine=prep_engine, requires_binding_site=requires_binding_site,
+        )
+        input_key = docking_input_key(receptor_row, effective_center, effective_size, effective_spacing)
         for ligand in ligands_for(int(receptor_row.get("id") or 0)):
             ligand_row = dict(ligand)
-            pair_grid = None
-            effective_center = box_center
-            effective_size = box_size
-            effective_spacing = spacing
-            if requires_binding_site and (effective_center is None or effective_size is None):
-                pair_grid = grid_from_row(receptor_row, engine=prep_engine)
-                if pair_grid is not None:
-                    resolved_center = tuple(float(value) for value in (pair_grid.get("center") or ()))
-                    resolved_size = tuple(float(value) for value in (pair_grid.get("size") or ()))
-                    if len(resolved_center) == 3 and len(resolved_size) == 3:
-                        effective_center = resolved_center
-                        effective_size = resolved_size
-                        effective_spacing = float(pair_grid.get("spacing") or spacing)
             if requires_binding_site and (effective_center is None or effective_size is None):
                 batch.append(
                     build_failed_docking_pair(
@@ -158,6 +217,7 @@ def iter_docking_batches_from_rows(
                             f"Receptor {int(receptor_row.get('id') or 0)} requires explicit "
                             "box_center/box_size or a stored grid."
                         ),
+                        input_key=input_key,
                     )
                 )
             else:
@@ -170,6 +230,7 @@ def iter_docking_batches_from_rows(
                         box_center=effective_center,
                         box_size=effective_size,
                         spacing=effective_spacing,
+                        input_key=input_key,
                     )
                     if effective_center is not None and excludes(
                         method, pair["receptor_path"], effective_center, effective_size
@@ -183,6 +244,7 @@ def iter_docking_batches_from_rows(
                             ligand_row=ligand_row,
                             receptor_row=receptor_row,
                             reason=str(exc),
+                            input_key=input_key,
                         )
                     )
             if len(batch) >= normalized_batch_size:
