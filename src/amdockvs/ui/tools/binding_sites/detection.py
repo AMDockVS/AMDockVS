@@ -459,8 +459,6 @@ class PocketDetectionWidget(QWidget):
         self._job_signal_connected = False
         self._bound_receptor_table = None
         self._tool_ready = False
-        # A job that finished while another tool had the panel: showEvent reloads the receptors.
-        self._stale = False
         # Without a project this widget is a label: show/hideEvent must not touch the rest.
         self._ready = False
 
@@ -722,9 +720,9 @@ class PocketDetectionWidget(QWidget):
             # The tool has no table of its own: the receptors it works on are the catalog's.
             opener(RECEPTOR_VIEW_ID)
         self._sync_receptor_scope()
-        if self._stale:
-            self._stale = False
-            self.refresh()
+        # Receptors may have been imported or deleted while the tool was hidden; the panel keeps
+        # its widget, so reopening it is where its receptor list catches up.
+        self.refresh()
 
     def hideEvent(self, event):
         super().hideEvent(event)
@@ -872,6 +870,10 @@ class PocketDetectionWidget(QWidget):
     def _on_job_finished(self, job_id: str, status: str) -> None:
         normalized_job_id = str(job_id)
         if normalized_job_id not in self._pending_job_ids:
+            # Not ours, but an import (or any other job) can add or remove receptors: an open
+            # tool reloads them so its scope and Run follow. A hidden one does it on showEvent.
+            if self.isVisible():
+                self.refresh()
             return
         self._pending_job_ids.discard(normalized_job_id)
         self.run_button.setEnabled(bool(self._receptors) and not self._pending_job_ids)
@@ -881,11 +883,8 @@ class PocketDetectionWidget(QWidget):
             if normalized_status == "completed"
             else f"P2Rank job {normalized_status}."
         )
-        if normalized_status == "completed":
-            if self.isVisible():
-                self.refresh()
-            else:
-                self._stale = True
+        if normalized_status == "completed" and self.isVisible():
+            self.refresh()
         self._reload_sites()
 
     def _show_error(self, title: str, exc: Exception) -> None:

@@ -265,3 +265,32 @@ def test_results_appear_without_switching_tabs(tmp_path, monkeypatch, selected_r
         host.close()
         host.deleteLater()
         app.processEvents()
+
+def _count_refreshes(widget, monkeypatch):
+    calls = []
+    monkeypatch.setattr(PocketDetectionWidget, "refresh", lambda self: calls.append(self))
+    return calls
+
+
+def test_an_import_finishing_refreshes_the_open_tools_receptors(panel, monkeypatch):
+    widget, bridge, _active, _api = panel
+    refreshes = _count_refreshes(widget, monkeypatch)
+    widget.parentWidget().show()
+    QApplication.processEvents()
+    refreshes.clear()  # showing it refreshes too; the import is what's under test
+
+    # A receptor import is not this tool's job, but it changes what the tool can scope.
+    bridge.job_finished.emit("import", "completed")
+    assert refreshes == [widget]
+
+
+def test_reopening_the_tool_refreshes_receptors_that_changed_while_it_was_hidden(panel, monkeypatch):
+    widget, bridge, _active, _api = panel
+    refreshes = _count_refreshes(widget, monkeypatch)
+    bridge.job_finished.emit("import", "completed")
+    assert refreshes == []  # hidden: nothing to show it on yet
+
+    widget.parentWidget().show()
+    QApplication.processEvents()
+    assert refreshes == [widget]
+
