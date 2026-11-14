@@ -193,8 +193,11 @@ def minimize_ligand_molecule(
     from rdkit import Chem
     from rdkit.Chem import AllChem
 
+    from amdockvs.chemistry.state import mol_has_3d
+
     work_mol = Chem.Mol(mol)
-    if work_mol.GetNumConformers() == 0:
+    # A flat 2D conformer (e.g. from a 2D-only Build pass) can't be minimized: embed it first.
+    if not mol_has_3d(work_mol):
         work_mol = generate_ligand_3d(work_mol)
     normalized_forcefield = str(forcefield or "mmff").strip().lower()
     # Every conformer, so an ensemble minimizes as a whole; a single conformer is the same call.

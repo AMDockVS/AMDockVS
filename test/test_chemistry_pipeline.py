@@ -152,6 +152,34 @@ def test_minimize_after_conformers_still_writes_the_ensemble():
     assert update["current_payload_id"] is update["model_rows"][0]["payload_id"]
 
 
+def _is_3d(payload) -> bool:
+    mol = Chem.MolFromMolBlock(payload.data.decode(), removeHs=False)
+    z = [mol.GetConformer().GetAtomPosition(i).z for i in range(mol.GetNumAtoms())]
+    return mol.GetConformer().Is3D() and max(z) - min(z) > 0.1
+
+
+def test_protonating_a_2d_structure_keeps_it_2d():
+    from amdockvs.chemistry.service import transform_ligand_rows
+
+    # The row's structure is a flat 2D SDF, as left by an earlier 2D-only Build pass.
+    result = transform_ligand_rows(operations=[("protonate", {"method": "explicit_hs"})], rows=[_row(1, "CCO")])
+
+    update, = result["updates"]
+    assert update["state"]["has_3d"] is False
+    assert not _is_3d(update["current_payload_id"])
+
+
+def test_minimizing_a_2d_structure_embeds_it_in_3d_first():
+    from amdockvs.chemistry.service import transform_ligand_rows
+
+    result = transform_ligand_rows(operations=[("minimize", {})], rows=[_row(1, "CCCCCCO")])
+
+    update, = result["updates"]
+    assert update["state"]["has_3d"] is True
+    assert update["state"]["is_minimized"] is True
+    assert _is_3d(update["current_payload_id"])
+
+
 def test_a_broken_row_does_not_take_the_batch_down():
     from amdockvs.chemistry.service import transform_ligand_rows
 

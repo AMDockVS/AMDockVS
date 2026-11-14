@@ -12,7 +12,7 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 from ms_flow.payloads import PayloadGroup, scratch_file
 
 from amdockvs.chemistry.pipeline import LIGAND_STEPS, normalize_steps, run_pipeline
-from amdockvs.chemistry.state import mol_has_explicit_hs
+from amdockvs.chemistry.state import mol_has_3d, mol_has_explicit_hs
 from amdockvs.chemistry.structures import mol_from_bytes, sdf_payload
 from amdockvs.chemistry.tools import (
     fix_receptor_pdb_file,
@@ -78,7 +78,8 @@ def _ligand_state(steps: Sequence[tuple[str, Mapping[str, Any]]], result_mol) ->
     return {
         # Read off the molecule: whichever step added the Hs (protonate, 3D, minimize), they are there.
         "has_hs": mol_has_explicit_hs(result_mol),
-        "has_3d": result_mol.GetNumConformers() > 0,
+        # A 2D depiction is a conformer too; only real 3D coordinates count.
+        "has_3d": mol_has_3d(result_mol),
         "is_minimized": is_minimized,
     }
 
