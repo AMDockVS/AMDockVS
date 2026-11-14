@@ -712,3 +712,22 @@ def test_receptor_counts_follow_the_program_filter():
     assert widget.ligand_table._model._config.column_by_field("protocol_label").visible is True
     widget.protocol_combo.setCurrentIndex(widget.protocol_combo.findData("v"))
     assert widget.ligand_table._model._config.column_by_field("protocol_label").visible is False
+
+
+def test_the_program_filter_fits_labels_that_arrive_after_it_is_shown():
+    """Filled once the results load, after the first show: sized then, it read "AutoDoc"."""
+    QApplication.instance() or QApplication(["amdockvs-program-filter-test"])
+    widget = DockingResultsWidget(runtime=SimpleNamespace(
+        workspace=SimpleNamespace(project_db=_Db()),
+        docking=SimpleNamespace(result_protocols=lambda **_kwargs: [], hit=lambda **_kwargs: None),
+    ))
+    widget.resize(1400, 800)
+    widget.show()
+    QApplication.processEvents()
+    label = "AutoDock-GPU | nrun=20 | seed=0"
+    widget._populate_protocol_combo([("gpu", label), ("vina", "AutoDock Vina | sf=vina | exh=8")])
+    QApplication.processEvents()
+    combo = widget.protocol_combo
+    assert combo.currentText() == label
+    assert combo.width() > combo.fontMetrics().horizontalAdvance(label)
+    widget.close()

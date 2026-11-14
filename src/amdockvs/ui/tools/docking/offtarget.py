@@ -4,7 +4,7 @@ The default Docking Results view is receptor -> ligand -> pose. This one flips i
 rows are ligands, columns are receptors, and one matrix holds both what you pick and
 what it means. The target column shows the affinity of its selected pose; every
 off-target cell shows the selectivity of the ligand between that receptor and the
-target (ΔΔG either way round, or fold in Ki), blue where the ligand prefers the
+target (ΔΔScore either way round, or fold in Ki), blue where the ligand prefers the
 target and red where it prefers the off-target, with the pose it uses and that pose's
 own affinity.
 
@@ -61,22 +61,22 @@ from amdockvs.ui.view_ids import OFFTARGET_VIEW_ID
 _log = logging.getLogger(__name__)
 
 RECEPTOR_CAP = 10
-# A difference smaller than the docking error (~2 kcal/mol) says little, so the colours
+# A difference smaller than the docking error (~2 score units) says little, so the colours
 # saturate only at a gap that tells two receptors apart; the spin box retunes it.
 DEFAULT_SCALE = 4.0
 
 _SHOW = (
-    ("ΔΔG off-target − target", "off-minus-target"),
-    ("ΔΔG target − off-target", "target-minus-off"),
+    ("ΔΔScore off-target − target", "off-minus-target"),
+    ("ΔΔScore target − off-target", "target-minus-off"),
     ("Fold (Ki off-target / Ki target)", "fold"),
 )
 _HINTS = {
-    "off-minus-target": "ΔΔG = off-target − target (kcal/mol). A more negative affinity binds better, "
-                        "so a positive ΔΔG means the ligand prefers the target.",
-    "target-minus-off": "ΔΔG = target − off-target (kcal/mol). A more negative affinity binds better, "
-                        "so a negative ΔΔG means the ligand prefers the target.",
+    "off-minus-target": "ΔΔScore = off-target − target. A more negative score binds better, "
+                        "so a positive ΔΔScore means the ligand prefers the target.",
+    "target-minus-off": "ΔΔScore = target − off-target. A more negative score binds better, "
+                        "so a negative ΔΔScore means the ligand prefers the target.",
     "fold": "Fold = Ki(off-target) / Ki(target), from the affinities. ×10 means the target binds "
-            "10 times tighter; below ×1 the off-target binds tighter. Docking scores carry ~2 kcal/mol "
+            "10 times tighter; below ×1 the off-target binds tighter. Docking scores carry ~2 units "
             "of error, about ×30.",
 }
 _DIFFERENCE_PALETTES = (
@@ -187,6 +187,7 @@ class OffTargetResultsWidget(QWidget):
         self.reference_combo = QComboBox(self)
         self.reference_combo.currentIndexChanged.connect(self._load_target)
         self.protocol_combo = QComboBox(self)
+        self.protocol_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self.protocol_combo.currentIndexChanged.connect(self._on_protocol_changed)
         self.show_combo = QComboBox(self)
         for label, key in _SHOW:
@@ -206,9 +207,8 @@ class OffTargetResultsWidget(QWidget):
         self.scale_spin.setSingleStep(0.5)
         self.scale_spin.setDecimals(1)
         self.scale_spin.setPrefix("± ")
-        self.scale_spin.setSuffix(" kcal/mol")
         self.scale_spin.setValue(DEFAULT_SCALE)
-        self.scale_spin.setToolTip("ΔΔG at which the colours saturate; values keep their actual magnitude.")
+        self.scale_spin.setToolTip("ΔΔScore at which the colours saturate; values keep their actual magnitude.")
         self.color_bar = QLabel(self)
         self.color_bar.setFixedHeight(10)
         self.color_scale = QLabel(self)
@@ -225,11 +225,10 @@ class OffTargetResultsWidget(QWidget):
         # The groups wrap onto new lines, so a narrow Results pane stays usable.
         controls = QWidget(self)
         flow = FlowLayout(controls, spacing=6)
-        self._protocol_group = self._group(QLabel("Program:", self), self.protocol_combo)
-        self._protocol_group.setVisible(False)
+        # Always shown, even with one program: the numbers on screen must name their engine.
         for group in (
             self._group(QLabel("Target receptor:", self), self.reference_combo),
-            self._protocol_group,
+            self._group(QLabel("Program:", self), self.protocol_combo),
             self._group(QLabel("Show:", self), self.show_combo),
             self._group(self.align_check),
             self._group(QLabel("Colors:", self), self.palette_combo, self.scale_spin),
@@ -304,11 +303,61 @@ class OffTargetResultsWidget(QWidget):
             self._emit_refreshed()
             return
         if self.table is not None and self._columns == self._matrix_columns():
-            # Same matrix, newer rows (a job is writing): reload in place.
-            self.table.refresh_preserving_view()
-            self._emit_refreshed()
+            # Same matrix, newer rows (a job is writing): reload in place. A job may also have
+            # added a program, so the Program list is re-read with the rows.
+            self._refresh_in_place()
             return
         self._load_target()
+
+    def _refresh_in_place(self) -> None:
+        self._token += 1
+        token = self._token
+        columns = list(self._columns)
+        docking = self.runtime.docking
+
+        def _fetch():
+            # A job may have added a program, and with it more poses than the matrix had.
+            protocols = docking.result_protocols(receptor_id=columns[0][0])
+            return protocols, docking.max_pose_rank(receptor_ids=[rid for rid, _ in columns])
+
+        def _apply(payload):
+            if token != self._token or self.table is None:
+                return
+            protocols, max_rank = payload
+            self._set_pose_ranks(max_rank)
+            previous = self._protocol
+            self._set_protocols(protocols)
+            if self._protocol != previous:
+                self._overrides, self._poses = {}, {}
+                self._rebuild()
+                return
+            self.table.refresh_preserving_view()
+            self._emit_refreshed()
+
+        run_async(_fetch, _apply)
+
+    def _set_pose_ranks(self, max_rank) -> None:
+        """Fill the Pose combo with P1..P<max_rank>, keeping the current pick when it still exists."""
+        previous = self.pose_combo.currentData()
+        self.pose_combo.blockSignals(True)
+        self.pose_combo.clear()
+        for rank in range(1, max(1, int(max_rank or 1)) + 1):
+            self.pose_combo.addItem(f"P{rank}", rank)
+        index = self.pose_combo.findData(previous) if previous is not None else -1
+        self.pose_combo.setCurrentIndex(max(index, 0))
+        self.pose_combo.blockSignals(False)
+
+    def _set_protocols(self, protocols) -> None:
+        """Fill the Program combo, keeping the current pick when it still exists."""
+        previous = self.protocol_combo.currentData()
+        self.protocol_combo.blockSignals(True)
+        self.protocol_combo.clear()
+        for phash, label in protocols:
+            self.protocol_combo.addItem(label, phash)
+        index = self.protocol_combo.findData(previous) if previous is not None else -1
+        self.protocol_combo.setCurrentIndex(max(index, 0))
+        self.protocol_combo.blockSignals(False)
+        self._protocol = str(self.protocol_combo.currentData() or "")
 
     def _matrix_columns(self) -> list[tuple[int, str]]:
         target_id = self.reference_combo.currentData()
@@ -333,19 +382,9 @@ class OffTargetResultsWidget(QWidget):
             protocols, max_rank = payload
             self._columns = columns
             self._ranks, self._overrides, self._poses = {}, {}, {}
-            previous = self.protocol_combo.currentData()
-            self.protocol_combo.blockSignals(True)
-            self.protocol_combo.clear()
-            for phash, label in protocols:
-                self.protocol_combo.addItem(label, phash)
-            index = self.protocol_combo.findData(previous) if previous is not None else -1
-            self.protocol_combo.setCurrentIndex(max(index, 0))
-            self.protocol_combo.blockSignals(False)
-            self._protocol_group.setVisible(len(protocols) > 1)
-            self._protocol = str(self.protocol_combo.currentData() or "")
-            self.pose_combo.clear()
-            for rank in range(1, max(1, int(max_rank)) + 1):
-                self.pose_combo.addItem(f"P{rank}", rank)
+            self._set_protocols(protocols)
+            self.pose_combo.clear()  # another target: its own poses, from P1
+            self._set_pose_ranks(max_rank)
             self.pose_column_combo.clear()
             self.pose_column_combo.addItem("All receptors", None)
             for i, (rid, name) in enumerate(columns):
@@ -422,7 +461,7 @@ class OffTargetResultsWidget(QWidget):
         _, ref_score = self._pose_score(row_data, self._columns[0][0])
         if ref_score is None:
             return "—", rank, f"{score:.2f}", None
-        prefers_target = score - ref_score  # ΔΔG off-target − target
+        prefers_target = score - ref_score  # ΔΔScore off-target − target
         mode = self.show_combo.currentData()
         if mode == "fold":
             fold = predicted_ki_m(prefers_target)
@@ -441,10 +480,10 @@ class OffTargetResultsWidget(QWidget):
         rank, score = self._pose_score(row_data, receptor_id)
         if score is None:
             return f"{names[receptor_id]} · P{rank}   no pose"
-        tip = f"{names[receptor_id]} · P{rank}   {score:.2f} kcal/mol"
+        tip = f"{names[receptor_id]} · P{rank}   {score:.2f}"
         ref_rank, ref_score = self._pose_score(row_data, target_id)
         if receptor_id != target_id and ref_score is not None:
-            tip += (f"\n{names[target_id]} (T) · P{ref_rank}   {ref_score:.2f} kcal/mol"
+            tip += (f"\n{names[target_id]} (T) · P{ref_rank}   {ref_score:.2f}"
                     f"\n{self.show_combo.currentText()}   {self.cell(row_data, receptor_id)[0]}")
         return tip
 
@@ -546,7 +585,7 @@ class OffTargetResultsWidget(QWidget):
         menu = QMenu(self.table)
         for pose in poses:
             score = _finite(pose["score"])
-            action = QAction(f"P{pose['pose_rank']}   {'—' if score is None else f'{score:.2f}'} kcal/mol", menu)
+            action = QAction(f"P{pose['pose_rank']}   {'—' if score is None else f'{score:.2f}'}", menu)
             action.setCheckable(True)
             action.setChecked(pose["pose_rank"] == current)
             action.triggered.connect(

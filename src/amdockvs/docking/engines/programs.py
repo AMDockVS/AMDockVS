@@ -47,7 +47,8 @@ class QVinaEngineConfig(BaseModel):
     exhaustiveness: int = Field(default=8, ge=1, le=256)
     num_modes: int = Field(default=9, ge=1, le=128)
     vina_cpu: int = Field(default=1, ge=1, le=128, title="CPU per task")
-    energy_range: float = Field(default=3.0, ge=0.0, title="Energy range (kcal/mol)")
+    energy_range: float = Field(default=3.0, ge=0.0, title="Energy range (kcal/mol)",
+                                json_schema_extra={"decimals": 1})
     seed: int = 0
 
 
@@ -82,7 +83,8 @@ class UniDockEngineConfig(BaseModel):
         description="Uni-Dock's search presets: fast for screening, balance or detail for fewer, harder ligands.",
     )
     num_modes: int = Field(default=9, ge=1, le=128)
-    energy_range: float = Field(default=3.0, ge=0.0, title="Energy range (kcal/mol)")
+    energy_range: float = Field(default=3.0, ge=0.0, title="Energy range (kcal/mol)",
+                                json_schema_extra={"decimals": 1})
     seed: int = 0
 
 
