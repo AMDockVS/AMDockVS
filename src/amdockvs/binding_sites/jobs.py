@@ -114,6 +114,30 @@ def scope_spec(params: P2RankPredictionParams) -> QuerySpec:
     )
 
 
+MISSING_STRUCTURE_HINT = (
+    "Generate one in Build > Proteins > 3D generation (ESMFold), or import a PDB/mmCIF file."
+)
+
+
+def missing_structure_message(names) -> str:
+    return f"P2Rank cannot run: these receptors have no 3D structure: {', '.join(names)}. " + MISSING_STRUCTURE_HINT
+
+
+def _raise_unreadable_scope(project_db, params: P2RankPredictionParams) -> None:
+    """Nothing in scope: say which requested receptors exist but have no structure to read."""
+    spec = QuerySpec(
+        table=TABLE_MOLECULES,
+        fields=("id", "name"),
+        filters={"is_receptor": True, "excluded": False, "has_3d": False,
+                 **({"id__in": [int(v) for v in params.receptor_ids]} if params.receptor_ids else {})},
+        order=("id",),
+    )
+    names = [str(row.get("name") or f"receptor_{row['id']}") for row in db_pages(project_db, spec)]
+    if names:
+        raise ValueError(missing_structure_message(names))
+    raise ValueError("P2Rank prediction requires at least one active receptor.")
+
+
 def _profile_for(params: P2RankPredictionParams, receptor_id: int) -> str:
     return str(params.profiles.get(int(receptor_id), params.profile) or DEFAULT_P2RANK_PROFILE)
 
@@ -223,12 +247,14 @@ def p2rank_prediction_job(params: dict, config: dict | None = None) -> Iterator[
             ),
         }
     if not in_scope:
-        raise ValueError("P2Rank prediction requires at least one active receptor.")
+        _raise_unreadable_scope(project_db, parsed)
     if not emitted:
         yield {"reuse_only": True}
 
 
 __all__ = [
+    "MISSING_STRUCTURE_HINT",
+    "missing_structure_message",
     "P2RankPredictionParams",
     "p2rank_prediction_finalize",
     "p2rank_prediction_job",

@@ -234,7 +234,7 @@ def test_an_auto_run_is_reusable(tmp_path):
                                     profile="alphafold", profile_reason=B_FACTOR_CONSTANT)
     assert resolved[0]["extra_data"]["profile_reason"] == B_FACTOR_CONSTANT
     with project_store.get_session() as session:
-        session.add(MoleculeRecord(id=7, name="rec", is_receptor=True))
+        session.add(MoleculeRecord(id=7, name="rec", is_receptor=True, has_3d=True))
         session.commit()
         session.add(BindingSite(**resolved[0]))
         session.commit()
@@ -247,7 +247,7 @@ def test_an_auto_run_is_reusable(tmp_path):
     # A plain alphafold run never looked at the structure, so "auto" is a real change.
     plain = parse_p2rank_outputs(output_dir=output, receptor_id=8, run_id="run", profile="alphafold")
     with project_store.get_session() as session:
-        session.add(MoleculeRecord(id=8, name="other", is_receptor=True))
+        session.add(MoleculeRecord(id=8, name="other", is_receptor=True, has_3d=True))
         session.commit()
         session.add(BindingSite(**plain[0]))
         session.commit()
@@ -266,7 +266,7 @@ def test_prediction_plan_reuses_only_one_coherent_current_run(tmp_path):
         profile="default",
     )
     with project_store.get_session() as session:
-        session.add(MoleculeRecord(id=7, name="rec", is_receptor=True))
+        session.add(MoleculeRecord(id=7, name="rec", is_receptor=True, has_3d=True))
         session.commit()
         session.add(BindingSite(**parsed[0]))
         session.commit()
@@ -311,7 +311,7 @@ def test_parsed_rows_go_through_the_real_sink_unchanged(tmp_path):
     )
     project_store = ProjectStore.open_at(tmp_path / "project.db")
     with project_store.get_session() as session:
-        session.add(MoleculeRecord(id=7, name="rec", is_receptor=True))
+        session.add(MoleculeRecord(id=7, name="rec", is_receptor=True, has_3d=True))
         session.commit()
 
     project_store.persist_output_spec(p2rank_prediction_job.output_spec, rows)
@@ -341,7 +341,7 @@ def test_a_second_run_is_added_next_to_the_first_and_leaves_the_active_site_alon
         profile="default",
     )
     with project_store.get_session() as session:
-        session.add(MoleculeRecord(id=7, name="rec", is_receptor=True))
+        session.add(MoleculeRecord(id=7, name="rec", is_receptor=True, has_3d=True))
         session.commit()
         session.add(BindingSite(molecule_id=7, name="Manual", source="manual"))
         session.add(BindingSite(**old_rows[0]))
@@ -401,7 +401,7 @@ def test_plan_prediction_judges_only_the_latest_run(tmp_path):
     project_store = ProjectStore.open_at(tmp_path / "project.db")
     output_root = tmp_path / "results" / "pockets"
     with project_store.get_session() as session:
-        session.add(MoleculeRecord(id=7, name="rec", is_receptor=True))
+        session.add(MoleculeRecord(id=7, name="rec", is_receptor=True, has_3d=True))
         session.commit()
         for run in ("old-run", "new-run"):
             output = output_root / run / "receptor_7"
@@ -424,7 +424,7 @@ def test_p2rank_finalize_preserves_predictions_from_partially_finished_job(tmp_p
     failed_output = output_root / "failed-run" / "receptor_7"
     _write_outputs(failed_output)
     with project_store.get_session() as session:
-        session.add(MoleculeRecord(id=7, name="rec", is_receptor=True))
+        session.add(MoleculeRecord(id=7, name="rec", is_receptor=True, has_3d=True))
         session.commit()
         session.add(
             BindingSite(
@@ -577,4 +577,43 @@ def test_the_job_marks_predicted_receptors_with_one_query_for_the_whole_run(tmp_
     for explicit in ("alphafold", "default"):
         assert submitted(explicit) == {1: False, 2: False}  # nothing to resolve, nothing read
         assert TABLE_MOLECULE_MODELS not in queries
+    ProjectStore.clear_cached_stores()
+
+
+def test_a_receptor_without_a_3d_structure_is_named_not_silently_dropped(tmp_path, monkeypatch):
+    project_store = ProjectStore.open_at(tmp_path / "project.db")
+    with project_store.get_session() as session:
+        session.add(MoleculeRecord(id=7, name="1a1b_protein", is_receptor=True, has_3d=True))
+        session.add(MoleculeRecord(id=8, name="no_structure", is_receptor=True, has_3d=False))
+        session.commit()
+    api = _pocket_api(project_store)
+
+    plan = api.plan_prediction(receptor_ids=[7, 8], profile="default")
+    assert plan.missing_structure_ids == (8,)
+    assert 8 not in plan.recalculate_receptor_ids + plan.reused_receptor_ids
+
+    # predict() is the API's only say: a scope it cannot fully run is refused, by name.
+    import amdockvs.binding_sites.api as pocket_api
+    monkeypatch.setattr(pocket_api, "p2rank_status", lambda: SimpleNamespace(
+        installed=True, java_version=17, message="", command="prank", java_command="java"))
+    api.runtime.submit_job = lambda *args, **kwargs: pytest.fail("a partial scope must not be submitted")
+    for scope in ([7, 8], [8]):
+        with pytest.raises(ValueError, match=r"no 3D structure.*no_structure"):
+            api.predict(receptor_ids=scope, profile="default")
+    ProjectStore.clear_cached_stores()
+
+
+def test_the_job_names_requested_receptors_it_cannot_read(tmp_path):
+    from amdockvs.binding_sites.jobs import p2rank_prediction_job
+
+    project_store = ProjectStore.open_at(tmp_path / "project.db")
+    with project_store.get_session() as session:
+        session.add(MoleculeRecord(id=8, name="no_structure", is_receptor=True, has_3d=False))
+        session.commit()
+    params = P2RankPredictionParams(
+        receptor_ids=[8], recalculate_receptor_ids=[8], run_id="run",
+        output_dir=str(tmp_path / "out"), p2rank_command="prank", java_command="java",
+    )
+    with pytest.raises(ValueError, match=r"no 3D structure.*no_structure"):
+        list(p2rank_prediction_job.chunker(params.model_dump(mode="python"), {"project_db": project_store}))
     ProjectStore.clear_cached_stores()
