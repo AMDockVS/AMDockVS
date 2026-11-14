@@ -21,11 +21,13 @@ from PySide6.QtWidgets import (
     QStyleOptionComboBox,
     QStylePainter,
     QToolButton,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
 
 from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR
+from amdockvs.ui.resources.icons import icon as load_icon
 
 # ponytail: off until a workflow can run steps that wait on other jobs; flip it on then.
 WORKFLOW_SAVE_READY = False
@@ -59,6 +61,22 @@ def split_button(text: str, parent: QWidget, *, on_click, primary: bool = False)
     menu = QMenu(button)
     menu.setToolTipsVisible(True)  # off by default in QMenu, and these entries need the why
     button.setMenu(menu)
+    return button
+
+
+def help_button(parent: QWidget, tooltip: str, *, name: str) -> QToolButton:
+    """Small "?" button: hover shows `tooltip`, and a click shows it too (no wait for hover)."""
+    button = QToolButton(parent)
+    button.setIcon(load_icon("help.svg"))
+    button.setIconSize(QSize(16, 16))
+    button.setAutoRaise(True)
+    button.setFixedSize(22, 22)
+    button.setStyleSheet("QToolButton { padding: 0; }")
+    button.setAccessibleName(name)
+    button.setToolTip(tooltip)
+    button.clicked.connect(
+        lambda: QToolTip.showText(button.mapToGlobal(button.rect().bottomLeft()), button.toolTip(), button)
+    )
     return button
 
 
