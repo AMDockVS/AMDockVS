@@ -203,6 +203,13 @@ class DiversityAPI:
         representatives become molecule rows; every member stays in the run's sidecar by
         ``io.shards.shard_key``. Both jobs run at ``SHARDS_PRIORITY``."""
         self.runtime._require_active_project()
+        if cluster_run_id and self._run_id_in_use(cluster_run_id):
+            # The worker writes the run's graph sidecar before its rows reach the UNIQUE
+            # constraint: a second job under this id would fail AND overwrite the first's graph.
+            raise ValueError(
+                f"Clustering run '{cluster_run_id}' already exists; choose another run id "
+                "(or leave it blank for a new one)."
+            )
         if num_cpus is None and shards:
             num_cpus = plan_cpus(ShardStore(self.runtime.workspace.project_db).record_count())
         if num_cpus is None:
@@ -506,6 +513,20 @@ class DiversityAPI:
             session.add(row)
             session.commit()
         return cluster_run_id
+
+    def _run_id_in_use(self, cluster_run_id: str) -> bool:
+        """Rows, a registered summary or a graph sidecar: any of them means a run has this id."""
+        run_id = str(cluster_run_id)
+        if (self._project_root() / "clustering_runs" / f"{run_id}.parquet").exists():
+            return True
+        with self.runtime.workspace.project_db.get_session() as session:
+            return any(
+                session.exec(select(model.id).where(column == run_id).limit(1)).first() is not None
+                for model, column in (
+                    (ClusteringResult, ClusteringResult.cluster_run_id),
+                    (ClusteringRun, ClusteringRun.run_id),
+                )
+            )
 
     # --- reading persisted runs ----------------------------------------------
     def list_runs(self) -> list[dict[str, Any]]:
