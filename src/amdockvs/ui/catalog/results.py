@@ -88,14 +88,16 @@ def _table_contact(row: dict) -> SimpleNamespace:
         residue=row["residue"], distance=row.get("distance"),
         residue_key=extra.get("residue_key") or _residue_key(row["residue"]),
         ligand_atoms=tuple(extra.get("ligand_atoms") or ()),  # none on older rows: PyMOL shows the residue only
-        protein_atom=extra.get("protein_atom"), via_water=extra.get("via_water"))
+        protein_atom=extra.get("protein_atom"), protein_atoms=tuple(extra.get("protein_atoms") or ()),
+        via_water=extra.get("via_water"))
 
 
 def _diagram_contact(row: dict) -> SimpleNamespace:
     return SimpleNamespace(
         label=row.get("type"), kind=row.get("type"), residue=row.get("residue"), distance=row.get("distance_angstrom"),
         residue_key=row.get("residue"), ligand_atoms=tuple(row.get("ligand_atoms") or ()),
-        protein_atom=row.get("protein_atom"), via_water=row.get("via_water"))
+        protein_atom=row.get("protein_atom"), protein_atoms=tuple(row.get("protein_atoms") or ()),
+        via_water=row.get("via_water"))
 
 
 class _MetricColumns:
