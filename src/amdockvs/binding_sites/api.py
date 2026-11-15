@@ -297,6 +297,35 @@ class BindingSiteAPI:
     ) -> list[BindingSite]:
         return list(self.select(molecule_id=receptor_id, source="p2rank", run_id=run_id))
 
+    def _reject_overwriting_run_id(self, run_id: str, receptor_ids: Iterable[int]) -> None:
+        """Refuse a named run that would predict a receptor it has already predicted.
+
+        A run's P2Rank outputs live in one directory per receptor named after the run
+        (``pockets/<run_id>/receptor_<id>``), while sites are only ever appended. Predicting
+        the same receptor under the same run id therefore wrote the new CSV and points over
+        the files the first batch of sites was parsed from, leaving two batches claiming the
+        same run and rank with different scores, all pointing at whichever ran last.
+
+        Only the receptors being recalculated are checked: adding further receptors to a named
+        run writes its own directory and collides with nothing. Leaving ``run_id`` unset keeps
+        its own fresh run, so this never stands in the way of a plain re-prediction.
+        """
+        pending = {int(value) for value in receptor_ids}
+        clashing = sorted({
+            int(site.molecule_id)
+            for site in self.select(source="p2rank", run_id=str(run_id))
+            if int(site.molecule_id) in pending
+        })
+        if not clashing:
+            return
+        names = ", ".join(str(self.get_receptor(receptor_id).name or receptor_id)
+                          for receptor_id in clashing)
+        raise ValueError(
+            f"P2Rank run '{run_id}' already has predictions for {names}; its outputs would be "
+            "overwritten while the existing sites stayed. Choose another run id (or leave it "
+            "unset), or delete those sites first."
+        )
+
     def delete_sites(self, binding_site_ids: Iterable[int]) -> int:
         """Deletes sites by id. The counterpart of prediction being additive."""
         self.runtime._require_active_project()
@@ -351,6 +380,8 @@ class BindingSiteAPI:
             # A run over part of the scope would report "completed" for receptors it never saw.
             raise ValueError(missing_structure_message(plan.missing_structure_names))
         resolved_run_id = str(run_id or uuid4().hex)
+        if run_id is not None:  # a named run, so it may already hold these receptors
+            self._reject_overwriting_run_id(resolved_run_id, plan.recalculate_receptor_ids)
         output_dir = self.runtime.get_project_resource_path(RESOURCE_POCKET_PREDICTIONS)
         params = P2RankPredictionParams(
             receptor_ids=normalized_receptor_ids,
