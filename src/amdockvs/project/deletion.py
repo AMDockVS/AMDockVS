@@ -181,6 +181,30 @@ def clear_derived(project_db, molecule_ids: Iterable[int]) -> int:
     return results
 
 
+def clear_ligand_preparations(project_db, molecule_ids: Iterable[int]) -> int:
+    """Drop the ligands' docking preparations, payloads included. Returns the rows deleted.
+
+    What a preparation holds is one geometry turned into a program's input, and nothing records
+    which geometry that was: a prepared ligand is "prepared" for as long as the row exists. So
+    when the structure a ligand docks from is rewritten, the preparation of the old one has to
+    go, or docking stays ready to run on a file that no longer describes the molecule.
+
+    Narrower than `clear_derived` on purpose: the conformers Build keeps as history, the
+    descriptors, the memberships and the results of earlier geometries all stay.
+    """
+    ids = _ids(molecule_ids)
+    if not ids:
+        return 0
+    held: set[int] = set()
+    with suppress(*OperationalError), project_db.get_session() as session:
+        held = _ids(filter(None, session.exec(
+            select(LigandPrep.payload_id).where(LigandPrep.molecule_id.in_(ids))
+        ).all()))
+    deleted = _safe_delete(project_db, LigandPrep, LigandPrep.molecule_id.in_(ids))
+    release(project_db, held)  # only the payloads no row holds any more
+    return deleted
+
+
 def _unshared_reference_ligands(project_db, receptor_ids: set[int]) -> list[int]:
     """Cocrystal references owned only by the receptors being deleted.
 
@@ -270,6 +294,7 @@ def delete_docking_results(project_db, result_ids: Iterable[int]) -> int:
 
 __all__ = [
     "clear_derived",
+    "clear_ligand_preparations",
     "delete_binding_sites",
     "delete_molecules",
     "delete_complexes",
