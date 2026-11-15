@@ -617,3 +617,130 @@ def test_the_job_names_requested_receptors_it_cannot_read(tmp_path):
     with pytest.raises(ValueError, match=r"no 3D structure.*no_structure"):
         list(p2rank_prediction_job.chunker(params.model_dump(mode="python"), {"project_db": project_store}))
     ProjectStore.clear_cached_stores()
+
+
+def _prediction_outputs(output_root: Path, run: str, receptor_id: int) -> Path:
+    """One prediction's directory, with the four files no site row ever names beside the three
+    it does — what P2Rank actually leaves behind."""
+    directory = output_root / run / f"receptor_{receptor_id}"
+    _write_outputs(directory)
+    (directory / "params.txt").write_text("threads: 1\n", encoding="utf-8")
+    (directory / "run.log").write_text("done\n", encoding="utf-8")
+    (directory / "protein.pdb_residues.csv").write_text("chain,residue\n", encoding="utf-8")
+    (directory / "protein.pdb").write_text("END\n", encoding="utf-8")
+    return directory
+
+
+def test_deleting_the_last_site_of_a_prediction_takes_its_outputs(tmp_path):
+    """RR-04: pruning a run left its P2Rank outputs behind for good — nothing in the project
+    referenced them, no maintenance pass covered them, and no feature could read them back."""
+    from amdockvs.project.deletion import delete_binding_sites
+
+    project_store = ProjectStore.open_at(tmp_path / "project.db")
+    output_root = tmp_path / "results" / "pockets"
+    kept, pruned = _prediction_outputs(output_root, "keep", 7), _prediction_outputs(output_root, "prune", 7)
+    with project_store.get_session() as session:
+        session.add(MoleculeRecord(id=7, name="rec", is_receptor=True, has_3d=True))
+        session.commit()
+        for run in ("keep", "prune"):
+            for row in parse_p2rank_outputs(
+                output_dir=output_root / run / "receptor_7", receptor_id=7,
+                run_id=run, profile="default",
+            ):
+                session.add(BindingSite(**row))
+        session.commit()
+        doomed = [
+            int(site.id) for site in session.exec(select(BindingSite)).all()
+            if dict(site.extra_data or {}).get("run_id") == "prune"
+        ]
+    assert len(list(pruned.rglob("*"))) > len(list(pruned.glob("*")))  # files in subdirectories too
+
+    assert delete_binding_sites(project_store, doomed) == len(doomed)
+
+    assert not pruned.exists()  # all seven files, not only the three a row named
+    assert not (output_root / "prune").exists()  # and the run's own folder
+    assert kept.exists() and (kept / "run.log").exists()  # the other run is untouched
+    with project_store.get_session() as session:
+        survivors = session.exec(select(BindingSite)).all()
+    assert survivors and {dict(site.extra_data or {}).get("run_id") for site in survivors} == {"keep"}
+    ProjectStore.clear_cached_stores()
+
+
+def test_a_prediction_outlives_a_deletion_while_any_site_still_points_into_it(tmp_path):
+    """Only the last site of a prediction takes it: one rank deleted of three leaves the files,
+    and so does a site that merely carries a copy of those paths."""
+    from amdockvs.project.deletion import delete_binding_sites
+
+    project_store = ProjectStore.open_at(tmp_path / "project.db")
+    output_root = tmp_path / "results" / "pockets"
+    directory = _prediction_outputs(output_root, "run", 7)
+    rows = parse_p2rank_outputs(
+        output_dir=directory, receptor_id=7, run_id="run", profile="default")
+    with project_store.get_session() as session:
+        session.add(MoleculeRecord(id=7, name="rec", is_receptor=True, has_3d=True))
+        session.commit()
+        session.add(BindingSite(**rows[0]))
+        extra = dict(rows[0]["extra_data"])
+        session.add(BindingSite(**{**rows[0], "name": "rank 2", "source_ref": "2",
+                                   "extra_data": {**extra, "rank": 2}}))
+        session.commit()
+        first, second = (int(site.id) for site in session.exec(
+            select(BindingSite).order_by(BindingSite.id)).all())
+
+    assert delete_binding_sites(project_store, [first]) == 1
+    assert directory.exists()  # rank 2 still reads these files
+
+    assert delete_binding_sites(project_store, [second]) == 1
+    assert not directory.exists()
+    ProjectStore.clear_cached_stores()
+
+
+def test_deleting_a_receptor_takes_the_predictions_it_produced(tmp_path):
+    """The other way sites are deleted: the receptor itself goes, through the same cascade."""
+    from amdockvs.project.deletion import delete_molecules
+
+    project_store = ProjectStore.open_at(tmp_path / "project.db")
+    output_root = tmp_path / "results" / "pockets"
+    mine = [_prediction_outputs(output_root, run, 7) for run in ("first", "second")]
+    theirs = _prediction_outputs(output_root, "first", 8)
+    with project_store.get_session() as session:
+        session.add(MoleculeRecord(id=7, name="mine", is_receptor=True, has_3d=True))
+        session.add(MoleculeRecord(id=8, name="theirs", is_receptor=True, has_3d=True))
+        session.commit()
+        for receptor_id, runs in ((7, ("first", "second")), (8, ("first",))):
+            for run in runs:
+                for row in parse_p2rank_outputs(
+                    output_dir=output_root / run / f"receptor_{receptor_id}",
+                    receptor_id=receptor_id, run_id=run, profile="default",
+                ):
+                    session.add(BindingSite(**row))
+        session.commit()
+
+    assert delete_molecules(project_store, [7]) == 1
+
+    assert not any(directory.exists() for directory in mine)  # every run it ever produced
+    assert theirs.exists()  # the other receptor keeps its own, in a run they shared
+    ProjectStore.clear_cached_stores()
+
+
+def test_a_copied_project_does_not_delete_the_outputs_of_the_one_it_came_from(tmp_path):
+    """A site stores the full path its outputs were written to, so the rows of a copied project
+    still name the original's files. Pruning in the copy must stay inside the copy."""
+    from amdockvs.project.deletion import delete_binding_sites
+
+    original = _prediction_outputs(tmp_path / "original" / "pockets", "run", 7)
+    copy_root = tmp_path / "copy"
+    copy_root.mkdir()
+    project_store = ProjectStore.open_at(copy_root / "project.db")
+    rows = parse_p2rank_outputs(
+        output_dir=original, receptor_id=7, run_id="run", profile="default")
+    with project_store.get_session() as session:
+        session.add(MoleculeRecord(id=7, name="rec", is_receptor=True, has_3d=True))
+        session.commit()
+        session.add(BindingSite(**rows[0]))
+        session.commit()
+        site_id = int(session.exec(select(BindingSite.id)).one())
+
+    assert delete_binding_sites(project_store, [site_id]) == 1
+    assert original.exists() and (original / "run.log").exists()
+    ProjectStore.clear_cached_stores()
