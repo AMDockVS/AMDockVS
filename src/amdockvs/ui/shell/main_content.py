@@ -1,7 +1,7 @@
 from importlib.resources import files
 from typing import Callable
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
     QLabel,
@@ -144,11 +144,10 @@ class MainContentWidget(QStackedWidget):
 
         title, factory = registered
         widget = self._prebuilt.pop(view_id, None)
-        if widget is None:
+        prebuilt = widget is not None
+        if not prebuilt:
             widget = factory()
             widget.setProperty("view_id", view_id)
-        else:
-            self._stale.add(view_id)  # built before whatever happened since: reload once on screen
         self._open_tabs[view_id] = widget
         index = self.main_content_tabs.addTab(widget, title)
         self._set_tab_close_cursor(index)
@@ -157,8 +156,10 @@ class MainContentWidget(QStackedWidget):
             self._preview_style.preview_title = title
         self.main_content_tabs.setCurrentWidget(widget)
         self.setCurrentWidget(self.content_splitter)
-        if view_id in self._stale:
-            self.refresh_open_view(view_id)
+        if prebuilt:
+            # Built before whatever happened since: reload once, on the next turn, so showing it
+            # and reloading it are two short stalls instead of one long one.
+            QTimer.singleShot(0, self, lambda: self.refresh_open_view(view_id))
         self.view_open_state_changed.emit(view_id, True)
         return widget
 
