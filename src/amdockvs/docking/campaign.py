@@ -37,7 +37,8 @@ from amdockvs.core.vocab import TargetState
 from amdockvs.core.worker_io import worker_file, worker_output_dir
 from amdockvs.docking.jobs import DockingJobParams, DockingJobSpec, _supersede
 from amdockvs.docking.repository import project_db_path, resolve_docking_output_dir
-from amdockvs.docking.results.repository import find_docking_run, supersede_results
+from amdockvs.docking.results.repository import find_docking_run
+from amdockvs.docking.rerun import supersede_shard_runs
 from amdockvs.docking.shard_jobs import (
     SCREENING_SUBDIR, DockShardsJobParams, DockShardsJobSpec, ShardHitWriter, receptor_targets,
 )
@@ -83,8 +84,9 @@ class CampaignWriter(ShardHitWriter):
         return [{**hit, "docking_run_id": self.docking_run_id} for hit in hits]
 
     def finish(self) -> None:
-        # Submitted again under another run id, it is that run's now: moved, not copied.
-        supersede_results(self.project_db, run_id=self.run_id)
+        # Submitted again under another run id, it is that run's now: moved, not copied —
+        # with the receipts and result fragments the pairs it docked again had there.
+        supersede_shard_runs(self.project_db, docking_run_id=self.docking_run_id)
         finish_run(self.project_db, docking_run_id=self.docking_run_id)
 
 

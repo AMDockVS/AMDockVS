@@ -700,6 +700,8 @@ class DockingAPI:
                 "protocol_hash": str(params.protocol_metadata.hash or ""),
                 "payload": str(payload),
                 "selected_from_receptor_id": params.selected_from_receptor_id,
+                # A forced campaign replaces when it ends, as a forced row re-dock does.
+                "skip_existing": params.skip_existing,
             },
         )
 

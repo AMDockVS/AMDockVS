@@ -802,3 +802,142 @@ def test_both_stores_dock_the_table_then_the_shards():
     })
     assert result["job_ids"] == {"1:Vina:p": "row-job", "shards:1:Vina:p": "shard-job"}
     assert "depends_on" not in shards[0]  # side by side; run_shards gives them the lower priority
+
+
+def _prepared_shard_scope(monkeypatch, *, receptor_id: int, shard_id: int, n_records: int = 3):
+    """One prepared shard against one prepared receptor with a box, without preparing either."""
+    monkeypatch.setattr(shard_jobs, "receptor_targets", lambda *a, **k: [{
+        "receptor_id": receptor_id, "receptor_name": "R", "receptor_path": "receptor.pdbqt",
+        "flex_receptor_path": "", "box_center": [0.0, 0.0, 0.0], "box_size": [20.0, 20.0, 20.0],
+        "spacing": 0.375,
+    }])
+    monkeypatch.setattr(shard_jobs, "iter_prepared_shards", lambda *a, **k: [{
+        "id": shard_id, "prepared_path": "", "path": "library.parquet", "import_batch_id": 1,
+        "library": "library", "shard_index": 0, "n_records": n_records, "sha256": "",
+    }])
+
+
+def _shard_params(tmp_path, *, run_id: str, skip_existing: bool):
+    return shard_jobs.DockShardsJobParams(
+        output_dir=str(tmp_path / "docking"), engine="vina", preparation_engine="ad4",
+        hit_threshold=0.0, hit_cap=10, run_id=run_id, skip_existing=skip_existing,
+        protocol_metadata={"program": "vina", "label": "Vina", "hash": "proto-skip"},
+    ).model_dump(mode="python")
+
+
+def test_an_unchanged_campaign_submitted_again_docks_the_library_a_second_time(tmp_path, monkeypatch):
+    """RR-01: a campaign's run id is new on every submission, so a skip keyed by it skipped
+    nothing and six compounds came back as twelve rows."""
+    from sqlmodel import select
+
+    from amdockvs.models import DockingRun, MoleculeRecord, ScreeningShard, ScreeningShardRun
+    from amdockvs.core.vocab import TargetState
+    from amdockvs.runtime import AMDockVSRuntime
+
+    runtime = AMDockVSRuntime()
+    runtime.create_project(name="repeat-campaign", folder=tmp_path)
+    try:
+        project_db = runtime.workspace.project_db
+        with project_db.get_session() as session:
+            receptor = MoleculeRecord(name="R", molecule_type="protein", is_receptor=True)
+            shard = ScreeningShard(
+                import_batch_id=_batch(session, "library.smi"), shard_index=0,
+                path="library.parquet", n_records=3,
+            )
+            session.add_all([receptor, shard])
+            session.commit()
+            receptor_id, shard_id = int(receptor.id), int(shard.id)
+        _prepared_shard_scope(monkeypatch, receptor_id=receptor_id, shard_id=shard_id)
+
+        first = list(shard_jobs.DockShardsJobSpec.build_chunks(
+            _shard_params(tmp_path, run_id="run-first", skip_existing=True), {"project_db": project_db}))
+        assert [chunk["shards"][0]["shard_id"] for chunk in first] == [shard_id]
+        with project_db.get_session() as session:  # the receipt that run would write
+            session.add(ScreeningShardRun(
+                docking_run_id=first[0]["docking_run_id"], shard_id=shard_id,
+                receptor_molecule_id=receptor_id, engine="vina", protocol_hash="proto-skip",
+                ligands_scored=3, hits=3, result_path="results/first.parquet",
+                state=TargetState.DONE,
+            ))
+            session.commit()
+
+        params = _shard_params(tmp_path, run_id="run-second", skip_existing=True)
+        assert shard_jobs.DockShardsJobSpec.count_chunks(params, {"project_db": project_db}) == 1
+        again = list(shard_jobs.DockShardsJobSpec.build_chunks(params, {"project_db": project_db}))
+        assert [chunk["shards"] for chunk in again] == [[]]  # the no-op sentinel: nothing to dock
+        with project_db.get_session() as session:  # and no empty run of its own in Results
+            assert [row.run_id for row in session.exec(select(DockingRun)).all()] == ["run-first"]
+
+        forced = list(shard_jobs.DockShardsJobSpec.build_chunks(
+            _shard_params(tmp_path, run_id="run-forced", skip_existing=False), {"project_db": project_db}))
+        assert [chunk["shards"][0]["shard_id"] for chunk in forced] == [shard_id]
+    finally:
+        runtime.close_project()
+
+
+def test_a_forced_campaign_replaces_what_the_pairs_it_docked_again_had(tmp_path, monkeypatch):
+    """The other half of RR-01: forced, the new run's results replace the older run's instead
+    of accumulating beside them, and the receipt and fragment that held them go too."""
+    from sqlmodel import select
+
+    from amdockvs.docking.rerun import supersede_shard_runs
+    from amdockvs.models import (
+        DockingResultRecord, MoleculeRecord, ScreeningShard, ScreeningShardRun, ScreeningTarget,
+    )
+    from amdockvs.core.vocab import TargetState
+    from amdockvs.runtime import AMDockVSRuntime
+
+    runtime = AMDockVSRuntime()
+    runtime.create_project(name="forced-campaign", folder=tmp_path)
+    try:
+        project_db = runtime.workspace.project_db
+        root = Path(project_db.db_path).parent
+        fragment = root / "results" / "old.parquet"
+        fragment.parent.mkdir(parents=True, exist_ok=True)
+        fragment.write_bytes(b"old fragment")
+        with project_db.get_session() as session:
+            receptor = MoleculeRecord(name="R", molecule_type="protein", is_receptor=True)
+            ligands = [MoleculeRecord(name=name, molecule_type="small_molecule", is_ligand=True)
+                       for name in ("old-hit", "new-hit")]
+            shard = ScreeningShard(
+                import_batch_id=_batch(session, "library.smi"), shard_index=0,
+                path="library.parquet", n_records=3,
+            )
+            session.add_all([receptor, *ligands, shard])
+            session.commit()
+            receptor_id, shard_id = int(receptor.id), int(shard.id)
+            old_ligand, new_ligand = (int(row.id) for row in ligands)
+
+        old_run = _run(project_db, "run-old", protocol_hash="proto-forced")
+        new_run = _run(project_db, "run-new", protocol_hash="proto-forced")
+        with project_db.get_session() as session:
+            for run, path in ((old_run, "results/old.parquet"), (new_run, "results/new.parquet")):
+                session.add(ScreeningShardRun(
+                    docking_run_id=run, shard_id=shard_id, receptor_molecule_id=receptor_id,
+                    engine="vina", protocol_hash="proto-forced", ligands_scored=3, hits=1,
+                    result_path=path, state=TargetState.DONE,
+                ))
+            session.add(ScreeningTarget(
+                docking_run_id=old_run, receptor_molecule_id=receptor_id, receptor_name="R",
+                engine="vina", ligands_total=3, ligands_done=3, state=TargetState.DONE,
+            ))
+            for run, ligand, score in ((old_run, old_ligand, -9.0), (new_run, new_ligand, -11.0)):
+                session.add(DockingResultRecord(
+                    docking_run_id=run, receptor_molecule_id=receptor_id,
+                    ligand_molecule_id=ligand, pose_rank=1, score=score, engine="vina",
+                ))
+            session.commit()
+
+        assert supersede_shard_runs(project_db, docking_run_id=new_run) == 1
+        with project_db.get_session() as session:
+            receipts = session.exec(select(ScreeningShardRun)).all()
+            results = session.exec(select(DockingResultRecord)).all()
+            targets = session.exec(select(ScreeningTarget)).all()
+        assert [int(row.docking_run_id) for row in receipts] == [new_run]
+        assert [(int(row.docking_run_id), int(row.ligand_molecule_id)) for row in results] == [
+            (new_run, new_ligand)
+        ]
+        assert targets == []
+        assert not fragment.exists()  # nothing points at it any more
+    finally:
+        runtime.close_project()

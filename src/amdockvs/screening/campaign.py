@@ -161,6 +161,26 @@ def completed_shard_targets(project_db, *, docking_run_id: int | None) -> set[tu
         }
 
 
+def completed_protocol_targets(project_db, *, engine: str, protocol_hash: str) -> set[tuple[int, int]]:
+    """Completed ``(shard_id, receptor_id)`` pairs of every screening run of this engine and
+    protocol: what "skip pairs already docked" leaves out, whichever run docked them. A
+    campaign's run id is new on every submission, so a skip keyed by it skips nothing."""
+    with project_db.get_session() as session:
+        return {
+            (int(shard_id), int(receptor_id))
+            for shard_id, receptor_id in session.exec(
+                select(ScreeningShardRun.shard_id, ScreeningShardRun.receptor_molecule_id)
+                .join(DockingRun, DockingRun.id == ScreeningShardRun.docking_run_id)
+                .where(
+                    DockingRun.engine == str(engine).strip().lower(),
+                    DockingRun.run_kind == "screening",
+                    DockingRun.protocol_hash == str(protocol_hash or ""),
+                    ScreeningShardRun.state == TargetState.DONE,
+                )
+            ).all()
+        }
+
+
 def list_targets(project_db, *, run_id: str | None = None, active_only: bool = False) -> list[dict[str, Any]]:
     """The campaign as rows for a table: receptor, ligands done of total, hits."""
     statement = select(ScreeningTarget, DockingRun.run_id).join(DockingRun, DockingRun.id == ScreeningTarget.docking_run_id)
@@ -192,6 +212,7 @@ def list_targets(project_db, *, run_id: str | None = None, active_only: bool = F
 __all__ = [
     "advance_shard_run",
     "advance_target",
+    "completed_protocol_targets",
     "completed_shard_targets",
     "finish_run",
     "list_targets",
