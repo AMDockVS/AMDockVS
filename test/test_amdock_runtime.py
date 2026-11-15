@@ -19,7 +19,7 @@ from amdockvs.manifest import manifest
 
 def test_manifest_uses_distribution_version():
     try:
-        expected = version("AMDock-VS")
+        expected = version("AMDockVS")
     except PackageNotFoundError:
         expected = "0+unknown"
     assert manifest.version == expected

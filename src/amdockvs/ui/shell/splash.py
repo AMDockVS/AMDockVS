@@ -232,16 +232,16 @@ def _build_pixmap() -> QPixmap:
     painter.setPen(QPen(QColor(255, 255, 255, 20), 1))
     painter.drawLine(QPointF(0, 1), QPointF(_WIDTH, 1))
 
-    # Wordmark: "AMDock-" white + "VS" accented.
+    # Wordmark: "AMDock" white + "VS" accented.
     title_font = QFont(painter.font().family(), 0, QFont.Bold)
     title_font.setPixelSize(58)
     painter.setFont(title_font)
     metrics = QFontMetricsF(title_font)
     base_x, base_y = 46.0, _HEIGHT * 0.52
     painter.setPen(QColor("#F4F7FB"))
-    painter.drawText(QPointF(base_x, base_y), "AMDock-")
+    painter.drawText(QPointF(base_x, base_y), "AMDock")
     painter.setPen(_ACCENT)
-    painter.drawText(QPointF(base_x + metrics.horizontalAdvance("AMDock-"), base_y), "VS")
+    painter.drawText(QPointF(base_x + metrics.horizontalAdvance("AMDock"), base_y), "VS")
 
     # Tagline: light, letter-spaced.
     tag_font = QFont(painter.font().family())

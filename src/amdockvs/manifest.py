@@ -37,7 +37,7 @@ AMDOCKVS_PROJECT_RESOURCES = (
 
 # Distribution metadata is absent when the source tree is used directly through PYTHONPATH.
 try:
-    _VERSION = version("AMDock-VS")
+    _VERSION = version("AMDockVS")
 except PackageNotFoundError:
     _VERSION = "0+unknown"
 
