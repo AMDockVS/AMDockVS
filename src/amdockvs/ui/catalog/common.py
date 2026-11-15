@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Optional
@@ -628,7 +629,29 @@ class BoundTableWidget(QWidget):
         else:
             table._builder.add_filter(spec)
         table._sync_header()  # the column shows it is filtered, as when the user filters it
-        table.refresh()
+        self._reload()
+
+    _held = 0  # inside push_scope/pop_scope: the reloads wait for the end
+    _dirty = False
+
+    def _reload(self) -> None:
+        if self._held:
+            self._dirty = True
+        else:
+            self._table.refresh()
+
+    @contextmanager
+    def _one_reload(self):
+        """A scope changes filters and a clause together: one query for all of them, not one each
+        (each is a first-page fetch on the GUI thread)."""
+        self._held += 1
+        try:
+            yield
+        finally:
+            self._held -= 1
+            if not self._held and self._dirty:
+                self._dirty = False
+                self._table.refresh()
 
     def set_base_clause(self, key: str, clause=None) -> None:
         """Like set_base_filter, for a condition FilterSpec can't express (a subquery).
@@ -643,7 +666,8 @@ class BoundTableWidget(QWidget):
         if self._base_clauses.get(key) is clause:
             return
         self._base_clauses[key] = clause
-        table.set_external_clause(key, clause)
+        table._builder.set_external_clause(key, clause)
+        self._reload()
 
     # --- Scope: what a tool does to a borrowed table, pushed and released as one ------
     def push_scope(self, key: str, *, filters=(), clause=None, actions=(),
@@ -658,14 +682,15 @@ class BoundTableWidget(QWidget):
         if self._table is None:
             return
         fields = {spec.field for spec in filters}
-        # A push that stops overriding a field must give that field back, not just stop caring.
-        for stale in self._scopes.get(key, set()) - fields:
-            self.set_base_filter(stale, self._default_filters.get(stale))
-        for spec in filters:
-            self.set_base_filter(spec.field, spec)
-        self._scopes[key] = fields
+        with self._one_reload():
+            # A push that stops overriding a field must give that field back, not just stop caring.
+            for stale in self._scopes.get(key, set()) - fields:
+                self.set_base_filter(stale, self._default_filters.get(stale))
+            for spec in filters:
+                self.set_base_filter(spec.field, spec)
+            self._scopes[key] = fields
+            self.set_base_clause(key, clause)
         self._table.set_config_actions_visible(False)
-        self.set_base_clause(key, clause)
         self.set_toolbar_actions(key, actions)
         self.set_empty_state(empty_message, show_action=show_action)
 
@@ -673,11 +698,12 @@ class BoundTableWidget(QWidget):
         """Hand the table back: the catalog's own default filters return, not "no filter"."""
         if self._table is None:
             return
-        for field in self._scopes.pop(key, ()):
-            self.set_base_filter(field, self._default_filters.get(field))
+        with self._one_reload():
+            for field in self._scopes.pop(key, ()):
+                self.set_base_filter(field, self._default_filters.get(field))
+            self.set_base_clause(key, None)
         if not self._scopes:
             self._table.set_config_actions_visible(True)
-        self.set_base_clause(key, None)
         self.set_toolbar_actions(key, ())
         self.set_empty_state(None)
 

@@ -258,6 +258,13 @@ class AMDockVSMainWindow(QMainWindow):
             self._open_default_views()
             QTimer.singleShot(0, self._offer_resume)
 
+    def _warm_up_tools(self) -> None:
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            self.tools.warm_up()
+        finally:
+            QApplication.restoreOverrideCursor()
+
     def _open_default_views(self) -> None:
         """Open the tabs that have data; in front goes the first of Docking Results, QSAR
         Analysis, Receptors, Ligands, Shards that opened. An empty project opens Receptors."""
@@ -780,6 +787,7 @@ class AMDockVSMainWindow(QMainWindow):
             self._set_project_ui_enabled(True)
             self.aux.reset()
             self._open_default_views()
+            QTimer.singleShot(0, self._warm_up_tools)  # after the default views paint
             self._offer_resume()
             self.project_opened.emit(str(project_id))
             return

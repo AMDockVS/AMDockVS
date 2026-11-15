@@ -52,6 +52,7 @@ class MainContentWidget(QStackedWidget):
         self._open_tabs: dict[str, QWidget] = {}
         self._close_callbacks: dict[str, Callable[[], None]] = {}
         self._stale: set[str] = set()  # refreshed while hidden -> reload on the way back
+        self._prebuilt: dict[str, QWidget] = {}  # built ahead, hidden: the first open only adds a tab
         # Ephemeral views (QSAR models, binding sites, complexes) share ONE tab slot: opening
         # any of them closes whichever held it. Without this they pile up, which is how the
         # tab bar filled with tables nobody meant to keep.
@@ -142,8 +143,12 @@ class MainContentWidget(QStackedWidget):
             self.close_view(self._preview_open)  # one slot: the previous preview gives it up
 
         title, factory = registered
-        widget = factory()
-        widget.setProperty("view_id", view_id)
+        widget = self._prebuilt.pop(view_id, None)
+        if widget is None:
+            widget = factory()
+            widget.setProperty("view_id", view_id)
+        else:
+            self._stale.add(view_id)  # built before whatever happened since: reload once on screen
         self._open_tabs[view_id] = widget
         index = self.main_content_tabs.addTab(widget, title)
         self._set_tab_close_cursor(index)
@@ -152,8 +157,20 @@ class MainContentWidget(QStackedWidget):
             self._preview_style.preview_title = title
         self.main_content_tabs.setCurrentWidget(widget)
         self.setCurrentWidget(self.content_splitter)
+        if view_id in self._stale:
+            self.refresh_open_view(view_id)
         self.view_open_state_changed.emit(view_id, True)
         return widget
+
+    def prebuild(self, view_id: str) -> None:
+        """Build a view now, hidden, and paint it once off screen, so that opening it later (a
+        tool step bringing it up) does not pay the ~0.3-0.5 s of building its tables."""
+        if view_id in self._open_tabs or view_id in self._prebuilt or view_id not in self._view_factories:
+            return
+        _title, widget = self.build_view_widget(view_id)
+        widget.resize(self.main_content_tabs.size())
+        widget.grab()
+        self._prebuilt[view_id] = widget
 
     def _set_tab_close_cursor(self, index: int) -> None:
         """Use a hand cursor only on Qt's native close button."""
