@@ -666,7 +666,7 @@ def test_tool_buttons_are_flat_and_keep_result_views_available(tmp_path, monkeyp
         assert standing <= set(window.views.catalog_actions)
 
         # Prep Status is not a tab any more: it is the child table of Ligands/Receptors, so
-        # it occupies the auxiliary zone while Docking is open and hands it back on close.
+        # it occupies the auxiliary zone (closed until toggled) while Docking is open and hands it back on close.
         assert window.aux.TOOL_AUX_VIEWS[DOCKING_VIEW_ID] == PREP_STATUS_VIEW_ID
         assert PREP_STATUS_VIEW_ID not in window.views.catalog_actions
         assert window.aux.occupant == window.aux.AUX_DETAILS
