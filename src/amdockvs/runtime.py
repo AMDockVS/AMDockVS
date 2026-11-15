@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import inspect
-import os
 import time
 from datetime import datetime
 from pathlib import Path
@@ -97,9 +96,8 @@ class AMDockVSRuntime(AppRuntime):
             app_id=AMDOCKVS_APP_ID,
             logger_name=AMDOCKVS_APP_ID,
             project_resources=AMDOCKVS_PROJECT_RESOURCES,
-            # the engine in ms_flow's child process, so the GUI thread does not share its GIL;
-            # MSFLOW_ENGINE_HOST still says otherwise (tests: `inline_engine`)
-            engine_host=None if "MSFLOW_ENGINE_HOST" in os.environ else ("process" if os.name == "posix" else "inline"),
+            # the engine in this process unless MSFLOW_ENGINE_HOST=process puts it in ms_flow's
+            # child, where it does not share the GUI thread's GIL (tests: `inline_engine`)
         )
         # A host kept with no environment named is given the one of this app.
         self.workspace.host_env = self._host_env
