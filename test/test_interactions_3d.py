@@ -125,5 +125,7 @@ def test_a_ring_contact_is_drawn_to_the_protein_ring_centroid(tmp_path, protein_
         assert show_interaction(cmd, receptor_obj="receptor_1", ligand_obj="pose", contact=contact) == 1
         points = [n for n in cmd.get_names("objects") if n.startswith(f"{GROUP}_p")]
         assert round(cmd.get_distance(points[0], points[1]), 1) == 4.0
+        (dash,) = [n for n in cmd.get_names("objects") if n.startswith(f"{GROUP}_d")]
+        assert cmd.get_setting_int("label_distance_digits", dash) == 2  # 4.86 Å, as the diagram says
     finally:
         session.stop()

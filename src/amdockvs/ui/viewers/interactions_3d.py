@@ -121,6 +121,7 @@ def _draw(cmd, receptor_obj: str, ligand_obj: str, key: str, contacts, ligand) -
         cmd.distance(name, a, b)
         cmd.set("dash_color", color.replace("#", "0x"), name)
         cmd.set("dash_gap", 0.35, name)
+        cmd.set("label_distance_digits", 2, name)  # as the diagram reports it: 4.86, not 4.9
         names.append(name)
 
     drawn = 0
