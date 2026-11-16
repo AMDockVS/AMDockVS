@@ -101,7 +101,7 @@ def _run_unidock(
 
     why = "Uni-Dock wrote no poses"
     try:
-        _run_vina([*command, *options], follow=follow, program="Uni-Dock")
+        _run_vina([*command, *options], follow=follow)
     except RuntimeError as exc:
         why = str(exc)[-500:]  # the reason Uni-Dock gives is at the end
     outputs = {name: work / f"{name}_out.pdbqt" for name in ligands}

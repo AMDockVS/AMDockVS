@@ -209,7 +209,7 @@ def _vina_args(
 
 def _run_vina(command: list[str], progress: Callable[[float], None] | None = None,
               next_ligand: Callable[[], None] | None = None, *,
-              follow: Callable[[IO[str]], str] | None = None, program: str = "vina binary") -> str:
+              follow: Callable[[IO[str]], str] | None = None) -> str:
     """Run a Vina command line to its end and return what it printed; raise if it failed.
     `follow` reads the program's stdout in place of the Vina progress line (Uni-Dock has its own)."""
     process: subprocess.Popen[str] | None = None
@@ -278,10 +278,11 @@ def _run_vina(command: list[str], progress: Callable[[float], None] | None = Non
     stdout_text = str(stdout_text or "")
     stderr_text = str(stderr_text or "")
     if process.returncode != 0:
-        raise RuntimeError(
-            f"{program} failed with exit code {process.returncode}: "
-            f"{stderr_text.strip() or stdout_text.strip() or 'unknown error'}"
-        )
+        from amdockvs.integrations.envs import tool_failed
+
+        binary = Path(command[0]).name.lower()
+        tool = "unidock" if "unidock" in binary else "qvina" if "qvina" in binary else "vina"
+        raise tool_failed(tool, process.returncode, stderr_text.strip() or stdout_text)
     return stdout_text
 
 

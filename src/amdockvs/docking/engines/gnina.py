@@ -160,10 +160,9 @@ def _run_gnina(
         command += ["--cnn_scoring", mode, "--device", str(int(device))]
     result = run_program(command, env=_gnina_env(binary))
     if result.returncode != 0:
-        raise RuntimeError(
-            f"gnina failed (exit {result.returncode}): "
-            f"{result.stderr.strip() or result.stdout.strip() or 'unknown error'}"
-        )
+        from amdockvs.integrations.envs import tool_failed
+
+        raise tool_failed("gnina", result.returncode, result.stderr.strip() or result.stdout)
 
 
 def run_gnina_docking_rows(payload: dict) -> list[dict]:

@@ -5,7 +5,7 @@ from dataclasses import dataclass, replace
 from functools import cache
 from pathlib import Path
 
-from ms_env import READY, STAMP, Recipe, Step, ToolSpec, ensure, find_environment_manager, locate, recipe_steps, verify
+from ms_env import READY, STAMP, Recipe, Step, ToolFailed, ToolSpec, ensure, find_environment_manager, locate, recipe_steps, verify
 
 from amdockvs.core.configuration import app_config
 from amdockvs.core.paths import tools_home
@@ -29,6 +29,13 @@ class ProtonationToolStatus:
 @cache
 def tool_spec(name: str) -> ToolSpec:
     return ToolSpec.load(_TOOL_FILES / f"{name}.toml")
+
+
+def tool_failed(name: str, code: int, output: str = "") -> ToolFailed:
+    """The error for tool `name` exiting with `code`, in words: its recipe's [exit_codes], or a signal's."""
+    if (_TOOL_FILES / f"{name}.toml").exists():
+        return tool_spec(name).failed(code, output)
+    return ToolFailed(name, code, output)
 
 
 def _normalized(name: str) -> str:

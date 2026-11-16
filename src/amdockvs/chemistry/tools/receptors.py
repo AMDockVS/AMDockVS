@@ -108,7 +108,9 @@ def _run_openmm(op: str, source_path: str | Path, output_path: str | Path, comma
     result = subprocess.run([python, str(Path(__file__).with_name("openmm_runner.py")), json.dumps(request)],
                             capture_output=True, text=True, check=False)
     if result.returncode != 0:
-        raise RuntimeError(f"OpenMM {op} failed: {result.stderr.strip()[-2000:]}")
+        from amdockvs.integrations.envs import tool_failed
+
+        raise tool_failed("openmm", result.returncode, result.stderr)
     return output
 
 

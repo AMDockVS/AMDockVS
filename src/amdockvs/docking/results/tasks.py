@@ -25,8 +25,9 @@ def detect_interactions(work: list[tuple[bytes, bytes, str]]) -> list[list[dict]
                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = program.communicate(pickle.dumps(work))
     if program.returncode:
-        raise RuntimeError(f"Interaction detection exited with {program.returncode}: "
-                           f"{err.decode('utf-8', 'replace')[-2000:]}")
+        from amdockvs.integrations.envs import tool_failed
+
+        raise tool_failed("interaction detection", program.returncode, err.decode("utf-8", "replace"))
     return pickle.loads(out)
 
 
