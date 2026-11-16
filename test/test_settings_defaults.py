@@ -40,7 +40,7 @@ def test_pure_box_defaults_match_the_packaged_config():
 def test_module_level_defaults_come_from_the_config():
     config = app_config()
     assert DEFAULT_LIGAND_BATCH_SIZE == config.preparation.ligands_per_task
-    assert DEFAULT_DOCKING_BATCH_SIZE == config.docking.batch_size
+    assert DEFAULT_DOCKING_BATCH_SIZE == config.docking.vina.batch_size
     assert DEFAULT_HIT_SAFETY_CAP == config.shards.hit_cap
     assert DEFAULT_TEMPERATURE_K == config.docking.temperature
 
@@ -51,7 +51,7 @@ def test_every_promoted_tunable_has_a_settings_field():
         "imports": ("max_inflight",),
         "preparation": ("ligands_per_task", "receptors_per_task"),
         "shards": ("max_bytes", "suggest_records", "hit_cap"),
-        "docking": ("box_size", "temperature", "batch_size", "vina", "gnina", "qvina", "adgpu"),
+        "docking": ("box_size", "temperature", "vina", "gnina", "qvina", "adgpu", "unidock"),
         "binding_sites": ("box_scale", "box_padding", "box_min_edge", "box_max_edge", "residues", "p2rank"),
         "diversity": ("inline_run_limit", "molecules_per_cpu", "rows_per_task", "sample_limit"),
     }
@@ -84,7 +84,7 @@ def test_legacy_keys_migrate_to_their_new_home(tmp_path, monkeypatch, caplog):
     path = tmp_path / ".amdockvs" / "config.toml"
     path.parent.mkdir(parents=True)
     path.write_text(toml.dumps({
-        "docking": {"exhaustiveness": 32, "temperature_k": 310.0},
+        "docking": {"exhaustiveness": 32, "temperature_k": 310.0, "batch_size": 6},
         "batch_sizes": {"ligand": 7, "docking": 2, "output_flush_every": 3},
         "binding_sites": {"cavity_max_burial": 12.0},
         "external_tools": {"vina_path": "/opt/vina", "p2rank_home": "/opt/p2rank", "tools_home": "/opt/tools"},
@@ -92,7 +92,7 @@ def test_legacy_keys_migrate_to_their_new_home(tmp_path, monkeypatch, caplog):
     config = create_amdock_configuration().get_value("")
     assert config.docking.vina.exhaustiveness == 32
     assert config.docking.temperature == 310.0
-    assert config.docking.batch_size == 2
+    assert not hasattr(config.docking, "batch_size")  # per program now: the old value is dropped
     assert config.preparation.ligands_per_task == 7
     assert config.binding_sites.residues.max_burial == 12.0
     assert config.docking.vina.path == "/opt/vina"
@@ -100,6 +100,7 @@ def test_legacy_keys_migrate_to_their_new_home(tmp_path, monkeypatch, caplog):
     notices = "\n".join(caplog.messages)
     assert "'docking.exhaustiveness' is now 'docking.vina.exhaustiveness'" in notices
     assert "'batch_sizes.output_flush_every' no longer exists" in notices
+    assert "'docking.batch_size' no longer exists" in notices
     assert "batch_sizes" not in toml.load(path)  # rewritten on load: said once
     assert config.tools_home == "/opt/tools"
 

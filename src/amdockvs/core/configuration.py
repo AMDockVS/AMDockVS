@@ -55,6 +55,16 @@ class _VinaFamilySettings(BaseModel):
     exhaustiveness: int = Field(8, ge=1, le=256, title="Exhaustiveness", description="Search exhaustiveness.")
     num_modes: int = Field(9, ge=1, le=128, title="Num modes", description="Number of poses to generate.")
     cpu_per_task: int = Field(1, ge=1, le=128, title="CPU per task", description="CPU cores per docking task.")
+    batch_size: int = Field(
+        1,
+        ge=1,
+        le=1_000,
+        title="Pairs per task",
+        description=(
+            "Receptor-ligand pairs one docking task carries. One spreads long dockings over every "
+            "CPU; more save the program start-up and the receptor maps."
+        ),
+    )
 
 
 class VinaSettings(_VinaFamilySettings):
@@ -81,6 +91,16 @@ class QVinaSettings(BaseModel):
         title="Executable",
         description="Path to the QuickVina 2 binary; empty uses $AMDOCK_QVINA, the managed install, then PATH.",
     )
+    batch_size: int = Field(
+        1,
+        ge=1,
+        le=1_000,
+        title="Pairs per task",
+        description=(
+            "Receptor-ligand pairs one docking task carries. One spreads long dockings over every "
+            "CPU; more save the program start-up and the receptor maps."
+        ),
+    )
 
 
 class AutoDockGPUSettings(BaseModel):
@@ -95,7 +115,7 @@ class AutoDockGPUSettings(BaseModel):
         32,
         ge=1,
         le=1_000,
-        title="Pairs per task (at least)",
+        title="Pairs per task",
         description=(
             "Pairs of a receptor docked by one AutoDock-GPU process. The GPU runs one task at a "
             "time anyway, so a larger task only saves the program start-up and map loading."
@@ -115,7 +135,7 @@ class UniDockSettings(BaseModel):
         128,
         ge=1,
         le=10_000,
-        title="Pairs per task (at least)",
+        title="Pairs per task",
         description=(
             "Pairs of a receptor docked by one Uni-Dock process. Uni-Dock docks them in parallel "
             "on the GPU, so larger tasks use the card better."
@@ -141,16 +161,6 @@ class DockingConfiguration(BaseModel):
         le=500.0,
         title="Temperature (K)",
         description="Temperature used to turn a docking score into a predicted Ki/pKi.",
-    )
-    batch_size: int = Field(
-        4,
-        ge=1,
-        le=1_000,
-        title="Docking pairs per task",
-        description=(
-            "Receptor-ligand pairs carried in one docking task. Small values parallelize better; "
-            "large ones amortize process startup."
-        ),
     )
     vina: VinaSettings = VinaSettings()
     gnina: GninaSettings = GninaSettings()
@@ -457,7 +467,8 @@ _LEGACY_KEYS = {
     "docking.exhaustiveness": "docking.vina.exhaustiveness",
     "docking.num_modes": "docking.vina.num_modes",
     "docking.cpu_per_task": "docking.vina.cpu_per_task",
-    "batch_sizes.docking": "docking.batch_size",
+    "batch_sizes.docking": None,
+    "docking.batch_size": None,  # now per program: docking.<engine>.batch_size
     "batch_sizes.ligand": "preparation.ligands_per_task",
     "batch_sizes.receptor": "preparation.receptors_per_task",
     "batch_sizes.import_max_inflight": "imports.max_inflight",
@@ -508,7 +519,7 @@ DEFAULT_BINDING_SITE_BOX_SIZE = _PACKAGED_DEFAULT.docking.box_size
 DEFAULT_P2RANK_PROFILE = _PACKAGED_DEFAULT.binding_sites.p2rank.profile
 DEFAULT_TEMPERATURE_K = _PACKAGED_DEFAULT.docking.temperature
 DEFAULT_LIGAND_BATCH_SIZE = _PACKAGED_DEFAULT.preparation.ligands_per_task
-DEFAULT_DOCKING_BATCH_SIZE = _PACKAGED_DEFAULT.docking.batch_size
+DEFAULT_DOCKING_BATCH_SIZE = _PACKAGED_DEFAULT.docking.vina.batch_size
 DEFAULT_IMPORT_MAX_INFLIGHT = _PACKAGED_DEFAULT.imports.max_inflight
 # Chunks batched into one sink write. Flushing every chunk made the writer the bottleneck
 # and starved the worker pool; job specs are built at import time, so this is a constant.

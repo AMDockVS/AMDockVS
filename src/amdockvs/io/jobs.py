@@ -418,6 +418,7 @@ class ShardLigandsParams(LoadFileParams):
     """The import params, with the batch size read as *records per shard*."""
 
     batch_size: int = Field(ge=1, le=MAX_SHARD_RECORDS)
+    generation_id: int | None = None  # the generation the shards go into
 
 
 @job(

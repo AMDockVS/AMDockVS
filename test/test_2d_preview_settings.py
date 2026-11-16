@@ -27,7 +27,7 @@ def test_amdock_config_declares_2d_preview_heavy_atom_limit():
 
 def test_2d_preview_skips_molecules_above_configured_heavy_atom_limit(tmp_path):
     pytest.importorskip("rdkit")
-    from amdockvs.ui.catalog.common import _molecule_svg_for_path
+    from amdockvs.chemistry.depiction import molecule_svg_for_path as _molecule_svg_for_path
 
     at_limit = tmp_path / "alkane_50.mol"
     above_limit = tmp_path / "alkane_51.mol"

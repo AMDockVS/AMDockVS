@@ -9,7 +9,7 @@ from sqlmodel import select
 
 from amdockvs.docking.jobs import count_pending_docking_pairs, iter_docking_batches
 from amdockvs.docking.protocols import DockingProtocolMetadata
-from amdockvs.docking.pairs import iter_docking_batches_from_rows
+from amdockvs.docking.pairs import iter_docking_batches_from_rows, legacy_input_key
 from amdockvs.docking.results.repository import docking_run_id
 from amdockvs.models.docking import DockingResult, LigandPrep, ReceptorPrep
 from amdockvs.models.molecules import ImportBatch, MoleculeRecord
@@ -46,13 +46,16 @@ def _project(tmp_path):
 
         session.add_all(ReceptorPrep(receptor_molecule_id=row.id, rigid_payload_id=receptor_pid) for row in receptors)
         session.add_all(LigandPrep(molecule_id=row.id, payload_id=ligand_pid) for row in ligands)
-        # Already docked: the first N_DOCKED ligands against the first receptor.
+        # Already docked: the first N_DOCKED ligands against the first receptor, as a project from
+        # before `input_key` keeps them (`_add_columns`): keyed by the receptor payload alone.
         run = docking_run_id(store, run_id="", engine=ENGINE, run_kind="screening", protocol={"hash": proto})
         for lig in ligands[:N_DOCKED]:
             session.add(DockingResult(
                 receptor_molecule_id=receptors[0].id,
                 ligand_molecule_id=lig.id,
                 docking_run_id=run,
+                receptor_payload_id=receptor_pid,
+                input_key=legacy_input_key(receptor_pid),
             ))
         session.commit()
     return store

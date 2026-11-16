@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from amdockvs.ui.common.async_query import run_async
-from amdockvs.ui.common.failures import show_failures
+from amdockvs.ui.common.failures import recover_with, show_failures
 from amdockvs.ui.common.job_follower import JobFollower
 from amdockvs.ui.common.naming import NAMED, about
 from amdockvs.ui.common.widgets import LigandSources, add_run_on, gate_workflow_save, split_button
@@ -459,6 +459,11 @@ class PreparationPanel:
         form.addRow(self.force_prepare_receptors)
         form.addRow(self.keep_waters_receptors)
         form.addRow(self.keep_cofactors_receptors)
+        # Hidden until keeping waters/cofactors is finished end to end: they are built, wired and
+        # still read below, so unhiding is these two lines and nothing else. Hidden they stay
+        # unchecked, which is what a receptor is prepared as today — dry, cofactor pocket empty.
+        form.setRowVisible(self.keep_waters_receptors, False)
+        form.setRowVisible(self.keep_cofactors_receptors, False)
         return self._in_scroll(page)
 
     def _build_receptor_program_prep_page(self, spec) -> QWidget:
@@ -706,52 +711,58 @@ class PreparationPanel:
             self._prepare_ligand_shards(programs, [])
             return
         ligand_scope = self._prep_ligand_scope()
+        # Read on the GUI thread; the submits run off it (each is a round trip to the engine).
+        options = dict(
+            batch_size=max(1, int(self.prepare_ligand_batch_size.value())),
+            force=self.force_prepare_ligands.isChecked(),
+            executor_name=self.ligand_prep_destination.executor_name(),
+        )
 
         def submit(**deferred) -> None:
             for program in programs:
                 if program not in job_ids:
                     job_ids[program] = self.runtime.docking.prepare_ligands(
-                        program=program,
-                        ligand_set=ligand_scope,
-                        batch_size=max(1, int(self.prepare_ligand_batch_size.value())),
-                        force=self.force_prepare_ligands.isChecked(),
-                        executor_name=self.ligand_prep_destination.executor_name(),
-                        **deferred,
-                    )
+                        program=program, ligand_set=ligand_scope, **options, **deferred)
 
-        try:
-            try:
-                submit()
-            except MissingLigand3DError as exc:
+        def generate_3d_then_submit() -> None:
+            job_3d = self.runtime.chemistry.generate_3d_ligands(
+                ligands=self.runtime.molecules.filter(ligand_scope, filters={"has_3d": False}),
+                executor_name=options["executor_name"],
+            )
+            before.append(("3D generation", str(job_3d)))
+            # Submitted now, runs after: the preparation resolves its ligands once the 3D job
+            # is done, so the submit-time 3D check would refuse what is about to exist.
+            submit(depends_on=[str(job_3d)], check_required=False)
+
+        def failed(exc: Exception) -> None:
+            self.prepare_ligands_button.setEnabled(True)
+            if isinstance(exc, MissingLigand3DError):
                 # The fix is one job away, so offer it here instead of sending the user off.
                 choice = self._ask_missing_3d(exc.count)
+                if choice == "generate":
+                    self.prepare_ligands_button.setEnabled(False)
+                    run_async(generate_3d_then_submit, submitted, on_error=failed, owner=self)
+                    return
+                self._follow_prep(self.ligand_prep_jobs, job_ids, before=before)
                 if choice == "build":
-                    self._follow_prep(self.ligand_prep_jobs, job_ids, before=before)
                     self.window().tools.open_tool(BUILD_ID)
-                    return
-                if choice != "generate":
-                    self._follow_prep(self.ligand_prep_jobs, job_ids, before=before)
-                    return
-                job_3d = self.runtime.chemistry.generate_3d_ligands(
-                    ligands=self.runtime.molecules.filter(ligand_scope, filters={"has_3d": False}),
-                    executor_name=self.ligand_prep_destination.executor_name(),
-                )
-                before.append(("3D generation", str(job_3d)))
-                # Submitted now, runs after: the preparation resolves its ligands once the 3D job
-                # is done, so the submit-time 3D check would refuse what is about to exist.
-                submit(depends_on=[str(job_3d)], check_required=False)
-        except Exception as exc:
+                return
             self._follow_prep(self.ligand_prep_jobs, job_ids, before=before)
             self._error("Prepare Ligands", exc)
-            return
-        rows = [*before, *((self.ligand_prep_jobs.noun, job_id) for job_id in job_ids.values())]
-        if "shards" in sources:
-            # Side by side: the shard jobs run at a lower priority, so the table's take the
-            # workers they can use and the shards get the rest.
-            self._prepare_ligand_shards(programs, rows)
-            return
-        self._follow_prep(self.ligand_prep_jobs, job_ids, before=before)
-        self.stepper.set_current_index(2)
+
+        def submitted(_result) -> None:
+            self.prepare_ligands_button.setEnabled(True)
+            rows = [*before, *((self.ligand_prep_jobs.noun, job_id) for job_id in job_ids.values())]
+            if "shards" in sources:
+                # Side by side: the shard jobs run at a lower priority, so the table's take the
+                # workers they can use and the shards get the rest.
+                self._prepare_ligand_shards(programs, rows)
+                return
+            self._follow_prep(self.ligand_prep_jobs, job_ids, before=before)
+            self.stepper.set_current_index(2)
+
+        self.prepare_ligands_button.setEnabled(False)
+        run_async(submit, submitted, on_error=failed, owner=self)
 
     def _ask_missing_3d(self, count: int) -> str:
         """What to do about ligands with no 3D coordinates: "generate", "build" or "" (cancel)."""
@@ -786,7 +797,9 @@ class PreparationPanel:
                       lambda rows: self._show_prep_failures(follower.noun, rows), owner=self)
 
     def _show_prep_failures(self, noun: str, rows: list[tuple[int, str, str]]) -> None:
-        self.failures_dialog = show_failures(self, noun, rows) or self.failures_dialog
+        self.failures_dialog = show_failures(
+            self, noun, rows, recover_with(self.runtime, self.refresh),
+        ) or self.failures_dialog
 
     def _set_sharded_prep_mode(self, sharded: bool) -> None:
         """A physical shard is already the HTP task, so no second batch control applies."""
@@ -800,20 +813,27 @@ class PreparationPanel:
         are the row jobs already submitted, followed ahead of the shard jobs.
         """
         jobs: list[tuple[str, str, str]] = []
-        try:
+        options = dict(
+            force=self.force_prepare_ligands.isChecked(),
+            shard_ids=self._selected_shard_ids(),
+            executor_name=self.ligand_prep_destination.executor_name(),
+        )
+
+        def submit() -> None:
             for program in programs:
-                jobs.append(("Shard preparation", self.runtime.docking.prepare_ligand_shards(
-                    program=program,
-                    force=self.force_prepare_ligands.isChecked(),
-                    shard_ids=self._selected_shard_ids(),
-                    executor_name=self.ligand_prep_destination.executor_name(),
-                ), "shards"))
-        except Exception as exc:
+                jobs.append(("Shard preparation",
+                             self.runtime.docking.prepare_ligand_shards(program=program, **options), "shards"))
+
+        def done(exc: Exception | None) -> None:
+            self.prepare_ligands_button.setEnabled(True)
             self._follow_prep(self.ligand_prep_jobs, {}, before=[*before, *jobs])
-            self._error("Prepare Ligands", exc)
-            return
-        self._follow_prep(self.ligand_prep_jobs, {}, before=[*before, *jobs])
-        self.stepper.set_current_index(2)
+            if exc is not None:
+                self._error("Prepare Ligands", exc)
+                return
+            self.stepper.set_current_index(2)
+
+        self.prepare_ligands_button.setEnabled(False)
+        run_async(submit, lambda _r: done(None), on_error=done, owner=self)
 
     def _prepare_receptors(self) -> None:
         if not self._selected_programs():
@@ -849,27 +869,31 @@ class PreparationPanel:
         if not self._confirm_receptor_search_boxes(gaps, title="Prepare Receptors"):
             return
         job_ids: dict[str, str] = {}
-        try:
+        options = dict(
+            receptor_set=receptor_scope,
+            batch_size=max(1, int(self.prepare_receptor_batch_size.value())),
+            force=self.force_prepare_receptors.isChecked(),
+            keep_waters=self.keep_waters_receptors.isChecked(),
+            keep_cofactors=self.keep_cofactors_receptors.isChecked(),
+            executor_name=self.receptor_prep_destination.executor_name(),
+        )
+
+        def submit() -> None:  # off the GUI thread: each submit is a round trip to the engine
             for program in programs:
-                job_ids[program] = self.runtime.docking.prepare_receptors(
-                    program=program,
-                    receptor_set=receptor_scope,
-                    batch_size=max(1, int(self.prepare_receptor_batch_size.value())),
-                    force=self.force_prepare_receptors.isChecked(),
-                    keep_waters=self.keep_waters_receptors.isChecked(),
-                    keep_cofactors=self.keep_cofactors_receptors.isChecked(),
-                    executor_name=self.receptor_prep_destination.executor_name(),
-                )
-        except ValueError as exc:
+                job_ids[program] = self.runtime.docking.prepare_receptors(program=program, **options)
+
+        def done(exc: Exception | None) -> None:
+            self.prepare_receptor_button.setEnabled(True)
             self._follow_prep(self.receptor_prep_jobs, job_ids)
-            self._warn("Prepare Receptor", str(exc))
-            return
-        except Exception as exc:
-            self._follow_prep(self.receptor_prep_jobs, job_ids)
-            self._error("Prepare Receptor", exc)
-            return
-        self._follow_prep(self.receptor_prep_jobs, job_ids)
-        self.stepper.set_current_index(3)
+            if isinstance(exc, ValueError):
+                self._warn("Prepare Receptor", str(exc))
+            elif exc is not None:
+                self._error("Prepare Receptor", exc)
+            else:
+                self.stepper.set_current_index(3)
+
+        self.prepare_receptor_button.setEnabled(False)
+        run_async(submit, lambda _r: done(None), on_error=done, owner=self)
 
     def _ask_missing_receptor_3d(self, count: int, names=()) -> str:
         """Offer structure prediction, or keep preparing while skipping sequence-only rows."""
