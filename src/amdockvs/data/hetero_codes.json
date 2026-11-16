@@ -3,6 +3,6 @@
   "water": ["HOH", "WAT", "DOD", "H2O"],
   "coordination_metal": ["ZN", "FE", "MN", "MG", "CA", "CU", "CO", "NI", "CD"],
   "ion": ["CL", "BR", "IOD", "I", "LI", "RB", "CS", "NA", "K"],
-  "additive": ["PEG", "PG4", "PGO", "SO4", "PO4", "GOL", "EDO", "DMS", "MPD", "MES", "TRS", "ACT", "FMT"],
+  "additive": ["PEG", "PG4", "PGO", "SO4", "PO4", "GOL", "EDO", "DMS", "MPD", "MES", "TRS", "ACT", "FMT", "DDQ", "LDA", "C8E", "BOG", "LMT", "BNG"],
   "cofactor": ["FAD", "FMN", "NAD", "NAP", "SAM", "SAH", "COA", "ATP", "ADP", "AMP", "HEM", "HEME", "PLP", "TPP", "PQQ"]
 }
