@@ -1,8 +1,25 @@
 {
-  "_comment": "PDB 3-letter HET codes by role, used to classify non-polymer components at receptor import. Edit to tune what counts as an additive/ion/cofactor vs a real cocrystal ligand. Case-insensitive.",
+  "_comment": "PDB 3-letter HET codes by role, used to classify non-polymer components at receptor import. Edit to tune what counts as an additive/ion/cofactor vs a real cocrystal ligand. Case-insensitive. Keys starting with _ are notes and are skipped by the loader.",
+
+  "_provenance": "Every code below was resolved against the RCSB Chemical Component Dictionary (https://files.rcsb.org/ligands/download/<CODE>.cif) and its _chem_comp.name read back, except the few in _not_ccd. Add a code the same way: confirm the CCD name says what you think it says before trusting the mnemonic. A code is NOT self-documenting -- see _corrected for two that were wrong for years.",
+
+  "_verified": "2026-11-16, all codes resolved and named via the CCD. Codes must be 3 characters or fewer: receptor_preview reads the residue name from PDB columns 18-20, so a longer code can never match anything, whatever the CCD says.",
+
+  "_not_ccd": {
+    "WAT": "Not a CCD component. Water as AMBER/GROMACS and others write it; kept because AMDockVS reads PDB files that did not come from the PDB.",
+    "H2O": "Not a CCD component. Same reason as WAT."
+  },
+
+  "_corrected": {
+    "HEME": "Removed 2026-11-16. Not a CCD component, and 4 characters, so it never matched a residue name in the first place. Heme is HEM, which is in the cofactor list. Do not re-add.",
+    "I": "Removed from `ion` 2026-11-16. CCD `I` is INOSINIC ACID (RNA LINKING), not iodide -- it was classifying an inosine nucleotide as an ion. Iodide is IOD, which is in the list. Do not re-add as an ion."
+  },
+
+  "_expansion_candidates": "Resolved and name-checked 2026-11-16, not yet added -- each needs a decision about what AMDockVS should do with it, not just a code. Cofactors: NAI (NADH) and NDP (NADPH), the reduced partners of the NAD/NAP already listed; HEC (heme C), HEA (heme A); COB (methylcobalamin), B12 (cobalamin), CBY (cob(II)inamide); BTN (biotin); LPA (lipoic acid); PNS (4'-phosphopantetheine); MGD (molybdopterin); GSH (glutathione, typed peptide-like); THF (5-hydroxymethylene-6-hydrofolic acid -- NOT plain tetrahydrofolate). Metal clusters FES (Fe2S2) and SF4 (Fe4S4) are mostly metal, which the CCD typing path leaves uncharged, so they need their own handling rather than a cofactor entry. GTP and GDP resolve but GDP is typed RNA LINKING, so treating them as cofactors would collide with nucleotide polymers. Ubiquinones UQ (CoQ10), UQ1 and DCQ (decylubiquinone) are substrates in a respiratory-chain site, not cofactors to keep by default.",
+
   "water": ["HOH", "WAT", "DOD", "H2O"],
   "coordination_metal": ["ZN", "FE", "MN", "MG", "CA", "CU", "CO", "NI", "CD"],
-  "ion": ["CL", "BR", "IOD", "I", "LI", "RB", "CS", "NA", "K"],
+  "ion": ["CL", "BR", "IOD", "LI", "RB", "CS", "NA", "K"],
   "additive": ["PEG", "PG4", "PGO", "SO4", "PO4", "GOL", "EDO", "DMS", "MPD", "MES", "TRS", "ACT", "FMT", "DDQ", "LDA", "C8E", "BOG", "LMT", "BNG"],
-  "cofactor": ["FAD", "FMN", "NAD", "NAP", "SAM", "SAH", "COA", "ATP", "ADP", "AMP", "HEM", "HEME", "PLP", "TPP", "PQQ"]
+  "cofactor": ["FAD", "FMN", "NAD", "NAP", "SAM", "SAH", "COA", "ATP", "ADP", "AMP", "HEM", "PLP", "TPP", "PQQ"]
 }
