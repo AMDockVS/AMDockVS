@@ -93,7 +93,7 @@ def protonate_receptor_pdb2pqr_file(
     # prep, our complex builder) sees an empty element and dies. pdb2pqr writes both in one run,
     # and the PQR lands beside it, in the work folder `run_receptor_tool` removes on return.
     pqr = output.with_suffix(".pqr")
-    subprocess.run(
+    result = subprocess.run(
         [
             executable,
             f"--ff={forcefield}",
@@ -104,11 +104,19 @@ def protonate_receptor_pdb2pqr_file(
             str(source),
             str(pqr),
         ],
-        check=True,
+        check=False,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
     )
+    if result.returncode != 0:
+        from amdockvs.integrations.envs import tool_failed
+
+        # pdb2pqr says why in its CRITICAL lines -- "residue SER A 438 is missing its backbone:
+        # complete the gaps first" -- then prints a traceback that ends in a bare RuntimeError.
+        # The error keeps only the end of what it is given, so it is given the why.
+        verdict = "\n".join(line for line in result.stderr.splitlines() if line.startswith("CRITICAL:"))
+        raise tool_failed("pdb2pqr", result.returncode, verdict or result.stderr)
     return output
 
 

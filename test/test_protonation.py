@@ -269,6 +269,42 @@ def test_reduce_refuses_a_result_with_atoms_missing_whatever_it_exits_with(tmp_p
     assert not (tmp_path / "out.pdb").exists()
 
 
+def test_pdb2pqr_says_why_it_gave_up(tmp_path, monkeypatch):
+    """pdb2pqr refuses a structure with a gap in its backbone -- rightly -- and says so in its
+    CRITICAL lines, then prints a traceback ending in a bare RuntimeError. It ran with
+    `check=True`, whose error keeps none of that: "returned non-zero exit status 1" was all a
+    user learned about why their receptor could not be protonated."""
+    import subprocess
+
+    from amdockvs.chemistry.tools import receptors
+
+    said = (  # what pdb2pqr 3.7.1 writes for 1iep's SER A 438, trimmed
+        "INFO:Checking and transforming input biomolecule...\n"
+        "WARNING:Missing atom OXT in residue GLN A 498\n"
+        "CRITICAL:Too few atoms present to reconstruct or cap residue SER A 438 in structure! This error "
+        "is generally caused by missing backbone atoms in this biomolecule; you must use an external "
+        "program to complete gaps in the biomolecule backbone.\n"
+        "CRITICAL:Giving up.\n"
+        "Traceback (most recent call last):\n" + "  File \"main.py\", line 1, in <module>\n" * 40
+        + "RuntimeError\n"
+    )
+
+    def run(argv, **kwargs):
+        result = subprocess.CompletedProcess(argv, 1, "", said)
+        if kwargs.get("check"):
+            result.check_returncode()
+        return result
+
+    monkeypatch.setattr("ms_env.locate", lambda recipe: ("ready", recipe.candidates[0]))
+    monkeypatch.setattr(receptors.subprocess, "run", run)
+    with pytest.raises(RuntimeError) as raised:
+        receptors.protonate_receptor_pdb2pqr_file(source_path=tmp_path / "in.pdb", output_path=tmp_path / "out.pdb",
+                                                  command="/managed/bin/pdb2pqr")
+    message = str(raised.value)
+    assert "SER A 438" in message and "complete gaps in the biomolecule backbone" in message
+    assert message.startswith("pdb2pqr exited with 1")
+
+
 def test_a_worker_resolves_its_own_tool_when_the_submitter_path_is_missing(monkeypatch):
     from types import SimpleNamespace
     from amdockvs.chemistry.tools import receptors
