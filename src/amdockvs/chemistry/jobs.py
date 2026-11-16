@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from itertools import batched
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterable, Iterator, Mapping
 
 from pydantic import BaseModel, Field
 
@@ -104,7 +104,46 @@ def _chemistry_batches(
         }
 
 
+def invalidate_ligand_preparations(project_db, rows: Iterable[Mapping[str, Any]]) -> int:
+    """Drop the docking preparations of the ligands in one chemistry batch, as it is handed out.
+
+    A preparation is one geometry turned into a program's input, and no row says which geometry:
+    Build pointing a ligand at a new conformer therefore left its old preparation standing, and
+    docking still reported itself ready -- it would have docked the structure the ligand no
+    longer has. The preparation goes, so preparing again is asked for before docking runs.
+
+    Every ligand step rewrites the structure the ligand docks from: `standardize` and
+    `protonate` its atoms, `generate_3d` and `minimize` its coordinates, `conformers` the
+    ensemble whose first member becomes current. So a batch is invalidated whole, not the rows
+    that actually changed -- which ligands a chunk rewrote is known in the workers, not here.
+    Invalidating a ligand the run then fails on costs one preparation; keeping a stale one costs
+    a docking of the wrong structure. Earlier conformers, descriptors and results all stay.
+
+    It runs here, on the way out, and not when the job ends, because the scope is a query over
+    the very fields the run rewrites: `is_minimized=False` holds a ligand before it is minimized
+    and not after, so asking again at the end asks about a library the run has changed and finds
+    none of what it just rewrote. These are the ids actually handed to a chunk, read before any
+    of them is touched.
+    """
+    from amdockvs.project.deletion import clear_ligand_preparations
+
+    return clear_ligand_preparations(
+        project_db, [int(row.get("id") or 0) for row in rows if int(row.get("id") or 0) > 0]
+    )
+
+
 def _iter_ligand_chemistry_batches(
+    *,
+    project_db,
+    params: LigandChemistryJobParams,
+    store=None,
+) -> Iterator[dict[str, Any]]:
+    for batch in _ligand_chemistry_batches(project_db=project_db, params=params, store=store):
+        invalidate_ligand_preparations(project_db, batch["rows"])
+        yield batch
+
+
+def _ligand_chemistry_batches(
     *,
     project_db,
     params: LigandChemistryJobParams,
@@ -141,43 +180,6 @@ def _iter_receptor_chemistry_batches(
     )
 
 
-def ligand_chemistry_finalize(params: dict, context: dict) -> dict[str, Any]:
-    """Drop the docking preparations of the ligands this run rewrote.
-
-    A preparation is one geometry turned into a program's input, and no row says which geometry:
-    Build pointing a ligand at a new conformer therefore left its old preparation standing, and
-    docking still reported itself ready -- it would have docked the structure the ligand no
-    longer has. The preparation goes, so preparing again is asked for before docking runs.
-
-    Every ligand step rewrites the structure the ligand docks from: `standardize` and
-    `protonate` its atoms, `generate_3d` and `minimize` its coordinates, `conformers` the
-    ensemble whose first member becomes current. So the run's whole scope is invalidated, not
-    the rows that actually changed -- which ligands a chunk rewrote is known in the workers,
-    while this runs in the parent once the job has ended, however it ended (a job that stopped
-    half way has still rewritten what it flushed). Invalidating a ligand the run failed on
-    costs one preparation; keeping a stale one costs a docking of the wrong structure.
-    Earlier conformers, descriptors and results all stay.
-    """
-    parsed = LigandChemistryJobParams(**params)
-    project_db = context.get("project_db")
-    if project_db is None:
-        return {"invalidated_preparations": 0}
-    from amdockvs.project.deletion import clear_ligand_preparations
-
-    ids = [
-        int(row["id"])
-        for row in iter_ligand_rows(
-            project_db,
-            ligand_set_id=parsed.ligand_set_id,
-            filters=parsed.ligand_filters,
-            fields=("id",),
-            batch_size=512,
-        )
-        if int(row.get("id") or 0) > 0
-    ]
-    return {"invalidated_preparations": clear_ligand_preparations(project_db, ids)}
-
-
 @job(
     task=ligand_chemistry_task,
     name="amdock_ligand_chemistry_job",
@@ -186,7 +188,6 @@ def ligand_chemistry_finalize(params: dict, context: dict) -> dict[str, Any]:
     supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
     output_spec=CHEMISTRY_GRAPH_OUTPUT,
     output_flush_every=DEFAULT_OUTPUT_FLUSH_EVERY,
-    finalize=ligand_chemistry_finalize,
     store_results=False,
 )
 def ligand_chemistry_job(params: dict, config: dict | None = None) -> Iterator[dict[str, Any]]:
@@ -364,6 +365,7 @@ __all__ = [
     "LigandChemistryJobParams",
     "ReceptorChemistryJobParams",
     "ReceptorPredictionJobParams",
+    "invalidate_ligand_preparations",
     "prediction_scope_spec",
     "receptor_prediction_job",
     "receptor_prediction_task",

@@ -76,6 +76,16 @@ def _prepared_ligand(tmp_path):
         return store, int(ligand.id), int(prepared)
 
 
+def _ligand_batches(store, **params):
+    """Drive the real feed: what it hands out is what a chunk rewrites."""
+    from amdockvs.chemistry.jobs import ligand_chemistry_job
+
+    return list(ligand_chemistry_job.build_chunks(
+        {"operation": "generate_3d", "params": {"random_seed": 7}, **params},
+        config={"project_db": store},
+    ))
+
+
 def test_building_a_ligand_again_invalidates_its_docking_preparation(tmp_path):
     """RR-06: nothing records which geometry a preparation was made from, so pointing a ligand
     at a new conformer left its old preparation standing and docking reported itself ready --
@@ -84,28 +94,64 @@ def test_building_a_ligand_again_invalidates_its_docking_preparation(tmp_path):
     from sqlmodel import select
     from ms_flow.core.database import ProjectStore
 
-    from amdockvs.chemistry.jobs import ligand_chemistry_finalize
-    from amdockvs.models import LigandPrep
+    from amdockvs.models import LigandPrep, MoleculeRecord
 
-    store, ligand_id, prepared_payload = _prepared_ligand(tmp_path)
+    store, ligand_id, _prepared_payload = _prepared_ligand(tmp_path)
     try:
         with store.get_session() as session:
             assert session.exec(select(LigandPrep)).all()
 
-        result = ligand_chemistry_finalize(
-            {"operation": "generate_3d", "params": {"random_seed": 7}},
-            {"project_db": store, "terminal_status": "completed"},
-        )
+        batches = _ligand_batches(store)
 
-        assert result == {"invalidated_preparations": 1}
+        assert [int(row["id"]) for batch in batches for row in batch["rows"]] == [ligand_id]
         with store.get_session() as session:
             assert session.exec(select(LigandPrep)).all() == []
             # The ligand itself, and the structure it now docks from, are untouched.
-            from amdockvs.models import MoleculeRecord
-
             assert session.get(MoleculeRecord, ligand_id).current_payload_id is not None
     finally:
         ProjectStore.clear_cached_stores()
+
+
+def test_a_scope_that_the_run_itself_changes_still_invalidates_its_ligands(tmp_path):
+    """RR-06: the scope is a query over the fields the run rewrites. Asking it again once the
+    run has ended asks about a library the run has changed -- `is_minimized=False` no longer
+    holds the ligand it just minimized -- and invalidates nothing. The ids are taken on the way
+    out instead, before a chunk touches any of them."""
+    pytest.importorskip("rdkit")
+    from sqlmodel import select
+    from ms_flow.core.database import ProjectStore
+
+    from amdockvs.chemistry.jobs import invalidate_ligand_preparations
+    from amdockvs.models import LigandPrep, MoleculeRecord
+
+    store, ligand_id, _prepared_payload = _prepared_ligand(tmp_path)
+    try:
+        batches = list(ligand_batches_for_unminimized(store))
+        assert [int(row["id"]) for batch in batches for row in batch["rows"]] == [ligand_id]
+
+        # The run minimizes it: the scope it was selected by no longer holds it.
+        with store.get_session() as session:
+            ligand = session.get(MoleculeRecord, ligand_id)
+            ligand.is_minimized = True
+            session.add(ligand)
+            session.commit()
+        assert [row["id"] for batch in ligand_batches_for_unminimized(store) for row in batch["rows"]] == []
+
+        # Its preparation went on the way out, not from that emptied scope.
+        with store.get_session() as session:
+            assert session.exec(select(LigandPrep)).all() == []
+        assert invalidate_ligand_preparations(store, [{"id": ligand_id}]) == 0
+    finally:
+        ProjectStore.clear_cached_stores()
+
+
+def ligand_batches_for_unminimized(store):
+    from amdockvs.chemistry.jobs import ligand_chemistry_job
+
+    return list(ligand_chemistry_job.build_chunks(
+        {"operation": "minimize", "params": {}, "ligand_filters": {"is_minimized": False}},
+        config={"project_db": store},
+    ))
 
 
 def test_a_preparation_of_a_ligand_outside_the_run_is_left_alone(tmp_path):
@@ -114,7 +160,6 @@ def test_a_preparation_of_a_ligand_outside_the_run_is_left_alone(tmp_path):
     from sqlmodel import select
     from ms_flow.core.database import ProjectStore
 
-    from amdockvs.chemistry.jobs import ligand_chemistry_finalize
     from amdockvs.models import LigandPrep, MoleculeRecord
 
     store, ligand_id, _payload = _prepared_ligand(tmp_path)
@@ -130,10 +175,7 @@ def test_a_preparation_of_a_ligand_outside_the_run_is_left_alone(tmp_path):
             session.commit()
             other_id = int(other.id)
 
-        ligand_chemistry_finalize(
-            {"operation": "minimize", "params": {}, "ligand_filters": {"id": ligand_id}},
-            {"project_db": store, "terminal_status": "completed"},
-        )
+        _ligand_batches(store, ligand_filters={"id": ligand_id})
 
         with store.get_session() as session:
             assert [int(row.molecule_id) for row in session.exec(select(LigandPrep)).all()] == [other_id]
