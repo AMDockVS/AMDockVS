@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import multiprocessing
-import time
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
@@ -742,8 +741,9 @@ class ReceptorImportPanel(QWidget):
             QTimer.singleShot(0, self._drain_scans)
 
     def _drain_scans(self) -> None:
-        deadline = time.monotonic() + 0.03  # ~2 frames of work, then let Qt paint
-        while self._pending_scans and time.monotonic() < deadline:
+        # One row per turn, then let Qt paint: a row's widgets cost ~20 ms, and the table's
+        # relayout after them about as much again; two rows in one turn crossed 100 ms.
+        if self._pending_scans:
             self._show_scan(*self._pending_scans.pop(0))
         if self._pending_scans:
             QTimer.singleShot(0, self._drain_scans)

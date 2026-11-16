@@ -32,15 +32,7 @@ def count_import_records(file_path: str | Path, *, approx: bool = False) -> int:
         if estimate is not None:
             return estimate
     if suffix == ".sdf":
-        count = 0
-        trailing = False
-        with source_path.open("r", encoding="utf-8", errors="ignore") as handle:
-            for line in handle:
-                trailing = bool(line.strip())
-                if line.startswith("$$$$"):
-                    count += 1
-                    trailing = False
-        return count + (1 if trailing else 0)
+        return _count_sdf_records(source_path)
     if suffix == ".mol2":
         with source_path.open("rb") as handle:
             return max(1, sum(1 for line in handle if line.startswith(_MOL2_RECORD)))
@@ -53,6 +45,34 @@ def count_import_records(file_path: str | Path, *, approx: bool = False) -> int:
     if suffix == ".fasta":
         return len(parse_fasta(source_path.read_text(encoding="utf-8", errors="ignore"), stem=source_path.stem))
     return 1
+
+
+_SDF_END = b"\n$$$$"
+
+
+def _count_sdf_records(source_path: Path) -> int:
+    """`$$$$` lines, plus a last record left unterminated.
+
+    Counted in 4 MB blocks with `bytes.count`: memory speed, and the GIL changes hands between
+    blocks. A Python line loop held it ~5 s/GB, and this runs on the GUI process (import
+    finalize, the shard hint) where that froze the window.
+    """
+    count, carry, trailing, on_end_line = 0, b"\n", False, False  # carry: a file opening on $$$$
+    with source_path.open("rb") as handle:
+        while block := handle.read(1 << 22):
+            data = carry + block
+            hits = data.count(_SDF_END)
+            if hits:
+                count += hits
+                rest, trailing, on_end_line = data[data.rfind(_SDF_END) + len(_SDF_END):], False, True
+            else:
+                rest = block
+            if on_end_line:  # what follows `$$$$` on its own line is not a record
+                newline = rest.find(b"\n")
+                rest, on_end_line = (b"", True) if newline < 0 else (rest[newline + 1:], False)
+            trailing = trailing or bool(rest.strip())
+            carry = data[-(len(_SDF_END) - 1):]
+    return count + (1 if trailing else 0)
 
 
 def parse_fasta(text: str, *, stem: str = "sequence") -> list[tuple[str, str]]:

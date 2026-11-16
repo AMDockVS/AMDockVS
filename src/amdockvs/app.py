@@ -310,6 +310,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("Loading interface...", time.time() - start)
         if splash is not None:
             qt_app.processEvents()
+            splash.status("Preparing tools...")
+        window.tools.warm_up()  # the first click on a tool then only flips a page
+        if splash is not None:
             splash.raise_()
             splash.finish(window)
             print('splash finished', time.time() - start)

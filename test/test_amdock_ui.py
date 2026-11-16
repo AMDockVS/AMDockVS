@@ -666,7 +666,7 @@ def test_tool_buttons_are_flat_and_keep_result_views_available(tmp_path, monkeyp
         assert standing <= set(window.views.catalog_actions)
 
         # Prep Status is not a tab any more: it is the child table of Ligands/Receptors, so
-        # it occupies the auxiliary zone while Docking is open and hands it back on close.
+        # it occupies the auxiliary zone (closed until toggled) while Docking is open and hands it back on close.
         assert window.aux.TOOL_AUX_VIEWS[DOCKING_VIEW_ID] == PREP_STATUS_VIEW_ID
         assert PREP_STATUS_VIEW_ID not in window.views.catalog_actions
         assert window.aux.occupant == window.aux.AUX_DETAILS
@@ -740,6 +740,13 @@ def test_tool_buttons_are_flat_and_keep_result_views_available(tmp_path, monkeyp
         runtime.shutdown()
 
 
+def _pump_until(app, condition, timeout_s: float = 30.0) -> None:
+    deadline = time.monotonic() + timeout_s
+    while not condition() and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+
+
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
 def test_preparing_ligands_without_3d_offers_to_generate_it(tmp_path, monkeypatch):
     """SMILES ligands have no coordinates. Preparation used to stop there with an API hint; it
@@ -764,10 +771,12 @@ def test_preparing_ligands_without_3d_offers_to_generate_it(tmp_path, monkeypatc
         asked = []
         monkeypatch.setattr(studio, "_ask_missing_3d", lambda count: asked.append(count) or "")
         studio._prepare_ligands()  # cancelled: nothing is submitted, the step stays
+        _pump_until(app, lambda: asked)  # the submit runs off the GUI thread
         assert asked == [2] and not studio.ligand_prep_jobs.job_ids and studio.stepper.current_index == 1
 
         monkeypatch.setattr(studio, "_ask_missing_3d", lambda count: "generate")
         studio._prepare_ligands()
+        _pump_until(app, lambda: studio.stepper.current_index == 2)
         job_ids = list(studio.ligand_prep_jobs.job_ids)
         assert len(job_ids) == 2  # the 3D job, then the preparation waiting for it
         runtime.wait_for_jobs(job_ids, timeout_s=180)
@@ -891,6 +900,7 @@ def test_prepare_ligands_from_table_and_shards(tmp_path, monkeypatch):
                             lambda **kw: calls.append(("rows", None)) or "row-job")
         monkeypatch.setattr(studio.ligand_prep_jobs, "follow", lambda jobs, **_kw: calls.append(("follow", [j[1] for j in jobs])))
         studio._prepare_ligands()
+        _pump_until(app, lambda: calls and calls[-1][0] == "follow")
         # The table first, then the shards, waiting on it: one job after the other.
         assert calls == [("rows", None), ("shards", shard_ids[:1], None), ("follow", ["row-job", "shard-job"])]
 

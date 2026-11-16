@@ -184,3 +184,23 @@ def test_parse_config_without_name_col_still_means_column_one():
     legacy = {"delimiter": " ", "smiles_col": 0}
     assert _parse_smiles_line("CCO ethanol\n", legacy, source_index=0, stem="x")["name"] == "ethanol"
     assert smiles_record("CCO ethanol\n", legacy) == "CCO ethanol"
+
+
+def test_sdf_count_matches_a_line_scan_across_block_edges(tmp_path):
+    # The block counter against the plain definition: `$$$$` lines + an unterminated last record.
+    def by_lines(text):
+        lines = text.split("\n")
+        ends = [i for i, line in enumerate(lines) if line.startswith("$$$$")]
+        after = lines[ends[-1] + 1:] if ends else lines
+        return len(ends) + any(line.strip() for line in after)
+
+    record = "mol\nM  END\n$$$$\n"
+    edge = 1 << 22
+    cases = ["", "\n\n", record * 3, record * 2 + "mol\nM  END\n", "$$$$\n" + record, record + "\n  \n"]
+    for shift in range(-6, 3):  # a terminator straddling the 4 MB block edge, both sides
+        pad = "x" * (edge + shift - 1) + "\n"
+        cases += [pad + record, pad + "$$$$ trailing words\n" + "y\n", pad + record + "tail\n"]
+    for index, text in enumerate(cases):
+        path = tmp_path / f"case{index}.sdf"
+        path.write_text(text, encoding="utf-8")
+        assert count_import_records(path) == by_lines(text), (index, len(text))

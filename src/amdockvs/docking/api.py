@@ -811,10 +811,11 @@ class DockingAPI:
         """Receptors whose active box does not fit the docking `method` (methods.py).
         Receptors without a box are not judged: the user still has to define one. The source
         structure is read: preparation keeps its metals."""
-        from amdockvs.docking.methods import excludes
+        from amdockvs.docking.methods import atoms_in_box, get_method
 
-        self.runtime._require_active_project()
-        with self.runtime.workspace.project_db.get_session() as session:
+        zinc_site = get_method(method).zinc_site
+        project_db = self._project_db()
+        with project_db.get_session() as session:
             rows = session.exec(
                 select(MoleculeRecord, BindingSite)
                 .join(BindingSite, (BindingSite.molecule_id == MoleculeRecord.id) & (BindingSite.is_active == True))  # noqa: E712
@@ -825,10 +826,29 @@ class DockingAPI:
             box = site_payload(site)
             if box is None:
                 continue
-            with self._receptor_as_pdb(receptor) as readable:  # mmCIF too: the Zn check reads PDB columns
-                if readable is not None and excludes(method, readable, box["center"], box["size"]):
-                    misfits.append(int(receptor.id))
+            atoms = self._receptor_zinc_atoms(project_db, receptor)
+            if atoms is not None and atoms_in_box(atoms, box["center"], box["size"]) != zinc_site:
+                misfits.append(int(receptor.id))
         return misfits
+
+    def _receptor_zinc_atoms(self, project_db, receptor):
+        """The Zn atoms of a receptor's source structure, or None when it has none. Read once
+        per payload: payload ids are never reused, so what was read is never stale."""
+        from amdockvs.docking.methods import zinc_atoms
+
+        payload_id = molecule_payload_id(receptor)
+        if payload_id is None:
+            return None
+        key = (str(project_db.db_path), int(payload_id))
+        cache = self.__dict__.setdefault("_zinc_by_payload", {})
+        if key not in cache:
+            text, kind = read_structure(project_db, payload_id)
+            if "zn" not in text.lower():
+                cache[key] = ()  # no Zn anywhere: skip the PDB rendering, the cost of this check
+            else:
+                with scratch_file(text.encode(), f".{kind}") as path, as_pdb(path) as readable:
+                    cache[key] = zinc_atoms(readable)  # mmCIF too: the Zn check reads PDB columns
+        return cache[key]
 
     def check_required(
             self,
