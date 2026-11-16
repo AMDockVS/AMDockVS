@@ -44,6 +44,7 @@ from amdockvs.docking.results.dataset import (
     select_hits,
 )
 from amdockvs.docking.methods import excludes
+from amdockvs.docking.pairs import docking_input_key
 from amdockvs.docking.preparation.state import grid_from_row
 from amdockvs.screening.campaign import (
     advance_shard_run,
@@ -446,6 +447,7 @@ def receptor_targets(project_db, parsed: DockShardsJobParams, output_dir: Path) 
         receptor_path = files["input_path"]
         if excludes(parsed.engine_config.get("method"), receptor_path, center, size):
             continue  # its box does not fit the docking method
+        spacing = float(grid.get("spacing") or parsed.spacing)
         targets.append({
             "receptor_id": int(row.get("id") or 0),
             "receptor_name": str(row.get("name") or ""),
@@ -453,7 +455,10 @@ def receptor_targets(project_db, parsed: DockShardsJobParams, output_dir: Path) 
             "flex_receptor_path": files["flex_path"],
             "box_center": center,
             "box_size": size,
-            "spacing": float(grid.get("spacing") or parsed.spacing),
+            "spacing": spacing,
+            # What its hits are docked against, as `dock_pairs` stamps a row-fed run's results:
+            # a later skip_existing run on the same ligands compares with it.
+            "input_key": docking_input_key(files, center, size, spacing),
         })
     return targets
 
@@ -619,6 +624,7 @@ class DockShardsJobSpec(JobSpec):
                     "box_center": target["box_center"],
                     "box_size": target["box_size"],
                     "spacing": target["spacing"],
+                    "input_key": target.get("input_key", ""),
                     "engine": parsed.engine,
                     "exhaustiveness": parsed.exhaustiveness,
                     "num_modes": parsed.num_modes,

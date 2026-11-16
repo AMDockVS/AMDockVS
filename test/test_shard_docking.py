@@ -293,6 +293,7 @@ def test_docking_streams_each_ligand_into_a_result_shard_and_removes_loose_poses
             "hit_cap": 25,
             "run_id": "run-1",
             "protocol_metadata": {"hash": "proto-1"},
+            "input_key": "inputs-1",
         },
         {
             "shard_id": 4,
@@ -313,6 +314,8 @@ def test_docking_streams_each_ligand_into_a_result_shard_and_removes_loose_poses
     assert shard_jobs.result_metadata(result_path)["selection"] == {
         "mode": "top_n", "cap": 25, "threshold": -8.0,
     }
+    # What the fragment was docked against: its hits' results carry it (skip_existing compares).
+    assert shard_jobs.result_metadata(result_path)["input_key"] == "inputs-1"
     records = pq.read_table(result_path).to_pylist()
     assert [record["score"] for record in records] == [-9.0, -7.0]
     assert records[0]["pose_text"].startswith("ligand-0")
@@ -610,6 +613,7 @@ def test_interrupted_top_n_is_recovered_from_completed_result_shards(tmp_path):
                 result_path,
                 metadata={
                     "run_id": "interrupted",
+                    "input_key": "inputs-recover",
                     "protocol": protocol,
                     "selection": {"mode": "top_n", "cap": 2, "threshold": 0.0},
                 },
@@ -658,6 +662,7 @@ def test_interrupted_top_n_is_recovered_from_completed_result_shards(tmp_path):
         with project_db.get_session() as session:
             results = session.exec(select(DockingResultRecord).order_by(DockingResultRecord.score)).all()
         assert [row.score for row in results] == [-10.0, -9.0]
+        assert {row.input_key for row in results} == {"inputs-recover"}
         from amdockvs.core.payloads import read_structure
 
         assert [read_structure(project_db, row.pose_payload_id)[0] for row in results] == [

@@ -33,7 +33,7 @@ def test_the_preview_takes_out_what_the_run_will_skip():
     vina = get_docking_program("vina")
     stored = resolved_protocol(vina, vina.validate_config(WIDGETS["vina"]), None)["hash"]
 
-    def count_docked_pairs(*, engine, receptor_ids, protocol_hash):
+    def count_docked_pairs(*, engine, receptor_ids, protocol_hash, program=None):
         return 4 if (engine, protocol_hash) == ("vina", stored) else 0
 
     service = DockingReadinessService(type("R", (), {"docking": type("D", (), {

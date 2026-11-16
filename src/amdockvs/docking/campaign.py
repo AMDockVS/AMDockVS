@@ -51,7 +51,7 @@ from amdockvs.screening.campaign import finish_run, plan_targets, reopen_run, st
 
 # What a chunk of `vs` says about one receptor, which an off-target says for itself.
 _RECEPTOR_KEYS = ("receptor_id", "receptor_name", "receptor_path", "flex_receptor_path", "box_center", "box_size",
-                  "spacing", "chunks_total", "shards")
+                  "spacing", "input_key", "chunks_total", "shards")
 
 
 class DockCampaignParams(DockShardsJobParams):

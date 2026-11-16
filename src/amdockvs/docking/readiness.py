@@ -148,6 +148,7 @@ class DockingReadinessService:
                     engine=engine,
                     receptor_ids=list(receptors),
                     protocol_hash=stored or None,
+                    program=protocol.program,
                 ))
             already += docked
             by_program.append((protocol.program, each - docked if skip_existing else each))
