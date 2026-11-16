@@ -28,6 +28,25 @@ from amdockvs.core.payloads import molecule_payload_id, payload_file
 from amdockvs.binding_sites.p2rank import P2RANK_PROFILES, P2RANK_VERSION
 
 
+def normalize_run_id(value: str) -> str:
+    """One run id, normalized once, by whoever is about to use it.
+
+    A run's outputs live in a directory named after it (`pockets/<run_id>/receptor_<id>`), so a
+    run id is stripped and limited to what a directory name may hold. The caller normalizes
+    before it checks whether that run already predicted these receptors, because the params
+    normalize too: ` baseline ` checked as ` baseline ` clashes with nothing and then runs as
+    `baseline`, over the outputs the sites of the real `baseline` were parsed from.
+    """
+    normalized = str(value or "").strip()
+    if (
+        not normalized
+        or normalized in {".", ".."}
+        or re.fullmatch(r"[A-Za-z0-9_.-]+", normalized) is None
+    ):
+        raise ValueError("run_id must contain only letters, numbers, '.', '_' or '-'.")
+    return normalized
+
+
 class P2RankPredictionParams(BaseModel):
     receptor_ids: list[int] = Field(default_factory=list)
     profile: str = Field(default=DEFAULT_P2RANK_PROFILE)
@@ -51,14 +70,7 @@ class P2RankPredictionParams(BaseModel):
     @field_validator("run_id")
     @classmethod
     def validate_run_id(cls, value: str) -> str:
-        normalized = str(value or "").strip()
-        if (
-            not normalized
-            or normalized in {".", ".."}
-            or re.fullmatch(r"[A-Za-z0-9_.-]+", normalized) is None
-        ):
-            raise ValueError("run_id must contain only letters, numbers, '.', '_' or '-'.")
-        return normalized
+        return normalize_run_id(value)
 
     @field_validator("profiles")
     @classmethod
@@ -255,6 +267,7 @@ def p2rank_prediction_job(params: dict, config: dict | None = None) -> Iterator[
 __all__ = [
     "MISSING_STRUCTURE_HINT",
     "missing_structure_message",
+    "normalize_run_id",
     "P2RankPredictionParams",
     "p2rank_prediction_finalize",
     "p2rank_prediction_job",
