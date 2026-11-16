@@ -238,11 +238,18 @@ def prepare_receptor_vina_pdbqt(
     output_path: str | Path,
     flexible_residues: list[str] | None = None,
     exclude_resnames: frozenset[str] = frozenset(),
+    ccd_components: bool = False,
 ) -> ToolResult:
     """Receptor PDBQT (ms_adtools): hydrogens added to the residues that have none, Gasteiger
     charges, non-polar hydrogens merged. ``flexible_residues`` (stored keys) also write
     ``{stem}__flex.pdbqt``; a key not in the receptor, or a residue with nothing to rotate, is
-    skipped, not fatal — one typo should not sink the preparation."""
+    skipped, not fatal — one typo should not sink the preparation.
+
+    ``ccd_components`` types and charges the residues ms_adtools would otherwise guess at from
+    geometry (kept cofactors, modified residues) from their CCD component — see
+    :mod:`amdockvs.docking.preparation.cofactors`. A residue whose component resolved nowhere
+    keeps the guessed values and is named in ``warnings``, because nothing downstream can tell
+    a guessed cofactor from a correct one."""
     source = Path(source_path).expanduser().resolve()
     output = Path(output_path).expanduser().resolve()
     if source.suffix.lower() == ".pdbqt":
@@ -265,9 +272,32 @@ def prepare_receptor_vina_pdbqt(
 
     with as_pdb(source) as readable:
         text = _without_resnames(readable.read_text(encoding="utf-8"), exclude_resnames)
+
+    prep_warnings: list[str] = []
+    use_ccd = False
+    if ccd_components:
+        from amdockvs.docking.preparation.cofactors import (
+            components_without_templates,
+            nonstandard_resnames,
+            seed_component_cache,
+        )
+
+        # Only worth the CCD pass if something survived the filter that geometry cannot type.
+        guessed = nonstandard_resnames(text)
+        if guessed:
+            seed_component_cache()
+            use_ccd = True
+            untyped = components_without_templates(guessed)
+            if untyped:
+                prep_warnings.append(
+                    "No CCD component for " + ", ".join(untyped) + ": typed and charged by "
+                    "geometry alone (no aromaticity, no formal charges, acids left neutral). "
+                    "Ship the component in amdockvs/data/ccd to fix it."
+                )
+
     with scratch_file(text.encode(), ".pdb") as filtered:
         # waters and cofactors were filtered above, by the user's choice: the cleanup leaves them be
-        rigid = prepare_receptor(filtered, repairs="hydrogens", cleanup="nphs_lps")
+        rigid = prepare_receptor(filtered, repairs="hydrogens", cleanup="nphs_lps", ccd=use_ccd)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(rigid, encoding="utf-8")
     present = {(l[21].strip(), l[17:20].strip() + l[22:27].strip()) for l in rigid.splitlines()
@@ -291,6 +321,8 @@ def prepare_receptor_vina_pdbqt(
                 flex_skipped.append(key)
         output.write_text(rigid, encoding="utf-8")
     extra: dict[str, object] = {"source_format": source.suffix.lstrip("."), "copied": False}
+    if use_ccd:
+        extra["ccd_components"] = True
     if flex_applied:
         extra["flex_residues"] = flex_applied
     if flex_skipped:
@@ -307,6 +339,7 @@ def prepare_receptor_vina_pdbqt(
             metadata=extra,
         ),
         metadata={"engine": "vina", "format": "pdbqt", **extra},
+        warnings=tuple(prep_warnings),
     )
 
 

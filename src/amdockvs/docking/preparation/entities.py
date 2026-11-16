@@ -77,7 +77,8 @@ def _prepared(text: str):
     return structure_payload(text, "pdbqt", SERIES_PREPARED)
 
 
-def _prepare_row(row: Mapping[str, Any], *, entity_kind: str, excluded_resnames: frozenset[str]):
+def _prepare_row(row: Mapping[str, Any], *, entity_kind: str, excluded_resnames: frozenset[str],
+                 ccd_components: bool = False):
     """(prepared, flex) of one row: a payload each, or the row's own payload id when it already
     is a PDBQT (no second copy)."""
     data, kind = row.get("structure"), str(row.get("structure_kind") or "")
@@ -94,6 +95,7 @@ def _prepare_row(row: Mapping[str, Any], *, entity_kind: str, excluded_resnames:
             output_path=output_path,
             flexible_residues=[str(k) for k in (row.get("flexible_residues") or [])],
             exclude_resnames=excluded_resnames,
+            ccd_components=ccd_components,
         )
         if result.artifact is None or result.artifact.path is None:
             raise RuntimeError(f"{entity_kind} preparation did not return an output artifact.")
@@ -127,7 +129,12 @@ def prepare_entities_rows(
         try:
             if entity_id <= 0:
                 raise ValueError(f"Invalid {entity_kind} row: missing entity id.")
-            prepared, flex = _prepare_row(row, entity_kind=entity_kind, excluded_resnames=excluded_resnames)
+            prepared, flex = _prepare_row(
+                row, entity_kind=entity_kind, excluded_resnames=excluded_resnames,
+                # Only the kept cofactors need the CCD pass; a dry receptor prepares exactly as
+                # before, so turning this on cannot change an existing prepared receptor.
+                ccd_components=bool(keep_cofactors) and entity_kind == "receptor",
+            )
             updates.append({"entity_id": entity_id, "engine": str(engine), "prepared": prepared, "flex": flex})
         except Exception as exc:
             failures.append({"entity_id": entity_id, "error": str(exc)})
