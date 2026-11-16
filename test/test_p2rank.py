@@ -673,3 +673,33 @@ def test_a_named_run_refuses_to_predict_a_receptor_it_already_predicted(tmp_path
     assert [params["params"]["run_id"] for params in submitted][:2] == ["baseline", "second"]
     assert len(submitted) == 3
     ProjectStore.clear_cached_stores()
+
+
+def test_a_run_id_is_normalized_before_it_is_checked_for_a_collision(tmp_path, monkeypatch):
+    """RR-03: the params strip the run id, so a guard reading the raw text checked ` baseline `,
+    found nothing under that name and then submitted under `baseline` -- straight over the
+    outputs the sites of the real `baseline` were parsed from."""
+    project_store = ProjectStore.open_at(tmp_path / "project.db")
+    output = tmp_path / "results" / "pockets" / "baseline" / "receptor_7"
+    _write_outputs(output)
+    parsed = parse_p2rank_outputs(
+        output_dir=output, receptor_id=7, run_id="baseline", profile="default")
+    with project_store.get_session() as session:
+        session.add(MoleculeRecord(id=7, name="rec", is_receptor=True, has_3d=True))
+        session.commit()
+        session.add(BindingSite(**parsed[0]))
+        session.commit()
+
+    api, submitted = _submitting_pocket_api(project_store, tmp_path, monkeypatch)
+    with pytest.raises(ValueError, match="baseline.*already has predictions for rec"):
+        api.predict(receptor_ids=[7], profile="alphafold", run_id="  baseline  ", force=True)
+    assert submitted == []
+    # The same name, padded, still reaches the job as the one directory it means.
+    api.predict(receptor_ids=[7], profile="alphafold", run_id="  second  ", force=True)
+    assert [params["params"]["run_id"] for params in submitted] == ["second"]
+    # A run id that is not a usable directory name is refused before anything is submitted.
+    for bad in ("..", "../escape", "   "):
+        with pytest.raises(ValueError, match="run_id must contain"):
+            api.predict(receptor_ids=[7], profile="alphafold", run_id=bad, force=True)
+    assert len(submitted) == 1
+    ProjectStore.clear_cached_stores()

@@ -22,7 +22,9 @@ from amdockvs.models import BindingSite, ComplexRecord, MoleculeRecord
 from amdockvs.models.docking import box_error
 from amdockvs.core.payloads import molecule_payload_id, read_structure
 from amdockvs.binding_sites.boxes import box_from_coords
-from amdockvs.binding_sites.jobs import P2RankPredictionParams, missing_structure_message, p2rank_prediction_job
+from amdockvs.binding_sites.jobs import (
+    P2RankPredictionParams, missing_structure_message, normalize_run_id, p2rank_prediction_job,
+)
 from amdockvs.binding_sites.p2rank import (
     P2RANK_PROFILES,
     P2RANK_VERSION,
@@ -379,8 +381,12 @@ class BindingSiteAPI:
         if plan.missing_structure_ids:
             # A run over part of the scope would report "completed" for receptors it never saw.
             raise ValueError(missing_structure_message(plan.missing_structure_names))
-        resolved_run_id = str(run_id or uuid4().hex)
-        if run_id is not None:  # a named run, so it may already hold these receptors
+        named = run_id is not None and str(run_id) != ""
+        # Normalized here, once, and submitted as it was checked: the params normalize the run
+        # id too, so checking the raw text would let ` baseline ` past a guard that `baseline`
+        # fails and then write over that run's outputs.
+        resolved_run_id = normalize_run_id(run_id) if named else uuid4().hex
+        if named:  # a named run, so it may already hold these receptors
             self._reject_overwriting_run_id(resolved_run_id, plan.recalculate_receptor_ids)
         output_dir = self.runtime.get_project_resource_path(RESOURCE_POCKET_PREDICTIONS)
         params = P2RankPredictionParams(
