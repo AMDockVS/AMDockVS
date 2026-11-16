@@ -1,7 +1,6 @@
 <p align="center">
   <img src="src/amdockvs/ui/resources/icons/logo.svg" width="80" alt="AMDockVS logo">
 </p>
-
 <h1 align="center">AMDockVS</h1>
 
 <p align="center"><strong>From molecules to docking results, in one workspace.</strong></p>
@@ -13,10 +12,13 @@
   <a href="https://github.com/AMDockVS/AMDockVS/issues">Report an issue</a>
 </p>
 
+<p align="justify">
 AMDockVS is a desktop application and Python API for molecular docking and virtual
 screening. Prepare structures, explore compound libraries, run docking, and inspect
-poses and interactions. Each project keeps your molecules, settings, jobs, and
-results together.
+poses and interactions. Following the original
+<a href="https://doi.org/10.1186/s13062-020-00267-2">AMDock</a> approach, each project
+keeps your molecules, settings, jobs, and results in one place.
+</p>
 
 ## Cite us
 
@@ -50,8 +52,6 @@ Use the desktop interface for interactive work or the
   activities for other compounds.
 
 ![Docking Studio with ranked poses and a selected protein–ligand complex in PyMOL](docs/images/AMDockVS_docking_studio_results.png)
-
-Job execution in AMDockVS is powered by [MolSuite](https://molsuite.github.io/).
 
 ## Get started
 
