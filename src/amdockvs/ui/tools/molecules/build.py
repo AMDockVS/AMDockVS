@@ -132,6 +132,9 @@ class MoleculeBuildWidget(QWidget):
         self.pkasso_model.addItem("MolGpKa + Uni-pKa (precise)", "mixed")
         self.pkasso_threads = _spinbox(minimum=1, maximum=128, value=1)
         self.pkasso_gpu = _checkbox("Request one GPU", checked=False)
+        # Whether pKasso's PyTorch can run on this GPU: None until the asynchronous probe answers.
+        # The box opens only on a yes, which is also what makes Run's own check a cached answer.
+        self._pkasso_gpu_support = None
         self.pkasso_model.currentIndexChanged.connect(self._sync_pkasso_options)
         self.pkasso_status = hint_label("Checking runtime…", small)
         self.protonation_settings_button = QPushButton("Open External tools...", small)
@@ -482,9 +485,14 @@ class MoleculeBuildWidget(QWidget):
 
     def _sync_pkasso_options(self, *_args) -> None:
         mixed = self.pkasso_model.currentData() == "mixed"
-        self.pkasso_gpu.setEnabled(mixed)
-        if not mixed:
+        support = self._pkasso_gpu_support
+        usable = bool(support is not None and support.usable)
+        self.pkasso_gpu.setEnabled(mixed and usable)
+        if not (mixed and usable):
             self.pkasso_gpu.setChecked(False)
+        self.pkasso_gpu.setToolTip(
+            "Checking whether the GPU can be used…" if support is None else str(support.message)
+        )
 
     def _sync_small_molecule_protonation_options(self, *_args) -> None:
         method = self._active_protonation_method()
@@ -652,11 +660,25 @@ class MoleculeBuildWidget(QWidget):
             openbabel=bool(openbabel.installed),
             pkasso=bool(pkasso.installed),
         )
+        self._pkasso_gpu_support = None
+        probe = getattr(self.runtime.chemistry, "pkasso_gpu_support", None)
+        if pkasso.installed and callable(probe):
+            # Its own round trip: starting PyTorch and CUDA takes seconds the first time, and
+            # pKasso's own status should not wait for it.
+            self.pkasso_status.setText(f"{pkasso.message} Checking the GPU…")
+            run_async(probe, lambda support, said=str(pkasso.message): self._apply_pkasso_gpu(said, support),
+                      on_error=lambda _exc: None, compact=True)
+        self._sync_pkasso_options()
         method, self._activate_after_check = self._activate_after_check, None
         if method and self._protonation_tool_ready.get(method):
             self.ligand_protonation_method.setCurrentIndex(self.ligand_protonation_method.findData(method))
             self.ligand_protonation_section.setChecked(True)
         self._sync_small_molecule_protonation_options()
+
+    def _apply_pkasso_gpu(self, status_message: str, support) -> None:
+        self._pkasso_gpu_support = support
+        self.pkasso_status.setText(f"{status_message} {support.message}")
+        self._sync_pkasso_options()
 
     def _show_protonation_tool_error(self, title: str, exc: Exception) -> None:
         self.openbabel_status.setText("Runtime status unavailable.")

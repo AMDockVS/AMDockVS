@@ -360,6 +360,38 @@ def test_a_finished_build_lists_the_molecules_it_excluded(build_widget, monkeypa
     first = groups[0].child(0) if "3D" in groups[0].text(0) else groups[1].child(0)
     assert [first.text(c) for c in range(3)] == ["ZINC7", "7", "generate_3d: RDKit could not generate a 3D conformer."]
 
+@pytest.mark.parametrize(("usable", "message"), [
+    (False, "GPU: Example GPU (compute 6.1) can't be used by pKasso's PyTorch, "
+            "built for compute 7.5 to 12.0; Uni-pKa runs on the CPU."),
+    (False, "No GPU is visible to pKasso; Uni-pKa runs on the CPU."),
+    (True, "GPU: Example GPU is ready."),
+], ids=["unusable-card", "no-gpu", "usable"])
+def test_pkasso_offers_the_gpu_only_when_its_pytorch_can_run_on_it(build_widget, monkeypatch, usable, message):
+    """pKasso said it was ready whatever the GPU, so the box offered a card its PyTorch had no
+    kernels for, and every molecule then failed with "no kernel image is available". Build now says
+    what the GPU can do, and the box opens only when it can."""
+    from amdockvs.chemistry.protonation import GpuSupport
+    from amdockvs.ui.tools.molecules import build as build_module
+
+    chemistry = build_widget.runtime.chemistry
+    chemistry.small_molecule_protonation_tool_status = (
+        lambda name: SimpleNamespace(installed=True, message=f"{name} is ready.")
+    )
+    chemistry.pkasso_gpu_support = lambda: GpuSupport(usable, message)
+    monkeypatch.setattr(build_module, "run_async", lambda job, done, **_kw: done(job()))
+    build_widget.pkasso_model.setCurrentIndex(build_widget.pkasso_model.findData("mixed"))
+    assert not build_widget.pkasso_gpu.isEnabled()  # not before the GPU has been asked about
+
+    build_widget._refresh_protonation_tools()
+
+    assert build_widget.pkasso_status.text() == f"pkasso is ready. {message}"
+    assert build_widget.pkasso_gpu.isEnabled() is usable
+    assert build_widget.pkasso_gpu.toolTip() == message
+    build_widget.pkasso_gpu.setChecked(True)
+    build_widget.pkasso_model.setCurrentIndex(build_widget.pkasso_model.findData("molgpka"))
+    assert not build_widget.pkasso_gpu.isEnabled() and not build_widget.pkasso_gpu.isChecked()  # MolGpKa: no GPU
+
+
 def test_a_protonation_tool_installed_from_settings_becomes_the_method_in_use(build_widget, monkeypatch):
     from amdockvs.ui.shell.settings_tools import ExternalToolsPage, tool_events
     from amdockvs.ui.tools.molecules import build as build_module
