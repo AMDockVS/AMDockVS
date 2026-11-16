@@ -20,7 +20,7 @@ results together.
 
 ## Cite us
 
-<a href="https://www.scimagojr.com/journalsearch.php?q=5800173376&amp;tip=sid&amp;exact=no" title="SCImago Journal &amp; Country Rank"><img border="0" align="right" src="docs/images/biology-direct-sjr.png" alt="Biology Direct — SCImago Journal &amp; Country Rank" /></a>
+<a href="https://www.scimagojr.com/journalsearch.php?q=5800173376&amp;tip=sid&amp;clean=0" title="SCImago Journal &amp; Country Rank"><img border="0" align="right" src="https://www.scimagojr.com/journal_img.php?id=5800173376" alt="SCImago Journal &amp; Country Rank" /></a>
 
 If you use AMDock or AMDockVS in your research, please cite the original paper:
 
