@@ -51,8 +51,9 @@ def _sdf_bytes(entries: Sequence[tuple[int, Any]]) -> bytes:
 def _run(command: list[str], *, timeout: int) -> None:
     result = subprocess.run(command, capture_output=True, text=True, timeout=timeout, check=False)
     if result.returncode != 0:
-        detail = result.stderr.strip() or result.stdout.strip() or "unknown error"
-        raise RuntimeError(f"Protonation command failed: {detail}")
+        from amdockvs.integrations.envs import tool_failed
+
+        raise tool_failed(Path(command[0]).stem, result.returncode, result.stderr.strip() or result.stdout)
 
 
 def _dimorphite(entries: Sequence[tuple[int, Any]], *, ph: float) -> dict[int, Any]:

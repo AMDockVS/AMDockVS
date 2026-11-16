@@ -83,7 +83,9 @@ def _run_unidock(
     if flex_path is not None:
         command += ["--flex", str(flex_path)]
     result = run_program([*command, *options], cwd=str(work))
-    why = f"Uni-Dock failed (exit {result.returncode}): {(result.stderr or result.stdout or 'no output').strip()[-500:]}"
+    from amdockvs.integrations.envs import tool_failed
+
+    why = str(tool_failed("unidock", result.returncode, (result.stderr or result.stdout or "")[-500:]))
     outputs = {name: work / f"{name}_out.pdbqt" for name in ligands}
     return {name: path if path.exists() else why for name, path in outputs.items()}
 

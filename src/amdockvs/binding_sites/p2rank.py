@@ -305,11 +305,10 @@ def _run_managed(command: list[str], *, cwd: Path, env: dict[str, str]) -> tuple
             for signum, handler in previous.items():
                 signal.signal(signum, handler)
     if process is None or process.returncode != 0:
-        code = None if process is None else process.returncode
-        raise RuntimeError(
-            f"P2Rank failed with exit code {code}: "
-            f"{str(stderr or '').strip() or str(stdout or '').strip() or 'unknown error'}"
-        )
+        from amdockvs.integrations.envs import tool_failed
+
+        code = -1 if process is None else process.returncode  # ponytail: -1 = it never started
+        raise tool_failed("P2Rank", code, str(stderr or "").strip() or str(stdout or ""))
     return str(stdout or ""), str(stderr or "")
 
 

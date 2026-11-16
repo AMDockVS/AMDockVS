@@ -275,10 +275,10 @@ def _run_vina(command: list[str], progress: Callable[[float], None] | None = Non
     stdout_text = str(stdout_text or "")
     stderr_text = str(stderr_text or "")
     if process.returncode != 0:
-        raise RuntimeError(
-            f"vina binary failed with exit code {process.returncode}: "
-            f"{stderr_text.strip() or stdout_text.strip() or 'unknown error'}"
-        )
+        from amdockvs.integrations.envs import tool_failed
+
+        tool = "qvina" if "qvina" in Path(command[0]).name.lower() else "vina"
+        raise tool_failed(tool, process.returncode, stderr_text.strip() or stdout_text)
     return stdout_text
 
 

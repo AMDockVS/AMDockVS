@@ -125,7 +125,9 @@ def autogrid(
     command = [executable or autogrid_command(), "-p", gpf.name, "-l", f"{stem}.glg"]
     proc = run_program(command, cwd=str(work))
     if proc.returncode != 0:
-        raise RuntimeError(f"autogrid4 failed ({proc.returncode}): {(proc.stderr or proc.stdout).strip()[:500]}")
+        from amdockvs.integrations.envs import tool_failed
+
+        raise tool_failed("autogrid", proc.returncode, proc.stderr or proc.stdout)
     return work / f"{stem}.maps.fld"
 
 
@@ -137,7 +139,9 @@ def zinc_receptor(receptor_pdbqt: Path, work: Path) -> Path:
         cwd=str(work),
     )
     if proc.returncode != 0:
-        raise RuntimeError(f"zinc_pseudo failed ({proc.returncode}): {(proc.stderr or proc.stdout).strip()[:500]}")
+        from amdockvs.integrations.envs import tool_failed
+
+        raise tool_failed("zinc_pseudo", proc.returncode, proc.stderr or proc.stdout)
     if "TZ" not in atom_types(out):
         raise RuntimeError(f"No zinc in {receptor_pdbqt.name} can take a ligand: no TZ pseudo-atom was placed.")
     return out
