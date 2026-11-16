@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from contextlib import suppress
 from sqlite3 import OperationalError
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from ms_flow.query import db_rows
 from ms_flow.query import QuerySpec
@@ -81,16 +81,18 @@ def existing_result_pairs(
     engine: str,
     run_kind: str | None = None,
     protocol_hash: str | None = None,
-) -> set[tuple[int, int]]:
+) -> set[tuple[int, int, str]]:
+    """`(receptor, ligand, input_key)` of the results there are: the key says what each was
+    docked against, for the caller to compare with what it would dock now."""
     record = DockingResultRecord
-    pairs: set[tuple[int, int]] = set()
+    pairs: set[tuple[int, int, str]] = set()
     with suppress(OperationalError):  # results table not created until the first docking run
         with project_db.get_session() as session:
-            statement = select(record.receptor_molecule_id, record.ligand_molecule_id).where(
+            statement = select(record.receptor_molecule_id, record.ligand_molecule_id, record.input_key).where(
                 record.docking_run_id.in_(runs_where(engine=engine, run_kind=run_kind,
                                                      protocol_hash=str(protocol_hash or "").strip())))
-            for receptor_id, ligand_id in session.exec(statement.distinct()).all():
-                pairs.add((int(receptor_id), int(ligand_id)))
+            for receptor_id, ligand_id, input_key in session.exec(statement.distinct()).all():
+                pairs.add((int(receptor_id), int(ligand_id), str(input_key or "")))
     return pairs
 
 
@@ -725,10 +727,12 @@ def count_docked_pairs(
     receptor_ids: list[int] | None = None,
     protocol_hash: str | None = None,
     run_kind: str | None = "screening",
+    input_keys: Mapping[int, Iterable[str]] | None = None,
 ) -> int:
     """How many receptor-ligand pairs already have a result. A COUNT, not the pair set:
     the run's skip-existing guard materializes the pairs because it has to compare them
-    one by one; a preview only needs the number."""
+    one by one; a preview only needs the number. `input_keys` (receptor → keys) counts only
+    the results docked against those inputs, as the run's skip does."""
     runs = ["1=1"]  # the docking runs that count
     if str(engine or "").strip():
         runs.append(f"engine = {code_id('engine', str(engine).strip().lower())}")
@@ -742,6 +746,13 @@ def count_docked_pairs(
         # An explicit selection that resolves to nothing means "no receptors", not "all of
         # them": IN (NULL) is never true, so the count is 0 instead of the whole project.
         clauses.append(f"receptor_molecule_id IN ({','.join(str(value) for value in ids) or 'NULL'})")
+    if input_keys is not None:
+        def quoted(key) -> str:
+            return "'{}'".format(str(key).replace("'", "''"))
+
+        current = [f"(receptor_molecule_id = {int(receptor)} AND input_key IN ({','.join(map(quoted, keys)) or 'NULL'}))"
+                   for receptor, keys in input_keys.items()]
+        clauses.append(f"({' OR '.join(current) or '0'})")
     rows = db_rows(
         project_db,
         query=(

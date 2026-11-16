@@ -7,6 +7,7 @@ import math
 from uuid import uuid4
 
 from amdockvs.chemistry.pipeline import LIGAND_STEPS, normalize_steps
+from amdockvs.chemistry.protonation import GpuSupport, known_pkasso_gpu_support, pkasso_gpu_support
 from ms_flow.query import db_count
 
 from amdockvs.chemistry.jobs import (
@@ -48,6 +49,14 @@ class ChemistryAPI:
 
     def install_small_molecule_protonation_tool(self, name: str) -> ProtonationToolStatus:
         return install_protonation_tool(self.runtime, name)
+
+    def pkasso_gpu_support(self) -> GpuSupport:
+        """Whether pKasso's Uni-pKa can run on this machine's GPU. Takes seconds the first time
+        for an installation (it starts PyTorch and CUDA there): not on a GUI thread."""
+        status = protonation_tool_status(self.runtime, "pkasso")
+        if not status.installed or status.command is None:
+            return GpuSupport(False, "pKasso is not installed.")
+        return pkasso_gpu_support(status.command)
 
     def _estimate_scope_count(
         self,
@@ -255,7 +264,6 @@ class ChemistryAPI:
             executor_name=executor_name,
             depends_on=depends_on,
             priority=SHARDS_PRIORITY,
-            result_handler_kwargs={"project_db": project_db, "generation_id": generation_id},
         )
         self.runtime.track_job_items(
             job_id, lambda: shard_generation_progress(project_db, generation_id), unit="ligands"
@@ -354,6 +362,13 @@ class ChemistryAPI:
             if not status.installed or status.command is None:
                 raise RuntimeError(f"{status.message} Install its runtime from Build first.")
             params["tool_command"] = str(status.command)
+            # A GPU pKasso's PyTorch cannot run on would only be held idle: the bridge puts
+            # Uni-pKa on the CPU then. So a known "no" frees it. Only a known answer, never the
+            # probe itself: it takes seconds and this runs on Run's GUI thread. Unasked -- a
+            # script that never opened Build -- the GPU stays requested and the bridge decides.
+            known = known_pkasso_gpu_support(status.command) if use_gpu else None
+            if known is not None and not known.usable:
+                params["gpu"] = False
         return params
 
     @staticmethod

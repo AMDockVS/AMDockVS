@@ -619,6 +619,91 @@ def test_the_job_names_requested_receptors_it_cannot_read(tmp_path):
     ProjectStore.clear_cached_stores()
 
 
+def _submitting_pocket_api(project_store: ProjectStore, tmp_path, monkeypatch) -> tuple[BindingSiteAPI, list]:
+    """A pocket API whose P2Rank is installed and whose jobs are recorded, not run."""
+    from amdockvs.binding_sites import api as api_module
+    from amdockvs.binding_sites.p2rank import P2RankInstallation
+
+    monkeypatch.setattr(api_module, "p2rank_status", lambda: P2RankInstallation(
+        version=P2RANK_VERSION, home=tmp_path / "p2rank", command=tmp_path / "p2rank" / "prank",
+        java_command=tmp_path / "java", installed=True, java_version=17, message="ready",
+    ))
+    submitted: list = []
+    runtime = SimpleNamespace(
+        workspace=SimpleNamespace(project_db=project_store),
+        _require_active_project=lambda: None,
+        get_project_resource_path=lambda _resource: tmp_path / "results" / "pockets",
+        submit_job=lambda *a, **k: submitted.append(k) or f"job-{len(submitted)}",
+    )
+    return BindingSiteAPI(runtime), submitted
+
+
+def test_a_named_run_refuses_to_predict_a_receptor_it_already_predicted(tmp_path, monkeypatch):
+    """RR-03: a run's outputs live in one directory named after it, while its sites are only
+    ever appended. Predicting a receptor twice under one run id wrote the second run's CSV and
+    points over the files the first batch of sites was parsed from, leaving two batches saying
+    the same run and rank with different scores and both pointing at the survivor."""
+    project_store = ProjectStore.open_at(tmp_path / "project.db")
+    output = tmp_path / "results" / "pockets" / "baseline" / "receptor_7"
+    _write_outputs(output)
+    parsed = parse_p2rank_outputs(
+        output_dir=output, receptor_id=7, run_id="baseline", profile="default")
+    with project_store.get_session() as session:
+        session.add(MoleculeRecord(id=7, name="rec", is_receptor=True, has_3d=True))
+        session.add(MoleculeRecord(id=8, name="other", is_receptor=True, has_3d=True))
+        session.commit()
+        session.add(BindingSite(**parsed[0]))
+        session.commit()
+        before = int(session.exec(select(BindingSite.id)).one())
+
+    api, submitted = _submitting_pocket_api(project_store, tmp_path, monkeypatch)
+    with pytest.raises(ValueError, match="baseline.*already has predictions for rec"):
+        api.predict(receptor_ids=[7], profile="alphafold", run_id="baseline", force=True)
+    assert submitted == []
+    with project_store.get_session() as session:  # nothing was written on the way to refusing
+        assert [int(site.id) for site in session.exec(select(BindingSite)).all()] == [before]
+    assert (output / "protein.pdb_predictions.csv").exists()
+
+    # Another receptor joins the same named run: its own directory, nothing to overwrite.
+    api.predict(receptor_ids=[8], profile="alphafold", run_id="baseline", force=True)
+    # Another run id keeps its own history and its own directory, as before.
+    api.predict(receptor_ids=[7], profile="alphafold", run_id="second", force=True)
+    # And an unnamed run is never in the way of re-predicting.
+    api.predict(receptor_ids=[7], profile="alphafold", force=True)
+    assert [params["params"]["run_id"] for params in submitted][:2] == ["baseline", "second"]
+    assert len(submitted) == 3
+    ProjectStore.clear_cached_stores()
+
+
+def test_a_run_id_is_normalized_before_it_is_checked_for_a_collision(tmp_path, monkeypatch):
+    """RR-03: the params strip the run id, so a guard reading the raw text checked ` baseline `,
+    found nothing under that name and then submitted under `baseline` -- straight over the
+    outputs the sites of the real `baseline` were parsed from."""
+    project_store = ProjectStore.open_at(tmp_path / "project.db")
+    output = tmp_path / "results" / "pockets" / "baseline" / "receptor_7"
+    _write_outputs(output)
+    parsed = parse_p2rank_outputs(
+        output_dir=output, receptor_id=7, run_id="baseline", profile="default")
+    with project_store.get_session() as session:
+        session.add(MoleculeRecord(id=7, name="rec", is_receptor=True, has_3d=True))
+        session.commit()
+        session.add(BindingSite(**parsed[0]))
+        session.commit()
+
+    api, submitted = _submitting_pocket_api(project_store, tmp_path, monkeypatch)
+    with pytest.raises(ValueError, match="baseline.*already has predictions for rec"):
+        api.predict(receptor_ids=[7], profile="alphafold", run_id="  baseline  ", force=True)
+    assert submitted == []
+    # The same name, padded, still reaches the job as the one directory it means.
+    api.predict(receptor_ids=[7], profile="alphafold", run_id="  second  ", force=True)
+    assert [params["params"]["run_id"] for params in submitted] == ["second"]
+    # A run id that is not a usable directory name is refused before anything is submitted.
+    for bad in ("..", "../escape", "   "):
+        with pytest.raises(ValueError, match="run_id must contain"):
+            api.predict(receptor_ids=[7], profile="alphafold", run_id=bad, force=True)
+    assert len(submitted) == 1
+
+
 def _prediction_outputs(output_root: Path, run: str, receptor_id: int) -> Path:
     """One prediction's directory, with the four files no site row ever names beside the three
     it does — what P2Rank actually leaves behind."""

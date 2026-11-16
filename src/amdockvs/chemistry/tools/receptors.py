@@ -40,25 +40,40 @@ def protonate_receptor_reduce_file(
     output = Path(output_path).expanduser().resolve()
     executable = _require_executable("reduce", command)
     output.parent.mkdir(parents=True, exist_ok=True)
+    # reduce's exit status says nothing about its result, either way: 255 on a good -Trim, 1 on a
+    # good -BUILD of any structure with a chain break (a warning: the output is complete), and 0
+    # with nothing but its `USER MOD` header for an input it could not read at all. So the atoms
+    # are the check, never the exit code.
     # -BUILD on a structure that already carries hydrogens duplicates them, so trim first.
-    # reduce exits 255 even on a good -Trim, so the output itself is the success check.
     trimmed = subprocess.run(
         [executable, "-Trim", "-Quiet", str(source)],
         capture_output=True,
         text=True,
         check=False,
     )
-    if not trimmed.stdout.strip():
-        raise RuntimeError(f"reduce -Trim produced no output: {trimmed.stderr.strip()[:400]}")
+    given = _atom_records(trimmed.stdout)
+    if not given:
+        raise RuntimeError(f"reduce found no atoms to protonate: {trimmed.stderr.strip()[:400]}")
     built = subprocess.run(
         [executable, "-BUILD", "-Quiet", "-"],
         input=trimmed.stdout,
         capture_output=True,
         text=True,
-        check=True,
+        check=False,
     )
+    # -BUILD only adds hydrogens (and flips side chains in place): it never returns fewer atoms.
+    returned = _atom_records(built.stdout)
+    if returned < given:
+        raise RuntimeError(
+            f"reduce returned {returned} atoms for the {given} it was given "
+            f"(exit {built.returncode}): {built.stderr.strip()[-400:]}"
+        )
     output.write_text(built.stdout, encoding="utf-8")
     return output
+
+
+def _atom_records(pdb_text: str) -> int:
+    return sum(line.startswith(("ATOM", "HETATM")) for line in pdb_text.splitlines())
 
 
 def protonate_receptor_pdb2pqr_file(
@@ -78,7 +93,7 @@ def protonate_receptor_pdb2pqr_file(
     # prep, our complex builder) sees an empty element and dies. pdb2pqr writes both in one run,
     # and the PQR lands beside it, in the work folder `run_receptor_tool` removes on return.
     pqr = output.with_suffix(".pqr")
-    subprocess.run(
+    result = subprocess.run(
         [
             executable,
             f"--ff={forcefield}",
@@ -89,11 +104,19 @@ def protonate_receptor_pdb2pqr_file(
             str(source),
             str(pqr),
         ],
-        check=True,
+        check=False,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
     )
+    if result.returncode != 0:
+        from amdockvs.integrations.envs import tool_failed
+
+        # pdb2pqr says why in its CRITICAL lines -- "residue SER A 438 is missing its backbone:
+        # complete the gaps first" -- then prints a traceback that ends in a bare RuntimeError.
+        # The error keeps only the end of what it is given, so it is given the why.
+        verdict = "\n".join(line for line in result.stderr.splitlines() if line.startswith("CRITICAL:"))
+        raise tool_failed("pdb2pqr", result.returncode, verdict or result.stderr)
     return output
 
 
@@ -108,7 +131,9 @@ def _run_openmm(op: str, source_path: str | Path, output_path: str | Path, comma
     result = subprocess.run([python, str(Path(__file__).with_name("openmm_runner.py")), json.dumps(request)],
                             capture_output=True, text=True, check=False)
     if result.returncode != 0:
-        raise RuntimeError(f"OpenMM {op} failed: {result.stderr.strip()[-2000:]}")
+        from amdockvs.integrations.envs import tool_failed
+
+        raise tool_failed("openmm", result.returncode, result.stderr)
     return output
 
 

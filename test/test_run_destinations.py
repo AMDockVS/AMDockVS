@@ -27,6 +27,7 @@ def napping(params: dict, config: dict):
     yield from ({"n": n} for n in range(int(params["naps"])))
 
 
+@pytest.mark.usefixtures("inline_engine")
 def test_a_job_goes_to_an_active_executor_it_can_run_on(tmp_path, monkeypatch):
     from types import SimpleNamespace
 

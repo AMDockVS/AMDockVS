@@ -19,7 +19,8 @@ from amdockvs.core.payloads import structure_payload
 from amdockvs.docking.engines.registry import run_docking_chunk
 from amdockvs.docking.preparation.shards import extract_ligands
 from amdockvs.docking.results.dataset import (
-    ResultFragmentWriter, _pose, _selected_payloads, _summary_rows, local_pose_path, result_fragment_path, result_row,
+    ResultFragmentWriter, _pose, _selected_payloads, _summary_rows, local_pose_path, result_fragment_path,
+    result_metadata, result_row, shard_selection,
 )
 
 # How the cap is spent: the best `cap` of everything scored per receptor, picked from the result
@@ -99,6 +100,9 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
         "hits": [],
         "hits_found": 0,
         "result_shard": "",
+        # What this receipt will stand for: the whole shard, or the Top-N of an off-target stage.
+        "selection": shard_selection(payload.get("selected_from_receptor_id")),
+        "input_key": str(payload.get("input_key") or ""),
     }
     shard_path = str(shard.get("shard_path") or "")
     if not shard_path:
@@ -149,6 +153,7 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
                 "slot_count": header["slot_count"],
                 "import_batch_id": shard.get("import_batch_id"),
                 "run_id": str(payload.get("run_id") or ""),
+                "input_key": str(payload.get("input_key") or ""),
                 "protocol": dict(payload.get("protocol_metadata") or {}),
                 "receptor_id": envelope["receptor_id"],
                 "selection": {
@@ -190,6 +195,7 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
                             shard=shard,
                             docking_run_id=payload.get("docking_run_id"),
                         )
+                        hit["input_key"] = str(payload.get("input_key") or "")
                         # Compressed when pickled, so in the worker: the parent only appends it.
                         hit["pose"] = structure_payload(stored["pose_text"], stored["pose_suffix"], SERIES_POSES)
                         hits.append(hit)
@@ -295,6 +301,7 @@ def hit_poses(element: dict) -> dict:
     """The ranked of one fragment as hits (the rows `ingest_hits` takes), each with its pose."""
     refs = element["refs"]
     payloads = _selected_payloads(Path(element["fragment"]), {(int(r["ligand_id"]), int(r["receptor_id"])) for r in refs})
+    input_key = str(result_metadata(element["fragment"]).get("input_key") or "")
     hits = []
     for ref in refs:
         payload = payloads.get((int(ref["ligand_id"]), int(ref["receptor_id"])))
@@ -312,6 +319,7 @@ def hit_poses(element: dict) -> dict:
             "score_type": str(payload.get("score_type") or ""),
             "pose_rank": 1,
             "receptor_molecule_id": int(payload["receptor_id"]),
+            "input_key": input_key,
             "_pose_text": pose_text,
             "_pose_suffix": pose_suffix,
             "_result_shard": element["fragment"],

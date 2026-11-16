@@ -1,18 +1,15 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from contextlib import contextmanager
 from copy import deepcopy
-from pathlib import Path
 from typing import Any, Optional
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel
 
-from amdockvs.core.configuration import (
-    DEFAULT_MAX_2D_PREVIEW_HEAVY_ATOMS,
-    MAX_2D_PREVIEW_HEAVY_ATOMS_PATH,
-)
+from amdockvs.core.configuration import MAX_2D_PREVIEW_HEAVY_ATOMS_PATH
 from amdockvs.core.payloads import molecule_payload_id, payload_store
 from amdockvs.io.batches import batch_field
 from amdockvs.ui.common.async_query import run_async
@@ -26,8 +23,6 @@ from ms_components.tool_panel import ActionBar
 _JOB_BAR_LINGER_MS = 4000
 
 
-_PREVIEW_WIDTH = 256
-_PREVIEW_HEIGHT = 192
 PREVIEW_2D_COLUMN_FIELD = "__preview_2d__"
 
 
@@ -70,99 +65,6 @@ def detect_preview_theme() -> str:
     return "dark" if brightness < 128 else "light"
 
 
-def _with_preview_frame(svg: str, *, width: int, height: int) -> str:
-    if not svg:
-        return ""
-    rect = (
-        f'<rect x="0.5" y="0.5" width="{width - 1}" height="{height - 1}" '
-        f'rx="8" ry="8" fill="transparent"/>'
-    )
-    svg_tag_start = svg.find("<svg")
-    if svg_tag_start < 0:
-        return svg
-    svg_tag_end = svg.find(">", svg_tag_start)
-    if svg_tag_end < 0:
-        return svg
-    return svg[: svg_tag_end + 1] + rect + svg[svg_tag_end + 1 :]
-
-
-def _molecule_svg_for_path(
-    path_text: str,
-    width: int = _PREVIEW_WIDTH,
-    height: int = _PREVIEW_HEIGHT,
-    theme: str = "light",
-    max_heavy_atoms: int = DEFAULT_MAX_2D_PREVIEW_HEAVY_ATOMS,
-) -> str:
-    path = Path(str(path_text or "")).expanduser().resolve()
-    if not path.exists():
-        return ""
-    try:
-        from rdkit import Chem
-        from rdkit.Chem.Draw import rdMolDraw2D
-    except Exception:
-        return ""
-
-    mol = None
-    suffix = path.suffix.lower()
-    try:
-        from amdockvs.io.formats import read_mol
-
-        mol = read_mol(path)
-
-    except Exception:
-        mol = None
-
-    if mol is None:
-        return ""
-
-    try:
-        if mol.GetNumHeavyAtoms() > max_heavy_atoms:
-            return ""
-        mol = Chem.RemoveHs(mol)
-    except Exception:
-        return ""
-
-    try:
-        from rdkit.Chem import AllChem
-
-        AllChem.Compute2DCoords(mol)
-    except Exception:
-        pass
-
-    try:
-        rdMolDraw2D.PrepareMolForDrawing(mol)
-        drawer = rdMolDraw2D.MolDraw2DSVG(width, height)
-        options = drawer.drawOptions()
-        options.clearBackground = False
-        if theme == "dark" or (theme == "auto" and detect_preview_theme() == "dark"):
-            try:
-                rdMolDraw2D.SetDarkMode(drawer)
-            except (AttributeError, TypeError):
-                pass
-        drawer.DrawMolecule(mol)
-        drawer.FinishDrawing()
-        return _with_preview_frame(drawer.GetDrawingText(), width=width, height=height)
-    except Exception:
-        return ""
-
-
-def _molecule_svg_for_payload(
-    data: bytes,
-    kind: str,
-    width: int = _PREVIEW_WIDTH,
-    height: int = _PREVIEW_HEIGHT,
-    theme: str = "light",
-    max_heavy_atoms: int = DEFAULT_MAX_2D_PREVIEW_HEAVY_ATOMS,
-) -> str:
-    """The depiction of one stored structure. The reader takes paths (`io.formats.read_mol` is the
-    one reader of the app), so the bytes pass through a scratch file that lives only here."""
-    from ms_flow.payloads import scratch_file
-
-    with scratch_file(data, f".{kind or 'sdf'}") as path:
-        return _molecule_svg_for_path(str(path), width=width, height=height, theme=theme,
-                                      max_heavy_atoms=max_heavy_atoms)
-
-
 class _PreviewReady(QObject):
     ready = Signal()
 
@@ -170,6 +72,30 @@ class _PreviewReady(QObject):
 # Emitted when a depiction lands in the cache: tables showing the 2D column repaint.
 PREVIEW_READY = _PreviewReady()
 _PREVIEW_CACHE_SIZE = 1024
+_depiction_pool = None
+
+
+def _depict(data: bytes, kind: str, **options) -> str:
+    """One depiction, drawn in a spawned process: RDKit holds the GIL while it reads and draws,
+    and nine of those in GUI-process threads stalled a table's first paint ~100 ms.
+    ponytail: one process for the app's lifetime (spawned on the first preview); a broken one
+    is replaced on the next call."""
+    global _depiction_pool
+    import multiprocessing
+    from concurrent.futures import ProcessPoolExecutor
+    from concurrent.futures.process import BrokenProcessPool
+
+    from amdockvs.chemistry.depiction import molecule_svg_for_payload
+
+    if _depiction_pool is None:
+        _depiction_pool = ProcessPoolExecutor(1, mp_context=multiprocessing.get_context("spawn"))
+    pool = _depiction_pool
+    try:
+        return pool.submit(molecule_svg_for_payload, data, kind, **options).result()
+    except BrokenProcessPool:
+        if _depiction_pool is pool:
+            _depiction_pool = None
+        raise
 
 
 class MoleculePreviews:
@@ -201,7 +127,7 @@ class MoleculePreviews:
             def draw() -> str:
                 data = store.get(key[0])
                 kind = store.kinds([key[0]]).get(key[0], "")
-                return _molecule_svg_for_payload(data, kind, theme=theme, max_heavy_atoms=key[2])
+                return _depict(data, kind, theme=theme, max_heavy_atoms=key[2])
 
             run_async(draw, lambda svg: self._landed(key, svg), lambda error: self._landed(key, ""))
         return ""
@@ -628,7 +554,29 @@ class BoundTableWidget(QWidget):
         else:
             table._builder.add_filter(spec)
         table._sync_header()  # the column shows it is filtered, as when the user filters it
-        table.refresh()
+        self._reload()
+
+    _held = 0  # inside push_scope/pop_scope: the reloads wait for the end
+    _dirty = False
+
+    def _reload(self) -> None:
+        if self._held:
+            self._dirty = True
+        else:
+            self._table.refresh()
+
+    @contextmanager
+    def _one_reload(self):
+        """A scope changes filters and a clause together: one query for all of them, not one each
+        (each is a first-page fetch on the GUI thread)."""
+        self._held += 1
+        try:
+            yield
+        finally:
+            self._held -= 1
+            if not self._held and self._dirty:
+                self._dirty = False
+                self._table.refresh()
 
     def set_base_clause(self, key: str, clause=None) -> None:
         """Like set_base_filter, for a condition FilterSpec can't express (a subquery).
@@ -643,7 +591,8 @@ class BoundTableWidget(QWidget):
         if self._base_clauses.get(key) is clause:
             return
         self._base_clauses[key] = clause
-        table.set_external_clause(key, clause)
+        table._builder.set_external_clause(key, clause)
+        self._reload()
 
     # --- Scope: what a tool does to a borrowed table, pushed and released as one ------
     def push_scope(self, key: str, *, filters=(), clause=None, actions=(),
@@ -658,14 +607,15 @@ class BoundTableWidget(QWidget):
         if self._table is None:
             return
         fields = {spec.field for spec in filters}
-        # A push that stops overriding a field must give that field back, not just stop caring.
-        for stale in self._scopes.get(key, set()) - fields:
-            self.set_base_filter(stale, self._default_filters.get(stale))
-        for spec in filters:
-            self.set_base_filter(spec.field, spec)
-        self._scopes[key] = fields
+        with self._one_reload():
+            # A push that stops overriding a field must give that field back, not just stop caring.
+            for stale in self._scopes.get(key, set()) - fields:
+                self.set_base_filter(stale, self._default_filters.get(stale))
+            for spec in filters:
+                self.set_base_filter(spec.field, spec)
+            self._scopes[key] = fields
+            self.set_base_clause(key, clause)
         self._table.set_config_actions_visible(False)
-        self.set_base_clause(key, clause)
         self.set_toolbar_actions(key, actions)
         self.set_empty_state(empty_message, show_action=show_action)
 
@@ -673,11 +623,12 @@ class BoundTableWidget(QWidget):
         """Hand the table back: the catalog's own default filters return, not "no filter"."""
         if self._table is None:
             return
-        for field in self._scopes.pop(key, ()):
-            self.set_base_filter(field, self._default_filters.get(field))
+        with self._one_reload():
+            for field in self._scopes.pop(key, ()):
+                self.set_base_filter(field, self._default_filters.get(field))
+            self.set_base_clause(key, None)
         if not self._scopes:
             self._table.set_config_actions_visible(True)
-        self.set_base_clause(key, None)
         self.set_toolbar_actions(key, ())
         self.set_empty_state(None)
 

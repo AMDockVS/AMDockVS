@@ -195,20 +195,40 @@ def _flex_spec(key: str) -> str | None:
     return f"{'' if chain == '_' else chain + ':'}{resname}{resnum}"
 
 
+#: Records that describe the atom right before them and are invalid on their own: a dropped
+#: atom has to take them with it, or the PDB parser refuses the whole file ("Duplicated ANISOU
+#: record or not directly after ATOM/HETATM"). Each repeats its atom's serial in columns 7-11.
+_ATOM_ANNOTATIONS = ("ANISOU", "SIGATM", "SIGUIJ")
+
+
 def _without_resnames(text: str, exclude: frozenset[str]) -> str:
     """Drop whole residues from a PDB block by residue name (columns 18-20).
 
     The receptor file keeps whatever import decided to keep (waters, cofactors, metals);
     which of those actually reach the PDBQT is a per-preparation choice, so the filter lives
     here and not in the stored structure.
+
+    An atom's annotations (ANISOU and friends) go with it. They are kept only while they still
+    sit behind the atom they describe, which is the rule the parser applies: anything else is
+    an orphan that fails the file, and they are optional tensors, so dropping one is safe where
+    dropping a coordinate never would be.
     """
     if not exclude:
         return text
-    kept = [
-        line
-        for line in text.splitlines(True)
-        if not (line.startswith(("ATOM", "HETATM")) and line[17:20].strip().upper() in exclude)
-    ]
+    kept: list[str] = []
+    serial: str | None = None  # the atom the next annotation may describe; None after a drop
+    for line in text.splitlines(True):
+        if line.startswith(("ATOM", "HETATM")):
+            if line[17:20].strip().upper() in exclude:
+                serial = None
+                continue
+            serial = line[6:11].strip()
+        elif line.startswith(_ATOM_ANNOTATIONS):
+            if serial is None or line[6:11].strip() != serial:
+                continue
+        else:
+            serial = None
+        kept.append(line)
     return "".join(kept)
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cache
 
 from PySide6.QtCore import Qt, Signal, QSize, QTimer
 from PySide6.QtGui import QColor, QBrush, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
@@ -86,6 +87,7 @@ class _HoverIcon(QWidget):
         )
 
 
+@cache
 def _active_indicator_icon() -> QIcon:
     """Match the compact green-dot indicator used for open catalog views."""
     size = 15

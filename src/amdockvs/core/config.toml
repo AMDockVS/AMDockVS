@@ -37,22 +37,24 @@ threads = 1
 [docking]
 box_size = 22.0
 temperature = 298.15
-batch_size = 4
 
 [docking.vina]
 path = ""
 exhaustiveness = 8
 num_modes = 9
 cpu_per_task = 1
+batch_size = 1
 
 [docking.gnina]
 path = ""
 exhaustiveness = 8
 num_modes = 9
 cpu_per_task = 1
+batch_size = 1
 
 [docking.qvina]
 path = ""
+batch_size = 1
 
 [docking.adgpu]
 path = ""

@@ -1,3 +1,4 @@
+import ast
 from pathlib import Path
 
 import pytest
@@ -106,6 +107,42 @@ def test_pkasso_gpu_is_requested_once_per_database_batch(tmp_path, monkeypatch):
     store.dispose()
 
 
+def test_pkasso_is_handed_a_bridge_script_that_exists(monkeypatch):
+    """The package reorganization broke the bridge twice. The call still named
+    `chemistry/pkasso_runner.py` after the file had moved, so pKasso's Python exited with 2 for
+    every molecule. And it had moved to `integrations/pkasso.py`: run as a script, its folder
+    comes first on the path, so `from pkasso import ...` imported the bridge itself. The tests
+    never noticed either, because they never looked at the script pKasso was given."""
+    from amdockvs.chemistry import protonation
+
+    commands: list[list[str]] = []
+
+    def bridge(command: list[str], **_kwargs) -> None:
+        """Stands in for pKasso: records what it was handed and answers as the bridge does."""
+        commands.append(command)
+        molecule = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+        molecule.SetProp("_AMDockID", "1")
+        writer = Chem.SDWriter(command[command.index("--output") + 1])
+        writer.write(molecule)
+        writer.close()
+
+    monkeypatch.setattr(protonation, "_run", bridge)
+
+    result = protonation._pkasso([(1, Chem.MolFromSmiles("CCO"))], python=Path("python"), ph=7.4,
+                                 model="molgpka", threads=1, gpu=False)
+
+    script = Path(commands[0][1])
+    assert script.is_file(), f"pKasso would be asked to run {script}, which does not exist"
+    imported = {
+        (node.module or "").split(".")[0] if isinstance(node, ast.ImportFrom) else alias.name.split(".")[0]
+        for node in ast.walk(ast.parse(script.read_text(encoding="utf-8")))
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        for alias in node.names
+    }
+    assert script.stem not in imported, f"{script.name} would import itself instead of {script.stem}"
+    assert list(result) == [1]  # and what it wrote comes back keyed by the molecule
+
+
 def test_pdb2pqr_hands_downstream_a_pdb_not_a_pqr(tmp_path, monkeypatch):
     """A PQR has no element column, so Meeko's receptor prep dies on it ("Element '' not
     found"). pdb2pqr must be asked for the PDB too, and that is what we return."""
@@ -147,7 +184,24 @@ def test_receptor_api_passes_the_managed_command_to_the_job(monkeypatch, method)
     assert submitted["params"]["ph"] == 6.5
 
 
-def test_reduce_accepts_trim_exit_255_and_uses_the_managed_executable(tmp_path, monkeypatch):
+# What reduce 4.15 really writes. The fakes used to answer "TRIMMED" and "PROTONATED" with exit 0
+# for -BUILD; real reduce writes atom records, and its exit status does not track its result.
+_HEADER = "USER  MOD reduce.4.15.250408 H: found=0, std=0, add=0, rem=0\n"
+_TRIMMED = (
+    "ATOM      1  N   ALA A   1      11.104   6.134  -6.504  1.00  0.00           N\n"
+    "ATOM      2  CA  ALA A   1      11.639   6.071  -5.147  1.00  0.00           C\n"
+    "END\n"
+)
+_BUILT = _TRIMMED.replace("END\n", (
+    "ATOM      3  H   ALA A   1      10.140   6.329  -6.676  1.00  0.00           H   new\n"
+    "ATOM      4  HA  ALA A   1      12.731   6.098  -5.172  1.00  0.00           H   new\n"
+    "END\n"
+))
+_CHAIN_BREAK = "*WARNING*: Residues PRO 417  and ILE 435  in chain  A appear unbonded\n"
+
+
+def _fake_reduce(monkeypatch, *, trim: tuple[int, str, str], build: tuple[int, str, str]) -> list:
+    """Replace reduce for this thread: `trim` and `build` are its (exit, stdout, stderr)."""
     import subprocess
     import threading
 
@@ -164,15 +218,226 @@ def test_reduce_accepts_trim_exit_255_and_uses_the_managed_executable(tmp_path, 
         if threading.current_thread() is not ours:
             return real_run(argv, **kwargs)
         calls.append((argv, kwargs))
-        return subprocess.CompletedProcess(argv, 255 if "-Trim" in argv else 0,
-                                           "TRIMMED\n" if "-Trim" in argv else "PROTONATED\n", "")
+        code, out, err = trim if "-Trim" in argv else build
+        result = subprocess.CompletedProcess(argv, code, out, err)
+        if kwargs.get("check"):  # as the real one does: a fake that ignores `check` hides it
+            result.check_returncode()
+        return result
 
     monkeypatch.setattr(receptors.subprocess, "run", run)
+    return calls
+
+
+def test_reduce_accepts_trim_exit_255_and_uses_the_managed_executable(tmp_path, monkeypatch):
+    from amdockvs.chemistry.tools import receptors
+
+    calls = _fake_reduce(monkeypatch, trim=(255, _TRIMMED, ""), build=(0, _BUILT, ""))
     result = receptors.protonate_receptor_reduce_file(source_path=tmp_path / "in.pdb", output_path=tmp_path / "out.pdb",
                                                      command="/managed/bin/reduce")
-    assert result.read_text() == "PROTONATED\n"
+    assert result.read_text() == _BUILT
     assert [argv[0] for argv, _kw in calls] == ["/managed/bin/reduce"] * 2  # -Trim, then -BUILD
-    assert calls[1][1]["input"] == "TRIMMED\n"
+    assert calls[1][1]["input"] == _TRIMMED
+
+
+def test_reduce_keeps_a_complete_result_it_exited_1_on(tmp_path, monkeypatch):
+    """reduce -BUILD exits 1 for a chain break -- a warning, with every hydrogen written. Taking the
+    exit status for the result threw away a correct protonation of nearly every crystal structure
+    with a missing loop (found on the tutorial's own Vps34 receptor)."""
+    from amdockvs.chemistry.tools import receptors
+
+    _fake_reduce(monkeypatch, trim=(255, _TRIMMED, ""), build=(1, _BUILT, _CHAIN_BREAK))
+    result = receptors.protonate_receptor_reduce_file(source_path=tmp_path / "in.pdb", output_path=tmp_path / "out.pdb",
+                                                     command="/managed/bin/reduce")
+    assert result.read_text() == _BUILT
+
+
+@pytest.mark.parametrize(("trim", "build", "message"), [
+    # An input reduce cannot read: exit 0, and nothing but its header back.
+    ((0, _HEADER, ""), (0, _HEADER, ""), "found no atoms to protonate"),
+    # A -BUILD that lost atoms on the way is no protonation, whatever it exits with.
+    ((255, _TRIMMED, ""), (0, _HEADER + "END\n", ""), "returned 0 atoms for the 2"),
+])
+def test_reduce_refuses_a_result_with_atoms_missing_whatever_it_exits_with(tmp_path, monkeypatch, trim, build, message):
+    """The other way the exit status lied: 0 with no atoms, which saved an empty structure as the
+    protonated receptor and reported success."""
+    from amdockvs.chemistry.tools import receptors
+
+    _fake_reduce(monkeypatch, trim=trim, build=build)
+    with pytest.raises(RuntimeError, match=message):
+        receptors.protonate_receptor_reduce_file(source_path=tmp_path / "in.pdb", output_path=tmp_path / "out.pdb",
+                                                 command="/managed/bin/reduce")
+    assert not (tmp_path / "out.pdb").exists()
+
+
+# The GPU probe's answer when CUDA is available but runs nothing: a card outside the architectures
+# the PyTorch build has kernels for, on either side of them. Each fails every molecule the same way.
+_NO_KERNEL = "CUDA error: no kernel image is available for execution on the device"
+_CARD_OLDER_THAN_THE_BUILD = {
+    "usable": False, "name": "Example GPU", "capability": "6.1",
+    "archs": ["sm_75", "sm_80", "sm_86", "sm_90", "sm_100", "sm_120"], "error": _NO_KERNEL,
+}
+_CARD_NEWER_THAN_THE_BUILD = {
+    "usable": False, "name": "Example GPU", "capability": "13.0",
+    "archs": ["sm_50", "sm_60", "sm_70", "sm_75", "sm_80", "sm_86", "sm_90"], "error": _NO_KERNEL,
+}
+
+
+@pytest.mark.parametrize(("usable", "on_gpu"), [(False, False), (True, True)])
+def test_the_pkasso_bridge_runs_uni_pka_on_the_cpu_when_the_gpu_cannot_be_used(
+        tmp_path, monkeypatch, capsys, usable, on_gpu):
+    """It decides where the job runs, so a worker whose card differs from the submitter's is right too."""
+    import json
+    import sys
+    from types import SimpleNamespace
+
+    from amdockvs.integrations import pkasso_runner
+
+    asked = {}
+
+    def batch_protonate(smiles, *, model, **_kwargs):
+        asked["model"] = model
+        return smiles, [[Chem.MolFromSmiles(each)] for each in smiles]
+
+    monkeypatch.setitem(sys.modules, "pkasso", SimpleNamespace(batch_protonate=batch_protonate))
+    monkeypatch.setattr(pkasso_runner, "gpu_support", lambda: {**_CARD_OLDER_THAN_THE_BUILD, "usable": usable})
+    source, output = tmp_path / "in.json", tmp_path / "out.sdf"
+    source.write_text(json.dumps([{"id": 1, "smiles": "CCO"}]), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["pkasso_runner.py", "--input", str(source), "--output", str(output),
+                                      "--ph", "7.4", "--model", "mixed", "--gpu"])
+
+    assert pkasso_runner.main() == 0
+
+    assert asked["model"]["unipka"]["gpu"] is on_gpu
+    said = capsys.readouterr().err
+    assert said.strip() == ("" if usable else
+                            f"pKasso: the GPU cannot be used (Example GPU: {_NO_KERNEL}); running Uni-pKa on the CPU.")
+    assert output.exists()
+
+
+@pytest.mark.parametrize(("answer", "usable", "said"), [
+    (_CARD_OLDER_THAN_THE_BUILD, False, "GPU: Example GPU (compute 6.1) can't be used by pKasso's PyTorch, "
+                                        "built for compute 7.5 to 12.0; Uni-pKa runs on the CPU."),
+    (_CARD_NEWER_THAN_THE_BUILD, False, "GPU: Example GPU (compute 13.0) can't be used by pKasso's PyTorch, "
+                                        "built for compute 5.0 to 9.0; Uni-pKa runs on the CPU."),
+    ({"usable": True, "name": "Example GPU", "capability": "8.9", "archs": ["sm_75", "sm_89"]},
+     True, "GPU: Example GPU is ready."),
+    # No CUDA GPU, or a driver too old for the build: PyTorch then reports CUDA unavailable.
+    ({"usable": False, "archs": []}, False, "No GPU is visible to pKasso; Uni-pKa runs on the CPU."),
+    (None, False, "GPU check failed (IndexError); Uni-pKa runs on the CPU."),  # it answered nothing
+], ids=["card-older-than-the-build", "card-newer-than-the-build", "usable", "no-gpu", "no-answer"])
+def test_the_pkasso_gpu_probe_says_what_the_card_can_do(tmp_path, monkeypatch, answer, usable, said):
+    import json
+    import subprocess
+    from types import SimpleNamespace
+
+    from amdockvs.chemistry import protonation
+
+    printed = "" if answer is None else json.dumps(answer) + "\n"
+    # Only this module's reference: a global subprocess.run fake would serve other threads too.
+    monkeypatch.setattr(protonation, "subprocess", SimpleNamespace(
+        run=lambda argv, **_kwargs: subprocess.CompletedProcess(argv, 0, printed, "")))
+
+    support = protonation.pkasso_gpu_support(tmp_path / "pkasso" / "bin" / "python")
+
+    assert (support.usable, support.message) == (usable, said)
+
+
+def test_the_pkasso_gpu_probe_keeps_an_answer_but_not_a_failure(tmp_path, monkeypatch):
+    """A probe that timed out was kept like an answer: one slow start of PyTorch meant the CPU
+    until pKasso was reinstalled. Only an answer is kept; a failure asks again next time."""
+    import json
+    import subprocess
+    from types import SimpleNamespace
+
+    from amdockvs.chemistry import protonation
+
+    printed = iter([
+        subprocess.TimeoutExpired(["python"], 180),
+        json.dumps({"usable": True, "name": "Example GPU", "capability": "8.9", "archs": ["sm_89"]}) + "\n",
+    ])
+    runs = []
+
+    def run(argv, **_kwargs):
+        runs.append(argv)
+        answer = next(printed)
+        if isinstance(answer, Exception):
+            raise answer
+        return subprocess.CompletedProcess(argv, 0, answer, "")
+
+    monkeypatch.setattr(protonation, "subprocess", SimpleNamespace(run=run, TimeoutExpired=subprocess.TimeoutExpired))
+    python = tmp_path / "pkasso" / "bin" / "python"
+
+    assert protonation.pkasso_gpu_support(python).message == (
+        "GPU check failed (TimeoutExpired); Uni-pKa runs on the CPU.")
+    assert protonation.known_pkasso_gpu_support(python) is None  # a failure is no answer
+    assert protonation.pkasso_gpu_support(python).usable  # asked again, and answered
+    assert protonation.pkasso_gpu_support(python).usable  # and that answer kept
+    assert protonation.known_pkasso_gpu_support(python).usable
+    assert len(runs) == 2
+
+
+@pytest.mark.parametrize(("usable", "requested"), [
+    (False, False),  # known not to work: the GPU is not held for a job that runs on the CPU
+    (True, True),
+    (None, True),  # not asked yet (a script, Build never opened): the bridge falls back if need be
+], ids=["known-unusable", "known-usable", "unknown"])
+def test_a_protonation_gives_up_the_gpu_only_when_known_to_be_unusable(monkeypatch, usable, requested):
+    """Without blocking: the probe takes seconds, and Run builds its job on the GUI thread, so the
+    parameters use only an answer already known and never start the probe."""
+    from types import SimpleNamespace
+
+    from amdockvs.chemistry import api as api_module
+    from amdockvs.chemistry.protonation import GpuSupport
+
+    monkeypatch.setattr(api_module, "protonation_tool_status", lambda _runtime, _name: SimpleNamespace(
+        installed=True, command=Path("/managed/pkasso/bin/python"), message="pKasso 0.6.1 is ready."))
+    monkeypatch.setattr(api_module, "known_pkasso_gpu_support",
+                        lambda _python: None if usable is None else GpuSupport(usable, ""))
+
+    def probe(_python):
+        raise AssertionError("building a job must not start the GPU probe")
+
+    monkeypatch.setattr(api_module, "pkasso_gpu_support", probe)
+
+    params = api_module.ChemistryAPI(runtime=None)._protonate_params(method="pkasso", model="mixed", gpu=True)
+
+    assert params["gpu"] is requested
+
+
+def test_pdb2pqr_says_why_it_gave_up(tmp_path, monkeypatch):
+    """pdb2pqr refuses a structure with a gap in its backbone -- rightly -- and says so in its
+    CRITICAL lines, then prints a traceback ending in a bare RuntimeError. It ran with
+    `check=True`, whose error keeps none of that: "returned non-zero exit status 1" was all a
+    user learned about why their receptor could not be protonated."""
+    import subprocess
+
+    from amdockvs.chemistry.tools import receptors
+
+    said = (  # what pdb2pqr 3.7.1 writes for 1iep's SER A 438, trimmed
+        "INFO:Checking and transforming input biomolecule...\n"
+        "WARNING:Missing atom OXT in residue GLN A 498\n"
+        "CRITICAL:Too few atoms present to reconstruct or cap residue SER A 438 in structure! This error "
+        "is generally caused by missing backbone atoms in this biomolecule; you must use an external "
+        "program to complete gaps in the biomolecule backbone.\n"
+        "CRITICAL:Giving up.\n"
+        "Traceback (most recent call last):\n" + "  File \"main.py\", line 1, in <module>\n" * 40
+        + "RuntimeError\n"
+    )
+
+    def run(argv, **kwargs):
+        result = subprocess.CompletedProcess(argv, 1, "", said)
+        if kwargs.get("check"):
+            result.check_returncode()
+        return result
+
+    monkeypatch.setattr("ms_env.locate", lambda recipe: ("ready", recipe.candidates[0]))
+    monkeypatch.setattr(receptors.subprocess, "run", run)
+    with pytest.raises(RuntimeError) as raised:
+        receptors.protonate_receptor_pdb2pqr_file(source_path=tmp_path / "in.pdb", output_path=tmp_path / "out.pdb",
+                                                  command="/managed/bin/pdb2pqr")
+    message = str(raised.value)
+    assert "SER A 438" in message and "complete gaps in the biomolecule backbone" in message
+    assert message.startswith("pdb2pqr exited with 1")
 
 
 def test_a_worker_resolves_its_own_tool_when_the_submitter_path_is_missing(monkeypatch):

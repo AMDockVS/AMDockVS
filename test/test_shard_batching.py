@@ -82,6 +82,8 @@ def test_docking_sends_one_whole_shard_per_receptor(tmp_path, monkeypatch):
         lambda *_a, **_kw: iter(_shard_rows(tmp_path, 3, fmt="pdbqt")),
     )
     monkeypatch.setattr(shard_jobs, "completed_shard_targets", lambda *a, **k: set())
+    # A full-library run asks what every run of the protocol docked, not this submission alone.
+    monkeypatch.setattr(shard_jobs, "completed_protocol_targets", lambda *a, **k: set())
     monkeypatch.setattr(shard_jobs, "docking_run_id", lambda *a, **k: 1)
     monkeypatch.setattr(shard_jobs, "find_docking_run", lambda *a, **k: 1)
     monkeypatch.setattr(shard_jobs, "plan_targets", lambda *a, **k: None)
@@ -104,7 +106,7 @@ def test_docking_sends_one_whole_shard_per_receptor(tmp_path, monkeypatch):
 
     # Resuming the same run skips only the completed shard/receptor pair, not the shard in every
     # receptor or an unrelated campaign.
-    monkeypatch.setattr(shard_jobs, "completed_shard_targets", lambda *a, **k: {(1, 7)})
+    monkeypatch.setattr(shard_jobs, "completed_protocol_targets", lambda *a, **k: {(1, 7)})
     assert shard_jobs.DockShardsJobSpec.count_chunks(params, {"project_db": object()}) == 5
     resumed = list(shard_jobs.DockShardsJobSpec.build_chunks(params, {"project_db": object()}))
     pairs = [

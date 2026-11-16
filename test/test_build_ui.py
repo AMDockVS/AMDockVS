@@ -14,7 +14,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from amdockvs.runtime import AMDockVSRuntime  # noqa: F401
 
 pytest.importorskip("PySide6")
-from PySide6.QtWidgets import QApplication, QGroupBox, QPushButton
+from PySide6.QtWidgets import QApplication, QGroupBox, QLabel, QPushButton, QWidget
 
 from amdockvs.ui.catalog.molecules import MoleculeWidget
 from amdockvs.ui.tools.molecules.build import MoleculeBuildWidget
@@ -359,6 +359,142 @@ def test_a_finished_build_lists_the_molecules_it_excluded(build_widget, monkeypa
     assert groups[0].childCount() == groups[1].childCount() == 2
     first = groups[0].child(0) if "3D" in groups[0].text(0) else groups[1].child(0)
     assert [first.text(c) for c in range(3)] == ["ZINC7", "7", "generate_3d: RDKit could not generate a 3D conformer."]
+
+@pytest.mark.parametrize(("usable", "message"), [
+    (False, "GPU: Example GPU (compute 6.1) can't be used by pKasso's PyTorch, "
+            "built for compute 7.5 to 12.0; Uni-pKa runs on the CPU."),
+    (False, "No GPU is visible to pKasso; Uni-pKa runs on the CPU."),
+    (True, "GPU: Example GPU is ready."),
+], ids=["unusable-card", "no-gpu", "usable"])
+def test_pkasso_offers_the_gpu_only_when_its_pytorch_can_run_on_it(build_widget, monkeypatch, usable, message):
+    """pKasso said it was ready whatever the GPU, so the box offered a card its PyTorch had no
+    kernels for, and every molecule then failed with "no kernel image is available". Build now says
+    what the GPU can do, and the box opens only when it can."""
+    from amdockvs.chemistry.protonation import GpuSupport
+    from amdockvs.ui.tools.molecules import build as build_module
+
+    chemistry = build_widget.runtime.chemistry
+    chemistry.small_molecule_protonation_tool_status = (
+        lambda name: SimpleNamespace(installed=True, message=f"{name} is ready.")
+    )
+    chemistry.pkasso_gpu_support = lambda: GpuSupport(usable, message)
+    monkeypatch.setattr(build_module, "run_async", lambda job, done, **_kw: done(job()))
+    build_widget.pkasso_model.setCurrentIndex(build_widget.pkasso_model.findData("mixed"))
+    assert not build_widget.pkasso_gpu.isEnabled()  # not before the GPU has been asked about
+
+    build_widget._refresh_protonation_tools()
+
+    assert build_widget.pkasso_status.text() == f"pkasso is ready. {message}"
+    assert build_widget.pkasso_gpu.isEnabled() is usable
+    assert build_widget.pkasso_gpu.toolTip() == message
+    build_widget.pkasso_gpu.setChecked(True)
+    build_widget.pkasso_model.setCurrentIndex(build_widget.pkasso_model.findData("molgpka"))
+    assert not build_widget.pkasso_gpu.isEnabled() and not build_widget.pkasso_gpu.isChecked()  # MolGpKa: no GPU
+
+
+def test_a_gpu_check_that_raises_still_answers(build_widget, monkeypatch):
+    """Its error was dropped, so pKasso's status said "Checking the GPU…" -- and the box's tooltip
+    "Checking…" -- for as long as Build stayed open."""
+    from amdockvs.ui.tools.molecules import build as build_module
+
+    chemistry = build_widget.runtime.chemistry
+    chemistry.small_molecule_protonation_tool_status = (
+        lambda name: SimpleNamespace(installed=True, message=f"{name} is ready.")
+    )
+
+    def probe():
+        raise OSError("the environment went away")
+
+    chemistry.pkasso_gpu_support = probe
+
+    def run_async(job, done, on_error=None, **_kw):
+        try:
+            result = job()
+        except Exception as exc:  # noqa: BLE001 - as run_async hands a job's error over
+            on_error(exc)
+            return
+        done(result)
+
+    monkeypatch.setattr(build_module, "run_async", run_async)
+    build_widget.pkasso_model.setCurrentIndex(build_widget.pkasso_model.findData("mixed"))
+
+    build_widget._refresh_protonation_tools()
+
+    said = "GPU check failed (OSError); Uni-pKa runs on the CPU."
+    assert build_widget.pkasso_status.text() == f"pkasso is ready. {said}"
+    assert build_widget.pkasso_gpu.toolTip() == said
+    assert not build_widget.pkasso_gpu.isEnabled()
+
+
+@pytest.mark.parametrize("width", [360, 480, 560, 640, 760, 900])  # where text wraps varies with the font
+@pytest.mark.parametrize("installed", [True, False], ids=["installed", "not-installed"])
+@pytest.mark.parametrize("method", ["dimorphite", "openbabel", "pkasso", "explicit_hs"])
+def test_every_protonation_row_shows_whole_at_any_width(build_widget, monkeypatch, method, installed, width):
+    """The form laid a wrapping note out taller than it counted it when sizing the section, and the
+    difference came off the section's bottom: the last row lost its last line. pKasso's status,
+    two lines once it says what the GPU can do, showed a line and a half."""
+    from PySide6.QtCore import QPoint
+
+    from amdockvs.chemistry.protonation import GpuSupport
+    from amdockvs.ui.tools.molecules import build as build_module
+
+    chemistry = build_widget.runtime.chemistry
+    chemistry.small_molecule_protonation_tool_status = lambda name: SimpleNamespace(
+        installed=installed, message=f"{name} {'is ready' if installed else 'is not installed'}.")
+    chemistry.pkasso_gpu_support = lambda: GpuSupport(False, (
+        "GPU: Example GPU (compute 6.1) can't be used by pKasso's PyTorch, built for compute 7.5 to "
+        "12.0; Uni-pKa runs on the CPU."))
+
+    later = []
+
+    def run_async(job, done, **_kw):
+        if job is chemistry.pkasso_gpu_support:  # it takes seconds: its answer comes later
+            later.append((job, done))
+            return
+        try:
+            result = job()
+        except Exception:  # noqa: BLE001 - the fake runtime answers only what this test is about
+            return
+        done(result)
+
+    monkeypatch.setattr(build_module, "run_async", run_async)
+    # As the tools are warmed under the splash: sized and laid out hidden (grab), its statuses
+    # arriving before it is ever shown -- when a label is still 100 px, a widget's first width.
+    build_widget.resize(width, 900)
+    build_widget.grab()
+    build_widget.ligand_protonation_method.setCurrentIndex(build_widget.ligand_protonation_method.findData(method))
+    build_widget.ligand_protonation_section.setChecked(True)
+    build_widget._refresh_protonation_tools()
+    build_widget.show()
+    QApplication.processEvents()  # shown with the tool's status alone, as the GPU probe runs
+    for job, done in later:  # ... and then the GPU's answer, often a second line, arrives
+        done(job())
+    for _ in range(5):
+        QApplication.processEvents()
+
+    def lines(label: QLabel) -> int:
+        """What its text needs at its width, asked of a label with no height bounds: a label's own
+        heightForWidth never answers less than its minimum height, so it cannot see one too tall."""
+        clone = QLabel(label.text())
+        clone.setFont(label.font())
+        clone.setWordWrap(True)
+        return clone.heightForWidth(label.width())
+
+    # What is seen, wherever it is nested: a row's layout can fit while a label inside it runs over.
+    section = build_widget.ligand_protonation_section
+    shown = [widget for widget in section.body.findChildren(QWidget) if widget.isVisible() and widget.height()]
+    where = f"{method}, {'installed' if installed else 'not installed'}, {width}px"
+    for widget in shown:
+        bottom = widget.mapTo(section, QPoint(0, widget.height())).y()
+        what = type(widget).__name__ + (f" {widget.text()[:40]!r}" if isinstance(widget, QLabel) else "")
+        assert bottom <= section.height(), (
+            f"{where}: {what} ends at y={bottom}, below its section ({section.height()} tall)")
+        if isinstance(widget, QLabel) and widget.wordWrap():
+            # Not shorter, which cuts its last line; not taller, which leaves a gap around it.
+            assert widget.height() == lines(widget), (
+                f"{where}: {what} is {widget.height()} px tall, its lines need {lines(widget)}")
+    assert any(isinstance(widget, QLabel) and widget.wordWrap() for widget in shown)
+
 
 def test_a_protonation_tool_installed_from_settings_becomes_the_method_in_use(build_widget, monkeypatch):
     from amdockvs.ui.shell.settings_tools import ExternalToolsPage, tool_events
