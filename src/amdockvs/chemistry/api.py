@@ -7,7 +7,7 @@ import math
 from uuid import uuid4
 
 from amdockvs.chemistry.pipeline import LIGAND_STEPS, normalize_steps
-from amdockvs.chemistry.protonation import GpuSupport, pkasso_gpu_support
+from amdockvs.chemistry.protonation import GpuSupport, known_pkasso_gpu_support, pkasso_gpu_support
 from ms_flow.query import db_count
 
 from amdockvs.chemistry.jobs import (
@@ -362,10 +362,12 @@ class ChemistryAPI:
             if not status.installed or status.command is None:
                 raise RuntimeError(f"{status.message} Install its runtime from Build first.")
             params["tool_command"] = str(status.command)
-            # A GPU pKasso's PyTorch cannot run on would be held for the job and then fail every
-            # molecule; Uni-pKa on the CPU gives the same states. Build only offers the GPU once
-            # this said yes, so from there it is the cached answer.
-            if use_gpu and not pkasso_gpu_support(status.command).usable:
+            # A GPU pKasso's PyTorch cannot run on would only be held idle: the bridge puts
+            # Uni-pKa on the CPU then. So a known "no" frees it. Only a known answer, never the
+            # probe itself: it takes seconds and this runs on Run's GUI thread. Unasked -- a
+            # script that never opened Build -- the GPU stays requested and the bridge decides.
+            known = known_pkasso_gpu_support(status.command) if use_gpu else None
+            if known is not None and not known.usable:
                 params["gpu"] = False
         return params
 

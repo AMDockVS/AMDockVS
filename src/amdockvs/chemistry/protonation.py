@@ -54,6 +54,12 @@ def pkasso_gpu_support(python: str | Path) -> GpuSupport:
     return support
 
 
+def known_pkasso_gpu_support(python: str | Path) -> GpuSupport | None:
+    """`pkasso_gpu_support`'s answer if it has one for this installation, else None. Never runs the
+    probe, so it is safe wherever waiting seconds is not: building a job on the GUI thread."""
+    return _GPU_ANSWERS.get(_gpu_key(python))
+
+
 # The probes that answered, by interpreter and its environment's stamp.
 _GPU_ANSWERS: dict[tuple[str, float], GpuSupport] = {}
 
@@ -245,4 +251,10 @@ def protonate_molecule_batch(
     return {entity_id: Chem.AddHs(Chem.Mol(molecule), addCoords=True) for entity_id, molecule in results.items()}
 
 
-__all__ = ["GpuSupport", "gpu_check_failed", "pkasso_gpu_support", "protonate_molecule_batch"]
+__all__ = [
+    "GpuSupport",
+    "gpu_check_failed",
+    "known_pkasso_gpu_support",
+    "pkasso_gpu_support",
+    "protonate_molecule_batch",
+]

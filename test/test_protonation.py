@@ -369,14 +369,21 @@ def test_the_pkasso_gpu_probe_keeps_an_answer_but_not_a_failure(tmp_path, monkey
 
     assert protonation.pkasso_gpu_support(python).message == (
         "GPU check failed (TimeoutExpired); Uni-pKa runs on the CPU.")
+    assert protonation.known_pkasso_gpu_support(python) is None  # a failure is no answer
     assert protonation.pkasso_gpu_support(python).usable  # asked again, and answered
     assert protonation.pkasso_gpu_support(python).usable  # and that answer kept
+    assert protonation.known_pkasso_gpu_support(python).usable
     assert len(runs) == 2
 
 
-@pytest.mark.parametrize("usable", [False, True])
-def test_a_protonation_asks_for_the_gpu_only_when_pkasso_can_use_it(monkeypatch, usable):
-    """Asked for anyway, the job would hold a GPU it cannot run on and then fail every molecule."""
+@pytest.mark.parametrize(("usable", "requested"), [
+    (False, False),  # known not to work: the GPU is not held for a job that runs on the CPU
+    (True, True),
+    (None, True),  # not asked yet (a script, Build never opened): the bridge falls back if need be
+], ids=["known-unusable", "known-usable", "unknown"])
+def test_a_protonation_gives_up_the_gpu_only_when_known_to_be_unusable(monkeypatch, usable, requested):
+    """Without blocking: the probe takes seconds, and Run builds its job on the GUI thread, so the
+    parameters use only an answer already known and never start the probe."""
     from types import SimpleNamespace
 
     from amdockvs.chemistry import api as api_module
@@ -384,11 +391,17 @@ def test_a_protonation_asks_for_the_gpu_only_when_pkasso_can_use_it(monkeypatch,
 
     monkeypatch.setattr(api_module, "protonation_tool_status", lambda _runtime, _name: SimpleNamespace(
         installed=True, command=Path("/managed/pkasso/bin/python"), message="pKasso 0.6.1 is ready."))
-    monkeypatch.setattr(api_module, "pkasso_gpu_support", lambda _python: GpuSupport(usable, ""))
+    monkeypatch.setattr(api_module, "known_pkasso_gpu_support",
+                        lambda _python: None if usable is None else GpuSupport(usable, ""))
+
+    def probe(_python):
+        raise AssertionError("building a job must not start the GPU probe")
+
+    monkeypatch.setattr(api_module, "pkasso_gpu_support", probe)
 
     params = api_module.ChemistryAPI(runtime=None)._protonate_params(method="pkasso", model="mixed", gpu=True)
 
-    assert params["gpu"] is usable
+    assert params["gpu"] is requested
 
 
 def test_pdb2pqr_says_why_it_gave_up(tmp_path, monkeypatch):
