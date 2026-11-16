@@ -3,10 +3,94 @@ from __future__ import annotations
 import io
 import json
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from ms_flow.payloads import scratch_file
+
+# pKasso runs in its own interpreter, so its bridge is handed over as a file and never imported
+# here. Named from the package root: it moved out of `chemistry/` once, and a path built beside
+# this module kept naming the old place. And never `pkasso.py`: Python puts a script's own folder
+# first on its path, so a bridge of that name imports itself instead of the library it calls.
+PKASSO_RUNNER = Path(__file__).resolve().parents[1] / "integrations" / "pkasso_runner.py"
+
+
+@dataclass(frozen=True)
+class GpuSupport:
+    """Whether pKasso can put Uni-pKa on this machine's GPU, and the sentence that says so."""
+
+    usable: bool
+    message: str
+
+
+def gpu_check_failed(exc: BaseException) -> GpuSupport:
+    """The answer when the GPU question itself went unanswered: a GPU not to count on."""
+    return GpuSupport(False, f"GPU check failed ({type(exc).__name__}); Uni-pKa runs on the CPU.")
+
+
+def pkasso_gpu_support(python: str | Path) -> GpuSupport:
+    """Asks pKasso's own interpreter, where its PyTorch lives: the bridge runs a tiny operation on
+    the GPU. Takes seconds (PyTorch, then CUDA, start up), so an answer is kept for the installation
+    -- a reinstall rewrites the environment's stamp, which asks again -- and it is never asked on a
+    GUI thread. A probe that does not answer is not kept.
+    """
+    key = _gpu_key(python)
+    known = _GPU_ANSWERS.get(key)
+    if known is not None:
+        return known
+    try:
+        result = subprocess.run([key[0], str(PKASSO_RUNNER), "--probe-gpu"],
+                                capture_output=True, text=True, timeout=180, check=False)
+        found = json.loads(result.stdout.strip().splitlines()[-1])
+        if not isinstance(found, dict):
+            raise ValueError(f"the probe printed {type(found).__name__}, not its answer")
+    except Exception as exc:  # noqa: BLE001 - an unanswered question is a GPU not to count on
+        # Not kept: a timeout or a crash says nothing about the card, and kept, one slow start
+        # would have meant the CPU until pKasso was reinstalled. The next check asks again.
+        return gpu_check_failed(exc)
+    support = _read_gpu_answer(found)
+    _GPU_ANSWERS[key] = support
+    return support
+
+
+def known_pkasso_gpu_support(python: str | Path) -> GpuSupport | None:
+    """`pkasso_gpu_support`'s answer if it has one for this installation, else None. Never runs the
+    probe, so it is safe wherever waiting seconds is not: building a job on the GUI thread."""
+    return _GPU_ANSWERS.get(_gpu_key(python))
+
+
+# The probes that answered, by interpreter and its environment's stamp.
+_GPU_ANSWERS: dict[tuple[str, float], GpuSupport] = {}
+
+
+def _gpu_key(python: str | Path) -> tuple[str, float]:
+    python = Path(python)
+    stamp = python.parent.parent / ".ms_env.json"
+    return str(python), stamp.stat().st_mtime if stamp.exists() else 0.0
+
+
+def _read_gpu_answer(found: Mapping[str, Any]) -> GpuSupport:
+    name = str(found.get("name") or "")
+    if found.get("usable"):
+        return GpuSupport(True, f"GPU: {name} is ready.")
+    if not name:
+        return GpuSupport(False, "No GPU is visible to pKasso; Uni-pKa runs on the CPU.")
+    # The range the build has kernels for, as the reason, whichever side of it the card falls on:
+    # older than the build supports, or newer than it knows.
+    built = sorted(
+        (int(arch[3:-1]), int(arch[-1]))
+        for arch in found.get("archs") or ()
+        if str(arch).startswith("sm_") and str(arch)[3:].isdigit() and len(str(arch)) >= 5
+    )
+    span = (f"{built[0][0]}.{built[0][1]}" if built[0] == built[-1]
+            else f"{built[0][0]}.{built[0][1]} to {built[-1][0]}.{built[-1][1]}") if built else ""
+    built_for = f", built for compute {span}" if span else ""
+    return GpuSupport(
+        False,
+        f"GPU: {name} (compute {found.get('capability') or '?'}) can't be used by pKasso's PyTorch"
+        f"{built_for}; Uni-pKa runs on the CPU.",
+    )
 
 
 def _molecule_id(molecule) -> int:
@@ -105,7 +189,7 @@ def _pkasso(
         [{"id": entity_id, "smiles": Chem.MolToSmiles(Chem.RemoveHs(molecule))} for entity_id, molecule in entries]
     ).encode()
     with scratch_file(request, ".json") as input_path, scratch_file(b"", ".sdf") as output_path:
-        runner = Path(__file__).with_name("pkasso_runner.py").resolve()
+        runner = PKASSO_RUNNER
         command = [
             str(python),
             str(runner),
@@ -167,4 +251,10 @@ def protonate_molecule_batch(
     return {entity_id: Chem.AddHs(Chem.Mol(molecule), addCoords=True) for entity_id, molecule in results.items()}
 
 
-__all__ = ["protonate_molecule_batch"]
+__all__ = [
+    "GpuSupport",
+    "gpu_check_failed",
+    "known_pkasso_gpu_support",
+    "pkasso_gpu_support",
+    "protonate_molecule_batch",
+]

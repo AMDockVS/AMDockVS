@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from amdockvs.chemistry.protonation import gpu_check_failed
 from amdockvs.core.user_env import is_remembered, remember_env_var, shell_profile
 from amdockvs.core.payloads import molecule_payload_id
 from amdockvs.ui.common.async_query import run_async
@@ -73,6 +74,49 @@ def _module_available(name: str) -> bool:
 
 def _executable_available(name: str) -> bool:
     return shutil.which(str(name)) is not None
+
+
+_UNBOUNDED = 16777215  # QWIDGETSIZE_MAX: a widget's height with no maximum
+
+
+class _WrappingHint(QLabel):
+    """`hint_label`'s look, always as tall as its wrapped lines.
+
+    A plain wrapping label in this form is laid out at one height and counted at another when the
+    section works out how tall it must be; the difference comes off the bottom of the section, so
+    the last row lost its last line -- pKasso's status, two lines once it says what the GPU can do,
+    showed a line and a half. This one says how tall it is at the width it has, every time its text
+    or its width changes, and the form's count and its layout agree.
+    """
+
+    def __init__(self, text: str, parent: QWidget | None = None) -> None:
+        super().__init__(text, parent)
+        look = hint_label("", None)  # hint_label's look, whatever it becomes
+        self.setFont(look.font())
+        self.setForegroundRole(look.foregroundRole())
+        self.setWordWrap(True)
+        look.deleteLater()
+
+    def setText(self, text: str) -> None:  # noqa: N802 - Qt's name
+        super().setText(text)
+        self._fit()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt's name
+        super().resizeEvent(event)
+        self._fit()
+
+    def _fit(self) -> None:
+        # Exactly its lines, not at least: the form also gives such a row more than it needs
+        # (21 px for a 12 px line) while counting less, and only a fixed height makes both agree.
+        # Asked with its own height unbounded: QLabel never answers less than its minimum height,
+        # so a height fixed once at a narrow width -- 100 px, a widget's width before its first
+        # layout, as tools are built hidden under the splash -- would be its answer at any width
+        # after, and a one-line note stood six lines tall.
+        self.setMinimumHeight(0)
+        self.setMaximumHeight(_UNBOUNDED)
+        needed = self.heightForWidth(self.width())
+        if needed > 0:
+            self.setFixedHeight(needed)
 
 
 class MoleculeBuildWidget(QWidget):
@@ -126,14 +170,17 @@ class MoleculeBuildWidget(QWidget):
             "pkasso": False,
             "explicit_hs": True,
         }
-        self.openbabel_status = hint_label("Checking runtime…", small)
+        self.openbabel_status = _WrappingHint("Checking runtime…", small)
         self.pkasso_model = QComboBox(small)
         self.pkasso_model.addItem("MolGpKa (fast)", "molgpka")
         self.pkasso_model.addItem("MolGpKa + Uni-pKa (precise)", "mixed")
         self.pkasso_threads = _spinbox(minimum=1, maximum=128, value=1)
         self.pkasso_gpu = _checkbox("Request one GPU", checked=False)
+        # Whether pKasso's PyTorch can run on this GPU: None until the asynchronous probe answers.
+        # The box opens only on a yes, which is also what makes Run's own check a cached answer.
+        self._pkasso_gpu_support = None
         self.pkasso_model.currentIndexChanged.connect(self._sync_pkasso_options)
-        self.pkasso_status = hint_label("Checking runtime…", small)
+        self.pkasso_status = _WrappingHint("Checking runtime…", small)
         self.protonation_settings_button = QPushButton("Open External tools...", small)
         self.protonation_settings_button.setMinimumHeight(
             max(32, self.protonation_settings_button.fontMetrics().height() + 12)
@@ -141,21 +188,23 @@ class MoleculeBuildWidget(QWidget):
         self.protonation_settings_button.clicked.connect(self._open_protonation_tool_settings)
         # Add the layout directly to the form so it sizes the row from the
         # button, without an intermediate widget clipping it on method changes.
+        # The status lines are rows of their own: a wrapping label inside a box layout inside the
+        # form is not given the height its lines need (height-for-width does not reach through),
+        # and a status that wraps onto a second line -- pKasso's, with its GPU -- was cut in half.
         self.protonation_status_row = QHBoxLayout()
         status_layout = self.protonation_status_row
         status_layout.setContentsMargins(0, 2, 0, 2)
         status_layout.setSpacing(8)
-        status_layout.addWidget(self.openbabel_status, 1)
-        status_layout.addWidget(self.pkasso_status, 1)
         status_layout.addWidget(self.protonation_settings_button)
-        dimorphite_note = hint_label(
+        status_layout.addStretch(1)
+        dimorphite_note = _WrappingHint(
             "Rule-based, pH-aware single-state assignment. Ambiguous microstates are not retained.", small
         )
-        openbabel_note = hint_label("Fast pH-aware protonation through the OpenBabel command-line tool.", small)
-        pkasso_note = hint_label(
+        openbabel_note = _WrappingHint("Fast pH-aware protonation through the OpenBabel command-line tool.", small)
+        pkasso_note = _WrappingHint(
             "Selects only the most probable pH-specific state; microstate derivatives are not stored.", small
         )
-        explicit_hs_note = hint_label(
+        explicit_hs_note = _WrappingHint(
             "Adds every hydrogen with RDKit, keeping the current charge states; this is not pH prediction.", small
         )
         protonation = self.ligand_protonation_section
@@ -167,6 +216,8 @@ class MoleculeBuildWidget(QWidget):
         protonation.add_row("Model", self.pkasso_model)
         protonation.add_row("Threads", self.pkasso_threads)
         protonation.add_row(self.pkasso_gpu)
+        protonation.add_row(self.openbabel_status)
+        protonation.add_row(self.pkasso_status)
         protonation.add_row(self.protonation_status_row)
         protonation.add_row(explicit_hs_note)
         # Each method's rows show only for that method: a stacked page would reserve the tallest
@@ -482,23 +533,26 @@ class MoleculeBuildWidget(QWidget):
 
     def _sync_pkasso_options(self, *_args) -> None:
         mixed = self.pkasso_model.currentData() == "mixed"
-        self.pkasso_gpu.setEnabled(mixed)
-        if not mixed:
+        support = self._pkasso_gpu_support
+        usable = bool(support is not None and support.usable)
+        self.pkasso_gpu.setEnabled(mixed and usable)
+        if not (mixed and usable):
             self.pkasso_gpu.setChecked(False)
+        self.pkasso_gpu.setToolTip(
+            "Checking whether the GPU can be used…" if support is None else str(support.message)
+        )
 
     def _sync_small_molecule_protonation_options(self, *_args) -> None:
         method = self._active_protonation_method()
         for name, widgets in self.ligand_protonation_rows.items():
             for widget in widgets:
                 self.ligand_protonation_section.form.setRowVisible(widget, name == method)
-        self.ligand_protonation_section.form.setRowVisible(
-            self.protonation_status_row, method in ("openbabel", "pkasso"),
-        )
-        self.openbabel_status.setVisible(method == "openbabel")
-        self.pkasso_status.setVisible(method == "pkasso")
-        self.protonation_settings_button.setVisible(
-            method in ("openbabel", "pkasso") and not self._protonation_tool_ready.get(method, False)
-        )
+        form = self.ligand_protonation_section.form
+        form.setRowVisible(self.openbabel_status, method == "openbabel")
+        form.setRowVisible(self.pkasso_status, method == "pkasso")
+        needs_install = method in ("openbabel", "pkasso") and not self._protonation_tool_ready.get(method, False)
+        form.setRowVisible(self.protonation_status_row, needs_install)
+        self.protonation_settings_button.setVisible(needs_install)
         self.ligand_protonation_section.form.invalidate()
         self.ligand_protonation_section.body.updateGeometry()
         self.ligand_protonation_ph.setEnabled(method != "explicit_hs")
@@ -652,11 +706,29 @@ class MoleculeBuildWidget(QWidget):
             openbabel=bool(openbabel.installed),
             pkasso=bool(pkasso.installed),
         )
+        self._pkasso_gpu_support = None
+        probe = getattr(self.runtime.chemistry, "pkasso_gpu_support", None)
+        if pkasso.installed and callable(probe):
+            # Its own round trip: starting PyTorch and CUDA takes seconds the first time, and
+            # pKasso's own status should not wait for it.
+            self.pkasso_status.setText(f"{pkasso.message} Checking the GPU…")
+            said = str(pkasso.message)
+            # A check that raised still answers: left unanswered, the status said "Checking the
+            # GPU…" and the box's tooltip "Checking…" for as long as Build stayed open.
+            run_async(probe, lambda support: self._apply_pkasso_gpu(said, support),
+                      on_error=lambda exc: self._apply_pkasso_gpu(said, gpu_check_failed(exc)),
+                      compact=True)
+        self._sync_pkasso_options()
         method, self._activate_after_check = self._activate_after_check, None
         if method and self._protonation_tool_ready.get(method):
             self.ligand_protonation_method.setCurrentIndex(self.ligand_protonation_method.findData(method))
             self.ligand_protonation_section.setChecked(True)
         self._sync_small_molecule_protonation_options()
+
+    def _apply_pkasso_gpu(self, status_message: str, support) -> None:
+        self._pkasso_gpu_support = support
+        self.pkasso_status.setText(f"{status_message} {support.message}")
+        self._sync_pkasso_options()
 
     def _show_protonation_tool_error(self, title: str, exc: Exception) -> None:
         self.openbabel_status.setText("Runtime status unavailable.")
