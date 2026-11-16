@@ -85,3 +85,47 @@ def test_contacts_of_the_picked_residue_are_drawn_at_their_3d_length(tmp_path):
         assert round(cmd.get_distance(points[0], points[1]), 1) == 0.5
     finally:
         session.stop()
+
+
+def _phe() -> str:
+    """PHE A:227 with its ring centred on the origin, flat in z = 0; CG is 1.39 Å off centre."""
+    import math
+
+    names = ("CG", "CD1", "CE1", "CZ", "CE2", "CD2")
+    lines = ["ATOM      1  CB  PHE A 227       2.900   0.000   0.000  1.00  0.00           C"]
+    for serial, (name, angle) in enumerate(zip(names, range(0, 360, 60)), start=2):
+        x, y = 1.39 * math.cos(math.radians(angle)), 1.39 * math.sin(math.radians(angle))
+        lines.append(f"ATOM  {serial:5d}  {name:<3} PHE A 227    {x:8.3f}{y:8.3f}{0.0:8.3f}  1.00  0.00           C")
+    return "\n".join(lines) + "\nEND\n"
+
+
+@pytest.mark.parametrize("protein_atoms", [("CG", "CD1", "CD2", "CE1", "CE2", "CZ"), ()],
+                         ids=["named group", "row saved with protein_atom only"])
+def test_a_ring_contact_is_drawn_to_the_protein_ring_centroid(tmp_path, protein_atoms):
+    """π–π is measured centroid to centroid. Drawn to CG, a 4.0 Å stacking read as 4.2 Å."""
+    ligand = Chem.AddHs(Chem.MolFromSmiles("c1ccccc1"))
+    AllChem.EmbedMolecule(ligand, randomSeed=7)
+    conf = ligand.GetConformer()
+    heavy = [a.GetIdx() for a in ligand.GetAtoms() if a.GetAtomicNum() > 1]
+    centre = [sum(conf.GetAtomPosition(i)[k] for i in heavy) / len(heavy) for k in range(3)]
+    for i in range(ligand.GetNumAtoms()):  # benzene centroid 4.0 Å above the PHE ring's
+        p = conf.GetAtomPosition(i)
+        conf.SetAtomPosition(i, (p.x - centre[0], p.y - centre[1], p.z - centre[2] + 4.0))
+    (tmp_path / "rec.pdb").write_text(_phe())
+    Chem.MolToMolFile(ligand, str(tmp_path / "pose.sdf"))
+
+    contact = SimpleNamespace(kind="pi_stacking", residue_key="A:227:PHE", ligand_atoms=tuple(range(6)),
+                              protein_atom="CG", protein_atoms=protein_atoms, via_water=None)
+    session = pymol2.PyMOL()
+    session.start()
+    cmd = session.cmd
+    try:
+        cmd.load(str(tmp_path / "rec.pdb"), "receptor_1")
+        cmd.load(str(tmp_path / "pose.sdf"), "pose")
+        assert show_interaction(cmd, receptor_obj="receptor_1", ligand_obj="pose", contact=contact) == 1
+        points = [n for n in cmd.get_names("objects") if n.startswith(f"{GROUP}_p")]
+        assert round(cmd.get_distance(points[0], points[1]), 1) == 4.0
+        (dash,) = [n for n in cmd.get_names("objects") if n.startswith(f"{GROUP}_d")]
+        assert cmd.get_setting_int("label_distance_digits", dash) == 2  # 4.86 Å, as the diagram says
+    finally:
+        session.stop()

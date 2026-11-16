@@ -74,6 +74,8 @@ def collect_interaction_rows(*, pose: bytes, receptor: bytes, receptor_format: s
                             "ligand_atoms": list(interaction.ligand_atoms),  # what PyMOL draws from
                             "ligand_is_donor": interaction.ligand_is_donor,
                             "protein_atom": interaction.protein_atom,
+                            # a ring/charged group: the atoms whose centroid the distance is from
+                            "protein_atoms": list(getattr(interaction, "protein_atoms", ()) or ()),
                             "angle": interaction.angle,
                             "via_water": interaction.via_water,
                         }

@@ -1,4 +1,4 @@
-"""The auxiliary zone grows to fit its occupant instead of making it scroll."""
+"""The auxiliary zone keeps the size you give it, and preparation does not open it."""
 import os
 import time
 
@@ -12,7 +12,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 from amdockvs.ui.main_window import AMDockVSMainWindow
-from amdockvs.ui.view_ids import COMPLEXES_VIEW_ID, RECEPTOR_VIEW_ID
+from amdockvs.ui.view_ids import COMPLEXES_VIEW_ID, DOCKING_VIEW_ID, PREP_STATUS_VIEW_ID
 
 
 @pytest.fixture
@@ -48,38 +48,20 @@ def _settle(predicate=lambda: False, timeout=2.0):
     return predicate()
 
 
-def _fits(window):
-    page = window.central_widget.aux_widget.currentWidget()
-    content = page.widget()  # Results lends a scroll area
-    return content.height() <= page.viewport().height()
-
-
-def test_results_detail_fits_after_a_smaller_occupant_set_the_split(window):
-    central = window.central_widget
-    splitter = central.content_splitter
-    central.open_or_focus_view(RECEPTOR_VIEW_ID)
-    window.aux.action.setChecked(True)
-    window.aux.on_toggled(True)
+def test_docking_preparation_leaves_the_zone_closed(window):
+    window.tools.open_tool(DOCKING_VIEW_ID)
     _settle()
-    total = sum(splitter.sizes())
-    splitter.setSizes([total - 100, 100])  # a short zone: dragged, or seeded in a small window
+    assert window.aux.occupant == PREP_STATUS_VIEW_ID  # one click away on the toggle
+    assert not window.aux.action.isChecked()
+    assert not window.central_widget.aux_widget.isVisible()
+    window.aux.action.setChecked(True)  # what the user opened stays open when the tool closes
+    window.tools.on_tool_action(DOCKING_VIEW_ID, False)
     _settle()
-
-    results = central.open_or_focus_view(COMPLEXES_VIEW_ID).stack.currentWidget()
-    assert _settle(lambda: window.aux.occupant == window.aux.AUX_VIEW_PANEL)
-    # Picking a result shows its fields: the zone must follow, not scroll.
-    for widget in (results.detail_fields, results.detail_more_btn):
-        widget.setVisible(True)
-    results.detail_placeholder.setVisible(False)
-    # Offscreen fonts are small enough for the fields alone; "Show details" adds up to 160 px,
-    # more than the zone's minimum, like the fields do with a real display's fonts.
-    results.detail_more.setPlainText("\n".join(f"field {index}: value" for index in range(12)))
-    results.detail_more_btn.setChecked(True)
-    assert _settle(lambda: _fits(window)), (splitter.sizes(), central.aux_widget.currentWidget().widget().height())
-    assert splitter.sizes()[1] <= sum(splitter.sizes()) // 2  # the tables keep at least half
+    assert window.aux.occupant == window.aux.AUX_DETAILS
+    assert window.central_widget.aux_widget.isVisible()
 
 
-def test_a_zone_dragged_larger_is_not_shrunk(window):
+def test_a_dragged_zone_keeps_its_size(window):
     central = window.central_widget
     splitter = central.content_splitter
     central.open_or_focus_view(COMPLEXES_VIEW_ID)

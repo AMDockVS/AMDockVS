@@ -223,6 +223,7 @@ class AMDockVSMainWindow(QMainWindow):
         shell_layout.addWidget(self.central_widget, 1)
         self.tutorials_panel.setVisible(not hide_tutorials)
         self.setCentralWidget(central_shell)
+        self.monitor_bridge.job_upserted.connect(self.jobs.on_job_upserted)
         self.monitor_bridge.job_finished.connect(self.jobs.on_job_finished)
         self.monitor_bridge.project_changed.connect(self.jobs.on_monitor_project_changed)
         self.monitor_bridge.project_snapshot_updated.connect(self.jobs.on_project_snapshot_updated)
@@ -256,6 +257,13 @@ class AMDockVSMainWindow(QMainWindow):
         if self._has_active_project():
             self._open_default_views()
             QTimer.singleShot(0, self._offer_resume)
+
+    def _warm_up_tools(self) -> None:
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            self.tools.warm_up()
+        finally:
+            QApplication.restoreOverrideCursor()
 
     def _open_default_views(self) -> None:
         """Open the tabs that have data; in front goes the first of Docking Results, QSAR
@@ -624,7 +632,8 @@ class AMDockVSMainWindow(QMainWindow):
         return self.jobs_dialog
 
     def _offer_resume(self) -> None:
-        """The jobs the last session left unfinished: asked once whether to continue them where they were."""
+        """The jobs left unfinished (by the last session, or by an engine's process that ended):
+        asked whether to continue them where they were."""
         workspace = self.runtime.workspace
         run_async(lambda: [snap for snap in workspace.jobs() if snap.status == "interrupted"], self._ask_resume)
 
@@ -634,7 +643,7 @@ class AMDockVSMainWindow(QMainWindow):
         names = "\n".join(f"  {snap.name} ({snap.key[:8]})" for snap in left)
         reply = QMessageBox.question(
             self, "Resume Jobs",
-            f"AMDockVS closed before these jobs ended:\n{names}\n\nStart their executors and resume them now?",
+            f"These jobs did not end:\n{names}\n\nStart their executors and resume them now?",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes,
         )
         if reply != QMessageBox.Yes:
@@ -778,6 +787,7 @@ class AMDockVSMainWindow(QMainWindow):
             self._set_project_ui_enabled(True)
             self.aux.reset()
             self._open_default_views()
+            QTimer.singleShot(0, self._warm_up_tools)  # after the default views paint
             self._offer_resume()
             self.project_opened.emit(str(project_id))
             return

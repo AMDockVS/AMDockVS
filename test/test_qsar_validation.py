@@ -180,6 +180,7 @@ def test_regression_diagnostic_points_match_predictions(qsar_runtime):
 
 @pytest.mark.parametrize("split", ["random", "scaffold"])
 @pytest.mark.parametrize("task,algorithm", [("regression", "ridge"), ("classification", "logistic_regression")])
+@pytest.mark.usefixtures("inline_engine")
 def test_internal_validation_uses_only_training_molecules(qsar_runtime, monkeypatch, split, task, algorithm):
     calls = []
     original = modeling.cross_validation_metrics

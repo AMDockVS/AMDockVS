@@ -62,7 +62,7 @@ class DockingRunRequest:
     receptor_scope: MoleculeSource | None
     protocols: tuple[DockingProtocol, ...]
     skip_existing: bool = True
-    batch_size: int = 20
+    batch_size: int | None = None  # None -> each program's pairs per task (Settings)
     executor_name: str = "thread"
     run_id: str = ""
     compute_interactions: bool = False

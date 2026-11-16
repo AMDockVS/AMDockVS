@@ -53,6 +53,7 @@ from amdockvs.docking.engines.programs import (
 from amdockvs.docking.jobs import (
     count_pending_docking_pairs,
     count_pending_redocking_pairs,
+    screening_input_keys,
     DockingJobParams,
     DockingJobSpec,
     RedockingJobParams,
@@ -345,13 +346,11 @@ class DockingAPI:
     def get_program_spec(program: str | None = None) -> DockingProgramSpec:
         return get_docking_program(program)
 
-    def pairs_per_task(self, program_spec: DockingProgramSpec, batch_size: int | None) -> int:
-        """Pairs per docking task. AutoDock-GPU and Uni-Dock dock a task's pairs in one process
-        (see their engines), so their tasks never go below `docking.<engine>.batch_size`."""
-        config = app_config(self.runtime).docking
-        pairs = max(1, int(batch_size or config.batch_size))
-        floor = getattr(getattr(config, program_spec.docking_engine, None), "batch_size", 0)
-        return max(pairs, int(floor or 0))
+    def pairs_per_task(self, program_spec: DockingProgramSpec, batch_size: int | None = None) -> int:
+        """Pairs per docking task: `batch_size` when a caller gives one, else the program's own
+        setting (`docking.<engine>.batch_size`)."""
+        config = getattr(app_config(self.runtime).docking, program_spec.docking_engine, None)
+        return max(1, int(batch_size or getattr(config, "batch_size", 0) or DEFAULT_DOCKING_BATCH_SIZE))
 
     @staticmethod
     def _entity_filters_for_workflow(
@@ -657,6 +656,7 @@ class DockingAPI:
             engine_config=resolved_engine_config,
             hit_threshold=float(hit_threshold),
             hit_cap=int(hit_cap),
+            payload=str(payload),
             selected_from_receptor_id=selected_from_receptor_id,
             selected_top_n=(int(selected_top_n) if selected_top_n is not None else int(hit_cap)),
             skip_existing=skip_existing,
@@ -689,20 +689,6 @@ class DockingAPI:
             depends_on=depends_on,
             priority=SHARDS_PRIORITY,
             cpu_required=cpu,
-            # The gate lives in the parent, like the shard queue at import: it counts across
-            # chunks and it writes molecules, neither of which a worker can do.
-            result_handler_kwargs={
-                "project_db": self.runtime.workspace.project_db,
-                "hit_cap": int(hit_cap),
-                "hit_threshold": float(hit_threshold),
-                "run_id": params.run_id,
-                "engine": params.engine,
-                "protocol_hash": str(params.protocol_metadata.hash or ""),
-                "payload": str(payload),
-                "selected_from_receptor_id": params.selected_from_receptor_id,
-                # A forced campaign replaces when it ends, as a forced row re-dock does.
-                "skip_existing": params.skip_existing,
-            },
         )
 
     def prepare_receptors(
@@ -824,10 +810,11 @@ class DockingAPI:
         """Receptors whose active box does not fit the docking `method` (methods.py).
         Receptors without a box are not judged: the user still has to define one. The source
         structure is read: preparation keeps its metals."""
-        from amdockvs.docking.methods import excludes
+        from amdockvs.docking.methods import atoms_in_box, get_method
 
-        self.runtime._require_active_project()
-        with self.runtime.workspace.project_db.get_session() as session:
+        zinc_site = get_method(method).zinc_site
+        project_db = self._project_db()
+        with project_db.get_session() as session:
             rows = session.exec(
                 select(MoleculeRecord, BindingSite)
                 .join(BindingSite, (BindingSite.molecule_id == MoleculeRecord.id) & (BindingSite.is_active == True))  # noqa: E712
@@ -838,10 +825,29 @@ class DockingAPI:
             box = site_payload(site)
             if box is None:
                 continue
-            with self._receptor_as_pdb(receptor) as readable:  # mmCIF too: the Zn check reads PDB columns
-                if readable is not None and excludes(method, readable, box["center"], box["size"]):
-                    misfits.append(int(receptor.id))
+            atoms = self._receptor_zinc_atoms(project_db, receptor)
+            if atoms is not None and atoms_in_box(atoms, box["center"], box["size"]) != zinc_site:
+                misfits.append(int(receptor.id))
         return misfits
+
+    def _receptor_zinc_atoms(self, project_db, receptor):
+        """The Zn atoms of a receptor's source structure, or None when it has none. Read once
+        per payload: payload ids are never reused, so what was read is never stale."""
+        from amdockvs.docking.methods import zinc_atoms
+
+        payload_id = molecule_payload_id(receptor)
+        if payload_id is None:
+            return None
+        key = (str(project_db.db_path), int(payload_id))
+        cache = self.__dict__.setdefault("_zinc_by_payload", {})
+        if key not in cache:
+            text, kind = read_structure(project_db, payload_id)
+            if "zn" not in text.lower():
+                cache[key] = ()  # no Zn anywhere: skip the PDB rendering, the cost of this check
+            else:
+                with scratch_file(text.encode(), f".{kind}") as path, as_pdb(path) as readable:
+                    cache[key] = zinc_atoms(readable)  # mmCIF too: the Zn check reads PDB columns
+        return cache[key]
 
     def check_required(
             self,
@@ -1252,6 +1258,10 @@ class DockingAPI:
             skip_existing=False if reset_results else skip_existing,
             requires_ligand_preparation=program_spec.requires_ligand_preparation,
             requires_receptor_preparation=program_spec.requires_receptor_preparation,
+            requires_binding_site=program_spec.requires_binding_site,
+            box_center=box_center,
+            box_size=box_size,
+            spacing=_engine_fields(resolved_engine_config, knobs)["spacing"],
         )
         # The Top-N does not exist yet when an off-target stage is submitted: declare nothing
         # (a floor of 0) rather than a count that could over-declare and never complete.
@@ -1367,7 +1377,7 @@ class DockingAPI:
             complex_ids: list[int] | None = None,
             purpose: str = "redocking,reference",
             output_dir: PathLike | None = None,
-            batch_size: int = DEFAULT_DOCKING_BATCH_SIZE,
+            batch_size: int | None = None,  # None -> the program's pairs per task
             exhaustiveness: int = 8,
             num_modes: int = 9,
             box_center: tuple[float, float, float] | None = None,
@@ -1468,6 +1478,9 @@ class DockingAPI:
             purpose=purpose_text,
             protocol_metadata=protocol_metadata,
             skip_existing=skip_existing,
+            box_center=box_center,
+            box_size=box_size,
+            spacing=_engine_fields(resolved_engine_config, knobs)["spacing"],
         )
         batch_size = self.pairs_per_task(program_spec, batch_size)
         total_chunks = (
@@ -1685,13 +1698,28 @@ class DockingAPI:
             receptor_ids: list[int] | None = None,
             protocol_hash: str | None = None,
             run_kind: str | None = "screening",
+            program: str | None = None,
     ) -> int:
+        """`program` counts only the pairs docked against what its run would dock now: each
+        receptor's current preparation and stored grid (skip_existing docks the others again).
+
+        The spacing is the stored grid's, which is what the run docks with as well: a defined
+        site always carries one, so the fallback here is only reached where there is no grid —
+        and then there is nothing docked to count, every program requiring a site."""
+        input_keys = None
+        if program and receptor_ids is not None:
+            spec = self.get_program_spec(program)
+            rows = get_molecule_rows_by_ids(self._project_db(), list(receptor_ids), engine=spec.preparation_engine)
+            input_keys = screening_input_keys(rows.values(), box_center=None, box_size=None, spacing=0.375,
+                                              preparation_engine=spec.preparation_engine,
+                                              requires_binding_site=spec.requires_binding_site)
         return results_repo.count_docked_pairs(
             self._project_db(),
             engine=engine,
             receptor_ids=receptor_ids,
             protocol_hash=protocol_hash,
             run_kind=run_kind,
+            input_keys=input_keys,
         )
 
     def receptor_summaries(self):

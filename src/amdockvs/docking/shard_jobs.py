@@ -45,6 +45,7 @@ from amdockvs.docking.results.dataset import (
     shard_selection,
 )
 from amdockvs.docking.methods import excludes
+from amdockvs.docking.pairs import docking_input_key
 from amdockvs.docking.preparation.state import grid_from_row
 from amdockvs.docking.rerun import supersede_shard_runs
 from amdockvs.screening.campaign import (
@@ -258,6 +259,7 @@ class DockShardsJobParams(BaseModel):
     # without a cap a generous receptor materializes the library the mode exists to keep out.
     hit_threshold: float
     hit_cap: int = Field(ge=1)
+    payload: str = PAYLOAD_LIGHT  # what a hit keeps of its pose
     # Set only for the dependent off-target stage. Once the reference job completes, its
     # durable ranking supplies the record ids; only those records are extracted from each shard.
     selected_from_receptor_id: int | None = Field(default=None, ge=1)
@@ -409,25 +411,14 @@ class ShardHitWriter:
         self.terminal_status = str(status or "failed")
 
 
-def shard_hit_writer(
-    *,
-    project_db: Any,
-    hit_cap: int,
-    hit_threshold: float,
-    payload: str = PAYLOAD_LIGHT,
-    run_id: str = "",
-    engine: str = "",
-    protocol_hash: str = "",
-    selected_from_receptor_id: int | None = None,
-    skip_existing: bool = True,
-) -> ShardHitWriter:
-    """Factory for `result_handler_factory`; the runtime passes the kwargs from the API."""
+def shard_hit_writer(params: dict, config: dict) -> ShardHitWriter:
+    """`result_handler_factory` of the docking of shards: the gate, from the run's params."""
     return ShardHitWriter(
-        project_db=project_db, hit_cap=hit_cap, hit_threshold=hit_threshold,
-        payload=payload, run_id=run_id,
-        engine=engine, protocol_hash=protocol_hash,
-        selected_from_receptor_id=selected_from_receptor_id,
-        skip_existing=skip_existing,
+        project_db=config["project_db"], hit_cap=params["hit_cap"], hit_threshold=params["hit_threshold"],
+        payload=params["payload"], run_id=params["run_id"],
+        engine=params["engine"], protocol_hash=str(params["protocol_metadata"].get("hash") or ""),
+        selected_from_receptor_id=params["selected_from_receptor_id"],
+        skip_existing=params.get("skip_existing", True),  # a forced campaign replaces when it ends
     )
 
 
@@ -467,6 +458,7 @@ def receptor_targets(project_db, parsed: DockShardsJobParams, output_dir: Path) 
         receptor_path = files["input_path"]
         if excludes(parsed.engine_config.get("method"), receptor_path, center, size):
             continue  # its box does not fit the docking method
+        spacing = float(grid.get("spacing") or parsed.spacing)
         targets.append({
             "receptor_id": int(row.get("id") or 0),
             "receptor_name": str(row.get("name") or ""),
@@ -474,7 +466,10 @@ def receptor_targets(project_db, parsed: DockShardsJobParams, output_dir: Path) 
             "flex_receptor_path": files["flex_path"],
             "box_center": center,
             "box_size": size,
-            "spacing": float(grid.get("spacing") or parsed.spacing),
+            "spacing": spacing,
+            # What its hits are docked against, as `dock_pairs` stamps a row-fed run's results:
+            # a later skip_existing run on the same ligands compares with it.
+            "input_key": docking_input_key(files, center, size, spacing),
         })
     return targets
 
@@ -672,6 +667,7 @@ class DockShardsJobSpec(JobSpec):
                     "box_center": target["box_center"],
                     "box_size": target["box_size"],
                     "spacing": target["spacing"],
+                    "input_key": target.get("input_key", ""),
                     "engine": parsed.engine,
                     "exhaustiveness": parsed.exhaustiveness,
                     "num_modes": parsed.num_modes,

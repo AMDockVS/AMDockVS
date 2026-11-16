@@ -220,7 +220,9 @@ def _bb_cluster_labels(
             capture_output=True, text=True,
         )
         if proc.returncode != 0:
-            raise RuntimeError(f"`bb {subcommand}` failed (exit {proc.returncode}):\n{proc.stderr[-2000:]}")
+            from amdockvs.integrations.envs import tool_failed
+
+            raise tool_failed(f"bb {subcommand}", proc.returncode, proc.stderr)
         with open(out_dir / "clusters.pkl", "rb") as fh:
             clusters = pickle.load(fh)
     finally:

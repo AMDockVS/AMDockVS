@@ -57,19 +57,19 @@ def test_offtarget_requirement_summary_uses_the_current_hit_cap(mode, cap, expec
 
 
 def test_the_preview_says_how_many_tasks_each_program_runs(monkeypatch):
-    """Uni-Dock takes its own floor of pairs per task; QuickVina takes Batch size."""
+    """Each program takes its own pairs per task (Settings)."""
     import amdockvs.docking.api as api
     from amdockvs.docking.engines.programs import get_docking_program
 
-    config = SimpleNamespace(docking=SimpleNamespace(batch_size=4, unidock=SimpleNamespace(batch_size=128)))
+    config = SimpleNamespace(docking=SimpleNamespace(qvina=SimpleNamespace(batch_size=1),
+                                                     unidock=SimpleNamespace(batch_size=128)))
     monkeypatch.setattr(api, "app_config", lambda _runtime: config)
     docking = SimpleNamespace(runtime=None, get_program_spec=get_docking_program)
-    docking.pairs_per_task = lambda spec, batch: api.DockingAPI.pairs_per_task(docking, spec, batch)
+    docking.pairs_per_task = lambda spec: api.DockingAPI.pairs_per_task(docking, spec)
     panel = RunPanel()
     shown = []
     panel.runtime = SimpleNamespace(docking=docking)
     panel.req_tasks = SimpleNamespace(setText=shown.append)
-    panel.batch_size = SimpleNamespace(value=lambda: 1)
     panel._pairs_by_program = [("qvina", 2772), ("unidock", 2772)]
     panel._show_tasks()
     qvina, unidock = get_docking_program("qvina").label, get_docking_program("unidock").label

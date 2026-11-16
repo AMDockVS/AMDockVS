@@ -5,27 +5,33 @@ poses (REMARK VINA RESULT), so the Vina parsing and SDF conversion are reused. T
 Uni-Dock is the batch: one process docks every ligand of a site in parallel on the card, so
 a task docks all its pairs that share a receptor and box in one `--ligand_index` run.
 
-Uni-Dock aborts the whole run on a ligand it cannot read; a failed run is retried one ligand
-at a time, so a bad ligand fails only its own pair.
+Uni-Dock sorts a run's ligands by size into groups and docks each group in GPU batches as
+large as the card's memory allows; it writes a batch's poses before it says "Batch k running
+time". Each pair is reported as its batch ends, so rows, hits and progress move per GPU batch.
+
+Uni-Dock aborts the whole run on a ligand it cannot read; what a failed run did not dock is
+retried one ligand at a time, so a bad ligand fails only its own pair.
 ponytail: scoring is vina/vinardo; ad4 needs autogrid4 maps passed with --maps, add it the
 way adgpu.py does if asked.
 """
 from __future__ import annotations
 
 import os
+import re
 import shutil
 from contextlib import suppress
 from pathlib import Path
+from typing import IO, Callable
 
 from ms_env import READY, Recipe, locate
 
 from amdockvs.core.configuration import app_config
 from amdockvs.core.paths import get_default_project_root, tools_home
-from amdockvs.core.worker_io import run_program
 from amdockvs.docking.engines.vina import (
     _convert_vina_pdbqt_to_sdf,
     _parse_vina_pose_energies,
     _require_pdbqt,
+    _run_vina,
     count_heavy_atoms,
 )
 from amdockvs.docking.methods import check_program, check_receptor
@@ -35,6 +41,7 @@ from amdockvs.docking.results.rmsd import pose_rmsd_detail
 from amdockvs.integrations.envs import tool_spec
 
 ENGINE = "unidock"
+_BATCH_DONE = re.compile(r"Batch \d+ running time")  # the batch's poses are written by then
 
 
 def unidock_recipe(runtime=None) -> Recipe:
@@ -66,9 +73,10 @@ def _run_unidock(
     ligands: dict[str, Path],
     work: Path,
     options: list[str],
+    batch_done: Callable[[], None],
 ) -> dict[str, Path | str]:
-    """Dock `ligands` (output name → PDBQT) over one site in one process. Each name maps to its
-    pose PDBQT, or to why it failed."""
+    """Dock `ligands` (output name → PDBQT) over one site in one process, calling `batch_done`
+    as each GPU batch has written its poses. Each name maps to its pose PDBQT, or to why it failed."""
     receptor_path, center, size, flex_path = site
     work.mkdir(parents=True, exist_ok=True)
     for name, path in ligands.items():  # Uni-Dock names each output after its input file
@@ -82,14 +90,28 @@ def _run_unidock(
         command += [f"--center_{axis}", str(c), f"--size_{axis}", str(s)]
     if flex_path is not None:
         command += ["--flex", str(flex_path)]
-    result = run_program([*command, *options], cwd=str(work))
-    why = f"Uni-Dock failed (exit {result.returncode}): {(result.stderr or result.stdout or 'no output').strip()[-500:]}"
+
+    def follow(stream: IO[str]) -> str:
+        lines = []
+        for line in stream:
+            lines.append(line)
+            if _BATCH_DONE.match(line):
+                batch_done()
+        return "".join(lines)
+
+    why = "Uni-Dock wrote no poses"
+    try:
+        _run_vina([*command, *options], follow=follow)
+    except RuntimeError as exc:
+        why = str(exc)[-500:]  # the reason Uni-Dock gives is at the end
     outputs = {name: work / f"{name}_out.pdbqt" for name in ligands}
     return {name: path if path.exists() else why for name, path in outputs.items()}
 
 
 def unidock_dock_runner(payload: dict) -> list[dict]:
     pairs = list(payload.get("pairs") or [])
+    pair_callback = payload.get("_pair_callback")
+    collect_rows = bool(payload.get("_collect_rows", True))
     output_dir = Path(str(payload.get("output_dir") or "")).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     default_center = [float(v) for v in (payload.get("box_center") or [])]
@@ -110,6 +132,13 @@ def unidock_dock_runner(payload: dict) -> list[dict]:
     method = check_program(payload.get("method"), ENGINE, scoring_function)
 
     rows: list[dict] = []
+
+    def report(pair_rows: list[dict]) -> None:
+        if collect_rows:
+            rows.extend(pair_rows)
+        if pair_callback is not None:
+            pair_callback(pair_rows)
+
     sites: dict[tuple, list[dict]] = {}  # (receptor, box, flexres) → its prepared pairs
     for pair in pairs:
         ligand_path = Path(str(pair.get("ligand_path") or "")).expanduser().resolve()
@@ -134,7 +163,7 @@ def unidock_dock_runner(payload: dict) -> list[dict]:
             flex_path = Path(explicit_flex) if explicit_flex else receptor_path.with_name(f"{receptor_path.stem}__flex.pdbqt")
             flex_path = flex_path if flex_path.exists() else None
         except Exception as exc:
-            rows.append(docking_row(pair, score_type="vina_score", error=str(exc)))
+            report([docking_row(pair, score_type="vina_score", error=str(exc))])
             continue
         site = (receptor_path, tuple(center), tuple(size), flex_path)
         sites.setdefault(site, []).append(
@@ -143,19 +172,32 @@ def unidock_dock_runner(payload: dict) -> list[dict]:
     executable = ""
     for site, group in sites.items():
         work = output_dir / f"_unidock_{group[0]['name']}"
+        shutil.rmtree(work, ignore_errors=True)  # poses left by an interrupted run are not this run's
+        reported: set[str] = set()
+
+        def collect(group=group, work=work, reported=reported) -> None:
+            """Report the pairs whose poses are written."""
+            for item in group:
+                poses = work / f"{item['name']}_out.pdbqt"
+                if item["name"] not in reported and poses.exists():
+                    reported.add(item["name"])
+                    report(_pair_rows(item, poses, output_dir, project_root))
+
         try:
             executable = executable or unidock_command()
             batch = {item["name"]: item["ligand_path"] for item in group}
-            outcome = _run_unidock(executable=executable, site=site, ligands=batch, work=work, options=options)
+            outcome = _run_unidock(executable=executable, site=site, ligands=batch, work=work, options=options,
+                                   batch_done=collect)
             retry = [name for name, value in outcome.items() if not isinstance(value, Path)]
             if len(batch) > 1:  # one unreadable ligand stops the run: the rest go one by one
                 for name in retry:
                     outcome.update(_run_unidock(executable=executable, site=site, ligands={name: batch[name]},
-                                                work=work, options=options))
-        except Exception as exc:  # no program, or it did not run: every pair of the site fails
+                                                work=work, options=options, batch_done=collect))
+        except Exception as exc:  # no program, or it did not run: every pair not yet reported fails
             outcome = {item["name"]: str(exc) for item in group}
         for item in group:
-            rows.extend(_pair_rows(item, outcome[item["name"]], output_dir, project_root))
+            if item["name"] not in reported:
+                report(_pair_rows(item, outcome[item["name"]], output_dir, project_root))
         shutil.rmtree(work, ignore_errors=True)  # the poses are in the SDFs now
     return rows
 

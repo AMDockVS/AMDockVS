@@ -15,6 +15,7 @@ from amdockvs.core.constants import (
     AMDOCKVS_SCOPE_ID,
     RESOURCE_DOCKING_RESULTS,
     RESOURCE_QSAR_MODELS,
+    TABLE_DOCKING_RESULTS,
     TABLE_INTERACTION_RESULTS,
     TABLE_MOLECULES,
     TABLE_QSAR_MODEL_MEMBERS,
@@ -36,6 +37,7 @@ from amdockvs.models.codes import ensure_codes
 from amdockvs.core.jobs import STATUS as JOB_STATUS
 from amdockvs.core.jobs import configs as job_configs
 from amdockvs.core.job_titles import job_title
+from amdockvs.core.jobs import jobs_setup
 from amdockvs.core.paths import set_default_project_root
 from amdockvs.project.summaries import JobStatus, ProjectSummary
 from amdockvs.molecules.storage import DbStore, general_ligand_count, has_shards
@@ -96,9 +98,13 @@ class AMDockVSRuntime(AppRuntime):
             app_id=AMDOCKVS_APP_ID,
             logger_name=AMDOCKVS_APP_ID,
             project_resources=AMDOCKVS_PROJECT_RESOURCES,
+            # the engine in this process unless MSFLOW_ENGINE_HOST=process puts it in ms_flow's
+            # child, where it does not share the GUI thread's GIL (tests: `inline_engine`)
         )
         # A host kept with no environment named is given the one of this app.
         self.workspace.host_env = self._host_env
+        # What the jobs read of the project, said in the process that runs them.
+        self.workspace.jobs_setup = jobs_setup
         # What the jobs sent to each cluster's queue ask of it instead of what its executor asks
         # (CPUs, time...), for this session: set by the "Queue resources" of any tool.
         self.queue_asks: dict[str, dict] = {}
@@ -371,18 +377,25 @@ class AMDockVSRuntime(AppRuntime):
 
     def _add_columns(self) -> None:
         """Columns a project made before them lacks: `shard_preps.sha256` (2026-11, empty: a campaign
-        hashes those files itself) and `screening_shard_runs.selection` (2026-11, empty: every
-        receipt written before it stood for a whole shard)."""
+        hashes those files itself) and `docking_results.input_key` (2026-11). The box of an older
+        result is unknown; its key is its receptor payload (`legacy_input_key`), so skip_existing
+        still docks again a receptor prepared since, without docking the whole library again.
+        `screening_shard_runs.selection` (2026-11, empty: every receipt written before it stood
+        for a whole shard)."""
         added = (
-            (TABLE_SHARD_PREPS, "sha256", "VARCHAR NOT NULL DEFAULT ''"),
-            (TABLE_SCREENING_SHARD_RUNS, "selection", "VARCHAR NOT NULL DEFAULT ''"),
+            (TABLE_SHARD_PREPS, "sha256", "VARCHAR NOT NULL DEFAULT ''", None),
+            (TABLE_DOCKING_RESULTS, "input_key", "VARCHAR NOT NULL DEFAULT ''",
+             "UPDATE {table} SET input_key = 'legacy:' || COALESCE(receptor_payload_id, 0)"),
+            (TABLE_SCREENING_SHARD_RUNS, "selection", "VARCHAR NOT NULL DEFAULT ''", None),
         )
         with self.workspace.project_db.get_session() as session:
             conn = session.connection()
-            for table, column, kind in added:
+            for table, column, kind, backfill in added:
                 columns = conn.exec_driver_sql(f"PRAGMA table_info({table});").fetchall()
                 if columns and column not in {str(row[1]) for row in columns}:
                     conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
+                    if backfill:
+                        conn.exec_driver_sql(backfill.format(table=table))
             session.commit()
 
     def _rebuild_qsar_tables(self) -> None:
@@ -538,7 +551,6 @@ class AMDockVSRuntime(AppRuntime):
         total_chunks: Optional[int] = None,
         depends_on: Optional[list[str]] = None,
         priority: int = 0,
-        result_handler_kwargs: Optional[dict] = None,
         auto_depends: bool = True,
         queue_behind: Optional[str] = None,
     ) -> str:
@@ -560,7 +572,6 @@ class AMDockVSRuntime(AppRuntime):
             depends_on = self.resolve_job_dependencies(job, depends_on) or []
         workspace = self.workspace
         job_config = self._job_config()
-        engine_job, on_error = job.engine_job(handler_kwargs=result_handler_kwargs)
         job_params = job.validate_params(params)
         total = total_chunks if total_chunks is not None else job.count_chunks(job_params, config=job_config)
         job_id = uuid4().hex
@@ -569,7 +580,7 @@ class AMDockVSRuntime(AppRuntime):
         if queue_behind:
             priority += self._behind(queue_behind, executor)
         engine_ids[job_id] = workspace.submit(
-            engine_job,
+            job.engine,
             job_params,
             key=job_id,
             executor=executor,
@@ -581,7 +592,6 @@ class AMDockVSRuntime(AppRuntime):
             window=max_inflight_tasks,
             max_cpu=max_job_cpu,
             priority=priority,
-            on_error=on_error,
             **({"thread": True} if job.on_thread is not None and job.on_thread(job_params) else {}),
         )
         if queue_behind:
@@ -625,18 +635,13 @@ class AMDockVSRuntime(AppRuntime):
 
     def _job_config(self) -> dict:
         """What a chunker is given of the active project, said where its job finds it."""
-        workspace = self.workspace
-        config = job_configs[workspace.project_db] = {
-            "project_db": workspace.project_db,
-            "project_store": workspace.advanced.project_store,
-            "project_context": workspace.active_context,
-            "project_resources": workspace.get_project_resource_map(),
-        }
-        return config
+        jobs_setup(self.workspace)
+        return job_configs[self.workspace.project_db]
 
     def _recorded_job(self, job_id: str):
         """The declaration of a job on record, and the executor it was sent to. Raises for one
-        that cannot be submitted again (a job with a handler, or with params that are not JSON)."""
+        that cannot be submitted again (a declaration that is not module-level, or params that are
+        not JSON)."""
         from ms_flow.engine.flow import named
 
         origin = self.workspace.origin(str(job_id))

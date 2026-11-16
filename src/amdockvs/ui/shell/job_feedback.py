@@ -52,6 +52,7 @@ class JobFeedbackController:
         self._run_started_at = 0.0
         self._shown_failure_jobs: set[str] = set()
         self._persisted_seen_failure_jobs: set[str] = set()
+        self._running_jobs: set[str] = set()  # seen unfinished in this session: see `on_job_finished`
         self._pending_failure_jobs: list[str] = []
         self._monitor_project_id: str = ""
         self.view_refresh_timer = QTimer(window)
@@ -329,7 +330,15 @@ class JobFeedbackController:
             box.setDetailedText("\n\n".join(details))
         box.exec()
 
+    def on_job_upserted(self, job_id: str, state) -> None:
+        if not state.is_terminal:
+            self._running_jobs.add(job_id)
+
     def on_job_finished(self, job_id: str, status: str) -> None:
+        if status == "interrupted" and job_id in self._running_jobs:  # not one an earlier session left
+            self.post_notification("Job interrupted", "Its process ended. Double-click to resume it.", WARNING,
+                                   open=self.w._offer_resume)
+        self._running_jobs.discard(job_id)
         self.w.views.refresh_open_views_once()
         # A shard import brings the Shards button; the toolbar reads that off the data.
         self.w.views.sync_catalog_availability()

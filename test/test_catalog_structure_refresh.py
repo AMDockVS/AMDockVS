@@ -68,6 +68,7 @@ def catalog_scene(request, tmp_path, monkeypatch):
             feedback = JobFeedbackController.__new__(JobFeedbackController)
             feedback.w = window
             feedback._report_import_summary = lambda: None
+            feedback._running_jobs = set()
             window.show()
             app.processEvents()
             view.table.view.selectRow(1)

@@ -71,13 +71,23 @@ def _zinc_atoms(path: str, _mtime: float) -> tuple[tuple[float, float, float], .
     return tuple(atoms)
 
 
-def zinc_in_box(receptor_path: Path, center: Sequence[float], size: Sequence[float]) -> bool:
-    """A Zn atom (PDB atom name or PDBQT type ZN) inside the box (center ± size/2)."""
+def zinc_atoms(receptor_path: Path) -> tuple[tuple[float, float, float], ...]:
+    """Coordinates of the Zn atoms (PDB atom name or PDBQT type ZN) in a receptor file."""
     path = Path(receptor_path)
+    return _zinc_atoms(str(path), path.stat().st_mtime)
+
+
+def atoms_in_box(atoms, center: Sequence[float], size: Sequence[float]) -> bool:
+    """Any of `atoms` inside the box (center ± size/2)."""
     return any(
         all(abs(xyz[i] - float(center[i])) <= abs(float(size[i])) / 2.0 for i in range(3))
-        for xyz in _zinc_atoms(str(path), path.stat().st_mtime)
+        for xyz in atoms
     )
+
+
+def zinc_in_box(receptor_path: Path, center: Sequence[float], size: Sequence[float]) -> bool:
+    """A Zn atom (PDB atom name or PDBQT type ZN) inside the box (center ± size/2)."""
+    return atoms_in_box(zinc_atoms(receptor_path), center, size)
 
 
 def check_program(method: object, program: str, scoring_function: str | None = None) -> DockingMethod:
@@ -120,10 +130,12 @@ __all__ = [
     "METHODS",
     "STANDARD",
     "ZINC",
+    "atoms_in_box",
     "check_program",
     "check_receptor",
     "excludes",
     "get_method",
     "receptor_misfit",
+    "zinc_atoms",
     "zinc_in_box",
 ]
