@@ -1,3 +1,4 @@
+import ast
 from pathlib import Path
 
 import pytest
@@ -104,6 +105,42 @@ def test_pkasso_gpu_is_requested_once_per_database_batch(tmp_path, monkeypatch):
     assert [batch["_gpu_required"] for batch in batches] == [1, 1, 1]
     assert {row["structure"] for batch in batches for row in batch["rows"]} == {_molblock("CCO")}  # the bytes ride along
     store.dispose()
+
+
+def test_pkasso_is_handed_a_bridge_script_that_exists(monkeypatch):
+    """The package reorganization broke the bridge twice. The call still named
+    `chemistry/pkasso_runner.py` after the file had moved, so pKasso's Python exited with 2 for
+    every molecule. And it had moved to `integrations/pkasso.py`: run as a script, its folder
+    comes first on the path, so `from pkasso import ...` imported the bridge itself. The tests
+    never noticed either, because they never looked at the script pKasso was given."""
+    from amdockvs.chemistry import protonation
+
+    commands: list[list[str]] = []
+
+    def bridge(command: list[str], **_kwargs) -> None:
+        """Stands in for pKasso: records what it was handed and answers as the bridge does."""
+        commands.append(command)
+        molecule = Chem.AddHs(Chem.MolFromSmiles("CCO"))
+        molecule.SetProp("_AMDockID", "1")
+        writer = Chem.SDWriter(command[command.index("--output") + 1])
+        writer.write(molecule)
+        writer.close()
+
+    monkeypatch.setattr(protonation, "_run", bridge)
+
+    result = protonation._pkasso([(1, Chem.MolFromSmiles("CCO"))], python=Path("python"), ph=7.4,
+                                 model="molgpka", threads=1, gpu=False)
+
+    script = Path(commands[0][1])
+    assert script.is_file(), f"pKasso would be asked to run {script}, which does not exist"
+    imported = {
+        (node.module or "").split(".")[0] if isinstance(node, ast.ImportFrom) else alias.name.split(".")[0]
+        for node in ast.walk(ast.parse(script.read_text(encoding="utf-8")))
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        for alias in node.names
+    }
+    assert script.stem not in imported, f"{script.name} would import itself instead of {script.stem}"
+    assert list(result) == [1]  # and what it wrote comes back keyed by the molecule
 
 
 def test_pdb2pqr_hands_downstream_a_pdb_not_a_pqr(tmp_path, monkeypatch):

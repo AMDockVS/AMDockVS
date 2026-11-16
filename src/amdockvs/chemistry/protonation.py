@@ -8,6 +8,12 @@ from typing import Any, Mapping, Sequence
 
 from ms_flow.payloads import scratch_file
 
+# pKasso runs in its own interpreter, so its bridge is handed over as a file and never imported
+# here. Named from the package root: it moved out of `chemistry/` once, and a path built beside
+# this module kept naming the old place. And never `pkasso.py`: Python puts a script's own folder
+# first on its path, so a bridge of that name imports itself instead of the library it calls.
+PKASSO_RUNNER = Path(__file__).resolve().parents[1] / "integrations" / "pkasso_runner.py"
+
 
 def _molecule_id(molecule) -> int:
     for key in ("_AMDockID", "_Name"):
@@ -105,7 +111,7 @@ def _pkasso(
         [{"id": entity_id, "smiles": Chem.MolToSmiles(Chem.RemoveHs(molecule))} for entity_id, molecule in entries]
     ).encode()
     with scratch_file(request, ".json") as input_path, scratch_file(b"", ".sdf") as output_path:
-        runner = Path(__file__).with_name("pkasso_runner.py").resolve()
+        runner = PKASSO_RUNNER
         command = [
             str(python),
             str(runner),
