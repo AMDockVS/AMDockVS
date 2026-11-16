@@ -72,11 +72,10 @@ class RunPanel:
         self.req_box.add_row("Ligands", self.req_ligands_count)
         self.req_receptors_count = QLabel("—", self.req_box)  # prepared / total
         self.req_box.add_row("Receptors", self.req_receptors_count)
-        # Per program: GPU programs never go below their own pairs per task (Settings).
+        # Per program: its own pairs per task (Settings).
         self.req_tasks = QLabel("—", self.req_box)
         self.req_tasks.setToolTip(
-            "Pairs each docking task carries, per program. CPU programs take Batch size; "
-            "AutoDock-GPU and Uni-Dock take at least the pairs per task set in Settings."
+            "Pairs each docking task carries: each program's Pairs per task, in Settings > Docking."
         )
         self.req_box.add_row("Tasks", self.req_tasks)
         self._pairs_by_program: list = []
@@ -126,12 +125,6 @@ class RunPanel:
         run_box = panel.add_section("Run options")
         run_layout = run_box.form
         advanced = panel.advanced
-        # One docking pair per chunk by default so independent, long-running dockings
-        # spread across the executor pool instead of serializing inside one chunk.
-        self.batch_size = _spinbox(minimum=1, maximum=1024, value=1)
-        self.batch_size_label = QLabel("Batch size", advanced)
-        advanced.add_row(self.batch_size_label, self.batch_size)
-        self.batch_size.valueChanged.connect(lambda _value: self._show_tasks())
         self.run_destination = add_run_on(advanced, self.runtime)
         self.skip_existing_check = QCheckBox("Skip pairs already docked", run_box)
         self.skip_existing_check.setChecked(True)
@@ -576,7 +569,7 @@ class RunPanel:
                 for receptor_id, name in (result.get("ready_receptors") or ())
             ])
         self._set_sharded_run_mode(result.get("mode") == "sharded" or "shards" in result,
-                                   docking=result.get("mode") != "redocking", rows=result.get("mode") != "sharded")
+                                   docking=result.get("mode") != "redocking")
         if result.get("mode") == "sharded":
             records = int(result.get("records") or 0)
             self.req_ligands_count.setText(
@@ -768,7 +761,7 @@ class RunPanel:
         lines = []
         for program, to_run in self._pairs_by_program:
             spec = self.runtime.docking.get_program_spec(program)
-            per_task = self.runtime.docking.pairs_per_task(spec, int(self.batch_size.value()))
+            per_task = self.runtime.docking.pairs_per_task(spec)
             lines.append(f"{spec.label}: {per_task} pair(s)/task · {-(-int(to_run) // per_task):,} task(s)")
         self.req_tasks.setText("\n".join(lines) or "—")
 
@@ -820,7 +813,6 @@ class RunPanel:
             "run_kind": inp["run_kind"],
             "sel_lig": inp["sel_lig"],
             "protocols": protocols,
-            "batch_size": int(self.batch_size.value()),
             "hit_threshold": float(self.hit_threshold.value()),
             "hit_cap": int(self.hit_cap.value()),
             "offtarget_reference_id": (
@@ -973,18 +965,14 @@ class RunPanel:
         self.offtarget_reference_combo.blockSignals(False)
         self._sync_hit_cap_label()
 
-    def _set_sharded_run_mode(self, sharded: bool, *, docking: bool = True, rows: bool | None = None) -> None:
+    def _set_sharded_run_mode(self, sharded: bool, *, docking: bool = True) -> None:
         # Rows keep everything they dock, so the selection only applies to them through the
         # off-target funnel, and only once there is a second receptor to funnel into.
-        # `rows`: the run docks table rows too (both stores), so their batch size still applies.
         self._sharded = sharded
         self.hits_box.setVisible(sharded or (docking and len(self._ready_receptor_options) > 1))
         if not docking and self.offtarget_reference_combo.currentIndex() != 0:
             self.offtarget_reference_combo.setCurrentIndex(0)
         self._sync_hit_cap_label()
-        batch = not sharded if rows is None else rows
-        self.batch_size_label.setVisible(batch)
-        self.batch_size.setVisible(batch)
 
     def _submit_shard_docking(self, inp: dict, params: dict) -> dict:
         """The sharded twin of `_submit_docking`: no ligand scope, a hit gate instead.
@@ -1112,7 +1100,6 @@ class RunPanel:
             receptor_scope=receptor_scope,
             protocols=protocols,
             skip_existing=bool(params.get("skip_existing", True)),
-            batch_size=int(params["batch_size"]),
             executor_name=str(params["executor_name"]),
             run_id=str(params["run_id"]),
             compute_interactions=bool(params.get("compute_interactions")),
@@ -1169,7 +1156,6 @@ class RunPanel:
                 "complex_ids": result.get("complex_ids") or [],
                 "run_kind": params.get("run_kind") or "docking",
                 "executor": params["executor_name"],
-                "batch_size": params["batch_size"],
                 "protocols": len(params.get("protocols") or []),
             },
         )
