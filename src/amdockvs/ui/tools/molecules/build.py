@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 from amdockvs.core.user_env import is_remembered, remember_env_var, shell_profile
 from amdockvs.core.payloads import molecule_payload_id
 from amdockvs.ui.common.async_query import run_async
-from amdockvs.ui.common.failures import show_failures
+from amdockvs.ui.common.failures import recover_with, show_failures
 from amdockvs.ui.common.job_follower import JobFollower
 from amdockvs.ui.common.widgets import LigandSources, add_run_on, gate_workflow_save
 from amdockvs.core.vocab import MoleculeType
@@ -921,7 +921,9 @@ class MoleculeBuildWidget(QWidget):
         run_async(lambda: self.runtime.molecules.excluded_since(since), self._show_failures)
 
     def _show_failures(self, rows: list[tuple[int, str, str]]) -> None:
-        self.failures_dialog = show_failures(self, "Build", rows) or self.failures_dialog
+        self.failures_dialog = show_failures(
+            self, "Build", rows, recover_with(self.runtime, self.refresh),
+        ) or self.failures_dialog
 
     def _save_build_ligands(self) -> None:
         from amdockvs.ui.tools.workflow_panel import save_to_workflow
