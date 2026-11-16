@@ -269,6 +269,96 @@ def test_reduce_refuses_a_result_with_atoms_missing_whatever_it_exits_with(tmp_p
     assert not (tmp_path / "out.pdb").exists()
 
 
+# The GPU probe's answer when CUDA is available but runs nothing: a card outside the architectures
+# the PyTorch build has kernels for, on either side of them. Each fails every molecule the same way.
+_NO_KERNEL = "CUDA error: no kernel image is available for execution on the device"
+_CARD_OLDER_THAN_THE_BUILD = {
+    "usable": False, "name": "Example GPU", "capability": "6.1",
+    "archs": ["sm_75", "sm_80", "sm_86", "sm_90", "sm_100", "sm_120"], "error": _NO_KERNEL,
+}
+_CARD_NEWER_THAN_THE_BUILD = {
+    "usable": False, "name": "Example GPU", "capability": "13.0",
+    "archs": ["sm_50", "sm_60", "sm_70", "sm_75", "sm_80", "sm_86", "sm_90"], "error": _NO_KERNEL,
+}
+
+
+@pytest.mark.parametrize(("usable", "on_gpu"), [(False, False), (True, True)])
+def test_the_pkasso_bridge_runs_uni_pka_on_the_cpu_when_the_gpu_cannot_be_used(
+        tmp_path, monkeypatch, capsys, usable, on_gpu):
+    """It decides where the job runs, so a worker whose card differs from the submitter's is right too."""
+    import json
+    import sys
+    from types import SimpleNamespace
+
+    from amdockvs.integrations import pkasso_runner
+
+    asked = {}
+
+    def batch_protonate(smiles, *, model, **_kwargs):
+        asked["model"] = model
+        return smiles, [[Chem.MolFromSmiles(each)] for each in smiles]
+
+    monkeypatch.setitem(sys.modules, "pkasso", SimpleNamespace(batch_protonate=batch_protonate))
+    monkeypatch.setattr(pkasso_runner, "gpu_support", lambda: {**_CARD_OLDER_THAN_THE_BUILD, "usable": usable})
+    source, output = tmp_path / "in.json", tmp_path / "out.sdf"
+    source.write_text(json.dumps([{"id": 1, "smiles": "CCO"}]), encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["pkasso_runner.py", "--input", str(source), "--output", str(output),
+                                      "--ph", "7.4", "--model", "mixed", "--gpu"])
+
+    assert pkasso_runner.main() == 0
+
+    assert asked["model"]["unipka"]["gpu"] is on_gpu
+    said = capsys.readouterr().err
+    assert said.strip() == ("" if usable else
+                            f"pKasso: the GPU cannot be used (Example GPU: {_NO_KERNEL}); running Uni-pKa on the CPU.")
+    assert output.exists()
+
+
+@pytest.mark.parametrize(("answer", "usable", "said"), [
+    (_CARD_OLDER_THAN_THE_BUILD, False, "GPU: Example GPU (compute 6.1) can't be used by pKasso's PyTorch, "
+                                        "built for compute 7.5 to 12.0; Uni-pKa runs on the CPU."),
+    (_CARD_NEWER_THAN_THE_BUILD, False, "GPU: Example GPU (compute 13.0) can't be used by pKasso's PyTorch, "
+                                        "built for compute 5.0 to 9.0; Uni-pKa runs on the CPU."),
+    ({"usable": True, "name": "Example GPU", "capability": "8.9", "archs": ["sm_75", "sm_89"]},
+     True, "GPU: Example GPU is ready."),
+    # No CUDA GPU, or a driver too old for the build: PyTorch then reports CUDA unavailable.
+    ({"usable": False, "archs": []}, False, "No GPU is visible to pKasso; Uni-pKa runs on the CPU."),
+    (None, False, "GPU check failed (IndexError); Uni-pKa runs on the CPU."),  # it answered nothing
+], ids=["card-older-than-the-build", "card-newer-than-the-build", "usable", "no-gpu", "no-answer"])
+def test_the_pkasso_gpu_probe_says_what_the_card_can_do(tmp_path, monkeypatch, answer, usable, said):
+    import json
+    import subprocess
+    from types import SimpleNamespace
+
+    from amdockvs.chemistry import protonation
+
+    printed = "" if answer is None else json.dumps(answer) + "\n"
+    # Only this module's reference: a global subprocess.run fake would serve other threads too.
+    monkeypatch.setattr(protonation, "subprocess", SimpleNamespace(
+        run=lambda argv, **_kwargs: subprocess.CompletedProcess(argv, 0, printed, "")))
+
+    support = protonation.pkasso_gpu_support(tmp_path / "pkasso" / "bin" / "python")
+
+    assert (support.usable, support.message) == (usable, said)
+
+
+@pytest.mark.parametrize("usable", [False, True])
+def test_a_protonation_asks_for_the_gpu_only_when_pkasso_can_use_it(monkeypatch, usable):
+    """Asked for anyway, the job would hold a GPU it cannot run on and then fail every molecule."""
+    from types import SimpleNamespace
+
+    from amdockvs.chemistry import api as api_module
+    from amdockvs.chemistry.protonation import GpuSupport
+
+    monkeypatch.setattr(api_module, "protonation_tool_status", lambda _runtime, _name: SimpleNamespace(
+        installed=True, command=Path("/managed/pkasso/bin/python"), message="pKasso 0.6.1 is ready."))
+    monkeypatch.setattr(api_module, "pkasso_gpu_support", lambda _python: GpuSupport(usable, ""))
+
+    params = api_module.ChemistryAPI(runtime=None)._protonate_params(method="pkasso", model="mixed", gpu=True)
+
+    assert params["gpu"] is usable
+
+
 def test_pdb2pqr_says_why_it_gave_up(tmp_path, monkeypatch):
     """pdb2pqr refuses a structure with a gap in its backbone -- rightly -- and says so in its
     CRITICAL lines, then prints a traceback ending in a bare RuntimeError. It ran with

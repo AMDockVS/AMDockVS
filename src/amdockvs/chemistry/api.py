@@ -7,6 +7,7 @@ import math
 from uuid import uuid4
 
 from amdockvs.chemistry.pipeline import LIGAND_STEPS, normalize_steps
+from amdockvs.chemistry.protonation import GpuSupport, pkasso_gpu_support
 from ms_flow.query import db_count
 
 from amdockvs.chemistry.jobs import (
@@ -48,6 +49,14 @@ class ChemistryAPI:
 
     def install_small_molecule_protonation_tool(self, name: str) -> ProtonationToolStatus:
         return install_protonation_tool(self.runtime, name)
+
+    def pkasso_gpu_support(self) -> GpuSupport:
+        """Whether pKasso's Uni-pKa can run on this machine's GPU. Takes seconds the first time
+        for an installation (it starts PyTorch and CUDA there): not on a GUI thread."""
+        status = protonation_tool_status(self.runtime, "pkasso")
+        if not status.installed or status.command is None:
+            return GpuSupport(False, "pKasso is not installed.")
+        return pkasso_gpu_support(status.command)
 
     def _estimate_scope_count(
         self,
@@ -353,6 +362,11 @@ class ChemistryAPI:
             if not status.installed or status.command is None:
                 raise RuntimeError(f"{status.message} Install its runtime from Build first.")
             params["tool_command"] = str(status.command)
+            # A GPU pKasso's PyTorch cannot run on would be held for the job and then fail every
+            # molecule; Uni-pKa on the CPU gives the same states. Build only offers the GPU once
+            # this said yes, so from there it is the cached answer.
+            if use_gpu and not pkasso_gpu_support(status.command).usable:
+                params["gpu"] = False
         return params
 
     @staticmethod

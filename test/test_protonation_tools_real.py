@@ -134,6 +134,27 @@ def test_a_ligand_protonation_method_runs_for_real(method):
         )
 
 
+def test_pkasso_with_the_gpu_requested_gives_the_same_states_whatever_gpu_this_machine_has():
+    """Asked for the GPU, Uni-pKa runs there when this machine's PyTorch can use it, and on the
+    CPU when it cannot -- a card outside the build's architectures, a driver too old for it, no
+    GPU at all. It used to fail every molecule instead. Whichever this machine is, same states."""
+    from amdockvs.chemistry.protonation import pkasso_gpu_support, protonate_molecule_batch
+
+    command = _command("pkasso")
+    support = pkasso_gpu_support(command)
+    assert support.message.startswith(("GPU:", "No GPU is visible")), support.message
+
+    result = protonate_molecule_batch(
+        [(index, Chem.MolFromSmiles(smiles)) for index, smiles in LIGANDS.items()],
+        method="pkasso",
+        params={"ph": 7.4, "model": "mixed", "threads": 1, "gpu": True, "tool_command": command},
+    )
+
+    assert {index: Chem.GetFormalCharge(molecule) for index, molecule in result.items()} == CHARGE_AT_7_4, (
+        f"on this machine: {support.message}"
+    )
+
+
 @pytest.mark.parametrize("method", ["reduce", "pdb2pqr"])
 def test_a_receptor_protonation_method_runs_for_real_on_a_stored_receptor(method):
     """Through the function a receptor job calls, from the stored mmCIF, on a receptor with chain
