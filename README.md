@@ -69,7 +69,7 @@ Using conda? Replace the create and activate commands with
 `conda env create -f environment.yml` and `conda activate amdockvs`.
 
 On the welcome screen, choose **Your first docking** to work through the included
-Vps34–SAR405 example, from importing molecules to submitting a docking run.
+Vps34-SAR405 example, from importing molecules to submitting a docking run.
 [Watch the walkthrough](https://www.youtube.com/watch?v=HjT4PxUy0yg).
 
 <details>
