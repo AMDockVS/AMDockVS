@@ -184,7 +184,24 @@ def test_receptor_api_passes_the_managed_command_to_the_job(monkeypatch, method)
     assert submitted["params"]["ph"] == 6.5
 
 
-def test_reduce_accepts_trim_exit_255_and_uses_the_managed_executable(tmp_path, monkeypatch):
+# What reduce 4.15 really writes. The fakes used to answer "TRIMMED" and "PROTONATED" with exit 0
+# for -BUILD; real reduce writes atom records, and its exit status does not track its result.
+_HEADER = "USER  MOD reduce.4.15.250408 H: found=0, std=0, add=0, rem=0\n"
+_TRIMMED = (
+    "ATOM      1  N   ALA A   1      11.104   6.134  -6.504  1.00  0.00           N\n"
+    "ATOM      2  CA  ALA A   1      11.639   6.071  -5.147  1.00  0.00           C\n"
+    "END\n"
+)
+_BUILT = _TRIMMED.replace("END\n", (
+    "ATOM      3  H   ALA A   1      10.140   6.329  -6.676  1.00  0.00           H   new\n"
+    "ATOM      4  HA  ALA A   1      12.731   6.098  -5.172  1.00  0.00           H   new\n"
+    "END\n"
+))
+_CHAIN_BREAK = "*WARNING*: Residues PRO 417  and ILE 435  in chain  A appear unbonded\n"
+
+
+def _fake_reduce(monkeypatch, *, trim: tuple[int, str, str], build: tuple[int, str, str]) -> list:
+    """Replace reduce for this thread: `trim` and `build` are its (exit, stdout, stderr)."""
     import subprocess
     import threading
 
@@ -201,15 +218,55 @@ def test_reduce_accepts_trim_exit_255_and_uses_the_managed_executable(tmp_path, 
         if threading.current_thread() is not ours:
             return real_run(argv, **kwargs)
         calls.append((argv, kwargs))
-        return subprocess.CompletedProcess(argv, 255 if "-Trim" in argv else 0,
-                                           "TRIMMED\n" if "-Trim" in argv else "PROTONATED\n", "")
+        code, out, err = trim if "-Trim" in argv else build
+        result = subprocess.CompletedProcess(argv, code, out, err)
+        if kwargs.get("check"):  # as the real one does: a fake that ignores `check` hides it
+            result.check_returncode()
+        return result
 
     monkeypatch.setattr(receptors.subprocess, "run", run)
+    return calls
+
+
+def test_reduce_accepts_trim_exit_255_and_uses_the_managed_executable(tmp_path, monkeypatch):
+    from amdockvs.chemistry.tools import receptors
+
+    calls = _fake_reduce(monkeypatch, trim=(255, _TRIMMED, ""), build=(0, _BUILT, ""))
     result = receptors.protonate_receptor_reduce_file(source_path=tmp_path / "in.pdb", output_path=tmp_path / "out.pdb",
                                                      command="/managed/bin/reduce")
-    assert result.read_text() == "PROTONATED\n"
+    assert result.read_text() == _BUILT
     assert [argv[0] for argv, _kw in calls] == ["/managed/bin/reduce"] * 2  # -Trim, then -BUILD
-    assert calls[1][1]["input"] == "TRIMMED\n"
+    assert calls[1][1]["input"] == _TRIMMED
+
+
+def test_reduce_keeps_a_complete_result_it_exited_1_on(tmp_path, monkeypatch):
+    """reduce -BUILD exits 1 for a chain break -- a warning, with every hydrogen written. Taking the
+    exit status for the result threw away a correct protonation of nearly every crystal structure
+    with a missing loop (found on the tutorial's own Vps34 receptor)."""
+    from amdockvs.chemistry.tools import receptors
+
+    _fake_reduce(monkeypatch, trim=(255, _TRIMMED, ""), build=(1, _BUILT, _CHAIN_BREAK))
+    result = receptors.protonate_receptor_reduce_file(source_path=tmp_path / "in.pdb", output_path=tmp_path / "out.pdb",
+                                                     command="/managed/bin/reduce")
+    assert result.read_text() == _BUILT
+
+
+@pytest.mark.parametrize(("trim", "build", "message"), [
+    # An input reduce cannot read: exit 0, and nothing but its header back.
+    ((0, _HEADER, ""), (0, _HEADER, ""), "found no atoms to protonate"),
+    # A -BUILD that lost atoms on the way is no protonation, whatever it exits with.
+    ((255, _TRIMMED, ""), (0, _HEADER + "END\n", ""), "returned 0 atoms for the 2"),
+])
+def test_reduce_refuses_a_result_with_atoms_missing_whatever_it_exits_with(tmp_path, monkeypatch, trim, build, message):
+    """The other way the exit status lied: 0 with no atoms, which saved an empty structure as the
+    protonated receptor and reported success."""
+    from amdockvs.chemistry.tools import receptors
+
+    _fake_reduce(monkeypatch, trim=trim, build=build)
+    with pytest.raises(RuntimeError, match=message):
+        receptors.protonate_receptor_reduce_file(source_path=tmp_path / "in.pdb", output_path=tmp_path / "out.pdb",
+                                                 command="/managed/bin/reduce")
+    assert not (tmp_path / "out.pdb").exists()
 
 
 def test_a_worker_resolves_its_own_tool_when_the_submitter_path_is_missing(monkeypatch):
