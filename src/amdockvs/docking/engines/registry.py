@@ -68,7 +68,7 @@ def run_docking_chunk(payload: dict, progress_cb=None) -> list[dict]:
     up to a batch's size while it docks a batch).
 
     ponytail: only the Vina and QuickVina binaries say how far they are (their progress line);
-    gnina and AutoDock-GPU tell nothing.
+    Uni-Dock reports its pairs as each GPU batch ends; gnina and AutoDock-GPU tell nothing.
     """
     load_builtin_docking_engines()
     payload = dict(payload)
