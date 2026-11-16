@@ -297,7 +297,12 @@ def prepare_receptor_vina_pdbqt(
 
     with scratch_file(text.encode(), ".pdb") as filtered:
         # waters and cofactors were filtered above, by the user's choice: the cleanup leaves them be
-        rigid = prepare_receptor(filtered, repairs="hydrogens", cleanup="nphs_lps", ccd=use_ccd)
+        # ccd_metal_charges is what gives a metal *inside* a component its formal charge: the
+        # CCD draws heme at -4 with an Fe(2+), and template() leaves metals out of the Gasteiger
+        # pass, so without it the iron stays at 0 and the heme reaches the grid as a -4 ion.
+        # A standalone metal residue (ZN, MN, CA) is unaffected and stays at 0, as ADT has it.
+        rigid = prepare_receptor(filtered, repairs="hydrogens", cleanup="nphs_lps",
+                                 ccd=use_ccd, ccd_metal_charges=use_ccd)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(rigid, encoding="utf-8")
     present = {(l[21].strip(), l[17:20].strip() + l[22:27].strip()) for l in rigid.splitlines()

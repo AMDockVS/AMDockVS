@@ -94,10 +94,38 @@ def _prepare(source: Path, tmp_path: Path, *, ccd: bool):
     return result, rows
 
 
-def test_fmn_is_shipped_so_the_common_path_needs_no_network():
-    # The whole offline story rests on this file being there; a rename would make the CCD pass
-    # fetch instead, which a test run without network would not notice any other way.
-    assert "FMN" in bundled_components()
+def test_the_verified_components_are_shipped_so_the_common_path_needs_no_network():
+    # The whole offline story rests on these files being there; a rename would make the CCD
+    # pass fetch instead, which a test run without network would not notice any other way.
+    # Each of these has a prepared structure behind it in the branch's test matrix.
+    assert {"FMN", "FAD", "NAD", "ATP", "TPP", "HEM"} <= set(bundled_components())
+
+
+def test_a_components_own_metal_is_charged(tmp_path, monkeypatch):
+    """Heme is the case this exists for.
+
+    The component leaves its iron's charge unset and puts -1 on two of the four porphyrin
+    nitrogens; the typing path keeps metals out of the Gasteiger pass and hands the metal back
+    what its bonded atoms lost, so the iron is +2 and the heme is -2. Without
+    ccd_metal_charges the iron stays at 0 and the heme reaches the grid as a -4 ion, which is
+    the wrong sign for the whole site.
+    """
+    monkeypatch.setenv("MOLSUITE_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("MOLSUITE_OFFLINE", "1")  # the shipped HEM must carry this alone
+    pytest.importorskip("ms_adtools")
+    source = Path(__file__).resolve().parent / "data" / "hem_fixture.pdb"
+    out = tmp_path / "hem.pdbqt"
+    result = prepare_receptor_vina_pdbqt(source_path=source, output_path=out,
+                                         ccd_components=True)
+    rows = [line for line in Path(result.artifact.path).read_text().splitlines()
+            if line.startswith(("ATOM", "HETATM")) and line[17:20].strip() == "HEM"]
+    if not rows:
+        pytest.skip("ms_adtools dropped the heme; nothing to assert about its charges")
+    iron = [line for line in rows if line[12:16].strip().upper() == "FE"]
+    assert iron, "the heme kept its iron"
+    assert sum(float(line[70:76]) for line in iron) == pytest.approx(2.0, abs=0.05)
+    assert sum(float(line[70:76]) for line in rows) == pytest.approx(-2.0, abs=0.15)
+    assert not result.warnings
 
 
 def test_nonstandard_resnames_finds_the_cofactor_and_not_the_polymer():
