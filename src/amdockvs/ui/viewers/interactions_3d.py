@@ -2,8 +2,9 @@
 PyMOL with its contacts drawn in 3D.
 
 Each contact is a PyMOL distance between two pseudoatoms, coloured like its line in the 2D
-diagram, so both views read the same. Ring contacts start from the ring centroid (a small
-sphere); water bridges go through the water. No atom-index mapping crosses into PyMOL:
+diagram, so both views read the same. A ring or charged group is drawn from its centroid (a
+small sphere) on either side, because that is where ms_contactmap measures the distance from;
+water bridges go through the water. No atom-index mapping crosses into PyMOL:
 the diagram's ligand atoms are the pose's heavy atoms in file order, which is also the
 order PyMOL keeps, so the coordinates come straight from the loaded pose.
 """
@@ -26,6 +27,33 @@ def residue_selection(receptor_obj: str, key: str) -> str:
 def _centroid(points) -> tuple[float, float, float]:
     n = len(points)
     return tuple(sum(p[i] for p in points) / n for i in range(3))
+
+
+#: Contacts ms_contactmap measures centroid to centroid (its group pairs).
+_GROUP_KINDS = frozenset({"pi_stacking", "pi_cation", "salt_bridge"})
+
+
+def _protein_group(interaction) -> tuple[str, ...]:
+    """Atom names of the protein group a ring or charged contact is measured from; ``()`` for a
+    contact to one atom.
+
+    ``protein_atoms`` when the contact carries it. A row saved before it did (or an ms_contactmap
+    without it) still names ``protein_atom``, the group's first atom, which picks the residue's
+    group out of ms_contactmap's own tables: CG is PHE's ring, ND1 the HIS cation, NZ all of LYS.
+    """
+    names = tuple(getattr(interaction, "protein_atoms", None) or ())
+    if names or getattr(interaction, "kind", None) not in _GROUP_KINDS:
+        return names
+    first = getattr(interaction, "protein_atom", None)
+    try:
+        from ms_contactmap.detect.protein import AROMATIC_RINGS, CHARGED_GROUPS
+    except ImportError:
+        return ()
+    resname = interaction.residue_key.split(":")[-1].strip().upper()
+    for group in (AROMATIC_RINGS.get(resname), (CHARGED_GROUPS.get(resname) or (None, None))[1]):
+        if group and group[0] == first:
+            return tuple(group)
+    return ()
 
 
 def _nearest(cmd, selection: str, to) -> tuple[float, float, float] | None:
@@ -57,7 +85,8 @@ def show_residue_interactions(cmd, *, receptor_obj: str, ligand_obj: str, key: s
 
 def show_interaction(cmd, *, receptor_obj: str, ligand_obj: str, contact) -> int:
     """One contact picked from the interaction table (``kind``, ``residue_key``, ``ligand_atoms``,
-    ``protein_atom``, ``via_water`` attributes), drawn like the diagram draws it."""
+    ``protein_atom``, ``via_water`` and optionally ``protein_atoms`` attributes), drawn like the
+    diagram draws it."""
     ligand = cmd.get_coords(f"{ligand_obj} and not elem H")
     return _draw(cmd, receptor_obj, ligand_obj, contact.residue_key, [contact], ligand)
 
@@ -92,6 +121,7 @@ def _draw(cmd, receptor_obj: str, ligand_obj: str, key: str, contacts, ligand) -
         cmd.distance(name, a, b)
         cmd.set("dash_color", color.replace("#", "0x"), name)
         cmd.set("dash_gap", 0.35, name)
+        cmd.set("label_distance_digits", 2, name)  # as the diagram reports it: 4.86, not 4.9
         names.append(name)
 
     drawn = 0
@@ -114,6 +144,16 @@ def _draw(cmd, receptor_obj: str, ligand_obj: str, key: str, contacts, ligand) -
                 w = point(water, sphere=True)
                 dash(a, w, color)
                 a = w
+        members = _protein_group(interaction)
+        coords = None
+        if len(members) > 1:
+            coords = cmd.get_coords(f"({residue_selection(receptor_obj, interaction.residue_key)}) "
+                                    f"and name {'+'.join(members)}")
+        if coords is not None and len(coords) == len(members):
+            # The centroid, as measured: the group's first atom is up to a ring's radius off.
+            dash(a, point(_centroid(coords), sphere=True), color)
+            drawn += 1
+            continue
         end = _nearest(cmd, protein, start) or _nearest(cmd, residue_selection(receptor_obj, interaction.residue_key), start)
         if end is None:
             continue
