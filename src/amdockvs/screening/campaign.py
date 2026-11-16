@@ -150,8 +150,10 @@ def advance_shard_run(
         return True
 
 
-def completed_shard_targets(project_db, *, docking_run_id: int | None) -> set[tuple[int, int]]:
-    """Completed ``(shard_id, receptor_id)`` pairs of one docking run (one engine and protocol)."""
+def completed_shard_targets(project_db, *, docking_run_id: int | None,
+                            selection: str = "") -> set[tuple[int, int]]:
+    """Completed ``(shard_id, receptor_id)`` pairs of one docking run (one engine and protocol),
+    among the receipts docked under `selection` (empty: the whole shard)."""
     if not docking_run_id:
         return set()
     with project_db.get_session() as session:
@@ -160,16 +162,22 @@ def completed_shard_targets(project_db, *, docking_run_id: int | None) -> set[tu
             for shard_id, receptor_id in session.exec(
                 select(ScreeningShardRun.shard_id, ScreeningShardRun.receptor_molecule_id).where(
                     ScreeningShardRun.docking_run_id == int(docking_run_id),
+                    ScreeningShardRun.selection == str(selection or ""),
                     ScreeningShardRun.state == TargetState.DONE,
                 )
             ).all()
         }
 
 
-def completed_protocol_targets(project_db, *, engine: str, protocol_hash: str) -> set[tuple[int, int]]:
+def completed_protocol_targets(project_db, *, engine: str, protocol_hash: str,
+                               selection: str = "") -> set[tuple[int, int]]:
     """Completed ``(shard_id, receptor_id)`` pairs of every screening run of this engine and
     protocol: what "skip pairs already docked" leaves out, whichever run docked them. A
-    campaign's run id is new on every submission, so a skip keyed by it skips nothing."""
+    campaign's run id is new on every submission, so a skip keyed by it skips nothing.
+
+    Only the receipts docked under `selection` count. A receipt of an off-target stage stands
+    for one reference receptor's Top-N inside the shard, not the shard: counting it would make
+    a full-library run skip the records it never docked."""
     with project_db.get_session() as session:
         return {
             (int(shard_id), int(receptor_id))
@@ -180,6 +188,7 @@ def completed_protocol_targets(project_db, *, engine: str, protocol_hash: str) -
                     DockingRun.engine == str(engine).strip().lower(),
                     DockingRun.run_kind == "screening",
                     DockingRun.protocol_hash == str(protocol_hash or ""),
+                    ScreeningShardRun.selection == str(selection or ""),
                     ScreeningShardRun.state == TargetState.DONE,
                 )
             ).all()

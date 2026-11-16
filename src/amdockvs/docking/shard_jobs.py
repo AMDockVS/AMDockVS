@@ -42,6 +42,7 @@ from amdockvs.docking.results.dataset import (
     result_metadata,
     select_hit_refs,
     select_hits,
+    shard_selection,
 )
 from amdockvs.docking.methods import excludes
 from amdockvs.docking.preparation.state import grid_from_row
@@ -517,6 +518,11 @@ def _shard_docking_scope(
                 "score__lte": float(parsed.hit_threshold),
             },
             top_n=int(parsed.selected_top_n or parsed.hit_cap),
+            # The reference stage ahead of this one skips what another run of the protocol
+            # already docked, and then writes no receipt of its own: rank what the library
+            # holds, not what this submission happened to redo, or nothing is selected.
+            engine=parsed.engine,
+            across_runs=True,
         )
         record_ids_by_shard: dict[int, list[int]] = {}
         for row in selected:
@@ -531,6 +537,7 @@ def _shard_docking_scope(
             if int(row.get("id") or 0) in record_ids_by_shard
         ]
     protocol_hash = str(parsed.protocol_metadata.hash or "")
+    selection = shard_selection(parsed.selected_from_receptor_id)
     if not parsed.skip_existing:
         completed: set[tuple[int, int]] = set()
     elif parsed.selected_from_receptor_id:
@@ -539,13 +546,14 @@ def _shard_docking_scope(
         completed = completed_shard_targets(project_db, docking_run_id=find_docking_run(
             project_db, run_id=parsed.run_id, engine=parsed.engine, run_kind="screening",
             protocol_hash=protocol_hash,
-        )) if parsed.run_id else set()
+        ), selection=selection) if parsed.run_id else set()
     else:
         # Every run of this engine and protocol, not this submission alone: a campaign gets a
         # fresh `run_id` each time it is submitted, so a skip keyed by it skips nothing and the
-        # library is docked again beside its own results.
+        # library is docked again beside its own results. Only whole-shard receipts count: a
+        # subset docked by an off-target stage leaves the rest of its shard undocked.
         completed = completed_protocol_targets(
-            project_db, engine=parsed.engine, protocol_hash=protocol_hash,
+            project_db, engine=parsed.engine, protocol_hash=protocol_hash, selection=selection,
         )
     if parsed.check_required and not shards and not parsed.selected_from_receptor_id:
         raise RuntimeError(

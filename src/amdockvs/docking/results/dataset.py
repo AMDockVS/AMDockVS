@@ -165,23 +165,42 @@ def completed_result_receipts(
     *,
     run_id: str,
     protocol_hash: str,
+    engine: str = "",
+    across_runs: bool = False,
 ) -> list[ScreeningShardRun]:
+    """The receipts with a fragment to read: this submission's, or — with `across_runs` — the
+    whole-shard receipts of every screening run of the same engine and protocol.
+
+    A resubmitted campaign skips what another run of its protocol already docked, so it writes
+    no receipt of its own for those shards. A stage that ranks what the library holds (the
+    reference Top-N an off-target stage docks) has to read them where they are, or it reads
+    nothing and docks nothing. One (shard, receptor) is counted once, by its newest receipt.
+    """
     from sqlmodel import select
 
     from amdockvs.models import DockingRun, ScreeningShardRun
 
+    scope = (
+        (DockingRun.engine == str(engine).strip().lower(), DockingRun.run_kind == "screening",
+         DockingRun.protocol_hash == str(protocol_hash), ScreeningShardRun.selection == "")
+        if across_runs else (DockingRun.run_id == str(run_id),)
+    )
     with project_db.get_session() as session:
-        return list(session.exec(
+        rows = list(session.exec(
             select(ScreeningShardRun)
             .join(DockingRun, DockingRun.id == ScreeningShardRun.docking_run_id)
             .where(
-                DockingRun.run_id == str(run_id),
+                *scope,
                 ScreeningShardRun.protocol_hash == str(protocol_hash),
                 ScreeningShardRun.state == TargetState.DONE,
                 ScreeningShardRun.result_path != "",
             )
             .order_by(ScreeningShardRun.id)
         ).all())
+    if not across_runs:
+        return rows
+    newest = {(int(row.shard_id), int(row.receptor_molecule_id)): row for row in rows}
+    return sorted(newest.values(), key=lambda row: int(row.id or 0))
 
 
 def _arrow_filters(filters: Mapping[str, Any]) -> list[tuple[str, str, Any]]:
@@ -204,6 +223,20 @@ def _summary_rows(path: Path, filters: Mapping[str, Any]) -> list[dict[str, Any]
         columns=list(SUMMARY_COLUMNS),
         filters=_arrow_filters(filters) or None,
     ).to_pylist()
+
+
+def fragment_ligand_ids(path: str | Path) -> set[int]:
+    """The shard record ids one result fragment holds — the pairs that receipt is the evidence
+    for. Empty when the fragment is gone or unreadable: provenance is then unknown, never
+    "nothing"."""
+    file = Path(path).expanduser()
+    if not file.is_file():
+        return set()
+    try:
+        table = pq.read_table(file, columns=["ligand_id"])
+    except (OSError, pa.ArrowInvalid):
+        return set()
+    return {int(value) for value in table.column("ligand_id").to_pylist() if value is not None}
 
 
 def _selected_payloads(path: Path, keys: set[tuple[int, int]]) -> dict[tuple[int, int], dict[str, Any]]:
@@ -235,8 +268,14 @@ def select_hit_refs(
     protocol_hash: str,
     filters: Mapping[str, Any] | None = None,
     top_n: int,
+    engine: str = "",
+    across_runs: bool = False,
 ) -> list[dict[str, Any]]:
-    """Rank using only lightweight columns and return shard/record identities."""
+    """Rank using only lightweight columns and return shard/record identities.
+
+    `across_runs` ranks over every screening run of `engine` and this protocol, not this
+    submission alone: the run that docked the library may be an earlier one this submission
+    skipped."""
     from sqlmodel import select
 
     from amdockvs.docking.results.repository import docking_run_id
@@ -252,7 +291,8 @@ def select_hit_refs(
         raise ValueError(f"Unsupported result filters: {', '.join(sorted(unsupported))}.")
 
     receipts = completed_result_receipts(
-        project_db, run_id=run_id, protocol_hash=protocol_hash
+        project_db, run_id=run_id, protocol_hash=protocol_hash,
+        engine=engine, across_runs=across_runs,
     )
     with project_db.get_session() as session:
         shards = {
@@ -381,6 +421,7 @@ __all__ = [
     "SHARD_SELECTION_ALL",
     "ResultFragmentWriter",
     "completed_result_receipts",
+    "fragment_ligand_ids",
     "local_pose_path",
     "result_fragment_path",
     "result_metadata",

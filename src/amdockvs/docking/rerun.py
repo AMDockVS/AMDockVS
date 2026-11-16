@@ -7,9 +7,11 @@ from sqlalchemy import and_, delete, exists, or_
 from sqlmodel import select
 
 from amdockvs.docking.protocols import DockingProtocolMetadata
-from amdockvs.docking.results.dataset import selection_covers
+from amdockvs.docking.results.dataset import fragment_ligand_ids, selection_covers
 from amdockvs.docking.results.repository import _decode_metadata, supersede_results
-from amdockvs.models import DockingResultRecord, DockingRun, ScreeningShardRun, ScreeningTarget
+from amdockvs.models import (
+    DockingResultRecord, DockingRun, MoleculeRecord, ScreeningShard, ScreeningShardRun, ScreeningTarget,
+)
 from amdockvs.core.vocab import TargetState
 from amdockvs.project.deletion import delete_results_where
 
@@ -103,12 +105,16 @@ def supersede_shard_runs(project_db, *, docking_run_id: int | None) -> int:
     whole-shard receipt — and the fragment and results behind it — alone. The pairs it did
     recalculate still lose their older rows, through `supersede_results`.
 
-    The receipts it does replace go with their result fragments; a receptor an older run is left
-    with no receipt for loses its results and its plan row there, because its Top-N was picked
-    from what was just docked again. A result of a pair the new run also materialized goes in
-    any case. Returns how many receipts were superseded."""
+    The receipts it does replace go with their result fragments, and so do the materialized
+    results those fragments were the evidence for: each retired fragment names the shard records
+    it holds, which identify the ligands (a library molecule is its batch and its shard record).
+    A hit that no longer qualifies under the new ranking would otherwise stay behind with
+    nothing supporting it. A receptor an older run is left with no receipt at all loses whatever
+    results remain there and its plan row with them. A result of a pair the new run also
+    materialized goes in any case. Returns how many receipts were superseded."""
     if not docking_run_id:
         return 0
+    root = getattr(project_db, "project_dir", None) or Path(project_db.db_path).parent
     with project_db.get_session() as session:
         current = session.get(DockingRun, int(docking_run_id))
         if current is None:
@@ -144,6 +150,19 @@ def supersede_shard_runs(project_db, *, docking_run_id: int | None) -> int:
         ]
         paths = {row.result_path for row in stale if row.result_path}
         touched = {(int(row.docking_run_id), int(row.receptor_molecule_id)) for row in stale}
+        # Read each retired fragment before it goes: the shard records it holds are the pairs it
+        # was the evidence for, and a library molecule is addressed by (import batch, record).
+        batches = {
+            int(row.id): row.import_batch_id
+            for row in session.exec(select(ScreeningShard).where(
+                ScreeningShard.id.in_({int(row.shard_id) for row in stale}))).all()
+        } if stale else {}
+        retired = {
+            (int(row.docking_run_id), int(row.receptor_molecule_id),
+             batches.get(int(row.shard_id)), record)
+            for row in stale
+            for record in fragment_ligand_ids(_at(root, row.result_path))
+        }
         if stale:
             session.exec(delete(ScreeningShardRun).where(ScreeningShardRun.id.in_([row.id for row in stale])))
             session.commit()
@@ -164,9 +183,44 @@ def supersede_shard_runs(project_db, *, docking_run_id: int | None) -> int:
             and_(record.docking_run_id == run, record.receptor_molecule_id == receptor)
             for run, receptor in emptied
         )))
+    orphaned = _results_of_retired_shards(project_db, retired)
+    if orphaned:
+        delete_results_where(project_db, DockingResultRecord.id.in_(orphaned))
     supersede_results(project_db, run_id=run_id)
-    root = getattr(project_db, "project_dir", None) or Path(project_db.db_path).parent
     for value in paths - kept:
-        path = Path(value)
-        (path if path.is_absolute() else Path(root) / path).unlink(missing_ok=True)
+        _at(root, value).unlink(missing_ok=True)
     return len(stale)
+
+
+def _at(root, value: str) -> Path:
+    """A receipt's fragment: stored relative to the project, absolute in an older project."""
+    path = Path(value)
+    return path if path.is_absolute() else Path(root) / path
+
+
+def _results_of_retired_shards(project_db, retired: set[tuple[int, int, int | None, int]]) -> list[int]:
+    """The materialized results whose evidence just went: rows of an older run whose ligand is a
+    record of a shard that run no longer has a receipt for, against that same receptor.
+
+    Driven from the results, which a campaign caps, rather than from the shard records, of which
+    there are as many as the library holds."""
+    pairs = sorted({(run, receptor) for run, receptor, _batch, _record in retired})
+    if not pairs:
+        return []
+    record = DockingResultRecord
+    with project_db.get_session() as session:
+        rows = session.exec(
+            select(record.id, record.docking_run_id, record.receptor_molecule_id,
+                   MoleculeRecord.import_batch_id, MoleculeRecord.source_index)
+            .join(MoleculeRecord, MoleculeRecord.id == record.ligand_molecule_id)
+            .where(or_(*(
+                and_(record.docking_run_id == run, record.receptor_molecule_id == receptor)
+                for run, receptor in pairs
+            )))
+        ).all()
+    return [
+        int(result_id)
+        for result_id, run, receptor, batch, source_index in rows
+        if (int(run), int(receptor), None if batch is None else int(batch),
+            int(source_index or 0)) in retired
+    ]
