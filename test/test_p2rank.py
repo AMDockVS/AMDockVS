@@ -744,3 +744,76 @@ def test_a_copied_project_does_not_delete_the_outputs_of_the_one_it_came_from(tm
     assert delete_binding_sites(project_store, [site_id]) == 1
     assert original.exists() and (original / "run.log").exists()
     ProjectStore.clear_cached_stores()
+
+
+def test_a_manual_site_that_kept_those_paths_keeps_the_outputs_alive(tmp_path):
+    """RR-04: the scan for surviving references read P2Rank sites only, so a custom site that
+    carries the same output paths — the public site API lets it — did not hold them. Deleting
+    the last P2Rank site took the files that site still reads."""
+    from amdockvs.project.deletion import delete_binding_sites
+
+    project_store = ProjectStore.open_at(tmp_path / "project.db")
+    directory = _prediction_outputs(tmp_path / "pockets", "run", 7)
+    rows = parse_p2rank_outputs(
+        output_dir=directory, receptor_id=7, run_id="run", profile="default")
+    with project_store.get_session() as session:
+        session.add(MoleculeRecord(id=7, name="rec", is_receptor=True, has_3d=True))
+        session.commit()
+        session.add(BindingSite(**rows[0]))
+        # A site of the user's own, pointing at the same prediction: not "p2rank", same files.
+        session.add(BindingSite(**{**rows[0], "name": "my pocket", "source": "manual",
+                                   "source_ref": "", "extra_data": dict(rows[0]["extra_data"])}))
+        session.commit()
+        predicted, manual = (int(site.id) for site in session.exec(
+            select(BindingSite).order_by(BindingSite.id)).all())
+
+    assert delete_binding_sites(project_store, [predicted]) == 1
+    assert directory.exists() and (directory / "run.log").exists()
+
+    # What makes a directory a candidate stays strict: only a P2Rank site in the stored layout
+    # names one, so deleting the custom site that merely points there removes nothing.
+    assert delete_binding_sites(project_store, [manual]) == 1
+    assert directory.exists()
+    ProjectStore.clear_cached_stores()
+
+
+def test_pruning_a_copied_project_cleans_the_copy_and_leaves_the_original(tmp_path):
+    """RR-04: a site names the folder its outputs were written to, so after the project folder
+    is copied its rows still name the original's files. The root guard refused to delete those
+    — correctly — but nothing then looked at the copy's own, so every native output a copied
+    project holds was unreachable for good."""
+    import shutil
+
+    from amdockvs.project.deletion import delete_binding_sites
+
+    source_root = tmp_path / "original"
+    source_root.mkdir()
+    original = _prediction_outputs(source_root / "pockets", "run", 7)
+    project_store = ProjectStore.open_at(source_root / "project.db")
+    rows = parse_p2rank_outputs(
+        output_dir=original, receptor_id=7, run_id="run", profile="default")
+    with project_store.get_session() as session:
+        session.add(MoleculeRecord(id=7, name="rec", is_receptor=True, has_3d=True))
+        session.commit()
+        session.add(BindingSite(**rows[0]))
+        session.commit()
+    ProjectStore.clear_cached_stores()  # closed, so the copy is of a settled database
+
+    copy_root = tmp_path / "copy"
+    shutil.copytree(source_root, copy_root)
+    copied = copy_root / "pockets" / "run" / "receptor_7"
+    assert copied.exists()
+
+    copy_store = ProjectStore.open_at(copy_root / "project.db")
+    with copy_store.get_session() as session:
+        site_id = int(session.exec(select(BindingSite.id)).one())
+        # The copy's row still names the folder it was copied from.
+        stored = str(dict(session.get(BindingSite, site_id).extra_data or {})["predictions_path"])
+    assert str(source_root) in stored
+
+    assert delete_binding_sites(copy_store, [site_id]) == 1
+
+    assert not copied.exists()  # the copy's own outputs go with its last site
+    assert not (copy_root / "pockets" / "run").exists()
+    assert original.exists() and (original / "run.log").exists()  # the original is untouched
+    ProjectStore.clear_cached_stores()

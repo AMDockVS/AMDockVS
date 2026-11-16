@@ -154,6 +154,34 @@ def _referenced_paths(site: BindingSite) -> set[Path]:
     }
 
 
+def _project_root(project_db) -> Path | None:
+    root = getattr(project_db, "project_dir", None)
+    database = getattr(project_db, "db_path", None)
+    if root is None and database is not None:
+        root = Path(database).parent
+    return None if root is None else Path(root).expanduser().resolve()
+
+
+def _here(root: Path, path: Path) -> Path | None:
+    """That path as *this* project holds it, or None when this project holds nothing by it.
+
+    A site records in full where its outputs were written, so after the project folder is copied
+    or moved its rows still name the files of the folder it came from. The copy has the same
+    tree under its own root, so the longest tail of the stored path that exists here is this
+    project's own copy of it — and the folder it was copied from, which is not under this root,
+    is never reached. Deletion only ever touches what comes back from here.
+    """
+    path = Path(path)
+    if root == path or root in path.parents:
+        return path
+    parts = path.parts
+    for index in range(1, len(parts) - 1):  # longest tail first, never a bare last component
+        candidate = root.joinpath(*parts[index:])
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def _drop_unreferenced_predictions(project_db, candidates: set[Path]) -> None:
     """Remove the prediction directories no surviving site points into any more.
 
@@ -162,29 +190,32 @@ def _drop_unreferenced_predictions(project_db, candidates: set[Path]) -> None:
     parameters, the residue table, its copy of the receptor — are referenced by nothing. The
     directory is what one prediction is, so the directory is what goes when the last site
     parsed from it does, the way a deleted result releases its pose.
+
+    Every surviving site is asked what it still points at, whatever its source: only a P2Rank
+    site in the stored layout makes a directory a *candidate*, but a manual site carrying those
+    same paths reads those same files, and deleting them under it would leave it pointing at
+    nothing.
     """
     if not candidates:
         return
-    # Only ever inside this project. A site stores where its outputs were written in full, so
-    # the rows of a project copied elsewhere still name the original's files ("pockets" is a
-    # project resource, always under the project's own folder): deleting rows in the copy must
-    # not reach into the project it came from.
-    root = getattr(project_db, "project_dir", None)
-    database = getattr(project_db, "db_path", None)
-    if root is None and database is not None:
-        root = Path(database).parent
+    root = _project_root(project_db)
     if root is None:
         return
-    root = Path(root).expanduser().resolve()
     surviving: set[Path] = set()
     with suppress(*OperationalError), project_db.get_session() as session:
-        for site in session.exec(select(BindingSite).where(BindingSite.source == "p2rank")).all():
+        for site in session.exec(select(BindingSite)).all():
             directory = _prediction_dir(site)
+            kept = {path.parent for path in _referenced_paths(site)}
             if directory is not None:
-                surviving.add(directory)
-            surviving.update(path.parent for path in _referenced_paths(site))
-    for directory in candidates:
-        if root not in directory.parents:
+                kept.add(directory)
+            for path in kept:
+                surviving.add(path)
+                mine = _here(root, path)  # what it names here, if this project was copied
+                if mine is not None:
+                    surviving.add(mine)
+    for stored in candidates:
+        directory = _here(root, stored)
+        if directory is None or root not in directory.parents:  # never outside this project
             continue
         # A path of a surviving site inside it (`extra_data` can be copied between rows) keeps
         # the whole directory: nothing here deletes a file someone still names.
