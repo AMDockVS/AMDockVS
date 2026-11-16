@@ -42,13 +42,16 @@ from amdockvs.docking.results.dataset import (
     result_metadata,
     select_hit_refs,
     select_hits,
+    shard_selection,
 )
 from amdockvs.docking.methods import excludes
 from amdockvs.docking.pairs import docking_input_key
 from amdockvs.docking.preparation.state import grid_from_row
+from amdockvs.docking.rerun import supersede_shard_runs
 from amdockvs.screening.campaign import (
     advance_shard_run,
     advance_target,
+    completed_protocol_targets,
     completed_shard_targets,
     finish_run,
     plan_targets,
@@ -283,8 +286,10 @@ class ShardHitWriter:
         engine: str = "",
         protocol_hash: str = "",
         selected_from_receptor_id: int | None = None,
+        skip_existing: bool = True,
     ) -> None:
         self.project_db = project_db
+        self.skip_existing = bool(skip_existing)
         self.run_id = str(run_id)
         self.engine = str(engine)
         self.protocol_hash = str(protocol_hash or "")
@@ -342,6 +347,8 @@ class ShardHitWriter:
                     scored=int(envelope.get("scored") or 0),
                     hits=hit_count,
                     result_path=_project_relative(str(envelope.get("result_shard") or "")),
+                    selection=str(envelope.get("selection") or ""),
+                    input_key=str(envelope.get("input_key") or ""),
                 )
                 if recorded:
                     advance_target(
@@ -389,6 +396,10 @@ class ShardHitWriter:
                     )
                 ]
                 self._materialize_selected(selected)
+            if not self.skip_existing:
+                # Forced: now that this run's results are stored, what it docked again
+                # replaces what older runs of the same protocol held for those pairs.
+                supersede_shard_runs(self.project_db, docking_run_id=self.docking_run_id)
             finish_run(self.project_db, docking_run_id=self.docking_run_id)
             return
         stop_run(
@@ -408,6 +419,7 @@ def shard_hit_writer(params: dict, config: dict) -> ShardHitWriter:
         payload=params["payload"], run_id=params["run_id"],
         engine=params["engine"], protocol_hash=str(params["protocol_metadata"].get("hash") or ""),
         selected_from_receptor_id=params["selected_from_receptor_id"],
+        skip_existing=params.get("skip_existing", True),  # a forced campaign replaces when it ends
     )
 
 
@@ -502,6 +514,11 @@ def _shard_docking_scope(
                 "score__lte": float(parsed.hit_threshold),
             },
             top_n=int(parsed.selected_top_n or parsed.hit_cap),
+            # The reference stage ahead of this one skips what another run of the protocol
+            # already docked, and then writes no receipt of its own: rank what the library
+            # holds, not what this submission happened to redo, or nothing is selected.
+            engine=parsed.engine,
+            across_runs=True,
         )
         record_ids_by_shard: dict[int, list[int]] = {}
         for row in selected:
@@ -516,14 +533,25 @@ def _shard_docking_scope(
             if int(row.get("id") or 0) in record_ids_by_shard
         ]
     protocol_hash = str(parsed.protocol_metadata.hash or "")
-    completed = (
-        completed_shard_targets(project_db, docking_run_id=find_docking_run(
+    selection = shard_selection(parsed.selected_from_receptor_id)
+    if not parsed.skip_existing:
+        completed: set[tuple[int, int]] = set()
+    elif parsed.selected_from_receptor_id:
+        # The off-target stage docks one reference run's Top-N, not the library: what another
+        # run docked against an off-target was a different selection, so only this run skips.
+        completed = completed_shard_targets(project_db, docking_run_id=find_docking_run(
             project_db, run_id=parsed.run_id, engine=parsed.engine, run_kind="screening",
             protocol_hash=protocol_hash,
-        ))
-        if parsed.skip_existing and parsed.run_id
-        else set()
-    )
+        ), selection=selection) if parsed.run_id else set()
+    else:
+        # Every run of this engine and protocol, not this submission alone: a campaign gets a
+        # fresh `run_id` each time it is submitted, so a skip keyed by it skips nothing and the
+        # library is docked again beside its own results. Only whole-shard receipts count: a
+        # subset docked by an off-target stage leaves the rest of its shard undocked.
+        completed = completed_protocol_targets(
+            project_db, engine=parsed.engine, protocol_hash=protocol_hash, selection=selection,
+            input_keys={int(t["receptor_id"]): str(t.get("input_key") or "") for t in targets},
+        )
     if parsed.check_required and not shards and not parsed.selected_from_receptor_id:
         raise RuntimeError(
             "docking.run found no prepared shard artifacts for engine family "
@@ -580,17 +608,34 @@ class DockShardsJobSpec(JobSpec):
         targets, prepared_rows, completed = _shard_docking_scope(project_db, parsed, output_dir,
                                                                  bool(config_map.get("unprepared")))
         prepared_records = sum(int(row.get("n_records") or 0) for row in prepared_rows)
+        pending = [
+            (row, target)
+            for row in prepared_rows
+            for target in targets
+            if (int(row.get("id") or 0), int(target["receptor_id"])) not in completed
+        ]
         # Chunk construction is deferred by MF while preparation is active. Resolve and plan
         # here, not in the public API, so totals describe the completed preparation snapshot.
+        # A run with nothing left to dock gets no row: it docked nothing, and an empty run of
+        # its own would show in Results as a campaign that ran.
         run = docking_run_id(
             project_db, run_id=parsed.run_id, engine=parsed.engine, run_kind="screening",
             protocol=parsed.protocol_metadata.as_metrics_payload(),
-        ) if targets and prepared_rows else None
+        ) if pending else None
         if run is not None and parsed.run_id:
+            # Done counts inside the scope: each receptor starts from the records of the shards
+            # another run of this protocol already docked against it — none, after a forced one.
             plan_targets(
                 project_db,
                 docking_run_id=run,
-                receptors=targets,
+                receptors=[
+                    {**target, "ligands_done": sum(
+                        int(row.get("n_records") or 0)
+                        for row in prepared_rows
+                        if (int(row.get("id") or 0), int(target["receptor_id"])) in completed
+                    )}
+                    for target in targets
+                ],
                 ligands_total=prepared_records,
                 engine=parsed.engine,
             )

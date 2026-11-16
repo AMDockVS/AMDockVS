@@ -20,7 +20,7 @@ from amdockvs.docking.engines.registry import run_docking_chunk
 from amdockvs.docking.preparation.shards import extract_ligands
 from amdockvs.docking.results.dataset import (
     ResultFragmentWriter, _pose, _selected_payloads, _summary_rows, local_pose_path, result_fragment_path,
-    result_metadata, result_row,
+    result_metadata, result_row, shard_selection,
 )
 
 # How the cap is spent: the best `cap` of everything scored per receptor, picked from the result
@@ -100,6 +100,9 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
         "hits": [],
         "hits_found": 0,
         "result_shard": "",
+        # What this receipt will stand for: the whole shard, or the Top-N of an off-target stage.
+        "selection": shard_selection(payload.get("selected_from_receptor_id")),
+        "input_key": str(payload.get("input_key") or ""),
     }
     shard_path = str(shard.get("shard_path") or "")
     if not shard_path:

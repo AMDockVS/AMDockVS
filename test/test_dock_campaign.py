@@ -89,7 +89,9 @@ def test_what_comes_back_twice_is_written_once(tmp_path):
             receipts = session.exec(select(ScreeningShardRun)).all()
             imported = {t.docking_run_id: t.imported for t in session.exec(select(ScreeningTarget)).all()}
         assert sorted(row.docking_run_id for row in results) == [runs["r2"]] * 2  # moved, not copied
-        assert len(receipts) == 2 and {r.result_path for r in receipts} == {""}  # one per run; the fragment stayed there
+        # The receipt moves with them: the pair was docked again, so the run that holds its
+        # results is the only one that says it docked it. The fragment stayed there (no path).
+        assert [(r.docking_run_id, r.result_path) for r in receipts] == [(runs["r2"], "")]
         assert imported[runs["r2"]] == 2
     finally:
         runtime.close_project()
