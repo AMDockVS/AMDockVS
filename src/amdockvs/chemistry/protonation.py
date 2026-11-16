@@ -25,6 +25,11 @@ class GpuSupport:
     message: str
 
 
+def gpu_check_failed(exc: BaseException) -> GpuSupport:
+    """The answer when the GPU question itself went unanswered: a GPU not to count on."""
+    return GpuSupport(False, f"GPU check failed ({type(exc).__name__}); Uni-pKa runs on the CPU.")
+
+
 def pkasso_gpu_support(python: str | Path) -> GpuSupport:
     """Asks pKasso's own interpreter, where its PyTorch lives: the bridge runs a tiny operation on
     the GPU. Takes seconds (PyTorch, then CUDA, start up), so it is asked once per installation
@@ -42,7 +47,7 @@ def _gpu_support(python: str, _stamp_mtime: float) -> GpuSupport:
                                 capture_output=True, text=True, timeout=180, check=False)
         found = json.loads(result.stdout.strip().splitlines()[-1])
     except Exception as exc:  # noqa: BLE001 - an unanswered question is a GPU not to count on
-        return GpuSupport(False, f"GPU check failed ({type(exc).__name__}); Uni-pKa runs on the CPU.")
+        return gpu_check_failed(exc)
     name = str(found.get("name") or "")
     if found.get("usable"):
         return GpuSupport(True, f"GPU: {name} is ready.")
@@ -223,4 +228,4 @@ def protonate_molecule_batch(
     return {entity_id: Chem.AddHs(Chem.Mol(molecule), addCoords=True) for entity_id, molecule in results.items()}
 
 
-__all__ = ["GpuSupport", "pkasso_gpu_support", "protonate_molecule_batch"]
+__all__ = ["GpuSupport", "gpu_check_failed", "pkasso_gpu_support", "protonate_molecule_batch"]

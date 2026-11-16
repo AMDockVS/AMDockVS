@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from amdockvs.chemistry.protonation import gpu_check_failed
 from amdockvs.core.user_env import is_remembered, remember_env_var, shell_profile
 from amdockvs.core.payloads import molecule_payload_id
 from amdockvs.ui.common.async_query import run_async
@@ -711,8 +712,12 @@ class MoleculeBuildWidget(QWidget):
             # Its own round trip: starting PyTorch and CUDA takes seconds the first time, and
             # pKasso's own status should not wait for it.
             self.pkasso_status.setText(f"{pkasso.message} Checking the GPU…")
-            run_async(probe, lambda support, said=str(pkasso.message): self._apply_pkasso_gpu(said, support),
-                      on_error=lambda _exc: None, compact=True)
+            said = str(pkasso.message)
+            # A check that raised still answers: left unanswered, the status said "Checking the
+            # GPU…" and the box's tooltip "Checking…" for as long as Build stayed open.
+            run_async(probe, lambda support: self._apply_pkasso_gpu(said, support),
+                      on_error=lambda exc: self._apply_pkasso_gpu(said, gpu_check_failed(exc)),
+                      compact=True)
         self._sync_pkasso_options()
         method, self._activate_after_check = self._activate_after_check, None
         if method and self._protonation_tool_ready.get(method):

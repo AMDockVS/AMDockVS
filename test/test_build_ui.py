@@ -392,6 +392,40 @@ def test_pkasso_offers_the_gpu_only_when_its_pytorch_can_run_on_it(build_widget,
     assert not build_widget.pkasso_gpu.isEnabled() and not build_widget.pkasso_gpu.isChecked()  # MolGpKa: no GPU
 
 
+def test_a_gpu_check_that_raises_still_answers(build_widget, monkeypatch):
+    """Its error was dropped, so pKasso's status said "Checking the GPU…" -- and the box's tooltip
+    "Checking…" -- for as long as Build stayed open."""
+    from amdockvs.ui.tools.molecules import build as build_module
+
+    chemistry = build_widget.runtime.chemistry
+    chemistry.small_molecule_protonation_tool_status = (
+        lambda name: SimpleNamespace(installed=True, message=f"{name} is ready.")
+    )
+
+    def probe():
+        raise OSError("the environment went away")
+
+    chemistry.pkasso_gpu_support = probe
+
+    def run_async(job, done, on_error=None, **_kw):
+        try:
+            result = job()
+        except Exception as exc:  # noqa: BLE001 - as run_async hands a job's error over
+            on_error(exc)
+            return
+        done(result)
+
+    monkeypatch.setattr(build_module, "run_async", run_async)
+    build_widget.pkasso_model.setCurrentIndex(build_widget.pkasso_model.findData("mixed"))
+
+    build_widget._refresh_protonation_tools()
+
+    said = "GPU check failed (OSError); Uni-pKa runs on the CPU."
+    assert build_widget.pkasso_status.text() == f"pkasso is ready. {said}"
+    assert build_widget.pkasso_gpu.toolTip() == said
+    assert not build_widget.pkasso_gpu.isEnabled()
+
+
 @pytest.mark.parametrize("width", [360, 480, 560, 640, 760, 900])  # where text wraps varies with the font
 @pytest.mark.parametrize("installed", [True, False], ids=["installed", "not-installed"])
 @pytest.mark.parametrize("method", ["dimorphite", "openbabel", "pkasso", "explicit_hs"])
