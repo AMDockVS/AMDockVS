@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import functools
 import io
 import json
 import subprocess
@@ -32,22 +31,40 @@ def gpu_check_failed(exc: BaseException) -> GpuSupport:
 
 def pkasso_gpu_support(python: str | Path) -> GpuSupport:
     """Asks pKasso's own interpreter, where its PyTorch lives: the bridge runs a tiny operation on
-    the GPU. Takes seconds (PyTorch, then CUDA, start up), so it is asked once per installation
-    -- a reinstall rewrites the environment's stamp, which asks again -- and never on a GUI thread.
+    the GPU. Takes seconds (PyTorch, then CUDA, start up), so an answer is kept for the installation
+    -- a reinstall rewrites the environment's stamp, which asks again -- and it is never asked on a
+    GUI thread. A probe that does not answer is not kept.
     """
-    python = Path(python)
-    stamp = python.parent.parent / ".ms_env.json"
-    return _gpu_support(str(python), stamp.stat().st_mtime if stamp.exists() else 0.0)
-
-
-@functools.lru_cache(maxsize=8)
-def _gpu_support(python: str, _stamp_mtime: float) -> GpuSupport:
+    key = _gpu_key(python)
+    known = _GPU_ANSWERS.get(key)
+    if known is not None:
+        return known
     try:
-        result = subprocess.run([python, str(PKASSO_RUNNER), "--probe-gpu"],
+        result = subprocess.run([key[0], str(PKASSO_RUNNER), "--probe-gpu"],
                                 capture_output=True, text=True, timeout=180, check=False)
         found = json.loads(result.stdout.strip().splitlines()[-1])
+        if not isinstance(found, dict):
+            raise ValueError(f"the probe printed {type(found).__name__}, not its answer")
     except Exception as exc:  # noqa: BLE001 - an unanswered question is a GPU not to count on
+        # Not kept: a timeout or a crash says nothing about the card, and kept, one slow start
+        # would have meant the CPU until pKasso was reinstalled. The next check asks again.
         return gpu_check_failed(exc)
+    support = _read_gpu_answer(found)
+    _GPU_ANSWERS[key] = support
+    return support
+
+
+# The probes that answered, by interpreter and its environment's stamp.
+_GPU_ANSWERS: dict[tuple[str, float], GpuSupport] = {}
+
+
+def _gpu_key(python: str | Path) -> tuple[str, float]:
+    python = Path(python)
+    stamp = python.parent.parent / ".ms_env.json"
+    return str(python), stamp.stat().st_mtime if stamp.exists() else 0.0
+
+
+def _read_gpu_answer(found: Mapping[str, Any]) -> GpuSupport:
     name = str(found.get("name") or "")
     if found.get("usable"):
         return GpuSupport(True, f"GPU: {name} is ready.")

@@ -342,6 +342,38 @@ def test_the_pkasso_gpu_probe_says_what_the_card_can_do(tmp_path, monkeypatch, a
     assert (support.usable, support.message) == (usable, said)
 
 
+def test_the_pkasso_gpu_probe_keeps_an_answer_but_not_a_failure(tmp_path, monkeypatch):
+    """A probe that timed out was kept like an answer: one slow start of PyTorch meant the CPU
+    until pKasso was reinstalled. Only an answer is kept; a failure asks again next time."""
+    import json
+    import subprocess
+    from types import SimpleNamespace
+
+    from amdockvs.chemistry import protonation
+
+    printed = iter([
+        subprocess.TimeoutExpired(["python"], 180),
+        json.dumps({"usable": True, "name": "Example GPU", "capability": "8.9", "archs": ["sm_89"]}) + "\n",
+    ])
+    runs = []
+
+    def run(argv, **_kwargs):
+        runs.append(argv)
+        answer = next(printed)
+        if isinstance(answer, Exception):
+            raise answer
+        return subprocess.CompletedProcess(argv, 0, answer, "")
+
+    monkeypatch.setattr(protonation, "subprocess", SimpleNamespace(run=run, TimeoutExpired=subprocess.TimeoutExpired))
+    python = tmp_path / "pkasso" / "bin" / "python"
+
+    assert protonation.pkasso_gpu_support(python).message == (
+        "GPU check failed (TimeoutExpired); Uni-pKa runs on the CPU.")
+    assert protonation.pkasso_gpu_support(python).usable  # asked again, and answered
+    assert protonation.pkasso_gpu_support(python).usable  # and that answer kept
+    assert len(runs) == 2
+
+
 @pytest.mark.parametrize("usable", [False, True])
 def test_a_protonation_asks_for_the_gpu_only_when_pkasso_can_use_it(monkeypatch, usable):
     """Asked for anyway, the job would hold a GPU it cannot run on and then fail every molecule."""
