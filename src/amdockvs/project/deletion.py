@@ -12,6 +12,7 @@ docking_results — are created lazily on first use)."""
 from __future__ import annotations
 
 import os
+import shutil
 from contextlib import suppress
 from pathlib import Path
 from sqlite3 import OperationalError as _SqliteOperationalError
@@ -116,19 +117,141 @@ def release(project_db, payload_ids: Iterable[int]) -> None:
                 os.unlink(path)
 
 
+def _prediction_dir(site: BindingSite) -> Path | None:
+    """The directory holding one prediction of one receptor in one run, as the site's own stored
+    paths name it: ``<pocket predictions>/<run_id>/receptor_<molecule_id>``.
+
+    Read from a path up, and only accepted when the directory is named after this very site's
+    receptor and sits inside one named after its own run. A path copied from another run, or
+    anything outside that layout, therefore names nothing here.
+    """
+    if str(site.source or "") != "p2rank":
+        return None
+    extra = dict(site.extra_data or {})
+    run = str(extra.get("run_id") or "").strip()
+    if not run:
+        return None
+    receptor = f"receptor_{int(site.molecule_id)}"
+    for key in ("predictions_path", "points_path", "pymol_script_path"):
+        value = str(extra.get(key) or "").strip()
+        if not value:
+            continue
+        for parent in Path(value).parents:
+            if parent.name == receptor and parent.parent.name == run:
+                return parent
+    return None
+
+
+def _referenced_paths(site: BindingSite) -> set[Path]:
+    extra = dict(site.extra_data or {})
+    return {
+        Path(value)
+        for value in (
+            str(extra.get(key) or "").strip()
+            for key in ("predictions_path", "points_path", "pymol_script_path")
+        )
+        if value
+    }
+
+
+def _project_root(project_db) -> Path | None:
+    root = getattr(project_db, "project_dir", None)
+    database = getattr(project_db, "db_path", None)
+    if root is None and database is not None:
+        root = Path(database).parent
+    return None if root is None else Path(root).expanduser().resolve()
+
+
+def _here(root: Path, path: Path) -> Path | None:
+    """That path as *this* project holds it, or None when this project holds nothing by it.
+
+    A site records in full where its outputs were written, so after the project folder is copied
+    or moved its rows still name the files of the folder it came from. The copy has the same
+    tree under its own root, so the longest tail of the stored path that exists here is this
+    project's own copy of it — and the folder it was copied from, which is not under this root,
+    is never reached. Deletion only ever touches what comes back from here.
+    """
+    path = Path(path)
+    if root == path or root in path.parents:
+        return path
+    parts = path.parts
+    for index in range(1, len(parts) - 1):  # longest tail first, never a bare last component
+        candidate = root.joinpath(*parts[index:])
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _drop_unreferenced_predictions(project_db, candidates: set[Path]) -> None:
+    """Remove the prediction directories no surviving site points into any more.
+
+    P2Rank writes seven files per receptor and only three of them are named by a site row
+    (the predictions table, the points and the PyMOL script); the rest — its log, its
+    parameters, the residue table, its copy of the receptor — are referenced by nothing. The
+    directory is what one prediction is, so the directory is what goes when the last site
+    parsed from it does, the way a deleted result releases its pose.
+
+    Every surviving site is asked what it still points at, whatever its source: only a P2Rank
+    site in the stored layout makes a directory a *candidate*, but a manual site carrying those
+    same paths reads those same files, and deleting them under it would leave it pointing at
+    nothing.
+    """
+    if not candidates:
+        return
+    root = _project_root(project_db)
+    if root is None:
+        return
+    surviving: set[Path] = set()
+    with suppress(*OperationalError), project_db.get_session() as session:
+        for site in session.exec(select(BindingSite)).all():
+            directory = _prediction_dir(site)
+            kept = {path.parent for path in _referenced_paths(site)}
+            if directory is not None:
+                kept.add(directory)
+            for path in kept:
+                surviving.add(path)
+                mine = _here(root, path)  # what it names here, if this project was copied
+                if mine is not None:
+                    surviving.add(mine)
+    for stored in candidates:
+        directory = _here(root, stored)
+        if directory is None or root not in directory.parents:  # never outside this project
+            continue
+        # A path of a surviving site inside it (`extra_data` can be copied between rows) keeps
+        # the whole directory: nothing here deletes a file someone still names.
+        if any(directory == kept or directory in kept.parents for kept in surviving):
+            continue
+        with suppress(OSError):
+            shutil.rmtree(directory)
+        with suppress(OSError):  # the run's own folder, once it holds no receptor
+            directory.parent.rmdir()
+
+
 def delete_binding_sites(project_db, binding_site_ids: Iterable[int]) -> int:
     """Delete binding sites and clear every pointer at them. Returns the count deleted.
 
     Pocket prediction only ever adds sites, so pruning old runs is the user's call — which means
     this has to leave no dangling reference behind: a receptor whose active site is deleted ends
     up with no active site, and a complex loses its site instead of pointing at a missing row.
+
+    What a pruned prediction leaves on disk goes with it: once no site parsed from a run's
+    outputs for a receptor is left, that prediction's directory is removed. Deleting a receptor
+    comes through here too, so its predictions do not outlive it.
     """
     ids = _ids(binding_site_ids)
     if not ids:
         return 0
+    candidates: set[Path] = set()
+    with suppress(*OperationalError), project_db.get_session() as session:
+        for site in session.exec(select(BindingSite).where(BindingSite.id.in_(ids))).all():
+            directory = _prediction_dir(site)
+            if directory is not None:
+                candidates.add(directory)
     _safe_update(project_db, ComplexRecord, ComplexRecord.binding_site_id.in_(ids),
                  {"binding_site_id": None})
-    return _safe_delete(project_db, BindingSite, BindingSite.id.in_(ids))
+    deleted = _safe_delete(project_db, BindingSite, BindingSite.id.in_(ids))
+    _drop_unreferenced_predictions(project_db, candidates)
+    return deleted
 
 
 def _owned_payloads(project_db, ids: set[int], *, structure: bool) -> set[int]:
