@@ -453,17 +453,18 @@ class PreparationPanel:
         )
         self.keep_cofactors_receptors = QCheckBox("Include cofactors", page)
         self.keep_cofactors_receptors.setToolTip(
-            "Keep cofactors (HEM, NAD, FAD, ...) in the receptor PDBQT. Off leaves an empty "
-            "cofactor pocket the ligand can dock into."
+            "Keep cofactors (FMN, HEM, NAD, FAD, ...) in the receptor PDBQT, typed and charged "
+            "from their CCD component. Off leaves an empty cofactor pocket the ligand can dock "
+            "into — wrong whenever the cofactor walls the site."
         )
         form.addRow(self.force_prepare_receptors)
         form.addRow(self.keep_waters_receptors)
         form.addRow(self.keep_cofactors_receptors)
-        # Hidden until keeping waters/cofactors is finished end to end: they are built, wired and
-        # still read below, so unhiding is these two lines and nothing else. Hidden they stay
-        # unchecked, which is what a receptor is prepared as today — dry, cofactor pocket empty.
+        # "Include structural waters" stays hidden: a kept water still reaches the PDBQT as
+        # ms_adtools types it, and the TIP3P charges the tooltip promises are not implemented.
+        # Cofactors are finished (CCD components give them bond orders, so aromaticity, formal
+        # charges and ionized acids), so that one is offered.
         form.setRowVisible(self.keep_waters_receptors, False)
-        form.setRowVisible(self.keep_cofactors_receptors, False)
         return self._in_scroll(page)
 
     def _build_receptor_program_prep_page(self, spec) -> QWidget:
