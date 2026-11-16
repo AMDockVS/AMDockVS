@@ -809,12 +809,13 @@ def test_both_stores_dock_the_table_then_the_shards():
     assert "depends_on" not in shards[0]  # side by side; run_shards gives them the lower priority
 
 
-def _prepared_shard_scope(monkeypatch, *, receptor_id: int, shard_id: int, n_records: int = 3):
+def _prepared_shard_scope(monkeypatch, *, receptor_id: int, shard_id: int, n_records: int = 3,
+                          input_key: str = ""):
     """One prepared shard against one prepared receptor with a box, without preparing either."""
     monkeypatch.setattr(shard_jobs, "receptor_targets", lambda *a, **k: [{
         "receptor_id": receptor_id, "receptor_name": "R", "receptor_path": "receptor.pdbqt",
         "flex_receptor_path": "", "box_center": [0.0, 0.0, 0.0], "box_size": [20.0, 20.0, 20.0],
-        "spacing": 0.375,
+        "spacing": 0.375, "input_key": input_key,
     }])
     monkeypatch.setattr(shard_jobs, "iter_prepared_shards", lambda *a, **k: [{
         "id": shard_id, "prepared_path": "", "path": "library.parquet", "import_batch_id": 1,
@@ -1095,6 +1096,48 @@ def test_an_off_target_subset_does_not_satisfy_a_full_library_skip(tmp_path, mon
         chunks = list(shard_jobs.DockShardsJobSpec.build_chunks(params, {"project_db": project_db}))
         assert [chunk["shards"][0]["shard_id"] for chunk in chunks] == [shard_id]
         assert chunks[0]["shards"][0]["n_records"] == 100  # the whole shard, not the one record
+    finally:
+        runtime.close_project()
+
+
+def test_a_receptor_prepared_again_is_docked_again_despite_skip_existing(tmp_path, monkeypatch):
+    """The cross-run skip matches receipts by protocol; without the inputs they were docked
+    against, a receptor prepared again (or given a new box) would keep its old shard results."""
+    from amdockvs.models import MoleculeRecord, ScreeningShard
+    from amdockvs.runtime import AMDockVSRuntime
+
+    runtime = AMDockVSRuntime()
+    runtime.create_project(name="input-skip", folder=tmp_path)
+    try:
+        project_db = runtime.workspace.project_db
+        with project_db.get_session() as session:
+            receptor = MoleculeRecord(name="R", molecule_type="protein", is_receptor=True)
+            shard = ScreeningShard(
+                import_batch_id=_batch(session, "library.smi"), shard_index=0,
+                path="library.parquet", n_records=3,
+            )
+            session.add_all([receptor, shard])
+            session.commit()
+            receptor_id, shard_id = int(receptor.id), int(shard.id)
+
+        _run(project_db, "run-old", protocol_hash="proto-skip")
+        ShardHitWriter(
+            project_db=project_db, hit_cap=10, hit_threshold=0.0, run_id="run-old",
+            engine="vina", protocol_hash="proto-skip",
+        ).handle("chunk", [{
+            "shard_id": shard_id, "receptor_id": receptor_id, "scored": 3, "hits": [],
+            "hits_found": 0, "result_shard": "results/old.parquet", "selection": "",
+            "input_key": "prep-1",
+        }])
+        config = {"project_db": project_db}
+        params = _shard_params(tmp_path, run_id="run-new", skip_existing=True)
+
+        def shards_to_dock(input_key):
+            _prepared_shard_scope(monkeypatch, receptor_id=receptor_id, shard_id=shard_id, input_key=input_key)
+            return [chunk["shards"] for chunk in shard_jobs.DockShardsJobSpec.build_chunks(params, config)]
+
+        assert shards_to_dock("prep-1") == [[]]  # same inputs: the no-op sentinel
+        assert [s[0]["shard_id"] for s in shards_to_dock("prep-2")] == [shard_id]  # prepared again
     finally:
         runtime.close_project()
 

@@ -118,6 +118,7 @@ def advance_shard_run(
     hits: int,
     result_path: str = "",
     selection: str = "",
+    input_key: str = "",
 ) -> bool:
     """Persist one pair receipt. Returns false when that exact result was already recorded.
 
@@ -144,6 +145,7 @@ def advance_shard_run(
         row.hits = max(0, int(hits))
         row.result_path = str(result_path or "")
         row.selection = str(selection or "")
+        row.input_key = str(input_key or "")
         row.state = TargetState.DONE
         session.add(row)
         session.commit()
@@ -169,20 +171,24 @@ def completed_shard_targets(project_db, *, docking_run_id: int | None,
         }
 
 
-def completed_protocol_targets(project_db, *, engine: str, protocol_hash: str,
-                               selection: str = "") -> set[tuple[int, int]]:
+def completed_protocol_targets(project_db, *, engine: str, protocol_hash: str, selection: str = "",
+                               input_keys: Mapping[int, str] | None = None) -> set[tuple[int, int]]:
     """Completed ``(shard_id, receptor_id)`` pairs of every screening run of this engine and
     protocol: what "skip pairs already docked" leaves out, whichever run docked them. A
     campaign's run id is new on every submission, so a skip keyed by it skips nothing.
 
     Only the receipts docked under `selection` count. A receipt of an off-target stage stands
     for one reference receptor's Top-N inside the shard, not the shard: counting it would make
-    a full-library run skip the records it never docked."""
+    a full-library run skip the records it never docked.
+
+    With `input_keys` (receptor id -> its current `docking_input_key`), only receipts docked
+    against those inputs count: a receptor prepared again or given a new box is docked again."""
     with project_db.get_session() as session:
         return {
             (int(shard_id), int(receptor_id))
-            for shard_id, receptor_id in session.exec(
-                select(ScreeningShardRun.shard_id, ScreeningShardRun.receptor_molecule_id)
+            for shard_id, receptor_id, key in session.exec(
+                select(ScreeningShardRun.shard_id, ScreeningShardRun.receptor_molecule_id,
+                       ScreeningShardRun.input_key)
                 .join(DockingRun, DockingRun.id == ScreeningShardRun.docking_run_id)
                 .where(
                     DockingRun.engine == str(engine).strip().lower(),
@@ -192,6 +198,7 @@ def completed_protocol_targets(project_db, *, engine: str, protocol_hash: str,
                     ScreeningShardRun.state == TargetState.DONE,
                 )
             ).all()
+            if input_keys is None or key == input_keys.get(int(receptor_id))
         }
 
 

@@ -348,6 +348,7 @@ class ShardHitWriter:
                     hits=hit_count,
                     result_path=_project_relative(str(envelope.get("result_shard") or "")),
                     selection=str(envelope.get("selection") or ""),
+                    input_key=str(envelope.get("input_key") or ""),
                 )
                 if recorded:
                     advance_target(
@@ -549,6 +550,7 @@ def _shard_docking_scope(
         # subset docked by an off-target stage leaves the rest of its shard undocked.
         completed = completed_protocol_targets(
             project_db, engine=parsed.engine, protocol_hash=protocol_hash, selection=selection,
+            input_keys={int(t["receptor_id"]): str(t.get("input_key") or "") for t in targets},
         )
     if parsed.check_required and not shards and not parsed.selected_from_receptor_id:
         raise RuntimeError(

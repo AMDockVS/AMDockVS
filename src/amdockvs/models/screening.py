@@ -119,6 +119,9 @@ class ScreeningShardRun(SQLModel, table=True):
     # picked from that receptor. A forced re-dock replaces a receipt only when what it
     # docked again covers it, so a subset never retires a whole-shard receipt.
     selection: str = Field(default="")
+    # What the shard was docked against (`docking_input_key`): a later skip_existing run skips
+    # the pair only while the receptor preparation and box are still the same.
+    input_key: str = Field(default="")
     state: str = code_field("run_state", TargetState.SCHEDULED, index=True)
     error: str = Field(default="")
 

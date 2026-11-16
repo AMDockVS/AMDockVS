@@ -102,6 +102,7 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
         "result_shard": "",
         # What this receipt will stand for: the whole shard, or the Top-N of an off-target stage.
         "selection": shard_selection(payload.get("selected_from_receptor_id")),
+        "input_key": str(payload.get("input_key") or ""),
     }
     shard_path = str(shard.get("shard_path") or "")
     if not shard_path:
