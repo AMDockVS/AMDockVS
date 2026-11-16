@@ -117,8 +117,12 @@ def advance_shard_run(
     scored: int,
     hits: int,
     result_path: str = "",
+    selection: str = "",
 ) -> bool:
-    """Persist one pair receipt. Returns false when that exact result was already recorded."""
+    """Persist one pair receipt. Returns false when that exact result was already recorded.
+
+    `selection` records which ligands of the shard the receipt stands for (empty: all of them),
+    so a forced re-dock replaces only the receipts its own selection covers."""
     with project_db.get_session() as session:
         row = session.exec(
             select(ScreeningShardRun).where(
@@ -139,6 +143,7 @@ def advance_shard_run(
         row.ligands_scored = max(0, int(scored))
         row.hits = max(0, int(hits))
         row.result_path = str(result_path or "")
+        row.selection = str(selection or "")
         row.state = TargetState.DONE
         session.add(row)
         session.commit()

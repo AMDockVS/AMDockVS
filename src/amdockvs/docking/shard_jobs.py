@@ -344,6 +344,7 @@ class ShardHitWriter:
                     scored=int(envelope.get("scored") or 0),
                     hits=hit_count,
                     result_path=_project_relative(str(envelope.get("result_shard") or "")),
+                    selection=str(envelope.get("selection") or ""),
                 )
                 if recorded:
                     advance_target(

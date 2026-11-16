@@ -941,3 +941,93 @@ def test_a_forced_campaign_replaces_what_the_pairs_it_docked_again_had(tmp_path,
         assert not fragment.exists()  # nothing points at it any more
     finally:
         runtime.close_project()
+
+
+def test_a_forced_off_target_stage_keeps_the_ligands_it_never_docked_again(tmp_path):
+    """RR-01, the subset half: an off-target stage docks one reference receptor's Top-N, not the
+    shard. Its receipt stands for that selection alone, so it must not retire the whole-shard
+    receipt an older run holds for the same pair — nor the fragment and the results of the
+    ligands outside the Top-N behind it."""
+    from sqlmodel import select
+
+    from amdockvs.models import (
+        DockingResultRecord, MoleculeRecord, ScreeningShard, ScreeningShardRun, ScreeningTarget,
+    )
+    from amdockvs.core.vocab import TargetState
+    from amdockvs.runtime import AMDockVSRuntime
+
+    runtime = AMDockVSRuntime()
+    runtime.create_project(name="off-target-subset", folder=tmp_path)
+    try:
+        project_db = runtime.workspace.project_db
+        root = Path(project_db.db_path).parent
+        whole = root / "results" / "whole.parquet"
+        whole.parent.mkdir(parents=True, exist_ok=True)
+        whole.write_bytes(b"every ligand of the shard")
+        with project_db.get_session() as session:
+            receptors = [MoleculeRecord(name=name, molecule_type="protein", is_receptor=True)
+                         for name in ("reference", "off-target")]
+            ligands = [MoleculeRecord(name=name, molecule_type="small_molecule", is_ligand=True)
+                       for name in ("picked", "left-out")]
+            shard = ScreeningShard(
+                import_batch_id=_batch(session, "library.smi"), shard_index=0,
+                path="library.parquet", n_records=2,
+            )
+            session.add_all([*receptors, *ligands, shard])
+            session.commit()
+            reference_id, off_target_id = (int(row.id) for row in receptors)
+            picked, left_out = (int(row.id) for row in ligands)
+            shard_id = int(shard.id)
+
+        old_run = _run(project_db, "run-library", protocol_hash="proto-off")
+        with project_db.get_session() as session:
+            session.add(ScreeningShardRun(  # the whole library against the off-target receptor
+                docking_run_id=old_run, shard_id=shard_id, receptor_molecule_id=off_target_id,
+                engine="vina", protocol_hash="proto-off", ligands_scored=2, hits=2,
+                result_path="results/whole.parquet", selection="", state=TargetState.DONE,
+            ))
+            session.add(ScreeningTarget(
+                docking_run_id=old_run, receptor_molecule_id=off_target_id, receptor_name="off-target",
+                engine="vina", ligands_total=2, ligands_done=2, state=TargetState.DONE,
+            ))
+            for ligand, score in ((picked, -9.0), (left_out, -8.0)):
+                session.add(DockingResultRecord(
+                    docking_run_id=old_run, receptor_molecule_id=off_target_id,
+                    ligand_molecule_id=ligand, pose_rank=1, score=score, engine="vina",
+                ))
+            session.commit()
+
+        # Forced, the off-target stage docks only the reference receptor's Top-N of that shard.
+        new_run = _run(project_db, "run-off", protocol_hash="proto-off")
+        writer = ShardHitWriter(
+            project_db=project_db, hit_cap=10, hit_threshold=0.0, run_id="run-off",
+            engine="vina", protocol_hash="proto-off",
+            selected_from_receptor_id=reference_id, skip_existing=False,
+        )
+        writer.handle("chunk", [{
+            "shard_id": shard_id, "receptor_id": off_target_id, "scored": 1, "hits": [],
+            "hits_found": 1, "result_shard": "results/off.parquet",
+            "selection": f"top:{reference_id}",
+        }])
+        with project_db.get_session() as session:  # what materializing that one hit stores
+            session.add(DockingResultRecord(
+                docking_run_id=new_run, receptor_molecule_id=off_target_id,
+                ligand_molecule_id=picked, pose_rank=1, score=-10.0, engine="vina",
+            ))
+            session.commit()
+        writer.close()
+
+        with project_db.get_session() as session:
+            receipts = {(int(row.docking_run_id), str(row.selection)) for row
+                        in session.exec(select(ScreeningShardRun)).all()}
+            results = sorted((int(row.docking_run_id), int(row.ligand_molecule_id)) for row
+                             in session.exec(select(DockingResultRecord)).all())
+            targets = [int(row.docking_run_id) for row in session.exec(select(ScreeningTarget)).all()]
+        # The whole-shard receipt stays: the subset never covered it.
+        assert receipts == {(old_run, ""), (new_run, f"top:{reference_id}")}
+        assert whole.exists()
+        assert targets == [old_run]
+        # Only the pair it docked again was replaced; the ligand outside the Top-N keeps its row.
+        assert results == sorted([(old_run, left_out), (new_run, picked)])
+    finally:
+        runtime.close_project()

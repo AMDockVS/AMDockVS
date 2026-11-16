@@ -7,6 +7,7 @@ from sqlalchemy import and_, delete, exists, or_
 from sqlmodel import select
 
 from amdockvs.docking.protocols import DockingProtocolMetadata
+from amdockvs.docking.results.dataset import selection_covers
 from amdockvs.docking.results.repository import _decode_metadata, supersede_results
 from amdockvs.models import DockingResultRecord, DockingRun, ScreeningShardRun, ScreeningTarget
 from amdockvs.core.vocab import TargetState
@@ -97,20 +98,28 @@ def supersede_shard_runs(project_db, *, docking_run_id: int | None) -> int:
     """A forced campaign completed: what it docked again replaces what older runs of the same
     engine and protocol had for those shard/receptor pairs, instead of sitting beside it.
 
-    Their receipts and result fragments go; a receptor an older run is left with no receipt for
-    loses its results and its plan row there, because its Top-N was picked from what was just
-    docked again. A result of a pair the new run also materialized goes in any case. Returns how
-    many receipts were superseded."""
+    Only a receipt this run's own selection covers is replaced: an off-target stage docks the
+    Top-N picked from one reference receptor, not the shard, so its receipt leaves an older
+    whole-shard receipt — and the fragment and results behind it — alone. The pairs it did
+    recalculate still lose their older rows, through `supersede_results`.
+
+    The receipts it does replace go with their result fragments; a receptor an older run is left
+    with no receipt for loses its results and its plan row there, because its Top-N was picked
+    from what was just docked again. A result of a pair the new run also materialized goes in
+    any case. Returns how many receipts were superseded."""
     if not docking_run_id:
         return 0
     with project_db.get_session() as session:
         current = session.get(DockingRun, int(docking_run_id))
         if current is None:
             return 0
+        # One receipt per (shard, receptor) in a run, so the selection it was docked under is
+        # single-valued here: `""` for the whole shard, `top:<receptor>` for an off-target stage.
         redone = {
-            (int(shard), int(receptor))
-            for shard, receptor in session.exec(
-                select(ScreeningShardRun.shard_id, ScreeningShardRun.receptor_molecule_id).where(
+            (int(shard), int(receptor)): str(selection or "")
+            for shard, receptor, selection in session.exec(
+                select(ScreeningShardRun.shard_id, ScreeningShardRun.receptor_molecule_id,
+                       ScreeningShardRun.selection).where(
                     ScreeningShardRun.docking_run_id == current.id,
                     ScreeningShardRun.state == TargetState.DONE,
                 )
@@ -120,12 +129,18 @@ def supersede_shard_runs(project_db, *, docking_run_id: int | None) -> int:
             DockingRun.engine == current.engine, DockingRun.run_kind == current.run_kind,
             DockingRun.protocol_hash == current.protocol_hash, DockingRun.id != current.id,
         )
+
+        def covered(row: ScreeningShardRun) -> bool:
+            """Did this run dock that receipt's pair again, under a selection holding all of it?"""
+            key = (int(row.shard_id), int(row.receptor_molecule_id))
+            return key in redone and selection_covers(redone[key], str(row.selection or ""))
+
         stale = [
             row
             for row in session.exec(
                 select(ScreeningShardRun).where(ScreeningShardRun.docking_run_id.in_(older))
             ).all()
-            if (int(row.shard_id), int(row.receptor_molecule_id)) in redone
+            if covered(row)
         ]
         paths = {row.result_path for row in stale if row.result_path}
         touched = {(int(row.docking_run_id), int(row.receptor_molecule_id)) for row in stale}

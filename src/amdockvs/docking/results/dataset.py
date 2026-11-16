@@ -19,6 +19,25 @@ from amdockvs.core.vocab import TargetState
 
 RESULT_DATASET_FORMAT = "amdock-docking-results-parquet-v1"
 
+# Which ligands of a shard one receipt stands for. A whole shard is the empty string; an
+# off-target stage docks only the Top-N picked from its reference receptor, so its receipt
+# stands for that selection alone and must not retire the whole-shard receipt it overlaps.
+SHARD_SELECTION_ALL = ""
+
+
+def shard_selection(selected_from_receptor_id: Any = None) -> str:
+    """The selection key of a receipt: empty for the whole shard, `top:<receptor id>` for the
+    Top-N an off-target stage took from that reference receptor."""
+    reference = int(selected_from_receptor_id or 0)
+    return f"top:{reference}" if reference else SHARD_SELECTION_ALL
+
+
+def selection_covers(docked: str, stored: str) -> bool:
+    """True when docking `docked` again accounts for everything a receipt for `stored` holds:
+    a whole shard covers any subset of it; a subset covers only the same subset."""
+    return not str(docked or "") or str(docked or "") == str(stored or "")
+
+
 RESULT_SCHEMA = pa.schema([
     pa.field("ligand_id", pa.int64(), nullable=False),
     pa.field("receptor_id", pa.int64(), nullable=False),
@@ -359,6 +378,7 @@ def select_hits(
 
 __all__ = [
     "RESULT_DATASET_FORMAT",
+    "SHARD_SELECTION_ALL",
     "ResultFragmentWriter",
     "completed_result_receipts",
     "local_pose_path",
@@ -367,4 +387,6 @@ __all__ = [
     "result_row",
     "select_hit_refs",
     "select_hits",
+    "selection_covers",
+    "shard_selection",
 ]
