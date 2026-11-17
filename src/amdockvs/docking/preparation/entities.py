@@ -148,7 +148,8 @@ def prepare_entities_rows(
                 # therefore does change, on its next preparation.
                 ccd_components=bool(keep_cofactors) and entity_kind == "receptor",
             )
-            updates.append({"entity_id": entity_id, "engine": str(engine), "prepared": prepared, "flex": flex})
+            updates.append({"entity_id": entity_id, "engine": str(engine), "prepared": prepared, "flex": flex,
+                            "warnings": [str(message) for message in row_warnings]})
             for message in row_warnings:
                 _LOG.warning("%s %s: %s", entity_kind, entity_id, message)
                 warnings.append({"entity_id": entity_id, "message": str(message)})

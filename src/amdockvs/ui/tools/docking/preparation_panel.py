@@ -42,9 +42,30 @@ from amdockvs.ui.tools.docking.protocol_editor import NO_PROGRAM_SELECTED
 _FLEX_NEEDS_RECEPTOR = "Select a receptor in the table to set its flexible residues."
 
 
+def _first_warning(value) -> str:
+    """The first of a row's warnings (one per line), saying when there are more: the tooltip
+    has them all."""
+    lines = str(value or "").splitlines()
+    if not lines:
+        return "—"
+    return lines[0] + (f" (+{len(lines) - 1} more)" if len(lines) > 1 else "")
+
+
 def _prep_table_config(*, role_type: str) -> TableConfig:
     """Per-(molecule, family) preparation status, from `ligand_preps` or `receptor_preps`."""
     model, molecule_column, payload_column = prep_table(role_type)
+    # Receptors only: a ready receptor can still carry a cofactor typed by guesswork or a metal
+    # charged with no coordination model, and the PDBQT itself cannot say so.
+    warnings_column = [
+        ColumnDef(
+            "warnings",
+            label="Warnings",
+            width=360,
+            filterable=False,
+            formatter=_first_warning,
+            tooltip=lambda row: row.get("warnings") or None,
+        ),
+    ] if hasattr(model, "warnings") else []
     return TableConfig(
         model_class=model,
         columns=[
@@ -70,6 +91,7 @@ def _prep_table_config(*, role_type: str) -> TableConfig:
                 formatter=lambda value: str(value or "") or "—",
                 tooltip=lambda row: row.get("error") or None,
             ),
+            *warnings_column,
         ],
         default_sort=[SortSpec(molecule_column.key, descending=True)],
         page_size=20,

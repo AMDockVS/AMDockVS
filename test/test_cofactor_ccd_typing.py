@@ -244,3 +244,44 @@ def test_a_warning_survives_the_row_pipeline(tmp_path, monkeypatch, receptor):
     assert summary["warnings"], "a warning was raised and the summary dropped it"
     assert summary["warnings"][0]["entity_id"] == 1
     assert "ZZZ" in summary["warnings"][0]["message"]
+
+
+def test_a_warning_reaches_the_receptor_prep_row(tmp_path, monkeypatch, receptor):
+    """The summary is not the end of the road: `tasks.prepare_entities` built its rows from
+    updates and failures only, so the warnings stopped there and never reached the table the
+    Preparation view reads. This follows one through the job sink into `receptor_preps`, and
+    checks a clean re-preparation clears it rather than leaving the old one behind."""
+    monkeypatch.setenv("MOLSUITE_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("MOLSUITE_OFFLINE", "1")
+    pytest.importorskip("ms_adtools")
+    from sqlmodel import select
+
+    from amdockvs.docking.preparation.jobs import PREP_UPSERT
+    from amdockvs.docking.preparation.tasks import prepare_entities
+    from amdockvs.models import MoleculeRecord, ReceptorPrep
+    from amdockvs.runtime import AMDockVSRuntime
+
+    runtime = AMDockVSRuntime()
+    runtime.create_project(name="prep-warnings", folder=tmp_path / "project")
+    db = runtime.workspace.project_db
+    with db.get_session() as session:
+        record = MoleculeRecord(name="R", molecule_type="protein", is_receptor=True)
+        session.add(record)
+        session.commit()
+        receptor_id = int(record.id)
+
+    def prepare(text):
+        rows = [{"id": receptor_id, "structure": text.encode(), "structure_kind": "pdb"}]
+        db.persist_output_spec(PREP_UPSERT, prepare_entities(
+            {"entity_kind": "receptor", "engine": "ad4", "rows": rows, "keep_cofactors": True}))
+        with db.get_session() as session:
+            [row] = session.exec(select(ReceptorPrep)).all()
+            return row.rigid_payload_id, row.error, row.warnings
+
+    payload, error, warnings = prepare(_FMN_PDB.replace("FMN", "ZZZ"))
+    assert payload is not None and error is None, "a warning must not mark the receptor failed"
+    assert warnings and "ZZZ" in warnings
+
+    payload, error, warnings = prepare(_FMN_PDB)
+    assert payload is not None and error is None
+    assert warnings is None, "a clean re-preparation clears the old warning"

@@ -41,7 +41,9 @@ PREP_UPSERT = graph_sink(
             "name": "receptor_preps",
             "model": ReceptorPrep,
             # Every column but `flex_residues`: the user's pick outlives a re-preparation.
-            "columns": ["receptor_molecule_id", "family", "rigid_payload_id", "flex_payload_id", "error"],
+            # `warnings` is written NULL too, so a re-preparation clears what the last one said.
+            "columns": ["receptor_molecule_id", "family", "rigid_payload_id", "flex_payload_id", "error",
+                        "warnings"],
             "write_mode": "upsert",
             "conflict_keys": ["receptor_molecule_id", "family"],
             "validate_model": False,
