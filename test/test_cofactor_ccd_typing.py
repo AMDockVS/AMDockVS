@@ -97,8 +97,48 @@ def _prepare(source: Path, tmp_path: Path, *, ccd: bool):
 def test_the_verified_components_are_shipped_so_the_common_path_needs_no_network():
     # The whole offline story rests on these files being there; a rename would make the CCD
     # pass fetch instead, which a test run without network would not notice any other way.
-    # Each of these has a prepared structure behind it in the branch's test matrix.
-    assert {"FMN", "FAD", "NAD", "ATP", "TPP", "HEM"} <= set(bundled_components())
+    # Each of these has a prepared structure behind it, at a whole-number charge matching the
+    # chemistry: FMN/FAD 1D3G,3I65,3GRS; NAD 1HDX; ATP 1ATP; TPP 1TRK; HEM 1A6M; NAP 4LBS;
+    # COA 4EA7; ADP 13CI; AMP 2CNQ; PQQ 1W6S. Nothing goes in here without one.
+    shipped = set(bundled_components())
+    assert {"FMN", "FAD", "NAD", "ATP", "TPP", "HEM",
+            "NAP", "COA", "ADP", "AMP", "PQQ"} <= shipped
+    # PLP and SAM/SAH are deliberately absent -- see test_a_missing_atom_is_reported and the
+    # branch notes: PLP entries routinely omit O4A, and the amino-acid-derived pair come out a
+    # whole charge too negative because acids ionize but bases are never protonated.
+    assert not ({"PLP", "SAM", "SAH"} & shipped)
+
+
+def test_a_missing_atom_is_reported_not_swallowed():
+    """A component is typed with whole-number formal charges, so a copy must land on an integer.
+
+    PLP is why this exists: PDB entries routinely leave out its O4A, the template match then
+    goes partial, and the copy comes out at -1.70 where the answer is -2 -- an error a third of
+    a charge wide that nothing in the file itself reveals.
+    """
+    from amdockvs.docking.preparation.cofactors import fractional_charges
+
+    def row(resname, serial, charge):  # a PDBQT line with the charge where the parser reads it
+        line = [" "] * 79
+        line[0:6] = list("HETATM")
+        line[12:16] = list(f"{'C':<4}")
+        line[17:20] = list(f"{resname:>3}")
+        line[21] = "A"
+        line[22:26] = list(f"{serial:>4}")
+        line[70:76] = list(f"{charge:>6.3f}")
+        line[77:79] = list(" C")
+        return "".join(line)
+
+    whole = "\n".join([row("NAD", 1, -0.5), row("NAD", 1, -0.5)])          # -1.000
+    assert fractional_charges(whole, ["NAD"]) == []
+
+    broken = "\n".join([row("PLP", 2, -0.851), row("PLP", 2, -0.850)])     # -1.701
+    [(resname, where, net)] = fractional_charges(broken, ["PLP"])
+    assert resname == "PLP" and where == "A2"
+    assert net == pytest.approx(-1.701, abs=0.001)
+
+    # a residue nobody asked about is not the preparation's business
+    assert fractional_charges(broken, ["NAD"]) == []
 
 
 def test_a_components_own_metal_is_charged(tmp_path, monkeypatch):

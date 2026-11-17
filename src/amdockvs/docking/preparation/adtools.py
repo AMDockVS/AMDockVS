@@ -275,6 +275,7 @@ def prepare_receptor_vina_pdbqt(
 
     prep_warnings: list[str] = []
     use_ccd = False
+    guessed: list[str] = []
     if ccd_components:
         from amdockvs.docking.preparation.cofactors import (
             components_without_templates,
@@ -303,6 +304,15 @@ def prepare_receptor_vina_pdbqt(
         # A standalone metal residue (ZN, MN, CA) is unaffected and stays at 0, as ADT has it.
         rigid = prepare_receptor(filtered, repairs="hydrogens", cleanup="nphs_lps",
                                  ccd=use_ccd, ccd_metal_charges=use_ccd)
+    if use_ccd:
+        from amdockvs.docking.preparation.cofactors import fractional_charges
+
+        for resname, where, net in fractional_charges(rigid, guessed):
+            prep_warnings.append(
+                f"{resname} {where} carries a net charge of {net:+.2f}, which is not a whole "
+                f"number: the structure and the CCD component do not line up, usually a heavy "
+                f"atom the structure never modelled. Its charges are wrong by the remainder."
+            )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(rigid, encoding="utf-8")
     present = {(l[21].strip(), l[17:20].strip() + l[22:27].strip()) for l in rigid.splitlines()

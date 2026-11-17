@@ -69,17 +69,62 @@ def nonstandard_resnames(pdb_text: str) -> list[str]:
 
     Everything the CCD path exists for: cofactors, and modified residues the polymer carries.
     Waters and the standard amino acids and nucleotides are ms_adtools' own ``STANDARD`` set.
+
+    A residue of a single atom is left out. What a component contributes is bond orders --
+    aromaticity, formal charges, which acid to ionize -- and a lone ion has none of that to
+    learn; ms_adtools gives a bare metal charge 0 by design, with or without the CCD. Counting
+    them here would make every MG or CA in a structure ask for a component it has no use for,
+    and the warning that follows would be noise in front of the cofactor it is there to report.
     """
     from ms_adtools.ccd import STANDARD
 
-    found: list[str] = []
+    # Per residue instance, not per name: two MG ions in one structure are two monatomic
+    # residues, and counting their atoms together would make the pair look like a molecule.
+    instances: dict[tuple[str, str], int] = {}
+    order: list[str] = []
     for line in pdb_text.splitlines():
         if not line.startswith(("ATOM", "HETATM")):
             continue
         resname = line[17:20].strip().upper()
-        if resname and resname not in STANDARD and resname not in found:
-            found.append(resname)
-    return found
+        if not resname or resname in STANDARD:
+            continue
+        if resname not in order:
+            order.append(resname)
+        key = (resname, f"{line[21]}{line[22:27]}")
+        instances[key] = instances.get(key, 0) + 1
+    biggest: dict[str, int] = {}
+    for (resname, _), count in instances.items():
+        biggest[resname] = max(biggest.get(resname, 0), count)
+    return [name for name in order if biggest.get(name, 0) > 1]
+
+
+def fractional_charges(pdbqt_text: str, resnames: list[str], tolerance: float = 0.05):
+    """``[(resname, "<chain><resseq>", net)]`` for residues whose net charge is not integral.
+
+    A component typed from the CCD carries whole-number formal charges, so each copy must come
+    out on an integer. A fraction means the structure and the component did not line up -- most
+    often a heavy atom the structure never modelled, whose charge then has nowhere to go. PLP
+    is the case that found this: PDB entries routinely omit its O4A, and the heme-sized error
+    that follows (-1.70 where the answer is -2) is invisible in the file itself.
+
+    Reported, not corrected: which atom is missing is the depositor's business, and a receptor
+    that is wrong by a third of a charge should say so rather than be quietly patched.
+    """
+    wanted = {str(name).strip().upper() for name in resnames}
+    totals: dict[tuple[str, str], float] = {}
+    for line in pdbqt_text.splitlines():
+        if not line.startswith(("ATOM", "HETATM")):
+            continue
+        resname = line[17:20].strip().upper()
+        if resname not in wanted:
+            continue
+        key = (resname, f"{line[21].strip() or '_'}{line[22:27].strip()}")
+        try:
+            totals[key] = totals.get(key, 0.0) + float(line[70:76])
+        except ValueError:
+            continue
+    return [(resname, where, net) for (resname, where), net in sorted(totals.items())
+            if abs(net - round(net)) > tolerance]
 
 
 def components_without_templates(resnames: list[str]) -> list[str]:
@@ -106,6 +151,7 @@ __all__ = [
     "BUNDLED_COMPONENT_DIR",
     "bundled_components",
     "components_without_templates",
+    "fractional_charges",
     "nonstandard_resnames",
     "seed_component_cache",
 ]
