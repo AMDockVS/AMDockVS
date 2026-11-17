@@ -89,3 +89,16 @@ def test_every_code_resolves_to_the_component_it_claims(group):
     unresolved = [code for code in RAW[group]
                   if code not in exempt and component_file(code) is None]
     assert not unresolved, f"{group}: {unresolved} are not CCD components and are not in _not_ccd"
+
+
+def test_held_back_codes_are_not_kept_as_cofactors():
+    """SAM, SAH and PLP prepare at the wrong charge (see `_held_back`), so they are off the
+    cofactor list: classified as ligands, they are stripped from the receptor at import, and
+    "Include cofactors" can never keep one. Re-adding one belongs with the fix, not before."""
+    from amdockvs.io.receptor_preview import _classify_component
+
+    held_back = set(RAW["_held_back"])
+    assert held_back == {"SAM", "SAH", "PLP"}
+    assert not held_back & hetero_codes("cofactor")
+    assert not held_back & set().union(*(hetero_codes(group) for group in CLASSES))
+    assert {_classify_component(code, ["C", "N", "O"]) for code in held_back} == {"ligand"}

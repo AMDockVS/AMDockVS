@@ -15,11 +15,17 @@
     "I": "Removed from `ion` 2026-11-16. CCD `I` is INOSINIC ACID (RNA LINKING), not iodide -- it was classifying an inosine nucleotide as an ion. Iodide is IOD, which is in the list. Do not re-add as an ion."
   },
 
+  "_held_back": {
+    "SAM": "Removed from `cofactor` 2026-11-17. Types cleanly from the CCD but lands one charge short (0 where the zwitterion at pH 7 is +1): ms_adtools ionizes the carboxylate and protonates no base in a cofactor. Unlisted, it is classified as a ligand and stripped from the receptor. Re-add once its alpha-amino group is protonated.",
+    "SAH": "Removed from `cofactor` 2026-11-17. Same as SAM: -1 where it is 0.",
+    "PLP": "Removed from `cofactor` 2026-11-17. PDB entries routinely omit its O4A (5 of 5 checked), so the CCD template match goes partial and it lands at a fraction (-1.70 in 7LKL). Re-add once a missing heavy atom is handled rather than only reported."
+  },
+
   "_expansion_candidates": "Resolved and name-checked 2026-11-16, not yet added -- each needs a decision about what AMDockVS should do with it, not just a code. Cofactors: NAI (NADH) and NDP (NADPH), the reduced partners of the NAD/NAP already listed; HEC (heme C), HEA (heme A); COB (methylcobalamin), B12 (cobalamin), CBY (cob(II)inamide); BTN (biotin); LPA (lipoic acid); PNS (4'-phosphopantetheine); MGD (molybdopterin); GSH (glutathione, typed peptide-like); THF (5-hydroxymethylene-6-hydrofolic acid -- NOT plain tetrahydrofolate). Metal clusters FES (Fe2S2) and SF4 (Fe4S4) are mostly metal, which the CCD typing path leaves uncharged, so they need their own handling rather than a cofactor entry. GTP and GDP resolve but GDP is typed RNA LINKING, so treating them as cofactors would collide with nucleotide polymers. Ubiquinones UQ (CoQ10), UQ1 and DCQ (decylubiquinone) are substrates in a respiratory-chain site, not cofactors to keep by default.",
 
   "water": ["HOH", "WAT", "DOD", "H2O"],
   "coordination_metal": ["ZN", "FE", "MN", "MG", "CA", "CU", "CO", "NI", "CD"],
   "ion": ["CL", "BR", "IOD", "LI", "RB", "CS", "NA", "K"],
   "additive": ["PEG", "PG4", "PGO", "SO4", "PO4", "GOL", "EDO", "DMS", "MPD", "MES", "TRS", "ACT", "FMT", "DDQ", "LDA", "C8E", "BOG", "LMT", "BNG"],
-  "cofactor": ["FAD", "FMN", "NAD", "NAP", "SAM", "SAH", "COA", "ATP", "ADP", "AMP", "HEM", "PLP", "TPP", "PQQ"]
+  "cofactor": ["FAD", "FMN", "NAD", "NAP", "COA", "ATP", "ADP", "AMP", "HEM", "TPP", "PQQ"]
 }

@@ -30,28 +30,6 @@ from pathlib import Path
 #: (https://files.rcsb.org/ligands/download/<RESNAME>.cif), not by editing code.
 BUNDLED_COMPONENT_DIR = Path(__file__).resolve().parents[1].parent / "data" / "ccd"
 
-#: Cofactors whose component types cleanly and still lands on the wrong whole charge, so neither
-#: the missing-component nor the fractional-charge check can see it. Both are amino-acid derived:
-#: the CCD draws the alpha-amino group neutral, ms_adtools ionizes the carboxylate (no hydrogen
-#: on it in the structure) but protonates no base in a cofactor, so the zwitterion comes out one
-#: charge short. Measured on 3BWM (SAM) and in eccfa8f (SAH). Named here until bases are handled;
-#: drop an entry once its charge comes out right.
-ONE_CHARGE_SHORT = {
-    "SAM": "net 0 where the zwitterion at pH 7 is +1",
-    "SAH": "net -1 where the zwitterion at pH 7 is 0",
-}
-
-
-def known_mischarged(resnames: list[str]) -> list[str]:
-    """One warning per kept cofactor in :data:`ONE_CHARGE_SHORT`."""
-    return [
-        f"{name} is kept with its alpha-amino group neutral, so it comes out one charge short "
-        f"({ONE_CHARGE_SHORT[name]}). Its electrostatics are wrong by that charge; leave cofactors "
-        f"out, or treat scores near it as approximate."
-        for name in dict.fromkeys(str(n).strip().upper() for n in resnames)
-        if name in ONE_CHARGE_SHORT
-    ]
-
 
 def bundled_components() -> dict[str, Path]:
     """``{RESNAME: cif}`` of the components shipped with AMDockVS."""
@@ -207,8 +185,6 @@ __all__ = [
     "bundled_components",
     "components_without_templates",
     "fractional_charges",
-    "known_mischarged",
     "nonstandard_resnames",
-    "ONE_CHARGE_SHORT",
     "seed_component_cache",
 ]
