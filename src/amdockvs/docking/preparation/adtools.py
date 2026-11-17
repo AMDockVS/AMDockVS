@@ -313,6 +313,17 @@ def prepare_receptor_vina_pdbqt(
                 f"number: the structure and the CCD component do not line up, usually a heavy "
                 f"atom the structure never modelled. Its charges are wrong by the remainder."
             )
+
+    # Bare metal ions, whatever the cofactor choice was: they are in the receptor either way,
+    # and Gasteiger leaves them at 0, which no ligand can feel. See `metals` for the trade.
+    # Seeded here too, not only in the branch above: a dry receptor never reaches that one, and
+    # its ions still need their components to be charged without going to the network.
+    from amdockvs.docking.preparation.cofactors import seed_component_cache as _seed
+    from amdockvs.docking.preparation.metals import apply_formal_charges
+
+    _seed()
+    rigid, metal_charges, metal_warnings = apply_formal_charges(rigid)
+    prep_warnings.extend(metal_warnings)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(rigid, encoding="utf-8")
     present = {(l[21].strip(), l[17:20].strip() + l[22:27].strip()) for l in rigid.splitlines()
@@ -338,6 +349,8 @@ def prepare_receptor_vina_pdbqt(
     extra: dict[str, object] = {"source_format": source.suffix.lstrip("."), "copied": False}
     if use_ccd:
         extra["ccd_components"] = True
+    if metal_charges:
+        extra["metal_charges"] = {name: charge for name, charge in sorted(metal_charges.items())}
     if flex_applied:
         extra["flex_residues"] = flex_applied
     if flex_skipped:
