@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import sys
 
-from PySide6.QtCore import Qt, QTimer, QSettings, QSignalBlocker, Signal
+from PySide6.QtCore import QEvent, Qt, QTimer, QSettings, QSignalBlocker, Signal
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -132,6 +132,7 @@ class AMDockVSMainWindow(QMainWindow):
             )
             self.grid_dock = GridBoxSettingDockWidget(runtime=runtime, parent=self.pymol_dock)
             self.grid_dock.set_auto_preview_enabled(False)
+            self.pymol_dock.control_bar.preset_applied.connect(self.grid_dock.reshow_boxes)
             self.pymol_dock.set_side_panel(self.grid_dock, title="Grid Box", visible=False)
 
         # 2D interaction diagram: UNDER PyMOL, not sharing its slot — the 3D pose and its 2D
@@ -193,6 +194,12 @@ class AMDockVSMainWindow(QMainWindow):
             starts_visible=False,
         )
         self.tools_dock.visibilityChanged.connect(self.tools.on_tools_dock_visibility)
+        # Opening/closing the tool panel changes the central width; the width a view cannot use
+        # (Docking Results' Pose pane) is offered to PyMOL again instead of stretching that pane.
+        # The layout settles later than the signal, so the offer waits for the central resize
+        # (eventFilter). Only after a toggle: a PyMOL the user narrowed by hand stays narrow.
+        self._offer_viewer_room = False
+        self.tools_dock.visibilityChanged.connect(lambda _visible: setattr(self, "_offer_viewer_room", True))
 
         # Bottom docks (2D Interactions) stack at the bottom of the side columns instead of a
         # full-width bottom strip, so the central content view keeps the window's full height.
@@ -223,6 +230,7 @@ class AMDockVSMainWindow(QMainWindow):
         shell_layout.addWidget(self.central_widget, 1)
         self.tutorials_panel.setVisible(not hide_tutorials)
         self.setCentralWidget(central_shell)
+        central_shell.installEventFilter(self)  # see _offer_viewer_room
         self.monitor_bridge.job_upserted.connect(self.jobs.on_job_upserted)
         self.monitor_bridge.job_finished.connect(self.jobs.on_job_finished)
         self.monitor_bridge.project_changed.connect(self.jobs.on_monitor_project_changed)
@@ -343,6 +351,13 @@ class AMDockVSMainWindow(QMainWindow):
         except Exception:
             pass
 
+    def eventFilter(self, watched, event):
+        if (event.type() == QEvent.Type.Resize and watched is self.centralWidget()
+                and self._offer_viewer_room):
+            self._offer_viewer_room = False
+            QTimer.singleShot(0, lambda: self._give_viewer_spare_width(force=True))  # children resized
+        return super().eventFilter(watched, event)
+
     def _give_viewer_spare_width(self, *, force: bool = False) -> None:
         """A view that cannot use its full width (see `viewer_spare_width`) hands the rest to
         PyMOL. Once per view, so a PyMOL the user narrowed is not pushed back on every tab
@@ -356,9 +371,9 @@ class AMDockVSMainWindow(QMainWindow):
                      if hasattr(w, "viewer_spare_width") and w.isVisible()), None)
         if page is None:
             return
-        self._viewer_room_given.add(view_id)
         spare = page.viewer_spare_width()
-        if spare > 0:
+        if spare > 0:  # nothing spare yet (e.g. a tool panel is open) is not "given": ask again later
+            self._viewer_room_given.add(view_id)
             self.resizeDocks([dock], [dock.width() + spare], Qt.Horizontal)
 
     def _create_menu_bar(self):

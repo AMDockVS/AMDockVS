@@ -142,6 +142,7 @@ class GridBoxSettingDockWidget(QWidget):
         self._auto_preview_enabled = False
         self._suspend_editor = False
         self._force_preview_once = False
+        self._drawn_for = 0  # receptor id whose boxes are on the canvas; 0 when none are
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(6, 6, 6, 6)
@@ -447,8 +448,10 @@ class GridBoxSettingDockWidget(QWidget):
         self._populate_tree()
         self.site_tree.blockSignals(False)
         self._sync_enabled_state()
-        if self.isVisible() and self._auto_preview_enabled:
-            self._refresh_preview(force=False)
+        # The same receptor shown again (a table reload re-selects its row, the structure is
+        # already loaded and nothing else would draw again): its boxes are redrawn, not wiped.
+        if self.isVisible() and (self._auto_preview_enabled or self._drawn_for == int(molecule.id or 0)):
+            self._refresh_preview(force=True)
         else:
             self._clear_preview()
 
@@ -985,6 +988,20 @@ class GridBoxSettingDockWidget(QWidget):
         # selection or clicks in the viewport — only receptor change / New / Save clears it.
         if self.show_working_box.isChecked() and self._working.dirty:
             self._draw_working(cmd, show_faces=show_faces, show_edges=show_edges)
+        self._drawn_for = int(getattr(self._current_molecule, "id", 0) or 0)
+
+    def reshow_boxes(self, *_args) -> None:
+        """A preset runs `hide everything, all`, which hides CGO objects too: show the boxes
+        again on top of it (connected to the PyMOL control bar's preset_applied)."""
+        cmd = self._pymol_cmd()
+        if cmd is None or not self._drawn_for:
+            return
+        try:
+            for name in cmd.get_names("all"):
+                if str(name).startswith("amdock_grid_"):
+                    cmd.show("cgo", str(name))
+        except Exception:
+            return
 
     def _draw_reference_site(
             self, cmd, site: BindingSite, *, active: bool, name: str,
@@ -1134,6 +1151,7 @@ class GridBoxSettingDockWidget(QWidget):
         self.binding_site_changed.emit(int(molecule.id or 0))
 
     def _clear_preview(self) -> None:
+        self._drawn_for = 0
         dock = getattr(self.window(), "pymol_dock", None)
         cmd = getattr(dock, "cmd", None) if dock is not None else None
         if cmd is None:
