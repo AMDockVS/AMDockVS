@@ -2,7 +2,8 @@
 
 Gasteiger has no parameters for a metal, so it reached the grid at 0 and no ligand could feel
 it. The charge is the cheaper of two wrongs; the expensive part is that only zinc has a
-coordination model behind it, so every other metal has to say so.
+coordination model behind it, so every other metal has to say so. Zinc itself stays at 0:
+AutoDock4Zn was calibrated on receptors prepared that way.
 """
 import sys
 from pathlib import Path
@@ -35,7 +36,7 @@ def charges_of(text: str, element: str) -> list[float]:
             if l.startswith(("ATOM", "HETATM")) and l[77:79].strip() == element]
 
 
-@pytest.mark.parametrize("code,expected", [("ZN", 2), ("MG", 2), ("CA", 2), ("MN", 2),
+@pytest.mark.parametrize("code,expected", [("MG", 2), ("CA", 2), ("MN", 2),
                                            ("FE", 3), ("FE2", 2), ("CU", 2), ("CU1", 1)])
 def test_the_ccd_decides_the_oxidation_state(code, expected):
     """The entry's own code picks the state: FE is Fe(III) where FE2 is Fe(II)."""
@@ -51,12 +52,25 @@ def test_a_bare_ion_is_given_its_charge(monkeypatch, tmp_path):
     from amdockvs.docking.preparation.cofactors import seed_component_cache
     seed_component_cache()
 
-    text = "\n".join([row("GLY", "CA", "C", 1, -0.1), row("ZN", "ZN", "Zn", 101, 0.0)])
-    out, applied, warnings = apply_formal_charges(text)
-    assert applied == {"ZN": 2.0}
-    assert charges_of(out, "Zn") == [2.0]
+    text = "\n".join([row("GLY", "CA", "C", 1, -0.1), row("MN", "MN", "Mn", 101, 0.0)])
+    out, applied, _ = apply_formal_charges(text)
+    assert applied == {"MN": 2.0}
+    assert charges_of(out, "Mn") == [2.0]
     assert charges_of(out, "C") == [-0.1], "a protein atom is left alone"
-    assert not warnings, "zinc has AutoDock4Zn, so it is not the one to warn about"
+
+
+def test_zinc_is_left_at_zero_for_autodock4zn(monkeypatch, tmp_path):
+    """AD4Zn's TZ pseudo-atoms carry zinc, on a receptor prepared with zinc uncharged; a +2 on
+    top would change a calibrated protocol."""
+    monkeypatch.setenv("MOLSUITE_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("MOLSUITE_OFFLINE", "1")
+    pytest.importorskip("ms_adtools")
+    from amdockvs.docking.preparation.cofactors import seed_component_cache
+    seed_component_cache()
+
+    text = "\n".join([row("ZN", "ZN", "Zn", 301), row("ZN", "ZN", "Zn", 302, chain="B")])
+    out, applied, warnings = apply_formal_charges(text)
+    assert (out, applied, warnings) == (text, {}, [])
 
 
 def test_every_metal_but_zinc_says_it_has_no_coordination_model(monkeypatch, tmp_path):
@@ -97,11 +111,11 @@ def test_two_ions_of_one_element_are_each_a_residue(monkeypatch, tmp_path):
     from amdockvs.docking.preparation.cofactors import seed_component_cache
     seed_component_cache()
 
-    text = "\n".join([row("ZN", "ZN", "Zn", 301), row("ZN", "ZN", "Zn", 302),
-                      row("ZN", "ZN", "Zn", 303, chain="B")])
+    text = "\n".join([row("MG", "MG", "Mg", 301), row("MG", "MG", "Mg", 302),
+                      row("MG", "MG", "Mg", 303, chain="B")])
     out, applied, _ = apply_formal_charges(text)
-    assert applied == {"ZN": 2.0}
-    assert charges_of(out, "Zn") == [2.0, 2.0, 2.0]
+    assert applied == {"MG": 2.0}
+    assert charges_of(out, "Mg") == [2.0, 2.0, 2.0]
 
 
 def test_a_receptor_with_no_metal_is_returned_unchanged():

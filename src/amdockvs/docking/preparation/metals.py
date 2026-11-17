@@ -12,6 +12,10 @@ geometry, and AMDockVS has that path (``docking.methods`` ZINC, ``engines.autogr
 -- for zinc, and for nothing else. So a receptor whose site holds any other metal is reported:
 the number is there, the geometry is not, and that is worth knowing before reading a score.
 
+Zinc itself is left at 0. AutoDock4Zn was parameterized and validated on receptors prepared the
+ADT way, zinc uncharged, with the TZ pseudo-atoms carrying the interaction; adding a +2 on top
+would change a calibrated protocol rather than fill a gap, so zinc does not take part here.
+
 Two further caveats belong with the number. The protein's own Gasteiger charges were computed
 without the metal present, so the polarisation a real ion induces on its coordinating residues
 is missing and a full formal charge double-counts what those residues should have carried. And
@@ -32,10 +36,8 @@ from __future__ import annotations
 #:
 #: The alkali and halide ions are deliberately absent. AD4 has no type for them, their
 #: components are not shipped, and charging them would land at +1 online and 0 offline.
-BARE_METAL_RESNAMES = frozenset({"ZN", "FE", "FE2", "MN", "MG", "CA", "CU", "CU1"})
-
-#: The only metal with a coordination treatment behind it, rather than a charge alone.
-COORDINATION_MODELLED = frozenset({"ZN"})
+#: ZN is absent too: AutoDock4Zn models it, at 0 (see the module note).
+BARE_METAL_RESNAMES = frozenset({"FE", "FE2", "MN", "MG", "CA", "CU", "CU1"})
 
 
 def _monatomic_metal_rows(pdbqt_text: str) -> dict[tuple[str, str], list[int]]:
@@ -106,7 +108,7 @@ def apply_formal_charges(pdbqt_text: str):
         applied[resname] = charge
 
     warnings: list[str] = []
-    uncovered = sorted(name for name in applied if name not in COORDINATION_MODELLED)
+    uncovered = sorted(applied)  # every charged metal: zinc, the one with a model, is never charged
     if uncovered:
         warnings.append(
             "Only zinc has a coordination model (AutoDock4Zn). "
@@ -120,7 +122,6 @@ def apply_formal_charges(pdbqt_text: str):
 
 __all__ = [
     "BARE_METAL_RESNAMES",
-    "COORDINATION_MODELLED",
     "apply_formal_charges",
     "formal_charge",
 ]

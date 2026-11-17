@@ -301,7 +301,8 @@ def prepare_receptor_vina_pdbqt(
         # ccd_metal_charges is what gives a metal *inside* a component its formal charge: the
         # CCD draws heme at -4 with an Fe(2+), and template() leaves metals out of the Gasteiger
         # pass, so without it the iron stays at 0 and the heme reaches the grid as a -4 ion.
-        # A standalone metal residue (ZN, MN, CA) is unaffected and stays at 0, as ADT has it.
+        # A standalone metal residue (ZN, MN, CA) is unaffected here; `metals` below charges
+        # every one of them but zinc, which AutoDock4Zn expects at 0.
         try:
             # apply_ccd reports a residue it could not match through warnings.warn -- a renamed
             # atom, a template that does not line up -- and keeps the geometry guess for it.
