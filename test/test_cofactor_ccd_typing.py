@@ -219,3 +219,28 @@ def test_a_cofactor_with_no_component_is_reported_not_swallowed(tmp_path, monkey
     out = tmp_path / "rec.pdbqt"
     result = prepare_receptor_vina_pdbqt(source_path=source, output_path=out, ccd_components=True)
     assert any("ZZZ" in warning for warning in result.warnings)
+
+
+def test_a_warning_survives_the_row_pipeline(tmp_path, monkeypatch, receptor):
+    """The warnings have to reach the caller, or none of the rest of this file matters.
+
+    They were computed and dropped once already: `_prepare_row` returned (prepared, flex) and
+    `result.warnings` went nowhere, so every warning this module raises was invisible in the
+    app while every test here still passed. This is the test that would have caught it.
+    """
+    monkeypatch.setenv("MOLSUITE_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("MOLSUITE_OFFLINE", "1")
+    pytest.importorskip("ms_adtools")
+    from amdockvs.docking.preparation.entities import prepare_entities_rows
+
+    # ZZZ resolves to no component at all, so the preparation has something to report.
+    source = tmp_path / "zzz.pdb"
+    source.write_text(_FMN_PDB.replace("FMN", "ZZZ"))
+    rows = [{"id": 1, "structure": source.read_bytes(), "structure_kind": "pdb"}]
+    summary = prepare_entities_rows(entity_kind="receptor", engine="ad4", rows=rows,
+                                    keep_cofactors=True)
+
+    assert summary["success_count"] == 1, summary.get("failures")
+    assert summary["warnings"], "a warning was raised and the summary dropped it"
+    assert summary["warnings"][0]["entity_id"] == 1
+    assert "ZZZ" in summary["warnings"][0]["message"]

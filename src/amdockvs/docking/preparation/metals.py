@@ -24,30 +24,35 @@ oxidation state: FE is Fe(III) and FE2 is Fe(II), CU is Cu(II) and CU1 is Cu(I).
 """
 from __future__ import annotations
 
-#: Element symbols of the ions this applies to. A residue of one atom whose element is here is
-#: a bare ion; a metal inside a larger component is the CCD typing path's business
-#: (``ccd_metal_charges``), not this one, and is left alone.
-BARE_METAL_ELEMENTS = frozenset({
-    "ZN", "FE", "MN", "MG", "CA", "CU", "CO", "NI", "CD", "K", "NA", "LI", "RB", "CS",
-})
+#: Residue names this applies to: the coordination metals AMDockVS keeps in a PDBQT, with the
+#: oxidation-state variants of the same elements. Identified by residue name and never by the
+#: last column of a PDBQT, which holds the AutoDock *type*, not the element -- "NA" there means
+#: an acceptor nitrogen, not sodium, so reading it as an element asks the RCSB about every ALA,
+#: ARG, HIS and LYS in the receptor.
+#:
+#: The alkali and halide ions are deliberately absent. AD4 has no type for them, their
+#: components are not shipped, and charging them would land at +1 online and 0 offline.
+BARE_METAL_RESNAMES = frozenset({"ZN", "FE", "FE2", "MN", "MG", "CA", "CU", "CU1"})
 
 #: The only metal with a coordination treatment behind it, rather than a charge alone.
 COORDINATION_MODELLED = frozenset({"ZN"})
 
 
 def _monatomic_metal_rows(pdbqt_text: str) -> dict[tuple[str, str], list[int]]:
-    """``{(resname, "<chain><resseq>"): [line indexes]}`` for residues of a single metal atom."""
+    """``{(resname, "<chain><resseq>"): [line index]}`` for residues that are one metal atom.
+
+    Every atom of a residue is counted, not only the metal-looking ones: a residue is a bare
+    ion when it holds exactly one atom in total. Counting matches alone would call the lone
+    iron of a heme a bare ion and charge it twice.
+    """
     by_residue: dict[tuple[str, str], list[int]] = {}
-    lines = pdbqt_text.splitlines()
-    for index, line in enumerate(lines):
-        if not line.startswith(("ATOM", "HETATM")) or len(line) < 79:
-            continue
-        element = line[77:79].strip().upper()
-        if element not in BARE_METAL_ELEMENTS:
+    for index, line in enumerate(pdbqt_text.splitlines()):
+        if not line.startswith(("ATOM", "HETATM")) or len(line) < 54:
             continue
         key = (line[17:20].strip().upper(), f"{line[21].strip() or '_'}{line[22:27].strip()}")
         by_residue.setdefault(key, []).append(index)
-    return {key: rows for key, rows in by_residue.items() if len(rows) == 1}
+    return {key: rows for key, rows in by_residue.items()
+            if len(rows) == 1 and key[0] in BARE_METAL_RESNAMES}
 
 
 def formal_charge(resname: str) -> float | None:
@@ -114,7 +119,7 @@ def apply_formal_charges(pdbqt_text: str):
 
 
 __all__ = [
-    "BARE_METAL_ELEMENTS",
+    "BARE_METAL_RESNAMES",
     "COORDINATION_MODELLED",
     "apply_formal_charges",
     "formal_charge",

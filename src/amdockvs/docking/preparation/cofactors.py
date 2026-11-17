@@ -22,6 +22,7 @@ never deriving charges by hand.
 """
 from __future__ import annotations
 
+import os
 import shutil
 from pathlib import Path
 
@@ -57,7 +58,12 @@ def seed_component_cache() -> list[str]:
         for code, source in bundled.items():
             destination = target / f"{code}.cif"
             if not destination.exists():
-                shutil.copy2(source, destination)
+                # Written aside and renamed, as ms_adtools' own fetch does: preparations run
+                # in parallel over a shared cache, and a reader that opens a half-copied CIF
+                # gets a parse error instead of a component.
+                part = destination.with_name(f"{destination.name}.{os.getpid()}.part")
+                shutil.copy2(source, part)
+                os.replace(part, destination)
                 seeded.append(code)
     except OSError:
         return []
@@ -98,6 +104,28 @@ def nonstandard_resnames(pdb_text: str) -> list[str]:
     return [name for name in order if biggest.get(name, 0) > 1]
 
 
+def _links_into_polymer(resname: str) -> bool:
+    """Does the CCD call this component a chain-linking residue rather than a free molecule?
+
+    ``_chem_comp.type`` says so: "L-PEPTIDE LINKING", "DNA LINKING" and their kin link, while
+    "NON-POLYMER" does not. Unknown counts as linking, so an unresolved name is never accused
+    of a fractional charge it may simply not have.
+    """
+    import gemmi
+
+    from ms_adtools.ccd import component_file
+
+    try:
+        path = component_file(resname)
+    except Exception:  # noqa: BLE001
+        return True
+    if path is None:
+        return True
+    block = gemmi.cif.read(str(path)).sole_block()
+    kind = gemmi.cif.as_string(block.find_value("_chem_comp.type") or "").upper()
+    return "LINKING" in kind
+
+
 def fractional_charges(pdbqt_text: str, resnames: list[str], tolerance: float = 0.05):
     """``[(resname, "<chain><resseq>", net)]`` for residues whose net charge is not integral.
 
@@ -110,7 +138,12 @@ def fractional_charges(pdbqt_text: str, resnames: list[str], tolerance: float = 
     Reported, not corrected: which atom is missing is the depositor's business, and a receptor
     that is wrong by a third of a charge should say so rather than be quietly patched.
     """
-    wanted = {str(name).strip().upper() for name in resnames}
+    # Only free components are asked to come out whole. A residue that links into the polymer
+    # (a modified amino acid, a modified nucleotide) is drawn by the CCD with the OXT and HXT
+    # of its free form, which a chain-internal copy can never have, so its remainder is the
+    # linkage and not a defect -- a chain-internal CSO sits at +0.18 and means nothing.
+    wanted = {name for name in (str(n).strip().upper() for n in resnames)
+              if not _links_into_polymer(name)}
     totals: dict[tuple[str, str], float] = {}
     for line in pdbqt_text.splitlines():
         if not line.startswith(("ATOM", "HETATM")):

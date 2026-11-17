@@ -302,8 +302,33 @@ def prepare_receptor_vina_pdbqt(
         # CCD draws heme at -4 with an Fe(2+), and template() leaves metals out of the Gasteiger
         # pass, so without it the iron stays at 0 and the heme reaches the grid as a -4 ion.
         # A standalone metal residue (ZN, MN, CA) is unaffected and stays at 0, as ADT has it.
-        rigid = prepare_receptor(filtered, repairs="hydrogens", cleanup="nphs_lps",
-                                 ccd=use_ccd, ccd_metal_charges=use_ccd)
+        try:
+            # apply_ccd reports a residue it could not match through warnings.warn -- a renamed
+            # atom, a template that does not line up -- and keeps the geometry guess for it.
+            # Uncaught, that is a cofactor silently prepared the wrong way while the metadata
+            # claims it was typed, so it is captured here as prepare_flexreceptor's is below.
+            with warnings.catch_warnings(record=True) as typing_complaints:
+                warnings.simplefilter("always")
+                rigid = prepare_receptor(filtered, repairs="hydrogens", cleanup="nphs_lps",
+                                         ccd=use_ccd, ccd_metal_charges=use_ccd)
+            for complaint in typing_complaints:
+                message = str(complaint.message)
+                if use_ccd and "Gasteiger" not in message:  # the metal note is expected
+                    prep_warnings.append(f"While typing from the CCD: {message}")
+        except Exception as exc:  # noqa: BLE001
+            if not use_ccd:
+                raise
+            # The typing pass refuses a receptor the plain path prepares happily: a
+            # selenomethionine is enough, because AD4 has no type for selenium and apply_ccd
+            # raises rather than leaving that residue alone. Better typing is not worth losing
+            # the receptor over, so fall back and say which it was.
+            use_ccd = False
+            prep_warnings.append(
+                f"Could not type this receptor from its CCD components ({exc}); prepared with "
+                f"geometry alone instead, so any cofactor here has no aromaticity, no formal "
+                f"charges and its acids left neutral."
+            )
+            rigid = prepare_receptor(filtered, repairs="hydrogens", cleanup="nphs_lps")
     if use_ccd:
         from amdockvs.docking.preparation.cofactors import fractional_charges
 
