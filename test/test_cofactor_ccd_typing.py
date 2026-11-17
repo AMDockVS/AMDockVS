@@ -285,3 +285,15 @@ def test_a_warning_reaches_the_receptor_prep_row(tmp_path, monkeypatch, receptor
     payload, error, warnings = prepare(_FMN_PDB)
     assert payload is not None and error is None
     assert warnings is None, "a clean re-preparation clears the old warning"
+
+
+def test_a_cofactor_one_charge_short_is_named():
+    """SAM and SAH type cleanly and land on a whole number, so neither the missing-component nor
+    the fractional check sees that the number is wrong by one. They have to be named."""
+    from amdockvs.docking.preparation.cofactors import known_mischarged
+
+    assert known_mischarged(["FMN", "HEM"]) == []
+    warnings = known_mischarged(["SAM", "FMN", "SAH", "SAM"])
+    assert len(warnings) == 2
+    assert warnings[0].startswith("SAM") and "+1" in warnings[0]
+    assert warnings[1].startswith("SAH")

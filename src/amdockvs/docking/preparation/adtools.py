@@ -331,8 +331,9 @@ def prepare_receptor_vina_pdbqt(
             )
             rigid = prepare_receptor(filtered, repairs="hydrogens", cleanup="nphs_lps")
     if use_ccd:
-        from amdockvs.docking.preparation.cofactors import fractional_charges
+        from amdockvs.docking.preparation.cofactors import fractional_charges, known_mischarged
 
+        prep_warnings.extend(known_mischarged(guessed))
         for resname, where, net in fractional_charges(rigid, guessed):
             prep_warnings.append(
                 f"{resname} {where} carries a net charge of {net:+.2f}, which is not a whole "
