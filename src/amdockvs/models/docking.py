@@ -144,6 +144,10 @@ class ReceptorPrep(SQLModel, table=True):
     flex_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
     flex_residues: list = Field(default_factory=list, sa_type=JSON)
     error: str | None = Field(default=None)
+    # A prepared receptor with something the PDBQT cannot say: a cofactor typed by guesswork or
+    # charged wrong, a metal with a charge but no coordination model. One per line. Not `error`:
+    # an error marks the receptor as failed, and this one is ready.
+    warnings: str | None = Field(default=None)
 
 
 class LigandPrep(SQLModel, table=True):

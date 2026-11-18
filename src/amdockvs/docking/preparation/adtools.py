@@ -238,11 +238,19 @@ def prepare_receptor_vina_pdbqt(
     output_path: str | Path,
     flexible_residues: list[str] | None = None,
     exclude_resnames: frozenset[str] = frozenset(),
+    ccd_components: bool = False,
+    ion_charges: bool = False,
 ) -> ToolResult:
     """Receptor PDBQT (ms_adtools): hydrogens added to the residues that have none, Gasteiger
     charges, non-polar hydrogens merged. ``flexible_residues`` (stored keys) also write
     ``{stem}__flex.pdbqt``; a key not in the receptor, or a residue with nothing to rotate, is
-    skipped, not fatal — one typo should not sink the preparation."""
+    skipped, not fatal — one typo should not sink the preparation.
+
+    ``ccd_components`` types and charges non-standard residues (kept cofactors, modified
+    residues) by their chemical component: ms_adtools has the common cofactors built in, at pH 7,
+    and fetches others from the CCD. ``ion_charges`` gives bare metal ions their formal charge
+    (zinc stays 0). What ms_adtools warns about (a residue it could not type, a fractional net
+    charge) comes back in ``warnings``: the PDBQT carries no trace of it."""
     source = Path(source_path).expanduser().resolve()
     output = Path(output_path).expanduser().resolve()
     if source.suffix.lower() == ".pdbqt":
@@ -265,9 +273,13 @@ def prepare_receptor_vina_pdbqt(
 
     with as_pdb(source) as readable:
         text = _without_resnames(readable.read_text(encoding="utf-8"), exclude_resnames)
-    with scratch_file(text.encode(), ".pdb") as filtered:
+
+    with scratch_file(text.encode(), ".pdb") as filtered, warnings.catch_warnings(record=True) as caught:
         # waters and cofactors were filtered above, by the user's choice: the cleanup leaves them be
-        rigid = prepare_receptor(filtered, repairs="hydrogens", cleanup="nphs_lps")
+        warnings.simplefilter("always")
+        rigid = prepare_receptor(filtered, repairs="hydrogens", cleanup="nphs_lps", ccd=ccd_components,
+                                 ccd_metal_charges=ccd_components, ion_charges=ion_charges)
+    prep_warnings = list(dict.fromkeys(str(w.message) for w in caught))
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(rigid, encoding="utf-8")
     present = {(l[21].strip(), l[17:20].strip() + l[22:27].strip()) for l in rigid.splitlines()
@@ -291,6 +303,10 @@ def prepare_receptor_vina_pdbqt(
                 flex_skipped.append(key)
         output.write_text(rigid, encoding="utf-8")
     extra: dict[str, object] = {"source_format": source.suffix.lstrip("."), "copied": False}
+    if ccd_components:
+        extra["ccd_components"] = True
+    if ion_charges:
+        extra["ion_charges"] = True
     if flex_applied:
         extra["flex_residues"] = flex_applied
     if flex_skipped:
@@ -307,6 +323,7 @@ def prepare_receptor_vina_pdbqt(
             metadata=extra,
         ),
         metadata={"engine": "vina", "format": "pdbqt", **extra},
+        warnings=tuple(prep_warnings),
     )
 
 

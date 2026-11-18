@@ -1,8 +1,22 @@
 {
-  "_comment": "PDB 3-letter HET codes by role, used to classify non-polymer components at receptor import. Edit to tune what counts as an additive/ion/cofactor vs a real cocrystal ligand. Case-insensitive.",
+  "_comment": "PDB 3-letter HET codes by role, used to classify non-polymer components at receptor import. Edit to tune what counts as an additive/ion vs a real cocrystal ligand. Cofactors are not here: they are the ones ms_adtools has a template for (ms_adtools.templates.COFACTORS), so what import keeps is what preparation can type. Case-insensitive. Keys starting with _ are notes and are skipped by the loader.",
+
+  "_provenance": "Every code below was resolved against the RCSB Chemical Component Dictionary (https://files.rcsb.org/ligands/download/<CODE>.cif) and its _chem_comp.name read back, except the few in _not_ccd. Add a code the same way: confirm the CCD name says what you think it says before trusting the mnemonic. A code is NOT self-documenting -- see _corrected for two that were wrong for years.",
+
+  "_verified": "2026-11-16, all codes resolved and named via the CCD. Codes must be 3 characters or fewer: receptor_preview reads the residue name from PDB columns 18-20, so a longer code can never match anything, whatever the CCD says.",
+
+  "_not_ccd": {
+    "WAT": "Not a CCD component. Water as AMBER/GROMACS and others write it; kept because AMDockVS reads PDB files that did not come from the PDB.",
+    "H2O": "Not a CCD component. Same reason as WAT."
+  },
+
+  "_corrected": {
+    "HEME": "Removed 2026-11-16. Not a CCD component, and 4 characters, so it never matched a residue name in the first place. Heme is HEM, one of ms_adtools' cofactors. Do not re-add.",
+    "I": "Removed from `ion` 2026-11-16. CCD `I` is INOSINIC ACID (RNA LINKING), not iodide -- it was classifying an inosine nucleotide as an ion. Iodide is IOD, which is in the list. Do not re-add as an ion."
+  },
+
   "water": ["HOH", "WAT", "DOD", "H2O"],
   "coordination_metal": ["ZN", "FE", "MN", "MG", "CA", "CU", "CO", "NI", "CD"],
-  "ion": ["CL", "BR", "IOD", "I", "LI", "RB", "CS", "NA", "K"],
-  "additive": ["PEG", "PG4", "PGO", "SO4", "PO4", "GOL", "EDO", "DMS", "MPD", "MES", "TRS", "ACT", "FMT"],
-  "cofactor": ["FAD", "FMN", "NAD", "NAP", "SAM", "SAH", "COA", "ATP", "ADP", "AMP", "HEM", "HEME", "PLP", "TPP", "PQQ"]
+  "ion": ["CL", "BR", "IOD", "LI", "RB", "CS", "NA", "K"],
+  "additive": ["PEG", "PG4", "PGO", "SO4", "PO4", "GOL", "EDO", "DMS", "MPD", "MES", "TRS", "ACT", "FMT", "DDQ", "LDA", "C8E", "BOG", "LMT", "BNG"]
 }

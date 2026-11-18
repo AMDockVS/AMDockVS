@@ -19,8 +19,12 @@ from amdockvs.core.vocab import ModelSource
 def _load_hetero_codes() -> dict[str, set[str]]:
     """HET classification codes live in data/hetero_codes.json so they can be curated
     without a code change (e.g. adding a crystallization additive like PO4)."""
+    from ms_adtools.templates import COFACTORS  # imports nothing: cheap in the preview process
+
     data = json.loads((Path(__file__).resolve().parent.parent / "data" / "hetero_codes.json").read_text())
-    return {key: {str(code).upper() for code in value} for key, value in data.items() if not key.startswith("_")}
+    codes = {key: {str(code).upper() for code in value} for key, value in data.items() if not key.startswith("_")}
+    codes["cofactor"] = set(COFACTORS)  # one list: the cofactors preparation can type
+    return codes
 
 
 _HETERO_CODES = _load_hetero_codes()

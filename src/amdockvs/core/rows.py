@@ -17,11 +17,13 @@ from amdockvs.core.vocab import (
 
 
 def prep_row(*, role_type: str, molecule_id: int, family: str, payload_id: Any = None,
-             flex_payload_id: Any = None, error: str | None = None) -> dict[str, Any]:
-    """A `receptor_preps` or `ligand_preps` row. No `payload_id` = it failed, `error` says why."""
+             flex_payload_id: Any = None, error: str | None = None,
+             warnings: str | None = None) -> dict[str, Any]:
+    """A `receptor_preps` or `ligand_preps` row. No `payload_id` = it failed, `error` says why.
+    `warnings` (receptors only) is what a successful preparation could not put in the file."""
     if role_type == "receptor":
         return {"receptor_molecule_id": molecule_id, "family": family, "rigid_payload_id": payload_id,
-                "flex_payload_id": flex_payload_id, "error": error}
+                "flex_payload_id": flex_payload_id, "error": error, "warnings": warnings}
     return {"molecule_id": molecule_id, "family": family, "payload_id": payload_id, "error": error}
 
 

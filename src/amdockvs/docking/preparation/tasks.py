@@ -31,6 +31,8 @@ def _prep_rows_from_summary(summary: dict, *, entity_kind: str) -> list[dict[str
                 family=str(update.get("engine") or "ad4"),
                 payload_id=update["prepared"],
                 flex_payload_id=update.get("flex"),
+                # Stored on the row: it is the only place the Preparation table can show them.
+                warnings="\n".join(update.get("warnings") or []) or None,
             )
         )
     for failure in list(summary.get("failures") or []):
@@ -57,6 +59,7 @@ def prepare_entities(payload: dict, progress_cb=None):
         rows=list(payload.get("rows") or []),
         keep_waters=bool(payload.get("keep_waters")),
         keep_cofactors=bool(payload.get("keep_cofactors")),
+        ion_charges=bool(payload.get("ion_charges")),
         progress_cb=progress_cb,
     )
     preps = _prep_rows_from_summary(summary, entity_kind=entity_kind)
