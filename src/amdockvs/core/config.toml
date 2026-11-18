@@ -9,7 +9,7 @@ max_inflight = 32
 grid_box_metals = ["ZN", "FE", "MG", "MN", "CU", "CO", "NI"]
 
 [preparation]
-ligands_per_task = 1000
+ligands_per_task = 128
 receptors_per_task = 32
 
 [binding_sites]
