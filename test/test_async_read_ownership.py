@@ -118,6 +118,7 @@ def test_the_preparation_panel_owns_the_reads_it_starts(monkeypatch):
     monkeypatch.setattr(preparation_panel, "run_async",
                         lambda fn, on_result, on_error=None, **kwargs: calls.append(kwargs))
     studio = SimpleNamespace(
+        isVisible=lambda: True,  # the scope only syncs while the panel shows
         _catalog_receptor_widget=lambda: object(),
         _push_receptor_scope=lambda _widget: None,
         _method=lambda: "vina",
