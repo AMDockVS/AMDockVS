@@ -1,0 +1,349 @@
+.md-typeset p,
+.md-typeset li {
+  text-align: justify;
+}
+
+.md-typeset .md-typeset__table {
+  display: block;
+}
+
+.md-typeset table:not([class]) {
+  display: table;
+  width: 100%;
+}
+
+.md-typeset .admonition.biohub-token,
+.md-typeset .admonition.biohub-token > .admonition-title {
+  background: transparent;
+}
+
+.md-typeset .admonition.citation {
+  background: var(--md-default-bg-color);
+  border: 1px solid #d9e3f1;
+  border-left: 4px solid #448aff;
+  border-radius: 2px;
+  box-shadow: none;
+  padding: 0;
+}
+
+.md-typeset .admonition.citation > .admonition-title {
+  background: #edf3ff;
+  border-bottom: 1px solid #d9e3f1;
+  color: var(--md-default-fg-color);
+  margin: 0;
+  padding: 0.55rem 1rem 0.55rem 2.3rem;
+  font-size: 0.75rem;
+  position: relative;
+}
+
+.md-typeset .admonition.citation > .admonition-title::before {
+  background-color: #448aff;
+  left: 0.5rem;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.md-typeset .admonition.citation > :not(.admonition-title) {
+  margin-left: 1rem;
+  margin-right: 1rem;
+}
+
+.md-typeset .admonition.citation > :last-child {
+  margin-bottom: 1rem;
+}
+
+[data-md-color-scheme="slate"] .md-typeset .admonition.citation {
+  border-color: #344766;
+  border-left-color: #82b1ff;
+}
+
+[data-md-color-scheme="slate"] .md-typeset .admonition.citation > .admonition-title {
+  background: #182943;
+  border-bottom-color: #344766;
+  color: #f2f5fa;
+}
+
+[data-md-color-scheme="slate"] .md-typeset .admonition.citation > .admonition-title::before {
+  background-color: #82b1ff;
+}
+
+.md-typeset .accent-text {
+  color: var(--md-primary-fg-color);
+  font-weight: 600;
+}
+
+/* Reuse app icons in guide headings and feature lists. */
+.md-typeset h1 .tool-heading-icon,
+.md-typeset h2 .tool-heading-icon,
+.md-typeset .tool-list-icon {
+  display: inline-block;
+  background-color: currentColor;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+
+.md-typeset h1 .tool-heading-icon,
+.md-typeset h2 .tool-heading-icon {
+  width: 1em;
+  height: 1em;
+  margin-right: 0.4em;
+  vertical-align: -0.16em;
+  -webkit-mask-image: url("../images/tool_icons/target.svg");
+  mask-image: url("../images/tool_icons/target.svg");
+}
+
+.md-typeset .tool-list-icon {
+  width: 1.1em;
+  height: 1.1em;
+  margin-right: 0.45em;
+  vertical-align: -0.2em;
+}
+
+/* Shared compact workflow diagram for Docking Studio and QSAR. */
+.md-typeset .tool-workflow {
+  --flow-accent: var(--md-primary-fg-color);
+  --flow-tint: color-mix(in srgb, var(--flow-accent) 9%, var(--md-default-bg-color));
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  column-gap: 2px;
+  margin: 0.65rem 0;
+}
+
+.md-typeset .tool-workflow ol.tool-workflow__steps {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.md-typeset .tool-workflow ol.tool-workflow__steps > li {
+  text-align: left;
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-content: start;
+  align-items: baseline;
+  gap: 0.15rem 0.25rem;
+  margin: 0;
+  padding: 0.45rem 0.55rem 0.45rem 0.85rem;
+  background: var(--flow-tint);
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%, 12px 50%);
+}
+
+.md-typeset .tool-workflow ol.tool-workflow__steps > li:first-child {
+  padding-left: 0.6rem;
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 50%, calc(100% - 12px) 100%, 0 100%);
+}
+
+.md-typeset .tool-workflow__number {
+  color: var(--flow-accent);
+  font-size: 0.57rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.md-typeset .tool-workflow__steps strong {
+  font-size: 0.72rem;
+  line-height: 1.3;
+}
+
+.md-typeset .tool-workflow__steps > li > span:last-child {
+  grid-column: 1 / -1;
+  color: var(--md-default-fg-color--light);
+  font-size: 0.6rem;
+  line-height: 1.4;
+}
+
+.md-typeset .tool-workflow__output {
+  grid-column: 4;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.08rem 0.3rem;
+  padding: 0.15rem 0.4rem 0 0.85rem;
+  font-size: 0.6rem;
+  text-align: left;
+}
+
+.md-typeset .tool-workflow__output > span:first-child {
+  color: var(--flow-accent);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.md-typeset .tool-workflow__output > span:last-child {
+  grid-column: 2;
+  color: var(--md-default-fg-color--light);
+}
+
+@media screen and (max-width: 35em) {
+  .md-typeset .tool-workflow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .md-typeset .tool-workflow ol.tool-workflow__steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 0.35rem;
+  }
+
+  .md-typeset .tool-workflow__output {
+    grid-column: 2;
+  }
+}
+
+.tool-list-icon--receptor,
+.md-typeset h1 .tool-heading-icon--receptor,
+.md-typeset h2 .tool-heading-icon--receptor {
+  -webkit-mask-image: url("../images/tool_icons/receptor.svg");
+  mask-image: url("../images/tool_icons/receptor.svg");
+}
+.tool-list-icon--ligands,
+.md-typeset h1 .tool-heading-icon--ligands,
+.md-typeset h2 .tool-heading-icon--ligands {
+  -webkit-mask-image: url("../images/tool_icons/ligands.svg");
+  mask-image: url("../images/tool_icons/ligands.svg");
+}
+.tool-list-icon--target {
+  -webkit-mask-image: url("../images/tool_icons/target.svg");
+  mask-image: url("../images/tool_icons/target.svg");
+}
+.tool-list-icon--qsar,
+.md-typeset h1 .tool-heading-icon--qsar,
+.md-typeset h2 .tool-heading-icon--qsar {
+  -webkit-mask-image: url("../images/tool_icons/qsar.svg");
+  mask-image: url("../images/tool_icons/qsar.svg");
+}
+.tool-list-icon--docking-results {
+  -webkit-mask-image: url("../images/tool_icons/docking_results.svg");
+  mask-image: url("../images/tool_icons/docking_results.svg");
+}
+.tool-list-icon--models {
+  -webkit-mask-image: url("../images/tool_icons/models.svg");
+  mask-image: url("../images/tool_icons/models.svg");
+}
+.tool-list-icon--activity {
+  -webkit-mask-image: url("../images/tool_icons/activity.svg");
+  mask-image: url("../images/tool_icons/activity.svg");
+}
+.tool-list-icon--catalog {
+  -webkit-mask-image: url("../images/tool_icons/catalog.svg");
+  mask-image: url("../images/tool_icons/catalog.svg");
+}
+.tool-list-icon--jobs,
+.md-typeset :is(h1, h2) .tool-heading-icon--jobs {
+  -webkit-mask-image: url("../images/tool_icons/cpu.svg");
+  mask-image: url("../images/tool_icons/cpu.svg");
+}
+.tool-list-icon--settings {
+  -webkit-mask-image: url("../images/tool_icons/info.svg");
+  mask-image: url("../images/tool_icons/info.svg");
+}
+.tool-list-icon--build,
+.md-typeset :is(h1, h2) .tool-heading-icon--build {
+  -webkit-mask-image: url("../images/tool_icons/build.svg");
+  mask-image: url("../images/tool_icons/build.svg");
+}
+.tool-list-icon--binding-site,
+.md-typeset :is(h1, h2) .tool-heading-icon--binding-site {
+  -webkit-mask-image: url("../images/tool_icons/binding_site.svg");
+  mask-image: url("../images/tool_icons/binding_site.svg");
+}
+.tool-list-icon--filter,
+.md-typeset :is(h1, h2) .tool-heading-icon--filter {
+  -webkit-mask-image: url("../images/tool_icons/filter.svg");
+  mask-image: url("../images/tool_icons/filter.svg");
+}
+.tool-list-icon--diversity,
+.md-typeset :is(h1, h2) .tool-heading-icon--diversity {
+  -webkit-mask-image: url("../images/tool_icons/diversity.svg");
+  mask-image: url("../images/tool_icons/diversity.svg");
+}
+.md-typeset .tool-list-icon--pymol,
+.md-typeset :is(h1, h2) .tool-heading-icon--pymol {
+  /* PyMOL keeps its original colors in the app; its opaque background is not a mask. */
+  background: url("../images/tool_icons/pymol.svg") center / contain no-repeat;
+  -webkit-mask: none;
+  mask: none;
+}
+.tool-list-icon--complexes,
+.md-typeset :is(h1, h2) .tool-heading-icon--complexes {
+  -webkit-mask-image: url("../images/tool_icons/complexes.svg");
+  mask-image: url("../images/tool_icons/complexes.svg");
+}
+/* Toolbar icons copied from the shared PyMOL widget. */
+.tool-list-icon--pymol-selection {
+  -webkit-mask-image: url("../images/tool_icons/pymol-selection.svg");
+  mask-image: url("../images/tool_icons/pymol-selection.svg");
+}
+.tool-list-icon--pymol-actions {
+  -webkit-mask-image: url("../images/tool_icons/pymol-actions.svg");
+  mask-image: url("../images/tool_icons/pymol-actions.svg");
+}
+.tool-list-icon--pymol-zoom {
+  -webkit-mask-image: url("../images/tool_icons/pymol-zoom.svg");
+  mask-image: url("../images/tool_icons/pymol-zoom.svg");
+}
+.tool-list-icon--pymol-orient {
+  -webkit-mask-image: url("../images/tool_icons/pymol-orient.svg");
+  mask-image: url("../images/tool_icons/pymol-orient.svg");
+}
+.tool-list-icon--pymol-center {
+  -webkit-mask-image: url("../images/tool_icons/pymol-center.svg");
+  mask-image: url("../images/tool_icons/pymol-center.svg");
+}
+.tool-list-icon--pymol-display {
+  -webkit-mask-image: url("../images/tool_icons/pymol-display.svg");
+  mask-image: url("../images/tool_icons/pymol-display.svg");
+}
+.tool-list-icon--pymol-hide {
+  -webkit-mask-image: url("../images/tool_icons/pymol-hide.svg");
+  mask-image: url("../images/tool_icons/pymol-hide.svg");
+}
+.tool-list-icon--pymol-hydrogens {
+  -webkit-mask-image: url("../images/tool_icons/pymol-hydrogens.svg");
+  mask-image: url("../images/tool_icons/pymol-hydrogens.svg");
+}
+.tool-list-icon--pymol-presets {
+  -webkit-mask-image: url("../images/tool_icons/pymol-presets.svg");
+  mask-image: url("../images/tool_icons/pymol-presets.svg");
+}
+.tool-list-icon--pymol-box {
+  -webkit-mask-image: url("../images/tool_icons/pymol-box.svg");
+  mask-image: url("../images/tool_icons/pymol-box.svg");
+}
+.tool-list-icon--pymol-settings {
+  -webkit-mask-image: url("../images/tool_icons/pymol-settings.svg");
+  mask-image: url("../images/tool_icons/pymol-settings.svg");
+}
+.tool-list-icon--pymol-save {
+  -webkit-mask-image: url("../images/tool_icons/pymol-save.svg");
+  mask-image: url("../images/tool_icons/pymol-save.svg");
+}
+
+.tool-list-icon--file-plus {
+  -webkit-mask-image: url("../images/tool_icons/file-plus.svg");
+  mask-image: url("../images/tool_icons/file-plus.svg");
+}
+.tool-list-icon--folder-plus {
+  -webkit-mask-image: url("../images/tool_icons/folder-plus.svg");
+  mask-image: url("../images/tool_icons/folder-plus.svg");
+}
+.tool-list-icon--text-input {
+  -webkit-mask-image: url("../images/tool_icons/text-input.svg");
+  mask-image: url("../images/tool_icons/text-input.svg");
+}
+.tool-list-icon--cloud {
+  -webkit-mask-image: url("../images/tool_icons/cloud.svg");
+  mask-image: url("../images/tool_icons/cloud.svg");
+}
+.tool-list-icon--shredder {
+  -webkit-mask-image: url("../images/tool_icons/shredder.svg");
+  mask-image: url("../images/tool_icons/shredder.svg");
+}
