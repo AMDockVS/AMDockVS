@@ -194,3 +194,47 @@ def test_the_project_summary_reads_the_library_off_the_inventory(project, tmp_pa
     assert (stats.campaigns, stats.receptors_docked, stats.ligands_docked, stats.hits) == (1, 1, 1800, 12)
     assert stats.disk_bytes > 0
     assert format_bytes(1536) == "1.5 KB" and format_bytes(12) == "12 B"
+
+
+def test_a_forgotten_generation_takes_its_prepared_twins_but_one_docked_on_stays(project, tmp_path):
+    """Prepared twins are redone in minutes and go with their shard; a docking receipt keeps
+    its generation (rows and files) until the run is deleted, so nothing docked is lost."""
+    from sqlmodel import select
+
+    from amdockvs.models import DockingRun, ScreeningShardRun, ShardPrep
+    from amdockvs.molecules.storage import prepared_shard_path
+
+    project_db, root = project
+    prepared, docked = create_generation(project_db, step="import", folder=root), None
+    activate_generation(project_db, prepared)
+    (prepared_file,) = _populate(project_db, prepared, tmp_path, count=1, tag="a")
+    twin = prepared_shard_path(prepared_file, "ad4")
+    twin.parent.mkdir(parents=True, exist_ok=True)
+    twin.write_bytes(b"pdbqt")
+    with project_db.get_session() as session:
+        shard = session.exec(select(CatalogShard).where(CatalogShard.generation_id == prepared)).one()
+        session.add(ShardPrep(shard_id=shard.id, family="ad4", n_records=1000))
+        session.commit()
+
+    docked = create_generation(project_db, step="protonate", folder=root)
+    (docked_file,) = _populate(project_db, docked, tmp_path, count=1, tag="b")
+    activate_generation(project_db, docked)
+    with project_db.get_session() as session:
+        run = DockingRun(run_id="r")
+        session.add(run)
+        session.flush()
+        shard = session.exec(select(CatalogShard).where(CatalogShard.generation_id == docked)).one()
+        session.add(ScreeningShardRun(docking_run_id=run.id, shard_id=shard.id, receptor_molecule_id=1,
+                                      engine="vina", state="done"))
+        session.commit()
+
+    for step in ("generate_3d", "minimize"):  # two more rewrites: both earlier ones fall out
+        generation = create_generation(project_db, step=step, folder=root)
+        _populate(project_db, generation, tmp_path, count=1, tag=step)
+        activate_generation(project_db, generation)
+
+    assert not prepared_file.exists() and not twin.exists()
+    assert docked_file.exists()
+    with project_db.get_session() as session:
+        assert session.exec(select(ShardPrep)).all() == []
+        assert {int(r.generation_id) for r in session.exec(select(CatalogShard)).all()} == {docked, generation - 1, generation}

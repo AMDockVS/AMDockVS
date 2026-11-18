@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any, Iterator, Mapping, Protocol
 
 from ms_flow.core.data import catalog
-from ms_flow.core.data.catalog import activate_generation, active_generation_id, create_generation, shard_spec
+from ms_flow.core.data.catalog import active_generation_id, create_generation, shard_spec
 from ms_flow.core.data.exclusions import active_exclusions, exclude
 from ms_flow.query import QuerySpec, db_count, db_pages
 
@@ -227,6 +227,29 @@ def prepared_shard_path(shard_path: str | Path, family: str, ids=None) -> Path:
 
     shard_path = Path(shard_path)
     return shard_path.parent / PREPARED_DIR.format(engine=family) / shard_file_name(shard_path, ids)
+
+
+def activate_generation(project_db, generation_id: int) -> None:
+    """ms_flow's activation, with the prepared twins of a forgotten generation going with it.
+    A generation docking receipts still point at is kept by ms_flow (see `catalog`)."""
+    catalog.activate_generation(project_db, generation_id, on_drop=_drop_shard_preps)
+
+
+def _drop_shard_preps(session, shards) -> list[Path]:
+    """The `shard_preps` rows of shards about to go, and the twin files to delete after them."""
+    from sqlmodel import delete, select
+
+    from amdockvs.io.shards import shard_ids
+    from amdockvs.models import ShardPrep
+
+    by_id = {int(shard.id): shard for shard in shards}
+    where = ShardPrep.shard_id.in_(list(by_id))
+    paths = [
+        prepared_shard_path(by_id[int(prep.shard_id)].path, prep.family, shard_ids(by_id[int(prep.shard_id)]))
+        for prep in session.exec(select(ShardPrep).where(where)).all()
+    ]
+    session.exec(delete(ShardPrep).where(where))
+    return paths
 
 
 def iter_prepared_shards(project_db, *, engine: str, unprepared: bool = False) -> Iterator[dict[str, Any]]:

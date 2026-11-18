@@ -83,14 +83,16 @@ What a filter, a QSAR cut or a clustering selection removes is **a sidecar of id
   pinned to the active generation and narrowed (`whole=True` to skip narrowing). Old projects are
   moved on open (`runtime._move_shard_catalog`, ids kept, `shard_preps` / `screening_shard_runs`
   rebuilt so their foreign key points at `ms_shards`).
+- **Forgetting a generation**: `catalog.activate_generation(on_drop=)` drops each generation
+  outside the window in its own savepoint. AMDockVS's `on_drop` deletes the `shard_preps` rows
+  and returns the prepared twins to delete with the shards. A generation docking receipts still
+  point at is kept (the foreign key refuses the delete) and retried at the next activation, so
+  nothing docked is lost by rewriting the library.
 - **Undo**: the Filter tool's *Cuts* section (sharded libraries only) lists every cut with a
   checkbox; unticking calls `set_shard_exclusion_active(id, False)`.
 
 ## Not done / next
 
-- Activating a generation deletes the grandparent's shards; a `shard_preps` or receipt row that
-  still references one makes that delete fail (third rewrite after prep or docking). Needs an
-  on_drop hook from ms_flow so the app clears its rows first.
 - Filter producing shard cuts itself (today only QSAR and Clustering do).
 - Compact exclusion sidecars when they pile up (today the union is read per job feed).
 - Phase 2: per-task prepared and result files through one parent rolling writer per stream

@@ -459,7 +459,9 @@ class ShardGenerationWriter:
         and the switch silently replaces the library with nothing. That is the one outcome a
         rewrite must never be allowed to reach.
         """
-        from ms_flow.core.data.catalog import activate_generation, record_count, shard_spec
+        from ms_flow.core.data.catalog import record_count, shard_spec
+
+        from amdockvs.molecules.storage import activate_generation
 
         written = record_count(self._project_db, shard_spec(generation_id=self._generation_id), whole=True)
         if written <= 0:
