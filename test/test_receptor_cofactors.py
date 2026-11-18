@@ -87,3 +87,30 @@ def test_the_storage_key_changes_only_when_cofactors_are_chosen():
     default = _receptor_import_variant(ReceptorImportOptions())
     assert "FMN" not in default and default.endswith("None, None)")
     assert _receptor_import_variant(ReceptorImportOptions(selected_cofactors=("FMN:A:401",))) != default
+
+
+def test_import_panel_shows_cofactors_beside_metals_and_forwards_the_ones_taken_off(tmp_path):
+    import amdockvs.core.configuration  # noqa: F401  - pydantic before PySide6
+    from PySide6.QtWidgets import QApplication
+
+    from amdockvs.ui.tools.importing.receptors import COFACTORS_COLUMN, ReceptorImportPanel
+
+    QApplication.instance() or QApplication(["cofactors-test"])
+    path = str(_receptor(tmp_path / "rec.pdb").resolve())
+    panel = ReceptorImportPanel(file_paths=[path])
+    assert not hasattr(panel, "remove_cofactors"), "the column replaces the global checkbox"
+    header = panel.table.horizontalHeader()
+    assert panel.table.horizontalHeaderItem(COFACTORS_COLUMN).text() == "Cofactors"
+    assert header.visualIndex(COFACTORS_COLUMN) == header.visualIndex(4) + 1 == header.visualIndex(5) - 1
+
+    panel._show_scan(1, 1, path, scan_receptor_structure(path))
+    panel._scan_complete = True
+    panel.refresh_preview()
+    cofactors = panel.table.cellWidget(0, COFACTORS_COLUMN)
+    assert not panel.table.isColumnHidden(COFACTORS_COLUMN)
+    assert cofactors.selected_items() == ["FMN:A:401", "FMN:A:402", "HEM:A:403"]
+    cofactors._remove("FMN:A:402")
+    request = panel.import_request()
+    assert request["per_file"][path]["selected_cofactors"] == ["FMN:A:401", "HEM:A:403"]
+    assert "remove_cofactors" not in request
+    panel.close()

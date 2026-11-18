@@ -101,9 +101,7 @@ def test_large_receptor_import_lists_files_without_processing(tmp_path, monkeypa
     assert panel.table.geometry().bottom() < panel.remove_non_structural_waters.geometry().top()
     assert panel.is_ready() and panel.remove_files_action.isEnabled()
     assert panel._scan_thread is None and panel.progress_bar.isHidden()
-    panel.remove_cofactors.setChecked(True)
     request = panel.import_request()
-    assert request["remove_cofactors"] is True
     assert request["build_specs"] is False and request["scans"] == {} and request["per_file"] == {}
     panel._on_remove_selected_files()  # no selection: retain the full list
     assert panel.file_paths == paths
