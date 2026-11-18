@@ -558,8 +558,14 @@ class AMDockVSRuntime(AppRuntime):
         priority: int = 0,
         auto_depends: bool = True,
         queue_behind: Optional[str] = None,
+        autobatch: int = 0,
     ) -> str:
         """Submit a job, auto-waiting for active prerequisite jobs by default.
+
+        `autobatch` (a number of chunks) lets the executor size its tasks: they start at that
+        many of the job's chunks, never fewer than one, and grow while bigger ones pay (see
+        `ms_flow.Engine.submit`). Its chunks then run through the job's `run_chunks`; an
+        executor that takes one chunk to a task runs them one by one.
 
         `queue_behind` names a lane (e.g. "docking"): the job goes a priority level below every
         active job of that lane on the same executor, so long jobs of a kind run one after the
@@ -598,6 +604,9 @@ class AMDockVSRuntime(AppRuntime):
             max_cpu=max_job_cpu,
             priority=priority,
             **({"thread": True} if job.on_thread is not None and job.on_thread(job_params) else {}),
+            # ponytail: "thread" is the one executor of a chunk to a task; by name, as the engine may be a proxy.
+            **({"batch": 1, "batched": True, "autobatch": int(autobatch)}
+               if autobatch and job.run_chunks is not None and executor != "thread" else {}),
         )
         if queue_behind:
             self._lanes()[job_id] = (queue_behind, executor, priority)

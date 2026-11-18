@@ -67,9 +67,12 @@ def _percent(value: float) -> None:
     report(float(value) / 100.0)
 
 
-def _run_chunk(payload: dict, run: Callable[..., Any]) -> Any:
+def _run_chunk(payload: dict | list, run: Callable[..., Any], together: Optional[Callable[..., Any]] = None) -> Any:
     """One payload in a worker. `progress_cb` takes a percentage. A `ms_flow.chain` takes `params`
-    second, not a callback: its steps report for themselves."""
+    second, not a callback: its steps report for themselves. A list is the payloads of one task of
+    a job submitted with `autobatch`: `together(payloads, run)` runs them and gives one result each."""
+    if isinstance(payload, list):
+        return together(payload, functools.partial(_run_chunk, run=run))
     return run(payload, _percent) if _takes(run) >= 2 and not hasattr(run, "steps") else run(payload)
 
 
@@ -137,6 +140,8 @@ class JobDefinition:
     supported_executors: tuple[str, ...] = ()
     cpu_required: int = 1
     relative_paths: bool = False
+    # (payloads, run) -> one result for each: how several chunks run as one task (`autobatch`).
+    run_chunks: Optional[Callable[..., Any]] = None
     # (params) -> its tasks only wait for a program they start: on this machine they run on threads
     # of ms_flow's helper process, and no worker of the pool is kept for them.
     on_thread: Optional[Callable[[dict], bool]] = None
@@ -175,9 +180,10 @@ class JobDefinition:
         ponytail: a copy (`with_options`) that changes what the engine runs answers to the name
         of the one it was copied from, so it runs only with the engine in this process and is
         not resumed. One that changes only `_APP_SIDE` is the same job."""
-        run = functools.partial(_run_chunk, run=self.run_chunk)
+        run = functools.partial(_run_chunk, run=self.run_chunk, together=self.run_chunks)
+        # `batched` and `autobatch` are said by whoever submits (`runtime.submit_job`).
         run.__task__ = {"cpu": max(1, int(self.cpu_required or 1)), "gpu": 0, "mem_mb": 0, "retries": 0,
-                        "batch": None, "batched": False, "label": self.task_label}
+                        "batch": None, "label": self.task_label}
 
         def source(params, project) -> Iterable[dict]:
             yield from self.build_chunks(params, config=configs[project])
@@ -290,6 +296,7 @@ class JobSpec:
             supported_executors=tuple(cls.supported_executors or ()),
             cpu_required=cls.cpu_required or 1,
             on_thread=cls._own("on_thread"),
+            run_chunks=cls._own("run_chunks"),
         )
         return cls.definition
 

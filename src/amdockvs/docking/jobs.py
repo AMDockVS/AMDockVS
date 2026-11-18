@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from ms_flow.sinks import graph_sink, table_sink
 from ms_flow.specs import InputSource
 from amdockvs.core.jobs import JobSpec
-from amdockvs.docking.tasks import dock_pairs, dock_with_interactions
+from amdockvs.docking.tasks import dock_pairs, dock_together, dock_with_interactions
 
 from amdockvs.core.configuration import DEFAULT_DOCKING_BATCH_SIZE, DEFAULT_LIGAND_BATCH_SIZE
 from amdockvs.core.payloads import payload_store
@@ -794,6 +794,7 @@ class DockingJobSpec(JobSpec):
     produces = ()
 
     run_chunk = dock_with_interactions
+    run_chunks = staticmethod(dock_together)
     finalize = staticmethod(_supersede)
 
     @staticmethod
@@ -846,6 +847,7 @@ class RedockingJobSpec(JobSpec):
     produces = ()
 
     run_chunk = staticmethod(dock_pairs)
+    run_chunks = staticmethod(dock_together)
     finalize = staticmethod(_supersede)
 
     @staticmethod

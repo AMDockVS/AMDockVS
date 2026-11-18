@@ -62,10 +62,11 @@ def test_the_preview_says_how_many_tasks_each_program_runs(monkeypatch):
     from amdockvs.docking.engines.programs import get_docking_program
 
     config = SimpleNamespace(docking=SimpleNamespace(qvina=SimpleNamespace(batch_size=1),
-                                                     unidock=SimpleNamespace(batch_size=128)))
+                                                     unidock=SimpleNamespace(batch_size=32, autobatch=128)))
     monkeypatch.setattr(api, "app_config", lambda _runtime: config)
     docking = SimpleNamespace(runtime=None, get_program_spec=get_docking_program)
-    docking.pairs_per_task = lambda spec: api.DockingAPI.pairs_per_task(docking, spec)
+    docking.pairs_per_task = lambda spec, batch_size=None: api.DockingAPI.pairs_per_task(docking, spec, batch_size)
+    docking.autobatch = lambda spec: api.DockingAPI.autobatch(docking, spec)
     panel = RunPanel()
     shown = []
     panel.runtime = SimpleNamespace(docking=docking)
@@ -73,7 +74,7 @@ def test_the_preview_says_how_many_tasks_each_program_runs(monkeypatch):
     panel._pairs_by_program = [("qvina", 2772), ("unidock", 2772)]
     panel._show_tasks()
     qvina, unidock = get_docking_program("qvina").label, get_docking_program("unidock").label
-    assert shown == [f"{qvina}: 1 pair(s)/task · 2,772 task(s)\n{unidock}: 128 pair(s)/task · 22 task(s)"]
+    assert shown == [f"{qvina}: 1 pair(s)/task · 2,772 task(s)\n{unidock}: from 128 pair(s)/task, sized as it runs"]
 
 
 def test_a_prepared_selection_leaves_the_step_table_empty():

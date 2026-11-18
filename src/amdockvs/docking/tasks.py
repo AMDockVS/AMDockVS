@@ -118,6 +118,28 @@ def interaction_results(payload: dict, previous: dict):
 dock_with_interactions = chain(docking_results, interaction_results)
 
 
+def dock_together(payloads: list[dict], run) -> list:
+    """The chunks of one task (`autobatch`) docked as one: a program started once, each receptor's
+    maps built once. Every chunk of a job says the same but its pairs (and report name, the first one's is kept). What `run` gives back goes
+    to the chunk each row came from: a pose by its receptor and ligand, an interaction by its pose.
+    """
+    owner = {(pair.get("receptor_id"), pair.get("ligand_id")): place
+             for place, payload in enumerate(payloads) for pair in payload.get("pairs") or ()}
+    result = run({**payloads[0], "pairs": [pair for payload in payloads for pair in payload.get("pairs") or ()]})
+    graph = isinstance(result, dict)
+    parts = [{} if graph else [] for _ in payloads]
+    poses = {}
+    for node, rows in (result.items() if graph else [(None, result)]):
+        for row in rows or ():
+            key = (row.get("receptor_molecule_id"), row.get("ligand_molecule_id"))
+            # ponytail: a row of neither kind goes with the first chunk, so it is still written.
+            place = owner[key] if key in owner else poses.get(id(row.get("pose_payload_id")), 0)
+            if key in owner and row.get("pose_payload_id") is not None:
+                poses[id(row["pose_payload_id"])] = place
+            (parts[place].setdefault(node, []) if graph else parts[place]).append(row)
+    return parts
+
+
 @task()
 def dock_rows(element: dict) -> dict:
     """A chunk of `docking_job` on a cluster's queue (`amdockvs.docking.campaign.dock_rows_campaign`):
