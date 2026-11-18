@@ -21,6 +21,7 @@ from amdockvs.core.constants import (
     TABLE_QSAR_MODEL_MEMBERS,
     TABLE_QSAR_MODELS,
     TABLE_QSAR_PREDICTIONS,
+    TABLE_RECEPTOR_PREPS,
     TABLE_SCREENING_SHARD_RUNS,
     TABLE_SHARD_PREPS,
 )
@@ -389,6 +390,8 @@ class AMDockVSRuntime(AppRuntime):
             (TABLE_SCREENING_SHARD_RUNS, "selection", "VARCHAR NOT NULL DEFAULT ''", None),
             # Empty on an older receipt: it never matches, so its pair is docked again.
             (TABLE_SCREENING_SHARD_RUNS, "input_key", "VARCHAR NOT NULL DEFAULT ''", None),
+            # NULL on an older row: it was prepared before preparation had anything to report.
+            (TABLE_RECEPTOR_PREPS, "warnings", "VARCHAR", None),
         )
         with self.workspace.project_db.get_session() as session:
             conn = session.connection()

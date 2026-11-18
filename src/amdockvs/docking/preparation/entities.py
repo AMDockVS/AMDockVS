@@ -7,6 +7,7 @@ it never touches the database itself.
 """
 from __future__ import annotations
 
+import logging
 import tempfile
 from pathlib import Path
 from typing import Any, Mapping
@@ -20,6 +21,8 @@ from amdockvs.docking.preparation.adtools import (
     prepare_ligand_vina_pdbqt_from_mol,
     prepare_receptor_vina_pdbqt,
 )
+
+_LOG = logging.getLogger(__name__)
 
 
 def _load_ligand_mol_for_preparation(source_path: Path):
@@ -77,28 +80,36 @@ def _prepared(text: str):
     return structure_payload(text, "pdbqt", SERIES_PREPARED)
 
 
-def _prepare_row(row: Mapping[str, Any], *, entity_kind: str, excluded_resnames: frozenset[str]):
-    """(prepared, flex) of one row: a payload each, or the row's own payload id when it already
-    is a PDBQT (no second copy)."""
+def _prepare_row(row: Mapping[str, Any], *, entity_kind: str, excluded_resnames: frozenset[str],
+                 ccd_components: bool = False, ion_charges: bool = False):
+    """(prepared, flex, warnings) of one row: a payload each, or the row's own payload id when
+    it already is a PDBQT (no second copy).
+
+    The warnings come back rather than being dropped here: they are the only account of a
+    residue ms_adtools could not type or charged to a fraction, and a PDBQT carries no trace of it."""
     data, kind = row.get("structure"), str(row.get("structure_kind") or "")
     if data is None:
         raise ValueError(f"{entity_kind} {row.get('id')} has no structure.")
     if kind == "pdbqt":
-        return int(row["structure_payload_id"]), None
+        return int(row["structure_payload_id"]), None, []
     with scratch_file(data, f".{kind}") as source_path, tempfile.TemporaryDirectory() as out:
         output_path = Path(out) / f"{entity_kind}.pdbqt"
         if entity_kind == "ligand":
-            return _prepared(_prepare_ligand(source_path=source_path, output_path=output_path).read_text()), None
+            return _prepared(_prepare_ligand(source_path=source_path, output_path=output_path).read_text()), None, []
         result = prepare_receptor_vina_pdbqt(
             source_path=source_path,
             output_path=output_path,
             flexible_residues=[str(k) for k in (row.get("flexible_residues") or [])],
             exclude_resnames=excluded_resnames,
+            ccd_components=ccd_components,
+            ion_charges=ion_charges,
         )
         if result.artifact is None or result.artifact.path is None:
             raise RuntimeError(f"{entity_kind} preparation did not return an output artifact.")
         flex = result.metadata.get("flex_path")
-        return _prepared(Path(result.artifact.path).read_text()), _prepared(Path(flex).read_text()) if flex else None
+        return (_prepared(Path(result.artifact.path).read_text()),
+                _prepared(Path(flex).read_text()) if flex else None,
+                list(result.warnings))
 
 
 def prepare_entities_rows(
@@ -108,6 +119,7 @@ def prepare_entities_rows(
     rows: list[Mapping[str, Any]],
     keep_waters: bool = False,
     keep_cofactors: bool = False,
+    ion_charges: bool = False,
     progress_cb=None,
 ) -> dict[str, Any]:
     if entity_kind not in {"ligand", "receptor"}:
@@ -121,14 +133,25 @@ def prepare_entities_rows(
     )
     updates: list[dict[str, Any]] = []
     failures: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
 
     for index, row in enumerate(rows, start=1):
         entity_id = int(row.get("id") or 0)
         try:
             if entity_id <= 0:
                 raise ValueError(f"Invalid {entity_kind} row: missing entity id.")
-            prepared, flex = _prepare_row(row, entity_kind=entity_kind, excluded_resnames=excluded_resnames)
-            updates.append({"entity_id": entity_id, "engine": str(engine), "prepared": prepared, "flex": flex})
+            prepared, flex, row_warnings = _prepare_row(
+                row, entity_kind=entity_kind, excluded_resnames=excluded_resnames,
+                # Only the kept cofactors need the CCD pass, so a dry receptor is typed and
+                # charged exactly as before.
+                ccd_components=bool(keep_cofactors) and entity_kind == "receptor",
+                ion_charges=bool(ion_charges) and entity_kind == "receptor",
+            )
+            updates.append({"entity_id": entity_id, "engine": str(engine), "prepared": prepared, "flex": flex,
+                            "warnings": [str(message) for message in row_warnings]})
+            for message in row_warnings:
+                _LOG.warning("%s %s: %s", entity_kind, entity_id, message)
+                warnings.append({"entity_id": entity_id, "message": str(message)})
         except Exception as exc:
             failures.append({"entity_id": entity_id, "error": str(exc)})
         if progress_cb is not None:
@@ -141,6 +164,9 @@ def prepare_entities_rows(
         "failure_count": len(failures),
         "updates": updates,
         "failures": failures,
+        # Not a failure and not nothing: a receptor that prepared, with something about it the
+        # file cannot say. The log has them whatever the caller does with these.
+        "warnings": warnings,
     }
 
 

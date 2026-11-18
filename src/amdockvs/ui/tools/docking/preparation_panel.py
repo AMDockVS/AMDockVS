@@ -42,9 +42,30 @@ from amdockvs.ui.tools.docking.protocol_editor import NO_PROGRAM_SELECTED
 _FLEX_NEEDS_RECEPTOR = "Select a receptor in the table to set its flexible residues."
 
 
+def _first_warning(value) -> str:
+    """The first of a row's warnings (one per line), saying when there are more: the tooltip
+    has them all."""
+    lines = str(value or "").splitlines()
+    if not lines:
+        return "—"
+    return lines[0] + (f" (+{len(lines) - 1} more)" if len(lines) > 1 else "")
+
+
 def _prep_table_config(*, role_type: str) -> TableConfig:
     """Per-(molecule, family) preparation status, from `ligand_preps` or `receptor_preps`."""
     model, molecule_column, payload_column = prep_table(role_type)
+    # Receptors only: a ready receptor can still carry a residue ms_adtools could not type or
+    # charged to a fraction, and the PDBQT itself cannot say so.
+    warnings_column = [
+        ColumnDef(
+            "warnings",
+            label="Warnings",
+            width=360,
+            filterable=False,
+            formatter=_first_warning,
+            tooltip=lambda row: row.get("warnings") or None,
+        ),
+    ] if hasattr(model, "warnings") else []
     return TableConfig(
         model_class=model,
         columns=[
@@ -70,6 +91,7 @@ def _prep_table_config(*, role_type: str) -> TableConfig:
                 formatter=lambda value: str(value or "") or "—",
                 tooltip=lambda row: row.get("error") or None,
             ),
+            *warnings_column,
         ],
         default_sort=[SortSpec(molecule_column.key, descending=True)],
         page_size=20,
@@ -453,17 +475,26 @@ class PreparationPanel:
         )
         self.keep_cofactors_receptors = QCheckBox("Include cofactors", page)
         self.keep_cofactors_receptors.setToolTip(
-            "Keep cofactors (HEM, NAD, FAD, ...) in the receptor PDBQT. Off leaves an empty "
-            "cofactor pocket the ligand can dock into."
+            "Keep cofactors (FMN, HEM, NAD, FAD, ...) in the receptor PDBQT, typed and charged "
+            "at pH 7 from their chemical component. Off leaves an empty cofactor pocket the "
+            "ligand can dock into — wrong whenever the cofactor walls the site."
+        )
+        self.ion_charges_receptors = QCheckBox("Charge metal ions", page)
+        self.ion_charges_receptors.setToolTip(
+            "Give bare Mg, Mn, Ca, Fe and Cu ions their formal charge instead of 0 (zinc stays 0, "
+            "as AutoDock4Zn expects). Only the electrostatics change: a point charge has no "
+            "coordination geometry, and AD4's terms were calibrated with ions at 0. Vina ignores "
+            "charges, so this matters for AutoDock4 and AutoDock-GPU only."
         )
         form.addRow(self.force_prepare_receptors)
         form.addRow(self.keep_waters_receptors)
         form.addRow(self.keep_cofactors_receptors)
-        # Hidden until keeping waters/cofactors is finished end to end: they are built, wired and
-        # still read below, so unhiding is these two lines and nothing else. Hidden they stay
-        # unchecked, which is what a receptor is prepared as today — dry, cofactor pocket empty.
+        form.addRow(self.ion_charges_receptors)
+        # "Include structural waters" stays hidden: a kept water still reaches the PDBQT as
+        # ms_adtools types it, and the TIP3P charges the tooltip promises are not implemented.
+        # Cofactors are finished (ms_adtools types them from their component: aromaticity,
+        # formal charges, ionized acids), so that one is offered.
         form.setRowVisible(self.keep_waters_receptors, False)
-        form.setRowVisible(self.keep_cofactors_receptors, False)
         return self._in_scroll(page)
 
     def _build_receptor_program_prep_page(self, spec) -> QWidget:
@@ -879,6 +910,7 @@ class PreparationPanel:
             force=self.force_prepare_receptors.isChecked(),
             keep_waters=self.keep_waters_receptors.isChecked(),
             keep_cofactors=self.keep_cofactors_receptors.isChecked(),
+            ion_charges=self.ion_charges_receptors.isChecked(),
             executor_name=self.receptor_prep_destination.executor_name(),
         )
 
@@ -1040,14 +1072,15 @@ class PreparationPanel:
         force = self.force_prepare_receptors.isChecked()
         waters = self.keep_waters_receptors.isChecked()
         cofactors = self.keep_cofactors_receptors.isChecked()
+        ions = self.ion_charges_receptors.isChecked()
         executor = self.receptor_prep_destination.executor_name()
 
         def submit(rt, programs=programs, scope=scope, batch=batch, force=force, executor=executor,
-                   waters=waters, cofactors=cofactors):
+                   waters=waters, cofactors=cofactors, ions=ions):
             return [
                 rt.docking.prepare_receptors(
                     program=p, receptor_set=scope, batch_size=batch, force=force, executor_name=executor,
-                    keep_waters=waters, keep_cofactors=cofactors,
+                    keep_waters=waters, keep_cofactors=cofactors, ion_charges=ions,
                 )
                 for p in programs
             ]

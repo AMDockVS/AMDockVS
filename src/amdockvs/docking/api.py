@@ -701,6 +701,7 @@ class DockingAPI:
             force: bool = False,
             keep_waters: bool = False,
             keep_cofactors: bool = False,
+            ion_charges: bool = False,
             executor_name: str = DEFAULT_LOCAL_CPU_EXECUTOR,
             depends_on: list[str] | None = None,
     ) -> str:
@@ -723,6 +724,7 @@ class DockingAPI:
             force=force,
             keep_waters=keep_waters,
             keep_cofactors=keep_cofactors,
+            ion_charges=ion_charges,
         )
         return self._submit_preparation_job(
             prepare_receptors_job,

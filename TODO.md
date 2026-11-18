@@ -27,6 +27,13 @@ than here.
   `--titrate_only "A:10,A:11"` to limit which residues are titratable.
 - **`retained_structural_waters` has no consumer.** `io/receptor_preview.py` writes it and
   nothing reads it. Remove the field once it is settled that nothing will.
+- **More cofactors.** Import classifies as a cofactor what ms_adtools has a template for
+  (`ms_adtools.templates.COFACTORS`). Candidates, name-checked against the CCD 2026-11-16:
+  NAI (NADH), NDP (NADPH), HEC (heme C), HEA (heme A), COB, B12, CBY, BTN, LPA, PNS, MGD,
+  GSH. PLP is left out: PDB entries usually lack its O4A, so it charges to a fraction until
+  a missing heavy atom is handled. FES/SF4 clusters are mostly metal and need their own
+  handling. GDP is RNA LINKING (would collide with nucleotide polymers); ubiquinones are
+  substrates, not cofactors.
 
 ## Results
 

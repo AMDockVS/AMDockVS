@@ -41,7 +41,9 @@ PREP_UPSERT = graph_sink(
             "name": "receptor_preps",
             "model": ReceptorPrep,
             # Every column but `flex_residues`: the user's pick outlives a re-preparation.
-            "columns": ["receptor_molecule_id", "family", "rigid_payload_id", "flex_payload_id", "error"],
+            # `warnings` is written NULL too, so a re-preparation clears what the last one said.
+            "columns": ["receptor_molecule_id", "family", "rigid_payload_id", "flex_payload_id", "error",
+                        "warnings"],
             "write_mode": "upsert",
             "conflict_keys": ["receptor_molecule_id", "family"],
             "validate_model": False,
@@ -71,6 +73,7 @@ class PreparationJobParams(BaseModel):
     # so a receptor prepared today is the same dry structure it was before these existed.
     keep_waters: bool = False
     keep_cofactors: bool = False
+    ion_charges: bool = False  # bare Mg/Mn/Ca/Fe/Cu at their formal charge, not 0 (zinc stays 0)
 
 
 def scope_spec(params: PreparationJobParams, *, entity_kind: str) -> QuerySpec:
@@ -170,6 +173,7 @@ def _iter_preparation_batches(
             "rows": _with_structures(project_db, rows),
             "keep_waters": bool(params.keep_waters),
             "keep_cofactors": bool(params.keep_cofactors),
+            "ion_charges": bool(params.ion_charges),
         }
 
     emitted = False
