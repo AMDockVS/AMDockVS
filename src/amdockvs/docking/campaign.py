@@ -239,7 +239,7 @@ def pack_rows(chunks: Iterable[dict], folder: Path, cpu: int) -> Path:
 
     Read by the campaign each time it is submitted, so it is the same campaign however many of
     its pairs came back since. Nothing registers the shards: they are not a library, and the
-    project stays one of rows (`screening_shards` is what makes it one of shards).
+    project stays one of rows (`ms_shards` is what makes it one of shards).
     Removed when the campaign completes (`drop_transport`); a stopped one keeps them for Resume.
     """
     folder.mkdir(parents=True, exist_ok=True)

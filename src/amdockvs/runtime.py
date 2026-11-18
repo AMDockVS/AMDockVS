@@ -23,8 +23,6 @@ from amdockvs.core.constants import (
     TABLE_QSAR_PREDICTIONS,
     TABLE_RECEPTOR_PREPS,
     TABLE_SCREENING_SHARD_RUNS,
-    TABLE_SCREENING_SHARDS,
-    TABLE_SHARD_GENERATIONS,
     TABLE_SHARD_PREPS,
 )
 from amdockvs.manifest import AMDOCKVS_PROJECT_RESOURCES
@@ -350,7 +348,6 @@ class AMDockVSRuntime(AppRuntime):
         self._rekey_interactions()
         self._rebuild_qsar_tables()
         self._add_columns()
-        self._move_shard_catalog()
         # ponytail: a no-op unless an import died before building them; then it blocks the open for
         # as long as the build takes (~seconds per million rows). Run it off-thread if that bites.
         ensure_molecule_indexes(self.workspace.project_db)
@@ -404,44 +401,6 @@ class AMDockVSRuntime(AppRuntime):
                     conn.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
                     if backfill:
                         conn.exec_driver_sql(backfill.format(table=table))
-            session.commit()
-
-    def _move_shard_catalog(self) -> None:
-        """`screening_shards` + `shard_generations` (AMDockVS's until 2026-11) into ms_flow's
-        catalog (`ms_shards`, `ms_shard_generations`), ids kept. `shard_preps` and
-        `screening_shard_runs` are rebuilt so their foreign key points at it: SQLite cannot
-        alter a foreign key, only make the table again. One transaction: all of it or none."""
-        from amdockvs.models import ScreeningShardRun, ShardPrep
-
-        with self.workspace.project_db.get_session() as session:
-            conn = session.connection()
-
-            def columns(table: str) -> list[str]:
-                return [str(row[1]) for row in conn.exec_driver_sql(f"PRAGMA table_info({table});").fetchall()]
-
-            def copy(source: str, target: str, renames: dict[str, str]) -> None:
-                have = set(columns(source))
-                pairs = [(renames.get(name, name), name) for name in columns(target) if renames.get(name, name) in have]
-                conn.exec_driver_sql(f"INSERT INTO {target} ({', '.join(t for _, t in pairs)}) "
-                                     f"SELECT {', '.join(s for s, _ in pairs)} FROM {source}")
-
-            if not columns(TABLE_SCREENING_SHARDS):
-                return
-            copy(TABLE_SHARD_GENERATIONS, "ms_shard_generations", {"folder": "shard_dir"})
-            copy(TABLE_SCREENING_SHARDS, "ms_shards", {"scope": "import_batch_id"})  # no base_id = whole file
-            for model in (ShardPrep, ScreeningShardRun):
-                table, old = model.__tablename__, f"{model.__tablename__}_old"
-                conn.exec_driver_sql(f"ALTER TABLE {table} RENAME TO {old}")
-                # Its indexes went with it under their own names, which the new table needs.
-                for (name,) in conn.exec_driver_sql(
-                    f"SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = '{old}' AND sql IS NOT NULL"
-                ).fetchall():
-                    conn.exec_driver_sql(f'DROP INDEX "{name}"')
-                model.__table__.create(conn)
-                copy(old, table, {})
-                conn.exec_driver_sql(f"DROP TABLE {old}")
-            conn.exec_driver_sql(f"DROP TABLE {TABLE_SCREENING_SHARDS}")
-            conn.exec_driver_sql(f"DROP TABLE {TABLE_SHARD_GENERATIONS}")
             session.commit()
 
     def _rebuild_qsar_tables(self) -> None:

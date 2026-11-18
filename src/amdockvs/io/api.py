@@ -236,7 +236,7 @@ class LoaderAPI:
 
         Same feed as `load_ligands` — the byte-span splitter — with the record cap read as
         shard size. What changes is the worker: it writes the span back out as a file and
-        registers a `screening_shards` row instead of parsing molecules into the project db.
+        registers an `ms_shards` row instead of parsing molecules into the project db.
         """
         normalized_files = normalize_files(files, label="ligand files")
         if not normalized_files:

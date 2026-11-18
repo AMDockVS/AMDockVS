@@ -80,9 +80,8 @@ What a filter, a QSAR cut or a clustering selection removes is **a sidecar of id
 
 - **Catalog in ms_flow** (`ms_flow.core.data.catalog`): `ms_shards` + `ms_shard_generations`
   replace `screening_shards` + `shard_generations` (column `scope` = the import batch). Reads come
-  pinned to the active generation and narrowed (`whole=True` to skip narrowing). Old projects are
-  moved on open (`runtime._move_shard_catalog`, ids kept, `shard_preps` / `screening_shard_runs`
-  rebuilt so their foreign key points at `ms_shards`).
+  pinned to the active generation and narrowed (`whole=True` to skip narrowing). No migration: projects
+  from before are not supported (agreed 2026-11-18, everything is redone).
 - **Forgetting a generation**: `catalog.activate_generation(on_drop=)` drops each generation
   outside the window in its own savepoint. AMDockVS's `on_drop` deletes the `shard_preps` rows
   and returns the prepared twins to delete with the shards. A generation docking receipts still
