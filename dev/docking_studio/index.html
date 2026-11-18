@@ -1485,6 +1485,19 @@ preparation batch size and, when available, the execution destination. Select
 <p>The Receptors catalog supplies the scope for this step. Select a receptor there
 to inspect or change its active search box and grid settings. The <strong>Receptor preparation</strong> section has general options and options for the preparation families used by the selected programs. <strong>Force re-prepare</strong>, batch size and the execution destination are available here. Select <strong>Prepare
 Receptors</strong> to submit the preparation jobs.</p>
+<ul>
+<li><strong>Include cofactors</strong> keeps the cofactors kept at import (FAD, NAD, HEM, SAM, ...) in the
+  receptor PDBQT, typed and charged at pH 7 from their chemical component. Off by default:
+  the cofactor pocket is then empty, and a ligand can dock into it.</li>
+<li><strong>Charge metal ions</strong> gives bare Mg, Mn, Ca, Fe and Cu ions their formal charge instead of</li>
+<li>Zinc stays at 0, as AutoDock4Zn expects. Off by default; only AutoDock4 and AutoDock-GPU
+  read the charges.</li>
+<li>The <strong>Warnings</strong> column of the Receptors preparation table says what a ready receptor's
+  PDBQT cannot: a residue that could not be typed, or a cofactor whose charge is fractional
+  because the structure lacks some of its atoms.</li>
+</ul>
+<p>The prepared file does not record these options: after changing one, use <strong>Force
+re-prepare</strong> on receptors that are already prepared.</p>
 <p><a class="glightbox" data-title="Docking Studio Receptors step" data-type="image" href="../images/AMDockVS_docking_studio_receptors.png"><img alt="Docking Studio Receptors step" src="../images/AMDockVS_docking_studio_receptors.png" /></a></p>
 <h2 id="preview-run">4. Preview and Run<a class="headerlink" href="#preview-run" title="Permanent link">&para;</a></h2>
 <p>Review prepared ligand and receptor counts and the estimated docking tasks. A
