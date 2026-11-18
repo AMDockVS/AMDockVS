@@ -37,8 +37,9 @@ def batch_columns(model, *, source_width: int = 360, format_width: int = 115) ->
                   expr=batch_field(model, "source")),
         ColumnDef("format", label="Format", width=format_width, sortable=True, filterable=False,
                   expr=batch_field(model, "format")),
-        ColumnDef("import_batch_id", label="Import", width=70, sortable=True, visible=False,
-                  kind=ColumnKind.INTEGER),
+        # A shard's import batch is its catalog `scope` (ms_flow's name for it).
+        ColumnDef("scope" if model.__tablename__ == "ms_shards" else "import_batch_id", label="Import", width=70,
+                  sortable=True, visible=False, kind=ColumnKind.INTEGER),
     ]
 
 

@@ -252,7 +252,7 @@ class ChemistryAPI:
         # disagreeing about where the generation lives.
         label = "+".join(name for name, _ in normalized)
         shards_root = Path(self.runtime.get_project_resource_path(RESOURCE_SHARDS))
-        generation_id = create_generation(project_db, step=label, shard_dir=shards_root)
+        generation_id = create_generation(project_db, step=label, folder=shards_root)
         job_id = self.runtime.submit_job(
             shard_chemistry_job,
             params=ShardChemistryJobParams(

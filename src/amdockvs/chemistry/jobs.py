@@ -357,7 +357,7 @@ def shard_chemistry_job(params: dict, config: dict | None = None) -> Iterator[di
             "shard_path": worker_file(shard_path),
             "ids": shard_ids(row),
             "output_dir": output_dir,
-            "import_batch_id": row.get("import_batch_id"),
+            "import_batch_id": row.get("scope"),
             "shard_index": int(row.get("shard_index") or 0),
             "steps": resolved_steps,
         }

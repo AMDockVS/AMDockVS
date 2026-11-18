@@ -104,7 +104,7 @@ def test_two_files_never_share_a_shard(tmp_path):
     writer.handle("c0", [_group(1, 3), _group(2, 3)])
     writer.flush()
 
-    assert {row.import_batch_id for row in db.rows} == {1, 2}
+    assert {row.scope for row in db.rows} == {1, 2}
     assert [row.n_records for row in db.rows] == [3, 3]
     assert len({row.shard_index for row in db.rows}) == 2  # the index is the queue's, not the file's
     assert len({row.path for row in db.rows}) == 2  # a file per batch
@@ -122,4 +122,4 @@ def test_a_second_import_does_not_overwrite_the_first(tmp_path):
     assert len({row.path for row in db.rows}) == 2
     for row in db.rows:
         with Shard.open(row.path, ids=_ids(row)) as shard:
-            assert shard.metadata["import_batch_id"] == row.import_batch_id
+            assert shard.metadata["import_batch_id"] == row.scope

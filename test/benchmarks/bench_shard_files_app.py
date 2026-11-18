@@ -52,7 +52,7 @@ def cold(files: list[Path]) -> None:
 def bench(label: str, fmt: str, source: Path, shard_size: int, root: Path) -> dict:
     from sqlmodel import select
 
-    from amdockvs.models import ScreeningShard
+    from ms_flow.core.database.project_models import CatalogShard
     from amdockvs.runtime import AMDockVSRuntime
 
     d = root / f"{label}_{fmt}_{shard_size}"
@@ -71,7 +71,7 @@ def bench(label: str, fmt: str, source: Path, shard_size: int, root: Path) -> di
                "import_s": round(time.perf_counter() - t, 2),
                "status": [str(s.status) for s in states.values()]}
         with rt.workspace.project_db.get_session() as session:
-            rows = session.exec(select(ScreeningShard).order_by(ScreeningShard.id)).all()
+            rows = session.exec(select(CatalogShard).order_by(CatalogShard.id)).all()
         shard_dir = Path(rt.get_project_resource_path("shards"))
         files = [p for p in shard_dir.rglob("*") if p.is_file()]
         res.update(shards=len(rows), records=sum(r.n_records or 0 for r in rows), files=len(files),

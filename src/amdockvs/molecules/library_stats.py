@@ -42,19 +42,21 @@ def library_stats(project_db, shards_root: str | Path | None = None) -> LibraryS
     """Read the inventory of the active generation and what was done with it."""
     from sqlmodel import func, select
 
-    from amdockvs.models import ScreeningShard, ScreeningTarget, ShardGeneration, ShardPrep
-    from amdockvs.molecules.storage import active_generation_id
+    from ms_flow.core.data.catalog import active_generation_id
+    from ms_flow.core.database.project_models import CatalogShard, ShardGeneration
+
+    from amdockvs.models import ScreeningTarget, ShardPrep
 
     generation_id = active_generation_id(project_db)
     if generation_id is None:
         return LibraryStats()
-    in_library = ScreeningShard.generation_id == generation_id
+    in_library = CatalogShard.generation_id == generation_id
     with project_db.get_session() as session:
         shards, ligands = session.exec(
-            select(func.count(ScreeningShard.id), func.coalesce(func.sum(ScreeningShard.n_records), 0)).where(in_library)
+            select(func.count(CatalogShard.id), func.coalesce(func.sum(CatalogShard.n_records), 0)).where(in_library)
         ).one()
         failed = session.exec(
-            select(func.count(ScreeningShard.id)).where(in_library, ScreeningShard.error != "")
+            select(func.count(CatalogShard.id)).where(in_library, CatalogShard.error != "")
         ).one()
         generation = session.get(ShardGeneration, generation_id)
         parent = session.get(ShardGeneration, generation.parent_id) if generation and generation.parent_id else None
@@ -63,7 +65,7 @@ def library_stats(project_db, shards_root: str | Path | None = None) -> LibraryS
             for family, n_shards, n_records, n_failed in session.exec(
                 select(ShardPrep.family, func.count(ShardPrep.shard_id), func.sum(ShardPrep.n_records),
                        func.sum(ShardPrep.n_failed))
-                .join(ScreeningShard, ScreeningShard.id == ShardPrep.shard_id)
+                .join(CatalogShard, CatalogShard.id == ShardPrep.shard_id)
                 .where(in_library)
                 .group_by(ShardPrep.family)
             ).all()

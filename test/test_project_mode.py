@@ -13,7 +13,6 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from amdockvs.core.constants import TABLE_SCREENING_SHARDS
 from amdockvs.runtime import AMDockVSRuntime
 
 
@@ -26,12 +25,11 @@ def runtime(tmp_path):
 
 
 def _add_shard(runtime, tmp_path):
-
-    from amdockvs.models.screening import ScreeningShard
+    from ms_flow.core.database.project_models import CatalogShard
 
     with runtime.workspace.project_db.get_session() as session:
         session.add(
-            ScreeningShard(
+            CatalogShard(
                 shard_index=0,
                 path=str(tmp_path / "shard_00000.smi"),
                 n_records=10,
@@ -56,7 +54,9 @@ def test_mode_is_not_stored_anywhere(runtime, tmp_path):
 
 
 def test_shard_table_is_the_only_source_of_truth():
-    assert TABLE_SCREENING_SHARDS == "screening_shards"
+    from ms_flow.core.data.catalog import TABLE
+
+    assert TABLE == "ms_shards"  # ms_flow's catalog, since 2026-11
 
 
 def test_the_import_dialog_routes_the_library_to_the_chosen_store(runtime, tmp_path, monkeypatch):
@@ -200,3 +200,46 @@ def test_reference_ligands_are_not_the_screening_library(runtime, tmp_path):
 
     assert row("general")["usage_class"] == MoleculeUsageClass.GENERAL
     assert row("reference")["usage_class"] == MoleculeUsageClass.REFERENCE
+
+
+def test_a_project_from_before_2026_11_moves_its_shard_catalog_to_ms_flow(runtime):
+    """The old app tables become ms_flow's, ids kept, and a prepared twin keeps its shard."""
+    from ms_flow.core.data import catalog
+    from ms_flow.core.database.project_models import CatalogShard
+    from sqlmodel import select
+
+    from amdockvs.models import ShardPrep
+
+    db = runtime.workspace.project_db
+    with db.get_session() as session:
+        conn = session.connection()
+        for sql in (
+            "CREATE TABLE shard_generations (id INTEGER PRIMARY KEY, parent_id INTEGER, step VARCHAR,"
+            " shard_dir VARCHAR, job_id VARCHAR, is_active BOOLEAN, created_at DATETIME)",
+            "CREATE TABLE screening_shards (id INTEGER PRIMARY KEY, generation_id INTEGER"
+            " REFERENCES shard_generations(id), import_batch_id INTEGER, shard_index INTEGER, path VARCHAR,"
+            " n_records INTEGER, error VARCHAR)",
+            "DROP TABLE shard_preps",
+            "CREATE TABLE shard_preps (shard_id INTEGER REFERENCES screening_shards(id), family INTEGER"
+            " REFERENCES codes(id), n_records INTEGER, n_failed INTEGER, sha256 VARCHAR,"
+            " PRIMARY KEY (shard_id, family)) WITHOUT ROWID",
+            "INSERT INTO shard_generations VALUES (3, NULL, 'import', '/lib', '', 1, '2026-11-01 00:00:00')",
+            "INSERT INTO screening_shards VALUES (9, 3, 4, 0, '/lib/a.mshard', 5, '')",
+        ):
+            conn.exec_driver_sql(sql)
+        session.add(ShardPrep(shard_id=9, family="ad4", n_records=5))
+        session.commit()
+
+    runtime._move_shard_catalog()
+
+    assert catalog.active_generation_id(db) == 3
+    assert [(r["id"], r["scope"], r["base_id"]) for r in catalog.shards(db)] == [(9, 4, None)]
+    with db.get_session() as session:
+        assert [p.shard_id for p in session.exec(select(ShardPrep)).all()] == [9]
+        session.add(CatalogShard(id=10, generation_id=3, scope=4, shard_index=1, path="/lib/b.mshard"))
+        session.flush()
+        session.add(ShardPrep(shard_id=10, family="ad4"))  # the foreign key now points at ms_shards
+        session.commit()
+        tables = {name for (name,) in session.connection().exec_driver_sql(
+            "SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()}
+    assert not tables & {"screening_shards", "shard_generations", "shard_preps_old", "screening_shard_runs_old"}

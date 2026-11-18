@@ -19,7 +19,7 @@ from amdockvs.core.vocab import CODES, FileFormat, ImportKind
 from amdockvs.io.parsers.readers import count_import_records
 from amdockvs.io.formats import normalized_suffix
 from amdockvs.models.molecules import ImportBatch, MoleculeRecord
-from amdockvs.models.screening import ScreeningShard
+from ms_flow.core.database.project_models import CatalogShard
 
 _EDGE = 64 << 10  # bytes hashed at each end: a whole PDB fits in 1 MB, a proteome is 25k of them
 _SMILES_SUFFIXES = {".smi", ".smiles", ".txt", ".csv", ".tsv"}
@@ -79,8 +79,8 @@ def duplicate_imports(project_db, files: Iterable[str | Path]) -> list[str]:
                     # alone do not mean the receptor is still present after deletion.
                     .where(or_(role != "receptor", MoleculeRecord.is_receptor.is_(True)))
                     .exists(),
-                    select(ScreeningShard.id)
-                    .where(ScreeningShard.import_batch_id == ImportBatch.id).exists(),
+                    select(CatalogShard.id)
+                    .where(CatalogShard.scope == ImportBatch.id).exists(),
                 ))
                 .group_by(ImportBatch.quick_hash)
             ).all())
@@ -148,8 +148,8 @@ def finish_batches(project_db, batch_ids: Mapping[str, int], *, completed: bool)
             if batch is None:
                 continue
             if batch.kind == ImportKind.SHARDS:
-                written = session.execute(select(func.coalesce(func.sum(ScreeningShard.n_records), 0)).where(
-                    ScreeningShard.import_batch_id == batch.id)).scalar()
+                written = session.execute(select(func.coalesce(func.sum(CatalogShard.n_records), 0)).where(
+                    CatalogShard.scope == batch.id)).scalar()
                 last = None
             else:
                 written, last = session.execute(
@@ -166,7 +166,8 @@ def finish_batches(project_db, batch_ids: Mapping[str, int], *, completed: bool)
 
 def batch_field(model, name: str):
     """A column of the row's import batch, as a correlated scalar subquery (catalog columns)."""
-    return select(getattr(ImportBatch, name)).where(ImportBatch.id == model.import_batch_id).scalar_subquery()
+    key = model.scope if model is CatalogShard else model.import_batch_id
+    return select(getattr(ImportBatch, name)).where(ImportBatch.id == key).scalar_subquery()
 
 
 __all__ = [

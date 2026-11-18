@@ -280,7 +280,7 @@ def shard_fingerprints_job(params: dict, config: dict | None = None) -> Iterator
             "ids": shard_ids(row),
             "record_ids": row.get("record_ids"),  # what the exclusions left of it
             "shard_id": int(row["id"]),
-            "import_batch_id": row.get("import_batch_id"),
+            "import_batch_id": row.get("scope"),
             "radius": int(parsed.fp_radius),
             "nbits": int(parsed.fp_nbits),
             "output_dir": worker_output_dir(out_dir),

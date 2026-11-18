@@ -288,7 +288,7 @@ class LoaderAPI:
             generation_id = create_generation(
                 project_db,
                 step="import",
-                shard_dir=self.runtime.get_project_resource_path(RESOURCE_SHARDS),
+                folder=self.runtime.get_project_resource_path(RESOURCE_SHARDS),
             )
             activate_generation(project_db, generation_id)
         return generation_id

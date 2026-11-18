@@ -65,7 +65,7 @@ def test_a_sharded_project_shows_its_library_in_the_project_dialog(tmp_path, mon
     pytest.importorskip("PySide6")
     from PySide6.QtWidgets import QApplication, QDialog, QLabel
 
-    from amdockvs.models.screening import ScreeningShard
+    from ms_flow.core.database.project_models import CatalogShard
     from amdockvs.molecules.storage import activate_generation, create_generation
     from amdockvs.ui.shell.project_summary import _library_section
 
@@ -75,11 +75,11 @@ def test_a_sharded_project_shows_its_library_in_the_project_dialog(tmp_path, mon
     try:
         runtime.create_project(name="library", folder=tmp_path / "library", description="")
         project_db = runtime.workspace.project_db
-        generation = create_generation(project_db, step="import", shard_dir=tmp_path)
+        generation = create_generation(project_db, step="import", folder=tmp_path)
         activate_generation(project_db, generation)
         with project_db.get_session() as session:
             for index in range(2):
-                session.add(ScreeningShard(generation_id=generation, source="lib.smi", shard_index=index,
+                session.add(CatalogShard(generation_id=generation, shard_index=index,
                                            path=str(tmp_path / f"s_{index}.parquet"), input_format="smi",
                                            n_records=1500))
             session.commit()

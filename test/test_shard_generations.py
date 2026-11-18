@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from amdockvs.io.shards import ShardGenerationWriter
-from amdockvs.models.screening import ScreeningShard
+from ms_flow.core.database.project_models import CatalogShard
 from amdockvs.molecules.storage import (
     ShardStore,
     activate_generation,
@@ -41,9 +41,8 @@ def _populate(project_db, generation_id, directory, *, count=3, tag="g"):
             path.write_bytes(b"shard")
             paths.append(path)
             session.add(
-                ScreeningShard(
+                CatalogShard(
                     generation_id=generation_id,
-                    source="lib.smi",
                     shard_index=index,
                     path=str(path),
                     input_format="smi",
@@ -56,11 +55,11 @@ def _populate(project_db, generation_id, directory, *, count=3, tag="g"):
 
 def test_a_scope_never_spans_two_generations(project, tmp_path):
     project_db, root = project
-    first = create_generation(project_db, step="import", shard_dir=root)
+    first = create_generation(project_db, step="import", folder=root)
     activate_generation(project_db, first)
     _populate(project_db, first, tmp_path, count=3, tag="first")
 
-    second = create_generation(project_db, step="standardize", shard_dir=root)
+    second = create_generation(project_db, step="standardize", folder=root)
     _populate(project_db, second, tmp_path, count=2, tag="second")
 
     store = ShardStore(project_db)
@@ -77,11 +76,11 @@ def test_a_scope_never_spans_two_generations(project, tmp_path):
 def test_a_failed_rewrite_leaves_the_library_alone(project, tmp_path):
     """The switch is one flag at the end, so a job that dies mid-flight changes nothing."""
     project_db, root = project
-    first = create_generation(project_db, step="import", shard_dir=root)
+    first = create_generation(project_db, step="import", folder=root)
     activate_generation(project_db, first)
     _populate(project_db, first, tmp_path, count=3, tag="first")
 
-    second = create_generation(project_db, step="protonate", shard_dir=root)
+    second = create_generation(project_db, step="protonate", folder=root)
     writer = ShardGenerationWriter(project_db=project_db, generation_id=second)
     writer.handle("chunk-0", [{
         "source": "lib.smi", "shard_index": 0, "path": str(tmp_path / "p_00000.parquet"),
@@ -101,15 +100,15 @@ def test_a_failed_rewrite_leaves_the_library_alone(project, tmp_path):
 
 def test_the_window_is_two_deep(project, tmp_path):
     project_db, root = project
-    grandparent = create_generation(project_db, step="import", shard_dir=root)
+    grandparent = create_generation(project_db, step="import", folder=root)
     activate_generation(project_db, grandparent)
     doomed = _populate(project_db, grandparent, tmp_path, count=2, tag="gp")
 
-    parent = create_generation(project_db, step="standardize", shard_dir=root)
+    parent = create_generation(project_db, step="standardize", folder=root)
     kept = _populate(project_db, parent, tmp_path, count=2, tag="p")
     activate_generation(project_db, parent)
 
-    child = create_generation(project_db, step="generate_3d", shard_dir=root)
+    child = create_generation(project_db, step="generate_3d", folder=root)
     _populate(project_db, child, tmp_path, count=2, tag="c")
     activate_generation(project_db, child)
 
@@ -118,7 +117,7 @@ def test_the_window_is_two_deep(project, tmp_path):
     with project_db.get_session() as session:
         from sqlmodel import select
 
-        rows = session.exec(select(ScreeningShard)).all()
+        rows = session.exec(select(CatalogShard)).all()
     assert {int(row.generation_id) for row in rows} == {parent, child}
 
 
@@ -127,10 +126,10 @@ def test_a_rewrite_counts_its_ligands_against_the_library_it_replaces(project, t
     from amdockvs.molecules.storage import shard_generation_progress
 
     project_db, root = project
-    first = create_generation(project_db, step="import", shard_dir=root)
+    first = create_generation(project_db, step="import", folder=root)
     activate_generation(project_db, first)
     _populate(project_db, first, tmp_path, count=3, tag="first")
-    second = create_generation(project_db, step="protonate", shard_dir=root)
+    second = create_generation(project_db, step="protonate", folder=root)
     assert shard_generation_progress(project_db, second) == (0, 3000)
     _populate(project_db, second, tmp_path, count=2, tag="second")
     assert shard_generation_progress(project_db, second) == (2000, 3000)
@@ -168,15 +167,15 @@ def test_the_project_summary_reads_the_library_off_the_inventory(project, tmp_pa
 
     project_db, root = project
     assert library_stats(project_db).shards == 0  # no library yet
-    first = create_generation(project_db, step="import", shard_dir=root)
+    first = create_generation(project_db, step="import", folder=root)
     activate_generation(project_db, first)
     _populate(project_db, first, tmp_path, count=3, tag="first")
-    second = create_generation(project_db, step="protonate", shard_dir=root)
+    second = create_generation(project_db, step="protonate", folder=root)
     activate_generation(project_db, second)
     shard_ids = []
     with project_db.get_session() as session:
         for index, error in enumerate(("", "", "boom")):
-            row = ScreeningShard(generation_id=second, source="lib.smi", shard_index=index,
+            row = CatalogShard(generation_id=second, shard_index=index,
                                  path=str(tmp_path / f"p_{index}.parquet"), input_format="smi",
                                  n_records=0 if error else 900, error=error)
             session.add(row)

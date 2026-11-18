@@ -217,7 +217,8 @@ def test_tutorials_panel_is_hidden_in_project_workspace(practice):
 
 
 def test_existing_project_opens_tabs_for_its_shards_and_results(practice):
-    from amdockvs.models import DockingResultRecord, DockingRun, MoleculeRecord, ScreeningShard
+    from amdockvs.models import DockingResultRecord, DockingRun, MoleculeRecord
+    from ms_flow.core.database.project_models import CatalogShard
 
     app, runtime, window, _messages = practice
     # The practice project starts empty: the two catalogs open for their Import button.
@@ -227,7 +228,7 @@ def test_existing_project_opens_tabs_for_its_shards_and_results(practice):
     assert window.central_widget.open_view(COMPLEXES_VIEW_ID) is None
     with runtime.workspace.project_db.get_session() as session:
         session.add_all([
-            ScreeningShard(id=1, path="example.mshard", n_records=1),
+            CatalogShard(id=1, path="example.mshard", n_records=1),
             DockingRun(id=1, engine="vina", protocol_hash="test"),
             MoleculeRecord(id=1, name="Receptor", is_receptor=True),
             MoleculeRecord(id=2, name="Ligand", is_ligand=True),
@@ -251,11 +252,13 @@ def test_existing_project_opens_tabs_for_its_shards_and_results(practice):
 
 
 def test_sharded_project_without_ligand_rows_opens_shards_instead(practice):
-    from amdockvs.models import DockingRun, ScreeningShard, ScreeningShardRun
+    from amdockvs.models import DockingRun, ScreeningShardRun
+    from ms_flow.core.database.project_models import CatalogShard
 
     app, runtime, _window, _messages = practice
     with runtime.workspace.project_db.get_session() as session:
-        session.add(ScreeningShard(id=1, path="example.mshard", n_records=1))
+        session.add(CatalogShard(id=1, path="example.mshard", n_records=1))
+        session.flush()  # no relationship() tells the unit of work the shard goes first
         session.commit()
     second = AMDockVSMainWindow(runtime=runtime)
     second.show()

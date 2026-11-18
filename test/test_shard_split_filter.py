@@ -33,13 +33,13 @@ def _stored_names(runtime, path, prefilter):
     from ms_flow.core.data.shard import Shard
     from sqlmodel import select
 
-    from amdockvs.models import ScreeningShard
+    from ms_flow.core.database.project_models import CatalogShard
 
     jobs = runtime.loader.shard_ligands([str(path)], executor_name="thread", prefilter=prefilter)
     states = runtime.wait_for_jobs(list(jobs), timeout_s=60)
     assert all(str(state.status).endswith("completed") for state in states.values()), states
     with runtime.workspace.project_db.get_session() as session:
-        paths = [row.path for row in session.exec(select(ScreeningShard)).all()]
+        paths = [row.path for row in session.exec(select(CatalogShard)).all()]
     names = []
     for shard_path in paths:
         with Shard.open(shard_path) as shard:

@@ -78,9 +78,20 @@ What a filter, a QSAR cut or a clustering selection removes is **a sidecar of id
   undoing a cut docks the rest instead of skipping it as already done
   (`docking.results.dataset.shard_selection`, `selection_covers` unchanged).
 
+- **Catalog in ms_flow** (`ms_flow.core.data.catalog`): `ms_shards` + `ms_shard_generations`
+  replace `screening_shards` + `shard_generations` (column `scope` = the import batch). Reads come
+  pinned to the active generation and narrowed (`whole=True` to skip narrowing). Old projects are
+  moved on open (`runtime._move_shard_catalog`, ids kept, `shard_preps` / `screening_shard_runs`
+  rebuilt so their foreign key points at `ms_shards`).
+- **Undo**: the Filter tool's *Cuts* section (sharded libraries only) lists every cut with a
+  checkbox; unticking calls `set_shard_exclusion_active(id, False)`.
+
 ## Not done / next
 
-- Move the shard catalog (`screening_shards`) into ms_flow.
+- Activating a generation deletes the grandparent's shards; a `shard_preps` or receipt row that
+  still references one makes that delete fail (third rewrite after prep or docking). Needs an
+  on_drop hook from ms_flow so the app clears its rows first.
+- Filter producing shard cuts itself (today only QSAR and Clustering do).
 - Compact exclusion sidecars when they pile up (today the union is read per job feed).
 - Phase 2: per-task prepared and result files through one parent rolling writer per stream
   (prepared family, result run/protocol/receptor), HPC per-task files adopted when idle, and

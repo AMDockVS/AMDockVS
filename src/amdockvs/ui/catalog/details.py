@@ -224,7 +224,7 @@ class CatalogDetailsView(QWidget):
                 "Index": getattr(shard, "shard_index", None),
                 "Records": getattr(shard, "n_records", None),
                 "State": getattr(shard, "state", None),
-                "Import batch": getattr(shard, "import_batch_id", None),
+                "Import batch": getattr(shard, "scope", None),
                 "Path": str(path),
                 "Size": f"{path.stat().st_size:,} bytes" if path.is_file() else "missing",
             },

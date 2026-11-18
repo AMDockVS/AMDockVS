@@ -696,7 +696,8 @@ def stage_write1m(library: Path, work: Path, n: int = 1_000_000) -> None:
     from amdockvs import AMDockVSRuntime
     from amdockvs.core.payloads import payload_store, structure_payload
     from amdockvs.io.shards import ShardQueueWriter
-    from amdockvs.models import MoleculeRecord, ScreeningShard
+    from amdockvs.models import MoleculeRecord
+    from ms_flow.core.database.project_models import CatalogShard
 
     base = prepare(library)
     packed = [structure_payload(r["sdf"], "sdf").packed() for r in base]
@@ -724,7 +725,7 @@ def stage_write1m(library: Path, work: Path, n: int = 1_000_000) -> None:
             fh.flush()
             os.fsync(fh.fileno())
         with Session(store_db.engine) as s:  # committed once the file is durable
-            s.add_all([ScreeningShard(shard_index=i, path=str(path), n_records=per_shard)
+            s.add_all([CatalogShard(shard_index=i, path=str(path), n_records=per_shard)
                        for i in range(n // per_shard)])
             s.commit()
 

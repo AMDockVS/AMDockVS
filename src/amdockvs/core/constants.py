@@ -53,6 +53,7 @@ TABLE_QSAR_MODEL_MEMBERS = "qsar_model_members"
 TABLE_QSAR_PREDICTIONS = "qsar_predictions"
 TABLE_SIMILARITY_RESULTS = "similarity_results"
 TABLE_CLUSTERING_RESULTS = "clustering_results"
+# The shard catalog until 2026-11, now ms_flow's (`ms_shards`): only the migration names these.
 TABLE_SCREENING_SHARDS = "screening_shards"
 TABLE_SHARD_GENERATIONS = "shard_generations"
 TABLE_SHARD_PREPS = "shard_preps"

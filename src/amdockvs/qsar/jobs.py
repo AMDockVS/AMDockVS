@@ -251,7 +251,7 @@ def predict_shards_job(params: dict, config: dict | None = None) -> Iterator[dic
             "ids": shard_ids(row),
             "record_ids": row.get("record_ids"),  # what the exclusions left of it
             "shard_id": int(row["id"]),
-            "import_batch_id": row.get("import_batch_id"),
+            "import_batch_id": row.get("scope"),
             "model_path": worker_file(parsed.model_path),
             "output_dir": worker_output_dir(parsed.output_dir),
         }
