@@ -123,11 +123,12 @@ def _unprepared(elements: list[dict], engine: str) -> list[dict]:
         for place, shard in enumerate(element["shards"]):
             if shard["shard_path"]:
                 continue
-            twin = prepared_shard_path(shard["molecules"], engine)
+            twin = prepared_shard_path(shard["molecules"], engine, shard.get("ids"))
             where = {"prepared_in": worker_output_dir(twin.parent), "prepared_as": twin.name}
-            element["shards"][place] = {**{k: v for k, v in shard.items() if k != "molecules"}, **where}
+            element["shards"][place] = {**{k: v for k, v in shard.items() if k not in ("molecules", "ids")}, **where}
             prep.setdefault(shard["shard_id"], {"engine": engine, "shards": [{
-                "shard_id": shard["shard_id"], "shard_path": shard["molecules"], "output_dir": where["prepared_in"]}]})
+                "shard_id": shard["shard_id"], "shard_path": shard["molecules"], "ids": shard.get("ids"),
+                "output_dir": where["prepared_in"]}]})
     return list(prep.values())
 
 

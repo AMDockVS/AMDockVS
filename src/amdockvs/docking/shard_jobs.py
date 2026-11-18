@@ -24,6 +24,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlmodel import select
 
+from ms_flow.core.data.exclusions import active_exclusions
+
 from amdockvs.core.jobs import JobSpec
 from amdockvs.docking.shard_tasks import HIT_MODE_TOP_N, dock_shards
 
@@ -533,6 +535,18 @@ def _shard_docking_scope(
             if int(row.get("id") or 0) in record_ids_by_shard
         ]
     protocol_hash = str(parsed.protocol_metadata.hash or "")
+    # A shard the exclusions left partial is docked partially, and its receipt says so, or
+    # undoing the cut would skip the rest of it as already docked.
+    narrowed = {
+        int(row.get("id") or 0) for row in shards
+        if row.get("record_ids") is not None and not parsed.selected_from_receptor_id
+    }
+    exclusion_key = active_exclusions(project_db).key if narrowed else ""
+    for row in shards:
+        row["selection"] = shard_selection(
+            parsed.selected_from_receptor_id,
+            exclusion_key if int(row.get("id") or 0) in narrowed else "",
+        )
     selection = shard_selection(parsed.selected_from_receptor_id)
     if not parsed.skip_existing:
         completed: set[tuple[int, int]] = set()
@@ -548,10 +562,18 @@ def _shard_docking_scope(
         # fresh `run_id` each time it is submitted, so a skip keyed by it skips nothing and the
         # library is docked again beside its own results. Only whole-shard receipts count: a
         # subset docked by an off-target stage leaves the rest of its shard undocked.
+        input_keys = {int(t["receptor_id"]): str(t.get("input_key") or "") for t in targets}
         completed = completed_protocol_targets(
             project_db, engine=parsed.engine, protocol_hash=protocol_hash, selection=selection,
-            input_keys={int(t["receptor_id"]): str(t.get("input_key") or "") for t in targets},
+            input_keys=input_keys,
         )
+        if narrowed:  # a partial shard also skips what was docked under the same cuts
+            completed |= {
+                pair for pair in completed_protocol_targets(
+                    project_db, engine=parsed.engine, protocol_hash=protocol_hash,
+                    selection=shard_selection(None, exclusion_key), input_keys=input_keys,
+                ) if pair[0] in narrowed
+            }
     if parsed.check_required and not shards and not parsed.selected_from_receptor_id:
         raise RuntimeError(
             "docking.run found no prepared shard artifacts for engine family "
@@ -644,12 +666,13 @@ class DockShardsJobSpec(JobSpec):
             shard = {
                 "shard_id": int(row.get("id") or 0),
                 "shard_path": worker_file(row["prepared_path"]) if row["prepared_path"] else "",
-                **({} if row["prepared_path"] else {"molecules": worker_file(row["path"])}),
+                **({} if row["prepared_path"] else {"molecules": worker_file(row["path"]), "ids": row.get("ids")}),
                 "import_batch_id": row.get("import_batch_id"),
                 "library": str(row.get("library") or ""),
                 "shard_index": int(row.get("shard_index") or 0),
                 "n_records": int(row.get("n_records") or 0),
                 **({"record_ids": list(row.get("record_ids") or ())} if row.get("record_ids") is not None else {}),
+                "selection": str(row.get("selection") or ""),
             }
             if not targets:
                 break

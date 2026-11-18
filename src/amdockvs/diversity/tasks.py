@@ -102,7 +102,7 @@ def shard_fingerprints_task(payload: dict) -> dict:
     from amdockvs.diversity.clustering import fp_matrix_from_bitstrings
     from amdockvs.io.shards import shard_key
 
-    ids, mols = read_shard(payload["shard_path"])
+    ids, mols = read_shard(payload["shard_path"], payload.get("ids"), payload.get("record_ids"))
     radius, nbits = int(payload["radius"]), int(payload["nbits"])
     keys, bitstrings = [], []
     for record_id, mol in zip(ids, mols):

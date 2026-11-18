@@ -73,6 +73,11 @@ class ScreeningShard(SQLModel, table=True):
     import_batch_id: int | None = Field(default=None, foreign_key=f"{TABLE_IMPORT_BATCHES}.id", index=True)
     shard_index: int = Field(default=0, index=True)
     path: str = Field(default="")  # the .mshard's payload kind says the format
+    # Its ids inside `path`: `base_id <= id < base_id + slot_count`. NULL = the whole file (a
+    # file per shard, as written before 2026-11 and by the steps that rewrite shards). Many
+    # shards of an import share one file, each its own row group.
+    base_id: int | None = Field(default=None)
+    slot_count: int | None = Field(default=None)
     n_records: int = Field(default=0)
     error: str = Field(default="")
 

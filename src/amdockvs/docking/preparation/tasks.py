@@ -10,6 +10,7 @@ from typing import Any
 
 from amdockvs.core.rows import prep_row, shard_prep_row
 from amdockvs.docking.preparation.profiles import get_preparation_profile
+from amdockvs.io.shards import shard_file_name
 
 
 def _prep_rows_from_summary(summary: dict, *, entity_kind: str) -> list[dict[str, Any]]:
@@ -90,11 +91,12 @@ def prepare_ligand_shards(payload: dict, progress_cb=None):
     rows: list[dict[str, Any]] = []
     for index, shard in enumerate(list(payload.get("shards") or [])):
         source = Path(str(shard["shard_path"])).expanduser().resolve()
-        output_path = Path(str(shard["output_dir"])).expanduser().resolve() / source.name
+        ids = shard.get("ids")
+        output_path = Path(str(shard["output_dir"])).expanduser().resolve() / shard_file_name(source, ids)
         profile = get_preparation_profile(engine)
         if profile.prepare_shard is None:
             raise ValueError(f"Preparation profile '{engine}' does not support sharded libraries.")
-        stats = profile.prepare_shard(source, output_path, engine=engine)
+        stats = profile.prepare_shard(source, output_path, engine=engine, ids=ids)
         if output_path.is_file():  # the row exists = prepared
             rows.append(shard_prep_row(shard_id=int(shard["shard_id"]), family=engine,
                                        n_records=int(stats["n_records"]), n_failed=int(stats["n_failed"]),

@@ -27,6 +27,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Iterator, Mapping, Protocol
 
+from ms_flow.core.data.exclusions import active_exclusions, exclude
 from ms_flow.query import QuerySpec, db_count, db_pages
 
 from amdockvs.core.constants import TABLE_MOLECULES, TABLE_SCREENING_SHARDS
@@ -66,7 +67,7 @@ class DbStore:
 
 
 SHARD_FIELDS = (
-    "id", "generation_id", "import_batch_id", "shard_index", "path", "n_records"
+    "id", "generation_id", "import_batch_id", "shard_index", "path", "base_id", "slot_count", "n_records"
 )
 
 
@@ -78,8 +79,8 @@ def shard_generation_progress(project_db, generation_id: int) -> tuple[int, int]
     """
     store = ShardStore(project_db)
     spec = shard_scope_spec()
-    done = store.record_count(replace(spec, filters={**spec.filters, "generation_id": int(generation_id)}))
-    return done, store.record_count(spec)
+    done = store.record_count(replace(spec, filters={**spec.filters, "generation_id": int(generation_id)}), whole=True)
+    return done, store.record_count(spec, whole=True)
 
 
 def active_generation_id(project_db) -> int | None:
@@ -143,12 +144,12 @@ def activate_generation(project_db, generation_id: int) -> None:
         if target.parent_id is not None:
             keep.add(int(target.parent_id))
         doomed = [gen_id for gen_id in generations if gen_id not in keep]
-        paths = [
-            str(shard.path or "")
-            for shard in session.exec(
-                select(ScreeningShard).where(ScreeningShard.generation_id.in_(doomed))
-            ).all()
-        ] if doomed else []
+        # A file holds many shards: it goes only when no surviving row still points at it.
+        paths = set(session.exec(
+            select(ScreeningShard.path).where(ScreeningShard.generation_id.in_(doomed))
+        ).all()) - set(session.exec(
+            select(ScreeningShard.path).where(ScreeningShard.generation_id.in_(keep))
+        ).all()) if doomed else set()
         for gen_id in keep:
             # The surviving parent points at a generation that is about to stop existing. Cut
             # the link first or the delete trips the foreign key — its lineage ends here now.
@@ -167,9 +168,14 @@ def activate_generation(project_db, generation_id: int) -> None:
     # Files last: a row that survives a missing file is a bug you can see, a file that
     # survives its row is an orphan nothing will ever look at again.
     for text in paths:
-        path = Path(text)
+        path = Path(str(text or ""))
         if path.is_file():
             path.unlink(missing_ok=True)
+
+
+def _narrowed(project_db, rows) -> Iterator[dict[str, Any]]:
+    """Shard rows minus the active exclusions; an id is unique inside its import batch."""
+    return active_exclusions(project_db).narrow(rows, scope_key="import_batch_id")
 
 
 def shard_scope_spec() -> QuerySpec:
@@ -203,22 +209,43 @@ class ShardStore:
             return spec
         return replace(spec, filters={**spec.filters, "generation_id": generation_id})
 
-    def iter_rows(self, spec: QuerySpec | None = None, *, batch_size: int = 1) -> Iterator[dict[str, Any]]:
-        """Shards, one row each. `batch_size` is a paging detail — a shard is the work unit."""
-        yield from db_pages(self.project_db, self._scoped(spec), page_size=max(1, int(batch_size)))
+    def iter_rows(
+        self, spec: QuerySpec | None = None, *, batch_size: int = 1, whole: bool = False
+    ) -> Iterator[dict[str, Any]]:
+        """Shards, one row each. `batch_size` is a paging detail — a shard is the work unit.
 
-    def count(self, spec: QuerySpec | None = None) -> int:
-        """How many shards are in scope — this is what a run declares as its work."""
-        return db_count(self.project_db, self._scoped(spec))
+        Minus the active exclusions (`ms_flow.core.data.exclusions`): a shard left with none is
+        not yielded, a partial one carries `record_ids`. `whole`: every record, for the steps
+        that transform rather than select (preparation, chemistry rewrites).
+        """
+        rows = db_pages(self.project_db, self._scoped(spec), page_size=max(1, int(batch_size)))
+        yield from rows if whole else _narrowed(self.project_db, rows)
 
-    def record_count(self, spec: QuerySpec | None = None) -> int:
+    def count(self, spec: QuerySpec | None = None, *, whole: bool = False) -> int:
+        """How many shards `iter_rows` yields — this is what a run declares as its work."""
+        if whole or not active_exclusions(self.project_db):
+            return db_count(self.project_db, self._scoped(spec))
+        return sum(1 for _row in self.iter_rows(spec, batch_size=1000))
+
+    def exclude(self, keys, *, reason: str = "", producer_job_id: str = "") -> int | None:
+        """Leave records out by `io.shards.shard_key`, without touching a shard: the cut is a
+        sidecar ms_flow keeps. Its artifact id (to undo it), None when nothing was cut."""
+        from amdockvs.io.shards import split_shard_key
+
+        by_batch: dict[int, list[int]] = {}
+        for key in keys:
+            batch, record_id = split_shard_key(key)
+            by_batch.setdefault(int(batch), []).append(int(record_id))
+        return exclude(self.project_db, by_batch, reason=reason, producer_job_id=producer_job_id)
+
+    def record_count(self, spec: QuerySpec | None = None, *, whole: bool = False) -> int:
         """How many molecules those shards hold, without opening a single file.
 
         ponytail: summed over the inventory rows rather than in SQL. The inventory is
         thousands of rows at worst — it is the *library* that must never be walked, and it
         isn't. A SUM query if the shard count ever reaches millions.
         """
-        return sum(int(row.get("n_records") or 0) for row in self.iter_rows(spec, batch_size=1000))
+        return sum(int(row.get("n_records") or 0) for row in self.iter_rows(spec, batch_size=1000, whole=whole))
 
     def promote(self, keys) -> dict[int, int]:
         """Library records, by `io.shards.shard_key`, into `molecules` rows: {key: molecule_id}.
@@ -233,7 +260,7 @@ class ShardStore:
         from amdockvs.chemistry.shards import _molblock
         from amdockvs.core.payloads import structure_payload
         from amdockvs.io.batches import library_names
-        from amdockvs.io.shards import FORMAT_FOR_KIND, mol_from_record, shard_key, split_shard_key
+        from amdockvs.io.shards import FORMAT_FOR_KIND, mol_from_record, shard_ids, shard_key, split_shard_key
         from amdockvs.screening.materialize import promote_records
 
         wanted: dict[int, set[int]] = {}
@@ -244,10 +271,10 @@ class ShardStore:
         records: list[dict[str, Any]] = []
         for batch, record_ids in wanted.items():
             spec = replace(shard_scope_spec(), filters={"import_batch_id": batch})
-            for row in self.iter_rows(spec, batch_size=1000):
+            for row in self.iter_rows(spec, batch_size=1000, whole=True):  # asked by key: excluded or not
                 if not record_ids:
                     break
-                with Shard.open(Path(str(row["path"]))) as shard:
+                with Shard.open(Path(str(row["path"])), ids=shard_ids(row)) as shard:
                     input_format = FORMAT_FOR_KIND.get(shard.kind, "")
                     for record_id in [value for value in record_ids if value in shard]:
                         record_ids.discard(record_id)
@@ -321,13 +348,21 @@ def has_shards(project_db) -> bool:
 PREPARED_DIR = "prepared_{engine}"
 
 
-def prepared_shard_path(shard_path: str | Path, family: str) -> Path:
-    """Where a shard's prepared twin lives: derived, so `shard_preps` stores no path."""
+def prepared_shard_path(shard_path: str | Path, family: str, ids=None) -> Path:
+    """Where a shard's prepared twin lives: derived, so `shard_preps` stores no path. `ids`: the
+    shard's range inside its file (`shard_ids`), which names the twin of one of many."""
+    from amdockvs.io.shards import shard_file_name
+
     shard_path = Path(shard_path)
-    return shard_path.parent / PREPARED_DIR.format(engine=family) / shard_path.name
+    return shard_path.parent / PREPARED_DIR.format(engine=family) / shard_file_name(shard_path, ids)
 
 
 def iter_prepared_shards(project_db, *, engine: str, unprepared: bool = False) -> Iterator[dict[str, Any]]:
+    """Prepared shards minus the active exclusions (see `ShardStore.iter_rows`)."""
+    return _narrowed(project_db, _prepared_shards(project_db, engine=engine, unprepared=unprepared))
+
+
+def _prepared_shards(project_db, *, engine: str, unprepared: bool = False) -> Iterator[dict[str, Any]]:
     """Prepared artifacts for one family, joined to their shard inventory.
 
     The in-memory map contains only shard metadata, never library molecules. A shard counts as
@@ -336,6 +371,7 @@ def iter_prepared_shards(project_db, *, engine: str, unprepared: bool = False) -
     """
     from sqlmodel import select
 
+    from amdockvs.io.shards import shard_ids
     from amdockvs.models import ScreeningShard, ShardPrep
 
     family = str(engine or "").strip().lower()
@@ -358,7 +394,8 @@ def iter_prepared_shards(project_db, *, engine: str, unprepared: bool = False) -
     libraries = library_names(project_db)
     for shard in shards:
         n_records = counts.get(int(shard.id or 0))
-        prepared_path = prepared_shard_path(shard.path, family)
+        ids = shard_ids(shard)
+        prepared_path = prepared_shard_path(shard.path, family, ids)
         if n_records is not None and prepared_path.is_file():
             yield {
                 "id": int(shard.id or 0),
@@ -366,6 +403,9 @@ def iter_prepared_shards(project_db, *, engine: str, unprepared: bool = False) -
                 "library": libraries.get(shard.import_batch_id, "library"),
                 "shard_index": int(shard.shard_index),
                 "path": shard.path,
+                "ids": ids,
+                "base_id": shard.base_id,
+                "slot_count": shard.slot_count,
                 "prepared_path": str(prepared_path),
                 "n_records": int(n_records),
                 "sha256": digests.get(int(shard.id or 0)) or "",  # "" = prepared before 2026-11
@@ -373,7 +413,9 @@ def iter_prepared_shards(project_db, *, engine: str, unprepared: bool = False) -
         elif unprepared:
             yield {"id": int(shard.id or 0), "import_batch_id": shard.import_batch_id,
                    "library": libraries.get(shard.import_batch_id, "library"), "shard_index": int(shard.shard_index),
-                   "path": shard.path, "prepared_path": "", "n_records": int(shard.n_records), "sha256": ""}
+                   "path": shard.path, "ids": ids, "base_id": shard.base_id, "slot_count": shard.slot_count,
+                   "prepared_path": "", "n_records": int(shard.n_records),
+                   "sha256": ""}
 
 
 def prepared_shard_record_count(project_db, *, engine: str) -> int:
