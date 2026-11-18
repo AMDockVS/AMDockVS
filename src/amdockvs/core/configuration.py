@@ -132,13 +132,23 @@ class UniDockSettings(BaseModel):
         description="Path to the Uni-Dock binary; empty uses $AMDOCK_UNIDOCK, the managed install, then PATH.",
     )
     batch_size: int = Field(
-        128,
+        32,
         ge=1,
         le=10_000,
         title="Pairs per task",
         description=(
-            "Pairs of a receptor docked by one Uni-Dock process. Uni-Dock docks them in parallel "
-            "on the GPU, so larger tasks use the card better."
+            "The fewest pairs one Uni-Dock process docks. Uni-Dock docks them in parallel on the "
+            "GPU, so larger tasks use the card better."
+        ),
+    )
+    autobatch: int = Field(
+        128,
+        ge=0,
+        le=10_000,
+        title="Starting pairs per task",
+        description=(
+            "Tasks start at this many pairs and grow, in whole multiples of Pairs per task, while "
+            "bigger ones dock more pairs a second. 0 keeps every task at Pairs per task."
         ),
     )
 

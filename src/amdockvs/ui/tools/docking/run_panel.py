@@ -762,6 +762,9 @@ class RunPanel:
         for program, to_run in self._pairs_by_program:
             spec = self.runtime.docking.get_program_spec(program)
             per_task = self.runtime.docking.pairs_per_task(spec)
+            if start := self.runtime.docking.autobatch(spec):  # the executor sizes them as they run
+                lines.append(f"{spec.label}: from {start * per_task} pair(s)/task, sized as it runs")
+                continue
             lines.append(f"{spec.label}: {per_task} pair(s)/task · {-(-int(to_run) // per_task):,} task(s)")
         self.req_tasks.setText("\n".join(lines) or "—")
 

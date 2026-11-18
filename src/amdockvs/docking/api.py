@@ -352,6 +352,13 @@ class DockingAPI:
         config = getattr(app_config(self.runtime).docking, program_spec.docking_engine, None)
         return max(1, int(batch_size or getattr(config, "batch_size", 0) or DEFAULT_DOCKING_BATCH_SIZE))
 
+    def autobatch(self, program_spec: DockingProgramSpec, batch_size: int | None = None) -> int:
+        """Tasks a docking job starts at, in its chunks, when the executor sizes them: the
+        program's `docking.<engine>.autobatch` pairs, never under one chunk; 0 when it has none."""
+        config = getattr(app_config(self.runtime).docking, program_spec.docking_engine, None)
+        pairs = int(getattr(config, "autobatch", 0) or 0)
+        return max(1, pairs // self.pairs_per_task(program_spec, batch_size)) if pairs else 0
+
     @staticmethod
     def _entity_filters_for_workflow(
             scope: dict[str, Any],
@@ -1314,6 +1321,7 @@ class DockingAPI:
             cpu_required=cpu,
             # Declare the real chunk total so progress = processed/total (not processed/emitted).
             total_chunks=total_chunks,
+            autobatch=self.autobatch(program_spec, batch_size),
         )
         if total_chunks:
             single = int(run_counts.get("receptors_ready") or 0) == 1
@@ -1511,6 +1519,7 @@ class DockingAPI:
             depends_on=depends_on,
             cpu_required=program_spec.resource_requirements(resolved_engine_config)["cpu_required"],
             total_chunks=total_chunks,
+            autobatch=self.autobatch(program_spec, batch_size),
         )
         if total_chunks:
             self.runtime.track_chunk_items(job_id, pending_pairs, batch_size, unit="complexes")
