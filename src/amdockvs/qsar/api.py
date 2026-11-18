@@ -16,6 +16,7 @@ from typing import Any
 import numpy as np
 from sqlmodel import select
 
+from amdockvs.core.configuration import DEFAULT_LIGAND_BATCH_SIZE
 from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR, RESOURCE_QSAR_MODELS
 from amdockvs.core.vocab import ReprType
 from amdockvs.models import (
@@ -114,7 +115,7 @@ class QSARAPI(BuildMixin, PredictMixin, ModelAnalysisMixin, ResultsMixin, Activi
         *,
         molecule_set: MoleculeSetRef | MoleculeScope | int | None = None,
         only_missing: bool = True,
-        batch_size: int = 1000,
+        batch_size: int = DEFAULT_LIGAND_BATCH_SIZE,
         executor_name: str = DEFAULT_LOCAL_CPU_EXECUTOR,
         depends_on: list[str] | None = None,
         compute_fingerprints: bool = False,
@@ -169,7 +170,7 @@ class QSARAPI(BuildMixin, PredictMixin, ModelAnalysisMixin, ResultsMixin, Activi
         only_missing: bool = True,
         radius: int = 2,
         nbits: int = 2048,
-        batch_size: int = 1000,
+        batch_size: int = DEFAULT_LIGAND_BATCH_SIZE,
         executor_name: str = DEFAULT_LOCAL_CPU_EXECUTOR,
         depends_on: list[str] | None = None,
     ) -> str:
