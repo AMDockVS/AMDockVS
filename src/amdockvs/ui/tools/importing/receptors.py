@@ -224,8 +224,11 @@ class ReceptorImportPanel(QWidget):
         # Every column is user-resizable (Interactive) with a sensible default width; Chains needs
         # room for its chips+combo so it isn't clipped.
         header.setStretchLastSection(False)
-        default_column_widths = {0: 90, 1: 120, 2: 245, 3: 295, 4: 190, 5: 190, 6: 80, 7: 160, 8: 120, 9: 80,
-                                 COFACTORS_COLUMN: 190}
+        # Metals, Waters and Cofactors are one chip wide (the widest, "FMN:A:1002", is ~118 px with
+        # margins) and their chips stack downwards, so Chains and Ligands, which stretch, keep the
+        # width: at 190 each the three fixed columns squeezed Ligands to nothing in the dialog.
+        default_column_widths = {0: 90, 1: 120, 2: 245, 3: 295, 4: 130, 5: 130, 6: 80, 7: 160, 8: 120, 9: 80,
+                                 COFACTORS_COLUMN: 130}
         for column, width in default_column_widths.items():
             if column in [2, 3]:
                 header.setSectionResizeMode(column, QHeaderView.ResizeMode.Stretch)

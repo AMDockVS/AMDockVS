@@ -89,13 +89,16 @@ def test_the_storage_key_changes_only_when_cofactors_are_chosen():
     assert _receptor_import_variant(ReceptorImportOptions(selected_cofactors=("FMN:A:401",))) != default
 
 
-def test_import_panel_shows_cofactors_beside_metals_and_forwards_the_ones_taken_off(tmp_path):
+def test_import_panel_shows_cofactors_beside_metals_and_forwards_the_ones_taken_off(tmp_path, monkeypatch):
     import amdockvs.core.configuration  # noqa: F401  - pydantic before PySide6
     from PySide6.QtWidgets import QApplication
 
     from amdockvs.ui.tools.importing.receptors import COFACTORS_COLUMN, ReceptorImportPanel
 
     QApplication.instance() or QApplication(["cofactors-test"])
+    # The scan is fed in below; the panel's own would still be running when a later test
+    # processes events, and its thread would be torn down mid-run.
+    monkeypatch.setattr(ReceptorImportPanel, "start_scan", lambda self: None)
     path = str(_receptor(tmp_path / "rec.pdb").resolve())
     panel = ReceptorImportPanel(file_paths=[path])
     assert not hasattr(panel, "remove_cofactors"), "the column replaces the global checkbox"
@@ -113,4 +116,28 @@ def test_import_panel_shows_cofactors_beside_metals_and_forwards_the_ones_taken_
     request = panel.import_request()
     assert request["per_file"][path]["selected_cofactors"] == ["FMN:A:401", "HEM:A:403"]
     assert "remove_cofactors" not in request
+    panel.close()
+
+
+def test_every_column_fits_the_dialog_without_scrolling(tmp_path, monkeypatch):
+    """Three chip columns at 190 px squeezed Ligands to nothing and scrolled the table sideways in
+    the dialog (~975 px for the panel). One chip wide, their chips stack down instead."""
+    import amdockvs.core.configuration  # noqa: F401  - pydantic before PySide6
+    from PySide6.QtWidgets import QApplication
+
+    from amdockvs.ui.tools.importing.receptors import COFACTORS_COLUMN, ReceptorImportPanel
+
+    app = QApplication.instance() or QApplication(["cofactors-test"])
+    monkeypatch.setattr(ReceptorImportPanel, "start_scan", lambda self: None)  # the scan is fed in below
+    path = str(_receptor(tmp_path / "rec.pdb").resolve())
+    panel = ReceptorImportPanel(file_paths=[path])
+    panel._show_scan(1, 1, path, scan_receptor_structure(path))
+    panel._scan_complete = True
+    panel.refresh_preview()
+    panel.resize(975, 560)
+    panel.show()
+    app.processEvents()
+    assert panel.table.horizontalScrollBar().maximum() == 0
+    assert panel.table.columnWidth(3) >= 120, "Ligands keeps room for one chip"
+    assert all(panel.table.columnWidth(column) == 130 for column in (4, 5, COFACTORS_COLUMN))
     panel.close()
