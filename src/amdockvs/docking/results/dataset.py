@@ -115,6 +115,9 @@ def result_row(row: Mapping[str, Any], *, smiles: str, engine: str = "") -> dict
     }
 
 
+ROW_GROUP_BYTES = 16 << 20  # pose text buffered per row group: bounds a worker's memory
+
+
 class ResultFragmentWriter:
     """Append rows immediately and publish the Parquet fragment atomically on success."""
 
@@ -130,19 +133,36 @@ class ResultFragmentWriter:
                 default=str,
             ).encode("utf-8")
         })
-        self._writer = pq.ParquetWriter(self.temporary, schema, compression="zstd")
+        # Statistics on `ligand_id` only: a min/max over pose text is most of the footer and
+        # nothing filters on it (pose lookups prune row groups by ligand id).
+        self._writer = pq.ParquetWriter(self.temporary, schema, compression="zstd", write_statistics=["ligand_id"])
         self._schema = schema
+        self._rows: list[dict[str, Any]] = []
+        self._bytes = 0
 
     def add(self, row: Mapping[str, Any]) -> None:
-        # One row group per completed ligand makes the loose pose disposable immediately.
+        # Rows are buffered into big row groups: one per ligand made a fragment ~48x larger and
+        # ranking ~100x slower (test/benchmarks/results/shard_pipeline_2026-11-18.md). The
+        # pose text is already in memory, so the loose pose file is still disposable at once;
+        # durability is unchanged, the fragment is published only on success anyway.
         payload = dict(row)
         payload.setdefault("has_pose", bool(payload.get("pose_text")))
-        self._writer.write_table(pa.Table.from_pylist([payload], schema=self._schema))
+        self._rows.append(payload)
+        self._bytes += len(payload.get("pose_text") or "")
+        if self._bytes >= ROW_GROUP_BYTES:
+            self._flush()
+
+    def _flush(self) -> None:
+        if self._rows:
+            self._writer.write_table(pa.Table.from_pylist(self._rows, schema=self._schema))
+            self._rows, self._bytes = [], 0
 
     def __enter__(self) -> "ResultFragmentWriter":
         return self
 
     def __exit__(self, exc_type, _exc, _tb) -> None:
+        if exc_type is None:
+            self._flush()
         self._writer.close()
         if exc_type is None:
             self.temporary.replace(self.path)
