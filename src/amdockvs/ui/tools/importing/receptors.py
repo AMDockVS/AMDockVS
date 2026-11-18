@@ -64,6 +64,10 @@ from amdockvs.ui.tools.importing.download import download_into, file_label, file
 RECEPTOR_PREVIEW_MAX_FILES = 50
 
 
+#: Logical index of the Cofactors column: added last so no other index moved, shown beside Metals.
+COFACTORS_COLUMN = 12
+
+
 def _as_ref_tuple(value) -> tuple | None:
     """None = 'all cocrystal ligands' (default); a tuple = exactly those selectors."""
     return None if value is None else tuple(value)
@@ -195,9 +199,6 @@ class ReceptorImportPanel(QWidget):
         self.remove_altloc.setChecked(True)
         options.addWidget(self.remove_altloc, 2, 0)
 
-        self.remove_cofactors = QCheckBox("Remove cofactors during preparation", self)
-        options.addWidget(self.remove_cofactors, 3, 0)
-
         self.status_label = QLabel(self)
         self.status_label.setWordWrap(True)
         options.addWidget(self.status_label, 0, 4, 4, 1, Qt.AlignRight | Qt.AlignVCenter)
@@ -213,16 +214,21 @@ class ReceptorImportPanel(QWidget):
         self.progress_bar.setFixedHeight(3)
         # Not laid out here: the host puts it in its footer, beside the Import/Cancel buttons.
 
-        self.table = QTableWidget(0, 12, self)
+        self.table = QTableWidget(0, 13, self)
         self.table.setHorizontalHeaderLabels(
-            ["File", "Unit", "Chains", "Ligands", "Metals", "Waters", "Status", "Selected Ligand", "Activity", "As Ligand", "Format", "Path"]
+            ["File", "Unit", "Chains", "Ligands", "Metals", "Waters", "Status", "Selected Ligand", "Activity", "As Ligand", "Format", "Path",
+             "Cofactors"]
         )
         header = self.table.horizontalHeader()
         header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # every column holds text
         # Every column is user-resizable (Interactive) with a sensible default width; Chains needs
         # room for its chips+combo so it isn't clipped.
         header.setStretchLastSection(False)
-        default_column_widths = {0: 90, 1: 120, 2: 245, 3: 295, 4: 190, 5: 190, 6: 80, 7: 160, 8: 120, 9: 80}
+        # Metals, Waters and Cofactors are one chip wide (the widest, "FMN:A:1002", is ~118 px with
+        # margins) and their chips stack downwards, so Chains and Ligands, which stretch, keep the
+        # width: at 190 each the three fixed columns squeezed Ligands to nothing in the dialog.
+        default_column_widths = {0: 90, 1: 120, 2: 245, 3: 295, 4: 130, 5: 130, 6: 80, 7: 160, 8: 120, 9: 80,
+                                 COFACTORS_COLUMN: 130}
         for column, width in default_column_widths.items():
             if column in [2, 3]:
                 header.setSectionResizeMode(column, QHeaderView.ResizeMode.Stretch)
@@ -238,6 +244,8 @@ class ReceptorImportPanel(QWidget):
         self.table.setColumnHidden(8, True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         header.setSectionResizeMode(11, QHeaderView.ResizeMode.Stretch)
+        # Cofactors (12) came last so no other column moved; it is shown between Metals and Waters.
+        header.moveSection(header.visualIndex(COFACTORS_COLUMN), header.visualIndex(5))
 
         # Vertical add/remove toolbar on the table's left (where the eye starts), with a drop hint.
         table_row = QHBoxLayout()
@@ -279,7 +287,6 @@ class ReceptorImportPanel(QWidget):
 
         self.remove_non_structural_waters.toggled.connect(self.refresh_preview)
         self.create_binding_sites.toggled.connect(self.refresh_preview)
-        self.remove_cofactors.toggled.connect(self.refresh_preview)
         self.remove_altloc.toggled.connect(self.refresh_preview)
         self.binding_site_box_size.valueChanged.connect(self.refresh_preview)
         self.metals_box.changed.connect(self.refresh_preview)
@@ -350,7 +357,7 @@ class ReceptorImportPanel(QWidget):
 
     def _apply_preview_visibility(self) -> None:
         self.progress_bar.setVisible(self._enable_preview and bool(self._file_paths))
-        for column in (1, 2, 3, 4, 5, 9):
+        for column in (1, 2, 3, 4, 5, 9, COFACTORS_COLUMN):
             self.table.setColumnHidden(column, not self._enable_preview)
         for column in (10, 11):
             self.table.setColumnHidden(column, self._enable_preview)
@@ -485,7 +492,6 @@ class ReceptorImportPanel(QWidget):
             "remove_non_structural_waters": base.remove_non_structural_waters,
             "create_binding_sites": base.create_binding_sites_from_components,
             "grid_box_metals": list(base.grid_box_metals or ()),
-            "remove_cofactors": base.remove_cofactors,
             "remove_altloc": base.remove_altloc,
             "use_biological_assembly": base.use_biological_assembly,
             "import_mode": base.import_mode,
@@ -500,7 +506,6 @@ class ReceptorImportPanel(QWidget):
             use_biological_assembly=False,  # the per-row Unit column drives assembly selection now
             remove_non_structural_waters=self.remove_non_structural_waters.isChecked(),
             create_binding_sites_from_components=self.create_binding_sites.isChecked(),
-            remove_cofactors=self.remove_cofactors.isChecked(),
             remove_altloc=self.remove_altloc.isChecked(),
             import_mode="receptor",
             binding_site_box_size=float(self.binding_site_box_size.value()),
@@ -560,6 +565,10 @@ class ReceptorImportPanel(QWidget):
             selected_waters = None
             if last_sig is not None and last_sig == sig and isinstance(water_chips, ChipsSelect):
                 selected_waters = water_chips.selected_items()
+            cofactor_chips = self.table.cellWidget(row_index, COFACTORS_COLUMN)
+            selected_cofactors = None
+            if last_sig is not None and last_sig == sig and isinstance(cofactor_chips, ChipsSelect):
+                selected_cofactors = cofactor_chips.selected_items()
 
             if isinstance(ligand_widget, QComboBox):
                 selected_ligand = str(ligand_widget.currentData() or "")
@@ -573,6 +582,7 @@ class ReceptorImportPanel(QWidget):
                 "selected_reference_ligands": selected_reference_ligands,
                 "selected_metals": selected_metals,
                 "selected_waters": selected_waters,
+                "selected_cofactors": selected_cofactors,
             }
         self._row_state_by_path = state_by_path
 
@@ -622,6 +632,7 @@ class ReceptorImportPanel(QWidget):
                         "selected_reference_ligands": _as_ref_tuple(state.get("selected_reference_ligands")),
                         "selected_metals": _as_ref_tuple(state.get("selected_metals")),
                         "selected_waters": _as_ref_tuple(state.get("selected_waters")),
+                        "selected_cofactors": _as_ref_tuple(state.get("selected_cofactors")),
                     }
                 )
                 preview = build_receptor_import_preview(scan, options)
@@ -675,9 +686,9 @@ class ReceptorImportPanel(QWidget):
         unit_combo.currentIndexChanged.connect(self.refresh_preview)
         self.table.setCellWidget(row_index, 1, unit_combo)
         # Chains (col 2) is a per-row multi-select; Ligands (col 3) picks which cocrystal
-        # ligands become references (drop artifacts); Metals (col 4) and Waters (col 5, the
-        # structural ones) which stay in the receptor.
-        for column in (2, 3, 4, 5):
+        # ligands become references (drop artifacts); Metals (col 4), Waters (col 5, the
+        # structural ones) and Cofactors (col 12, shown beside Metals) which stay in the receptor.
+        for column in (2, 3, 4, 5, COFACTORS_COLUMN):
             chips = ChipsSelect(self.table)
             chips.changed.connect(self.refresh_preview)
             chips.heightChanged.connect(lambda chips=chips: self._fit_row_of(chips))
@@ -879,6 +890,14 @@ class ReceptorImportPanel(QWidget):
                 water_chips.set_items(list((preview.get("workflow") or {}).get("water_candidates") or []),
                                       selected=state.get("selected_waters"))
                 water_chips.blockSignals(False)
+            # Cofactor chips: every cofactor on the kept chains; one taken off is stripped from the
+            # receptor. Docking Studio's "Include cofactors" decides whether the kept ones are docked.
+            cofactor_chips = self.table.cellWidget(row_index, COFACTORS_COLUMN)
+            if isinstance(cofactor_chips, ChipsSelect):
+                cofactor_chips.blockSignals(True)
+                cofactor_chips.set_items(list((preview.get("workflow") or {}).get("cofactor_candidates") or []),
+                                         selected=state.get("selected_cofactors"))
+                cofactor_chips.blockSignals(False)
 
             ligand_combo = self._ligand_widget(row_index)
             if ligand_combo is not None:

@@ -189,8 +189,9 @@ class PreparationConfiguration(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    # ponytail: 128 measured on one 16-thread Ryzen (Enamine 3k/10k, 1000 left cores idle); calibrate across CPUs.
     ligands_per_task: int = Field(
-        1000,
+        128,
         ge=1,
         le=100_000,
         title="Ligands per task",

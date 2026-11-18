@@ -388,7 +388,7 @@ def _receptor_import_variant(options: ReceptorImportOptions | None) -> str:
     """
     if options is None:
         return ""
-    return repr((
+    variant = (
         options.import_mode,
         options.selected_assembly,
         options.use_biological_assembly,
@@ -400,7 +400,12 @@ def _receptor_import_variant(options: ReceptorImportOptions | None) -> str:
         None if options.selected_reference_ligands is None else tuple(options.selected_reference_ligands),
         options.selected_metals,
         options.selected_waters,
-    ))
+    )
+    # Appended only when chosen: every key written before the cofactor selection existed (and
+    # every import that keeps all its cofactors) stays the same, so a re-import still matches.
+    if options.selected_cofactors is not None:
+        variant += (options.selected_cofactors,)
+    return repr(variant)
 
 
 def _receptor_import_options_from_patch(extra_data_patch: dict[str, Any]) -> ReceptorImportOptions:
@@ -431,6 +436,7 @@ def _receptor_import_options_from_patch(extra_data_patch: dict[str, Any]) -> Rec
         selected_metals=_optional_tuple(import_profile.get("selected_metals")),
         grid_box_metals=_optional_tuple(import_profile.get("grid_box_metals")),
         selected_waters=_optional_tuple(import_profile.get("selected_waters")),
+        selected_cofactors=_optional_tuple(import_profile.get("selected_cofactors")),
     )
 
 

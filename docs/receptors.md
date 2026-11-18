@@ -45,11 +45,12 @@ preview table lets you make selections separately for each file:
 | **Chains** | Choose which chains to keep from the selected unit. By default, all available chains are kept. |
 | **Ligands** | Choose co-crystal ligands to retain as reference ligands. With no narrower selection, all detected candidates are retained. |
 | **Metals** | Choose which detected metal components to keep in the receptor. |
+| **Cofactors** | Choose which detected cofactors (FMN, FAD, NAD, HEM, ...) to keep in the receptor. By default, all are kept; remove one to strip it from the stored structure. Whether the kept cofactors are included when the receptor is prepared for docking is set by **Include cofactors** in Docking Studio. |
 | **Waters** | Choose structural waters to retain. Non-structural waters are controlled by the global option below. |
 | **As Ligand** | Also import this receptor as a general ligand, for cases such as docking a protein dimer. |
 
-Changing the unit or selected chains updates the available ligand, metal and
-water choices to match the parts of the structure that remain in scope.
+Changing the unit or selected chains updates the available ligand, metal,
+cofactor and water choices to match the parts of the structure that remain in scope.
 
 ![](images/AMDockVS_receptors_imported.png)
 
@@ -74,8 +75,6 @@ The controls below the table apply to the import:
 - **Resolve AltLoc to A / highest occupancy** — Checked by default. Resolves
   alternate atom locations by preferring location A, or the highest occupancy
   when A is unavailable.
-- **Remove cofactors during preparation** — Off by default. Cofactors are
-  removed during receptor preparation, not by this import option immediately.
 
 ## Start the import
 
@@ -89,3 +88,5 @@ job is queued.
 For batches larger than 50 files, per-file preview is disabled. The table then
 shows file format and path instead of the per-structure selection columns, and
 the import job handles the files without preview-derived binding-site boxes.
+Cofactors are kept in every structure; leave **Include cofactors** off in
+Docking Studio to dock without them.
