@@ -75,6 +75,8 @@ class ReceptorImportOptions:
     grid_box_metals: tuple[str, ...] | None = None
     # Structural water selectors to keep; None = all. Non-structural ones follow remove_non_structural_waters.
     selected_waters: tuple[str, ...] | None = None
+    # Cofactor selectors to keep in the structure; None = all. remove_cofactors still takes every one.
+    selected_cofactors: tuple[str, ...] | None = None
 
 
 def preview_receptor_import(file_path: str | Path, options: ReceptorImportOptions) -> dict[str, Any]:
@@ -159,6 +161,7 @@ def build_receptor_import_maps(
             selected_reference_ligands=None if refs is None else tuple(refs),
             selected_metals=None if state.get("selected_metals") is None else tuple(state["selected_metals"]),
             selected_waters=None if state.get("selected_waters") is None else tuple(state["selected_waters"]),
+            selected_cofactors=None if state.get("selected_cofactors") is None else tuple(state["selected_cofactors"]),
         )
         preview = build_receptor_import_preview(scan, options)
         extra_data_patch_by_file[path] = {
@@ -191,6 +194,7 @@ def _unknown_selections(scan: dict[str, Any], state: dict[str, Any]) -> list[str
         "selected_metals": ("metal", of_class("metal")),
         "selected_reference_ligands": ("reference ligand", of_class("ligand")),
         "selected_waters": ("water", of_class("water")),
+        "selected_cofactors": ("cofactor", of_class("cofactor")),
     }
     problems = []
     for key, (label, known) in available.items():
@@ -245,6 +249,14 @@ def build_receptor_import_preview(scan: dict[str, Any], options: ReceptorImportO
         kept_metals = set(options.selected_metals)
         components = [comp for comp in components if comp["component_class"] != "metal" or comp["selector"] in kept_metals]
 
+    # Cofactors as metals: every one on the kept chains is offered, and one taken off leaves.
+    cofactor_candidates = [comp["selector"] for comp in components if comp["component_class"] == "cofactor"]
+    if options.remove_cofactors:
+        components = [comp for comp in components if comp["component_class"] != "cofactor"]
+    elif options.selected_cofactors is not None:
+        kept_cofactors = set(options.selected_cofactors)
+        components = [comp for comp in components if comp["component_class"] != "cofactor" or comp["selector"] in kept_cofactors]
+
     water_candidates = [comp["selector"] for comp in components if comp["component_class"] == "water" and comp.get("is_structural")]
     kept_waters = None if options.selected_waters is None else set(options.selected_waters)
     for component in components:
@@ -277,6 +289,7 @@ def build_receptor_import_preview(scan: dict[str, Any], options: ReceptorImportO
     workflow["reference_ligands"] = list(reference_ligands)
     workflow["metal_candidates"] = metal_candidates
     workflow["water_candidates"] = water_candidates
+    workflow["cofactor_candidates"] = cofactor_candidates
     status, messages = _build_status(
         atom_count=atom_count,
         missing_residues=missing_residues,
@@ -306,6 +319,7 @@ def build_receptor_import_preview(scan: dict[str, Any], options: ReceptorImportO
             "selected_reference_ligands": None if options.selected_reference_ligands is None else list(options.selected_reference_ligands),
             "selected_metals": _as_list(options.selected_metals),
             "selected_waters": _as_list(options.selected_waters),
+            "selected_cofactors": _as_list(options.selected_cofactors),
             "grid_box_metals": _as_list(options.grid_box_metals),
         },
         "assembly": {
@@ -453,7 +467,7 @@ def write_processed_receptor(
         for residue in chain:
             resname = str(residue.name or "").strip().upper()
             # What survives is decided by _components_to_remove() above (that is where the
-            # "Remove cofactors" / "Remove non-structural waters" options are applied, and
+            # cofactors taken off / "Remove non-structural waters" options are applied, and
             # _drop_unselected() has already taken those residues out). Here we only classify
             # by resname. Anything the scan could not classify came out "ligand", so it was
             # removed above, or it falls through to the last `continue`.
@@ -1084,7 +1098,10 @@ def _components_to_remove(scan: dict[str, Any], options: ReceptorImportOptions, 
             if dropped and selector_parts is not None:
                 removable.append(selector_parts)
             continue
-        if component_class == "cofactor" and options.remove_cofactors:
+        if component_class == "cofactor" and (
+            options.remove_cofactors
+            or (options.selected_cofactors is not None and selector not in options.selected_cofactors)
+        ):
             selector_parts = _parse_selector(selector)
             if selector_parts is not None:
                 removable.append(selector_parts)
