@@ -1416,6 +1416,10 @@ preview table lets you make selections separately for each file:</p>
 <td>Choose which detected metal components to keep in the receptor.</td>
 </tr>
 <tr>
+<td><strong>Cofactors</strong></td>
+<td>Choose which detected cofactors (FMN, FAD, NAD, HEM, ...) to keep in the receptor. By default, all are kept; remove one to strip it from the stored structure. Whether the kept cofactors are included when the receptor is prepared for docking is set by <strong>Include cofactors</strong> in Docking Studio.</td>
+</tr>
+<tr>
 <td><strong>Waters</strong></td>
 <td>Choose structural waters to retain. Non-structural waters are controlled by the global option below.</td>
 </tr>
@@ -1425,8 +1429,8 @@ preview table lets you make selections separately for each file:</p>
 </tr>
 </tbody>
 </table>
-<p>Changing the unit or selected chains updates the available ligand, metal and
-water choices to match the parts of the structure that remain in scope.</p>
+<p>Changing the unit or selected chains updates the available ligand, metal,
+cofactor and water choices to match the parts of the structure that remain in scope.</p>
 <p><a class="glightbox" data-type="image" href="../images/AMDockVS_receptors_imported.png"><img alt="" src="../images/AMDockVS_receptors_imported.png" /></a></p>
 <h2 id="set-import-options">Set import options<a class="headerlink" href="#set-import-options" title="Permanent link">&para;</a></h2>
 <p>The controls below the table apply to the import:</p>
@@ -1448,8 +1452,6 @@ water choices to match the parts of the structure that remain in scope.</p>
 <li><strong>Resolve AltLoc to A / highest occupancy</strong> — Checked by default. Resolves
   alternate atom locations by preferring location A, or the highest occupancy
   when A is unavailable.</li>
-<li><strong>Remove cofactors during preparation</strong> — Off by default. Cofactors are
-  removed during receptor preparation, not by this import option immediately.</li>
 </ul>
 <h2 id="start-the-import">Start the import<a class="headerlink" href="#start-the-import" title="Permanent link">&para;</a></h2>
 <p>Wait for the preview scan to finish, review the selections and options, then
@@ -1460,7 +1462,9 @@ follow the import job in the <a href="../jobs_monitor/">Jobs monitor</a>; the Re
 job is queued.</p>
 <p>For batches larger than 50 files, per-file preview is disabled. The table then
 shows file format and path instead of the per-structure selection columns, and
-the import job handles the files without preview-derived binding-site boxes.</p>
+the import job handles the files without preview-derived binding-site boxes.
+Cofactors are kept in every structure; leave <strong>Include cofactors</strong> off in
+Docking Studio to dock without them.</p>
 
 
 
