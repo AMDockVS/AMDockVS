@@ -644,9 +644,12 @@ class PocketDetectionWidget(QWidget):
     def _sync_receptor_scope(self) -> None:
         """Push what this tool works on onto the catalog Receptors table: receptors only,
         minus the ones whose import metadata already defines a reference ligand (their site
-        is known, so predicting it is wasted work)."""
+        is known, so predicting it is wasted work).
+
+        Only while the tool is on screen: hideEvent is what hands the table back, and a tool
+        built hidden (warm_up at startup) never gets one, so its scope would stay for good."""
         widget = self._catalog_receptor_widget()
-        if widget is None:
+        if widget is None or not self.isVisible():
             return
         excluded = sorted(self._defined_ligand_ids) if self.exclude_defined_checkbox.isChecked() else []
         filters = [FilterSpec("is_receptor", FilterOperator.EQ, True, label="role_receptor")]

@@ -11,7 +11,7 @@ import time
 from types import SimpleNamespace
 from typing import Callable
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -283,6 +283,7 @@ class DockingResultsWidget(QWidget):
         detail_scroll.setFrameShape(QScrollArea.NoFrame)
         detail_scroll.setWidget(self._build_detail_panel(detail_scroll))
         self._aux_panel = detail_scroll
+        self._fit_aux_panel()
         self._on_receptors_loaded()
 
     def _show_record(self, objects, kind: str, field: str, *, reveal: bool = False) -> None:
@@ -924,16 +925,27 @@ class DockingResultsWidget(QWidget):
                      if bar.maximum() > bar.minimum() else 0)
         cap = table.horizontalHeader().length() + 2 * table.frameWidth() + scrollbar
         self._ligand_box.setMaximumWidth(cap)
-        # A cap that grew (rows brought the scrollbar, a column widened) is not width the
-        # pane gets by itself: it does not stretch, so take what it lacks from Pose.
+        # Ligand and Receptor do not stretch: a cap that grew (rows brought the scrollbar, a
+        # column widened), or width a narrower moment took (a tool panel open), never comes
+        # back by itself. Only Pose stretches, so they take what they lack from its extra.
         sizes = self._splitter.sizes()
-        lacking = min(cap - sizes[1], sizes[2] - self._pose_box.minimumSizeHint().width())
-        if self._splitter.isVisible() and lacking > 0:
-            self._splitter.setSizes([sizes[0], sizes[1] + lacking, sizes[2] - lacking])
+        spare = sizes[2] - self._pose_box.minimumSizeHint().width()
+        for pane, wanted in ((1, cap), (0, self.RECEPTOR_PANE_WIDTH)):
+            give = min(wanted - sizes[pane], spare)
+            if give > 0:
+                sizes[pane] += give
+                sizes[2] -= give
+                spare -= give
+        if self._splitter.isVisible() and sizes != self._splitter.sizes():
+            self._splitter.setSizes(sizes)
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
         self._fit_ligand_pane()  # rows may have loaded (and brought a scrollbar) while hidden
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._fit_ligand_pane()  # room came back (a tool panel closed): the panes take theirs first
 
     def viewer_spare_width(self) -> int:
         """Width the Pose pane holds beyond what its columns need: what the PyMOL dock can
@@ -987,6 +999,16 @@ class DockingResultsWidget(QWidget):
         }
         self.detail_more.setPlainText(json.dumps(more, indent=2, default=str))
         self._load_interactions(hit)
+        QTimer.singleShot(0, self._fit_aux_panel)  # once the layout counts the fields just shown
+
+    def _fit_aux_panel(self) -> None:
+        """Selected Result and Interactions fit without scrolling: the splitter never shrinks a
+        widget below its minimum, so the tables above (far taller than theirs) give up the
+        height. Grows only, and not for the expanded "Show details" text, which scrolls."""
+        panel = getattr(self, "_aux_panel", None)
+        if panel is None or not self.detail_more.isHidden():
+            return
+        panel.setMinimumHeight(max(panel.minimumHeight(), panel.widget().minimumSizeHint().height()))
 
     def _reselected(self, table: SmartTableView) -> None:
         """A click on the selected row brings its pose back if the scene lost it (loading what

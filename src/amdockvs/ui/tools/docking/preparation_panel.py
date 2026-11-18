@@ -546,6 +546,8 @@ class PreparationPanel:
             # way out — switching away from redocking is how we get here.
             self._release_ligand_table()
             return
+        if not self.isVisible():
+            return  # hideEvent hands the table back; built hidden (warm_up), there is no hide
         usage_class = self._scope_usage_class()
         clause = self._unprepared_clause("ligand")
         widget.push_scope(
@@ -632,14 +634,16 @@ class PreparationPanel:
     def _sync_receptor_table_filter(self) -> None:
         """Same contract as _sync_ligand_table_filter, on the catalog Receptors tab."""
         widget = self._catalog_receptor_widget()
-        if widget is None:
-            return
+        if widget is None or not self.isVisible():
+            return  # hideEvent hands the table back; built hidden (warm_up), there is no hide
         self._push_receptor_scope(widget)
         # Receptors whose box does not fit the method are hidden; reading their structures
         # happens off the GUI thread, then the scope is pushed again if the set changed.
         method = self._method()
 
         def apply(ids: list[int]) -> None:
+            if not self.isVisible():
+                return  # closed while the structures were read
             if method == self._method() and (method, ids) != getattr(self, "_misfit_receptors", None):
                 self._misfit_receptors = (method, ids)
                 self._push_receptor_scope(widget)
