@@ -145,13 +145,11 @@ def dock_shards_campaign(params: DockCampaignParams, project) -> list[Stage]:
         raise RuntimeError("Nothing to dock: no shard against a prepared receptor with a binding site.")
     run = chunks[0]["docking_run_id"]
     elements = [_there(chunk, params.cpu_required) for chunk in chunks]
-    digests = {worker_file(row["prepared_path"]): row["sha256"]
-               for row in iter_prepared_shards(project_db, engine=params.preparation_engine) if row["sha256"]}
     ranked = partial(rank, cap=params.hit_cap, threshold=params.hit_threshold)
     prep = _unprepared(elements, params.preparation_engine)
     stages = [Stage("prep", prepare_stage, prep, deliver="none"),
               Stage("vs", dock_stage, From("prep", prepared_elements, (elements,)), reduce=ranked)] if prep else [
-              Stage("vs", dock_stage, elements, reduce=ranked, digests=digests)]
+              Stage("vs", dock_stage, elements, reduce=ranked)]
     stages.append(Stage("hits", hit_poses, From("vs", by_fragment)))
     if not params.has_off_targets:
         return stages

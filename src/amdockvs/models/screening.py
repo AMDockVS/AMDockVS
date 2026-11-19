@@ -3,7 +3,8 @@
 The shards themselves (path, id range, generation) are ms_flow's catalog
 (`ms_flow.core.data.catalog`, table `ms_shards`); what is here is the domain around them.
 Where a campaign's work went is the campaign's business (an ms_flow job in the journal), not a
-table here: only prepared shards travel to a cluster, by the sha256 their `shard_preps` row keeps.
+table here: a campaign checksums the prepared files it sends itself (few big files, not one per
+shard), so nothing here caches a digest a compaction would make stale.
 """
 
 from __future__ import annotations
@@ -33,7 +34,6 @@ class ShardPrep(SQLModel, table=True):
     family: str = code_field("prep_family", "ad4", primary_key=True)
     n_records: int = Field(default=0)
     n_failed: int = Field(default=0)  # > 0 = partial
-    sha256: str = Field(default="")  # of the prepared file: a campaign sends it without reading it again
 
 
 class ScreeningShardRun(SQLModel, table=True):

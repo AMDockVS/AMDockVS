@@ -277,9 +277,6 @@ def _prepared_shards(project_db, *, engine: str, unprepared: bool = False) -> It
         counts = dict(session.exec(
             select(ShardPrep.shard_id, ShardPrep.n_records).where(ShardPrep.family == family)
         ).all())
-        digests = dict(session.exec(
-            select(ShardPrep.shard_id, ShardPrep.sha256).where(ShardPrep.family == family)
-        ).all())
         # Scoped like every other shard read: the parent generation is still in the table and
         # its prepared artifacts are still on disk, but they are not the library any more.
         query = select(CatalogShard).order_by(CatalogShard.id)
@@ -305,14 +302,12 @@ def _prepared_shards(project_db, *, engine: str, unprepared: bool = False) -> It
                 "slot_count": shard.slot_count,
                 "prepared_path": str(prepared_path),
                 "n_records": int(n_records),
-                "sha256": digests.get(int(shard.id or 0)) or "",  # "" = prepared before 2026-11
             }
         elif unprepared:
             yield {"id": int(shard.id or 0), "scope": shard.scope,
                    "library": libraries.get(shard.scope, "library"), "shard_index": int(shard.shard_index),
                    "path": shard.path, "ids": ids, "base_id": shard.base_id, "slot_count": shard.slot_count,
-                   "prepared_path": "", "n_records": int(shard.n_records),
-                   "sha256": ""}
+                   "prepared_path": "", "n_records": int(shard.n_records)}
 
 
 def prepared_shard_record_count(project_db, *, engine: str) -> int:

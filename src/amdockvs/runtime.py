@@ -23,7 +23,6 @@ from amdockvs.core.constants import (
     TABLE_QSAR_PREDICTIONS,
     TABLE_RECEPTOR_PREPS,
     TABLE_SCREENING_SHARD_RUNS,
-    TABLE_SHARD_PREPS,
 )
 from amdockvs.manifest import AMDOCKVS_PROJECT_RESOURCES
 from amdockvs.core.configuration import (
@@ -377,14 +376,12 @@ class AMDockVSRuntime(AppRuntime):
         InteractionsResult.__table__.create(db.engine)
 
     def _add_columns(self) -> None:
-        """Columns a project made before them lacks: `shard_preps.sha256` (2026-11, empty: a campaign
-        hashes those files itself) and `docking_results.input_key` (2026-11). The box of an older
+        """Columns a project made before them lacks: `docking_results.input_key` (2026-11). The box of an older
         result is unknown; its key is its receptor payload (`legacy_input_key`), so skip_existing
         still docks again a receptor prepared since, without docking the whole library again.
         `screening_shard_runs.selection` (2026-11, empty: every receipt written before it stood
         for a whole shard)."""
         added = (
-            (TABLE_SHARD_PREPS, "sha256", "VARCHAR NOT NULL DEFAULT ''", None),
             (TABLE_DOCKING_RESULTS, "input_key", "VARCHAR NOT NULL DEFAULT ''",
              "UPDATE {table} SET input_key = 'legacy:' || COALESCE(receptor_payload_id, 0)"),
             (TABLE_SCREENING_SHARD_RUNS, "selection", "VARCHAR NOT NULL DEFAULT ''", None),
