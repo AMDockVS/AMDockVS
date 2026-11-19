@@ -18,13 +18,7 @@ from amdockvs.core.paths import get_default_project_root
 from amdockvs.core.rows import interaction_rows
 from amdockvs.docking.results.tasks import detect_interactions
 from amdockvs.docking.engines.registry import run_docking_chunk
-
-
-def _sdf_records(text: str) -> list[str]:
-    """The molecules of an SDF, each with its own terminator. Split on the terminator line only:
-    a molecule's first line (its name) may be blank."""
-    text = text if text.endswith("\n") else text + "\n"
-    return [record + "$$$$\n" for record in text.split("$$$$\n") if record.strip()]
+from amdockvs.docking.rescoring import rescore_rows, sdf_records as _sdf_records
 
 
 def _poses_as_payloads(rows: list[dict]) -> list[dict]:
@@ -68,7 +62,16 @@ def dock_pairs(payload: dict, progress_cb=None):
                 scratch.callback(_unlink, rigid / f"{path.stem}.rigid.pdbqt")
                 pair["ligand_path"] = str(path)
             pairs.append(pair)
-        rows = _poses_as_payloads(run_docking_chunk({**payload, "pairs": pairs}, progress_cb))
+        rows = run_docking_chunk({**payload, "pairs": pairs}, progress_cb)
+        # Rescoring applied with the docking: the pose files are still here, and only the
+        # rescored value is kept — the search score it replaces is recorded nowhere.
+        # ponytail: the first function of the list; a chain of them has no caller yet.
+        rescoring = [str(item.get("program") or "")
+                     for item in (payload.get("protocol_metadata") or {}).get("rescoring") or ()]
+        if rescoring and rescoring[0]:
+            rows = rescore_rows(rows, function=rescoring[0], pairs=pairs,
+                                config=payload.get("engine_config"))
+        rows = _poses_as_payloads(rows)
     # The receptor the pose was docked into, for what is computed from the pose later.
     receptors = {pair.get("receptor_id"): pair.get("receptor_payload_id") for pair in pairs}
     # And what it was docked against (`docking_input_key`), which skip_existing compares.

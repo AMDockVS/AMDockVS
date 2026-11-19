@@ -247,6 +247,7 @@ class DockingResultsWidget(QWidget):
         pose_config = results_pose_config()
         pose_config.context_menu_actions["Export poses (SDF)…"] = lambda objs: export_poses(self, runtime, objs)
         pose_config.context_menu_actions["Export poses (ZIP)…"] = lambda objs: export_pose_files(self, runtime, objs)
+        pose_config.context_menu_actions["Rescore poses…"] = self._rescore
         pose_config.context_menu_actions["Delete…"] = lambda objs: self._delete(objs, "result")
         self.pose_table = project_table(runtime, pose_config, pose_box)
         self.pose_table.setMinimumHeight(150)
@@ -902,6 +903,29 @@ class DockingResultsWidget(QWidget):
             self._reload_protocols(auto_select=False, protocols_only=True)
 
     refresh_results_view = refresh_view
+
+    def _rescore(self, objects) -> None:
+        """Rescore the selected poses with another function: a run of its own, so the docking
+        results stay and the two scores can be compared. Rescoring applied *with* a docking is
+        chosen in the Docking Studio instead, and keeps only the rescored value."""
+        from PySide6.QtWidgets import QInputDialog
+
+        from amdockvs.docking.rescoring import RESCORING_FUNCTIONS
+
+        ids = [int(obj.id) for obj in objects or () if getattr(obj, "id", None)]
+        if not ids:
+            QMessageBox.information(self, "Rescore poses", "Select at least one pose to rescore.")
+            return
+        function, chosen = QInputDialog.getItem(
+            self, "Rescore poses", f"Scoring function for {len(ids)} pose(s):",
+            [name.capitalize() for name in RESCORING_FUNCTIONS], 1, False)
+        if not chosen:
+            return
+        try:
+            self.runtime.docking.rescore_results(function=str(function).lower(), result_ids=ids,
+                                                 pose_rank=None)
+        except Exception as exc:
+            QMessageBox.critical(self, "Rescore poses", str(exc))
 
     def _delete(self, objects, kind: str) -> None:
         from amdockvs.ui.catalog.deletion import delete_objects

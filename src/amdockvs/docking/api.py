@@ -68,6 +68,7 @@ from amdockvs.docking.results.jobs import (
     interactions_job,
 )
 from amdockvs.docking.protocols import DockingProtocolMetadata
+from amdockvs.docking.rescore_jobs import RescoreJobParams, rescore_job
 from amdockvs.docking.rerun import (
     check_protocol_conflict, clear_previous_docking, resolved_protocol, stored_protocol_hash)
 from amdockvs.docking.shard_jobs import (
@@ -1698,6 +1699,43 @@ class DockingAPI:
         )
         return self.runtime.submit_job(
             diagram_job,
+            params=params.model_dump(mode="python"),
+            executor_name=executor_name,
+            depends_on=depends_on,
+        )
+
+    def rescore_results(
+            self,
+            *,
+            function: str = "vinardo",
+            result_ids: list[int] | None = None,
+            run_id: str = "",
+            receptor_id: int | None = None,
+            score_lte: float | None = None,
+            pose_rank: int | None = None,
+            chunk_size: int = 32,
+            executor_name: str = DEFAULT_LOCAL_CPU_EXECUTOR,
+            depends_on: list[str] | None = None,
+    ) -> str:
+        """Rescore poses the project already has with another scoring function.
+
+        The rows the job writes are a protocol of their own — the docking program plus
+        `function` — so the docking results stay where they are and both can be compared.
+        Rescoring applied *with* a docking is not this: it is `rescoring` in the protocol of
+        the docking job, and then only the rescored value is recorded.
+        """
+        self.runtime._require_active_project()
+        params = RescoreJobParams(
+            function=str(function or "vinardo"),
+            result_ids=[int(value) for value in (result_ids or []) if int(value) > 0],
+            run_id=str(run_id or ""),
+            receptor_id=receptor_id,
+            score_lte=score_lte,
+            pose_rank=pose_rank,
+            chunk_size=max(1, int(chunk_size)),
+        )
+        return self.runtime.submit_job(
+            rescore_job,
             params=params.model_dump(mode="python"),
             executor_name=executor_name,
             depends_on=depends_on,
