@@ -238,3 +238,26 @@ def test_a_forgotten_generation_takes_its_prepared_twins_but_one_docked_on_stays
     with project_db.get_session() as session:
         assert session.exec(select(ShardPrep)).all() == []
         assert {int(r.generation_id) for r in session.exec(select(CatalogShard)).all()} == {docked, generation - 1, generation}
+
+
+def test_a_rewrite_lands_in_one_file_per_scope(project, tmp_path):
+    """Workers write a file per shard; the switch adopts them into one big file first."""
+    from ms_flow.core.data.shard import PayloadKind, Serializer, Shard, ShardWriter
+
+    project_db, root = project
+    second = create_generation(project_db, step="protonate", folder=root)
+    writer = ShardGenerationWriter(project_db=project_db, generation_id=second)
+    for index in range(3):
+        path = tmp_path / f"out_{index}.parquet"
+        with ShardWriter(path, dataset_id=None, shard_id=0, base_id=10 * index, kind=PayloadKind.SDF,
+                         serializer=Serializer.UTF8, slot_count=10) as shard:
+            shard.add(10 * index, f"m{index}".encode())
+        writer.handle(f"chunk-{index}", [{"import_batch_id": 5, "shard_index": index, "path": str(path),
+                                          "n_records": 1}])
+    writer.flush()
+
+    rows = sorted(ShardStore(project_db).iter_rows(shard_scope_spec()), key=lambda r: r["base_id"])
+    assert len({row["path"] for row in rows}) == 1 and [r["base_id"] for r in rows] == [0, 10, 20]
+    assert not (tmp_path / "out_0.parquet").exists()
+    with Shard.open(rows[2]["path"], ids=(rows[2]["base_id"], rows[2]["base_id"] + rows[2]["slot_count"])) as shard:
+        assert [r.load() for r in shard] == ["m2"]
