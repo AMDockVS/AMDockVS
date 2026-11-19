@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import update
+from sqlalchemy import String, cast, func, literal, update
+from sqlalchemy.orm import aliased
 from sqlmodel import select
 
 from amdockvs.models import BindingSite
@@ -63,4 +64,18 @@ def site_payload(site: BindingSite | None) -> dict[str, Any] | None:
     }
 
 
-__all__ = ["active_site", "active_sites", "set_active", "set_site_active", "site_payload"]
+def site_name_expr(model):
+    """The name of the site a row points at, as a correlated subquery: for a table that shows
+    `binding_site_id` as a name. NULL where the row matches no site, which is the plain rigid
+    receptor; the caller decides what to print there."""
+    site = aliased(BindingSite)
+    return (
+        select(func.coalesce(func.nullif(site.name, ""), literal("BS ") + cast(site.id, String)))
+        .where(site.id == model.binding_site_id)
+        .correlate(model)
+        .scalar_subquery()
+    )
+
+
+__all__ = ["active_site", "active_sites", "set_active", "set_site_active", "site_name_expr",
+           "site_payload"]
