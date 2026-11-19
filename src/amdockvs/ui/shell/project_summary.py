@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog, QDialogButtonBox, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QLabel, QLayout, QPushButton, QVBoxLayout,
 )
+from ms_components.labels import WrappedText
 
 from amdockvs.core.payloads import payload_store
 from amdockvs.project.storage import compact_storage, storage_stats
@@ -226,8 +227,8 @@ def show_project_summary(window) -> None:
     root.addWidget(header)
 
     if summary is not None and getattr(summary, "description", ""):
-        desc = QLabel(summary.description)
-        desc.setWordWrap(True)
+        # Wrapped, as tall as its lines up to six, scrolling past them: a QLabel here lost lines.
+        desc = WrappedText(summary.description, max_lines=6)
         desc.setStyleSheet("color:palette(placeholder-text);")
         root.addWidget(desc)
 
