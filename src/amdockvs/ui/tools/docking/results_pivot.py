@@ -130,8 +130,13 @@ class ResultsPivotWidget(QWidget):
         self.pivot_combo = QComboBox(self)
         for key, label, _reason in _PIVOTS:
             self.pivot_combo.addItem(label, key)
+        # Not sized to its longest item: "<view> - <why it is unavailable>" would set the tab's
+        # minimum width and push the docks aside (the Studio shrinking under Preview & Run).
+        # Its popup still lists every item in full.
+        self.pivot_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.pivot_combo.setMinimumContentsLength(24)
         self.pivot_combo.currentIndexChanged.connect(self._on_pivot_changed)
-        controls.addWidget(self.pivot_combo)
+        controls.addWidget(self.pivot_combo, 2)
         self.reason_label = QLabel("", self)
         controls.addWidget(self.reason_label, 1)
         self.recover_button = QPushButton("Recover Top N", self)
