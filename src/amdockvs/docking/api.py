@@ -98,7 +98,7 @@ from amdockvs.docking.residues import residues_in_box
 from amdockvs.core.payloads import molecule_payload_id, read_structure
 from amdockvs.io.formats import as_pdb
 from amdockvs.molecules.api import ensure_molecule_set_ref
-from amdockvs.models import BindingSite, MoleculeRecord, ReceptorPrep, prep_table
+from amdockvs.models import BindingSite, MoleculeRecord, prep_table
 from amdockvs.models.docking import box_error, defined_box_clauses
 from amdockvs.project.sets import ComplexSetRef, MoleculeSetRef, prepared_molecules_spec
 from amdockvs.workflows.rules import apply_workflow_filters
