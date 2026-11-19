@@ -51,6 +51,23 @@ def _first_warning(value) -> str:
     return lines[0] + (f" (+{len(lines) - 1} more)" if len(lines) > 1 else "")
 
 
+def _site_name(model):
+    """The binding site a receptor preparation belongs to, named; NULL (shown as "rigid") for
+    the plain rigid receptor, which is `binding_site_id` 0 and matches no site."""
+    from sqlalchemy import String, cast, func, literal, select
+    from sqlalchemy.orm import aliased
+
+    from amdockvs.models import BindingSite
+
+    site = aliased(BindingSite)
+    return (
+        select(func.coalesce(func.nullif(site.name, ""), literal("BS ") + cast(site.id, String)))
+        .where(site.id == model.binding_site_id)
+        .correlate(model)
+        .scalar_subquery()
+    )
+
+
 def _prep_table_config(*, role_type: str) -> TableConfig:
     """Per-(molecule, family) preparation status, from `ligand_preps` or `receptor_preps`."""
     model, molecule_column, payload_column = prep_table(role_type)
@@ -66,11 +83,18 @@ def _prep_table_config(*, role_type: str) -> TableConfig:
             tooltip=lambda row: row.get("warnings") or None,
         ),
     ] if hasattr(model, "warnings") else []
+    # Receptors only: one is prepared once per site with flexible side chains (carving them
+    # rewrites the rigid file), so the same molecule shows up in several rows.
+    site_column = [
+        ColumnDef("binding_site_id", label="Site", width=90, filterable=False, expr=_site_name(model),
+                  formatter=lambda value: str(value or "") or "rigid"),
+    ] if hasattr(model, "binding_site_id") else []
     return TableConfig(
         model_class=model,
         columns=[
             ColumnDef(molecule_column.key, label="Molecule", width=90, sortable=True, filterable=True,
                       align=AlignHint.RIGHT),
+            *site_column,
             # Known families derived from the program registry — no static list to fall out of sync.
             ColumnDef("family", label="Family", width=120, sortable=True, filterable=True,
                       kind=ColumnKind.CHOICE,
