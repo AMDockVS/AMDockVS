@@ -9,6 +9,18 @@ from amdockvs.docking.methods import check_program
 from amdockvs.workflows.rules import apply_workflow_filters
 
 
+#: The range the program forms always offered; kept so stored protocols still validate.
+SEED_MIN, SEED_MAX = -1_000_000, 1_000_000
+
+
+def _seed_field(*, zero_is_random: bool = False) -> Any:
+    """One definition of `seed` for every program, so their forms label and bound it alike."""
+    meaning = ("0 lets the program pick its own random seed." if zero_is_random
+               else "The same seed reproduces the same poses.")
+    return Field(default=0, ge=SEED_MIN, le=SEED_MAX, title="Random seed",
+                 description=f"Random seed for the docking search. {meaning}")
+
+
 class DockingEngineConfig(BaseModel):
     """Validated configuration passed unchanged from API to an engine runner.
 
@@ -23,7 +35,7 @@ class DockingEngineConfig(BaseModel):
     scoring_function: str = "vina"
     vina_command: str = "vina"
     vina_cpu: int = Field(default=1, ge=1)
-    seed: int = 0
+    seed: int = _seed_field()
     spacing: float = Field(default=0.375, gt=0.0)
     energy_range: float = Field(default=3.0, ge=0.0)
     min_rmsd: float = Field(default=1.0, ge=0.0)
@@ -37,7 +49,7 @@ class GninaEngineConfig(BaseModel):
     num_modes: int = Field(default=9, ge=1, le=128)
     vina_cpu: int = Field(default=1, ge=1, le=128, title="CPU per task")
     scoring_function: Literal["rescore", "none", "refinement", "all"] = "rescore"
-    seed: int = 0
+    seed: int = _seed_field()
 
 
 class QVinaEngineConfig(BaseModel):
@@ -48,7 +60,7 @@ class QVinaEngineConfig(BaseModel):
     vina_cpu: int = Field(default=1, ge=1, le=128, title="CPU per task")
     energy_range: float = Field(default=3.0, ge=0.0, title="Energy range (kcal/mol)",
                                 json_schema_extra={"decimals": 1})
-    seed: int = 0
+    seed: int = _seed_field()
 
 
 class AutoDockGPUEngineConfig(BaseModel):
@@ -68,7 +80,7 @@ class AutoDockGPUEngineConfig(BaseModel):
         title="Derived atom types",
         description="Atom types added by the parameter file and the known type each one derives from, e.g. XX=OA/C1,C2=C.",
     )
-    seed: int = 0
+    seed: int = _seed_field(zero_is_random=True)
     method: str = "standard"  # docking/methods.py; picked in Experiment Setup, not in the program form
 
 
@@ -84,7 +96,7 @@ class UniDockEngineConfig(BaseModel):
     num_modes: int = Field(default=9, ge=1, le=128)
     energy_range: float = Field(default=3.0, ge=0.0, title="Energy range (kcal/mol)",
                                 json_schema_extra={"decimals": 1})
-    seed: int = 0
+    seed: int = _seed_field(zero_is_random=True)
 
 
 @dataclass(frozen=True)
@@ -402,6 +414,8 @@ __all__ = [
     "ADGPU_PROGRAM",
     "AutoDockGPUEngineConfig",
     "GNINA_PROGRAM",
+    "SEED_MAX",
+    "SEED_MIN",
     "GninaProgram",
     "QVINA_PROGRAM",
     "QVinaEngineConfig",

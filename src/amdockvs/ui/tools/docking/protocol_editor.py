@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
     QWidget, )
 
 from amdockvs.docking.engines.programs import (
-    GNINA_PROGRAM, QVINA_PROGRAM, VINA_PROGRAM, get_docking_program, list_docking_programs, missing_programs, unavailable_programs)
+    GNINA_PROGRAM, QVINA_PROGRAM, SEED_MAX, SEED_MIN, VINA_PROGRAM, get_docking_program, list_docking_programs, missing_programs, unavailable_programs)
 from amdockvs.docking.engines.autogrid import AUTOGRID_UNAVAILABLE
 from amdockvs.docking.methods import METHODS, get_method
 from amdockvs.integrations.registry import MANAGED_TOOLS
@@ -48,6 +48,13 @@ def _spinbox(*, minimum: int, maximum: int, value: int) -> QSpinBox:
     widget = QSpinBox()
     widget.setRange(minimum, maximum)
     widget.setValue(value)
+    return widget
+
+
+def _seed_spinbox(spec) -> QSpinBox:
+    """The seed field of a hand-built program page, bounded and explained like the schema ones."""
+    widget = _spinbox(minimum=SEED_MIN, maximum=SEED_MAX, value=0)
+    widget.setToolTip(str(spec.config_model.model_fields["seed"].description or ""))
     return widget
 
 
@@ -224,12 +231,14 @@ class ProtocolEditorWidget:
             self.exhaustiveness = _spinbox(minimum=1, maximum=256, value=dd.exhaustiveness)
             self.num_modes = _spinbox(minimum=1, maximum=128, value=dd.num_modes)
             self.vina_cpu = _spinbox(minimum=1, maximum=128, value=dd.cpu_per_task)
+            self.vina_seed = _seed_spinbox(spec)
             self.scoring_combo = QComboBox(page)
             self.scoring_combo.addItems(list(VINA_PROGRAM.scoring_functions))
             self.scoring_combo.setCurrentText("vina")
             form.addRow("Exhaustiveness", self.exhaustiveness)
             form.addRow("Num modes", self.num_modes)
             form.addRow("CPU per task", self.vina_cpu)
+            form.addRow("Random seed", self.vina_seed)
             form.addRow("Scoring", self.scoring_combo)
         elif spec.key == GNINA_PROGRAM.key:
             # gnina reuses the Vina PDBQT prep; "Scoring" here is the --cnn_scoring mode.
@@ -237,6 +246,7 @@ class ProtocolEditorWidget:
             self.gnina_exhaustiveness = _spinbox(minimum=1, maximum=256, value=dd.exhaustiveness)
             self.gnina_num_modes = _spinbox(minimum=1, maximum=128, value=dd.num_modes)
             self.gnina_cpu = _spinbox(minimum=1, maximum=128, value=dd.cpu_per_task)
+            self.gnina_seed = _seed_spinbox(spec)
             self.gnina_cnn_combo = QComboBox(page)
             self.gnina_cnn_combo.addItems(list(GNINA_PROGRAM.scoring_functions))
             self.gnina_cnn_combo.setCurrentText("rescore")
@@ -249,6 +259,7 @@ class ProtocolEditorWidget:
             form.addRow("Exhaustiveness", self.gnina_exhaustiveness)
             form.addRow("Num modes", self.gnina_num_modes)
             form.addRow("CPU per task", self.gnina_cpu)
+            form.addRow("Random seed", self.gnina_seed)
             form.addRow("CNN scoring", self.gnina_cnn_combo)
             form.addRow(gpu_hint)
         else:
@@ -348,6 +359,7 @@ class ProtocolEditorWidget:
                 "exhaustiveness": int(self.exhaustiveness.value()),
                 "num_modes": int(self.num_modes.value()),
                 "vina_cpu": int(self.vina_cpu.value()),
+                "seed": int(self.vina_seed.value()),
             }
         if program == GNINA_PROGRAM.key:
             # gnina carries the --cnn_scoring mode in scoring_function (its own engine slot).
@@ -356,6 +368,7 @@ class ProtocolEditorWidget:
                 "exhaustiveness": int(self.gnina_exhaustiveness.value()),
                 "num_modes": int(self.gnina_num_modes.value()),
                 "vina_cpu": int(self.gnina_cpu.value()),
+                "seed": int(self.gnina_seed.value()),
             }
         return self._schema_config_from_widgets(program)
 
@@ -373,12 +386,14 @@ class ProtocolEditorWidget:
             self.exhaustiveness.setValue(int(config.get("exhaustiveness") or dd.exhaustiveness))
             self.num_modes.setValue(int(config.get("num_modes") or dd.num_modes))
             self.vina_cpu.setValue(int(config.get("vina_cpu") or dd.cpu_per_task))
+            self.vina_seed.setValue(int(config.get("seed") or 0))
         elif program == GNINA_PROGRAM.key:
             dd = docking.gnina
             self.gnina_cnn_combo.setCurrentText(str(config.get("scoring_function") or "rescore"))
             self.gnina_exhaustiveness.setValue(int(config.get("exhaustiveness") or dd.exhaustiveness))
             self.gnina_num_modes.setValue(int(config.get("num_modes") or dd.num_modes))
             self.gnina_cpu.setValue(int(config.get("vina_cpu") or dd.cpu_per_task))
+            self.gnina_seed.setValue(int(config.get("seed") or 0))
         else:
             for name, widget in self._program_config_widgets.get(program, {}).items():
                 value = config.get(name)
