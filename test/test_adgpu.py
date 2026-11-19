@@ -170,3 +170,54 @@ def test_flexible_residues_travel_with_their_pose_to_the_viewer():
     assert [" 1.000 " in loaded[0], " 2.000 " in loaded[1]] == [True, True]  # MODEL n with pose n
     assert attach_flexres(sd, pdbqt.replace("BEGIN_RES", "REMARK")) == sd  # rigid docking: untouched
     assert load_flexres(load, (sd.encode(),), "flex") is None
+
+
+def test_the_filelist_holds_no_path_from_a_project_folder_with_a_space(monkeypatch, tmp_path):
+    """The list a program parses never carries the project's name: Uni-Dock split such a line
+    on its spaces and failed every pair of the task. AutoDock-GPU reads whole lines, so this
+    keeps it that way by construction rather than by its parser's goodwill."""
+    project = tmp_path / "AmpC DUDE-Z virtual screening (ADGPU)"
+    out = project / "docking"
+    out.mkdir(parents=True)
+    (project / "maps").mkdir()
+    listed: list[str] = []
+
+    def fake_run(command, **_kw):
+        listed.append((out / command[command.index("--filelist") + 1]).read_text())
+        for name in "ab":
+            (out / f"{name}.dlg").write_text("")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(adgpu, "run_program", fake_run)
+    adgpu._run_adgpu(
+        executable="adgpu",
+        maps_prefix=str(project / "maps" / "rec"),
+        ligands={name: project / "inputs" / f"{name}.pdbqt" for name in "ab"},
+        flex_receptor_path=None,
+        output_dir=out,
+        nrun=20,
+        seed=0,
+        derived_types="",
+    )
+    lines = listed[0].splitlines()
+    assert lines and not [line for line in lines if " " in line], lines
+    assert lines[0] == "../maps/rec.maps.fld"
+
+
+def test_the_gpf_names_its_files_and_never_the_project_folder(monkeypatch, tmp_path):
+    """autogrid is given the GPF by name and reads its receptor and maps from the run folder,
+    so a project whose name holds spaces never reaches the file it parses (see
+    `amdockvs.docking.engines`)."""
+    work = tmp_path / "AmpC DUDE-Z virtual screening (ADGPU)" / "maps"
+    work.mkdir(parents=True)
+    receptor = tmp_path / "AmpC DUDE-Z virtual screening (ADGPU)" / "rec.pdbqt"
+    receptor.write_text(ATOM.format("N "))
+    commands: list[list[str]] = []
+    monkeypatch.setattr(autogrid, "run_program",
+                        lambda command, **_kw: commands.append(command)
+                        or subprocess.CompletedProcess(command, 0, "", ""))
+    autogrid.autogrid(receptor, ["C", "OA"], [0.0, 0.0, 0.0], [10.0] * 3, 0.375, work,
+                      executable="autogrid4")
+    gpf = (work / "rec.gpf").read_text()
+    assert "AmpC" not in gpf and str(work) not in gpf, gpf
+    assert commands[0][1:3] == ["-p", "rec.gpf"]  # by name, read from `work` itself

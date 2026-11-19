@@ -84,8 +84,12 @@ def _run_unidock(
         link.unlink(missing_ok=True)
         link.symlink_to(path)
     index = work / "ligands.txt"
-    index.write_text("".join(f"{work / name}.pdbqt\n" for name in ligands))
-    command = [executable, "--receptor", str(receptor_path), "--ligand_index", str(index), "--dir", str(work)]
+    # Bare file names, read from `work` itself: Uni-Dock splits each line of the index on
+    # whitespace, so a project folder whose name holds a space makes it abort on the first
+    # ligand ("terminate called after throwing an instance of 'file_error'") and every pair
+    # of the task fails. Only this file's lines are affected; the other paths may hold spaces.
+    index.write_text("".join(f"{name}.pdbqt\n" for name in ligands))
+    command = [executable, "--receptor", str(receptor_path), "--ligand_index", index.name, "--dir", str(work)]
     for axis, c, s in zip("xyz", center, size):
         command += [f"--center_{axis}", str(c), f"--size_{axis}", str(s)]
     if flex_path is not None:
@@ -101,7 +105,7 @@ def _run_unidock(
 
     why = "Uni-Dock wrote no poses"
     try:
-        _run_vina([*command, *options], follow=follow)
+        _run_vina([*command, *options], follow=follow, cwd=work)
     except RuntimeError as exc:
         why = str(exc)[-500:]  # the reason Uni-Dock gives is at the end
     outputs = {name: work / f"{name}_out.pdbqt" for name in ligands}
