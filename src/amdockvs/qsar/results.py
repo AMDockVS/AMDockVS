@@ -22,11 +22,20 @@ class ResultsMixin:
         before the concat when a library gets there."""
         import pandas as pd
 
+        from amdockvs.io.shards import shard_key
+
         self.runtime._require_active_project()
         directory = self._shard_predictions_dir(self._model_id(model))
-        paths = [directory / f"{int(row['id'])}.parquet"
-                 for row in ShardStore(self.runtime.workspace.project_db).iter_rows(batch_size=1000)]
-        frames = [pd.read_parquet(path) for path in paths if path.is_file()]
+        frames = []
+        for row in ShardStore(self.runtime.workspace.project_db).iter_rows(batch_size=1000):
+            path = directory / f"{int(row['id'])}.parquet"
+            if not path.is_file():
+                continue
+            frame = pd.read_parquet(path)
+            if row.get("record_ids") is not None:  # the exclusions left this shard partial
+                batch = row.get("import_batch_id")
+                frame = frame[frame["key"].isin({shard_key(batch, rid) for rid in row["record_ids"]})]
+            frames.append(frame)
         if not frames:
             return pd.DataFrame({"key": pd.Series(dtype="int64"), "value": pd.Series(dtype=float),
                                  "confidence": pd.Series(dtype=float),
@@ -51,16 +60,20 @@ class ResultsMixin:
         top_n: int | None = None,
         cutoff: float | None = None,
         higher_is_better: bool = True,
+        exclude_rest: bool = False,
     ) -> dict[str, Any]:
         """The cut of ``cut_predictions`` over the library's predictions: the records kept become
         molecule rows carrying their prediction, so everything that reads rows (the Predictions
-        view, ``cut_predictions``, docking) has them. Ties break by key. Returns {"scored": n,
-        "kept": n, "molecule_ids": the kept, best first}."""
+        view, ``cut_predictions``, docking) has them. Ties break by key. With ``exclude_rest``
+        every other record the model scored leaves the library (an ms_flow exclusion: no shard
+        is rewritten, and it is undone from there). Returns {"scored": n, "kept": n,
+        "excluded": n, "molecule_ids": the kept, best first}."""
         if top_n is None and cutoff is None:
             raise ValueError("promote_shard_predictions needs top_n and/or cutoff.")
         model_id = self._model_id(model)
         frame = self.shard_predictions(model=model_id)
         scored = len(frame)
+        all_keys = frame["key"].to_numpy() if exclude_rest else None
         classification = self._is_classifier(model_id)
         score = "positive_probability" if classification else "value"
         if classification and frame[score].isna().any():
@@ -75,7 +88,16 @@ class ResultsMixin:
             frame = frame.head(max(0, int(top_n)))
         kept = list(frame[["key", "value", "confidence", "positive_probability", "ad_similarity"]]
                     .itertuples(index=False, name=None))
-        promoted = ShardStore(self.runtime.workspace.project_db).promote(int(key) for key, *_ in kept)
+        store = ShardStore(self.runtime.workspace.project_db)
+        excluded = 0
+        if exclude_rest:
+            kept_keys = {int(key) for key, *_ in kept}
+            rest = [int(key) for key in all_keys if int(key) not in kept_keys]
+            how = (f"top {int(top_n)} " if top_n is not None else "") + (
+                f"{'>=' if higher_is_better else '<='} {float(cutoff):g}" if cutoff is not None else "")
+            if store.exclude(rest, reason=f"qsar: outside the cut of model #{model_id} ({how.strip()})") is not None:
+                excluded = len(rest)
+        promoted = store.promote(int(key) for key, *_ in kept)
         ids = [promoted[key] for key, *_ in kept if key in promoted]
         with self.runtime.workspace.project_db.get_session() as session:
             for start in range(0, len(ids), 900):
@@ -96,7 +118,7 @@ class ResultsMixin:
                 for key, value, confidence, probability, domain in kept if key in promoted
             )
             session.commit()
-        return {"scored": scored, "kept": len(ids), "molecule_ids": ids}
+        return {"scored": scored, "kept": len(ids), "excluded": excluded, "molecule_ids": ids}
 
     def list_predictions(
         self,

@@ -23,12 +23,14 @@ from amdockvs.chemistry.pipeline import normalize_steps, run_pipeline
 from amdockvs.io.shards import FORMAT_FOR_KIND, mol_from_record
 
 
-def read_shard(shard_path: str | Path) -> tuple[list[int], list[Any]]:
+def read_shard(shard_path: str | Path, ids_range=None, record_ids=None) -> tuple[list[int], list[Any]]:
     """`(ids, molecules)`, positionally aligned. Unreadable records come back as `None`,
-    which `run_pipeline` carries through untouched — the id is what carries identity."""
+    which `run_pipeline` carries through untouched — the id is what carries identity.
+    `ids_range`: the shard's ids inside the file (`amdockvs.shards.shard_ids`), None = all;
+    `record_ids`: only those (what the exclusions left), None = all."""
     ids: list[int] = []
     mols: list[Any] = []
-    with Shard.open(Path(shard_path).expanduser().resolve()) as shard:
+    with Shard.open(Path(shard_path).expanduser().resolve(), ids=ids_range, record_ids=record_ids) as shard:
         input_format = FORMAT_FOR_KIND.get(shard.kind, "")
         for record in shard:
             ids.append(record.id)
@@ -84,16 +86,17 @@ def write_shard(
     return written
 
 
-def transform_ligand_shard(shard_in: str | Path, shard_out: str | Path, steps) -> dict[str, int]:
+def transform_ligand_shard(shard_in: str | Path, shard_out: str | Path, steps, ids_range=None) -> dict[str, int]:
     """Run the step list over a whole shard. One file/CPU, no database in sight."""
-    with Shard.open(Path(shard_in).expanduser().resolve()) as shard:
+    with Shard.open(Path(shard_in).expanduser().resolve(), ids=ids_range) as shard:
         header = {
             "base_id": shard.base_id,
             "slot_count": shard.slot_count,
             "shard_id": shard.shard_id,
             "metadata": dict(shard.metadata),
         }
-    ids, mols = read_shard(shard_in)
+        ids = [record.id for record in shard]
+        mols = [mol_from_record(record.load(), FORMAT_FOR_KIND.get(shard.kind, "")) for record in shard]
     results = run_pipeline(mols, normalize_steps(steps))
     written = write_shard(
         shard_out,

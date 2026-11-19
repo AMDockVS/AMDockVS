@@ -12,18 +12,20 @@ the filter rejected, and ids run correlative across the whole import.
 A shard is not a file in the source's format: it is a container (`ms_flow.core.data.shard`)
 holding the raw record bytes, with the format in its header. Nothing downstream sniffs an
 extension. The ordinal a record had in its source file does not survive as its id — it lives
-in the shard's `source_indices` metadata, which is where provenance goes once the queue
-decides who sits next to whom.
+in the file's `source_index` column, which is where provenance goes once the queue decides who
+sits next to whom.
 """
 
 from __future__ import annotations
 
 import io
+from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Iterator
+from uuid import uuid4
 
-from ms_flow.core.data.shard import PayloadKind, Serializer, ShardWriter
+from ms_flow.core.data.shard import MAX_RECORDS, PayloadKind, Serializer, ShardWriter
 
 from amdockvs.io.parsers import iter_record_span
 from amdockvs.io.payloads import ImportBatchPayload
@@ -65,6 +67,21 @@ def split_shard_key(key: int) -> tuple[int, int]:
 
 def is_shard_key(key: int) -> bool:
     return int(key) >> _RECORD_BITS > 0
+
+
+def shard_ids(row: Any) -> tuple[int, int] | None:
+    """A catalog shard's ids inside its file, as `Shard.open(ids=)` takes them; None = the whole
+    file. Takes a `ScreeningShard` or a row dict."""
+    get = row.get if isinstance(row, Mapping) else (lambda key: getattr(row, key, None))
+    base = get("base_id")
+    return None if base is None else (int(base), int(base) + int(get("slot_count") or 0))
+
+
+def shard_file_name(path: str | Path, ids: Any = None) -> str:
+    """The name of a file made from one shard (its prepared twin, a step's output): the source's
+    own for a whole-file shard, ``<stem>.<base_id><suffix>`` for one of the many in a file."""
+    path = Path(path)
+    return path.name if ids is None else f"{path.stem}.{int(ids[0])}{path.suffix}"
 
 
 def mol_from_record(raw: str, input_format: str):
@@ -293,10 +310,16 @@ class ShardQueueWriter:
     process boundary can decide where a record lands). Runs on the executor's result thread,
     one shard at a time, which is what buys exact record counts and correlative ids.
 
+    Shards do not get a file each: one file per (batch, format) holds up to `MAX_RECORDS` ids,
+    each shard its own row group, and its row is `(path, base_id, slot_count)`. The rows of a
+    file are committed when the file is closed (full, at `flush`, or when a stopped job closes
+    the writer), so a row never points at a file that is not on disk yet.
+
     ponytail: not idempotent, by decision. A retried span is re-filtered and lands wherever
     the queue happens to be, so shard boundaries differ between runs and a re-import appends
     rather than upserting — a failed import is restarted from the beginning, not resumed.
-    Resuming would need the queue to checkpoint (span -> shard) receipts.
+    Resuming would need the queue to checkpoint (span -> shard) receipts. A crash loses the
+    open file (its `.tmp` stays behind); what was closed before is the library.
     """
 
     def __init__(
@@ -315,9 +338,11 @@ class ShardQueueWriter:
         # has a previous state worth being able to fall back to.
         self._generation_id = generation_id
         self._shard_size = max(1, int(shard_size))
+        self._per_file = max(1, MAX_RECORDS // self._shard_size)  # shards
         # One bucket per (batch, format): mixing two files in one shard would leave the
         # `import_batch_id` of its inventory row a lie.
         self._pending: dict[tuple[int | None, str], list[tuple[int, str]]] = {}
+        self._files: dict[tuple[int | None, str], tuple[ShardWriter, list[dict]]] = {}
         self._next_id = 0
         self._shard_index = 0
 
@@ -339,46 +364,54 @@ class ShardQueueWriter:
             if bucket:
                 self._write_shard(key, bucket)
             self._pending.pop(key, None)
+        self.close()
+
+    def close(self) -> None:
+        """Every open file closed and its rows committed: also what a stopped job keeps."""
+        for key in list(self._files):
+            self._close_file(key)
 
     def _write_shard(self, key: tuple[int | None, str], records: list[tuple[int, str]]) -> None:
         import_batch_id, input_format = key
-        shard_index = self._shard_index
         base_id = self._next_id
-        self._shard_index += 1
         self._next_id += len(records)
-        from amdockvs.models import ScreeningShard
-
-        # Named by the row's global id, not the index: every import restarts the index at 0
-        # in the same directory, so `shard_00000` of a second import overwrote the first's.
-        # The row is flushed for its id and committed only once the file is written.
-        with self._project_db.get_session() as session:
-            row = ScreeningShard(
-                generation_id=self._generation_id,
-                import_batch_id=import_batch_id,
-                shard_index=shard_index,
-                n_records=len(records),
-            )
-            session.add(row)
-            session.flush()
-            path = self._shard_dir / f"shard_{int(row.id):06d}{SHARD_SUFFIX}"
-            with ShardWriter(
+        if key in self._files and len(self._files[key][1]) >= self._per_file:
+            self._close_file(key)
+        if key not in self._files:
+            # Named for the batch and made unique: every import restarts its ids at 0 in the
+            # same directory, so a name built from ids alone would overwrite the last import.
+            path = self._shard_dir / f"library_{int(import_batch_id or 0)}_{uuid4().hex[:12]}{SHARD_SUFFIX}"
+            writer = ShardWriter(
                 path,
                 dataset_id=None,
-                shard_id=int(row.id),
+                shard_id=0,  # a file of many shards; each is its catalog row
                 base_id=base_id,
                 kind=payload_kind_for(input_format),
                 serializer=Serializer.UTF8,
-                slot_count=len(records),
-                metadata={
-                    "import_batch_id": import_batch_id,
-                    "input_format": input_format,
-                    # Dense ids, so this is the only place the source ordinal survives.
-                    "source_indices": [index for index, _raw in records],
-                },
-            ) as writer:
-                for offset, (_index, raw) in enumerate(records):
-                    writer.add(base_id + offset, raw.encode("utf-8"))
-            row.path = str(path)
+                slot_count=MAX_RECORDS,
+                metadata={"import_batch_id": import_batch_id, "input_format": input_format},
+                # Ids are dense, so this column is the only place the source ordinal survives.
+                source_index=True,
+            )
+            self._files[key] = (writer, [])
+        writer, rows = self._files[key]
+        for offset, (index, raw) in enumerate(records):
+            writer.add(base_id + offset, raw.encode("utf-8"), source_index=index)
+        writer.end_group()
+        rows.append({"shard_index": self._shard_index, "base_id": base_id, "slot_count": len(records),
+                     "n_records": len(records)})
+        self._shard_index += 1
+
+    def _close_file(self, key: tuple[int | None, str]) -> None:
+        from amdockvs.models import ScreeningShard
+
+        writer, rows = self._files.pop(key)
+        writer.close()  # fsynced and renamed: only now may a row point at it
+        with self._project_db.get_session() as session:
+            session.add_all(
+                ScreeningShard(generation_id=self._generation_id, import_batch_id=key[0], path=str(writer.path), **row)
+                for row in rows
+            )
             session.commit()
 
 
@@ -449,7 +482,7 @@ class ShardGenerationWriter:
 
         spec = shard_scope_spec()
         store = ShardStore(self._project_db)
-        written = store.record_count(replace(spec, filters={**spec.filters, "generation_id": self._generation_id}))
+        written = store.record_count(replace(spec, filters={**spec.filters, "generation_id": self._generation_id}), whole=True)
         if written <= 0:
             raise RuntimeError(
                 f"Shard generation {self._generation_id} ended with 0 molecules: refusing to "

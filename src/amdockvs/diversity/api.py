@@ -660,17 +660,26 @@ class DiversityAPI:
 
     def exclude_non_representatives(self, cluster_run_id: str) -> int:
         """Mark every non-representative of a run as excluded (the flag Filter uses; reversible).
-        Returns how many were marked."""
+        Returns how many were marked. A run over shards excludes its library records through
+        ms_flow (a sidecar of keys, undone from there), read off the run's own sidecar."""
+        import pandas as pd
+
         self.runtime._require_active_project()
+        project_db = self.runtime.workspace.project_db
+        with project_db.get_session() as session:
+            run = session.exec(select(ClusteringRun).where(ClusteringRun.run_id == str(cluster_run_id))).first()
+        detail = f"{run.method}, t={run.threshold}" if run is not None else str(cluster_run_id)[:8]
+        reason = f"diversity: non-representative ({detail})"
+        sidecar = self._project_root() / "clustering_runs" / f"{cluster_run_id}.parquet"
+        if sidecar.exists():
+            frame = pd.read_parquet(sidecar, columns=["molecule_id", "is_centroid"])
+            rest = [int(key) for key in frame.loc[~frame["is_centroid"].astype(bool), "molecule_id"]]
+            if rest and is_shard_key(rest[0]):
+                return len(rest) if ShardStore(project_db).exclude(rest, reason=reason) is not None else 0
         non_reps = [r["molecule_id"] for r in self.get_run(cluster_run_id) if not r["is_centroid"]]
         if not non_reps:
             return 0
-        with self.runtime.workspace.project_db.get_session() as session:
-            run = session.exec(select(ClusteringRun).where(ClusteringRun.run_id == str(cluster_run_id))).first()
-        detail = f"{run.method}, t={run.threshold}" if run is not None else str(cluster_run_id)[:8]
-        return int(self.runtime.molecules.set_excluded_state(
-            non_reps, excluded=True, reason=f"diversity: non-representative ({detail})"
-        ))
+        return int(self.runtime.molecules.set_excluded_state(non_reps, excluded=True, reason=reason))
 
     # --- writing a set (via MolSuite/scopes, not raw DB) ----------------------
     def save_selection_as_set(self, molecule_ids: Iterable[int], *, name: str) -> MoleculeSetRef:

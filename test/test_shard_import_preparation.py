@@ -41,17 +41,17 @@ def _shard(runtime, path, **prefilter):
     from ms_flow.core.data.shard import Shard
     from sqlmodel import select
 
-    from amdockvs.io.shards import FORMAT_FOR_KIND
+    from amdockvs.io.shards import FORMAT_FOR_KIND, shard_ids
     from amdockvs.models import ScreeningShard
 
     jobs = runtime.loader.shard_ligands([str(path)], executor_name="thread", prefilter=prefilter or None)
     states = runtime.wait_for_jobs(list(jobs), timeout_s=60)
     assert all(str(state.status).endswith("completed") for state in states.values()), states
     with runtime.workspace.project_db.get_session() as session:
-        paths = [row.path for row in session.exec(select(ScreeningShard)).all()]
+        rows = [(row.path, shard_ids(row)) for row in session.exec(select(ScreeningShard)).all()]
     out = []
-    for shard_path in paths:
-        with Shard.open(shard_path) as shard:
+    for shard_path, ids in rows:
+        with Shard.open(shard_path, ids=ids) as shard:
             out += [(FORMAT_FOR_KIND.get(shard.kind, ""), record.load()) for record in shard]
     return out
 
@@ -97,3 +97,37 @@ def test_without_preparation_the_raw_record_is_kept(runtime, tmp_path):
     source = tmp_path / "lib.smi"
     source.write_text("OCC ethanol\n")
     assert _shard(runtime, source) == [("smiles", "OCC ethanol")]
+
+
+def test_shards_sharing_a_file_prepare_into_one_file_each(runtime, tmp_path):
+    """Three logical shards in one Parquet file: each prepares only its own id range."""
+    from ms_flow.core.data.shard import Shard
+    from sqlmodel import select
+
+    from amdockvs.io.shards import shard_ids
+    from amdockvs.models import ScreeningShard
+    from amdockvs.molecules.storage import prepared_shard_path
+
+    source = tmp_path / "lib.smi"
+    source.write_text("".join(f"{'C' * (i + 1)}O mol{i}\n" for i in range(10)))
+    jobs = runtime.loader.shard_ligands([str(source)], executor_name="thread", shard_size=4)
+    states = runtime.wait_for_jobs(list(jobs), timeout_s=60)
+    assert all(str(state.status).endswith("completed") for state in states.values()), states
+    with runtime.workspace.project_db.get_session() as session:
+        rows = session.exec(select(ScreeningShard).order_by(ScreeningShard.base_id)).all()
+    assert [row.n_records for row in rows] == [4, 4, 2]
+    assert len({row.path for row in rows}) == 1
+
+    job = runtime.docking.prepare_ligand_shards(executor_name="thread")
+    state = runtime.wait_for_jobs([job], timeout_s=120)[job]
+    assert str(state.status).endswith("completed"), state
+    prepared = [prepared_shard_path(row.path, "ad4", shard_ids(row)) for row in rows]
+    assert len(set(prepared)) == 3
+    seen = []
+    for row, path in zip(rows, prepared):
+        with Shard.open(path) as shard:
+            ids = [record.id for record in shard]
+        lo, hi = shard_ids(row)
+        assert ids and all(lo <= i < hi for i in ids)
+        seen += ids
+    assert seen == list(range(10))

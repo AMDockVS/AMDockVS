@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from amdockvs.io.shards import shard_ids
 from amdockvs.models import BindingSite, ComplexRecord, MoleculeRecord
 from amdockvs.ui.tools.pymol_ribbon import PLDDT_BANDS
 class CatalogDetailsView(QWidget):
@@ -236,7 +237,7 @@ class CatalogDetailsView(QWidget):
             family: f"{prepared:,} record(s)" + (f" · {failed:,} failed" if failed else "")
             for family, (prepared, failed) in sorted(preps.items())
         } or {"Status": "not prepared"})
-        header = _shard_header(path)
+        header = _shard_header(path, shard_ids(shard))
         # The one per-molecule thing worth surfacing: which ligands the last stage dropped and
         # why. A sharded library has no per-molecule row to carry an error, so the header holds
         # the tally and the `.failures.jsonl` beside the shard holds every id.
@@ -363,14 +364,14 @@ class CatalogDetailsView(QWidget):
 __all__ = ["CatalogDetailsView"]
 
 
-def _shard_header(path: Path) -> dict:
+def _shard_header(path: Path, ids=None) -> dict:
     """What the shard file itself declares. Opening it is a header read, not a library walk."""
     if not path.is_file():
         return {"error": "shard file not found"}
     try:
         from ms_flow.core.data.shard import Shard
 
-        with Shard.open(path) as shard_file:
+        with Shard.open(path, ids=ids) as shard_file:
             return {
                 "dataset_id": str(shard_file.dataset_id),
                 "shard_id": shard_file.shard_id,

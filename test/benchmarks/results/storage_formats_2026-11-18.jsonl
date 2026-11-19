@@ -1,0 +1,5 @@
+{"stage": "write1m", "variant": "sqlite_blob", "n": 1000000, "write_s": 38.223, "write_cpu_s": 37.7, "write_peak_mb": 25.2, "files": 5, "mb": 817.4, "project_db_mb": 817.4}
+{"stage": "write1m", "variant": "sqlite_volumes", "n": 1000000, "write_s": 38.454, "write_cpu_s": 38.08, "write_peak_mb": 3.8, "files": 6, "mb": 835.1, "project_db_mb": 255.6}
+{"stage": "write1m", "variant": "shards_today", "n": 1000000, "write_s": 10.395, "write_cpu_s": 8.68, "write_peak_mb": 67.2, "files": 1005, "mb": 255.5, "project_db_mb": 0.8}
+{"stage": "write1m", "variant": "shards_big", "n": 1000000, "write_s": 5.378, "write_cpu_s": 5.37, "write_peak_mb": 10.3, "files": 6, "mb": 239.1, "project_db_mb": 0.8}
+{"stage": "write1m", "variant": "sqlite_shards_big", "n": 1000000, "write_s": 37.294, "write_cpu_s": 37.12, "write_peak_mb": 20.3, "files": 6, "mb": 432.1, "project_db_mb": 193.8}

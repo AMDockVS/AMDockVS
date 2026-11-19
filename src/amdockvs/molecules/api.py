@@ -505,6 +505,23 @@ class MoleculeAPI:
             "prepared_records": sum(int(row.get("n_records") or 0) for row in prepared),
         }
 
+    def shard_exclusions(self) -> list[dict[str, Any]]:
+        """The cuts over the sharded library, newest first: [{id, active, reason, n, ...}].
+        What a step left out is a sidecar of ids, not a rewrite, so every cut is undoable."""
+        from ms_flow.core.data.exclusions import list_exclusions
+
+        self.runtime._require_active_project()
+        return list_exclusions(self.runtime.workspace.project_db)
+
+    def set_shard_exclusion_active(self, exclusion_id: int, active: bool) -> None:
+        """Undo (or re-apply) one cut: the records come back to every step that reads the
+        library. They come back *unscored* — what was computed over them was never deleted,
+        but a step that ran while they were out never saw them."""
+        from ms_flow.core.data.exclusions import set_exclusion_active
+
+        self.runtime._require_active_project()
+        set_exclusion_active(self.runtime.workspace.project_db, int(exclusion_id), bool(active))
+
     def library_stats(self):
         """What the Project dialog shows of a sharded library: see `molecules.library_stats`."""
         from amdockvs.core.constants import RESOURCE_SHARDS

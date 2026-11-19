@@ -14,6 +14,7 @@ from amdockvs.docking.preparation.tasks import prepare_entities, prepare_ligand_
 from amdockvs.core.configuration import DEFAULT_OUTPUT_FLUSH_EVERY, batch_size_for
 from amdockvs.core.payloads import molecule_payload_id, payload_store
 from amdockvs.core.worker_io import worker_file, worker_output_dir
+from amdockvs.io.shards import shard_ids
 from amdockvs.core.constants import AMDOCKVS_OFFLOADABLE_EXECUTORS
 from amdockvs.docking.repository import (
     iter_entity_rows,
@@ -284,17 +285,20 @@ class PrepareLigandShardsJobSpec(JobSpec):
         picked = None if parsed.shard_ids is None else {int(value) for value in parsed.shard_ids}
 
         def pending() -> Iterator[dict[str, Any]]:
-            for row in ShardStore(project_db).iter_rows(shard_scope_spec()):
+            # whole: prepared once for everything, so undoing an exclusion needs no re-prep.
+            for row in ShardStore(project_db).iter_rows(shard_scope_spec(), whole=True):
                 shard_path = Path(str(row.get("path") or ""))
                 shard_id = int(row.get("id") or 0)
+                ids = shard_ids(row)
                 if picked is not None and shard_id not in picked:
                     continue  # ponytail: filtered here, the shard table is small
-                prepared = shard_id in prepared_ids and prepared_shard_path(shard_path, parsed.engine).is_file()
+                prepared = shard_id in prepared_ids and prepared_shard_path(shard_path, parsed.engine, ids).is_file()
                 if prepared and not parsed.force:
                     continue
                 yield {
                     "shard_id": shard_id,
                     "shard_path": worker_file(shard_path),
+                    "ids": ids,
                     # Beside the input, in a folder named after the engine — same shape as the
                     # chemistry pass, so a campaign's stages read as a chain of folders.
                     "output_dir": worker_output_dir(

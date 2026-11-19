@@ -66,15 +66,16 @@ def _with_3d(mols: Sequence[Any]) -> list[Any]:
     return out
 
 
-def _source_shard(path: Path) -> Path:
+def _source_shard(path: Path, ids=None) -> tuple[Path, Any]:
     """Re-preparing reads the molecules, not the PDBQT: follow `prepared_from` back one step."""
-    with Shard.open(path) as shard:
+    with Shard.open(path, ids=ids) as shard:
         if shard.kind != PayloadKind.PDBQT:
-            return path
+            return path, ids
         origin = str(shard.metadata.get("prepared_from") or "")
+        origin_ids = shard.metadata.get("prepared_ids")
     if not origin or not Path(origin).is_file():
         raise RuntimeError(f"{path}: prepared shard with no readable source to re-prepare from.")
-    return Path(origin)
+    return Path(origin), origin_ids
 
 
 # One line per failed ligand, beside the shard it belongs to. A file per shard is a dozen files
@@ -129,19 +130,22 @@ def prepare_ligand_shard(
     *,
     engine: str = "ad4",
     ensure_3d: bool = True,
+    ids=None,
 ) -> dict[str, int]:
-    """Every molecule of one shard as PDBQT text, in one PDBQT shard. No db, no per-ligand file."""
+    """Every molecule of one shard as PDBQT text, in one PDBQT shard. No db, no per-ligand file.
+    `ids`: the shard's range inside `shard_in` (`shard_ids`), None = the whole file."""
     if str(engine).strip().lower() != "ad4":
         raise ValueError(f"Unsupported shard preparation engine: {engine}")
-    source = _source_shard(Path(shard_in).expanduser().resolve())
-    with Shard.open(source) as shard:
+    source, ids = _source_shard(Path(shard_in).expanduser().resolve(), ids)
+    with Shard.open(source, ids=ids) as shard:
         header = {
             "base_id": shard.base_id,
             "slot_count": shard.slot_count,
             "shard_id": shard.shard_id,
             "metadata": dict(shard.metadata),
         }
-    ids, mols = read_shard(source)
+    source_ids = ids
+    ids, mols = read_shard(source, source_ids)
     if ensure_3d:
         mols = _with_3d(mols)
 
@@ -159,7 +163,8 @@ def prepare_ligand_shard(
         kind=PayloadKind.PDBQT,
         serializer=Serializer.UTF8,
         slot_count=header["slot_count"],
-        metadata={**header["metadata"], "prepared_from": str(source), "prepared_engine": engine},
+        metadata={**header["metadata"], "prepared_from": str(source), "prepared_engine": engine,
+                  **({"prepared_ids": list(source_ids)} if source_ids is not None else {})},
     ) as writer:
         for id_, mol in zip(ids, mols):
             if mol is None or isinstance(mol, Exception):

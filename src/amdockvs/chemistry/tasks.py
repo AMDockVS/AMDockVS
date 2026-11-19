@@ -12,6 +12,7 @@ from ms_flow.payloads import scratch_file
 
 from amdockvs.chemistry.service import transform_ligand_rows, transform_receptor_rows
 from amdockvs.chemistry.shards import transform_ligand_shard
+from amdockvs.io.shards import shard_file_name
 from amdockvs.chemistry.tools.esmfold import predict_structure, sequence_from_structure
 from amdockvs.core.constants import AMDOCKVS_OFFLOADABLE_EXECUTORS, SERIES_AUX, SERIES_RECEPTORS
 from amdockvs.core.jobs import task
@@ -153,8 +154,9 @@ def receptor_prediction_task(payload: dict, progress_cb=None):
 )
 def shard_chemistry_task(payload: dict, progress_cb=None) -> list[dict]:
     shard_path = Path(str(payload["shard_path"])).expanduser().resolve()
-    output_path = Path(str(payload["output_dir"])).expanduser().resolve() / shard_path.name
-    stats = transform_ligand_shard(shard_path, output_path, payload["steps"])
+    ids = payload.get("ids")
+    output_path = Path(str(payload["output_dir"])).expanduser().resolve() / shard_file_name(shard_path, ids)
+    stats = transform_ligand_shard(shard_path, output_path, payload["steps"], ids)
     # A shard whose molecules all failed is still a done shard: it holds zero records now.
     return [{
         "import_batch_id": payload.get("import_batch_id"),

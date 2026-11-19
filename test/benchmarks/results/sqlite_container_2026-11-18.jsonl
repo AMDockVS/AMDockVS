@@ -1,0 +1,4 @@
+{"variant": "parquet", "records": 1000000, "write_s": 6.13, "files": 4, "mb": 240.3, "task256_cold_ms": 1.92, "task1000_cold_ms": 5.36, "task32000_cold_ms": 111.39, "read_all_s": 3.62, "read_all_mb": 2426.5}
+{"variant": "sqlite", "records": 1000000, "write_s": 17.75, "files": 1, "mb": 616.4, "task256_cold_ms": 1.63, "task1000_cold_ms": 5.46, "task32000_cold_ms": 157.74, "read_all_s": 5.03, "read_all_mb": 2421.5}
+{"variant": "sqlite_dict", "records": 1000000, "write_s": 11.7, "files": 1, "mb": 306.4, "task256_cold_ms": 0.96, "task1000_cold_ms": 2.98, "task32000_cold_ms": 83.48, "read_all_s": 2.68, "read_all_mb": 2421.5}
+{"variant": "sqlite_batch", "records": 1000000, "write_s": 13.89, "files": 1, "mb": 616.4, "task256_cold_ms": 1.62, "task1000_cold_ms": 5.44, "task32000_cold_ms": 158.91, "read_all_s": 5.12, "read_all_mb": 2421.5}

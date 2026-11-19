@@ -25,11 +25,14 @@ RESULT_DATASET_FORMAT = "amdock-docking-results-parquet-v1"
 SHARD_SELECTION_ALL = ""
 
 
-def shard_selection(selected_from_receptor_id: Any = None) -> str:
+def shard_selection(selected_from_receptor_id: Any = None, exclusion_key: str = "") -> str:
     """The selection key of a receipt: empty for the whole shard, `top:<receptor id>` for the
-    Top-N an off-target stage took from that reference receptor."""
+    Top-N an off-target stage took from that reference receptor, `excl:<cuts>` for a shard the
+    active exclusions left partial — so undoing a cut docks the rest instead of skipping it."""
     reference = int(selected_from_receptor_id or 0)
-    return f"top:{reference}" if reference else SHARD_SELECTION_ALL
+    if reference:
+        return f"top:{reference}"
+    return f"excl:{exclusion_key}" if exclusion_key else SHARD_SELECTION_ALL
 
 
 def selection_covers(docked: str, stored: str) -> bool:
