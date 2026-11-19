@@ -84,8 +84,10 @@ def write_shard(
     return written
 
 
-def transform_ligand_shard(shard_in: str | Path, shard_out: str | Path, steps) -> dict[str, int]:
-    """Run the step list over a whole shard. One file/CPU, no database in sight."""
+def transform_ligand_shard(shard_in: str | Path, shard_out: str | Path, steps,
+                           progress=None) -> dict[str, int]:
+    """Run the step list over a whole shard. One file/CPU, no database in sight.
+    `progress` takes a percentage, like a task's `progress_cb`; the chemistry is all of it."""
     with Shard.open(Path(shard_in).expanduser().resolve()) as shard:
         header = {
             "base_id": shard.base_id,
@@ -94,7 +96,8 @@ def transform_ligand_shard(shard_in: str | Path, shard_out: str | Path, steps) -
             "metadata": dict(shard.metadata),
         }
     ids, mols = read_shard(shard_in)
-    results = run_pipeline(mols, normalize_steps(steps))
+    results = run_pipeline(mols, normalize_steps(steps),
+                           progress=None if progress is None else (lambda done: progress(done * 100.0)))
     written = write_shard(
         shard_out,
         ids,

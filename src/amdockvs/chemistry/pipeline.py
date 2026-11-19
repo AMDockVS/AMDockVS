@@ -32,6 +32,8 @@ from amdockvs.chemistry.tools import (
 # A slot is a molecule or the exception that replaced it.
 Slot = Any
 Step = Callable[..., list[Slot]]
+# How far a run is, from 0 to 1.
+Progress = Callable[[float], None]
 
 
 def kwargs_for(func: Callable[..., Any], params) -> dict:
@@ -50,28 +52,31 @@ def kwargs_for(func: Callable[..., Any], params) -> dict:
 def _lift(core: Callable[..., Any]) -> Step:
     """Turn a molecule -> molecule core into a batch step that keeps position and failures."""
 
-    def step(mols: Sequence[Slot], **params) -> list[Slot]:
+    def step(mols: Sequence[Slot], progress: Progress | None = None, **params) -> list[Slot]:
         kwargs = kwargs_for(core, params)
         out: list[Slot] = []
         for mol in mols:
             if isinstance(mol, Exception) or mol is None:
                 out.append(mol)
-                continue
-            try:
-                out.append(core(mol, **kwargs))
-            except Exception as exc:  # noqa: BLE001 — the slot carries it to the caller
-                out.append(exc)
+            else:
+                try:
+                    out.append(core(mol, **kwargs))
+                except Exception as exc:  # noqa: BLE001 — the slot carries it to the caller
+                    out.append(exc)
+            if progress is not None:
+                progress(len(out) / len(mols))
         return out
 
     return step
 
 
-def _protonate(mols: Sequence[Slot], **params) -> list[Slot]:
+def _protonate(mols: Sequence[Slot], progress: Progress | None = None, **params) -> list[Slot]:
     """The one genuinely batched step: one call for the whole set, then scatter back.
 
     `protonate_molecule_batch` keys by a positive int id and may drop entries, so positions
     are used as ids (offset by one, since it discards id 0) and a missing result becomes an
-    exception in its own slot rather than a shorter list.
+    exception in its own slot rather than a shorter list. One call, so `progress` is not told
+    how far it is: `run_pipeline` reports the step done when it returns.
     """
     method = str(params.get("method") or "dimorphite")
     entries = [
@@ -115,18 +120,32 @@ LIGAND_STEPS: dict[str, Step] = {
 }
 
 
-def run_pipeline(mols: Iterable[Slot], steps: Sequence[tuple[str, dict]]) -> list[Slot]:
-    """Run `steps` in order over the whole batch. Returns one slot per input molecule."""
+def run_pipeline(mols: Iterable[Slot], steps: Sequence[tuple[str, dict]],
+                 progress: Progress | None = None) -> list[Slot]:
+    """Run `steps` in order over the whole batch. Returns one slot per input molecule.
+
+    `progress` is told how far the run is, from 0 to 1: each step has an equal share, and a
+    step that goes molecule by molecule reports each one. Without it, the job monitor showed
+    every task stuck where its caller left it for the whole run (50% for ligand chemistry).
+    ponytail: equal shares, though a 3D embedding costs far more than a protonation.
+    """
     batch = list(mols)
-    for name, params in steps:
+    steps = list(steps)
+    for at, (name, params) in enumerate(steps):
         step = LIGAND_STEPS.get(name)
         if step is None:
             raise ValueError(f"Unsupported ligand chemistry operation: {name}")
-        batch = step(batch, **dict(params or {}))
+        told = None
+        if progress is not None and batch:
+            told = (lambda done, at=at: progress((at + done) / len(steps)))
+        params = {key: value for key, value in dict(params or {}).items() if key != "progress"}
+        batch = step(batch, progress=told, **params)
         for slot in batch:
             # The step a molecule failed at, for the reason it is excluded with.
             if isinstance(slot, Exception) and not hasattr(slot, "step"):
                 slot.step = name
+        if progress is not None:
+            progress((at + 1) / len(steps))
     return batch
 
 
