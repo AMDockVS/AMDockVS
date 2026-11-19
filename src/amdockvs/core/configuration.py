@@ -268,7 +268,7 @@ class ShardStorageConfiguration(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     records_per_shard: int = Field(
-        1000,
+        256,
         ge=1,
         le=100_000,
         title="Records per shard (HTP)",

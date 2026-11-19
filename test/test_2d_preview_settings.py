@@ -120,7 +120,7 @@ def test_amdock_configuration_nests_component_and_theme_sections(tmp_path, monke
     # The component owns its defaults (MonitorConfig); AMDock only nests the model.
     assert config.get_value("monitor.poll_ms") == MonitorConfig().poll_ms
     assert config.get_value("theme.name") == "auto"
-    assert config.get_value("shards.records_per_shard") == 1000
+    assert config.get_value("shards.records_per_shard") == 256
     paths = {entry.path for entry in config.entries()}
     assert "shards.records_per_shard" in paths
     assert "batch_sizes.shard" not in paths
