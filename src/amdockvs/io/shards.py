@@ -459,7 +459,7 @@ class ShardGenerationWriter:
         and the switch silently replaces the library with nothing. That is the one outcome a
         rewrite must never be allowed to reach.
         """
-        from ms_flow.core.data.catalog import record_count, shard_spec
+        from ms_flow.core.data.catalog import compact, record_count, shard_spec
 
         from amdockvs.molecules.storage import activate_generation
 
@@ -470,6 +470,9 @@ class ShardGenerationWriter:
                 "replace the library with an empty one. Every molecule failed the step; the "
                 "previous generation is still the library."
             )
+        # A worker wrote a file per shard; one big file per scope is what the library keeps.
+        # Before activation: nothing (a prepared twin) is named after these paths yet.
+        compact(self._project_db, self._generation_id)
         activate_generation(self._project_db, self._generation_id)
 
 
