@@ -302,7 +302,8 @@ def select_hit_refs(
     from sqlmodel import select
 
     from amdockvs.docking.results.repository import docking_run_id
-    from amdockvs.models import ScreeningShard
+    from ms_flow.core.database.project_models import CatalogShard
+
     from amdockvs.screening.materialize import TopNGate
 
     cap = int(top_n)
@@ -320,8 +321,8 @@ def select_hit_refs(
     with project_db.get_session() as session:
         shards = {
             int(row.id): row
-            for row in session.exec(select(ScreeningShard).where(
-                ScreeningShard.id.in_([int(receipt.shard_id) for receipt in receipts])
+            for row in session.exec(select(CatalogShard).where(
+                CatalogShard.id.in_([int(receipt.shard_id) for receipt in receipts])
             )).all()
         } if receipts else {}
 
@@ -358,7 +359,8 @@ def select_hits(
     from sqlmodel import select
 
     from amdockvs.docking.results.repository import docking_run_id
-    from amdockvs.models import ScreeningShard
+    from ms_flow.core.database.project_models import CatalogShard
+
 
     selected = select_hit_refs(
         project_db,
@@ -374,8 +376,8 @@ def select_hits(
     with project_db.get_session() as session:
         shards = {
             int(row.id): row
-            for row in session.exec(select(ScreeningShard).where(
-                ScreeningShard.id.in_([int(receipt.shard_id) for receipt in receipts])
+            for row in session.exec(select(CatalogShard).where(
+                CatalogShard.id.in_([int(receipt.shard_id) for receipt in receipts])
             )).all()
         } if receipts else {}
     from amdockvs.io.batches import library_names  # SQL: kept off the worker's import path
@@ -422,8 +424,8 @@ def select_hits(
         hits.append({
             **json.loads(payload.get("metrics_json") or "{}"),
             "docking_run_id": runs[str(receipt.engine)],
-            "name": f"{libraries.get(source_shard.import_batch_id, 'library')}:{ligand_id}",
-            "import_batch_id": source_shard.import_batch_id,
+            "name": f"{libraries.get(source_shard.scope, 'library')}:{ligand_id}",
+            "import_batch_id": source_shard.scope,
             "source_index": ligand_id,
             "smiles": str(payload.get("smiles") or ""),
             "score": float(payload["score"]),

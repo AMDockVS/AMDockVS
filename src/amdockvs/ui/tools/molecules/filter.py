@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
@@ -280,6 +281,13 @@ class MoleculeFilterWidget(QWidget):
         self.summary_label = QLabel("Ready.", self)
         self.summary_label.setWordWrap(True)
         self._body_layout.addWidget(self.summary_label)
+
+        # A sharded library is never rewritten by a selection: each step that left records out
+        # (QSAR, clustering...) is a cut ms_flow keeps beside the shards, undone by unticking it.
+        self.cuts_box = QGroupBox("Cuts", self)
+        self._cuts_layout = QVBoxLayout(self.cuts_box)
+        self.cuts_box.setVisible(False)
+        self._body_layout.addWidget(self.cuts_box)
         self._body_layout.addStretch(1)
 
         # Every control that changes what Apply would touch re-pushes the scope, so the table
@@ -576,6 +584,34 @@ class MoleculeFilterWidget(QWidget):
         self._sync_action_controls()
         self._sync_filter_stack()
         self.summary_label.setText("Ready.")
+        self._refresh_cuts()
+
+    # --- cuts over a sharded library ------------------------------------------
+    def _refresh_cuts(self) -> None:
+        molecules = self.runtime.molecules
+        run_async(lambda: molecules.shard_exclusions() if self.runtime.has_shards() else None,
+                  self._show_cuts, lambda _error: self.cuts_box.setVisible(False), owner=self)
+
+    def _show_cuts(self, cuts) -> None:
+        while self._cuts_layout.count():
+            self._cuts_layout.takeAt(0).widget().deleteLater()
+        self.cuts_box.setVisible(cuts is not None)
+        if not cuts:
+            self._cuts_layout.addWidget(QLabel("Nothing has been left out of the library.", self.cuts_box))
+            return
+        for cut in cuts:
+            box = QCheckBox(f"{cut.get('reason') or 'cut'} - {int(cut.get('n') or 0):,} records", self.cuts_box)
+            box.setChecked(bool(cut["active"]))
+            box.setToolTip("Untick to bring these records back; tick to leave them out again.")
+            box.toggled.connect(lambda active, cut_id=int(cut["id"]): self._set_cut_active(cut_id, active))
+            self._cuts_layout.addWidget(box)
+
+    def _set_cut_active(self, cut_id: int, active: bool) -> None:
+        try:
+            self.runtime.molecules.set_shard_exclusion_active(cut_id, active)
+        except Exception as exc:  # noqa: BLE001 - shown, and the list re-read to match the data
+            QMessageBox.warning(self, "Cuts", str(exc))
+            self._refresh_cuts()
 
 
 def register_filter_workspace(window) -> None:

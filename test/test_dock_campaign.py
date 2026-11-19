@@ -48,8 +48,9 @@ def test_what_comes_back_twice_is_written_once(tmp_path):
     from amdockvs.docking.campaign import CampaignWriter
     from amdockvs.docking.results.repository import docking_run_id
     from amdockvs.models import (
-        DockingResultRecord, ImportBatch, MoleculeRecord, ScreeningShard, ScreeningShardRun, ScreeningTarget,
+        DockingResultRecord, ImportBatch, MoleculeRecord, ScreeningShardRun, ScreeningTarget,
     )
+    from ms_flow.core.database.project_models import CatalogShard
     from amdockvs.runtime import AMDockVSRuntime
     from amdockvs.screening.campaign import plan_targets
 
@@ -62,7 +63,7 @@ def test_what_comes_back_twice_is_written_once(tmp_path):
             receptor = MoleculeRecord(name="R", molecule_type="protein", is_receptor=True)
             session.add_all([batch, receptor])
             session.flush()
-            shard = ScreeningShard(import_batch_id=int(batch.id), shard_index=0, path="lib.parquet", n_records=2)
+            shard = CatalogShard(scope=int(batch.id), shard_index=0, path="lib.parquet", n_records=2)
             session.add(shard)
             session.commit()
             receptor_id, shard_id, batch_id = int(receptor.id), int(shard.id), int(batch.id)

@@ -851,7 +851,8 @@ def test_ui_is_locked_until_a_project_is_open(tmp_path, monkeypatch):
 def test_prepare_ligands_from_table_and_shards(tmp_path, monkeypatch):
     """A project with rows and shards prepares from either store or both, and the Shards
     selection narrows the shard job. The rows are general: shards don't make them reference."""
-    from amdockvs.models import ImportBatch, ScreeningShard
+    from amdockvs.models import ImportBatch
+    from ms_flow.core.database.project_models import CatalogShard
 
     _patch_fake_home(monkeypatch, tmp_path / "home")
     monkeypatch.setenv("AMDOCK_DISABLE_PYMOL", "1")
@@ -867,7 +868,7 @@ def test_prepare_ligands_from_table_and_shards(tmp_path, monkeypatch):
             batch = ImportBatch(source="library.smi", quick_hash="x", format="smiles", kind="shards")
             session.add(batch)
             session.flush()
-            shards = [ScreeningShard(import_batch_id=batch.id, shard_index=index, path=str(tmp_path / f"s{index}.parquet"),
+            shards = [CatalogShard(scope=batch.id, shard_index=index, path=str(tmp_path / f"s{index}.parquet"),
                                      n_records=10, state="ready") for index in range(2)]
             session.add_all(shards)
             session.commit()

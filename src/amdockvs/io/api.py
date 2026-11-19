@@ -236,7 +236,7 @@ class LoaderAPI:
 
         Same feed as `load_ligands` — the byte-span splitter — with the record cap read as
         shard size. What changes is the worker: it writes the span back out as a file and
-        registers a `screening_shards` row instead of parsing molecules into the project db.
+        registers an `ms_shards` row instead of parsing molecules into the project db.
         """
         normalized_files = normalize_files(files, label="ligand files")
         if not normalized_files:
@@ -288,7 +288,7 @@ class LoaderAPI:
             generation_id = create_generation(
                 project_db,
                 step="import",
-                shard_dir=self.runtime.get_project_resource_path(RESOURCE_SHARDS),
+                folder=self.runtime.get_project_resource_path(RESOURCE_SHARDS),
             )
             activate_generation(project_db, generation_id)
         return generation_id

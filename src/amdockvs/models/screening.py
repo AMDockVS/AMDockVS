@@ -1,85 +1,25 @@
 """What an `htpvs` project knows about a library it never materializes.
 
-A **shard** is inventory: thousands of rows, outlives every campaign, answers *what do I have*.
+The shards themselves (path, id range, generation) are ms_flow's catalog
+(`ms_flow.core.data.catalog`, table `ms_shards`); what is here is the domain around them.
 Where a campaign's work went is the campaign's business (an ms_flow job in the journal), not a
 table here: only prepared shards travel to a cluster, by the sha256 their `shard_preps` row keeps.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
-
-from sqlalchemy import DateTime, JSON, Index, UniqueConstraint
+from sqlalchemy import Index, UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 from amdockvs.models.codes import code_field
 
 from amdockvs.core.constants import (
     TABLE_DOCKING_RUNS,
-    TABLE_IMPORT_BATCHES,
     TABLE_SCREENING_SHARD_RUNS,
-    TABLE_SCREENING_SHARDS,
     TABLE_SCREENING_TARGETS,
     TABLE_SHARD_PREPS,
-    TABLE_SHARD_GENERATIONS,
 )
 from amdockvs.core.vocab import TargetState
-
-
-class ShardGeneration(SQLModel, table=True):
-    """One rewrite of the whole sharded library, and what it came from.
-
-    Every step that writes shards must renumber: a shard's id span is capped by the
-    container's uint16 slot map, so survivors of a filter cannot keep the ids they had.
-    Renumbering without lineage would lose provenance, so a rewrite produces a *generation*
-    instead of overwriting the inventory in place.
-
-    Only one generation is active. The switch is a single UPDATE of this flag at the end of a
-    job — never a row-by-row replacement, which is what left the inventory half-switched when
-    a job died mid-flight.
-
-    **Window of two**: activating a generation forgets its grandparent, rows and files. In
-    `htpvs` the shards *are* the memory — there is no database row behind a library molecule
-    to fall back on — but keeping every generation would mean keeping the whole library once
-    per step. Two is what a redo needs: the current state and the one it came from.
-    """
-
-    __tablename__ = TABLE_SHARD_GENERATIONS
-
-    id: int | None = Field(default=None, primary_key=True)
-    parent_id: int | None = Field(default=None, foreign_key=f"{TABLE_SHARD_GENERATIONS}.id", index=True)
-    # What produced it: "import", or the pipeline label of the step that rewrote the shards.
-    step: str = Field(default="")
-    shard_dir: str = Field(default="")
-    job_id: str = Field(default="")
-    is_active: bool = Field(default=False, index=True)
-    created_at: datetime = Field(default_factory=datetime.now, sa_type=DateTime)
-
-
-class ScreeningShard(SQLModel, table=True):
-    __tablename__ = TABLE_SCREENING_SHARDS
-    # A shard is addressed by (generation, import batch, shard_index). Without the generation
-    # the pair collides the moment a step rewrites the library.
-    __table_args__ = (UniqueConstraint("generation_id", "import_batch_id", "shard_index"),)
-
-    id: int | None = Field(default=None, primary_key=True)
-    generation_id: int | None = Field(
-        default=None, foreign_key=f"{TABLE_SHARD_GENERATIONS}.id", index=True
-    )
-    # ponytail: the index is unique *within* a batch. The parent-side queue
-    # (io/shards.ShardQueueWriter) numbers shards as it cuts them, and every import is a new
-    # batch, so re-importing the same file appends instead of replacing. A failed import is
-    # restarted from scratch, not resumed; resuming would need span→shard receipts.
-    import_batch_id: int | None = Field(default=None, foreign_key=f"{TABLE_IMPORT_BATCHES}.id", index=True)
-    shard_index: int = Field(default=0, index=True)
-    path: str = Field(default="")  # the .mshard's payload kind says the format
-    # Its ids inside `path`: `base_id <= id < base_id + slot_count`. NULL = the whole file (a
-    # file per shard, as written before 2026-11 and by the steps that rewrite shards). Many
-    # shards of an import share one file, each its own row group.
-    base_id: int | None = Field(default=None)
-    slot_count: int | None = Field(default=None)
-    n_records: int = Field(default=0)
-    error: str = Field(default="")
 
 
 class ShardPrep(SQLModel, table=True):
@@ -89,7 +29,7 @@ class ShardPrep(SQLModel, table=True):
     __tablename__ = TABLE_SHARD_PREPS
     __table_args__ = ({"sqlite_with_rowid": False},)
 
-    shard_id: int = Field(foreign_key=f"{TABLE_SCREENING_SHARDS}.id", primary_key=True)
+    shard_id: int = Field(foreign_key="ms_shards.id", primary_key=True)  # ms_flow's catalog
     family: str = code_field("prep_family", "ad4", primary_key=True)
     n_records: int = Field(default=0)
     n_failed: int = Field(default=0)  # > 0 = partial
@@ -112,7 +52,7 @@ class ScreeningShardRun(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     docking_run_id: int = Field(foreign_key=f"{TABLE_DOCKING_RUNS}.id")
-    shard_id: int = Field(foreign_key=f"{TABLE_SCREENING_SHARDS}.id", index=True)
+    shard_id: int = Field(foreign_key="ms_shards.id", index=True)
     receptor_molecule_id: int = Field(default=0, index=True)
     engine: str = code_field("engine", index=True)
     protocol_hash: str = Field(default="", index=True)
@@ -158,9 +98,7 @@ class ScreeningTarget(SQLModel, table=True):
 
 
 __all__ = [
-    "ScreeningShard",
     "ScreeningShardRun",
     "ScreeningTarget",
     "ShardPrep",
-    "ShardGeneration",
 ]

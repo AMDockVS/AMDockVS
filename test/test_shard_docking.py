@@ -364,7 +364,8 @@ def test_select_hits_projects_scores_then_loads_only_selected_poses(tmp_path, mo
 
     from amdockvs.docking.results import dataset as result_dataset
     from amdockvs.screening.campaign import advance_shard_run
-    from amdockvs.models import MoleculeRecord, ScreeningShard
+    from amdockvs.models import MoleculeRecord
+    from ms_flow.core.database.project_models import CatalogShard
     from amdockvs.runtime import AMDockVSRuntime
 
     runtime = AMDockVSRuntime()
@@ -373,7 +374,7 @@ def test_select_hits_projects_scores_then_loads_only_selected_poses(tmp_path, mo
         project_db = runtime.workspace.project_db
         with project_db.get_session() as session:
             receptor = MoleculeRecord(name="R", molecule_type="protein", is_receptor=True)
-            source_shard = ScreeningShard(import_batch_id=_batch(session, "lib.smi"), shard_index=0, path="lib.parquet", n_records=3)
+            source_shard = CatalogShard(scope=_batch(session, "lib.smi"), shard_index=0, path="lib.parquet", n_records=3)
             session.add(receptor)
             session.add(source_shard)
             session.commit()
@@ -433,7 +434,8 @@ def test_top_n_writes_nothing_until_the_campaign_closes(tmp_path):
     """The trade the ranked mode makes, end to end: empty database, then the best N at close."""
     from sqlmodel import select
 
-    from amdockvs.models import DockingResultRecord, MoleculeRecord, ScreeningShard
+    from amdockvs.models import DockingResultRecord, MoleculeRecord
+    from ms_flow.core.database.project_models import CatalogShard
     from amdockvs.runtime import AMDockVSRuntime
 
     runtime = AMDockVSRuntime()
@@ -442,8 +444,8 @@ def test_top_n_writes_nothing_until_the_campaign_closes(tmp_path):
         project_db = runtime.workspace.project_db
         with project_db.get_session() as session:
             receptor = MoleculeRecord(name="R", molecule_type="protein", is_receptor=True)
-            source_shard = ScreeningShard(
-                import_batch_id=_batch(session, "lib.smi"), shard_index=0, path="lib.parquet", n_records=3
+            source_shard = CatalogShard(
+                scope=_batch(session, "lib.smi"), shard_index=0, path="lib.parquet", n_records=3
             )
             session.add(receptor)
             session.add(source_shard)
@@ -512,7 +514,8 @@ def test_general_top_n_is_ranked_per_receptor_and_deduplicates_ligands(tmp_path)
     from sqlmodel import select
 
     from amdockvs.screening.campaign import advance_shard_run
-    from amdockvs.models import DockingResultRecord, MoleculeRecord, ScreeningShard
+    from amdockvs.models import DockingResultRecord, MoleculeRecord
+    from ms_flow.core.database.project_models import CatalogShard
     from amdockvs.runtime import AMDockVSRuntime
 
     runtime = AMDockVSRuntime()
@@ -524,8 +527,8 @@ def test_general_top_n_is_ranked_per_receptor_and_deduplicates_ligands(tmp_path)
                 MoleculeRecord(name=name, molecule_type="protein", is_receptor=True)
                 for name in ("reference", "off-target")
             ]
-            source_shard = ScreeningShard(
-                import_batch_id=_batch(session, "library.smi"), shard_index=0, path="library.parquet", n_records=2
+            source_shard = CatalogShard(
+                scope=_batch(session, "library.smi"), shard_index=0, path="library.parquet", n_records=2
             )
             session.add_all([*receptors, source_shard])
             session.commit()
@@ -575,10 +578,10 @@ def test_interrupted_top_n_is_recovered_from_completed_result_shards(tmp_path):
     from amdockvs.models import (
         DockingResultRecord,
         MoleculeRecord,
-        ScreeningShard,
         ScreeningShardRun,
         ScreeningTarget,
     )
+    from ms_flow.core.database.project_models import CatalogShard
     from amdockvs.runtime import AMDockVSRuntime
     from amdockvs.core.vocab import TargetState
 
@@ -592,7 +595,7 @@ def test_interrupted_top_n_is_recovered_from_completed_result_shards(tmp_path):
             session.add(receptor)
             session.flush()
             source_shards = [
-                ScreeningShard(import_batch_id=_batch(session, "library.smi"), shard_index=index, path=f"input-{index}.parquet", n_records=2)
+                CatalogShard(scope=_batch(session, "library.smi"), shard_index=index, path=f"input-{index}.parquet", n_records=2)
                 for index in range(2)
             ]
             session.add_all(source_shards)
@@ -836,7 +839,8 @@ def test_an_unchanged_campaign_submitted_again_docks_the_library_a_second_time(t
     nothing and six compounds came back as twelve rows."""
     from sqlmodel import select
 
-    from amdockvs.models import DockingRun, MoleculeRecord, ScreeningShard, ScreeningShardRun
+    from amdockvs.models import DockingRun, MoleculeRecord, ScreeningShardRun
+    from ms_flow.core.database.project_models import CatalogShard
     from amdockvs.core.vocab import TargetState
     from amdockvs.runtime import AMDockVSRuntime
 
@@ -846,8 +850,8 @@ def test_an_unchanged_campaign_submitted_again_docks_the_library_a_second_time(t
         project_db = runtime.workspace.project_db
         with project_db.get_session() as session:
             receptor = MoleculeRecord(name="R", molecule_type="protein", is_receptor=True)
-            shard = ScreeningShard(
-                import_batch_id=_batch(session, "library.smi"), shard_index=0,
+            shard = CatalogShard(
+                scope=_batch(session, "library.smi"), shard_index=0,
                 path="library.parquet", n_records=3,
             )
             session.add_all([receptor, shard])
@@ -888,8 +892,9 @@ def test_a_forced_campaign_replaces_what_the_pairs_it_docked_again_had(tmp_path,
 
     from amdockvs.docking.rerun import supersede_shard_runs
     from amdockvs.models import (
-        DockingResultRecord, MoleculeRecord, ScreeningShard, ScreeningShardRun, ScreeningTarget,
+        DockingResultRecord, MoleculeRecord, ScreeningShardRun, ScreeningTarget,
     )
+    from ms_flow.core.database.project_models import CatalogShard
     from amdockvs.core.vocab import TargetState
     from amdockvs.runtime import AMDockVSRuntime
 
@@ -905,8 +910,8 @@ def test_a_forced_campaign_replaces_what_the_pairs_it_docked_again_had(tmp_path,
             receptor = MoleculeRecord(name="R", molecule_type="protein", is_receptor=True)
             ligands = [MoleculeRecord(name=name, molecule_type="small_molecule", is_ligand=True)
                        for name in ("old-hit", "new-hit")]
-            shard = ScreeningShard(
-                import_batch_id=_batch(session, "library.smi"), shard_index=0,
+            shard = CatalogShard(
+                scope=_batch(session, "library.smi"), shard_index=0,
                 path="library.parquet", n_records=3,
             )
             session.add_all([receptor, *ligands, shard])
@@ -957,8 +962,9 @@ def test_a_forced_off_target_stage_keeps_the_ligands_it_never_docked_again(tmp_p
     from sqlmodel import select
 
     from amdockvs.models import (
-        DockingResultRecord, MoleculeRecord, ScreeningShard, ScreeningShardRun, ScreeningTarget,
+        DockingResultRecord, MoleculeRecord, ScreeningShardRun, ScreeningTarget,
     )
+    from ms_flow.core.database.project_models import CatalogShard
     from amdockvs.core.vocab import TargetState
     from amdockvs.runtime import AMDockVSRuntime
 
@@ -975,8 +981,8 @@ def test_a_forced_off_target_stage_keeps_the_ligands_it_never_docked_again(tmp_p
                          for name in ("reference", "off-target")]
             ligands = [MoleculeRecord(name=name, molecule_type="small_molecule", is_ligand=True)
                        for name in ("picked", "left-out")]
-            shard = ScreeningShard(
-                import_batch_id=_batch(session, "library.smi"), shard_index=0,
+            shard = CatalogShard(
+                scope=_batch(session, "library.smi"), shard_index=0,
                 path="library.parquet", n_records=2,
             )
             session.add_all([*receptors, *ligands, shard])
@@ -1059,7 +1065,8 @@ def _fragment(path: Path, *, receptor_id: int, records, run_id: str, protocol: d
 def test_an_off_target_subset_does_not_satisfy_a_full_library_skip(tmp_path, monkeypatch):
     """RR-01: `completed_protocol_targets` counted every DONE receipt, so one ligand docked by an
     off-target stage read as the whole shard and a later full screen skipped the rest of it."""
-    from amdockvs.models import MoleculeRecord, ScreeningShard
+    from amdockvs.models import MoleculeRecord
+    from ms_flow.core.database.project_models import CatalogShard
     from amdockvs.runtime import AMDockVSRuntime
 
     runtime = AMDockVSRuntime()
@@ -1069,8 +1076,8 @@ def test_an_off_target_subset_does_not_satisfy_a_full_library_skip(tmp_path, mon
         with project_db.get_session() as session:
             receptors = [MoleculeRecord(name=name, molecule_type="protein", is_receptor=True)
                          for name in ("reference", "off-target")]
-            shard = ScreeningShard(
-                import_batch_id=_batch(session, "library.smi"), shard_index=0,
+            shard = CatalogShard(
+                scope=_batch(session, "library.smi"), shard_index=0,
                 path="library.parquet", n_records=100,
             )
             session.add_all([*receptors, shard])
@@ -1103,7 +1110,8 @@ def test_an_off_target_subset_does_not_satisfy_a_full_library_skip(tmp_path, mon
 def test_a_receptor_prepared_again_is_docked_again_despite_skip_existing(tmp_path, monkeypatch):
     """The cross-run skip matches receipts by protocol; without the inputs they were docked
     against, a receptor prepared again (or given a new box) would keep its old shard results."""
-    from amdockvs.models import MoleculeRecord, ScreeningShard
+    from amdockvs.models import MoleculeRecord
+    from ms_flow.core.database.project_models import CatalogShard
     from amdockvs.runtime import AMDockVSRuntime
 
     runtime = AMDockVSRuntime()
@@ -1112,8 +1120,8 @@ def test_a_receptor_prepared_again_is_docked_again_despite_skip_existing(tmp_pat
         project_db = runtime.workspace.project_db
         with project_db.get_session() as session:
             receptor = MoleculeRecord(name="R", molecule_type="protein", is_receptor=True)
-            shard = ScreeningShard(
-                import_batch_id=_batch(session, "library.smi"), shard_index=0,
+            shard = CatalogShard(
+                scope=_batch(session, "library.smi"), shard_index=0,
                 path="library.parquet", n_records=3,
             )
             session.add_all([receptor, shard])
@@ -1146,7 +1154,8 @@ def test_a_skipped_reference_still_supplies_its_ranking_to_a_new_off_target(tmp_
     """RR-01: the reference stage skips the shards an older run of the protocol docked, so it
     writes no receipt under the new submission. The off-target stage that depends on it has to
     rank what the library holds, or it selects nothing and the new receptor is never docked."""
-    from amdockvs.models import MoleculeRecord, ScreeningShard
+    from amdockvs.models import MoleculeRecord
+    from ms_flow.core.database.project_models import CatalogShard
     from amdockvs.core.vocab import TargetState
     from amdockvs.models import ScreeningShardRun
     from amdockvs.runtime import AMDockVSRuntime
@@ -1159,8 +1168,8 @@ def test_a_skipped_reference_still_supplies_its_ranking_to_a_new_off_target(tmp_
         with project_db.get_session() as session:
             receptors = [MoleculeRecord(name=name, molecule_type="protein", is_receptor=True)
                          for name in ("reference", "off-target")]
-            shard = ScreeningShard(
-                import_batch_id=_batch(session, "library.smi"), shard_index=0,
+            shard = CatalogShard(
+                scope=_batch(session, "library.smi"), shard_index=0,
                 path="library.parquet", n_records=3,
             )
             session.add_all([*receptors, shard])
@@ -1208,8 +1217,9 @@ def test_a_partial_replacement_retires_the_hits_of_the_shard_it_replaced(tmp_pat
     from sqlmodel import select
 
     from amdockvs.models import (
-        DockingResultRecord, MoleculeRecord, ScreeningShard, ScreeningShardRun, ScreeningTarget,
+        DockingResultRecord, MoleculeRecord, ScreeningShardRun, ScreeningTarget,
     )
+    from ms_flow.core.database.project_models import CatalogShard
     from amdockvs.core.vocab import TargetState
     from amdockvs.docking.rerun import supersede_shard_runs
     from amdockvs.runtime import AMDockVSRuntime
@@ -1228,7 +1238,7 @@ def test_a_partial_replacement_retires_the_hits_of_the_shard_it_replaced(tmp_pat
             ligands = [MoleculeRecord(name=f"lib:{index}", molecule_type="small_molecule",
                                       is_ligand=True, import_batch_id=batch_id, source_index=index)
                        for index in (0, 1, 2)]
-            shards = [ScreeningShard(import_batch_id=batch_id, shard_index=index,
+            shards = [CatalogShard(scope=batch_id, shard_index=index,
                                      path=f"library_{index}.parquet", n_records=2)
                       for index in (0, 1)]
             session.add_all([receptor, *ligands, *shards])

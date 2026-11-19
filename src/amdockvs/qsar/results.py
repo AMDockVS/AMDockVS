@@ -33,7 +33,7 @@ class ResultsMixin:
                 continue
             frame = pd.read_parquet(path)
             if row.get("record_ids") is not None:  # the exclusions left this shard partial
-                batch = row.get("import_batch_id")
+                batch = row.get("scope")
                 frame = frame[frame["key"].isin({shard_key(batch, rid) for rid in row["record_ids"]})]
             frames.append(frame)
         if not frames:

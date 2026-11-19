@@ -6,19 +6,19 @@ from pathlib import Path
 from typing import Any
 
 from ms_flow.core.data.shard import Shard
+from ms_flow.core.database.project_models import CatalogShard
 
 from amdockvs.io.shards import shard_file_name, shard_ids
-from amdockvs.models import ScreeningShard
 
 
 @dataclass
 class ShardAPI:
     runtime: Any
 
-    def get(self, shard_id: int) -> ScreeningShard | None:
+    def get(self, shard_id: int) -> CatalogShard | None:
         self.runtime._require_active_project()
         with self.runtime.workspace.project_db.get_session() as session:
-            return session.get(ScreeningShard, int(shard_id))
+            return session.get(CatalogShard, int(shard_id))
 
     def open(self, shard_id: int) -> Shard:
         """Open a registered shard; use the returned object as a context manager."""

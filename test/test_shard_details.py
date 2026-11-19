@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from ms_flow.core.data.shard import PayloadKind, Serializer, ShardWriter
 
-from amdockvs.models import ScreeningShard
+from ms_flow.core.database.project_models import CatalogShard
 from amdockvs.ui.catalog.details import CatalogDetailsView, _shard_header
 
 
@@ -58,7 +58,7 @@ def test_details_show_the_row_and_the_header(tmp_path):
     path = _written_shard(tmp_path)
     molecules = SimpleNamespace(shard_preps=lambda shard_id: {"ad4": (2, 1)} if shard_id == 4 else {})
     view = CatalogDetailsView(runtime=SimpleNamespace(molecules=molecules))
-    view.show_shard(ScreeningShard(id=4, source="lib.smi", shard_index=0, path=str(path),
+    view.show_shard(CatalogShard(id=4, shard_index=0, path=str(path),
                                    input_format="smi", n_records=3, state="ready"))
     text = _tree_text(view)
     assert "Records=3" in text and "Index=0" in text and "bytes" in text

@@ -42,13 +42,13 @@ def _shard(runtime, path, **prefilter):
     from sqlmodel import select
 
     from amdockvs.io.shards import FORMAT_FOR_KIND, shard_ids
-    from amdockvs.models import ScreeningShard
+    from ms_flow.core.database.project_models import CatalogShard
 
     jobs = runtime.loader.shard_ligands([str(path)], executor_name="thread", prefilter=prefilter or None)
     states = runtime.wait_for_jobs(list(jobs), timeout_s=60)
     assert all(str(state.status).endswith("completed") for state in states.values()), states
     with runtime.workspace.project_db.get_session() as session:
-        rows = [(row.path, shard_ids(row)) for row in session.exec(select(ScreeningShard)).all()]
+        rows = [(row.path, shard_ids(row)) for row in session.exec(select(CatalogShard)).all()]
     out = []
     for shard_path, ids in rows:
         with Shard.open(shard_path, ids=ids) as shard:
@@ -105,7 +105,7 @@ def test_shards_sharing_a_file_prepare_into_one_file_each(runtime, tmp_path):
     from sqlmodel import select
 
     from amdockvs.io.shards import shard_ids
-    from amdockvs.models import ScreeningShard
+    from ms_flow.core.database.project_models import CatalogShard
     from amdockvs.molecules.storage import prepared_shard_path
 
     source = tmp_path / "lib.smi"
@@ -114,7 +114,7 @@ def test_shards_sharing_a_file_prepare_into_one_file_each(runtime, tmp_path):
     states = runtime.wait_for_jobs(list(jobs), timeout_s=60)
     assert all(str(state.status).endswith("completed") for state in states.values()), states
     with runtime.workspace.project_db.get_session() as session:
-        rows = session.exec(select(ScreeningShard).order_by(ScreeningShard.base_id)).all()
+        rows = session.exec(select(CatalogShard).order_by(CatalogShard.base_id)).all()
     assert [row.n_records for row in rows] == [4, 4, 2]
     assert len({row.path for row in rows}) == 1
 

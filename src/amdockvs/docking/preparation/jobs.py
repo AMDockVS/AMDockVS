@@ -304,7 +304,7 @@ class PrepareLigandShardsJobSpec(JobSpec):
                     "output_dir": worker_output_dir(
                         shard_path.parent / PREPARED_DIR.format(engine=parsed.engine)
                     ),
-                    "import_batch_id": row.get("import_batch_id"),
+                    "import_batch_id": row.get("scope"),
                     "shard_index": int(row.get("shard_index") or 0),
                 }
 

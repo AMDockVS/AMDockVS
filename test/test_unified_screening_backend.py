@@ -7,7 +7,8 @@ from amdockvs.chemistry.api import ChemistryAPI
 from amdockvs.core.configuration import app_config
 from amdockvs.docking.api import DockingAPI
 from amdockvs.screening.campaign import advance_shard_run, completed_shard_targets
-from amdockvs.models import ImportBatch, ScreeningShard, ScreeningShardRun, ShardPrep
+from amdockvs.models import ImportBatch, ScreeningShardRun, ShardPrep
+from ms_flow.core.database.project_models import CatalogShard
 from amdockvs.molecules.storage import iter_prepared_shards
 from amdockvs.runtime import AMDockVSRuntime
 from amdockvs.core.vocab import TargetState
@@ -22,8 +23,8 @@ def _project_with_shard(tmp_path):
         batch = ImportBatch(source="library.smi", quick_hash="x", format="smiles", kind="shards")
         session.add(batch)
         session.flush()
-        shard = ScreeningShard(
-            import_batch_id=batch.id,
+        shard = CatalogShard(
+            scope=batch.id,
             shard_index=0,
             path=str(source),
             n_records=100,
@@ -61,9 +62,9 @@ def test_engine_artifact_does_not_replace_the_chemical_shard(tmp_path):
             "prepared_records": 97,
         }
         with runtime.workspace.project_db.get_session() as session:
-            inventory = session.get(ScreeningShard, int(shard.id))
+            inventory = session.get(CatalogShard, int(shard.id))
             assert inventory.path == str(source)
-            assert session.get(ImportBatch, inventory.import_batch_id).format == "smiles"
+            assert session.get(ImportBatch, inventory.scope).format == "smiles"
     finally:
         runtime.close_project()
 

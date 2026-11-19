@@ -23,14 +23,15 @@ data. `io/api.py` is where it is enforced, at import.
 
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 from typing import Any, Iterator, Mapping, Protocol
 
+from ms_flow.core.data import catalog
+from ms_flow.core.data.catalog import active_generation_id, create_generation, shard_spec
 from ms_flow.core.data.exclusions import active_exclusions, exclude
 from ms_flow.query import QuerySpec, db_count, db_pages
 
-from amdockvs.core.constants import TABLE_MOLECULES, TABLE_SCREENING_SHARDS
+from amdockvs.core.constants import TABLE_MOLECULES
 from amdockvs.screening.materialize import HitGate, PAYLOAD_LIGHT, ingest_hits
 from amdockvs.core.vocab import MoleculeType, MoleculeUsageClass
 
@@ -66,121 +67,19 @@ class DbStore:
         return [dict(row) for row in rows]
 
 
-SHARD_FIELDS = (
-    "id", "generation_id", "import_batch_id", "shard_index", "path", "base_id", "slot_count", "n_records"
-)
-
-
 def shard_generation_progress(project_db, generation_id: int) -> tuple[int, int]:
     """(ligands written into `generation_id`, ligands of the library it rewrites).
 
     While the step runs the active generation is still its parent; once it switches, both are
     the new one, so a finished step reads done == total.
     """
-    store = ShardStore(project_db)
-    spec = shard_scope_spec()
-    done = store.record_count(replace(spec, filters={**spec.filters, "generation_id": int(generation_id)}), whole=True)
-    return done, store.record_count(spec, whole=True)
-
-
-def active_generation_id(project_db) -> int | None:
-    """Which rewrite of the library is the current one. `None` before the first import."""
-    from sqlmodel import select
-
-    from amdockvs.models import ShardGeneration
-
-    with project_db.get_session() as session:
-        row = session.exec(
-            select(ShardGeneration)
-            .where(ShardGeneration.is_active == True)  # noqa: E712 - SQL, not Python truthiness
-            .order_by(ShardGeneration.id.desc())
-        ).first()
-        return int(row.id) if row is not None else None
-
-
-def create_generation(project_db, *, step: str, shard_dir: str | Path, job_id: str = "") -> int:
-    """Open a new generation, parented to whatever is active. It is not active yet.
-
-    Nothing reads it until `activate_generation` flips the pointer, which is what makes a
-    failed rewrite a no-op instead of a half-switched inventory.
-    """
-    from amdockvs.models import ShardGeneration
-
-    parent_id = active_generation_id(project_db)
-    with project_db.get_session() as session:
-        row = ShardGeneration(
-            parent_id=parent_id,
-            step=str(step or ""),
-            shard_dir=str(shard_dir or ""),
-            job_id=str(job_id or ""),
-            is_active=False,
-        )
-        session.add(row)
-        session.commit()
-        session.refresh(row)
-        return int(row.id)
-
-
-def activate_generation(project_db, generation_id: int) -> None:
-    """Make one generation the library, and forget its grandparent.
-
-    The switch itself is one UPDATE over a handful of generation rows — the inventory's
-    thousands of shard rows are never touched. The sweep afterwards is the window of two:
-    the active generation and its parent survive, everything older goes, files included.
-    """
-    from sqlmodel import select
-
-    from amdockvs.models import ScreeningShard, ShardGeneration
-
-    with project_db.get_session() as session:
-        generations = {int(row.id): row for row in session.exec(select(ShardGeneration)).all()}
-        target = generations.get(int(generation_id))
-        if target is None:
-            raise ValueError(f"No shard generation {generation_id} to activate.")
-        for row in generations.values():
-            row.is_active = row.id == target.id
-            session.add(row)
-        keep = {int(target.id)}
-        if target.parent_id is not None:
-            keep.add(int(target.parent_id))
-        doomed = [gen_id for gen_id in generations if gen_id not in keep]
-        # A file holds many shards: it goes only when no surviving row still points at it.
-        paths = set(session.exec(
-            select(ScreeningShard.path).where(ScreeningShard.generation_id.in_(doomed))
-        ).all()) - set(session.exec(
-            select(ScreeningShard.path).where(ScreeningShard.generation_id.in_(keep))
-        ).all()) if doomed else set()
-        for gen_id in keep:
-            # The surviving parent points at a generation that is about to stop existing. Cut
-            # the link first or the delete trips the foreign key — its lineage ends here now.
-            generation = generations[gen_id]
-            if generation.parent_id is not None and int(generation.parent_id) in doomed:
-                generation.parent_id = None
-                session.add(generation)
-        session.flush()
-        for gen_id in doomed:
-            for shard in session.exec(
-                select(ScreeningShard).where(ScreeningShard.generation_id == gen_id)
-            ).all():
-                session.delete(shard)
-            session.delete(generations[gen_id])
-        session.commit()
-    # Files last: a row that survives a missing file is a bug you can see, a file that
-    # survives its row is an orphan nothing will ever look at again.
-    for text in paths:
-        path = Path(str(text or ""))
-        if path.is_file():
-            path.unlink(missing_ok=True)
-
-
-def _narrowed(project_db, rows) -> Iterator[dict[str, Any]]:
-    """Shard rows minus the active exclusions; an id is unique inside its import batch."""
-    return active_exclusions(project_db).narrow(rows, scope_key="import_batch_id")
+    return (catalog.record_count(project_db, shard_spec(generation_id=int(generation_id)), whole=True),
+            catalog.record_count(project_db, whole=True))
 
 
 def shard_scope_spec() -> QuerySpec:
-    """Every shard; `ShardStore` pins it to the active generation."""
-    return QuerySpec(table=TABLE_SCREENING_SHARDS, fields=SHARD_FIELDS, order=("id",))
+    """Every shard; reads pin it to the active generation (`ms_flow.core.data.catalog`)."""
+    return shard_spec()
 
 
 class ShardStore:
@@ -193,39 +92,17 @@ class ShardStore:
         self.gate = gate
         self.payload = payload
 
-    def _scoped(self, spec: QuerySpec | None) -> QuerySpec:
-        """Pin any shard scope to the active generation.
-
-        Injected here rather than in `shard_scope_spec` because this is the only place that
-        has the database — and because a caller that forgets it would silently feed a step
-        two generations of the same library at once. A spec that names a generation is left
-        alone: that is how a redo reads its parent.
-        """
-        spec = spec or shard_scope_spec()
-        if "generation_id" in spec.filters:
-            return spec
-        generation_id = active_generation_id(self.project_db)
-        if generation_id is None:
-            return spec
-        return replace(spec, filters={**spec.filters, "generation_id": generation_id})
-
     def iter_rows(
         self, spec: QuerySpec | None = None, *, batch_size: int = 1, whole: bool = False
     ) -> Iterator[dict[str, Any]]:
-        """Shards, one row each. `batch_size` is a paging detail — a shard is the work unit.
-
-        Minus the active exclusions (`ms_flow.core.data.exclusions`): a shard left with none is
-        not yielded, a partial one carries `record_ids`. `whole`: every record, for the steps
-        that transform rather than select (preparation, chemistry rewrites).
-        """
-        rows = db_pages(self.project_db, self._scoped(spec), page_size=max(1, int(batch_size)))
-        yield from rows if whole else _narrowed(self.project_db, rows)
+        """Shards, one row each, as ms_flow's catalog gives them: on the active generation and
+        minus the active exclusions (a partial shard carries `record_ids`). `whole`: every
+        record, for the steps that transform rather than select (preparation, chemistry)."""
+        return catalog.shards(self.project_db, spec, whole=whole, page_size=batch_size)
 
     def count(self, spec: QuerySpec | None = None, *, whole: bool = False) -> int:
         """How many shards `iter_rows` yields — this is what a run declares as its work."""
-        if whole or not active_exclusions(self.project_db):
-            return db_count(self.project_db, self._scoped(spec))
-        return sum(1 for _row in self.iter_rows(spec, batch_size=1000))
+        return catalog.count(self.project_db, spec, whole=whole)
 
     def exclude(self, keys, *, reason: str = "", producer_job_id: str = "") -> int | None:
         """Leave records out by `io.shards.shard_key`, without touching a shard: the cut is a
@@ -239,13 +116,8 @@ class ShardStore:
         return exclude(self.project_db, by_batch, reason=reason, producer_job_id=producer_job_id)
 
     def record_count(self, spec: QuerySpec | None = None, *, whole: bool = False) -> int:
-        """How many molecules those shards hold, without opening a single file.
-
-        ponytail: summed over the inventory rows rather than in SQL. The inventory is
-        thousands of rows at worst — it is the *library* that must never be walked, and it
-        isn't. A SUM query if the shard count ever reaches millions.
-        """
-        return sum(int(row.get("n_records") or 0) for row in self.iter_rows(spec, batch_size=1000, whole=whole))
+        """How many molecules those shards hold, without opening a single file."""
+        return catalog.record_count(self.project_db, spec, whole=whole)
 
     def promote(self, keys) -> dict[int, int]:
         """Library records, by `io.shards.shard_key`, into `molecules` rows: {key: molecule_id}.
@@ -270,7 +142,7 @@ class ShardStore:
         libraries = library_names(self.project_db) if wanted else {}
         records: list[dict[str, Any]] = []
         for batch, record_ids in wanted.items():
-            spec = replace(shard_scope_spec(), filters={"import_batch_id": batch})
+            spec = shard_spec(scope=batch)
             for row in self.iter_rows(spec, batch_size=1000, whole=True):  # asked by key: excluded or not
                 if not record_ids:
                     break
@@ -341,7 +213,7 @@ def as_store(source) -> LigandStore:
 
 def has_shards(project_db) -> bool:
     """Does this project hold a sharded screening library?"""
-    return db_count(project_db, shard_scope_spec()) > 0
+    return db_count(project_db, shard_spec()) > 0
 
 
 # Beside the input, in a folder named after the family: a campaign's stages read as a chain of folders.
@@ -357,9 +229,32 @@ def prepared_shard_path(shard_path: str | Path, family: str, ids=None) -> Path:
     return shard_path.parent / PREPARED_DIR.format(engine=family) / shard_file_name(shard_path, ids)
 
 
+def activate_generation(project_db, generation_id: int) -> None:
+    """ms_flow's activation, with the prepared twins of a forgotten generation going with it.
+    A generation docking receipts still point at is kept by ms_flow (see `catalog`)."""
+    catalog.activate_generation(project_db, generation_id, on_drop=_drop_shard_preps)
+
+
+def _drop_shard_preps(session, shards) -> list[Path]:
+    """The `shard_preps` rows of shards about to go, and the twin files to delete after them."""
+    from sqlmodel import delete, select
+
+    from amdockvs.io.shards import shard_ids
+    from amdockvs.models import ShardPrep
+
+    by_id = {int(shard.id): shard for shard in shards}
+    where = ShardPrep.shard_id.in_(list(by_id))
+    paths = [
+        prepared_shard_path(by_id[int(prep.shard_id)].path, prep.family, shard_ids(by_id[int(prep.shard_id)]))
+        for prep in session.exec(select(ShardPrep).where(where)).all()
+    ]
+    session.exec(delete(ShardPrep).where(where))
+    return paths
+
+
 def iter_prepared_shards(project_db, *, engine: str, unprepared: bool = False) -> Iterator[dict[str, Any]]:
     """Prepared shards minus the active exclusions (see `ShardStore.iter_rows`)."""
-    return _narrowed(project_db, _prepared_shards(project_db, engine=engine, unprepared=unprepared))
+    return active_exclusions(project_db).narrow(_prepared_shards(project_db, engine=engine, unprepared=unprepared))
 
 
 def _prepared_shards(project_db, *, engine: str, unprepared: bool = False) -> Iterator[dict[str, Any]]:
@@ -372,7 +267,9 @@ def _prepared_shards(project_db, *, engine: str, unprepared: bool = False) -> It
     from sqlmodel import select
 
     from amdockvs.io.shards import shard_ids
-    from amdockvs.models import ScreeningShard, ShardPrep
+    from ms_flow.core.database.project_models import CatalogShard
+
+    from amdockvs.models import ShardPrep
 
     family = str(engine or "").strip().lower()
     generation_id = active_generation_id(project_db)
@@ -385,9 +282,9 @@ def _prepared_shards(project_db, *, engine: str, unprepared: bool = False) -> It
         ).all())
         # Scoped like every other shard read: the parent generation is still in the table and
         # its prepared artifacts are still on disk, but they are not the library any more.
-        query = select(ScreeningShard).order_by(ScreeningShard.id)
+        query = select(CatalogShard).order_by(CatalogShard.id)
         if generation_id is not None:
-            query = query.where(ScreeningShard.generation_id == generation_id)
+            query = query.where(CatalogShard.generation_id == generation_id)
         shards = list(session.exec(query).all())
     from amdockvs.io.batches import library_names
 
@@ -399,8 +296,8 @@ def _prepared_shards(project_db, *, engine: str, unprepared: bool = False) -> It
         if n_records is not None and prepared_path.is_file():
             yield {
                 "id": int(shard.id or 0),
-                "import_batch_id": shard.import_batch_id,
-                "library": libraries.get(shard.import_batch_id, "library"),
+                "scope": shard.scope,
+                "library": libraries.get(shard.scope, "library"),
                 "shard_index": int(shard.shard_index),
                 "path": shard.path,
                 "ids": ids,
@@ -411,8 +308,8 @@ def _prepared_shards(project_db, *, engine: str, unprepared: bool = False) -> It
                 "sha256": digests.get(int(shard.id or 0)) or "",  # "" = prepared before 2026-11
             }
         elif unprepared:
-            yield {"id": int(shard.id or 0), "import_batch_id": shard.import_batch_id,
-                   "library": libraries.get(shard.import_batch_id, "library"), "shard_index": int(shard.shard_index),
+            yield {"id": int(shard.id or 0), "scope": shard.scope,
+                   "library": libraries.get(shard.scope, "library"), "shard_index": int(shard.shard_index),
                    "path": shard.path, "ids": ids, "base_id": shard.base_id, "slot_count": shard.slot_count,
                    "prepared_path": "", "n_records": int(shard.n_records),
                    "sha256": ""}

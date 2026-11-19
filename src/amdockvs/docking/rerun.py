@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ms_flow.core.database.project_models import CatalogShard
 from sqlalchemy import and_, delete, exists, or_
 from sqlmodel import select
 
@@ -10,7 +11,7 @@ from amdockvs.docking.protocols import DockingProtocolMetadata
 from amdockvs.docking.results.dataset import fragment_ligand_ids, selection_covers
 from amdockvs.docking.results.repository import _decode_metadata, supersede_results
 from amdockvs.models import (
-    DockingResultRecord, DockingRun, MoleculeRecord, ScreeningShard, ScreeningShardRun, ScreeningTarget,
+    DockingResultRecord, DockingRun, MoleculeRecord, ScreeningShardRun, ScreeningTarget,
 )
 from amdockvs.core.vocab import TargetState
 from amdockvs.project.deletion import delete_results_where
@@ -153,9 +154,9 @@ def supersede_shard_runs(project_db, *, docking_run_id: int | None) -> int:
         # Read each retired fragment before it goes: the shard records it holds are the pairs it
         # was the evidence for, and a library molecule is addressed by (import batch, record).
         batches = {
-            int(row.id): row.import_batch_id
-            for row in session.exec(select(ScreeningShard).where(
-                ScreeningShard.id.in_({int(row.shard_id) for row in stale}))).all()
+            int(row.id): row.scope
+            for row in session.exec(select(CatalogShard).where(
+                CatalogShard.id.in_({int(row.shard_id) for row in stale}))).all()
         } if stale else {}
         retired = {
             (int(row.docking_run_id), int(row.receptor_molecule_id),

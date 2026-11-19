@@ -13,7 +13,8 @@ panel the plan pairs with this table (§6) waits for there to be dispatches to s
 
 from __future__ import annotations
 
-from amdockvs.models import ScreeningShard
+from ms_flow.core.database.project_models import CatalogShard
+
 from amdockvs.ui.catalog.common import BoundTableWidget, batch_columns
 from ms_components.ms_table import (
     AlignHint,
@@ -28,7 +29,7 @@ from amdockvs.ui.view_ids import SHARDS_VIEW_ID
 
 def _shard_table_config() -> TableConfig:
     return TableConfig(
-        model_class=ScreeningShard,
+        model_class=CatalogShard,
         columns=[
             ColumnDef("id", label="ID", width=60, sortable=True, align=AlignHint.RIGHT,
                       kind=ColumnKind.INTEGER),
@@ -37,7 +38,7 @@ def _shard_table_config() -> TableConfig:
                       kind=ColumnKind.INTEGER, visible=False),
             ColumnDef("n_records", label="Records", width=90, sortable=True, align=AlignHint.RIGHT,
                       kind=ColumnKind.INTEGER),
-            *batch_columns(ScreeningShard),
+            *batch_columns(CatalogShard),
             ColumnDef("error", label="Error", width=240, sortable=False),
             ColumnDef("path", label="Path", width=320, sortable=True, visible=False),
         ],

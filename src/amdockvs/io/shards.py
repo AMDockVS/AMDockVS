@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import io
 from collections.abc import Mapping
-from dataclasses import replace
 from pathlib import Path
 from typing import Any, Iterator
 from uuid import uuid4
@@ -71,7 +70,7 @@ def is_shard_key(key: int) -> bool:
 
 def shard_ids(row: Any) -> tuple[int, int] | None:
     """A catalog shard's ids inside its file, as `Shard.open(ids=)` takes them; None = the whole
-    file. Takes a `ScreeningShard` or a row dict."""
+    file. Takes a catalog row (`CatalogShard`) or a row dict."""
     get = row.get if isinstance(row, Mapping) else (lambda key: getattr(row, key, None))
     base = get("base_id")
     return None if base is None else (int(base), int(base) + int(get("slot_count") or 0))
@@ -403,16 +402,12 @@ class ShardQueueWriter:
         self._shard_index += 1
 
     def _close_file(self, key: tuple[int | None, str]) -> None:
-        from amdockvs.models import ScreeningShard
+        from ms_flow.core.data.catalog import add_shards
 
         writer, rows = self._files.pop(key)
         writer.close()  # fsynced and renamed: only now may a row point at it
-        with self._project_db.get_session() as session:
-            session.add_all(
-                ScreeningShard(generation_id=self._generation_id, import_batch_id=key[0], path=str(writer.path), **row)
-                for row in rows
-            )
-            session.commit()
+        add_shards(self._project_db, [{**row, "scope": key[0], "path": str(writer.path)} for row in rows],
+                   generation_id=self._generation_id)
 
 
 def shard_queue_writer(params: dict, config: dict) -> ShardQueueWriter:
@@ -443,24 +438,10 @@ class ShardGenerationWriter:
         self._generation_id = int(generation_id)
 
     def handle(self, chunk_id: str, result: Any) -> None:
-        from amdockvs.models import ScreeningShard
+        from ms_flow.core.data.catalog import add_shards
 
-        rows = [dict(row) for row in (result or [])]
-        if not rows:
-            return
-        with self._project_db.get_session() as session:
-            for row in rows:
-                session.add(
-                    ScreeningShard(
-                        generation_id=self._generation_id,
-                        import_batch_id=row.get("import_batch_id"),
-                        shard_index=int(row.get("shard_index") or 0),
-                        path=str(row.get("path") or ""),
-                        n_records=int(row.get("n_records") or 0),
-                        error=str(row.get("error") or ""),
-                    )
-                )
-            session.commit()
+        add_shards(self._project_db, [{**row, "scope": row.get("import_batch_id")} for row in result or []],
+                   generation_id=self._generation_id)
 
     def on_error(self, chunk_id: str, error: str) -> None:
         """A failed shard contributes no row, so it is simply absent from the generation.
@@ -478,11 +459,11 @@ class ShardGenerationWriter:
         and the switch silently replaces the library with nothing. That is the one outcome a
         rewrite must never be allowed to reach.
         """
-        from amdockvs.molecules.storage import ShardStore, activate_generation, shard_scope_spec
+        from ms_flow.core.data.catalog import record_count, shard_spec
 
-        spec = shard_scope_spec()
-        store = ShardStore(self._project_db)
-        written = store.record_count(replace(spec, filters={**spec.filters, "generation_id": self._generation_id}), whole=True)
+        from amdockvs.molecules.storage import activate_generation
+
+        written = record_count(self._project_db, shard_spec(generation_id=self._generation_id), whole=True)
         if written <= 0:
             raise RuntimeError(
                 f"Shard generation {self._generation_id} ended with 0 molecules: refusing to "

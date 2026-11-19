@@ -667,7 +667,7 @@ class DockShardsJobSpec(JobSpec):
                 "shard_id": int(row.get("id") or 0),
                 "shard_path": worker_file(row["prepared_path"]) if row["prepared_path"] else "",
                 **({} if row["prepared_path"] else {"molecules": worker_file(row["path"]), "ids": row.get("ids")}),
-                "import_batch_id": row.get("import_batch_id"),
+                "import_batch_id": row.get("scope"),
                 "library": str(row.get("library") or ""),
                 "shard_index": int(row.get("shard_index") or 0),
                 "n_records": int(row.get("n_records") or 0),
