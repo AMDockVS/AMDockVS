@@ -41,12 +41,11 @@ PREP_UPSERT = graph_sink(
         {
             "name": "receptor_preps",
             "model": ReceptorPrep,
-            # Every column but `flex_residues`: the user's pick outlives a re-preparation.
             # `warnings` is written NULL too, so a re-preparation clears what the last one said.
-            "columns": ["receptor_molecule_id", "family", "rigid_payload_id", "flex_payload_id", "error",
-                        "warnings"],
+            "columns": ["receptor_molecule_id", "family", "binding_site_id", "rigid_payload_id",
+                        "flex_payload_id", "error", "warnings"],
             "write_mode": "upsert",
-            "conflict_keys": ["receptor_molecule_id", "family"],
+            "conflict_keys": ["receptor_molecule_id", "family", "binding_site_id"],
             "validate_model": False,
         },
         {
@@ -114,25 +113,55 @@ def _rows_for_preparation(
         order=("id",),
         batch_size=batch_size,
     )
-    if force:
+    if force or entity_kind == "receptor":
+        # Receptors: `_expand_receptor_sites` decides what is missing, since a receptor whose
+        # rigid row is ready can still be missing a site's flexible preparation.
         return rows
 
     return (row for row in rows if not row.get("prepared_payload_id"))
 
 
-def _attach_flexible_residues(project_db, rows: list[dict[str, Any]], *, family: str) -> None:
+def _expand_receptor_sites(project_db, rows: list[dict[str, Any]], *, family: str,
+                           force: bool) -> list[dict[str, Any]]:
+    """`rows` plus one extra row per active site that picked flexible side chains, minus the
+    preparations already done (unless `force`).
+
+    Carving a side chain out rewrites the rigid receptor too, so a site with flexible residues
+    needs a preparation of its own (`binding_site_id`); the plain rigid row stays, and it is
+    what every other site docks against.
+    """
     from sqlmodel import select
+
+    from amdockvs.models import BindingSite
 
     ids = [int(row.get("id") or 0) for row in rows]
     with project_db.get_session() as session:
-        picks = dict(session.exec(
-            select(ReceptorPrep.receptor_molecule_id, ReceptorPrep.flex_residues)
-            .where(ReceptorPrep.receptor_molecule_id.in_(ids), ReceptorPrep.family == family)
-        ).all())
+        picks: dict[int, list[tuple[int, list]]] = {}
+        for site_id, molecule_id, keys in session.exec(
+            select(BindingSite.id, BindingSite.molecule_id, BindingSite.flex_residues)
+            .where(BindingSite.molecule_id.in_(ids))
+            .where(BindingSite.is_active == True)  # noqa: E712 - SQL expression
+            .order_by(BindingSite.id)
+        ).all():
+            if keys:
+                picks.setdefault(int(molecule_id), []).append((int(site_id), list(keys)))
+        done: set[tuple[int, int]] = set() if force else {
+            (int(molecule_id), int(site_id)) for molecule_id, site_id in session.exec(
+                select(ReceptorPrep.receptor_molecule_id, ReceptorPrep.binding_site_id)
+                .where(ReceptorPrep.receptor_molecule_id.in_(ids))
+                .where(ReceptorPrep.family == str(family), ReceptorPrep.rigid_payload_id.is_not(None))
+            ).all()
+        }
+    expanded: list[dict[str, Any]] = []
     for row in rows:
-        keys = picks.get(int(row.get("id") or 0))
-        if keys:
-            row["flexible_residues"] = [str(k) for k in keys]
+        molecule_id = int(row.get("id") or 0)
+        if (molecule_id, 0) not in done:
+            expanded.append(row)
+        for site_id, keys in picks.get(molecule_id, []):
+            if (molecule_id, site_id) not in done:
+                expanded.append({**row, "binding_site_id": site_id,
+                                 "flexible_residues": [str(k) for k in keys]})
+    return expanded
 
 
 def _with_structures(project_db, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -181,8 +210,10 @@ def _iter_preparation_batches(
     for batch in batched(rows_iter, batch_size):
         rows = list(batch)
         if entity_kind == "receptor":
-            # Flexible residues live on the receptor's preparation row; carry them into the worker payload.
-            _attach_flexible_residues(project_db, rows, family=params.engine)
+            # Flexible side chains belong to a binding site: one extra preparation per site
+            # that picked some, carrying its residues into the worker payload.
+            rows = _expand_receptor_sites(project_db, rows, family=params.engine,
+                                          force=bool(params.force))
         emitted = True
         yield chunk(rows)
     if not emitted:

@@ -22,6 +22,15 @@ class FlexibleResiduesPanel:
         box = QWidget(page)
         lay = QVBoxLayout(box)
         lay.setContentsMargins(0, 0, 0, 0)
+        # Which site the residues belong to: they are the pocket's, not the receptor's, and a
+        # receptor may be docked into several pockets at once.
+        site_row = QHBoxLayout()
+        site_row.addWidget(QLabel("Site", box))
+        self.flex_site_combo = QComboBox(box)
+        self.flex_site_combo.currentIndexChanged.connect(lambda _i: self._load_box_residues())
+        site_row.addWidget(self.flex_site_combo, 1)
+        lay.addLayout(site_row)
+
         row = QHBoxLayout()
         row.addWidget(QLabel("Candidates from", box))
         self.flex_source_combo = QComboBox(box)
@@ -132,17 +141,34 @@ class FlexibleResiduesPanel:
             return
         self._flex_loading_id = rid
         self.load_flex_btn.setEnabled(False)
+        site_id = int(self.flex_site_combo.currentData() or 0) or None
         run_async(
             lambda: (
-                self.runtime.docking.list_box_residues(receptor_id=rid),
-                self.runtime.docking.get_flexible_residues(receptor_id=rid),
+                self.runtime.docking.list_box_residues(receptor_id=rid, binding_site_id=site_id),
+                self.runtime.docking.get_flexible_residues(receptor_id=rid, binding_site_id=site_id),
+                [(int(s.id or 0), str(s.name or s.source or "site"))
+                 for s in self.runtime.binding_sites.list_sites(molecule_id=rid) if s.is_active],
             ),
-            lambda res: self._apply_box_residues(rid, res[0], res[1]),
-            on_error=lambda _exc: self._apply_box_residues(rid, [], []),
+            lambda res: self._apply_box_residues(rid, res[0], res[1], res[2]),
+            on_error=lambda _exc: self._apply_box_residues(rid, [], [], []),
             busy=self.flex_box,
         )
 
-    def _apply_box_residues(self, rid: int, residues: list[dict], selected: list[str]) -> None:
+    def _fill_site_combo(self, sites: list[tuple[int, str]]) -> None:
+        """The receptor's active sites, keeping the chosen one selected across reloads."""
+        wanted = int(self.flex_site_combo.currentData() or 0) or (int(sites[0][0]) if sites else 0)
+        self.flex_site_combo.blockSignals(True)
+        self.flex_site_combo.clear()
+        for site_id, name in sites:
+            self.flex_site_combo.addItem(f"{name} #{site_id}", site_id)
+        index = self.flex_site_combo.findData(wanted)
+        self.flex_site_combo.setCurrentIndex(max(0, index))
+        self.flex_site_combo.setEnabled(len(sites) > 1)
+        self.flex_site_combo.blockSignals(False)
+        self._flex_site_id = int(self.flex_site_combo.currentData() or 0) or None
+
+    def _apply_box_residues(self, rid: int, residues: list[dict], selected: list[str],
+                            sites: list[tuple[int, str]] | None = None) -> None:
         # Focus may have moved on while loading — drop the stale result so panels match the
         # receptor that's actually focused now.
         if rid != self._focused_receptor_id:
@@ -151,6 +177,7 @@ class FlexibleResiduesPanel:
             return
         self._flex_loading_id = None
         self.load_flex_btn.setEnabled(True)
+        self._fill_site_combo(list(sites or []))
         self._flex_receptor_id = rid
         self._flex_candidate_rows = residues
         self._flex_selected_keys = set(selected)
@@ -199,6 +226,7 @@ class FlexibleResiduesPanel:
             self.runtime.docking.set_flexible_residues(
                 receptor_id=self._flex_receptor_id,
                 residue_keys=sorted(self._flex_selected_keys),
+                binding_site_id=getattr(self, "_flex_site_id", None),
             )
         except Exception as exc:  # persistence failure shouldn't crash the UI
             self.flex_count_label.setText(f"Could not save: {exc}")
@@ -218,6 +246,7 @@ class FlexibleResiduesPanel:
         self._load_box_residues()
 
     def _clear_flex_panel(self) -> None:
+        self._fill_site_combo([])
         self._flex_receptor_id = None
         self._flex_loading_id = None
         self._flex_candidate_rows = []

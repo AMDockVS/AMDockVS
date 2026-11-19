@@ -25,6 +25,7 @@ from ms_components.ms_table.table_config import (
 
 from amdockvs.core.vocab import TargetState
 from amdockvs.models import (
+    BindingSite,
     DockingResultRecord,
     DockingRun,
     MoleculeRecord,
@@ -56,6 +57,18 @@ def _molecule_name(molecule_id):
     return (
         select(molecule.name)
         .where(molecule.id == molecule_id)
+        .correlate(DockingResultRecord)
+        .scalar_subquery()
+    )
+
+
+def _site_name():
+    """The site the pose was docked into: a receptor may be docked in several at once, so two
+    poses of the same ligand can differ only by this."""
+    site = aliased(BindingSite)
+    return (
+        select(func.coalesce(func.nullif(site.name, ""), literal("BS ") + cast(site.id, String)))
+        .where(site.id == DockingResultRecord.binding_site_id)
         .correlate(DockingResultRecord)
         .scalar_subquery()
     )
@@ -468,6 +481,7 @@ def results_pose_config() -> TableConfig:
                       formatter=fmt_float, sortable=False, width=75),
             ColumnDef("rmsd_vs_reference", label="RMSD ref", kind=ColumnKind.NUMBER,
                       align=AlignHint.RIGHT, formatter=fmt_float, width=65),
+            ColumnDef("binding_site", label="Site", expr=_site_name(), sortable=False, width=90),
             ColumnDef("ligand_efficiency", label="LE", visible=False, kind=ColumnKind.NUMBER,
                       align=AlignHint.RIGHT, formatter=fmt_float, width=65),
             ColumnDef("predicted_pki", label="pKi", visible=False, kind=ColumnKind.NUMBER,

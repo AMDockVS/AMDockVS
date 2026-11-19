@@ -4,7 +4,7 @@ from datetime import datetime
 from math import isfinite
 from typing import Any
 
-from sqlalchemy import DateTime, Index, JSON, UniqueConstraint, text
+from sqlalchemy import DateTime, Index, JSON, UniqueConstraint
 from sqlmodel import SQLModel, Field
 
 from amdockvs.models.codes import code_field
@@ -77,8 +77,9 @@ def defined_box_sql(alias: str) -> str:
 class BindingSite(SQLModel, table=True):
     """
     A binding site / docking grid definition for a molecule in receptor role.
-    One receptor-capable molecule can have N binding sites from different sources.
-    The active one has `is_active` set: at most one per molecule (a partial UNIQUE index).
+    One receptor-capable molecule can have N binding sites from different sources, and any
+    number of them may be active at once: a docking pair is (receptor, site, ligand), so a
+    receptor with three active sites is docked three times. Nothing enforces one active site.
 
     Sites are only ever added; nothing rewrites or renumbers them. A prediction re-run appends a
     new batch next to the old one and it is the user who deletes what they no longer want, so a
@@ -93,9 +94,6 @@ class BindingSite(SQLModel, table=True):
     """
 
     __tablename__ = TABLE_BINDING_SITES
-    __table_args__ = (
-        Index("uq_binding_site_active", "molecule_id", unique=True, sqlite_where=text("is_active=1")),
-    )
 
     id: int | None = Field(default=None, primary_key=True)
     molecule_id: int = Field(foreign_key=f"{TABLE_MOLECULES}.id", index=True)
@@ -111,6 +109,11 @@ class BindingSite(SQLModel, table=True):
     size_x: float | None = Field(default=None)
     size_y: float | None = Field(default=None)
     size_z: float | None = Field(default=None)
+
+    # The side chains to keep flexible in this site. Per site, not per receptor: a residue is
+    # flexible because it lines *this* pocket. What gets prepared from them is a `ReceptorPrep`
+    # row of this site (`binding_site_id`), since carving a side chain out rewrites the rigid too.
+    flex_residues: list = Field(default_factory=list, sa_type=JSON)
 
     extra_data: dict | None = Field(default=None, sa_type=JSON)
 
@@ -130,19 +133,22 @@ class ReceptorPrep(SQLModel, table=True):
     """A receptor prepared for one family (`ad4` serves Vina, QuickVina, gnina and AutoDock-GPU).
 
     Ready = `rigid_payload_id` set; a failed preparation leaves it NULL with `error`.
-    `flex_residues` is the user's pick of flexible side chains, which a re-preparation keeps
-    (it writes every column but this one); `flex_payload_id` is what was prepared from it.
+
+    One row per (receptor, family, binding site). `binding_site_id` 0 is the plain rigid
+    receptor, what every site without flexible residues docks against; a site that picked some
+    gets its own row, because carving a side chain out of the rigid rewrites the rigid too.
     """
 
     __tablename__ = TABLE_RECEPTOR_PREPS
-    __table_args__ = (UniqueConstraint("receptor_molecule_id", "family"),)
+    __table_args__ = (UniqueConstraint("receptor_molecule_id", "family", "binding_site_id"),)
 
     id: int | None = Field(default=None, primary_key=True)
     receptor_molecule_id: int = Field(foreign_key=f"{TABLE_MOLECULES}.id")
     family: str = code_field("prep_family", "ad4")
+    # 0, not NULL: it is half of a UNIQUE key, and SQLite counts two NULLs as different rows.
+    binding_site_id: int = Field(default=0, index=True)
     rigid_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
     flex_payload_id: int | None = Field(default=None, foreign_key=f"{TABLE_PAYLOADS}.id", index=True)
-    flex_residues: list = Field(default_factory=list, sa_type=JSON)
     error: str | None = Field(default=None)
     # A prepared receptor with something the PDBQT cannot say: a cofactor typed by guesswork or
     # charged wrong, a metal with a charge but no coordination model. One per line. Not `error`:
@@ -217,6 +223,9 @@ class DockingResult(SQLModel, table=True):
     docking_run_id: int = Field(foreign_key=f"{TABLE_DOCKING_RUNS}.id", index=True)
     receptor_molecule_id: int  = Field(foreign_key=f"{TABLE_MOLECULES}.id")  # idx_dr_pair leads with it
     ligand_molecule_id: int    = Field(foreign_key=f"{TABLE_MOLECULES}.id", index=True)
+    # The site of the receptor the pair was docked into; NULL for a run without one (blind
+    # docking, an explicit box). The box itself is part of `input_key`.
+    binding_site_id: int | None = Field(default=None, foreign_key=f"{TABLE_BINDING_SITES}.id", index=True)
     complex_id: int | None     = Field(default=None)  # the complex a redocking pair comes from
     pose_rank: int    = Field(default=1) # 1 = best pose
 
@@ -251,6 +260,7 @@ class DockingResult(SQLModel, table=True):
         docking_run_id: int,
         receptor_molecule_id: int,
         ligand_molecule_id: int,
+        binding_site_id: int | None = None,
         pose_rank: int = 1,
         score: float | None = None,
         score_type: str = "",
@@ -261,6 +271,7 @@ class DockingResult(SQLModel, table=True):
             "docking_run_id": docking_run_id,
             "receptor_molecule_id": receptor_molecule_id,
             "ligand_molecule_id": ligand_molecule_id,
+            "binding_site_id": binding_site_id,
             "pose_rank": pose_rank,
             "score": score,
             "score_type": score_type,

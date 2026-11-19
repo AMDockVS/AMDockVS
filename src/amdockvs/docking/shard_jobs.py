@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from contextlib import suppress
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Mapping
 
 from pydantic import BaseModel, Field
 from sqlalchemy import func
@@ -47,7 +47,7 @@ from amdockvs.docking.results.dataset import (
     shard_selection,
 )
 from amdockvs.docking.methods import excludes
-from amdockvs.docking.pairs import docking_input_key
+from amdockvs.docking.pairs import docking_input_key, site_targets
 from amdockvs.docking.preparation.state import grid_from_row
 from amdockvs.docking.rerun import supersede_shard_runs
 from amdockvs.screening.campaign import (
@@ -344,6 +344,7 @@ class ShardHitWriter:
                     docking_run_id=int(envelope.get("docking_run_id") or self.docking_run_id or 0),
                     shard_id=shard_id,
                     receptor_id=int(envelope.get("receptor_id") or 0),
+                    binding_site_id=int(envelope.get("binding_site_id") or 0),
                     engine=self.engine,
                     protocol_hash=self.protocol_hash,
                     scored=int(envelope.get("scored") or 0),
@@ -435,9 +436,18 @@ def _project_relative(path: str) -> str:
     return text
 
 
+def target_pair(shard_id: Any, target: Mapping[str, Any]) -> tuple[int, int, int]:
+    """The receipt key of one piece of work: a shard, a receptor, and the receptor's site."""
+    return (int(shard_id or 0), int(target.get("receptor_id") or 0),
+            int(target.get("binding_site_id") or 0))
+
+
 def receptor_targets(project_db, parsed: DockShardsJobParams, output_dir: Path) -> list[dict[str, Any]]:
     """The prepared receptors with a grid, as everything a chunk needs to dock against one: their
-    files written once under the run's `output_dir`."""
+    files written once under the run's `output_dir`.
+
+    One target per active binding site: a receptor with three of them is three targets, each
+    with its own box, its own inputs and its own receipts. An explicit box overrides them."""
     rows = list_entity_rows(
         project_db,
         entity_kind="receptor",
@@ -446,11 +456,12 @@ def receptor_targets(project_db, parsed: DockShardsJobParams, output_dir: Path) 
         filters={**dict(parsed.receptor_filters or {}), "prepared_engine": True},
         fields=(
             "id", "name", "stored_payload_id", "current_payload_id", "metadata_json",
-            "prepared_payload_id", "flex_payload_id", "grid_engine_payload",
+            "prepared_payload_id", "flex_payload_id", "grid_engine_payload", "binding_sites",
         ),
     )
+    explicit_box = bool(parsed.box_center) and bool(parsed.box_size)
     targets: list[dict[str, Any]] = []
-    for row in rows:
+    for row in (rows if explicit_box else [t for row in rows for t in site_targets(row)]):
         row = dict(row)
         grid = grid_from_row(row, engine=parsed.preparation_engine) or {}
         center = [float(v) for v in (parsed.box_center or grid.get("center") or ())]
@@ -464,6 +475,7 @@ def receptor_targets(project_db, parsed: DockShardsJobParams, output_dir: Path) 
         spacing = float(grid.get("spacing") or parsed.spacing)
         targets.append({
             "receptor_id": int(row.get("id") or 0),
+            "binding_site_id": int(row.get("binding_site_id") or 0),
             "receptor_name": str(row.get("name") or ""),
             "receptor_path": receptor_path,
             "flex_receptor_path": files["flex_path"],
@@ -562,7 +574,8 @@ def _shard_docking_scope(
         # fresh `run_id` each time it is submitted, so a skip keyed by it skips nothing and the
         # library is docked again beside its own results. Only whole-shard receipts count: a
         # subset docked by an off-target stage leaves the rest of its shard undocked.
-        input_keys = {int(t["receptor_id"]): str(t.get("input_key") or "") for t in targets}
+        input_keys = {(int(t["receptor_id"]), int(t.get("binding_site_id") or 0)):
+                      str(t.get("input_key") or "") for t in targets}
         completed = completed_protocol_targets(
             project_db, engine=parsed.engine, protocol_hash=protocol_hash, selection=selection,
             input_keys=input_keys,
@@ -608,7 +621,7 @@ class DockShardsJobSpec(JobSpec):
         output_dir = resolve_docking_output_dir(params, dict(config or {})) / SCREENING_SUBDIR
         targets, shards, completed = _shard_docking_scope(project_db, parsed, output_dir)
         pending = sum(
-            (int(shard.get("id") or 0), int(target["receptor_id"])) not in completed
+            target_pair(shard.get("id"), target) not in completed
             for shard in shards
             for target in targets
         )
@@ -634,7 +647,7 @@ class DockShardsJobSpec(JobSpec):
             (row, target)
             for row in prepared_rows
             for target in targets
-            if (int(row.get("id") or 0), int(target["receptor_id"])) not in completed
+            if target_pair(row.get("id"), target) not in completed
         ]
         # Chunk construction is deferred by MF while preparation is active. Resolve and plan
         # here, not in the public API, so totals describe the completed preparation snapshot.
@@ -654,8 +667,10 @@ class DockShardsJobSpec(JobSpec):
                     {**target, "ligands_done": sum(
                         int(row.get("n_records") or 0)
                         for row in prepared_rows
-                        if (int(row.get("id") or 0), int(target["receptor_id"])) in completed
-                    )}
+                        if target_pair(row.get("id"), target) in completed
+                    ), "ligands_total": prepared_records * sum(
+                        1 for other in targets
+                        if int(other["receptor_id"]) == int(target["receptor_id"]))}
                     for target in targets
                 ],
                 ligands_total=prepared_records,
@@ -677,7 +692,7 @@ class DockShardsJobSpec(JobSpec):
             if not targets:
                 break
             for target in targets:
-                if (int(shard.get("shard_id") or 0), int(target["receptor_id"])) in completed:
+                if target_pair(shard.get("shard_id"), target) in completed:
                     continue
                 emitted = True
                 yield {
@@ -687,6 +702,7 @@ class DockShardsJobSpec(JobSpec):
                     "chunks_total": len(targets),
                     "output_dir": worker_output_dir(output_dir),
                     "receptor_id": target["receptor_id"],
+                    "binding_site_id": target.get("binding_site_id") or 0,
                     "receptor_path": target["receptor_path"],
                     **({"flex_receptor_path": target["flex_receptor_path"]} if target.get("flex_receptor_path") else {}),
                     "box_center": target["box_center"],

@@ -118,24 +118,33 @@ def _augment_molecule_rows(
         return rows
     ids = sorted({int(row["id"]) for row in wanted})
     model, molecule_column, payload_column = prep_table(role_type)
-    states: dict[int, tuple] = {}  # molecule id -> (prepared payload, flex payload)
-    sites: dict[int, BindingSite] = {}
+    receptors = str(role_type).strip().lower() == "receptor"
+    states: dict[int, int | None] = {}  # molecule id -> the plain prepared payload
+    # (molecule, site) -> (rigid, flex) of the preparation that carved that site's side chains out
+    flex_preps: dict[tuple[int, int], tuple] = {}
+    sites: dict[int, list[BindingSite]] = {}
     with project_db.get_session() as session:
         for offset in range(0, len(ids), _HYDRATE_ID_CHUNK):
             chunk = ids[offset:offset + _HYDRATE_ID_CHUNK]
-            for molecule_id, payload_id, flex_id in session.exec(
-                select(molecule_column, payload_column, getattr(model, "flex_payload_id", None))
-                .where(molecule_column.in_(chunk))
-                .where(model.family == str(engine))
+            columns = ((molecule_column, payload_column, model.binding_site_id, model.flex_payload_id)
+                       if receptors else (molecule_column, payload_column))
+            for values in session.exec(
+                select(*columns).where(molecule_column.in_(chunk)).where(model.family == str(engine))
             ).all():
-                states[int(molecule_id)] = (payload_id, flex_id)
-            # Active sites only: one per molecule at most.
+                molecule_id, payload_id = int(values[0]), values[1]
+                site_id = int(values[2] or 0) if receptors else 0
+                if site_id:
+                    flex_preps[(molecule_id, site_id)] = (payload_id, values[3])
+                else:
+                    states[molecule_id] = payload_id
+            # Every active site: a receptor docks once per site, not once.
             for site in session.exec(
                 select(BindingSite)
                 .where(BindingSite.molecule_id.in_(chunk))
                 .where(BindingSite.is_active == True)  # noqa: E712 - SQL expression
+                .order_by(BindingSite.id)
             ).all():
-                sites[int(site.molecule_id)] = site
+                sites.setdefault(int(site.molecule_id), []).append(site)
 
     prepared_flag_key = f"prepared_{str(engine).strip().lower()}"
     grid_flag_key = f"grid_{str(engine).strip().lower()}"
@@ -144,14 +153,25 @@ def _augment_molecule_rows(
         molecule_id = int(row.get("id") or 0)
         if molecule_id <= 0:
             continue
-        prepared_id, flex_id = states.get(molecule_id, (None, None))
-        site = sites.get(molecule_id)
+        prepared_id = states.get(molecule_id)
+        molecule_sites = sites.get(molecule_id) or []
+        site = molecule_sites[0] if molecule_sites else None
         payload = _binding_site_payload(site)
         prepared_ready = prepared_id is not None
         row["prepared_engine"] = prepared_ready
         row[prepared_flag_key] = prepared_ready
         row["prepared_payload_id"] = prepared_id
-        row["flex_payload_id"] = flex_id if prepared_ready else None
+        # One entry per active site: the box, and the inputs that site docks against (its own
+        # flexible preparation when it has one, the plain rigid receptor otherwise).
+        row["binding_sites"] = [
+            {**site_payload,
+             "flex_residues": [str(key) for key in (each.flex_residues or [])],
+             **dict(zip(("prepared_payload_id", "flex_payload_id"),
+                        flex_preps.get((molecule_id, int(each.id or 0)), (prepared_id, None))))}
+            for each in molecule_sites
+            for site_payload in [_binding_site_payload(each)] if site_payload is not None
+        ]
+        row["flex_payload_id"] = None
         grid_ready = bool(payload is not None)
         row["grid_engine"] = grid_ready
         row["grid_engine_payload"] = payload
@@ -273,19 +293,29 @@ def top_ligands_spec(
     Every screening run of the protocol counts, not only the latest: with skip_existing the
     target's earlier results live in older runs. `ligand_scope` ranks inside the current
     ligand scope, so a narrowed scope still yields N ligands, not N minus the ones outside it.
+
+    Grouped by ligand, ranked by its best score: a receptor docked in three of its sites has
+    three results per ligand, and the Top-N is N ligands, not N rows. Raw SQL because a
+    declarative `QuerySpec` has no GROUP BY.
     """
-    filters: dict[str, Any] = {
-        "receptor_molecule_id": int(receptor_id),
-        "pose_rank": 1,
-        "score__is_not_null": True,
-        "docking_run_id__in_subquery": _runs_spec(engine, "screening", protocol_hash),
-    }
+    runs_sql, runs_params = _runs_spec(engine, "screening", protocol_hash).compile()
+    where = ["receptor_molecule_id = ?", "pose_rank = 1", "score IS NOT NULL",
+             f"docking_run_id IN ({runs_sql})"]
+    params: list[Any] = [int(receptor_id), *runs_params]
     if ligand_scope is not None:
-        filters["ligand_molecule_id__in_subquery"] = ligand_scope
+        scope_sql, scope_params = ligand_scope.compile()
+        where.append(f"ligand_molecule_id IN ({scope_sql})")
+        params.extend(scope_params)
     if max_score is not None:
-        filters["score__lte"] = float(max_score)
-    return QuerySpec(table=TABLE_DOCKING_RESULTS, fields=("ligand_molecule_id",), filters=filters,
-                     order=("score",), limit=int(top_n))
+        where.append("score <= ?")
+        params.append(float(max_score))
+    params.append(int(top_n))
+    return QuerySpec(
+        query=f"SELECT ligand_molecule_id FROM {TABLE_DOCKING_RESULTS} WHERE {' AND '.join(where)}"
+              " GROUP BY ligand_molecule_id ORDER BY MIN(score) LIMIT ?",
+        params=tuple(params),
+        fields=("ligand_molecule_id",),
+    )
 
 
 def molecule_scope_spec(

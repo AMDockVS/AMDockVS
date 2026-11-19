@@ -50,6 +50,7 @@ from amdockvs.docking.engines.programs import (
     get_docking_program,
     list_docking_programs,
 )
+from amdockvs.docking.pairs import site_targets
 from amdockvs.docking.jobs import (
     count_pending_docking_pairs,
     count_pending_redocking_pairs,
@@ -91,7 +92,7 @@ from amdockvs.docking.preparation.jobs import (
 )
 from amdockvs.core.normalize import PathLike
 from amdockvs.molecules.scopes import MoleculeScope, is_molecule_scope, scope_payload
-from amdockvs.binding_sites.repository import active_site as _active_site, site_payload
+from amdockvs.binding_sites.repository import active_site as _active_site, active_sites, site_payload
 from amdockvs.docking.residues import residues_in_box
 from amdockvs.core.payloads import molecule_payload_id, read_structure
 from amdockvs.io.formats import as_pdb
@@ -301,7 +302,8 @@ class DockingAPI:
         model, molecule_column, payload_column = prep_table(role)
         missing = [
             MoleculeRecord.id.not_in(
-                select(molecule_column).where(model.family == engine, payload_column.is_not(None))
+                select(molecule_column).where(model.family == engine, payload_column.is_not(None),
+                                              *([model.binding_site_id == 0] if role == "receptor" else []))
             )
             for engine in normalized_engines
         ]
@@ -784,14 +786,17 @@ class DockingAPI:
             "spacing": float((site.extra_data or {}).get("spacing") or spacing),
         }
 
-    def get_grid(self, *, receptor_id: int, engine: str = "vina") -> dict[str, Any] | None:
+    def get_grid(self, *, receptor_id: int, engine: str = "vina",
+                 binding_site_id: int | None = None) -> dict[str, Any] | None:
+        """The box of one of the receptor's sites: `binding_site_id` picks it, else the first
+        active one (a receptor may have several)."""
         self.runtime._require_active_project()
         engine_name = str(engine or "vina")
         with self.runtime.workspace.project_db.get_session() as session:
             receptor = session.get(MoleculeRecord, int(receptor_id))
             if receptor is None or not bool(getattr(receptor, "is_receptor", False)):
                 return None
-            site = _active_site(session, receptor)
+            site = self._flex_site(session, int(receptor_id), binding_site_id)
         if site is None or not bool(site.is_defined):
             return None
         extra_data = dict(site.extra_data or {})
@@ -948,13 +953,14 @@ class DockingAPI:
             },
         }
 
-    def list_box_residues(self, *, receptor_id: int, engine: str = "vina") -> list[dict[str, Any]]:
-        """Residues with at least one atom inside the receptor's active binding-site box.
+    def list_box_residues(self, *, receptor_id: int, engine: str = "vina",
+                          binding_site_id: int | None = None) -> list[dict[str, Any]]:
+        """Residues with at least one atom inside one binding-site box of the receptor.
 
         Candidate set for flexible-residue selection — short because the box filters it.
         Returns [] when there's no active grid or the structure file is unavailable.
         """
-        grid = self.get_grid(receptor_id=int(receptor_id), engine=engine)
+        grid = self.get_grid(receptor_id=int(receptor_id), engine=engine, binding_site_id=binding_site_id)
         if grid is None:
             return []
         center = tuple(float(v) for v in grid.get("center") or [])
@@ -979,27 +985,35 @@ class DockingAPI:
             for r in residues
         ]
 
-    def get_flexible_residues(self, *, receptor_id: int) -> list[str]:
-        # Flexible residues belong to the receptor (what gets passed to prep), not to any
-        # binding site — the box is only a candidate filter, not the owner of the selection.
+    def get_flexible_residues(self, *, receptor_id: int, binding_site_id: int | None = None) -> list[str]:
+        """The flexible side chains of one site: a residue is flexible because it lines *this*
+        pocket, so the pick belongs to the site, not to the receptor. Defaults to its first
+        active site."""
         with self.runtime.workspace.project_db.get_session() as session:
-            prep = self._ad4_receptor_prep(session, receptor_id)
-            return [str(k) for k in (prep.flex_residues if prep else [])]
+            site = self._flex_site(session, receptor_id, binding_site_id)
+            return [str(k) for k in (site.flex_residues if site else [])]
 
     @staticmethod
-    def _ad4_receptor_prep(session, receptor_id: int):
-        # ponytail: flexible side chains are an ad4 (Vina family) concept; key by family if another engine docks flexibly.
-        return session.exec(select(ReceptorPrep).where(
-            ReceptorPrep.receptor_molecule_id == int(receptor_id), ReceptorPrep.family == "ad4")).first()
+    def _flex_site(session, receptor_id: int, binding_site_id: int | None):
+        if binding_site_id:
+            site = session.get(BindingSite, int(binding_site_id))
+            if site is None or int(site.molecule_id) != int(receptor_id):
+                raise ValueError(f"Binding site {binding_site_id} does not belong to receptor {receptor_id}.")
+            return site
+        sites = active_sites(session, int(receptor_id))
+        return sites[0] if sites else None
 
-    def set_flexible_residues(self, *, receptor_id: int, residue_keys: list[str]) -> list[str]:
+    def set_flexible_residues(self, *, receptor_id: int, residue_keys: list[str],
+                              binding_site_id: int | None = None) -> list[str]:
         keys = [str(k) for k in residue_keys]
         with self.runtime.workspace.project_db.get_session() as session:
             if session.get(MoleculeRecord, receptor_id) is None:
                 raise ValueError(f"No receptor with id {receptor_id}.")
-            prep = self._ad4_receptor_prep(session, receptor_id) or ReceptorPrep(receptor_molecule_id=receptor_id)
-            prep.flex_residues = keys
-            session.add(prep)
+            site = self._flex_site(session, receptor_id, binding_site_id)
+            if site is None:
+                raise ValueError(f"Receptor {receptor_id} has no binding site to make flexible.")
+            site.flex_residues = keys
+            session.add(site)
             session.commit()
         return keys
 
@@ -1721,9 +1735,16 @@ class DockingAPI:
         if program and receptor_ids is not None:
             spec = self.get_program_spec(program)
             rows = get_molecule_rows_by_ids(self._project_db(), list(receptor_ids), engine=spec.preparation_engine)
-            input_keys = screening_input_keys(rows.values(), box_center=None, box_size=None, spacing=0.375,
-                                              preparation_engine=spec.preparation_engine,
-                                              requires_binding_site=spec.requires_binding_site)
+            # Every site of every receptor, merged back per receptor: this counts distinct
+            # (receptor, ligand) pairs, so a ligand docked into two sites is one docked pair.
+            per_target = screening_input_keys(
+                [target for row in rows.values() for target in site_targets(row)],
+                box_center=None, box_size=None, spacing=0.375,
+                preparation_engine=spec.preparation_engine,
+                requires_binding_site=spec.requires_binding_site)
+            input_keys = {}
+            for (receptor_id, _site_id), keys in per_target.items():
+                input_keys.setdefault(receptor_id, []).extend(keys)
         return results_repo.count_docked_pairs(
             self._project_db(),
             engine=engine,

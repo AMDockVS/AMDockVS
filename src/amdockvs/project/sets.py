@@ -243,6 +243,9 @@ def prepared_molecules_spec(*, role_type: str, engine: str, is_ready: bool = Tru
         fields=("receptor_molecule_id" if receptor else "molecule_id",),
         filters={
             "family": str(engine).strip().lower(),
+            # The plain rigid row: a receptor is ready when that one is, whatever its
+            # per-site flexible preparations did.
+            **({"binding_site_id": 0} if receptor else {}),
             **({f"{payload}__is_not_null": True} if is_ready else {"error__is_not_null": True}),
         },
     )
