@@ -154,7 +154,7 @@ def receptor_prediction_task(payload: dict, progress_cb=None):
 def shard_chemistry_task(payload: dict, progress_cb=None) -> list[dict]:
     shard_path = Path(str(payload["shard_path"])).expanduser().resolve()
     output_path = Path(str(payload["output_dir"])).expanduser().resolve() / shard_path.name
-    stats = transform_ligand_shard(shard_path, output_path, payload["steps"])
+    stats = transform_ligand_shard(shard_path, output_path, payload["steps"], progress=progress_cb)
     # A shard whose molecules all failed is still a done shard: it holds zero records now.
     return [{
         "import_batch_id": payload.get("import_batch_id"),

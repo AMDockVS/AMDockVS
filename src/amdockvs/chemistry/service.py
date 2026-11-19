@@ -134,14 +134,19 @@ def transform_ligand_rows(
         # One append each, always: the write-back loop pairs this list with `row_list`.
         batch.append(loaded)
         if progress_cb is not None:
-            progress_cb((index / max(1, len(row_list))) * 50.0)
+            progress_cb((index / max(1, len(row_list))) * 5.0)
 
-    results = run_pipeline(batch, resolved_steps)
+    # The chemistry is what takes the time: it gets 5-95%. Loading and writing back are quick;
+    # with half the bar each, every task sat at 50% for the whole run.
+    results = run_pipeline(
+        batch, resolved_steps,
+        progress=None if progress_cb is None else (lambda done: progress_cb(5.0 + done * 90.0)),
+    )
 
     for index, (row, result) in enumerate(zip(row_list, results), start=1):
         ligand_id = int(row.get("id") or 0)
         if progress_cb is not None:
-            progress_cb(50.0 + (index / max(1, len(row_list))) * 50.0)
+            progress_cb(95.0 + (index / max(1, len(row_list))) * 5.0)
         if ligand_id <= 0:
             continue
         if result is None or isinstance(result, Exception):
