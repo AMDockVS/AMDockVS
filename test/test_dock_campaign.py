@@ -116,3 +116,12 @@ def test_an_old_project_gets_the_columns_added_since(tmp_path):
                 assert column in {str(row[1]) for row in columns}
     finally:
         runtime.close_project()
+
+
+def test_a_fragment_is_one_row_group_with_statistics_on_ligand_id_only(tmp_path):
+    import pyarrow.parquet as pq
+
+    meta = pq.ParquetFile(_fragment(tmp_path / "f.parquet", {(i, 10): -float(i) for i in range(1, 200)})).metadata
+    assert (meta.num_row_groups, meta.num_rows) == (1, 199)
+    stats = {meta.schema.column(c).name: meta.row_group(0).column(c).is_stats_set for c in range(meta.num_columns)}
+    assert stats["ligand_id"] and not stats["pose_text"]
