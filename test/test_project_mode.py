@@ -25,14 +25,15 @@ def runtime(tmp_path):
 
 
 def _add_shard(runtime, tmp_path):
-    from ms_flow.core.database.project_models import CatalogShard
+    from ms_flow.core.database.project_models import CatalogFile
 
     with runtime.workspace.project_db.get_session() as session:
         session.add(
-            CatalogShard(
-                shard_index=0,
+            CatalogFile(
                 path=str(tmp_path / "shard_00000.smi"),
+                n_shards=1,
                 n_records=10,
+                n_active=10,
             )
         )
         session.commit()
@@ -56,7 +57,7 @@ def test_mode_is_not_stored_anywhere(runtime, tmp_path):
 def test_shard_table_is_the_only_source_of_truth():
     from ms_flow.core.data.catalog import TABLE
 
-    assert TABLE == "ms_shards"  # ms_flow's catalog, since 2026-11
+    assert TABLE == "ms_shard_files"  # ms_flow's catalog: a row per file, since 2026-11
 
 
 def test_the_import_dialog_routes_the_library_to_the_chosen_store(runtime, tmp_path, monkeypatch):

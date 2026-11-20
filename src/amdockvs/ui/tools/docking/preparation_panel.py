@@ -278,8 +278,8 @@ class PreparationPanel:
         if callable(opener):
             opener(view_id)
 
-    def _selected_shard_ids(self) -> list[int] | None:
-        """The shards picked in the Shards table (right-click > Select); None = every shard."""
+    def _selected_file_ids(self) -> list[int] | None:
+        """The files picked in the Shards table (right-click > Select); None = every file."""
         store = getattr(self.window(), "selection", None)
         return store.get("shard") if store is not None else None
 
@@ -858,7 +858,7 @@ class PreparationPanel:
         jobs: list[tuple[str, str, str]] = []
         options = dict(
             force=self.force_prepare_ligands.isChecked(),
-            shard_ids=self._selected_shard_ids(),
+            file_ids=self._selected_file_ids(),
             executor_name=self.ligand_prep_destination.executor_name(),
         )
 
@@ -1041,7 +1041,7 @@ class PreparationPanel:
         # The "Ligands from" boxes too: a step saved with only Shards ticked prepares only shards.
         sources = self._ligand_sources()
         scope = self._prep_ligand_scope() if "rows" in sources else None
-        shard_ids = self._selected_shard_ids() if "shards" in sources else None
+        file_ids = self._selected_file_ids() if "shards" in sources else None
         target = self._selected_prep_target()
         programs = self._distinct_prep_programs() if target is None else [target]
         batch = max(1, int(self.prepare_ligand_batch_size.value()))
@@ -1049,7 +1049,7 @@ class PreparationPanel:
         # Captured now, not at run time: a workflow step keeps the destination it was saved with.
         executor = self.ligand_prep_destination.executor_name()
 
-        def submit(rt, programs=programs, sources=sources, scope=scope, shard_ids=shard_ids,
+        def submit(rt, programs=programs, sources=sources, scope=scope, file_ids=file_ids,
                    batch=batch, force=force, executor=executor):
             jobs = []
             if "rows" in sources:
@@ -1062,7 +1062,7 @@ class PreparationPanel:
                 ]
             if "shards" in sources:  # beside the table's, at a lower priority, as from the button
                 jobs += [
-                    rt.docking.prepare_ligand_shards(program=p, force=force, shard_ids=shard_ids,
+                    rt.docking.prepare_ligand_shards(program=p, force=force, file_ids=file_ids,
                                                      executor_name=executor)
                     for p in programs
                 ]

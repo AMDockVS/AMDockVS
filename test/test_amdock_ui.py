@@ -852,7 +852,7 @@ def test_prepare_ligands_from_table_and_shards(tmp_path, monkeypatch):
     """A project with rows and shards prepares from either store or both, and the Shards
     selection narrows the shard job. The rows are general: shards don't make them reference."""
     from amdockvs.models import ImportBatch
-    from ms_flow.core.database.project_models import CatalogShard
+    from catalog_seed import seed_library
 
     _patch_fake_home(monkeypatch, tmp_path / "home")
     monkeypatch.setenv("AMDOCK_DISABLE_PYMOL", "1")
@@ -867,12 +867,10 @@ def test_prepare_ligands_from_table_and_shards(tmp_path, monkeypatch):
         with runtime.workspace.project_db.get_session() as session:
             batch = ImportBatch(source="library.smi", quick_hash="x", format="smiles", kind="shards")
             session.add(batch)
-            session.flush()
-            shards = [CatalogShard(scope=batch.id, shard_index=index, path=str(tmp_path / f"s{index}.parquet"),
-                                     n_records=10, state="ready") for index in range(2)]
-            session.add_all(shards)
             session.commit()
-            shard_ids = [int(shard.id) for shard in shards]
+            batch_id = int(batch.id)
+        file_ids = [seed_library(runtime.workspace.project_db, tmp_path, scope=batch_id, records=10, name=f"s{index}")[0]
+                    for index in range(2)]
         window = AMDockVSMainWindow(runtime=runtime)
         window.show()
         assert window.central_widget.open_view(SHARDS_VIEW_ID) is not None  # a project with shards opens on them too
@@ -883,7 +881,7 @@ def test_prepare_ligands_from_table_and_shards(tmp_path, monkeypatch):
 
         assert not studio.ligand_source_section.isHidden() and studio.ligand_sources.boxes["rows"].isEnabled()
         assert studio._ligand_sources() == {"rows", "shards"}  # both stores by default
-        window.selection.set("shard", shard_ids[:1])
+        window.selection.set("shard", file_ids[:1])
         deadline = time.monotonic() + 10
         while "1 selected" not in studio.ligand_sources.counts["shards"].text() and time.monotonic() < deadline:
             app.processEvents()
@@ -896,14 +894,14 @@ def test_prepare_ligands_from_table_and_shards(tmp_path, monkeypatch):
 
         calls = []
         monkeypatch.setattr(runtime.docking, "prepare_ligand_shards",
-                            lambda **kw: calls.append(("shards", kw.get("shard_ids"), kw.get("depends_on"))) or "shard-job")
+                            lambda **kw: calls.append(("shards", kw.get("file_ids"), kw.get("depends_on"))) or "shard-job")
         monkeypatch.setattr(runtime.docking, "prepare_ligands",
                             lambda **kw: calls.append(("rows", None)) or "row-job")
         monkeypatch.setattr(studio.ligand_prep_jobs, "follow", lambda jobs, **_kw: calls.append(("follow", [j[1] for j in jobs])))
         studio._prepare_ligands()
         _pump_until(app, lambda: calls and calls[-1][0] == "follow")
         # The table first, then the shards, waiting on it: one job after the other.
-        assert calls == [("rows", None), ("shards", shard_ids[:1], None), ("follow", ["row-job", "shard-job"])]
+        assert calls == [("rows", None), ("shards", file_ids[:1], None), ("follow", ["row-job", "shard-job"])]
 
         # Preview & Run counts both stores too: the boxes are the experiment's choice.
         studio.stepper.set_current_index(3)
@@ -921,7 +919,7 @@ def test_prepare_ligands_from_table_and_shards(tmp_path, monkeypatch):
         studio.ligand_sources.boxes["rows"].setChecked(False)
         studio._save_prepare_ligands_to_workflow()
         calls.clear()
-        assert saved[-1](runtime)[-1] == "shard-job" and calls == [("shards", shard_ids[:1], None)]
+        assert saved[-1](runtime)[-1] == "shard-job" and calls == [("shards", file_ids[:1], None)]
     finally:
         if window is not None:
             window.close()

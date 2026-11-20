@@ -8,7 +8,8 @@ Runs whichever AMDockVS/ms_flow is on PYTHONPATH, so the same script measures bo
 
 Per input (1M SDF = Enamine H100K x10, 1M SMILES) and shard size: import wall time through
 `loader.shard_ligands` (compute executor), files/bytes on disk, a cold read of every shard
-through `ShardAPI.open`, and `prepare_ligand_shards` on the first 4 shards.
+through `ShardAPI.open`. (Preparation is selected by file now, so the 4-shard probe it had
+is gone; `results/shard_files_app_2026-11-18.jsonl` keeps its `prep4_s`.)
 """
 from __future__ import annotations
 
@@ -50,9 +51,7 @@ def cold(files: list[Path]) -> None:
 
 
 def bench(label: str, fmt: str, source: Path, shard_size: int, root: Path) -> dict:
-    from sqlmodel import select
-
-    from ms_flow.core.database.project_models import CatalogShard
+    from ms_flow.core.data import catalog
     from amdockvs.runtime import AMDockVSRuntime
 
     d = root / f"{label}_{fmt}_{shard_size}"
@@ -70,26 +69,20 @@ def bench(label: str, fmt: str, source: Path, shard_size: int, root: Path) -> di
         res = {"label": label, "format": fmt, "shard_size": shard_size,
                "import_s": round(time.perf_counter() - t, 2),
                "status": [str(s.status) for s in states.values()]}
-        with rt.workspace.project_db.get_session() as session:
-            rows = session.exec(select(CatalogShard).order_by(CatalogShard.id)).all()
+        rows = list(catalog.shards(rt.workspace.project_db, whole=True))
         shard_dir = Path(rt.get_project_resource_path("shards"))
         files = [p for p in shard_dir.rglob("*") if p.is_file()]
-        res.update(shards=len(rows), records=sum(r.n_records or 0 for r in rows), files=len(files),
+        res.update(shards=len(rows), records=sum(r["n_records"] for r in rows), files=len(files),
+                   catalog_files=sum(1 for _ in catalog.files(rt.workspace.project_db)),
                    mb=round(sum(p.stat().st_size for p in files) / 1e6, 1))
 
         cold(files)
         t, n = time.perf_counter(), 0
         for row in rows:
-            with rt.shards.open(row.id) as shard:
+            with rt.shards.open(row["id"]) as shard:
                 n += sum(1 for record in shard if record.load())
         res["read_all_s"] = round(time.perf_counter() - t, 2)
         res["read_records"] = n
-
-        t = time.perf_counter()
-        job = rt.docking.prepare_ligand_shards(shard_ids=[r.id for r in rows[:4]])
-        state = rt.wait_for_jobs([job], timeout_s=3600)[job]
-        res["prep4_s"] = round(time.perf_counter() - t, 2)
-        res["prep_status"] = str(state.status)
         return res
     finally:
         rt.shutdown()

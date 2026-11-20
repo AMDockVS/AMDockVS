@@ -50,8 +50,8 @@ def test_what_comes_back_twice_is_written_once(tmp_path):
     from amdockvs.models import (
         DockingResultRecord, ImportBatch, MoleculeRecord, ScreeningShardRun, ScreeningTarget,
     )
-    from ms_flow.core.database.project_models import CatalogShard
     from amdockvs.runtime import AMDockVSRuntime
+    from catalog_seed import seed_library
     from amdockvs.screening.campaign import plan_targets
 
     runtime = AMDockVSRuntime()
@@ -63,10 +63,9 @@ def test_what_comes_back_twice_is_written_once(tmp_path):
             receptor = MoleculeRecord(name="R", molecule_type="protein", is_receptor=True)
             session.add_all([batch, receptor])
             session.flush()
-            shard = CatalogShard(scope=int(batch.id), shard_index=0, path="lib.parquet", n_records=2)
-            session.add(shard)
             session.commit()
-            receptor_id, shard_id, batch_id = int(receptor.id), int(shard.id), int(batch.id)
+            receptor_id, batch_id = int(receptor.id), int(batch.id)
+        _file_id, (shard_id,) = seed_library(db, tmp_path, scope=batch_id, records=2)
         runs = {run_id: docking_run_id(db, run_id=run_id, engine="vina", run_kind="screening", protocol={"hash": "p"})
                 for run_id in ("r1", "r2")}
         for run in runs.values():

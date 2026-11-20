@@ -283,6 +283,15 @@ def _pose(payload: Mapping[str, Any]) -> tuple[str, str]:
     return str(payload.get("pose_text") or ""), suffix
 
 
+def _receipt_shards(project_db, receipts) -> dict[int, dict[str, Any]]:
+    """The shard each receipt is of, read from its catalog file (any generation): a receipt whose
+    file is gone has none, and its fragment is left out of what is ranked."""
+    from ms_flow.core.data import catalog
+
+    found = {int(receipt.shard_id): catalog.get_shard(project_db, int(receipt.shard_id)) for receipt in receipts}
+    return {shard_id: row for shard_id, row in found.items() if row is not None}
+
+
 def select_hit_refs(
     project_db,
     *,
@@ -299,10 +308,7 @@ def select_hit_refs(
     `across_runs` ranks over every screening run of `engine` and this protocol, not this
     submission alone: the run that docked the library may be an earlier one this submission
     skipped."""
-    from sqlmodel import select
-
     from amdockvs.docking.results.repository import docking_run_id
-    from ms_flow.core.database.project_models import CatalogShard
 
     from amdockvs.screening.materialize import TopNGate
 
@@ -318,13 +324,7 @@ def select_hit_refs(
         project_db, run_id=run_id, protocol_hash=protocol_hash,
         engine=engine, across_runs=across_runs,
     )
-    with project_db.get_session() as session:
-        shards = {
-            int(row.id): row
-            for row in session.exec(select(CatalogShard).where(
-                CatalogShard.id.in_([int(receipt.shard_id) for receipt in receipts])
-            )).all()
-        } if receipts else {}
+    shards = _receipt_shards(project_db, receipts)
 
     gate = TopNGate(cap=cap, threshold=None)
     for receipt in receipts:
@@ -356,11 +356,7 @@ def select_hits(
     top_n: int,
 ) -> list[dict[str, Any]]:
     """Rank projected score columns, then load poses only for the selected rows."""
-    from sqlmodel import select
-
     from amdockvs.docking.results.repository import docking_run_id
-    from ms_flow.core.database.project_models import CatalogShard
-
 
     selected = select_hit_refs(
         project_db,
@@ -373,13 +369,7 @@ def select_hits(
     receipts = completed_result_receipts(
         project_db, run_id=run_id, protocol_hash=protocol_hash
     )
-    with project_db.get_session() as session:
-        shards = {
-            int(row.id): row
-            for row in session.exec(select(CatalogShard).where(
-                CatalogShard.id.in_([int(receipt.shard_id) for receipt in receipts])
-            )).all()
-        } if receipts else {}
+    shards = _receipt_shards(project_db, receipts)
     from amdockvs.io.batches import library_names  # SQL: kept off the worker's import path
 
     libraries = library_names(project_db) if shards else {}
@@ -424,8 +414,8 @@ def select_hits(
         hits.append({
             **json.loads(payload.get("metrics_json") or "{}"),
             "docking_run_id": runs[str(receipt.engine)],
-            "name": f"{libraries.get(source_shard.scope, 'library')}:{ligand_id}",
-            "import_batch_id": source_shard.scope,
+            "name": f"{libraries.get(source_shard['scope'], 'library')}:{ligand_id}",
+            "import_batch_id": source_shard["scope"],
             "source_index": ligand_id,
             "smiles": str(payload.get("smiles") or ""),
             "score": float(payload["score"]),

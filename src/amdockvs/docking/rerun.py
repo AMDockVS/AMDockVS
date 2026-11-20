@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ms_flow.core.database.project_models import CatalogShard
+from ms_flow.core.data import catalog
 from sqlalchemy import and_, delete, exists, or_
 from sqlmodel import select
 
@@ -154,10 +154,10 @@ def supersede_shard_runs(project_db, *, docking_run_id: int | None) -> int:
         # Read each retired fragment before it goes: the shard records it holds are the pairs it
         # was the evidence for, and a library molecule is addressed by (import batch, record).
         batches = {
-            int(row.id): row.scope
-            for row in session.exec(select(CatalogShard).where(
-                CatalogShard.id.in_({int(row.shard_id) for row in stale}))).all()
-        } if stale else {}
+            shard_id: (found or {}).get("scope")
+            for shard_id, found in ((int(row.shard_id), catalog.get_shard(project_db, int(row.shard_id)))
+                                    for row in stale)
+        }
         retired = {
             (int(row.docking_run_id), int(row.receptor_molecule_id),
              batches.get(int(row.shard_id)), record)

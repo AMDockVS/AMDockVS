@@ -1,7 +1,8 @@
 """What an `htpvs` project knows about a library it never materializes.
 
 The shards themselves (path, id range, generation) are ms_flow's catalog
-(`ms_flow.core.data.catalog`, table `ms_shards`); what is here is the domain around them.
+(`ms_flow.core.data.catalog`, table `ms_shard_files`: a row per file, a shard is a row group of
+one); what is here is the domain around them.
 Where a campaign's work went is the campaign's business (an ms_flow job in the journal), not a
 table here: a campaign checksums the prepared files it sends itself (few big files, not one per
 shard), so nothing here caches a digest a compaction would make stale.
@@ -30,7 +31,7 @@ class ShardPrep(SQLModel, table=True):
     __tablename__ = TABLE_SHARD_PREPS
     __table_args__ = ({"sqlite_with_rowid": False},)
 
-    shard_id: int = Field(foreign_key="ms_shards.id", primary_key=True)  # ms_flow's catalog
+    shard_id: int = Field(primary_key=True)  # ms_flow's shard id: (file id << 20) | row group
     family: str = code_field("prep_family", "ad4", primary_key=True)
     n_records: int = Field(default=0)
     n_failed: int = Field(default=0)  # > 0 = partial
@@ -52,7 +53,9 @@ class ScreeningShardRun(SQLModel, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
     docking_run_id: int = Field(foreign_key=f"{TABLE_DOCKING_RUNS}.id")
-    shard_id: int = Field(foreign_key="ms_shards.id", index=True)
+    shard_id: int = Field(index=True)  # ms_flow's shard id: (file id << 20) | row group
+    # Its file, a foreign key so the generation a receipt was computed on is kept while it exists.
+    file_id: int = Field(foreign_key="ms_shard_files.id", index=True)
     receptor_molecule_id: int = Field(default=0, index=True)
     # The receptor's site this receipt docked into; 0 without one (a blind run, an explicit box).
     # 0, not NULL: it is part of a UNIQUE key, and SQLite counts two NULLs as different rows.

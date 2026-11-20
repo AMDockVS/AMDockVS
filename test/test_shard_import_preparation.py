@@ -38,17 +38,15 @@ def _sdf(path, *items):
 
 def _shard(runtime, path, **prefilter):
     """[(format, raw record)] of everything the import stored."""
+    from ms_flow.core.data import catalog
     from ms_flow.core.data.shard import Shard
-    from sqlmodel import select
 
     from amdockvs.io.shards import FORMAT_FOR_KIND, shard_ids
-    from ms_flow.core.database.project_models import CatalogShard
 
     jobs = runtime.loader.shard_ligands([str(path)], executor_name="thread", prefilter=prefilter or None)
     states = runtime.wait_for_jobs(list(jobs), timeout_s=60)
     assert all(str(state.status).endswith("completed") for state in states.values()), states
-    with runtime.workspace.project_db.get_session() as session:
-        rows = [(row.path, shard_ids(row)) for row in session.exec(select(CatalogShard)).all()]
+    rows = [(row["path"], shard_ids(row)) for row in catalog.shards(runtime.workspace.project_db, whole=True)]
     out = []
     for shard_path, ids in rows:
         with Shard.open(shard_path, ids=ids) as shard:
@@ -101,11 +99,10 @@ def test_without_preparation_the_raw_record_is_kept(runtime, tmp_path):
 
 def test_shards_sharing_a_file_prepare_into_one_file_each(runtime, tmp_path):
     """Three logical shards in one Parquet file: each prepares only its own id range."""
+    from ms_flow.core.data import catalog
     from ms_flow.core.data.shard import Shard
-    from sqlmodel import select
 
     from amdockvs.io.shards import shard_ids
-    from ms_flow.core.database.project_models import CatalogShard
     from amdockvs.molecules.storage import prepared_shard_path
 
     source = tmp_path / "lib.smi"
@@ -113,15 +110,14 @@ def test_shards_sharing_a_file_prepare_into_one_file_each(runtime, tmp_path):
     jobs = runtime.loader.shard_ligands([str(source)], executor_name="thread", shard_size=4)
     states = runtime.wait_for_jobs(list(jobs), timeout_s=60)
     assert all(str(state.status).endswith("completed") for state in states.values()), states
-    with runtime.workspace.project_db.get_session() as session:
-        rows = session.exec(select(CatalogShard).order_by(CatalogShard.base_id)).all()
-    assert [row.n_records for row in rows] == [4, 4, 2]
-    assert len({row.path for row in rows}) == 1
+    rows = sorted(catalog.shards(runtime.workspace.project_db, whole=True), key=lambda row: row["base_id"])
+    assert [row["n_records"] for row in rows] == [4, 4, 2]
+    assert len({row["path"] for row in rows}) == 1
 
     job = runtime.docking.prepare_ligand_shards(executor_name="thread")
     state = runtime.wait_for_jobs([job], timeout_s=120)[job]
     assert str(state.status).endswith("completed"), state
-    prepared = [prepared_shard_path(row.path, "ad4", shard_ids(row)) for row in rows]
+    prepared = [prepared_shard_path(row["path"], "ad4", shard_ids(row)) for row in rows]
     assert len(set(prepared)) == 3
     seen = []
     for row, path in zip(rows, prepared):

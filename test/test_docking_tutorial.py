@@ -227,7 +227,7 @@ def test_tutorials_panel_is_hidden_in_project_workspace(practice):
 
 def test_existing_project_opens_tabs_for_its_shards_and_results(practice):
     from amdockvs.models import DockingResultRecord, DockingRun, MoleculeRecord
-    from ms_flow.core.database.project_models import CatalogShard
+    from ms_flow.core.database.project_models import CatalogFile
 
     app, runtime, window, _messages = practice
     # The practice project starts empty: the two catalogs open for their Import button.
@@ -237,7 +237,7 @@ def test_existing_project_opens_tabs_for_its_shards_and_results(practice):
     assert window.central_widget.open_view(COMPLEXES_VIEW_ID) is None
     with runtime.workspace.project_db.get_session() as session:
         session.add_all([
-            CatalogShard(id=1, path="example.mshard", n_records=1),
+            CatalogFile(id=1, path="example.mshard", n_shards=1, n_records=1, n_active=1),
             DockingRun(id=1, engine="vina", protocol_hash="test"),
             MoleculeRecord(id=1, name="Receptor", is_receptor=True),
             MoleculeRecord(id=2, name="Ligand", is_ligand=True),
@@ -262,11 +262,12 @@ def test_existing_project_opens_tabs_for_its_shards_and_results(practice):
 
 def test_sharded_project_without_ligand_rows_opens_shards_instead(practice):
     from amdockvs.models import DockingRun, ScreeningShardRun
-    from ms_flow.core.database.project_models import CatalogShard
+    from ms_flow.core.data.catalog import shard_id
+    from ms_flow.core.database.project_models import CatalogFile
 
     app, runtime, _window, _messages = practice
     with runtime.workspace.project_db.get_session() as session:
-        session.add(CatalogShard(id=1, path="example.mshard", n_records=1))
+        session.add(CatalogFile(id=1, path="example.mshard", n_shards=1, n_records=1, n_active=1))
         session.flush()  # no relationship() tells the unit of work the shard goes first
         session.commit()
     second = AMDockVSMainWindow(runtime=runtime)
@@ -280,7 +281,7 @@ def test_sharded_project_without_ligand_rows_opens_shards_instead(practice):
     with runtime.workspace.project_db.get_session() as session:
         session.add(DockingRun(id=1, engine="vina", protocol_hash="test"))
         session.flush()
-        session.add(ScreeningShardRun(docking_run_id=1, shard_id=1, receptor_molecule_id=1,
+        session.add(ScreeningShardRun(docking_run_id=1, shard_id=shard_id(1, 0), file_id=1, receptor_molecule_id=1,
                                       engine="vina", state="done", result_path="runs/result.parquet"))
         session.commit()
     assert runtime.docking.has_results()

@@ -42,22 +42,20 @@ def library_stats(project_db, shards_root: str | Path | None = None) -> LibraryS
     """Read the inventory of the active generation and what was done with it."""
     from sqlmodel import func, select
 
+    from ms_flow.core.data import catalog
     from ms_flow.core.data.catalog import active_generation_id
-    from ms_flow.core.database.project_models import CatalogShard, ShardGeneration
+    from ms_flow.core.database.project_models import CatalogFile, ShardGeneration
 
     from amdockvs.models import ScreeningTarget, ShardPrep
 
     generation_id = active_generation_id(project_db)
     if generation_id is None:
         return LibraryStats()
-    in_library = CatalogShard.generation_id == generation_id
+    shards = catalog.count(project_db, whole=True)
+    ligands = catalog.record_count(project_db, whole=True)
+    in_library = (CatalogFile.generation_id == generation_id, CatalogFile.role == catalog.LIBRARY)
     with project_db.get_session() as session:
-        shards, ligands = session.exec(
-            select(func.count(CatalogShard.id), func.coalesce(func.sum(CatalogShard.n_records), 0)).where(in_library)
-        ).one()
-        failed = session.exec(
-            select(func.count(CatalogShard.id)).where(in_library, CatalogShard.error != "")
-        ).one()
+        failed = session.exec(select(func.count(CatalogFile.id)).where(*in_library, CatalogFile.error != "")).one()
         generation = session.get(ShardGeneration, generation_id)
         parent = session.get(ShardGeneration, generation.parent_id) if generation and generation.parent_id else None
         prepared = {
@@ -65,8 +63,8 @@ def library_stats(project_db, shards_root: str | Path | None = None) -> LibraryS
             for family, n_shards, n_records, n_failed in session.exec(
                 select(ShardPrep.family, func.count(ShardPrep.shard_id), func.sum(ShardPrep.n_records),
                        func.sum(ShardPrep.n_failed))
-                .join(CatalogShard, CatalogShard.id == ShardPrep.shard_id)
-                .where(in_library)
+                .join(CatalogFile, CatalogFile.id == ShardPrep.shard_id.op(">>")(catalog.GROUP_BITS))
+                .where(*in_library)
                 .group_by(ShardPrep.family)
             ).all()
         }

@@ -11,7 +11,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from sqlalchemy import func, insert, or_, select, update
+from sqlalchemy import String, case, cast, func, insert, literal, or_, select, update
 from sqlmodel import col
 
 from amdockvs.core.normalize import resolved_path
@@ -19,7 +19,7 @@ from amdockvs.core.vocab import CODES, FileFormat, ImportKind
 from amdockvs.io.parsers.readers import count_import_records
 from amdockvs.io.formats import normalized_suffix
 from amdockvs.models.molecules import ImportBatch, MoleculeRecord
-from ms_flow.core.database.project_models import CatalogShard
+from ms_flow.core.database.project_models import CatalogFile
 
 _EDGE = 64 << 10  # bytes hashed at each end: a whole PDB fits in 1 MB, a proteome is 25k of them
 _SMILES_SUFFIXES = {".smi", ".smiles", ".txt", ".csv", ".tsv"}
@@ -79,12 +79,28 @@ def duplicate_imports(project_db, files: Iterable[str | Path]) -> list[str]:
                     # alone do not mean the receptor is still present after deletion.
                     .where(or_(role != "receptor", MoleculeRecord.is_receptor.is_(True)))
                     .exists(),
-                    select(CatalogShard.id)
-                    .where(CatalogShard.scope == ImportBatch.id).exists(),
+                    select(CatalogFile.id).where(_holds_batch(ImportBatch.id)).exists(),
                 ))
                 .group_by(ImportBatch.quick_hash)
             ).all())
     return [f for f, d in digests.items() if d in read and int(read[d]) >= count_import_records(f)]
+
+
+def _holds_batch(batch_id):
+    """A catalog file with a shard of `batch_id`: its `scopes` list names it."""
+    return (literal(",") + CatalogFile.scopes + literal(",")).like(
+        literal("%,") + cast(batch_id, String) + literal(",%"))
+
+
+def add_imported(project_db, written: Mapping[int | None, int]) -> None:
+    """Add what a shard import wrote to each batch's `n_imported`: the queue counts it as it
+    cuts, since no row per shard is kept to count it from afterwards."""
+    with project_db.get_session() as session:
+        for batch_id, n in dict(written or {}).items():
+            if batch_id is not None and n:
+                session.execute(update(ImportBatch).where(ImportBatch.id == int(batch_id))
+                                .values(n_imported=ImportBatch.n_imported + int(n)))
+        session.commit()
 
 
 def _chunks(values: list, size: int = 30_000):
@@ -148,9 +164,7 @@ def finish_batches(project_db, batch_ids: Mapping[str, int], *, completed: bool)
             if batch is None:
                 continue
             if batch.kind == ImportKind.SHARDS:
-                written = session.execute(select(func.coalesce(func.sum(CatalogShard.n_records), 0)).where(
-                    CatalogShard.scope == batch.id)).scalar()
-                last = None
+                written, last = batch.n_imported, None  # counted by the queue (`add_imported`)
             else:
                 written, last = session.execute(
                     select(func.count(), func.max(MoleculeRecord.source_index))
@@ -165,13 +179,23 @@ def finish_batches(project_db, batch_ids: Mapping[str, int], *, completed: bool)
 
 
 def batch_field(model, name: str):
-    """A column of the row's import batch, as a correlated scalar subquery (catalog columns)."""
-    key = model.scope if model is CatalogShard else model.import_batch_id
-    return select(getattr(ImportBatch, name)).where(ImportBatch.id == key).scalar_subquery()
+    """A column of the row's import batch, as a correlated scalar subquery (catalog columns).
+    A catalog file holds the shards of many batches: its first one, and ``(+N)`` for the rest."""
+    if model is not CatalogFile:
+        return select(getattr(ImportBatch, name)).where(ImportBatch.id == model.import_batch_id).scalar_subquery()
+    scopes = model.scopes
+    listed = scopes + literal(",")
+    first = cast(func.substr(listed, 1, func.instr(listed, ",") - 1), String)
+    value = select(getattr(ImportBatch, name)).where(cast(ImportBatch.id, String) == first).scalar_subquery()
+    if name != "source":
+        return value
+    more = func.length(scopes) - func.length(func.replace(scopes, ",", ""))
+    return value + case((more > 0, literal(" (+") + cast(more, String) + literal(")")), else_=literal(""))
 
 
 __all__ = [
     "DuplicateImportError",
+    "add_imported",
     "batch_field",
     "duplicate_imports",
     "file_format_of",

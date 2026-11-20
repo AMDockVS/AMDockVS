@@ -33,6 +33,28 @@ def _batch(session, source: str) -> int:
     return int(batch.id)
 
 
+def _library_file(session, folder, source: str, *, n_records: int = 3, name: str = "library") -> int:
+    """A library file on disk and its catalog row, in the caller's session: the id of its first shard."""
+    from catalog_seed import write_library_file
+    from ms_flow.core.data.catalog import shard_id
+    from ms_flow.core.database.project_models import CatalogFile
+
+    scope = _batch(session, source)
+    path = write_library_file(Path(folder) / f"{name}.parquet", scope=scope, records=n_records)
+    file = CatalogFile(path=str(path), n_shards=1, n_records=n_records, n_active=n_records, scopes=str(scope))
+    session.add(file)
+    session.flush()
+    return shard_id(int(file.id), 0)
+
+
+def _receipt(**fields):
+    """A shard/receptor receipt; its file is the one its shard id names."""
+    from amdockvs.models import ScreeningShardRun
+    from ms_flow.core.data.catalog import split_shard_id
+
+    return ScreeningShardRun(file_id=split_shard_id(fields["shard_id"])[0], **fields)
+
+
 def _pdbqt_shard(path: Path, count: int = 5) -> Path:
     with ShardWriter(
         path,
@@ -365,7 +387,6 @@ def test_select_hits_projects_scores_then_loads_only_selected_poses(tmp_path, mo
     from amdockvs.docking.results import dataset as result_dataset
     from amdockvs.screening.campaign import advance_shard_run
     from amdockvs.models import MoleculeRecord
-    from ms_flow.core.database.project_models import CatalogShard
     from amdockvs.runtime import AMDockVSRuntime
 
     runtime = AMDockVSRuntime()
@@ -374,11 +395,10 @@ def test_select_hits_projects_scores_then_loads_only_selected_poses(tmp_path, mo
         project_db = runtime.workspace.project_db
         with project_db.get_session() as session:
             receptor = MoleculeRecord(name="R", molecule_type="protein", is_receptor=True)
-            source_shard = CatalogShard(scope=_batch(session, "lib.smi"), shard_index=0, path="lib.parquet", n_records=3)
+            shard_id = _library_file(session, tmp_path, "lib.smi", n_records=3)
             session.add(receptor)
-            session.add(source_shard)
             session.commit()
-            receptor_id, shard_id = int(receptor.id), int(source_shard.id)
+            receptor_id = int(receptor.id)
         path = tmp_path / "scores.results.parquet"
         with shard_tasks.ResultFragmentWriter(
             path, metadata={"protocol": {"hash": "proto"}},
@@ -435,7 +455,6 @@ def test_top_n_writes_nothing_until_the_campaign_closes(tmp_path):
     from sqlmodel import select
 
     from amdockvs.models import DockingResultRecord, MoleculeRecord
-    from ms_flow.core.database.project_models import CatalogShard
     from amdockvs.runtime import AMDockVSRuntime
 
     runtime = AMDockVSRuntime()
@@ -444,14 +463,10 @@ def test_top_n_writes_nothing_until_the_campaign_closes(tmp_path):
         project_db = runtime.workspace.project_db
         with project_db.get_session() as session:
             receptor = MoleculeRecord(name="R", molecule_type="protein", is_receptor=True)
-            source_shard = CatalogShard(
-                scope=_batch(session, "lib.smi"), shard_index=0, path="lib.parquet", n_records=3
-            )
+            shard_id = _library_file(session, tmp_path, "lib.smi", n_records=3)
             session.add(receptor)
-            session.add(source_shard)
             session.commit()
             receptor_id = int(receptor.id)
-            shard_id = int(source_shard.id)
         writer = ShardHitWriter(
             project_db=project_db,
             hit_cap=2,
@@ -515,7 +530,6 @@ def test_general_top_n_is_ranked_per_receptor_and_deduplicates_ligands(tmp_path)
 
     from amdockvs.screening.campaign import advance_shard_run
     from amdockvs.models import DockingResultRecord, MoleculeRecord
-    from ms_flow.core.database.project_models import CatalogShard
     from amdockvs.runtime import AMDockVSRuntime
 
     runtime = AMDockVSRuntime()
@@ -527,13 +541,10 @@ def test_general_top_n_is_ranked_per_receptor_and_deduplicates_ligands(tmp_path)
                 MoleculeRecord(name=name, molecule_type="protein", is_receptor=True)
                 for name in ("reference", "off-target")
             ]
-            source_shard = CatalogShard(
-                scope=_batch(session, "library.smi"), shard_index=0, path="library.parquet", n_records=2
-            )
-            session.add_all([*receptors, source_shard])
+            shard_id = _library_file(session, tmp_path, "library.smi", n_records=2)
+            session.add_all(receptors)
             session.commit()
             receptor_ids = [int(row.id) for row in receptors]
-            shard_id = int(source_shard.id)
 
         for receptor_id, scores in zip(receptor_ids, ((-11.0, -8.0), (-10.0, -7.0))):
             result_path = tmp_path / f"r{receptor_id}.results.parquet"
@@ -578,10 +589,8 @@ def test_interrupted_top_n_is_recovered_from_completed_result_shards(tmp_path):
     from amdockvs.models import (
         DockingResultRecord,
         MoleculeRecord,
-        ScreeningShardRun,
         ScreeningTarget,
     )
-    from ms_flow.core.database.project_models import CatalogShard
     from amdockvs.runtime import AMDockVSRuntime
     from amdockvs.core.vocab import TargetState
 
@@ -594,19 +603,14 @@ def test_interrupted_top_n_is_recovered_from_completed_result_shards(tmp_path):
             receptor = MoleculeRecord(name="R", molecule_type="protein", is_receptor=True)
             session.add(receptor)
             session.flush()
-            source_shards = [
-                CatalogShard(scope=_batch(session, "library.smi"), shard_index=index, path=f"input-{index}.parquet", n_records=2)
-                for index in range(2)
-            ]
-            session.add_all(source_shards)
-            session.flush()
+            shard_ids = [_library_file(session, tmp_path, "library.smi", n_records=2, name=f"input-{index}")
+                         for index in range(2)]
             session.add(ScreeningTarget(
                 docking_run_id=run, receptor_molecule_id=int(receptor.id), receptor_name="R",
                 engine="vina", ligands_total=4, ligands_done=4, state=TargetState.CANCELED,
             ))
             session.commit()
             receptor_id = int(receptor.id)
-            shard_ids = [int(row.id) for row in source_shards]
 
         protocol = {"program": "vina", "label": "Vina", "hash": "proto-recover"}
         for shard_index, scores in enumerate(((-7.0, -10.0), (-9.0, -8.0))):
@@ -636,7 +640,7 @@ def test_interrupted_top_n_is_recovered_from_completed_result_shards(tmp_path):
                         "pose_suffix": ".sdf",
                     })
             with project_db.get_session() as session:
-                session.add(ScreeningShardRun(
+                session.add(_receipt(
                     docking_run_id=run,
                     shard_id=shard_ids[shard_index],
                     receptor_molecule_id=receptor_id,
@@ -839,8 +843,7 @@ def test_an_unchanged_campaign_submitted_again_docks_the_library_a_second_time(t
     nothing and six compounds came back as twelve rows."""
     from sqlmodel import select
 
-    from amdockvs.models import DockingRun, MoleculeRecord, ScreeningShardRun
-    from ms_flow.core.database.project_models import CatalogShard
+    from amdockvs.models import DockingRun, MoleculeRecord
     from amdockvs.core.vocab import TargetState
     from amdockvs.runtime import AMDockVSRuntime
 
@@ -850,20 +853,17 @@ def test_an_unchanged_campaign_submitted_again_docks_the_library_a_second_time(t
         project_db = runtime.workspace.project_db
         with project_db.get_session() as session:
             receptor = MoleculeRecord(name="R", molecule_type="protein", is_receptor=True)
-            shard = CatalogShard(
-                scope=_batch(session, "library.smi"), shard_index=0,
-                path="library.parquet", n_records=3,
-            )
-            session.add_all([receptor, shard])
+            shard_id = _library_file(session, tmp_path, "library.smi", n_records=3)
+            session.add(receptor)
             session.commit()
-            receptor_id, shard_id = int(receptor.id), int(shard.id)
+            receptor_id = int(receptor.id)
         _prepared_shard_scope(monkeypatch, receptor_id=receptor_id, shard_id=shard_id)
 
         first = list(shard_jobs.DockShardsJobSpec.build_chunks(
             _shard_params(tmp_path, run_id="run-first", skip_existing=True), {"project_db": project_db}))
         assert [chunk["shards"][0]["shard_id"] for chunk in first] == [shard_id]
         with project_db.get_session() as session:  # the receipt that run would write
-            session.add(ScreeningShardRun(
+            session.add(_receipt(
                 docking_run_id=first[0]["docking_run_id"], shard_id=shard_id,
                 receptor_molecule_id=receptor_id, engine="vina", protocol_hash="proto-skip",
                 ligands_scored=3, hits=3, result_path="results/first.parquet",
@@ -894,7 +894,6 @@ def test_a_forced_campaign_replaces_what_the_pairs_it_docked_again_had(tmp_path,
     from amdockvs.models import (
         DockingResultRecord, MoleculeRecord, ScreeningShardRun, ScreeningTarget,
     )
-    from ms_flow.core.database.project_models import CatalogShard
     from amdockvs.core.vocab import TargetState
     from amdockvs.runtime import AMDockVSRuntime
 
@@ -910,20 +909,17 @@ def test_a_forced_campaign_replaces_what_the_pairs_it_docked_again_had(tmp_path,
             receptor = MoleculeRecord(name="R", molecule_type="protein", is_receptor=True)
             ligands = [MoleculeRecord(name=name, molecule_type="small_molecule", is_ligand=True)
                        for name in ("old-hit", "new-hit")]
-            shard = CatalogShard(
-                scope=_batch(session, "library.smi"), shard_index=0,
-                path="library.parquet", n_records=3,
-            )
-            session.add_all([receptor, *ligands, shard])
+            shard_id = _library_file(session, tmp_path, "library.smi", n_records=3)
+            session.add_all([receptor, *ligands])
             session.commit()
-            receptor_id, shard_id = int(receptor.id), int(shard.id)
+            receptor_id = int(receptor.id)
             old_ligand, new_ligand = (int(row.id) for row in ligands)
 
         old_run = _run(project_db, "run-old", protocol_hash="proto-forced")
         new_run = _run(project_db, "run-new", protocol_hash="proto-forced")
         with project_db.get_session() as session:
             for run, path in ((old_run, "results/old.parquet"), (new_run, "results/new.parquet")):
-                session.add(ScreeningShardRun(
+                session.add(_receipt(
                     docking_run_id=run, shard_id=shard_id, receptor_molecule_id=receptor_id,
                     engine="vina", protocol_hash="proto-forced", ligands_scored=3, hits=1,
                     result_path=path, state=TargetState.DONE,
@@ -964,7 +960,6 @@ def test_a_forced_off_target_stage_keeps_the_ligands_it_never_docked_again(tmp_p
     from amdockvs.models import (
         DockingResultRecord, MoleculeRecord, ScreeningShardRun, ScreeningTarget,
     )
-    from ms_flow.core.database.project_models import CatalogShard
     from amdockvs.core.vocab import TargetState
     from amdockvs.runtime import AMDockVSRuntime
 
@@ -981,19 +976,15 @@ def test_a_forced_off_target_stage_keeps_the_ligands_it_never_docked_again(tmp_p
                          for name in ("reference", "off-target")]
             ligands = [MoleculeRecord(name=name, molecule_type="small_molecule", is_ligand=True)
                        for name in ("picked", "left-out")]
-            shard = CatalogShard(
-                scope=_batch(session, "library.smi"), shard_index=0,
-                path="library.parquet", n_records=2,
-            )
-            session.add_all([*receptors, *ligands, shard])
+            shard_id = _library_file(session, tmp_path, "library.smi", n_records=2)
+            session.add_all([*receptors, *ligands])
             session.commit()
             reference_id, off_target_id = (int(row.id) for row in receptors)
             picked, left_out = (int(row.id) for row in ligands)
-            shard_id = int(shard.id)
 
         old_run = _run(project_db, "run-library", protocol_hash="proto-off")
         with project_db.get_session() as session:
-            session.add(ScreeningShardRun(  # the whole library against the off-target receptor
+            session.add(_receipt(  # the whole library against the off-target receptor
                 docking_run_id=old_run, shard_id=shard_id, receptor_molecule_id=off_target_id,
                 engine="vina", protocol_hash="proto-off", ligands_scored=2, hits=2,
                 result_path="results/whole.parquet", selection="", state=TargetState.DONE,
@@ -1066,7 +1057,6 @@ def test_an_off_target_subset_does_not_satisfy_a_full_library_skip(tmp_path, mon
     """RR-01: `completed_protocol_targets` counted every DONE receipt, so one ligand docked by an
     off-target stage read as the whole shard and a later full screen skipped the rest of it."""
     from amdockvs.models import MoleculeRecord
-    from ms_flow.core.database.project_models import CatalogShard
     from amdockvs.runtime import AMDockVSRuntime
 
     runtime = AMDockVSRuntime()
@@ -1076,14 +1066,10 @@ def test_an_off_target_subset_does_not_satisfy_a_full_library_skip(tmp_path, mon
         with project_db.get_session() as session:
             receptors = [MoleculeRecord(name=name, molecule_type="protein", is_receptor=True)
                          for name in ("reference", "off-target")]
-            shard = CatalogShard(
-                scope=_batch(session, "library.smi"), shard_index=0,
-                path="library.parquet", n_records=100,
-            )
-            session.add_all([*receptors, shard])
+            shard_id = _library_file(session, tmp_path, "library.smi", n_records=100)
+            session.add_all(receptors)
             session.commit()
             reference_id, off_target_id = (int(row.id) for row in receptors)
-            shard_id = int(shard.id)
         _prepared_shard_scope(monkeypatch, receptor_id=off_target_id, shard_id=shard_id, n_records=100)
 
         # One selected ligand of that shard, docked against the off-target receptor.
@@ -1111,7 +1097,6 @@ def test_a_receptor_prepared_again_is_docked_again_despite_skip_existing(tmp_pat
     """The cross-run skip matches receipts by protocol; without the inputs they were docked
     against, a receptor prepared again (or given a new box) would keep its old shard results."""
     from amdockvs.models import MoleculeRecord
-    from ms_flow.core.database.project_models import CatalogShard
     from amdockvs.runtime import AMDockVSRuntime
 
     runtime = AMDockVSRuntime()
@@ -1120,13 +1105,10 @@ def test_a_receptor_prepared_again_is_docked_again_despite_skip_existing(tmp_pat
         project_db = runtime.workspace.project_db
         with project_db.get_session() as session:
             receptor = MoleculeRecord(name="R", molecule_type="protein", is_receptor=True)
-            shard = CatalogShard(
-                scope=_batch(session, "library.smi"), shard_index=0,
-                path="library.parquet", n_records=3,
-            )
-            session.add_all([receptor, shard])
+            shard_id = _library_file(session, tmp_path, "library.smi", n_records=3)
+            session.add(receptor)
             session.commit()
-            receptor_id, shard_id = int(receptor.id), int(shard.id)
+            receptor_id = int(receptor.id)
 
         _run(project_db, "run-old", protocol_hash="proto-skip")
         ShardHitWriter(
@@ -1155,9 +1137,7 @@ def test_a_skipped_reference_still_supplies_its_ranking_to_a_new_off_target(tmp_
     writes no receipt under the new submission. The off-target stage that depends on it has to
     rank what the library holds, or it selects nothing and the new receptor is never docked."""
     from amdockvs.models import MoleculeRecord
-    from ms_flow.core.database.project_models import CatalogShard
     from amdockvs.core.vocab import TargetState
-    from amdockvs.models import ScreeningShardRun
     from amdockvs.runtime import AMDockVSRuntime
 
     runtime = AMDockVSRuntime()
@@ -1168,14 +1148,10 @@ def test_a_skipped_reference_still_supplies_its_ranking_to_a_new_off_target(tmp_
         with project_db.get_session() as session:
             receptors = [MoleculeRecord(name=name, molecule_type="protein", is_receptor=True)
                          for name in ("reference", "off-target")]
-            shard = CatalogShard(
-                scope=_batch(session, "library.smi"), shard_index=0,
-                path="library.parquet", n_records=3,
-            )
-            session.add_all([*receptors, shard])
+            shard_id = _library_file(session, tmp_path, "library.smi", n_records=3)
+            session.add_all(receptors)
             session.commit()
             reference_id, off_target_id = (int(row.id) for row in receptors)
-            shard_id = int(shard.id)
 
         # An older submission docked the library against the reference receptor and ranked it.
         old_run = _run(project_db, "run-old", protocol_hash="proto-skip")
@@ -1183,7 +1159,7 @@ def test_a_skipped_reference_still_supplies_its_ranking_to_a_new_off_target(tmp_
                   records={0: -11.0, 1: -6.0}, run_id="run-old",
                   protocol={"program": "vina", "label": "Vina", "hash": "proto-skip"})
         with project_db.get_session() as session:
-            session.add(ScreeningShardRun(
+            session.add(_receipt(
                 docking_run_id=old_run, shard_id=shard_id, receptor_molecule_id=reference_id,
                 engine="vina", protocol_hash="proto-skip", ligands_scored=2, hits=1,
                 result_path="results/reference.parquet", selection="", state=TargetState.DONE,
@@ -1219,10 +1195,10 @@ def test_a_partial_replacement_retires_the_hits_of_the_shard_it_replaced(tmp_pat
     from amdockvs.models import (
         DockingResultRecord, MoleculeRecord, ScreeningShardRun, ScreeningTarget,
     )
-    from ms_flow.core.database.project_models import CatalogShard
     from amdockvs.core.vocab import TargetState
     from amdockvs.docking.rerun import supersede_shard_runs
     from amdockvs.runtime import AMDockVSRuntime
+    from catalog_seed import seed_library
 
     protocol = {"program": "vina", "label": "Vina", "hash": "proto-partial"}
     runtime = AMDockVSRuntime()
@@ -1238,14 +1214,12 @@ def test_a_partial_replacement_retires_the_hits_of_the_shard_it_replaced(tmp_pat
             ligands = [MoleculeRecord(name=f"lib:{index}", molecule_type="small_molecule",
                                       is_ligand=True, import_batch_id=batch_id, source_index=index)
                        for index in (0, 1, 2)]
-            shards = [CatalogShard(scope=batch_id, shard_index=index,
-                                     path=f"library_{index}.parquet", n_records=2)
-                      for index in (0, 1)]
-            session.add_all([receptor, *ligands, *shards])
+            session.add_all([receptor, *ligands])
             session.commit()
             receptor_id = int(receptor.id)
             stale, fresh, untouched = (int(row.id) for row in ligands)
-            first, second = (int(row.id) for row in shards)
+        # Two shards of one file: records 0-1 and 2-3 (the shard header names the batch).
+        _file, (first, second) = seed_library(project_db, tmp_path, scope=batch_id, shards=2, records=2)
 
         old_run = _run(project_db, "run-old", protocol_hash="proto-partial")
         new_run = _run(project_db, "run-new", protocol_hash="proto-partial")
@@ -1261,7 +1235,7 @@ def test_a_partial_replacement_retires_the_hits_of_the_shard_it_replaced(tmp_pat
             for run, shard, path in ((old_run, first, "results/old-first.parquet"),
                                      (old_run, second, "results/old-second.parquet"),
                                      (new_run, first, "results/new-first.parquet")):
-                session.add(ScreeningShardRun(
+                session.add(_receipt(
                     docking_run_id=run, shard_id=shard, receptor_molecule_id=receptor_id,
                     engine="vina", protocol_hash="proto-partial", ligands_scored=2, hits=1,
                     result_path=path, selection="", state=TargetState.DONE,

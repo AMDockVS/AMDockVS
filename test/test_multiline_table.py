@@ -102,13 +102,13 @@ def test_a_shard_import_keeps_the_name(runtime, tmp_path):
     from sqlmodel import select
 
     from amdockvs.io.shards import mol_from_record
-    from ms_flow.core.database.project_models import CatalogShard
+    from ms_flow.core.database.project_models import CatalogFile
 
     path = tmp_path / "multiline.csv"
     path.write_text(MULTILINE, encoding="utf-8")
     _completed(runtime, runtime.loader.shard_ligands([str(path)], executor_name="thread"))
     with runtime.workspace.project_db.get_session() as session:
-        shard_paths = [row.path for row in session.exec(select(CatalogShard)).all()]
+        shard_paths = [row.path for row in session.exec(select(CatalogFile)).all()]
     names = []
     for shard_path in shard_paths:
         with Shard.open(shard_path) as shard:

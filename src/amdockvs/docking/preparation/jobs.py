@@ -278,7 +278,7 @@ class PrepareLigandShardsJobParams(BaseModel):
 
     engine: str = "ad4"
     force: bool = False
-    shard_ids: list[int] | None = None  # None = every shard
+    file_ids: list[int] | None = None  # the library files to prepare; None = every file
 
 
 class PrepareLigandShardsJobSpec(JobSpec):
@@ -313,7 +313,7 @@ class PrepareLigandShardsJobSpec(JobSpec):
         with project_db.get_session() as session:
             prepared_ids = set(session.exec(select(ShardPrep.shard_id).where(ShardPrep.family == parsed.engine)).all())
 
-        picked = None if parsed.shard_ids is None else {int(value) for value in parsed.shard_ids}
+        picked = None if parsed.file_ids is None else {int(value) for value in parsed.file_ids}
 
         def pending() -> Iterator[dict[str, Any]]:
             # whole: prepared once for everything, so undoing an exclusion needs no re-prep.
@@ -321,8 +321,8 @@ class PrepareLigandShardsJobSpec(JobSpec):
                 shard_path = Path(str(row.get("path") or ""))
                 shard_id = int(row.get("id") or 0)
                 ids = shard_ids(row)
-                if picked is not None and shard_id not in picked:
-                    continue  # ponytail: filtered here, the shard table is small
+                if picked is not None and int(row.get("file_id") or 0) not in picked:
+                    continue  # ponytail: filtered here, the files table is small
                 prepared = shard_id in prepared_ids and prepared_shard_path(shard_path, parsed.engine, ids).is_file()
                 if prepared and not parsed.force:
                     continue

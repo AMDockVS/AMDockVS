@@ -76,7 +76,7 @@ def is_shard_key(key: int) -> bool:
 
 def shard_ids(row: Any) -> tuple[int, int] | None:
     """A catalog shard's ids inside its file, as `Shard.open(ids=)` takes them; None = the whole
-    file. Takes a catalog row (`CatalogShard`) or a row dict."""
+    file. Takes a shard row (`ms_flow.core.data.catalog.shards`), a dict or an object."""
     get = row.get if isinstance(row, Mapping) else (lambda key: getattr(row, key, None))
     base = get("base_id")
     return None if base is None else (int(base), int(base) + int(get("slot_count") or 0))
@@ -316,18 +316,22 @@ class ShardQueueWriter:
     one shard at a time, which is what buys exact record counts and correlative ids.
 
     Shards do not get a file each, nor a file per source: the whole import rolls through one
-    open file per stored format, `MAX_RECORDS` ids each, every shard its own row group and its
-    row `(scope=batch, path, base_id, slot_count)`. A library of 168 files is four files of 1M,
-    not 168 (nor 168 open `.tmp`). A shard still never mixes two batches; a file may. The rows
-    of a file are committed when it is closed (full, at `flush`, or when a stopped job closes
-    the writer), so a row never points at a file that is not on disk yet.
+    open file per stored format, `MAX_RECORDS` ids each, every shard its own row group with its
+    batch as its scope in the file's header. The catalog gets one row per *file* (ms_flow's),
+    registered as ``writing`` when it opens — a view watches it fill — and ``ready`` once it is
+    closed and on disk; only then is it read. A library of 168 source files is four rows of 1M,
+    not 15k shard rows. A shard still never mixes two batches; a file may.
 
     ponytail: not idempotent, by decision. A retried span is re-filtered and lands wherever
     the queue happens to be, so shard boundaries differ between runs and a re-import appends
     rather than upserting — a failed import is restarted from the beginning, not resumed.
     Resuming would need the queue to checkpoint (span -> shard) receipts. A crash loses the
-    open file (its `.tmp` stays behind); what was closed before is the library.
+    open file (its `.tmp` stays behind, its row stays ``writing``); what was closed before is
+    the library.
     """
+
+    # The open file's row is updated every this many shards: a live count, not a write per shard.
+    PROGRESS_EVERY = 64
 
     def __init__(
         self,
@@ -345,13 +349,13 @@ class ShardQueueWriter:
         # has a previous state worth being able to fall back to.
         self._generation_id = generation_id
         self._shard_size = max(1, int(shard_size))
-        # One bucket per (batch, format): mixing two files in one shard would leave the
-        # `import_batch_id` of its inventory row a lie. One open file per format: the header
-        # says how to read every record in it.
+        # One bucket per (batch, format): mixing two files in one shard would leave the scope
+        # of the shard a lie. One open file per format: the header says how to read every
+        # record in it.
         self._pending: dict[tuple[int | None, str], list[tuple[int, str]]] = {}
-        self._files: dict[str, tuple[ShardWriter, list[dict]]] = {}
+        # format -> (writer, catalog file id, shards in it, records in it, records per batch)
+        self._files: dict[str, tuple[ShardWriter, int, list[int], dict[int | None, int]]] = {}
         self._next_id = 0
-        self._shard_index = 0
 
     def handle(self, chunk_id: str, result: Any) -> None:
         for group in list(result or []):
@@ -374,11 +378,13 @@ class ShardQueueWriter:
         self.close()
 
     def close(self) -> None:
-        """Every open file closed and its rows committed: also what a stopped job keeps."""
-        for key in list(self._files):
-            self._close_file(key)
+        """Every open file closed and made ``ready``: also what a stopped job keeps."""
+        for input_format in list(self._files):
+            self._close_file(input_format)
 
     def _write_shard(self, key: tuple[int | None, str], records: list[tuple[int, str]]) -> None:
+        from ms_flow.core.data.catalog import WRITING, add_file, update_file
+
         import_batch_id, input_format = key
         base_id = self._next_id
         self._next_id += len(records)
@@ -394,31 +400,36 @@ class ShardQueueWriter:
             writer = ShardWriter(
                 path,
                 dataset_id=None,
-                shard_id=0,  # a file of many shards; each is its catalog row
+                shard_id=0,  # a file of many shards, listed in its header
                 base_id=base_id,
                 kind=payload_kind_for(input_format),
                 serializer=Serializer.UTF8,
                 slot_count=MAX_RECORDS,
-                metadata={"input_format": input_format},  # the batch of a shard is its row's scope
+                metadata={"input_format": input_format},
                 # Ids are dense, so this column is the only place the source ordinal survives.
                 source_index=True,
             )
-            self._files[input_format] = (writer, [])
-        writer, rows = self._files[input_format]
+            file_id = add_file(self._project_db, path, generation_id=self._generation_id, status=WRITING)
+            self._files[input_format] = (writer, file_id, [0, 0], {})
+        writer, file_id, counts, per_batch = self._files[input_format]
         for offset, (index, raw) in enumerate(records):
             writer.add(base_id + offset, raw.encode("utf-8"), source_index=index)
-        writer.end_group()
-        rows.append({"scope": import_batch_id, "shard_index": self._shard_index, "base_id": base_id,
-                     "slot_count": len(records), "n_records": len(records)})
-        self._shard_index += 1
+        writer.end_group(scope=import_batch_id, base_id=base_id, slot_count=len(records))
+        counts[0] += 1
+        counts[1] += len(records)
+        per_batch[import_batch_id] = per_batch.get(import_batch_id, 0) + len(records)
+        if counts[0] % self.PROGRESS_EVERY == 0:
+            update_file(self._project_db, file_id, n_shards=counts[0], n_records=counts[1], n_active=counts[1])
 
     def _close_file(self, input_format: str) -> None:
-        from ms_flow.core.data.catalog import add_shards
+        from ms_flow.core.data.catalog import finish_file
 
-        writer, rows = self._files.pop(input_format)
-        writer.close()  # fsynced and renamed: only now may a row point at it
-        add_shards(self._project_db, [{**row, "path": str(writer.path)} for row in rows],
-                   generation_id=self._generation_id)
+        from amdockvs.io.batches import add_imported
+
+        writer, file_id, _counts, per_batch = self._files.pop(input_format)
+        writer.close()  # fsynced and renamed: only now may it be read
+        finish_file(self._project_db, file_id)
+        add_imported(self._project_db, per_batch)
 
 
 def shard_queue_writer(params: dict, config: dict) -> ShardQueueWriter:
@@ -433,15 +444,16 @@ def shard_queue_writer(params: dict, config: dict) -> ShardQueueWriter:
 
 
 class ShardGenerationWriter:
-    """The result sink of any step that rewrites the library: new shards, new generation.
+    """The result sink of any step that rewrites the library: new files, new generation.
 
     Replaces an upsert on `(source, shard_index)`. That upsert repointed the inventory one
     chunk at a time, so a job that died at shard 600 of 1000 left a library that was 60% the
     new step and 40% the old one, with no way to tell which was which.
 
-    Here the rows land in a generation nothing reads yet, and `flush()` — which MolSuite
-    calls once, when the job actually completes — is the only thing that makes them the
-    library. A failed job leaves an inert generation behind, not a corrupted one.
+    Here each worker's file is registered in a generation nothing reads yet, and `flush()` —
+    which MolSuite calls once, when the job actually completes — compacts them into big files
+    and only then makes them the library. A failed job leaves an inert generation behind, not
+    a corrupted one.
     """
 
     def __init__(self, *, project_db: Any, generation_id: int) -> None:
@@ -449,13 +461,13 @@ class ShardGenerationWriter:
         self._generation_id = int(generation_id)
 
     def handle(self, chunk_id: str, result: Any) -> None:
-        from ms_flow.core.data.catalog import add_shards
+        from ms_flow.core.data.catalog import add_file
 
-        add_shards(self._project_db, [{**row, "scope": row.get("import_batch_id")} for row in result or []],
-                   generation_id=self._generation_id)
+        for row in result or []:
+            add_file(self._project_db, row["path"], generation_id=self._generation_id)
 
     def on_error(self, chunk_id: str, error: str) -> None:
-        """A failed shard contributes no row, so it is simply absent from the generation.
+        """A failed shard contributes no file, so it is simply absent from the generation.
 
         ponytail: the generation is still activated with a hole in it. Whether a partial
         rewrite should be rejected outright is a policy question — today a failed shard is
@@ -481,7 +493,7 @@ class ShardGenerationWriter:
                 "replace the library with an empty one. Every molecule failed the step; the "
                 "previous generation is still the library."
             )
-        # A worker wrote a file per shard; one big file per scope is what the library keeps.
+        # A worker wrote a file per task; a few big files are what the library keeps.
         # Before activation: nothing (a prepared twin) is named after these paths yet.
         compact(self._project_db, self._generation_id)
         activate_generation(self._project_db, self._generation_id)

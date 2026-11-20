@@ -534,16 +534,23 @@ class MoleculeAPI:
             shards_root = None
         return library_stats(self.runtime.workspace.project_db, shards_root)
 
-    def shard_preps(self, shard_id: int) -> dict[str, tuple[int, int]]:
-        """One shard's preparations: family -> (prepared records, failed records)."""
-        from sqlmodel import select
+    def file_preps(self, file_id: int) -> dict[str, tuple[int, int]]:
+        """One catalog file's preparations: family -> (prepared records, failed records), over the
+        shards of it that are prepared."""
+        from ms_flow.core.data.catalog import GROUP_BITS
+        from sqlmodel import func, select
 
         from amdockvs.models import ShardPrep
 
         self.runtime._require_active_project()
+        first = int(file_id) << GROUP_BITS
         with self.runtime.workspace.project_db.get_session() as session:
-            rows = session.exec(select(ShardPrep).where(ShardPrep.shard_id == int(shard_id))).all()
-        return {str(row.family): (int(row.n_records), int(row.n_failed)) for row in rows}
+            rows = session.exec(
+                select(ShardPrep.family, func.sum(ShardPrep.n_records), func.sum(ShardPrep.n_failed))
+                .where(ShardPrep.shard_id.between(first, first | ((1 << GROUP_BITS) - 1)))
+                .group_by(ShardPrep.family)
+            ).all()
+        return {str(family): (int(done or 0), int(failed or 0)) for family, done, failed in rows}
 
     def list_fragments(self, molecule_id: int) -> list[dict[str, Any]]:
         self.runtime._require_active_project()

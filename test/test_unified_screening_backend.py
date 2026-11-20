@@ -8,7 +8,8 @@ from amdockvs.core.configuration import app_config
 from amdockvs.docking.api import DockingAPI
 from amdockvs.screening.campaign import advance_shard_run, completed_shard_targets
 from amdockvs.models import ImportBatch, ScreeningShardRun, ShardPrep
-from ms_flow.core.database.project_models import CatalogShard
+from ms_flow.core.data import catalog
+from catalog_seed import seed_library
 from amdockvs.molecules.storage import iter_prepared_shards
 from amdockvs.runtime import AMDockVSRuntime
 from amdockvs.core.vocab import TargetState
@@ -17,41 +18,32 @@ from amdockvs.core.vocab import TargetState
 def _project_with_shard(tmp_path):
     runtime = AMDockVSRuntime()
     runtime.create_project(name="unified-backend", folder=tmp_path)
-    source = tmp_path / "raw.parquet"
-    source.write_bytes(b"raw")
     with runtime.workspace.project_db.get_session() as session:
         batch = ImportBatch(source="library.smi", quick_hash="x", format="smiles", kind="shards")
         session.add(batch)
-        session.flush()
-        shard = CatalogShard(
-            scope=batch.id,
-            shard_index=0,
-            path=str(source),
-            n_records=100,
-            state="ready",
-        )
-        session.add(shard)
         session.commit()
-        session.refresh(shard)
-    return runtime, shard, source
+        session.refresh(batch)
+    _file_id, (shard_id,) = seed_library(runtime.workspace.project_db, tmp_path, scope=int(batch.id),
+                                         records=100, name="raw")
+    return runtime, shard_id, tmp_path / "raw.parquet"
 
 
 def test_engine_artifact_does_not_replace_the_chemical_shard(tmp_path):
-    runtime, shard, source = _project_with_shard(tmp_path)
-    prepared = tmp_path / "prepared_ad4" / "raw.parquet"
+    runtime, shard_id, source = _project_with_shard(tmp_path)
+    prepared = tmp_path / "prepared_ad4" / "raw.0.parquet"
     prepared.parent.mkdir()
     prepared.write_bytes(b"pdbqt")
     try:
         assert app_config(runtime).shards.keep_history is False
         with runtime.workspace.project_db.get_session() as session:
             session.add(
-                ShardPrep(shard_id=int(shard.id), family="ad4", n_records=97)
+                ShardPrep(shard_id=shard_id, family="ad4", n_records=97)
             )
             session.commit()
 
         rows = list(iter_prepared_shards(runtime.workspace.project_db, engine="ad4"))
         assert len(rows) == 1
-        assert rows[0]["id"] == int(shard.id)
+        assert rows[0]["id"] == shard_id
         assert rows[0]["path"] == str(source)
         assert rows[0]["prepared_path"] == str(prepared)
         assert rows[0]["n_records"] == 97
@@ -61,16 +53,16 @@ def test_engine_artifact_does_not_replace_the_chemical_shard(tmp_path):
             "prepared": 1,
             "prepared_records": 97,
         }
+        inventory = catalog.get_shard(runtime.workspace.project_db, shard_id)
+        assert inventory["path"] == str(source)
         with runtime.workspace.project_db.get_session() as session:
-            inventory = session.get(CatalogShard, int(shard.id))
-            assert inventory.path == str(source)
-            assert session.get(ImportBatch, inventory.scope).format == "smiles"
+            assert session.get(ImportBatch, inventory["scope"]).format == "smiles"
     finally:
         runtime.close_project()
 
 
 def test_shard_completion_is_scoped_to_run_engine_and_protocol(tmp_path):
-    runtime, shard, _source = _project_with_shard(tmp_path)
+    runtime, shard_id, _source = _project_with_shard(tmp_path)
     db = runtime.workspace.project_db
     try:
         from amdockvs.docking.results.repository import docking_run_id
@@ -82,7 +74,7 @@ def test_shard_completion_is_scoped_to_run_engine_and_protocol(tmp_path):
         advance_shard_run(
             db,
             docking_run_id=run("run-a", "p1"),
-            shard_id=int(shard.id),
+            shard_id=shard_id,
             receptor_id=10,
             engine="vina",
             protocol_hash="p1",
@@ -91,13 +83,13 @@ def test_shard_completion_is_scoped_to_run_engine_and_protocol(tmp_path):
             result_path="results/docking/screening/run-a/results.parquet",
         )
         assert completed_shard_targets(db, docking_run_id=run("run-a", "p1")) == {
-            (int(shard.id), 10, 0)  # no binding site: the whole receptor is the target
+            (shard_id, 10, 0)  # no binding site: the whole receptor is the target
         }
 
         advance_shard_run(
             db,
             docking_run_id=run("run-a", "p1"),
-            shard_id=int(shard.id),
+            shard_id=shard_id,
             receptor_id=10,
             engine="vina",
             protocol_hash="p1",
@@ -176,16 +168,16 @@ def test_shard_prep_rows_upsert_through_the_job_sink(tmp_path):
     from amdockvs.core.rows import shard_prep_row
     from amdockvs.docking.preparation.jobs import PrepareLigandShardsJobSpec
 
-    runtime, shard, _source = _project_with_shard(tmp_path)
+    runtime, shard_id, _source = _project_with_shard(tmp_path)
     try:
         project_db = runtime.workspace.project_db
         sink = PrepareLigandShardsJobSpec.output_spec
-        project_db.persist_output_spec(sink, [shard_prep_row(shard_id=shard.id, family="ad4", n_records=90)])
-        project_db.persist_output_spec(sink, [shard_prep_row(shard_id=shard.id, family="ad4", n_records=97, n_failed=3)])
+        project_db.persist_output_spec(sink, [shard_prep_row(shard_id=shard_id, family="ad4", n_records=90)])
+        project_db.persist_output_spec(sink, [shard_prep_row(shard_id=shard_id, family="ad4", n_records=97, n_failed=3)])
         with project_db.get_session() as session:
             stored = session.exec(select(ShardPrep)).all()
         assert [(row.shard_id, row.family, row.n_records, row.n_failed) for row in stored] == [
-            (int(shard.id), "ad4", 97, 3)
+            (shard_id, "ad4", 97, 3)
         ]
     finally:
         runtime.close_project()

@@ -13,7 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from amdockvs.io.shards import ShardGenerationWriter
-from ms_flow.core.database.project_models import CatalogShard
+from ms_flow.core.data import catalog
+from ms_flow.core.database.project_models import CatalogFile
 from amdockvs.molecules.storage import (
     ShardStore,
     activate_generation,
@@ -22,6 +23,7 @@ from amdockvs.molecules.storage import (
     shard_scope_spec,
 )
 from amdockvs.runtime import AMDockVSRuntime
+from catalog_seed import file_id_of, seed_library, write_library_file
 
 
 @pytest.fixture
@@ -33,24 +35,11 @@ def project(tmp_path):
 
 
 def _populate(project_db, generation_id, directory, *, count=3, tag="g"):
-    """Write `count` shard files and their inventory rows into one generation."""
-    paths = []
-    with project_db.get_session() as session:
-        for index in range(count):
-            path = directory / f"{tag}_{index:05d}.parquet"
-            path.write_bytes(b"shard")
-            paths.append(path)
-            session.add(
-                CatalogShard(
-                    generation_id=generation_id,
-                    shard_index=index,
-                    path=str(path),
-                    input_format="smi",
-                    n_records=1000,
-                )
-            )
-        session.commit()
-    return paths
+    """Write `count` library files (one shard of 1000 records each) into one generation."""
+    for index in range(count):
+        seed_library(project_db, directory, scope=1, records=1000, name=f"{tag}_{index:05d}",
+                     generation_id=generation_id)
+    return [directory / f"{tag}_{index:05d}.parquet" for index in range(count)]
 
 
 def test_a_scope_never_spans_two_generations(project, tmp_path):
@@ -82,10 +71,8 @@ def test_a_failed_rewrite_leaves_the_library_alone(project, tmp_path):
 
     second = create_generation(project_db, step="protonate", folder=root)
     writer = ShardGenerationWriter(project_db=project_db, generation_id=second)
-    writer.handle("chunk-0", [{
-        "source": "lib.smi", "shard_index": 0, "path": str(tmp_path / "p_00000.parquet"),
-        "input_format": "smi", "n_records": 998,
-    }])
+    path = write_library_file(tmp_path / "p_00000.parquet", scope=1, records=998)
+    writer.handle("chunk-0", [{"path": str(path)}])
     writer.on_error("chunk-1", "boom")
     # flush() never runs: the job failed.
 
@@ -117,7 +104,7 @@ def test_the_window_is_two_deep(project, tmp_path):
     with project_db.get_session() as session:
         from sqlmodel import select
 
-        rows = session.exec(select(CatalogShard)).all()
+        rows = session.exec(select(CatalogFile)).all()
     assert {int(row.generation_id) for row in rows} == {parent, child}
 
 
@@ -172,16 +159,15 @@ def test_the_project_summary_reads_the_library_off_the_inventory(project, tmp_pa
     _populate(project_db, first, tmp_path, count=3, tag="first")
     second = create_generation(project_db, step="protonate", folder=root)
     activate_generation(project_db, second)
-    shard_ids = []
+    file_ids = []
     with project_db.get_session() as session:
         for index, error in enumerate(("", "", "boom")):
-            row = CatalogShard(generation_id=second, shard_index=index,
-                                 path=str(tmp_path / f"p_{index}.parquet"), input_format="smi",
-                                 n_records=0 if error else 900, error=error)
+            row = CatalogFile(generation_id=second, path=str(tmp_path / f"p_{index}.parquet"),
+                              n_shards=1, n_records=0 if error else 900, n_active=0 if error else 900, error=error)
             session.add(row)
             session.flush()
-            shard_ids.append(row.id)
-        session.add(ShardPrep(shard_id=shard_ids[0], family="ad4", n_records=899, n_failed=1))
+            file_ids.append(row.id)
+        session.add(ShardPrep(shard_id=catalog.shard_id(file_ids[0], 0), family="ad4", n_records=899, n_failed=1))
         session.add(DockingRun(id=1, engine="vina"))
         session.flush()
         session.add(ScreeningTarget(docking_run_id=1, receptor_molecule_id=7, ligands_done=1800, hits=12))
@@ -208,12 +194,12 @@ def test_a_forgotten_generation_takes_its_prepared_twins_but_one_docked_on_stays
     prepared, docked = create_generation(project_db, step="import", folder=root), None
     activate_generation(project_db, prepared)
     (prepared_file,) = _populate(project_db, prepared, tmp_path, count=1, tag="a")
-    twin = prepared_shard_path(prepared_file, "ad4")
+    twin = prepared_shard_path(prepared_file, "ad4", (0, 1000))
     twin.parent.mkdir(parents=True, exist_ok=True)
     twin.write_bytes(b"pdbqt")
     with project_db.get_session() as session:
-        shard = session.exec(select(CatalogShard).where(CatalogShard.generation_id == prepared)).one()
-        session.add(ShardPrep(shard_id=shard.id, family="ad4", n_records=1000))
+        session.add(ShardPrep(shard_id=catalog.shard_id(file_id_of(project_db, prepared_file), 0),
+                              family="ad4", n_records=1000))
         session.commit()
 
     docked = create_generation(project_db, step="protonate", folder=root)
@@ -223,9 +209,9 @@ def test_a_forgotten_generation_takes_its_prepared_twins_but_one_docked_on_stays
         run = DockingRun(run_id="r")
         session.add(run)
         session.flush()
-        shard = session.exec(select(CatalogShard).where(CatalogShard.generation_id == docked)).one()
-        session.add(ScreeningShardRun(docking_run_id=run.id, shard_id=shard.id, receptor_molecule_id=1,
-                                      engine="vina", state="done"))
+        file_id = file_id_of(project_db, docked_file)
+        session.add(ScreeningShardRun(docking_run_id=run.id, shard_id=catalog.shard_id(file_id, 0), file_id=file_id,
+                                      receptor_molecule_id=1, engine="vina", state="done"))
         session.commit()
 
     for step in ("generate_3d", "minimize"):  # two more rewrites: both earlier ones fall out
@@ -237,7 +223,7 @@ def test_a_forgotten_generation_takes_its_prepared_twins_but_one_docked_on_stays
     assert docked_file.exists()
     with project_db.get_session() as session:
         assert session.exec(select(ShardPrep)).all() == []
-        assert {int(r.generation_id) for r in session.exec(select(CatalogShard)).all()} == {docked, generation - 1, generation}
+        assert {int(r.generation_id) for r in session.exec(select(CatalogFile)).all()} == {docked, generation - 1, generation}
 
 
 def test_a_rewrite_lands_in_one_file_per_scope(project, tmp_path):
@@ -250,7 +236,7 @@ def test_a_rewrite_lands_in_one_file_per_scope(project, tmp_path):
     for index in range(3):
         path = tmp_path / f"out_{index}.parquet"
         with ShardWriter(path, dataset_id=None, shard_id=0, base_id=10 * index, kind=PayloadKind.SDF,
-                         serializer=Serializer.UTF8, slot_count=10) as shard:
+                         serializer=Serializer.UTF8, slot_count=10, scope=5) as shard:
             shard.add(10 * index, f"m{index}".encode())
         writer.handle(f"chunk-{index}", [{"import_batch_id": 5, "shard_index": index, "path": str(path),
                                           "n_records": 1}])

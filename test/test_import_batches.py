@@ -79,14 +79,14 @@ def test_deleted_molecules_can_be_imported_again(runtime, tmp_path):
 
 
 def test_deleted_shards_are_not_duplicate_imports(runtime, tmp_path):
-    from ms_flow.core.database.project_models import CatalogShard
+    from ms_flow.core.database.project_models import CatalogFile
 
     library = tmp_path / "deleted-shards.smi"
     library.write_text("CCO a\nCCN b\nCCC c\n")
     runtime.wait_for_jobs(runtime.loader.shard_ligands([library], shard_size=2), timeout_s=300)
     assert runtime.loader.duplicate_imports([library]) == [str(library.resolve())]
     with runtime.workspace.project_db.get_session() as session:
-        session.exec(delete(CatalogShard))
+        session.exec(delete(CatalogFile))
         session.commit()
     assert runtime.loader.duplicate_imports([library]) == []
 

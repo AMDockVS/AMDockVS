@@ -186,7 +186,7 @@ class RunPanel:
             "sources": tuple(sorted(self._ligand_sources())),
             # The Ligands step lists both stores' counts whenever its "Ligands from" row shows.
             "count_shards": step == 1 and not self.ligand_source_section.isHidden(),
-            "sel_shard": tuple(self._selected_shard_ids() or ()),
+            "sel_shard": tuple(self._selected_file_ids() or ()),
             "receptor_type": self._receptor_type(),
             "ligand_type": self._ligand_type(),
             "sel_lig": self._selected_ligand_ids,

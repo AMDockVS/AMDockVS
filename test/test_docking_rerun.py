@@ -13,7 +13,8 @@ from amdockvs.docking.rerun import DockingProtocolConflictError, resolved_protoc
 from amdockvs.docking.results.repository import docking_run_id
 from amdockvs.docking.submission import DockingSubmissionService
 from amdockvs.models import DockingRun, DockingResultRecord, MoleculeRecord, ScreeningShardRun, ScreeningTarget
-from ms_flow.core.database.project_models import CatalogShard
+from ms_flow.core.data.catalog import shard_id as catalog_shard_id
+from ms_flow.core.database.project_models import CatalogFile
 from amdockvs.molecules.scopes import MoleculeScope
 from test_docking_skip_existing import _project
 
@@ -138,10 +139,11 @@ def test_shard_replacement_clears_receipts_and_result_files(tmp_path, monkeypatc
     fragment = tmp_path / "old.results.parquet"
     fragment.write_text("previous results")
     with store.get_session() as session:
-        session.add(CatalogShard(id=1, path="source.mshard", n_records=5))
+        session.add(CatalogFile(id=1, path="source.mshard", n_shards=1, n_records=5, n_active=5))
         session.flush()  # no relationship() tells the unit of work the shard goes first
-        session.add(ScreeningShardRun(docking_run_id=1, shard_id=1, receptor_molecule_id=1,
-                                     engine="vina", ligands_scored=5, result_path=fragment.name, state="done"))
+        session.add(ScreeningShardRun(docking_run_id=1, shard_id=catalog_shard_id(1, 0), file_id=1,
+                                     receptor_molecule_id=1, engine="vina", ligands_scored=5,
+                                     result_path=fragment.name, state="done"))
         session.commit()
     monkeypatch.setattr("amdockvs.docking.api.dock_shards_job", SimpleNamespace(count_chunks=lambda *_a, **_k: 1))
     api.run_shards(program="vina", exhaustiveness=1, replace_existing=True,
@@ -149,7 +151,7 @@ def test_shard_replacement_clears_receipts_and_result_files(tmp_path, monkeypatc
     assert _results(store) == [] and not fragment.exists()
     with store.get_session() as session:
         assert session.exec(select(ScreeningShardRun)).all() == []
-        assert len(session.exec(select(CatalogShard)).all()) == 1
+        assert len(session.exec(select(CatalogFile)).all()) == 1
     assert len(calls) == 1 and calls[0]["priority"] == -1  # beside the table's jobs, below them
     store.dispose()
 
@@ -158,10 +160,10 @@ def test_shard_receipts_alone_are_enough_to_detect_a_configuration_change(tmp_pa
     api, store, _old, _calls = _fixture(tmp_path, monkeypatch)
     with store.get_session() as session:
         session.exec(delete(DockingResultRecord))
-        session.add(CatalogShard(id=1, path="source.mshard", n_records=5))
+        session.add(CatalogFile(id=1, path="source.mshard", n_shards=1, n_records=5, n_active=5))
         session.flush()  # no relationship() tells the unit of work the shard goes first
-        session.add(ScreeningShardRun(docking_run_id=1, shard_id=1, receptor_molecule_id=1,
-                                     engine="vina", ligands_scored=5, state="done"))
+        session.add(ScreeningShardRun(docking_run_id=1, shard_id=catalog_shard_id(1, 0), file_id=1,
+                                     receptor_molecule_id=1, engine="vina", ligands_scored=5, state="done"))
         session.commit()
     with pytest.raises(DockingProtocolConflictError):
         api.check_protocol(program="vina", engine_config={"exhaustiveness": 1})

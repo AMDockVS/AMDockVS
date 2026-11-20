@@ -213,7 +213,7 @@ def as_store(source) -> LigandStore:
 
 def has_shards(project_db) -> bool:
     """Does this project hold a sharded screening library?"""
-    return db_count(project_db, shard_spec()) > 0
+    return catalog.has_files(project_db)
 
 
 # Beside the input, in a folder named after the family: a campaign's stages read as a chain of folders.
@@ -235,20 +235,32 @@ def activate_generation(project_db, generation_id: int) -> None:
     catalog.activate_generation(project_db, generation_id, on_drop=_drop_shard_preps)
 
 
-def _drop_shard_preps(session, shards) -> list[Path]:
-    """The `shard_preps` rows of shards about to go, and the twin files to delete after them."""
+def _drop_shard_preps(session, files) -> list[Path]:
+    """The `shard_preps` rows of the files about to go, and the twin files to delete after them.
+    A prep row is keyed by shard id: the shards of a file are the ids of its window."""
+    from ms_flow.core.data.catalog import GROUP_BITS
+    from ms_flow.core.data.shard import file_groups
     from sqlmodel import delete, select
 
-    from amdockvs.io.shards import shard_ids
     from amdockvs.models import ShardPrep
 
-    by_id = {int(shard.id): shard for shard in shards}
-    where = ShardPrep.shard_id.in_(list(by_id))
-    paths = [
-        prepared_shard_path(by_id[int(prep.shard_id)].path, prep.family, shard_ids(by_id[int(prep.shard_id)]))
-        for prep in session.exec(select(ShardPrep).where(where)).all()
-    ]
-    session.exec(delete(ShardPrep).where(where))
+    paths: list[Path] = []
+    for file in files:
+        first = int(file.id) << GROUP_BITS
+        window = ShardPrep.shard_id.between(first, first | ((1 << GROUP_BITS) - 1))
+        preps = session.exec(select(ShardPrep).where(window)).all()
+        if not preps:
+            continue
+        try:
+            groups = file_groups(file.path)
+        except (OSError, KeyError, ValueError):
+            groups = []  # the file is already gone, and so are its twins' names
+        for prep in preps:
+            index = int(prep.shard_id) - first
+            if index < len(groups):
+                base, slots, _count, _scope = groups[index]
+                paths.append(prepared_shard_path(file.path, prep.family, (base, base + slots)))
+        session.exec(delete(ShardPrep).where(window))
     return paths
 
 
@@ -266,48 +278,37 @@ def _prepared_shards(project_db, *, engine: str, unprepared: bool = False) -> It
     """
     from sqlmodel import select
 
+    from amdockvs.io.batches import library_names
     from amdockvs.io.shards import shard_ids
-    from ms_flow.core.database.project_models import CatalogShard
-
     from amdockvs.models import ShardPrep
 
     family = str(engine or "").strip().lower()
-    generation_id = active_generation_id(project_db)
     with project_db.get_session() as session:
         counts = dict(session.exec(
             select(ShardPrep.shard_id, ShardPrep.n_records).where(ShardPrep.family == family)
         ).all())
-        # Scoped like every other shard read: the parent generation is still in the table and
-        # its prepared artifacts are still on disk, but they are not the library any more.
-        query = select(CatalogShard).order_by(CatalogShard.id)
-        if generation_id is not None:
-            query = query.where(CatalogShard.generation_id == generation_id)
-        shards = list(session.exec(query).all())
-    from amdockvs.io.batches import library_names
-
     libraries = library_names(project_db)
-    for shard in shards:
-        n_records = counts.get(int(shard.id or 0))
+    # Scoped like every other shard read: the parent generation is still in the table and its
+    # prepared artifacts are still on disk, but they are not the library any more.
+    for shard in catalog.shards(project_db, whole=True):
         ids = shard_ids(shard)
-        prepared_path = prepared_shard_path(shard.path, family, ids)
+        prepared_path = prepared_shard_path(shard["path"], family, ids)
+        n_records = counts.get(int(shard["id"]))
+        row = {
+            "id": int(shard["id"]),
+            "file_id": int(shard["file_id"]),
+            "scope": shard["scope"],
+            "library": libraries.get(shard["scope"], "library"),
+            "shard_index": int(shard["shard_index"]),
+            "path": shard["path"],
+            "ids": ids,
+            "base_id": shard["base_id"],
+            "slot_count": shard["slot_count"],
+        }
         if n_records is not None and prepared_path.is_file():
-            yield {
-                "id": int(shard.id or 0),
-                "scope": shard.scope,
-                "library": libraries.get(shard.scope, "library"),
-                "shard_index": int(shard.shard_index),
-                "path": shard.path,
-                "ids": ids,
-                "base_id": shard.base_id,
-                "slot_count": shard.slot_count,
-                "prepared_path": str(prepared_path),
-                "n_records": int(n_records),
-            }
+            yield {**row, "prepared_path": str(prepared_path), "n_records": int(n_records)}
         elif unprepared:
-            yield {"id": int(shard.id or 0), "scope": shard.scope,
-                   "library": libraries.get(shard.scope, "library"), "shard_index": int(shard.shard_index),
-                   "path": shard.path, "ids": ids, "base_id": shard.base_id, "slot_count": shard.slot_count,
-                   "prepared_path": "", "n_records": int(shard.n_records)}
+            yield {**row, "prepared_path": "", "n_records": int(shard["n_records"])}
 
 
 def prepared_shard_record_count(project_db, *, engine: str) -> int:

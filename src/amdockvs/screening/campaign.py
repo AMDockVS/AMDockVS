@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Mapping
 
+from ms_flow.core.data.catalog import split_shard_id
 from sqlmodel import select
 
 from amdockvs.models import DockingRun, ScreeningShardRun, ScreeningTarget
@@ -150,6 +151,7 @@ def advance_shard_run(
         row = row or ScreeningShardRun(
             docking_run_id=int(docking_run_id),
             shard_id=int(shard_id),
+            file_id=split_shard_id(int(shard_id))[0],
             receptor_molecule_id=int(receptor_id),
             binding_site_id=int(binding_site_id or 0),
             engine=str(engine),

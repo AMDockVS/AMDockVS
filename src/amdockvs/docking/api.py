@@ -536,14 +536,14 @@ class DockingAPI:
             *,
             program: str = VINA_PROGRAM.key,
             force: bool = False,
-            shard_ids: list[int] | None = None,
+            file_ids: list[int] | None = None,
             executor_name: str = DEFAULT_LOCAL_CPU_EXECUTOR,
             depends_on: list[str] | None = None,
     ) -> str:
         """`prepare_ligands` for a sharded library: the unit of work is a shard, not a row.
 
-        `shard_ids` narrows it to those shards (the Shards table selection); None = every
-        shard. One shard is one task.
+        `file_ids` narrows it to the shards of those library files (the Shards table selection);
+        None = every file. One shard is one task.
         """
         self.runtime._require_active_project()
         program_spec = self.get_program_spec(program)
@@ -554,7 +554,7 @@ class DockingAPI:
         params = PrepareLigandShardsJobParams(
             engine=program_spec.preparation_engine,
             force=force,
-            shard_ids=None if shard_ids is None else [int(value) for value in shard_ids],
+            file_ids=None if file_ids is None else [int(value) for value in file_ids],
         )
         return self.runtime.submit_job(
             prepare_ligand_shards_job,
