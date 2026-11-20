@@ -31,6 +31,7 @@ from amdockvs.docking.methods import METHODS, get_method
 from amdockvs.integrations.registry import MANAGED_TOOLS
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.docking.protocols import PROTOCOL_SCHEMA, protocol_hash, protocol_identity
+from amdockvs.docking.rescoring import RESCORING_FUNCTIONS
 from amdockvs.core.vocab import MoleculeType
 from ms_components.tool_panel import ToolPanel
 
@@ -128,7 +129,8 @@ class ProtocolEditorWidget:
         self.protocol_set_box = box
         self.protocol_set_label = QLabel(
             "Redocking compares a bounded set of protocol variants. Add only complete variants "
-            f"you intend to validate; maximum {MAX_REDOCKING_PROTOCOLS}. Rescoring is 'None' until a backend is integrated.",
+            f"you intend to validate; maximum {MAX_REDOCKING_PROTOCOLS}. Rescoring is chosen in Experiment "
+            "and applies to the variants added after it.",
             box,
         )
         self.protocol_set_label.setWordWrap(True)
@@ -182,12 +184,24 @@ class ProtocolEditorWidget:
         self.ligand_type_combo.addItem("Small molecule", MoleculeType.SMALL_MOLECULE)
         self.ligand_type_combo.setToolTip(
             "Only small-molecule ligands are enabled for now; peptides/proteins will be added later.")
-        for combo in (self.method_combo, self.receptor_type_combo, self.ligand_type_combo):
+        # Rescoring applied with the docking: the pose is scored again as soon as it is found and
+        # only that value is recorded, as "<program> + <function>". Rescoring results already
+        # stored is the other way round — a run of its own (`DockingAPI.rescore_results`).
+        self.rescoring_combo = QComboBox(box)
+        self.rescoring_combo.addItem("None", "")
+        for function in RESCORING_FUNCTIONS:
+            self.rescoring_combo.addItem(function.capitalize(), function)
+        self.rescoring_combo.setToolTip(
+            "Score every pose again with this function instead of the search score. The protocol "
+            "is the program plus the function; the search score is not kept.")
+        for combo in (self.method_combo, self.receptor_type_combo, self.ligand_type_combo,
+                      self.rescoring_combo):
             combo.currentIndexChanged.connect(self._on_experiment_config_changed)
         form.addRow("Experiment", self.experiment_kind_combo)
         form.addRow("Method", self.method_combo)
         form.addRow("Receptor type", self.receptor_type_combo)
         form.addRow("Ligand type", self.ligand_type_combo)
+        form.addRow("Rescoring", self.rescoring_combo)
         _even_field_widths(box)  # one column of choices, set by the widest (Method)
         self._experiment_form = form
 
@@ -458,7 +472,14 @@ class ProtocolEditorWidget:
         spec = next((spec for spec in list_docking_programs() if spec.key == program), None)
         if spec is not None and "method" in spec.config_model.model_fields:
             config["method"] = self._method()
-        return self._make_protocol(program=program, config=config)
+        return self._make_protocol(program=program, config=config, rescoring=self._rescoring())
+
+    def _rescoring(self) -> list[dict]:
+        """The chosen rescoring function, as the protocol records it. ponytail: one function; the
+        protocol holds a list because a chain of them is allowed, which no caller asks for."""
+        combo = getattr(self, "rescoring_combo", None)
+        function = str(combo.currentData() or "") if combo is not None else ""
+        return [{"program": function}] if function else []
 
     def _current_protocol(self) -> dict:
         return self._protocol_for_program(self._current_program_key())

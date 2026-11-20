@@ -12,6 +12,7 @@ _LABELS = {
     "amdock_dock_shards_job": "Docking (library)",
     "amdock_redocking_job": "Redocking",
     "amdock_interactions_job": "Interactions",
+    "amdock_rescore_job": "Rescoring",
     "amdock_diagram_job": "Interaction diagrams",
     "amdock_prepare_ligands_job": "Prepare ligands",
     "amdock_prepare_receptors_job": "Prepare receptors",

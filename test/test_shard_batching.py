@@ -104,9 +104,9 @@ def test_docking_sends_one_whole_shard_per_receptor(tmp_path, monkeypatch):
     # No slice bounds travel any more: the shard is the slice.
     assert not any("start" in chunk or "count" in chunk for chunk in chunks)
 
-    # Resuming the same run skips only the completed shard/receptor pair, not the shard in every
-    # receptor or an unrelated campaign.
-    monkeypatch.setattr(shard_jobs, "completed_protocol_targets", lambda *a, **k: {(1, 7)})
+    # Resuming the same run skips only the completed (shard, receptor, site) target, not the shard
+    # in every receptor or an unrelated campaign.
+    monkeypatch.setattr(shard_jobs, "completed_protocol_targets", lambda *a, **k: {(1, 7, 0)})
     assert shard_jobs.DockShardsJobSpec.count_chunks(params, {"project_db": object()}) == 5
     resumed = list(shard_jobs.DockShardsJobSpec.build_chunks(params, {"project_db": object()}))
     pairs = [

@@ -56,6 +56,33 @@ def matching_input_keys(receptor_row: Mapping[str, object], key: str) -> list[st
     return [key, legacy_input_key(payload)]
 
 
+def site_targets(receptor_row: Mapping[str, object]) -> list[dict[str, object]]:
+    """One row per active binding site of the receptor: what the receptor is docked *as*.
+
+    A receptor with three active sites is three targets, each with its own box and its own
+    inputs — a site that picked flexible side chains docks against the rigid receptor they were
+    carved out of, plus its flex file. Without an active site the receptor is one target as it
+    came (a blind run, or an explicit box the caller passes in).
+    """
+    row = dict(receptor_row)
+    if row.get("binding_site_id") is not None:
+        return [row]  # already a target: expanded once, by whoever had to write its input files
+    sites = list(row.get("binding_sites") or [])
+    if not sites:
+        return [row]
+    targets = []
+    for site in sites:
+        prepared = site.get("prepared_payload_id")
+        targets.append({
+            **row,
+            "binding_site_id": int(site.get("binding_site_id") or 0),
+            "grid_engine_payload": site,
+            "prepared_payload_id": prepared if prepared is not None else row.get("prepared_payload_id"),
+            "flex_payload_id": site.get("flex_payload_id"),
+        })
+    return targets
+
+
 def receptor_box(
     receptor_row: Mapping[str, object],
     *,
@@ -110,6 +137,7 @@ def build_docking_pair(
         "run_kind": str(run_kind or "screening"),
         "ligand_id": int(ligand_row.get("id") or 0),
         "receptor_id": int(receptor_row.get("id") or 0),
+        "binding_site_id": int(receptor_row.get("binding_site_id") or 0) or None,
         "ligand": ligand_row["ligand"],
         "ligand_descriptors": _ligand_descriptors_from_row(ligand_row),
         "receptor_path": receptor_row["input_path"],
@@ -140,6 +168,7 @@ def build_failed_docking_pair(
         "run_kind": str(run_kind or "screening"),
         "ligand_id": int(ligand_row.get("id") or 0),
         "receptor_id": int(receptor_row.get("id") or 0),
+        "binding_site_id": int(receptor_row.get("binding_site_id") or 0) or None,
         "invalid_reason": str(reason or "Invalid docking pair."),
         "input_key": str(input_key or ""),
     }
@@ -147,7 +176,7 @@ def build_failed_docking_pair(
 
 def iter_docking_batches_from_rows(
     *,
-    ligands: Iterable[Mapping[str, object]] | Callable[[int], Iterable[Mapping[str, object]]],
+    ligands: Iterable[Mapping[str, object]] | Callable[[Mapping[str, object]], Iterable[Mapping[str, object]]],
     receptors: Iterable[Mapping[str, object]],
     output_dir: str | Path,
     batch_size: int,
@@ -170,8 +199,12 @@ def iter_docking_batches_from_rows(
     requires_binding_site: bool = True,
     keep: Callable[[Mapping[str, object]], bool] | None = None,
 ) -> Iterator[dict[str, object]]:
-    """Batches of receptor-ligand pairs. `keep` drops pairs before they join a batch: what a
-    query cannot answer (`InputSource.filter`), so a batch stays full."""
+    """Batches of (receptor site, ligand) pairs. A receptor is expanded into one target per
+    active binding site, so each of its sites gets its own ligand stream and its own pairs.
+
+    `ligands` is called with the target row (its `id` and `binding_site_id`). `keep` drops pairs
+    before they join a batch: what a query cannot answer (`InputSource.filter`), so a batch
+    stays full."""
     # Prepared inputs/grids are stored under the preparation engine (e.g. AutoDock-GPU
     # reuses Vina pdbqt prep); the chunk's `engine` tag selects the docking runner.
     prep_engine = str(preparation_engine or get_docking_program(engine).preparation_engine)
@@ -182,7 +215,7 @@ def iter_docking_batches_from_rows(
     resolved_output_dir.mkdir(parents=True, exist_ok=True)
     batch_index = 0
 
-    receptor_rows = [dict(row) for row in receptors]
+    receptor_rows = [target for row in receptors for target in site_targets(row)]
     if not receptor_rows:
         return
 
@@ -191,10 +224,10 @@ def iter_docking_batches_from_rows(
     if callable(ligands):
         ligands_for = ligands
     elif not isinstance(ligands, Iterator):
-        ligands_for = lambda _receptor_id: ligands  # noqa: E731 — re-iterable by construction
+        ligands_for = lambda _target: ligands  # noqa: E731 — re-iterable by construction
     else:
         raise TypeError(
-            "ligands must be a callable(receptor_id) -> iterable, or a re-iterable source: "
+            "ligands must be a callable(target row) -> iterable, or a re-iterable source: "
             "a plain iterator would be exhausted after the first receptor."
         )
 
@@ -205,7 +238,7 @@ def iter_docking_batches_from_rows(
             preparation_engine=prep_engine, requires_binding_site=requires_binding_site,
         )
         input_key = docking_input_key(receptor_row, effective_center, effective_size, effective_spacing)
-        for ligand in ligands_for(int(receptor_row.get("id") or 0)):
+        for ligand in ligands_for(receptor_row):
             ligand_row = dict(ligand)
             if requires_binding_site and (effective_center is None or effective_size is None):
                 batch.append(
@@ -293,6 +326,7 @@ def iter_docking_batches_from_rows(
 
 __all__ = [
     "build_docking_pair",
+    "site_targets",
     "build_failed_docking_pair",
     "iter_docking_batches_from_rows",
 ]

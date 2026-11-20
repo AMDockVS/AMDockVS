@@ -46,7 +46,7 @@ class ScreeningShardRun(SQLModel, table=True):
 
     __tablename__ = TABLE_SCREENING_SHARD_RUNS
     __table_args__ = (
-        UniqueConstraint("docking_run_id", "shard_id", "receptor_molecule_id"),
+        UniqueConstraint("docking_run_id", "shard_id", "receptor_molecule_id", "binding_site_id"),
         Index("idx_screening_shard_run_lookup", "docking_run_id", "state"),
     )
 
@@ -54,6 +54,9 @@ class ScreeningShardRun(SQLModel, table=True):
     docking_run_id: int = Field(foreign_key=f"{TABLE_DOCKING_RUNS}.id")
     shard_id: int = Field(foreign_key="ms_shards.id", index=True)
     receptor_molecule_id: int = Field(default=0, index=True)
+    # The receptor's site this receipt docked into; 0 without one (a blind run, an explicit box).
+    # 0, not NULL: it is part of a UNIQUE key, and SQLite counts two NULLs as different rows.
+    binding_site_id: int = Field(default=0, index=True)
     engine: str = code_field("engine", index=True)
     protocol_hash: str = Field(default="", index=True)
     ligands_scored: int = Field(default=0)

@@ -104,7 +104,7 @@ def test_shard_completion_is_scoped_to_run_engine_and_protocol(tmp_path):
             result_path="results/docking/screening/run-a/results.parquet",
         )
         assert completed_shard_targets(db, docking_run_id=run("run-a", "p1")) == {
-            (int(shard.id), 10)
+            (int(shard.id), 10, 0)  # no binding site: the whole receptor is the target
         }
 
         advance_shard_run(

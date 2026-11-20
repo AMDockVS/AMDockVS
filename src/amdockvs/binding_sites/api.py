@@ -33,6 +33,7 @@ from amdockvs.binding_sites.p2rank import (
     p2rank_status,
 )
 from amdockvs.binding_sites.repository import set_active as set_active_site_row
+from amdockvs.binding_sites.repository import set_site_active as set_site_active_row
 from amdockvs.binding_sites.scopes import BindingSiteScope
 
 
@@ -518,6 +519,16 @@ class BindingSiteAPI:
                         f"Binding site {binding_site_id} does not belong to molecule {molecule_id}."
                     )
             set_active_site_row(session, int(molecule_id), binding_site_id)
+            session.commit()
+
+    def set_site_active(self, *, binding_site_id: int, active: bool) -> None:
+        """Turn one site on or off on its own: several sites of a receptor may be active, and
+        each of them is a docking target."""
+        self.runtime._require_active_project()
+        with self.runtime.workspace.project_db.get_session() as session:
+            if session.get(BindingSite, int(binding_site_id)) is None:
+                raise ValueError(f"Binding site {binding_site_id} does not exist.")
+            set_site_active_row(session, int(binding_site_id), bool(active))
             session.commit()
 
     def active_site_id(self, molecule_id: int) -> int | None:

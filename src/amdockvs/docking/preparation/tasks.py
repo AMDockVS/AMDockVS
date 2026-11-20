@@ -32,6 +32,7 @@ def _prep_rows_from_summary(summary: dict, *, entity_kind: str) -> list[dict[str
                 family=str(update.get("engine") or "ad4"),
                 payload_id=update["prepared"],
                 flex_payload_id=update.get("flex"),
+                binding_site_id=int(update.get("binding_site_id") or 0),
                 # Stored on the row: it is the only place the Preparation table can show them.
                 warnings="\n".join(update.get("warnings") or []) or None,
             )
@@ -45,6 +46,7 @@ def _prep_rows_from_summary(summary: dict, *, entity_kind: str) -> list[dict[str
                 role_type=role_type,
                 molecule_id=molecule_id,
                 family=str(failure.get("engine") or summary.get("engine") or "ad4"),
+                binding_site_id=int(failure.get("binding_site_id") or 0),
                 error=str(failure.get("error") or "Preparation failed."),
             )
         )

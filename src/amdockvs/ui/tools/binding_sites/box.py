@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import cache
 
 from PySide6.QtCore import Qt, Signal, QSize, QTimer
-from PySide6.QtGui import QColor, QBrush, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
+from PySide6.QtGui import QColor, QBrush, QIcon, QKeySequence, QPainter, QShortcut
 from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -59,7 +58,7 @@ GRID_BOX_LEGEND = (
     "<b>Grid box legend</b><br>"
     "<b>*</b> Unsaved working box<br>"
     "<b>Colored name</b> Box color in the 3D view<br>"
-    "<b>Green dot</b> Active docking site<br>"
+    "<b>Checkbox</b> Docked into (several sites may be)<br>"
     "<b>Source</b> Method used to define the site<br>"
     "<b>Blue spheres</b> Pocket found from a selection; <b>orange</b> = box center"
 )
@@ -85,21 +84,6 @@ class _HoverIcon(QWidget):
             QIcon.Normal,
             QIcon.Off,
         )
-
-
-@cache
-def _active_indicator_icon() -> QIcon:
-    """Match the compact green-dot indicator used for open catalog views."""
-    size = 15
-    pixmap = QPixmap(size, size)
-    pixmap.fill(Qt.transparent)
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.Antialiasing)
-    painter.setPen(Qt.NoPen)
-    painter.setBrush(QColor("#3fbf73"))
-    painter.drawEllipse(2, (size - 8) // 2, 8, 8)
-    painter.end()
-    return QIcon(pixmap)
 
 
 # PyMOL selection that mirrors the typed one while the selection editor is open.
@@ -169,12 +153,13 @@ class GridBoxSettingDockWidget(QWidget):
         self.site_tree.setSelectionMode(QTreeWidget.ExtendedSelection)
         header = self.site_tree.header()
         header.setStretchLastSection(False)
-        header.setMinimumSectionSize(15)
+        header.setMinimumSectionSize(24)
         header.setSectionResizeMode(0, QHeaderView.Fixed)
         header.setSectionResizeMode(1, QHeaderView.Stretch)
         header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self.site_tree.setColumnWidth(0, 15)
+        self.site_tree.setColumnWidth(0, 24)  # the "dock here" checkbox lives in it
         self.site_tree.setUniformRowHeights(True)
+        self.site_tree.itemChanged.connect(self._on_site_item_changed)
         self.site_tree.itemSelectionChanged.connect(self._on_tree_selection_changed)
         self.site_tree.currentItemChanged.connect(self._on_current_item_changed)
         self.site_tree.setMinimumHeight(60)
@@ -239,14 +224,12 @@ class GridBoxSettingDockWidget(QWidget):
         self.save_button.clicked.connect(self._save_selected_site)
         self.save_as_button = QPushButton("Save as new", self.save_row)
         self.save_as_button.clicked.connect(self._save_new_site)
-        self.activate_button = QPushButton("Set Active", self.save_row)
-        self.activate_button.clicked.connect(self._set_active_site)
         layout.addWidget(self.save_row)
         # No side padding (the theme's 14 px): in a narrow dock it ate the text, not the frame.
         for row in (self.selection_row, self.save_row):
             row.setStyleSheet("QPushButton { padding: 5px 0px; }")
         # Spare width follows text length, so "Save" never takes room "Save as new" needs.
-        for button in (self.save_button, self.save_as_button, self.activate_button):
+        for button in (self.save_button, self.save_as_button):
             save_layout.addWidget(button, button.sizeHint().width())
 
         self.show_working_box = QCheckBox("Show working box", self)
@@ -459,7 +442,7 @@ class GridBoxSettingDockWidget(QWidget):
         active_id = self._active_site_id()
         selected_site_item: QTreeWidgetItem | None = None
         for site in self._sites:
-            item = self._make_site_item(site, active=(int(site.id or 0) == active_id))
+            item = self._make_site_item(site, active=bool(site.is_active))
             self.site_tree.addTopLevelItem(item)
             if int(site.id or 0) == active_id and selected_site_item is None:
                 selected_site_item = item
@@ -491,9 +474,10 @@ class GridBoxSettingDockWidget(QWidget):
         )
         item.setData(0, Qt.UserRole, ("site", int(site.id or 0)))
         item.setData(0, ACTIVE_SITE_ROLE, active)
-        if active:
-            item.setIcon(0, _active_indicator_icon())
-            item.setToolTip(0, "Active docking site")
+        # A checkbox, not a radio button: every checked site of the receptor is docked into.
+        item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+        item.setCheckState(0, Qt.Checked if active else Qt.Unchecked)
+        item.setToolTip(0, "Checked: this site is docked into")
         self._apply_name_color(item, color)
         status = "Active docking site" if active else "Saved binding site"
         item.setToolTip(1, f"{status} #{int(site.id or 0)}. Color: {color.name().upper()}.")
@@ -1133,21 +1117,23 @@ class GridBoxSettingDockWidget(QWidget):
         self.focus_binding_site(molecule, site_id=int(site.id or 0), ensure_selected=True)
         self.binding_site_changed.emit(int(molecule.id or 0))
 
-    def _set_active_site(self) -> None:
+    def _on_site_item_changed(self, item: QTreeWidgetItem, column: int) -> None:
+        """The checkbox of a site row: turns that one site on or off, the others untouched."""
         molecule = self._current_molecule
-        site = self._selected_site()
-        if molecule is None or site is None:
+        payload = item.data(0, Qt.UserRole)
+        if column or molecule is None or not (isinstance(payload, tuple) and payload[0] == "site"):
             return
+        active = item.checkState(0) == Qt.Checked
+        if active == bool(item.data(0, ACTIVE_SITE_ROLE)):
+            return  # redrawn, not clicked
         try:
-            self.runtime.binding_sites.set_active_site(
-                molecule_id=int(molecule.id or 0),
-                binding_site_id=int(site.id or 0),
-            )
+            self.runtime.binding_sites.set_site_active(binding_site_id=int(payload[1] or 0), active=active)
         except Exception as exc:
-            QMessageBox.critical(self, "Set Active Binding Site", str(exc))
+            QMessageBox.critical(self, "Binding Site", str(exc))
             return
-        self._reload_sites()
-        self.focus_binding_site(molecule, site_id=int(site.id or 0), ensure_selected=True)
+        item.setData(0, ACTIVE_SITE_ROLE, active)
+        # No reload here: rebuilding the tree would delete `item` while its own itemChanged is
+        # still being delivered. The row already shows the new state, and the others are untouched.
         self.binding_site_changed.emit(int(molecule.id or 0))
 
     def _clear_preview(self) -> None:
@@ -1178,16 +1164,12 @@ class GridBoxSettingDockWidget(QWidget):
 
     def _sync_enabled_state(self) -> None:
         has_receptor = self._current_molecule is not None
-        selected = self._selected_site()
-        has_selected_site = selected is not None
-        active_id = self._active_site_id()
         self.site_tree.setEnabled(has_receptor)
         self.show_working_box.setEnabled(has_receptor)
         for button in (self.new_button, self.ligand_button, self.predict_button, self.save_as_button):
             button.setEnabled(has_receptor)
         self._sync_selection_button()
         self.save_button.setEnabled(has_receptor)  # with no saved site to overwrite, Save saves as new
-        self.activate_button.setEnabled(has_selected_site and int(selected.id or 0) != active_id)  # already active: nothing to do
 
 
 __all__ = ["GridBoxSettingDockWidget"]

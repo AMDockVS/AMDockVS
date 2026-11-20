@@ -15,6 +15,15 @@ from PySide6.QtTest import QTest
 from PySide6.QtCore import QEvent, QLocale, QObject, Qt, QThread, QTimer
 from PySide6.QtWidgets import QApplication, QDialog, QDockWidget, QFileDialog, QFrame, QLineEdit, QMessageBox, QPushButton, QTableWidgetItem
 from amdockvs.ui.docking_tutorial import copy_example_inputs, example_data, start_simple_docking_tutorial
+
+
+def _dock_into_selected_site(grid) -> None:
+    """Multisite: a site is docked into by checking its box — there is no exclusive "Set Active"."""
+    tree = grid.site_tree
+    rows = [tree.topLevelItem(index) for index in range(tree.topLevelItemCount())]
+    sites = [row for row in rows if (row.data(0, Qt.UserRole) or ("",))[0] == "site"]
+    assert sites, [row.data(0, Qt.UserRole) for row in rows]
+    sites[-1].setCheckState(0, Qt.Checked)
 from amdockvs.ui.main_window import AMDockVSMainWindow
 from amdockvs.ui.shell.tutorials_panel import TutorialsPanel
 from amdockvs.ui.view_ids import COMPLEXES_VIEW_ID, DOCKING_VIEW_ID, LIGANDS_VIEW_ID, RECEPTOR_VIEW_ID, SHARDS_VIEW_ID
@@ -450,7 +459,7 @@ def test_tutorial_steps_wait_for_successful_jobs_and_prepared_data(practice, mon
         spin.setValue(value)
     grid.save_button.click()
     assert not tutorial._grid_ready
-    grid.activate_button.click()
+    _dock_into_selected_site(grid)
     wait_until(app, lambda: tutorial._grid_ready)
     wait_until(app, lambda: tutorial.controller.current_step.id == "run-docking")
     final_step = tutorial.controller.current_step
@@ -523,7 +532,7 @@ def test_preparing_before_activating_the_box_can_recover(practice, monkeypatch):
     grid.save_button.click()
     wait_until(app, lambda: not tutorial._grid_checking)
     assert tutorial.controller.current_step.id == "define-box"  # saved is not active
-    grid.activate_button.click()
+    _dock_into_selected_site(grid)
     wait_until(app, lambda: tutorial._grid_ready and not tutorial._checking)
     wait_until(app, lambda: tutorial.controller.current_step.id == "run-docking")
     assert tutorial.controller.current_step.id == "run-docking"

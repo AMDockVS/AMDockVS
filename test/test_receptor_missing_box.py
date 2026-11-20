@@ -2,6 +2,7 @@
 from types import SimpleNamespace
 
 import pytest
+from PySide6.QtCore import Qt
 from ms_flow.query import db_pages
 
 from amdockvs.docking.preparation.jobs import scope_spec
@@ -86,7 +87,8 @@ def test_fix_opens_box_controls_for_an_affected_receptor_without_activating_it(b
     assert scene.runtime.binding_sites.active_site_id(target) is None
     if existing:
         assert grid._selected_site().name == "Saved box"
-        assert grid.activate_button.isEnabled()
+        # Defined but not docked into yet: its checkbox is the way in.
+        assert grid.site_tree.currentItem().checkState(0) == Qt.Unchecked
 
 
 def test_a_defined_active_box_does_not_show_an_alert(box_scene, monkeypatch):

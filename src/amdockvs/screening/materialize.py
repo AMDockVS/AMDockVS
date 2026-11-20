@@ -30,7 +30,7 @@ PAYLOAD_FULL = "full"
 # identity away from being regenerated locally, so they only travel in `full`.
 LIGHT_FIELDS = (
     "name", "import_batch_id", "source_index", "smiles", "docking_run_id", "score", "score_type",
-    "pose", "pose_rank", "receptor_molecule_id", "extra",
+    "pose", "pose_rank", "receptor_molecule_id", "binding_site_id", "extra",
 )
 
 # Descriptor columns a `full` payload may carry straight into the molecule row.
@@ -229,6 +229,7 @@ def ingest_hits(
                 docking_result = session.exec(select(DockingResult).where(
                     DockingResult.docking_run_id == result_row["docking_run_id"],
                     DockingResult.receptor_molecule_id == result_row["receptor_molecule_id"],
+                    DockingResult.binding_site_id == result_row["binding_site_id"],
                     DockingResult.ligand_molecule_id == molecule_id,
                     DockingResult.pose_rank == result_row["pose_rank"],
                 )).first()

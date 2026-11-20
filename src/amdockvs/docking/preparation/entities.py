@@ -148,12 +148,14 @@ def prepare_entities_rows(
                 ion_charges=bool(ion_charges) and entity_kind == "receptor",
             )
             updates.append({"entity_id": entity_id, "engine": str(engine), "prepared": prepared, "flex": flex,
+                            "binding_site_id": int(row.get("binding_site_id") or 0),
                             "warnings": [str(message) for message in row_warnings]})
             for message in row_warnings:
                 _LOG.warning("%s %s: %s", entity_kind, entity_id, message)
                 warnings.append({"entity_id": entity_id, "message": str(message)})
         except Exception as exc:
-            failures.append({"entity_id": entity_id, "error": str(exc)})
+            failures.append({"entity_id": entity_id, "error": str(exc),
+                             "binding_site_id": int(row.get("binding_site_id") or 0)})
         if progress_cb is not None:
             progress_cb((index / max(1, len(rows))) * 100.0)
     return {

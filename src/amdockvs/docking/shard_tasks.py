@@ -17,6 +17,7 @@ from ms_flow.engine import task
 from amdockvs.core.constants import SERIES_POSES
 from amdockvs.core.payloads import structure_payload
 from amdockvs.docking.engines.registry import run_docking_chunk
+from amdockvs.docking.rescoring import rescore_rows
 from amdockvs.docking.preparation.shards import extract_ligands
 from amdockvs.docking.results.dataset import (
     ResultFragmentWriter, _pose, _selected_payloads, _summary_rows, local_pose_path, result_fragment_path,
@@ -95,6 +96,8 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
         "shard_index": shard_index,
         "chunks_total": int(payload.get("chunks_total") or 1),
         "receptor_id": int(payload.get("receptor_id") or 0),
+        # Which of the receptor's sites this piece of work docked into (0: none).
+        "binding_site_id": int(payload.get("binding_site_id") or 0),
         # What the campaign progress counts: dockings finished, hit or not.
         "scored": 0,
         "hits": [],
@@ -125,6 +128,7 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
                 "run_kind": "screening",
                 "ligand_id": int(ligand["id"]),
                 "receptor_id": int(payload["receptor_id"]),
+                "binding_site_id": int(payload.get("binding_site_id") or 0) or None,
                 "ligand_path": ligand["path"],
                 "receptor_path": str(payload["receptor_path"]),
                 "exhaustiveness": int(payload.get("exhaustiveness") or 8),
@@ -145,6 +149,9 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
         processed = 0
         hits: list[dict] = []
         hits_found = 0
+        # ponytail: the first rescoring function of the protocol, as in `docking.tasks`.
+        rescoring = next((str(item.get("program") or "")
+                          for item in (payload.get("protocol_metadata") or {}).get("rescoring") or ()), "")
         with ResultFragmentWriter(
             result_path,
             metadata={
@@ -157,6 +164,7 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
                 "input_key": str(payload.get("input_key") or ""),
                 "protocol": dict(payload.get("protocol_metadata") or {}),
                 "receptor_id": envelope["receptor_id"],
+                "binding_site_id": envelope["binding_site_id"],
                 "selection": {
                     "mode": HIT_MODE_TOP_N,
                     "cap": int(payload.get("hit_cap") or 0),
@@ -172,6 +180,11 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
                 nonlocal hits_found, processed
                 if not pair_rows:
                     return
+                if rescoring:
+                    # Rescored where the pose was made: the stored score is the rescoring's,
+                    # and the hit test below reads it, so hits are hits of the new function.
+                    pair_rows = rescore_rows(pair_rows, function=rescoring, pairs=pairs,
+                                             config=payload.get("engine_config"))
                 row = next(
                     (item for item in pair_rows if int(item.get("pose_rank") or 1) == 1),
                     pair_rows[0],
@@ -320,6 +333,7 @@ def hit_poses(element: dict) -> dict:
             "score_type": str(payload.get("score_type") or ""),
             "pose_rank": 1,
             "receptor_molecule_id": int(payload["receptor_id"]),
+            "binding_site_id": int(payload.get("binding_site_id") or 0) or None,
             "input_key": input_key,
             "_pose_text": pose_text,
             "_pose_suffix": pose_suffix,
