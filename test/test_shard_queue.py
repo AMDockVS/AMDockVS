@@ -66,7 +66,6 @@ def test_shards_hold_exactly_the_asked_size_whatever_the_chunks_were(tmp_path):
     for row in db.rows:
         with Shard.open(row.path, ids=_ids(row)) as shard:
             ids.extend(record.id for record in shard)
-            assert shard.metadata["import_batch_id"] == 7
             assert len(shard) == row.n_records
     assert ids == list(range(10))  # correlative across shards, not per shard
 
@@ -99,6 +98,7 @@ def test_provenance_survives_the_cut(tmp_path):
 
 
 def test_two_files_never_share_a_shard(tmp_path):
+    """...but they share the file: a library of 168 sources is a few big files, not 168."""
     db = _FakeDB()
     writer = ShardQueueWriter(project_db=db, shard_dir=tmp_path / "shards", shard_size=4)
     writer.handle("c0", [_group(1, 3), _group(2, 3)])
@@ -107,7 +107,27 @@ def test_two_files_never_share_a_shard(tmp_path):
     assert {row.scope for row in db.rows} == {1, 2}
     assert [row.n_records for row in db.rows] == [3, 3]
     assert len({row.shard_index for row in db.rows}) == 2  # the index is the queue's, not the file's
-    assert len({row.path for row in db.rows}) == 2  # a file per batch
+    assert len({row.path for row in db.rows}) == 1
+
+
+def test_a_partial_shard_left_for_the_end_rolls_into_a_new_file(tmp_path, monkeypatch):
+    """The import that died at flush: a source's last partial shard drew its ids after every
+    other source had moved the counter past the open file's window."""
+    import amdockvs.io.shards as module
+
+    monkeypatch.setattr(module, "MAX_RECORDS", 8)
+    db = _FakeDB()
+    writer = ShardQueueWriter(project_db=db, shard_dir=tmp_path / "shards", shard_size=4)
+    writer.handle("c0", [_group(1, 4), _group(2, 6)])  # ids 0-3 (1) and 4-7 (2); 2 of batch 2 wait
+    writer.handle("c1", [_group(1, 3, 4)])  # 3 of batch 1 wait
+    writer.flush()  # ids 8-10 and 11-12: past [0, 8), so a second file
+
+    assert [(row.scope, row.base_id, row.n_records) for row in db.rows] == [
+        (1, 0, 4), (2, 4, 4), (1, 8, 3), (2, 11, 2)]
+    assert len({row.path for row in db.rows}) == 2
+    for row in db.rows:
+        with Shard.open(row.path, ids=_ids(row)) as shard:
+            assert [record.load().split()[1] for record in shard] == [str(row.scope)] * row.n_records
 
 
 def test_a_second_import_does_not_overwrite_the_first(tmp_path):
@@ -122,4 +142,4 @@ def test_a_second_import_does_not_overwrite_the_first(tmp_path):
     assert len({row.path for row in db.rows}) == 2
     for row in db.rows:
         with Shard.open(row.path, ids=_ids(row)) as shard:
-            assert shard.metadata["import_batch_id"] == row.scope
+            assert [record.load() for record in shard] == [f"mol {row.scope} {i}" for i in range(2)]

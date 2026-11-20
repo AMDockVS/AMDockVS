@@ -309,9 +309,11 @@ class ShardQueueWriter:
     process boundary can decide where a record lands). Runs on the executor's result thread,
     one shard at a time, which is what buys exact record counts and correlative ids.
 
-    Shards do not get a file each: one file per (batch, format) holds up to `MAX_RECORDS` ids,
-    each shard its own row group, and its row is `(path, base_id, slot_count)`. The rows of a
-    file are committed when the file is closed (full, at `flush`, or when a stopped job closes
+    Shards do not get a file each, nor a file per source: the whole import rolls through one
+    open file per stored format, `MAX_RECORDS` ids each, every shard its own row group and its
+    row `(scope=batch, path, base_id, slot_count)`. A library of 168 files is four files of 1M,
+    not 168 (nor 168 open `.tmp`). A shard still never mixes two batches; a file may. The rows
+    of a file are committed when it is closed (full, at `flush`, or when a stopped job closes
     the writer), so a row never points at a file that is not on disk yet.
 
     ponytail: not idempotent, by decision. A retried span is re-filtered and lands wherever
@@ -337,11 +339,11 @@ class ShardQueueWriter:
         # has a previous state worth being able to fall back to.
         self._generation_id = generation_id
         self._shard_size = max(1, int(shard_size))
-        self._per_file = max(1, MAX_RECORDS // self._shard_size)  # shards
         # One bucket per (batch, format): mixing two files in one shard would leave the
-        # `import_batch_id` of its inventory row a lie.
+        # `import_batch_id` of its inventory row a lie. One open file per format: the header
+        # says how to read every record in it.
         self._pending: dict[tuple[int | None, str], list[tuple[int, str]]] = {}
-        self._files: dict[tuple[int | None, str], tuple[ShardWriter, list[dict]]] = {}
+        self._files: dict[str, tuple[ShardWriter, list[dict]]] = {}
         self._next_id = 0
         self._shard_index = 0
 
@@ -374,12 +376,15 @@ class ShardQueueWriter:
         import_batch_id, input_format = key
         base_id = self._next_id
         self._next_id += len(records)
-        if key in self._files and len(self._files[key][1]) >= self._per_file:
-            self._close_file(key)
-        if key not in self._files:
-            # Named for the batch and made unique: every import restarts its ids at 0 in the
-            # same directory, so a name built from ids alone would overwrite the last import.
-            path = self._shard_dir / f"library_{int(import_batch_id or 0)}_{uuid4().hex[:12]}{SHARD_SUFFIX}"
+        open_file = self._files.get(input_format)
+        # Ids run across the whole import (every format draws from one counter), so a file is
+        # full when this shard's ids no longer fit its window, not after a count of shards.
+        if open_file is not None and base_id + len(records) > open_file[0].base_id + open_file[0].slot_count:
+            self._close_file(input_format)
+        if input_format not in self._files:
+            # Made unique: every import restarts its ids at 0 in the same directory, so a name
+            # built from ids alone would overwrite the last import.
+            path = self._shard_dir / f"library_{uuid4().hex[:12]}{SHARD_SUFFIX}"
             writer = ShardWriter(
                 path,
                 dataset_id=None,
@@ -388,25 +393,25 @@ class ShardQueueWriter:
                 kind=payload_kind_for(input_format),
                 serializer=Serializer.UTF8,
                 slot_count=MAX_RECORDS,
-                metadata={"import_batch_id": import_batch_id, "input_format": input_format},
+                metadata={"input_format": input_format},  # the batch of a shard is its row's scope
                 # Ids are dense, so this column is the only place the source ordinal survives.
                 source_index=True,
             )
-            self._files[key] = (writer, [])
-        writer, rows = self._files[key]
+            self._files[input_format] = (writer, [])
+        writer, rows = self._files[input_format]
         for offset, (index, raw) in enumerate(records):
             writer.add(base_id + offset, raw.encode("utf-8"), source_index=index)
         writer.end_group()
-        rows.append({"shard_index": self._shard_index, "base_id": base_id, "slot_count": len(records),
-                     "n_records": len(records)})
+        rows.append({"scope": import_batch_id, "shard_index": self._shard_index, "base_id": base_id,
+                     "slot_count": len(records), "n_records": len(records)})
         self._shard_index += 1
 
-    def _close_file(self, key: tuple[int | None, str]) -> None:
+    def _close_file(self, input_format: str) -> None:
         from ms_flow.core.data.catalog import add_shards
 
-        writer, rows = self._files.pop(key)
+        writer, rows = self._files.pop(input_format)
         writer.close()  # fsynced and renamed: only now may a row point at it
-        add_shards(self._project_db, [{**row, "scope": key[0], "path": str(writer.path)} for row in rows],
+        add_shards(self._project_db, [{**row, "path": str(writer.path)} for row in rows],
                    generation_id=self._generation_id)
 
 

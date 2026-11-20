@@ -8,6 +8,7 @@ from typing import Any, Iterable, Mapping
 from amdockvs.io.jobs import (
     MAX_SHARD_RECORDS,
     estimate_import_chunks,
+    SHARD_IMPORT_SPAN_RECORDS,
     shard_ligands_job,
     load_molecules_file_job,
     load_ligands_file_job,
@@ -264,7 +265,8 @@ class LoaderAPI:
                 executor_name=executor_name,
                 depends_on=depends_on,
                 # ramp=False, like the feed: an over-declared total never completes.
-                total_chunks=_total_import_chunks(normalized_files, batch_size=records, ramp=False),
+                total_chunks=_total_import_chunks(normalized_files, batch_size=SHARD_IMPORT_SPAN_RECORDS,
+                                                  ramp=False),
                 max_inflight_tasks=import_max_inflight(self.runtime),
             )
         ]

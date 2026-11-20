@@ -303,12 +303,15 @@ def iter_import_chunks(
     ).iter_chunks(params=params, config=config or {})
 
 
-# One shard is one batch: the batch that produced it is the only writer it ever has, which is
-# what makes concurrent writes impossible instead of coordinated. So the shard is sized in
-# *records*, not bytes — a batch that had to spill into a second file would break that.
-# The guard, not the knob: it only ever closes a shard *early*, and a shard closed by it says
-# so in its metadata. If it fires in normal operation the records are huge — lower the size.
+# The byte cap of a shard-import chunk: a guard, not the knob. Records govern the chunk
+# (`SHARD_IMPORT_SPAN_RECORDS`); this only closes one early when the records are huge.
 SHARD_MAX_BYTES = int(os.environ.get("AMDOCK_SHARD_MAX_BYTES") or DEFAULT_SHARD_MAX_BYTES)
+
+# Records a shard-import worker filters per chunk, whatever the shard size: the parent cuts the
+# shards, so a chunk is only a parse work-unit. Tying it to the shard size made a library of
+# 3.8M records 385k chunks at 10 per shard. ponytail: a constant; time-based autobatch (as the
+# docking has) if one size stops fitting every format.
+SHARD_IMPORT_SPAN_RECORDS = 1000
 
 
 @job(
@@ -428,6 +431,7 @@ class ShardLigandsParams(LoadFileParams):
     params_model=ShardLigandsParams,
     executor="compute",
     supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
+    task_label=import_label,
     # No output_spec: `ShardQueueWriter` is the sink. It writes the shard *and* its inventory
     # row, because only the parent can say which records share a shard.
     result_handler_factory=shard_queue_writer,
@@ -440,6 +444,8 @@ def shard_ligands_job(params: dict, config: dict | None = None) -> Iterator[dict
         **dict(params or {}),
         "primary_role": "ligand",
         "molecule_kind": str(dict(params or {}).get("molecule_kind") or "small_molecule"),
+        # `batch_size` is the shard size, which only the queue reads (`shard_queue_writer`).
+        "batch_size": SHARD_IMPORT_SPAN_RECORDS,
     }
     # The chunk is a parse work-unit now, not a shard: how many records survive it is the
     # queue's problem, and where they land is `ShardQueueWriter`'s.
