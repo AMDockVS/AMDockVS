@@ -1,6 +1,8 @@
 """Rescoring: the pose score replaced (with the docking) and poses rescored from the database."""
 from __future__ import annotations
 
+import pytest
+
 from amdockvs.docking import rescoring
 
 
@@ -35,6 +37,46 @@ def test_rescoring_with_the_docking_replaces_the_score_and_reranks(tmp_path, mon
     # The metrics are the new score's, not the search score's.
     assert by_rank[1]["ligand_efficiency"] == -9.0 / 20
     assert not list(tmp_path.glob("*_rescore_*.sdf"))  # the single-pose files are cleaned up
+
+
+@pytest.mark.parametrize("storage", ["payload", "fragment"])
+@pytest.mark.parametrize("failed", [None, "docking", "rescoring"])
+def test_reranking_keeps_each_score_with_its_original_pose(tmp_path, monkeypatch, storage, failed):
+    poses = tmp_path / "pair.sdf"
+    poses.write_text(_sdf("pose_A") + _sdf("pose_B"), encoding="utf-8")
+
+    def score(**kwargs):
+        if kwargs["pose_path"].read_text().startswith("pose_A"):
+            if failed == "rescoring":
+                raise RuntimeError("pose A cannot be scored")
+            return -5.0
+        return -9.0
+
+    monkeypatch.setattr(rescoring, "rescore_pose", score)
+    rows = [{"receptor_molecule_id": 1, "ligand_molecule_id": 2, "pose_rank": rank,
+             "score": None if rank == 1 and failed == "docking" else -10.0 + rank,
+             "pose_path": str(poses), "extra": {"rmsd_method": "alignment"}}
+            for rank in (1, 2)]
+    rows = rescoring.rescore_rows(rows, function="vinardo", pairs=[{"receptor_id": 1, "ligand_id": 2}])
+    rows.sort(key=lambda row: row["pose_rank"])
+
+    if storage == "payload":
+        from amdockvs.docking.tasks import _poses_as_payloads
+
+        stored = _poses_as_payloads(rows)
+        texts = [row["pose_payload_id"].data.decode() for row in stored]
+        assert not poses.exists()
+    else:
+        from amdockvs.docking.results.dataset import result_row
+
+        stored = [result_row(row, smiles="") for row in rows]
+        texts = [row["pose_text"] for row in stored]
+
+    assert [row["score"] for row in stored] == [-9.0, None if failed else -5.0]
+    assert texts == [_sdf("pose_B"), _sdf("pose_A")]
+    assert all(row["extra"]["rmsd_method"] == "alignment" for row in rows)
+    if failed == "rescoring":
+        assert "pose A cannot be scored" in rows[1]["error"]
 
 
 def test_rescoring_stored_poses_writes_rows_of_the_rescoring_run(tmp_path, monkeypatch):

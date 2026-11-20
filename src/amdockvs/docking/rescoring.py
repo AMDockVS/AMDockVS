@@ -82,13 +82,17 @@ def rescore_rows(rows: list[dict], *, function: str, pairs: Sequence[Mapping[str
     for row in rows:
         pair = boxes.get((row.get("receptor_molecule_id"), row.get("ligand_molecule_id")))
         path = Path(str(row.get("pose_path") or ""))
-        if pair is None or row.get("score") is None or not path.is_file():
+        if pair is None or not path.is_file():
             continue
         if str(path) not in poses:
             poses[str(path)] = sdf_records(path.read_text(encoding="utf-8", errors="replace"))
         records = poses[str(path)]
-        index = int(row.get("pose_rank") or 1) - 1
+        index = int((row.get("extra") or {}).get("pose_index", int(row.get("pose_rank") or 1) - 1))
         if not 0 <= index < len(records):
+            continue
+        # The SDF stays in search order when rescoring changes the ranks.
+        row["extra"] = {**(row.get("extra") or {}), "pose_index": index}
+        if row.get("score") is None:
             continue
         single = path.with_name(f"{path.stem}_rescore_{index + 1}.sdf")
         single.write_text(records[index], encoding="utf-8")
