@@ -29,6 +29,19 @@ from PySide6.QtWidgets import (
 from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR
 from amdockvs.ui.resources.icons import icon as load_icon
 
+
+def cap_combo_to_labels(combo: QComboBox) -> None:
+    """Keep `combo` from growing past its longest item (frame and arrow included).
+
+    For a combo that takes a row's stretch but no longer sizes itself to its items: it
+    shrinks with the window and, on a wide one, stops where its text ends instead of
+    becoming an empty bar. Call again when the items, the font or the theme change.
+    """
+    text_width = max((combo.fontMetrics().horizontalAdvance(combo.itemText(i)) for i in range(combo.count())), default=0)
+    opt = QStyleOptionComboBox()
+    combo.initStyleOption(opt)
+    combo.setMaximumWidth(combo.style().sizeFromContents(QStyle.ContentsType.CT_ComboBox, opt, QSize(text_width, 0), combo).width())
+
 # ponytail: off until a workflow can run steps that wait on other jobs; flip it on then.
 WORKFLOW_SAVE_READY = False
 
