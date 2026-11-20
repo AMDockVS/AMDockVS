@@ -18,6 +18,7 @@ from amdockvs.io.jobs import (
 from amdockvs.core.normalize import PathLike, group_files, normalize_files, resolved_path
 from amdockvs.core.configuration import app_config
 from amdockvs.core.constants import RESOURCE_IMPORT_STATS, RESOURCE_SHARDS
+from amdockvs.io.shards import SHARD_RECORDS
 from amdockvs.core.vocab import ImportKind
 from amdockvs.io.batches import register_batches, stamp_job
 from amdockvs.io.payloads import validate_prefilter
@@ -29,11 +30,6 @@ def import_max_inflight(runtime=None) -> int:
     compute runs ahead while results are staged; at 16 the chunks waiting to persist filled
     the window and starved the pool. The default, 32, covers a 14-16 CPU box."""
     return int(app_config(runtime).imports.max_inflight)
-
-
-def default_shard_size(*, runtime=None) -> int:
-    """Physical records per shard, independent of the source file format."""
-    return int(app_config(runtime).shards.records_per_shard)
 
 
 def shard_suggest_records(*, runtime=None) -> int:
@@ -242,11 +238,7 @@ class LoaderAPI:
         normalized_files = normalize_files(files, label="ligand files")
         if not normalized_files:
             return []
-        records = (
-            default_shard_size(runtime=self.runtime)
-            if shard_size is None
-            else int(shard_size)
-        )
+        records = SHARD_RECORDS if shard_size is None else int(shard_size)
         records = max(1, min(records, MAX_SHARD_RECORDS))
         params: dict[str, Any] = {
             "file_paths": [str(file_path) for file_path in normalized_files],

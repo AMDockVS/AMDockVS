@@ -34,6 +34,12 @@ from amdockvs.core.vocab import FileFormat
 
 SHARD_SUFFIX = ".parquet"
 
+# Records per shard. Not a setting: the shard is the unit of retry and of the smallest task an
+# engine is handed (a GPU engine stacks several per task), and storage cost is flat across sizes
+# (measured 2026-11-19, docs/pending_stack_2026-11-19.md). A user value of 10 once turned a 3.8M
+# library into 385k shards. Callers that need another size (tests) pass `shard_size=`.
+SHARD_RECORDS = 256
+
 # What the container stamps in the header so a reader knows how to parse a record's bytes.
 _PAYLOAD_KIND = {
     FileFormat.SDF: PayloadKind.SDF,

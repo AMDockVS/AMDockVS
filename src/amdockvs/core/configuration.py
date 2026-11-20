@@ -267,17 +267,6 @@ class ShardStorageConfiguration(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    records_per_shard: int = Field(
-        256,
-        ge=1,
-        le=100_000,
-        title="Records per shard (HTP)",
-        description=(
-            "Physical records per HTP shard for inputs/outputs and any serializable info. This is independent "
-            "from batch_sizes.ligand, which controls row-processing job chunks."
-        ),
-    )
-
     max_bytes: int = Field(
         256 * 1024 * 1024,
         ge=1024 * 1024,
@@ -485,6 +474,7 @@ _LEGACY_KEYS = {
     "batch_sizes.import_max_inflight": "imports.max_inflight",
     "batch_sizes.output_flush_every": None,
     "batch_sizes.shard": None,
+    "shards.records_per_shard": None,  # fixed: io.shards.SHARD_RECORDS
     "binding_sites.cavity_max_burial": "binding_sites.residues.max_burial",
     "external_tools.tools_home": "tools_home",
     "external_tools.vina_path": "docking.vina.path",

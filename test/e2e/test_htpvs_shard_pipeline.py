@@ -42,11 +42,7 @@ def test_htpvs_import_shards_and_the_pipeline_runs_over_them(tmp_path, monkeypat
         runtime.create_project(name="htp", folder=tmp_path / "project")
         store = ShardStore(runtime.workspace.project_db)
         assert not runtime.has_shards()  # nothing imported yet
-        runtime.amdock_configuration.set_global_value("shards.records_per_shard", 9)
-        runtime.amdock_configuration.set_value("shards.records_per_shard", 8)
-        assert runtime.amdock_configuration.get_source("shards.records_per_shard") == "project"
-
-        job_ids = runtime.loader.shard_ligands(files, executor_name="thread")
+        job_ids = runtime.loader.shard_ligands(files, executor_name="thread", shard_size=8)
         final = runtime.wait_for_jobs(job_ids, timeout_s=240, poll_s=0.05)
         assert all(row.status == "completed" for row in final.values())
 
