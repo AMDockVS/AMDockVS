@@ -291,9 +291,12 @@ class MolecularViewerController(QObject):
         receptor = f"receptor_{hit.receptor_id}"
         ligand = "amdock_result_pose"
         if is_additive(self.w.pymol_dock):
-            suffix = f"_pose_{hit.pose_payload_id or hit.ligand_payload_id}"
-            receptor += suffix
-            ligand += f"_{hit.receptor_id}{suffix}"
+            # Every pose gets its own ligand object, but poses docked into the same prepared
+            # receptor share one receptor object: a copy per pose put N identical cartoons on
+            # screen and made each added pose cost more than the last.
+            if hit.receptor_payload_id:
+                receptor += f"_payload_{hit.receptor_payload_id}"
+            ligand += f"_{hit.receptor_id}_pose_{hit.pose_payload_id or hit.ligand_payload_id}"
         return receptor, ligand
 
     def shows_hit(self, hit: DockingHitSummary) -> bool:

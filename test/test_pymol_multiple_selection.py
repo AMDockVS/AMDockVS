@@ -112,6 +112,9 @@ def test_multiple_pose_selections_keep_their_own_structures_and_contact_targets(
         viewer.load_hit(hit)
     objects = {obj for hit in hits for obj in viewer._pose_objects(hit)}
     assert set(cmd.get_names("objects")) == objects
+    # One receptor payload, one receptor object: the poses share it, each keeps its ligand.
+    assert len(objects) == 3
+    assert viewer._pose_objects(hits[0])[0] == viewer._pose_objects(hits[1])[0]
     drawn = []
     monkeypatch.setattr(interactions_3d, "show_interaction", lambda cmd, **kwargs: drawn.append(kwargs))
     viewer.show_interaction(hits[0], object())
@@ -307,7 +310,7 @@ def test_a_repeat_click_on_the_shown_pose_reloads_nothing(viewer_scene, monkeypa
     click(0)
     assert len(reads) == 1 and set(cmd.get_names("objects")) == set(viewer._pose_objects(hits[0]))
     click(1, Qt.ShiftModifier)
-    assert len(cmd.get_names("objects")) == 4
+    assert len(cmd.get_names("objects")) == 3  # both poses share receptor 7's one object
     click(1)  # the scene holds two poses, the click asks for one
     assert set(cmd.get_names("objects")) == set(viewer._pose_objects(hits[1]))
 
@@ -399,3 +402,71 @@ def test_a_pose_table_swaps_the_pose_and_keeps_the_receptor_and_camera(viewer_sc
     viewer.select_table_row(table)  # a plain row after Shift starts over with one pose
     viewer.load_hit(hits[1])
     assert set(cmd.get_names("objects")) == set(viewer._pose_objects(hits[1]))
+
+
+def _atom(x: float, *, resn: str = "LIG", name: str = "C1", record: str = "HETATM") -> str:
+    return f"{record:<6}    1  {name:<3} {resn} A   1    {x:8.3f}   0.000   0.000  1.00  0.00           C\n"
+
+
+def _shared_receptor_hit(pose: int, *, receptor: int = 7, payload: int | None = 7):
+    return SimpleNamespace(run_kind="screening", receptor_id=receptor, receptor_payload_id=payload,
+                           pose_payload_id=pose, ligand_payload_id=None)
+
+
+def test_poses_read_together_share_one_receptor_whatever_order_their_reads_finish(viewer_scene):
+    """Each pose asks for the receptor while none is loaded yet; the first read to finish loads
+    it and the others only add their ligand: one copy, never reloaded under the others."""
+    viewer, window, cmd = viewer_scene
+    pending = []
+    viewer._read = lambda wanted, then: pending.append((dict(wanted), then))
+    hits = [_shared_receptor_hit(p) for p in (11, 12, 13)]
+    viewer.select_table_row(object(), additive=True, restart=True)
+    for hit in hits:
+        viewer.load_hit(hit)
+    assert all("receptor" in wanted for wanted, _ in pending)
+    for wanted, then in reversed(pending):
+        then({name: ((_atom(float(number)) + "END\n").encode(), "pdb") for name, number in wanted.items()})
+    receptor = viewer._pose_objects(hits[0])[0]
+    ligands = {viewer._pose_objects(hit)[1] for hit in hits}
+    assert set(cmd.get_names("objects")) == {receptor, *ligands}
+    assert cmd.count_atoms(receptor) == 1  # loaded once, not one copy per pose stacked in it
+    assert all(viewer.shows_hit(hit) for hit in hits)
+    assert window.pymol_dock.scene_context.selections["ligand"].count("amdock_result_pose") == 3
+
+
+def test_poses_keep_one_receptor_object_per_receptor_payload(viewer_scene):
+    """Two receptors (the Complexes view lists both), or two preparations of one receptor, are
+    different structures: each keeps its own object. A receptor without a payload id has nothing
+    to load: only its name falls back to the plain one, and its pose still loads."""
+    viewer, window, cmd = viewer_scene
+    hits = [_shared_receptor_hit(11), _shared_receptor_hit(12), _shared_receptor_hit(21, receptor=8, payload=8),
+            _shared_receptor_hit(31, payload=70), _shared_receptor_hit(41, receptor=9, payload=None)]
+    viewer.select_table_row(object(), additive=True, restart=True)
+    for hit in hits:
+        viewer.load_hit(hit)
+    receptors = {viewer._pose_objects(hit)[0] for hit in hits}
+    assert receptors == {"receptor_7_payload_7", "receptor_8_payload_8", "receptor_7_payload_70", "receptor_9"}
+    assert set(cmd.get_names("objects")) == (receptors - {"receptor_9"}) | {
+        viewer._pose_objects(hit)[1] for hit in hits}
+
+
+def test_flexible_poses_on_a_shared_receptor_keep_their_own_side_chains(viewer_scene):
+    viewer, window, cmd = viewer_scene
+
+    def read(wanted, then):
+        found = {}
+        for name, number in wanted.items():
+            text = _atom(float(number)) + "END\n"
+            if name == "pose":  # the side chains docked with this pose ride in its SD property
+                text += "> <flexres>\n" + _atom(float(number), resn="TYR", name="OH", record="ATOM") + "\n"
+            found[name] = (text.encode(), "pdb")
+        then(found)
+
+    viewer._read = read
+    hits = [_shared_receptor_hit(p) for p in (11, 12)]
+    viewer.select_table_row(object(), additive=True, restart=True)
+    for hit in hits:
+        viewer.load_hit(hit)
+    flexres = {f"{viewer._pose_objects(hit)[1]}_flexres" for hit in hits}
+    assert flexres <= set(cmd.get_names("objects"))
+    assert len({viewer._pose_objects(hit)[0] for hit in hits}) == 1
