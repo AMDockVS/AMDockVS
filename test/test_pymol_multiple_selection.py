@@ -450,6 +450,30 @@ def test_poses_keep_one_receptor_object_per_receptor_payload(viewer_scene):
         viewer._pose_objects(hit)[1] for hit in hits}
 
 
+def test_a_contact_picked_on_a_shared_receptor_replaces_the_previous_poses_pick(viewer_scene):
+    """Contacts draw in their own pose's group, but the receptor object is shared: picking a
+    contact for pose B takes pose A's drawing away, and reloading a pose drops only its own."""
+    from amdockvs.ui.viewers.interactions_3d import interaction_group
+
+    viewer, window, cmd = viewer_scene
+    hits = [_shared_receptor_hit(p) for p in (11, 12)]
+    viewer.select_table_row(object(), additive=True, restart=True)
+    for hit in hits:
+        viewer.load_hit(hit)
+    contact = SimpleNamespace(kind="hydrophobic", residue_key="A:1:LIG", ligand_atoms=[0],
+                              protein_atom="C1", protein_atoms=(), via_water=None)
+    groups = [interaction_group(*viewer._pose_objects(hit)) for hit in hits]
+    assert groups[0] != groups[1]
+    viewer.show_interaction(hits[0], contact)
+    assert groups[0] in cmd.get_names("objects")
+    viewer.show_interaction(hits[1], contact)
+    names = set(cmd.get_names("objects"))
+    assert groups[1] in names and groups[0] not in names
+    window.pymol_dock.cmd.delete(viewer._pose_objects(hits[1])[1])  # pose 12 leaves, then comes back
+    viewer.load_hit(hits[1])
+    assert groups[1] not in cmd.get_names("objects")
+
+
 def test_flexible_poses_on_a_shared_receptor_keep_their_own_side_chains(viewer_scene):
     viewer, window, cmd = viewer_scene
 
@@ -470,3 +494,32 @@ def test_flexible_poses_on_a_shared_receptor_keep_their_own_side_chains(viewer_s
     flexres = {f"{viewer._pose_objects(hit)[1]}_flexres" for hit in hits}
     assert flexres <= set(cmd.get_names("objects"))
     assert len({viewer._pose_objects(hit)[0] for hit in hits}) == 1
+
+
+def test_changing_the_pose_takes_the_previous_poses_picked_contact_away(viewer_scene):
+    """A contact picked for pose 1 draws its residue as sticks with a label; arrowing to pose 2
+    in the pose table (the receptor stays) must not leave that residue drawn for a pose it is
+    no longer a contact of."""
+    viewer, window, cmd = viewer_scene
+    table = QWidget()
+    table.setProperty(molecular_viewer.SWAPS_POSE, True)
+    hits = [_shared_receptor_hit(p) for p in (11, 12)]
+    viewer.select_table_row(table)
+    viewer.load_hit(hits[0])
+    receptor, _ligand = viewer._pose_objects(hits[0])
+    cmd.hide("everything", receptor)
+    contact = SimpleNamespace(kind="hydrophobic", residue_key="A:1:LIG", ligand_atoms=[0],
+                              protein_atom="C1", protein_atoms=(), via_water=None)
+    viewer.show_interaction(hits[0], contact)
+
+    def labels():
+        shown = []
+        cmd.iterate(receptor, "shown.append(label)", space={"shown": shown})
+        return [text for text in shown if text]
+
+    assert cmd.count_atoms(f"{receptor} and rep sticks") == 1
+    viewer.select_table_row(table)
+    viewer.load_hit(hits[1])
+    assert viewer._pose_objects(hits[1])[0] == receptor  # swapped, receptor kept
+    assert cmd.count_atoms(f"{receptor} and rep sticks") == 0 and not labels()
+    assert not any(name.startswith("amdock_interactions") for name in cmd.get_names("objects"))

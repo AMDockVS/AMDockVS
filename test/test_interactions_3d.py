@@ -129,3 +129,58 @@ def test_a_ring_contact_is_drawn_to_the_protein_ring_centroid(tmp_path, protein_
         assert cmd.get_setting_int("label_distance_digits", dash) == 2  # 4.86 Å, as the diagram says
     finally:
         session.stop()
+
+
+def test_a_new_pick_on_a_receptor_takes_the_previous_one_away_but_not_other_receptors():
+    """Several selected poses share one receptor object: picking a residue for pose B hides the
+    residue pose A's pick drew as sticks and its contacts. A pick on another receptor (another
+    comparison panel) is left alone, and a cleared scene starts with nothing to undo."""
+    two = _SER.replace("END\n", "") + (
+        "ATOM      5  N   ASP A  99      10.000   0.000   0.000  1.00  0.00           N\n"
+        "ATOM      6  CA  ASP A  99      11.450   0.000   0.000  1.00  0.00           C\n"
+        "ATOM      7  CB  ASP A  99      12.000   1.400   0.000  1.00  0.00           C\nEND\n")
+    session = pymol2.PyMOL()
+    session.start()
+    cmd = session.cmd
+    try:
+        for rec in ("receptor_1", "receptor_2"):
+            cmd.read_pdbstr(two, rec)
+            cmd.hide("everything", rec)
+        for pose in ("pose_a", "pose_b", "pose_c"):
+            cmd.pseudoatom(pose, pos=[6.0, 1.0, 0.0])
+
+        def pick(receptor, pose, key):
+            contact = SimpleNamespace(kind="hydrophobic", residue_key=key, ligand_atoms=(0,),
+                                      protein_atom="CB", via_water=None)
+            assert show_interaction(cmd, receptor_obj=receptor, ligand_obj=pose, contact=contact) == 1
+
+        def sticks(selection):
+            return cmd.count_atoms(f"({selection}) and rep sticks")
+
+        def labels(selection):
+            shown = []
+            cmd.iterate(selection, "shown.append(label)", space={"shown": shown})
+            return [text for text in shown if text]
+
+        ser, asp = "receptor_1 and resi 10", "receptor_1 and resi 99"
+        pick("receptor_2", "pose_c", "A:10:SER")  # another panel's pick
+        pick("receptor_1", "pose_a", "A:10:SER")
+        assert sticks(ser) == 4 and labels(ser)
+        pick("receptor_1", "pose_b", "A:99:ASP")
+        assert sticks(ser) == 0 and not labels(ser)
+        assert sticks(asp) == 3 and labels(asp)
+        names = set(cmd.get_names("objects"))
+        assert interaction_group("receptor_1", "pose_a") not in names
+        assert interaction_group("receptor_1", "pose_b") in names
+        assert interaction_group("receptor_2", "pose_c") in names
+        assert sticks("receptor_2 and resi 10") == 4
+        assert not any(name.endswith("_picked") for name in cmd.get_names("public_selections"))
+
+        cmd.delete("all")  # a cleared scene: nothing left to undo, the next pick just draws
+        cmd.read_pdbstr(two, "receptor_1")
+        cmd.hide("everything", "receptor_1")
+        cmd.pseudoatom("pose_a", pos=[6.0, 1.0, 0.0])
+        pick("receptor_1", "pose_a", "A:99:ASP")
+        assert sticks(asp) == 3
+    finally:
+        session.stop()

@@ -370,9 +370,12 @@ class MolecularViewerController(QObject):
                         apply_receptor_atom_coloring(cmd, receptor_obj)
                         cmd.zoom(receptor_obj, 3)
                 else:
-                    cmd.delete(ligand_obj)  # keep the receptor; replace only the pose
+                    # keep the receptor; replace only the pose. The contact picked for the
+                    # previous pose (its residue's sticks and label, its dashes) goes with it.
+                    from amdockvs.ui.viewers.interactions_3d import clear_pick, interaction_group
+                    clear_pick(cmd, receptor_obj)
+                    cmd.delete(ligand_obj)
                     cmd.delete(f"{ligand_obj}_flexres")
-                    from amdockvs.ui.viewers.interactions_3d import interaction_group
                     cmd.delete(interaction_group(receptor_obj, ligand_obj))
                     swapped = True
                 if "pose" in found:
