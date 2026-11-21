@@ -182,6 +182,7 @@ class DockingResultsWidget(QWidget):
         self._known_campaign_target_ids: set[int] = set()
         self._receptor_program = ""  # the program the receptor counts are scoped to
         self._together: tuple = (None, set(), 0)  # (table, result ids, scene epoch) shown side by side
+        self._together_hits: dict = {}  # result id -> its hit, once loaded into that scene
         self.filters_changed.connect(lambda: self._refresh_ligands(auto_select=True))
 
         outer = QVBoxLayout(self)
@@ -767,18 +768,27 @@ class DockingResultsWidget(QWidget):
             if shown and viewer is not None:
                 viewer.select_table_row(table._table)  # back to one row: the others leave the scene
             return
-        if viewer is not None and not (shown and shown <= ids):
-            # A second row joined (the scene held one swapped pose) or a row left: start over.
+        # Each selection change only touches what changed: a drag across N rows sends N changes,
+        # and reloading every selected row on each was N²/2 queries and loads.
+        hits = self._together_hits if shown else {}
+        left = [hits.pop(rid) for rid in shown - ids if rid in hits]  # still in flight: dropped on arrival
+        if viewer is not None and (not shown or not all(viewer.remove_hit(hit) for hit in left)):
+            # A second row joined (the scene held one swapped pose), or a pose that cannot be
+            # taken out alone left: start over.
             viewer.select_table_row(table._table, additive=True, restart=True)
+            shown, hits = set(), {}
         epoch = self._scene_epoch()
-        self._together = (table, ids, epoch)
+        self._together, self._together_hits = (table, ids, epoch), hits
 
-        def load(hit) -> None:
-            if hit is not None and epoch == self._scene_epoch():
+        def load(result_id: int, hit) -> None:
+            if (hit is not None and epoch == self._scene_epoch() and self._together[0] is table
+                    and result_id in self._together[1]):
+                self._together_hits[result_id] = hit
                 self._load_hit_in_pymol(hit, self._pose_rank(hit))
 
-        for result_id in sorted(ids):
-            run_async(lambda result_id=result_id: self.runtime.docking.hit(result_id=result_id), load, owner=self)
+        for result_id in sorted(ids - shown):
+            run_async(lambda result_id=result_id: self.runtime.docking.hit(result_id=result_id),
+                      lambda hit, result_id=result_id: load(result_id, hit), owner=self)
 
     def _on_ligand_selection_changed(self, objects: list) -> None:
         if not objects:
@@ -832,7 +842,10 @@ class DockingResultsWidget(QWidget):
         if token[0] != self._hit_token:
             from ms_components.ms_pymol import is_additive
 
-            if hit is not None and self._load_hit_in_pymol is not None and is_additive(dock):
+            # A multi-row selection loads (and takes out) its own rows; adding this one too would
+            # leave a pose the selection no longer holds, past MAX_SCENE_ROWS during a drag.
+            if (hit is not None and self._load_hit_in_pymol is not None and is_additive(dock)
+                    and not self._showing_together()):
                 self._load_hit_in_pymol(hit, self._pose_rank(hit))
             return
         self._show_detail(hit)

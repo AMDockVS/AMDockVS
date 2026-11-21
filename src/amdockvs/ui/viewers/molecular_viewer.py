@@ -58,6 +58,7 @@ class MolecularViewerController(QObject):
         self.grid_preview_enabled = True
         self._request = 0  # single selection keeps only the latest read; multiple selection keeps all
         self._loaded: dict[str, int] = {}  # PyMOL object name → payload id it was loaded from
+        self._pending_poses: dict[str, object] = {}  # pose object → ticket of its read in flight
         if isinstance(window, QWidget):
             self._table_input = TableInteraction(window)
             self._table_input.pressed.connect(self._on_table_pressed)
@@ -128,6 +129,7 @@ class MolecularViewerController(QObject):
 
     def clear_scene(self) -> None:
         self._request += 1
+        self._pending_poses.clear()
         dock = self.w.pymol_dock
         if dock is not None:
             dock._amdock_selection_table = None
@@ -343,6 +345,49 @@ class MolecularViewerController(QObject):
             return
         self._load_docked_hit(dock, hit)
 
+    def remove_hit(self, hit: DockingHitSummary) -> bool:
+        """Take one docked pose out of a scene shared by several (a row left the selection):
+        its ligand, side chains and contacts go, the receptor and the other poses stay.
+        False for a redocking hit, whose objects are named otherwise: the caller restarts."""
+        cmd = getattr(self.w.pymol_dock, "cmd", None)
+        if cmd is None or str(getattr(hit, "run_kind", "") or "").strip().lower() == "redocking":
+            return False
+        from amdockvs.ui.viewers.interactions_3d import clear_pick, interaction_group
+
+        receptor_obj, ligand_obj = self._pose_objects(hit)
+        self._pending_poses.pop(ligand_obj, None)  # a read still in flight is dropped on arrival
+        with contextlib.suppress(Exception):
+            if interaction_group(receptor_obj, ligand_obj) in cmd.get_names("objects"):
+                clear_pick(cmd, receptor_obj)  # the picked contact was this pose's
+            cmd.delete(ligand_obj)
+            cmd.delete(f"{ligand_obj}_flexres")
+        self._loaded.pop(ligand_obj, None)
+        self._forget_removed_objects()
+        return True
+
+    def _forget_removed_objects(self) -> None:
+        """Drop deleted objects from the scene context's roles. The next pose added merges the
+        roles as PyMOL selections, and one name PyMOL no longer knows fails the whole
+        selection: every earlier pose would fall out of the scene's styling and zoom."""
+        import re
+
+        dock = self.w.pymol_dock
+        context = getattr(dock, "scene_context", None)
+        setter = getattr(dock, "set_scene_context", None)
+        if context is None or not callable(setter):
+            return
+        existing = set(dock.cmd.get_names("objects"))
+        roles = {}
+        for role, selection in dict(context.selections or {}).items():
+            names = [n for n in re.split(r"[\s()]+", str(selection)) if n and n.lower() != "or"]
+            kept = [n for n in names if n in existing]
+            if kept:
+                roles[role] = " or ".join(kept)
+        objects = list(dict.fromkeys(n for selection in roles.values() for n in selection.split(" or ")))
+        with contextlib.suppress(Exception):
+            setter(context.kind, target=" or ".join(objects) or "all", selections=roles,
+                   default_preset=context.default_preset, grid_labels=dict(context.grid_labels or {}))
+
     def _load_docked_hit(self, dock, hit: DockingHitSummary, *, with_receptor: bool = False) -> None:
         cmd = dock.cmd
         receptor_obj, ligand_obj = self._pose_objects(hit)
@@ -354,8 +399,16 @@ class MolecularViewerController(QObject):
         wanted = {"pose": hit.pose_payload_id or hit.ligand_payload_id}  # else the undocked input
         if with_receptor or not self._holds(cmd, receptor_obj):
             wanted["receptor"] = hit.receptor_payload_id
+        # In a shared scene, remove_hit withdraws the ticket: a read that lands after its row
+        # left the selection (a fast drag) must not bring the pose back.
+        ticket = object()
+        if is_additive(dock):
+            self._pending_poses[ligand_obj] = ticket
 
         def show(found: dict) -> None:
+            if is_additive(dock) and self._pending_poses.get(ligand_obj) is not ticket:
+                return
+            self._pending_poses.pop(ligand_obj, None)
             try:
                 dock.show()
                 swapped = False
