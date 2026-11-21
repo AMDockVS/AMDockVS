@@ -26,7 +26,8 @@ dependencies:
   - sqlmodel>=0.0.24
   - pydantic>=2.0
   - pyqtgraph>=0.13
-  - zstandard>=0.22
+  # zstandard comes from pip with ms_flow: conda-forge's build links the shared libzstd and
+  # fails to import once Qt (pip's PySide6) has loaded the system one (AMDockVS#173).
   - loky>=3.0
   - blinker>=1.6
   - toml>=0.10
