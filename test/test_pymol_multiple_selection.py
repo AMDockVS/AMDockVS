@@ -523,3 +523,52 @@ def test_changing_the_pose_takes_the_previous_poses_picked_contact_away(viewer_s
     assert viewer._pose_objects(hits[1])[0] == receptor  # swapped, receptor kept
     assert cmd.count_atoms(f"{receptor} and rep sticks") == 0 and not labels()
     assert not any(name.startswith("amdock_interactions") for name in cmd.get_names("objects"))
+
+
+def test_a_large_selection_shows_the_first_rows_in_table_order_and_the_clicked_one(viewer_scene, monkeypatch):
+    """Past MAX_SCENE_ROWS, PyMOL shows the first selected rows as the table orders them (its
+    sort, best scores first by default) and always the row last clicked; the table keeps the
+    whole selection, and the status bar says what was left out."""
+    from PySide6.QtCore import QItemSelectionModel
+    from amdockvs.ui.catalog import results
+    from ms_components.ms_table import SmartTableView
+
+    viewer, window, cmd = viewer_scene
+    monkeypatch.setattr(SmartTableView, "refresh", lambda self: None)
+    monkeypatch.setattr(results, "run_async", lambda work, done, on_error=None, **_: done(work()))
+    monkeypatch.setattr(results, "MAX_SCENE_ROWS", 3)
+    messages = []
+    window.statusBar = lambda: SimpleNamespace(showMessage=lambda text, _ms: messages.append(text))
+    hits = {rid: SimpleNamespace(run_kind="screening", receptor_id=7, receptor_payload_id=7, result_id=rid,
+                                 pose_payload_id=100 + rid, ligand_payload_id=None, pose_rank=1)
+            for rid in range(1, 7)}
+    page = results.DockingResultsWidget(runtime=SimpleNamespace(
+        workspace=SimpleNamespace(project_db=object()),
+        docking=SimpleNamespace(result_protocols=lambda **_kwargs: [], hit=lambda result_id: hits[result_id]),
+    ), load_hit_in_pymol=viewer.load_hit, parent=window)
+    page.pose_table.set_filters = lambda filters: None
+    page._show_detail = lambda hit: None
+    page.ligand_table._model.load_data([  # table order: result 6 first, then 5, ... 1
+        {"id": rid, "__raw__": SimpleNamespace(id=rid, ligand_molecule_id=50 + rid, docking_run_id=1, score=-rid)}
+        for rid in sorted(hits, reverse=True)], 6, 1)
+    view, model = page.ligand_table._table, page.ligand_table._model
+    selection = view.selectionModel()
+
+    def poses():
+        return {obj for obj in cmd.get_names("objects") if obj.startswith("amdock_result_pose")}
+
+    def expected(*rids):
+        return {viewer._pose_objects(hits[rid])[1] for rid in rids}
+
+    viewer.select_table_row(view)
+    selection.setCurrentIndex(model.index(0, 0), QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
+    viewer.select_table_row(view, additive=True)
+    for row in (5, 3, 1, 4, 2):  # selected out of table order: the scene still follows the table
+        selection.select(model.index(row, 0), QItemSelectionModel.Select | QItemSelectionModel.Rows)
+    assert len(page.ligand_table.get_selected_objects()) == 6  # the table keeps every row
+    assert poses() == expected(6, 5, 4)
+    assert messages and "first 3 of 6" in messages[-1]
+    # Ctrl-click on the last row (deselect, then select it as current): it joins the scene.
+    selection.select(model.index(5, 0), QItemSelectionModel.Deselect | QItemSelectionModel.Rows)
+    selection.setCurrentIndex(model.index(5, 0), QItemSelectionModel.Select | QItemSelectionModel.Rows)
+    assert poses() == expected(6, 5, 1)

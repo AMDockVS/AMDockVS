@@ -56,6 +56,9 @@ except Exception:  # pragma: no cover - optional UI dependency
     pg = None
 
 
+#: Most selected rows PyMOL shows together; more is a cluttered scene and a slow one to build.
+MAX_SCENE_ROWS = 50
+
 #: Fields the results view can filter on, as (key, label). The key is what SQL understands:
 #: every key is a column of `docking_results`.
 _RESULT_FILTER_FIELDS = (
@@ -731,9 +734,30 @@ class DockingResultsWidget(QWidget):
         _table, ids, epoch = self._together
         return bool(ids) and epoch == self._scene_epoch()
 
+    def _scene_rows(self, table: SmartTableView, objects: list) -> list:
+        """The selected rows PyMOL shows: all of them up to MAX_SCENE_ROWS, else the first ones
+        in table order (the order the user sorted by, best scores first by default), with the
+        row last clicked always among them so the scene and the detail panel agree. The table
+        selection itself stays whole: export and the other actions still see every row."""
+        if len(objects) <= MAX_SCENE_ROWS:
+            return objects
+        rows = sorted(index.row() for index in table._table.selectionModel().selectedRows())
+        shown = [obj for obj in (table._model.get_raw_object(row) for row in rows) if obj is not None]
+        shown = shown[:MAX_SCENE_ROWS]
+        current = self._current(table, objects)
+        if not any(obj is current for obj in shown):
+            shown[-1] = current
+        status = getattr(self.window(), "statusBar", None)
+        if callable(status):
+            status().showMessage(
+                f"PyMOL shows the first {MAX_SCENE_ROWS} of {len(objects)} selected rows "
+                "in table order.", 8000)
+        return shown
+
     def _show_together(self, table: SmartTableView, objects: list) -> None:
         """Several rows selected: every one's pose shares the scene, to compare them. Each row
         of these tables is one result (a ligand row is its best pose)."""
+        objects = self._scene_rows(table, objects)
         ids = {int(getattr(obj, "id", 0) or 0) for obj in objects} - {0}
         shown = self._together[1] if self._together[0] is table and self._showing_together() else set()
         viewer = getattr(self.window(), "viewer", None)
