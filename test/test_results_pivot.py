@@ -802,3 +802,49 @@ def test_the_program_filter_fits_labels_that_arrive_after_it_is_shown():
     assert combo.currentText() == label
     assert combo.width() > combo.fontMetrics().horizontalAdvance(label)
     widget.close()
+
+
+def test_a_program_with_no_ligand_yet_leaves_no_poses_of_another_one_listed():
+    """A rerun under new settings starts with no results: the ligand table said so, but the pose
+    table kept the filters of the last ligand shown and went on listing that ligand's poses."""
+    QApplication.instance() or QApplication(["amdockvs-empty-scope-poses-test"])
+    db = _Db()
+    with db.get_session() as session:
+        session.add_all([
+            DockingRun(id=1, run_id="a", engine="adgpu", protocol_hash="n20", protocol_label="nrun=20"),
+            DockingRun(id=2, run_id="b", engine="adgpu", protocol_hash="n10", protocol_label="nrun=10"),
+            MoleculeRecord(id=8, name="AmpC", is_receptor=True),
+            MoleculeRecord(id=101, name="ZINC1", is_ligand=True),
+            *[DockingResultRecord(receptor_molecule_id=8, ligand_molecule_id=101, docking_run_id=1,
+                                  pose_rank=rank, score=-9.0 + rank) for rank in (1, 2, 3)],
+        ])
+        session.commit()
+    protocols = [("n20", "nrun=20"), ("n10", "nrun=10")]
+    widget = DockingResultsWidget(runtime=SimpleNamespace(
+        workspace=SimpleNamespace(project_db=db),
+        docking=SimpleNamespace(result_protocols=lambda **_kwargs: protocols, hit=lambda **_kwargs: None),
+    ))
+    poses = widget.pose_table
+
+    def show(protocol_hash):
+        widget._apply_protocols(protocols, auto_select=False)
+        widget.protocol_combo.setCurrentIndex(widget.protocol_combo.findData(protocol_hash))
+        QApplication.processEvents()
+
+    show("n20")
+    _wait_for(lambda: poses._model.loaded_count == 3)
+    show("n10")  # the rerun: nothing of its own docked yet
+    _wait_for(lambda: widget.ligand_table._model.loaded_count == 0)
+    _wait_for(lambda: poses._model.loaded_count == 0)
+    assert poses._empty_label.text() == "No poses for this receptor and filter scope"
+    # A campaign with nothing docked yet reloads the ligand list every second: clear it once.
+    reloads = []
+    poses.set_filters = lambda filters: reloads.append(filters)
+    widget._on_ligands_loaded()
+    widget._on_ligands_loaded()
+    assert reloads == []
+    del poses.set_filters
+    show("n20")  # back to the program that has results: its poses, and the usual empty text
+    _wait_for(lambda: poses._model.loaded_count == 3)
+    assert poses._empty_label.text() == "No poses for this ligand"
+    widget.close()

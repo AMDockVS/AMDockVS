@@ -183,6 +183,7 @@ class DockingResultsWidget(QWidget):
         self._receptor_program = ""  # the program the receptor counts are scoped to
         self._together: tuple = (None, set(), 0)  # (table, result ids, scene epoch) shown side by side
         self._together_hits: dict = {}  # result id -> its hit, once loaded into that scene
+        self._poses_cleared = False  # the pose table is already emptied for a scope with no ligand
         self.filters_changed.connect(lambda: self._refresh_ligands(auto_select=True))
 
         outer = QVBoxLayout(self)
@@ -668,6 +669,8 @@ class DockingResultsWidget(QWidget):
         self._ligand_signature = signature
         if self._ligand_refreshing:
             self.data_refreshed.emit(old_signature is not None and signature != old_signature)
+        # With no ligand in scope there is no ligand for "No poses for this ligand" to be about.
+        self.pose_table.set_empty_state(None if rows else "No poses for this receptor and filter scope")
         if self._select_ligand_id(self._selected_ligand_id, notify=False):
             return
         if self._auto_select_ligand and rows and self._selected_ligand_id is None:
@@ -679,6 +682,13 @@ class DockingResultsWidget(QWidget):
         if not rows:
             self._selected_ligand_id = None
             self._show_detail(None)
+            # The pose table kept the filters of the last ligand shown, so it went on listing
+            # that ligand's poses (a rerun, another program) for a ligand no longer in scope.
+            # Only once: a campaign with nothing docked yet reloads this list every second.
+            if not self._poses_cleared:
+                self._poses_cleared = True
+                self._auto_select_pose = False
+                self.pose_table.set_filters([FilterSpec("ligand_molecule_id", FilterOperator.EQ, -1)])
 
     def _select_ligand_id(self, ligand_id: int | None, *, notify: bool) -> bool:
         target = next(
@@ -808,6 +818,7 @@ class DockingResultsWidget(QWidget):
         if run:
             filters.append(FilterSpec("docking_run_id", FilterOperator.EQ, run))
         self._auto_select_pose = True
+        self._poses_cleared = False
         self.pose_table.set_filters(filters)
 
     def _on_poses_loaded(self, *_args) -> None:
