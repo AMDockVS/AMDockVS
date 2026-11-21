@@ -221,3 +221,42 @@ def test_the_gpf_names_its_files_and_never_the_project_folder(monkeypatch, tmp_p
     gpf = (work / "rec.gpf").read_text()
     assert "AmpC" not in gpf and str(work) not in gpf, gpf
     assert commands[0][1:3] == ["-p", "rec.gpf"]  # by name, read from `work` itself
+
+
+def test_maps_already_on_disk_are_reused_by_a_later_task(monkeypatch, tmp_path):
+    """The per-task cache spans one task only, so every task used to rebuild the same maps.
+    A complete set under the key's own directory is reused; an incomplete one is rebuilt, and a
+    receptor prepared again in place never serves the maps of the structure it replaced."""
+    receptor = tmp_path / "rec.pdbqt"
+    receptor.write_text(ATOM.format("N "))
+    (tmp_path / "ligand.pdbqt").write_text(ATOM.format("C ") + ATOM.format("OA"))
+    commands: list[list[str]] = []
+
+    def fake_autogrid(command, **_kw):
+        commands.append(command)
+        work = Path(_kw["cwd"])
+        stem = Path(command[2]).stem  # the GPF's name: "<receptor stem>.gpf"
+        types = [line.split()[1:] for line in (work / f"{stem}.gpf").read_text().splitlines()
+                 if line.startswith("ligand_types ")][0]
+        for name in ["maps.fld", "e.map", "d.map", *(f"{t}.map" for t in types)]:
+            (work / f"{stem}.{name}").write_text("map\n")
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(autogrid, "AUTOGRID4", sys.executable)
+    monkeypatch.setattr(autogrid, "run_program", fake_autogrid)
+
+    def prefix(cache):  # a fresh cache is a new task
+        return autogrid.map_prefix(cache=cache, maps_dir=tmp_path / "maps", receptor_path=receptor,
+                                   ligand_path=tmp_path / "ligand.pdbqt", spacing=0.375, **BOX)
+
+    first = prefix({})
+    assert len(commands) == 1
+    assert prefix({}) == first and len(commands) == 1  # the next task reuses them
+    assert autogrid.maps_ready(first, ["C", "OA"])
+    assert not autogrid.maps_ready(first, ["C", "OA", "SA"])  # a type without a map is not a set
+
+    Path(f"{first}.OA.map").write_text("")  # autogrid killed halfway leaves empty files
+    assert prefix({}) == first and len(commands) == 2  # rebuilt, same key so the same place
+
+    receptor.write_text(ATOM.format("N ") + ATOM.format("OA"))  # prepared again, in place
+    assert prefix({}) != first and len(commands) == 3

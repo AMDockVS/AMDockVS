@@ -10,6 +10,7 @@ import hashlib
 import os
 import shutil
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 from ms_env import READY, Recipe, locate
@@ -147,6 +148,16 @@ def zinc_receptor(receptor_pdbqt: Path, work: Path) -> Path:
     return out
 
 
+def maps_ready(prefix: str, ligand_types: Sequence[str]) -> bool:
+    """Every map of this set is already on disk. The directory is keyed by everything the maps
+    are computed from, so a complete set there was built for this very key and is reused instead
+    of running autogrid4 again. Each file must be non-empty: a run killed halfway leaves the
+    ones it had not reached at zero bytes, and those must be rebuilt."""
+    expected = [f"{prefix}.maps.fld", f"{prefix}.e.map", f"{prefix}.d.map",
+                *(f"{prefix}.{atom_type}.map" for atom_type in ligand_types)]
+    return all(path.is_file() and path.stat().st_size > 0 for path in map(Path, expected))
+
+
 def map_prefix(
     *,
     cache: dict[tuple, str],
@@ -173,6 +184,9 @@ def map_prefix(
     ligand_types = tuple(sorted({atom_type for path in moving for atom_type in atom_types(path)}))
     key = (
         str(receptor_path),
+        # Content, not path, for the receptor too: the maps are computed from it, and preparing
+        # it again in place must not reuse maps of the structure it replaced.
+        hashlib.md5(receptor_path.read_bytes()).hexdigest(),
         tuple(round(float(v), 3) for v in box_center),
         tuple(round(float(v), 3) for v in box_size),
         round(float(spacing), 4),
@@ -184,8 +198,14 @@ def map_prefix(
     cached = cache.get(key)
     if cached is not None:
         return cached
-    executable = autogrid_command()  # before any directory is made
     work = Path(maps_dir) / f"{receptor_path.stem}_{hashlib.md5(repr(key).encode()).hexdigest()[:8]}"
+    # An earlier task of the same job built these maps: autogrid4 is ~2.5 s of a ~3.2 s task
+    # overhead (and ~34 s of CPU), and the cache above only spans one task.
+    stem = f"{receptor_path.stem}_TZ" if zinc else receptor_path.stem
+    if maps_ready(str(work / stem), ligand_types):
+        cache[key] = str(work / stem)
+        return cache[key]
+    executable = autogrid_command()  # before any directory is made
     work.mkdir(parents=True, exist_ok=True)
     receptor = zinc_receptor(receptor_path, work) if zinc else receptor_path
     autogrid(
@@ -197,4 +217,5 @@ def map_prefix(
     return prefix
 
 
-__all__ = ["AUTOGRID4", "atom_types", "autogrid", "autogrid_command", "autogrid_recipe", "map_prefix", "zinc_receptor"]
+__all__ = ["AUTOGRID4", "atom_types", "autogrid", "autogrid_command", "autogrid_recipe", "map_prefix",
+           "maps_ready", "zinc_receptor"]
