@@ -53,8 +53,6 @@ TABLE_QSAR_MODEL_MEMBERS = "qsar_model_members"
 TABLE_QSAR_PREDICTIONS = "qsar_predictions"
 TABLE_SIMILARITY_RESULTS = "similarity_results"
 TABLE_CLUSTERING_RESULTS = "clustering_results"
-TABLE_SHARD_PREPS = "shard_preps"
-TABLE_SCREENING_SHARD_RUNS = "screening_shard_runs"
 TABLE_SCREENING_TARGETS = "screening_targets"
 
 # Deprecated aliases kept temporarily while non-model consumers are migrated.
@@ -129,3 +127,12 @@ AMDOCKVS_OFFLOADABLE_EXECUTORS = ("thread", "compute", "hpc")
 # Shard jobs run beside the table's at a lower priority: the table's take the workers they
 # can use, the shards the rest, instead of waiting idle CPUs out or halving the table's.
 SHARDS_PRIORITY = -1
+
+
+class ShardKind:
+    """What the records of a shard file hold; ms_flow stores the int in the header, opaque."""
+
+    BYTES = 0
+    PDBQT = 1
+    SDF = 2
+    SMILES = 3

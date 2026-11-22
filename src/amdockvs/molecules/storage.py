@@ -220,48 +220,14 @@ def has_shards(project_db) -> bool:
 PREPARED_DIR = "prepared_{engine}"
 
 
-def prepared_shard_path(shard_path: str | Path, family: str, ids=None) -> Path:
-    """Where a shard's prepared twin lives: derived, so `shard_preps` stores no path. `ids`: the
-    shard's range inside its file (`shard_ids`), which names the twin of one of many."""
-    from amdockvs.io.shards import shard_file_name
-
-    shard_path = Path(shard_path)
-    return shard_path.parent / PREPARED_DIR.format(engine=family) / shard_file_name(shard_path, ids)
+def prepared_role(family: str) -> str:
+    """The catalog role of a family's prepared files (ms_flow derived files: same ids, ``origin``
+    = the source shard). The catalog row is the state: no table of its own."""
+    return f"prepared:{str(family or '').strip().lower()}"
 
 
-def activate_generation(project_db, generation_id: int) -> None:
-    """ms_flow's activation, with the prepared twins of a forgotten generation going with it.
-    A generation docking receipts still point at is kept by ms_flow (see `catalog`)."""
-    catalog.activate_generation(project_db, generation_id, on_drop=_drop_shard_preps)
-
-
-def _drop_shard_preps(session, files) -> list[Path]:
-    """The `shard_preps` rows of the files about to go, and the twin files to delete after them.
-    A prep row is keyed by shard id: the shards of a file are the ids of its window."""
-    from ms_flow.core.data.catalog import GROUP_BITS
-    from ms_flow.core.data.shard import file_groups
-    from sqlmodel import delete, select
-
-    from amdockvs.models import ShardPrep
-
-    paths: list[Path] = []
-    for file in files:
-        first = int(file.id) << GROUP_BITS
-        window = ShardPrep.shard_id.between(first, first | ((1 << GROUP_BITS) - 1))
-        preps = session.exec(select(ShardPrep).where(window)).all()
-        if not preps:
-            continue
-        try:
-            groups = file_groups(file.path)
-        except (OSError, KeyError, ValueError):
-            groups = []  # the file is already gone, and so are its twins' names
-        for prep in preps:
-            index = int(prep.shard_id) - first
-            if index < len(groups):
-                base, slots, _count, _scope = groups[index]
-                paths.append(prepared_shard_path(file.path, prep.family, (base, base + slots)))
-        session.exec(delete(ShardPrep).where(window))
-    return paths
+def prepared_dir(shard_path: str | Path, family: str) -> Path:
+    return Path(shard_path).parent / PREPARED_DIR.format(engine=str(family or "").strip().lower())
 
 
 def iter_prepared_shards(project_db, *, engine: str, unprepared: bool = False) -> Iterator[dict[str, Any]]:
@@ -270,45 +236,74 @@ def iter_prepared_shards(project_db, *, engine: str, unprepared: bool = False) -
 
 
 def _prepared_shards(project_db, *, engine: str, unprepared: bool = False) -> Iterator[dict[str, Any]]:
-    """Prepared artifacts for one family, joined to their shard inventory.
-
-    The in-memory map contains only shard metadata, never library molecules. A shard counts as
-    prepared when it has a ``shard_preps`` row and its file is still there. With `unprepared`,
-    the others come too, with an empty ``prepared_path`` and the count of the shard itself.
-    """
-    from sqlmodel import select
-
+    """The library's shards, each with its newest prepared copy of one family: ``prepared_path``
+    and ``prepared_ids`` (its range in that file). With `unprepared`, the others come too, with
+    an empty ``prepared_path`` and the count of the shard itself.
+    ponytail: one dict entry per prepared shard (4k per 1M records)."""
     from amdockvs.io.batches import library_names
     from amdockvs.io.shards import shard_ids
-    from amdockvs.models import ShardPrep
 
-    family = str(engine or "").strip().lower()
-    with project_db.get_session() as session:
-        counts = dict(session.exec(
-            select(ShardPrep.shard_id, ShardPrep.n_records).where(ShardPrep.family == family)
-        ).all())
+    made = {int(row["origin"]): row for row in catalog.derived(project_db, prepared_role(engine), whole=True)}
     libraries = library_names(project_db)
-    # Scoped like every other shard read: the parent generation is still in the table and its
-    # prepared artifacts are still on disk, but they are not the library any more.
+    # Scoped like every other shard read: the parent generation is still in the table, but it is
+    # not the library any more.
     for shard in catalog.shards(project_db, whole=True):
-        ids = shard_ids(shard)
-        prepared_path = prepared_shard_path(shard["path"], family, ids)
-        n_records = counts.get(int(shard["id"]))
         row = {
             "id": int(shard["id"]),
             "file_id": int(shard["file_id"]),
+            "generation_id": shard["generation_id"],
             "scope": shard["scope"],
             "library": libraries.get(shard["scope"], "library"),
             "shard_index": int(shard["shard_index"]),
             "path": shard["path"],
-            "ids": ids,
+            "ids": shard_ids(shard),
             "base_id": shard["base_id"],
             "slot_count": shard["slot_count"],
         }
-        if n_records is not None and prepared_path.is_file():
-            yield {**row, "prepared_path": str(prepared_path), "n_records": int(n_records)}
+        twin = made.get(int(shard["id"]))
+        if twin is not None:
+            yield {**row, "prepared_path": str(twin["path"]), "prepared_ids": shard_ids(twin),
+                   "n_records": int(twin["n_records"]), "n_failed": int(twin["n_dropped"])}
         elif unprepared:
-            yield {**row, "prepared_path": "", "n_records": int(shard["n_records"])}
+            yield {**row, "prepared_path": "", "prepared_ids": None, "n_records": int(shard["n_records"])}
+
+
+def _prepared_roles(project_db) -> list[str]:
+    from sqlmodel import select
+
+    from ms_flow.core.database.project_models import CatalogFile
+
+    with project_db.get_session() as session:
+        return list(session.exec(select(CatalogFile.role).where(CatalogFile.role.like("prepared:%")).distinct()).all())
+
+
+def prepared_counts(project_db, spec: QuerySpec | None = None) -> dict[str, tuple[int, int, int]]:
+    """family -> (prepared shards, prepared records, failed records) over the library shards of
+    `spec` (None = the active library), each read from its newest prepared copy."""
+    counts = {}
+    for role in _prepared_roles(project_db):
+        made = list(catalog.derived(project_db, role, spec, whole=True))
+        if made:
+            counts[role.split(":", 1)[1]] = (len(made), sum(int(r["n_records"]) for r in made),
+                                             sum(int(r["n_dropped"]) for r in made))
+    return counts
+
+
+def prepared_failures(project_db, spec: QuerySpec | None = None) -> dict[str, int]:
+    """reason -> how many records of the library shards of `spec` a preparation dropped (the
+    dropped sidecars of their newest prepared copies)."""
+    from collections import Counter
+
+    from ms_flow.core.data.shard import read_dropped
+
+    from amdockvs.io.shards import shard_ids
+
+    tally: Counter = Counter()
+    for role in _prepared_roles(project_db):
+        for row in catalog.derived(project_db, role, spec, whole=True):
+            if row["n_dropped"]:
+                tally.update(reason for _id, reason in read_dropped(row["path"], shard_ids(row)))
+    return dict(tally)
 
 
 def prepared_shard_record_count(project_db, *, engine: str) -> int:
@@ -371,7 +366,6 @@ def store_from_config(config: Mapping[str, Any] | None) -> LigandStore:
 
 __all__ = [
     "DbStore",
-    "activate_generation",
     "active_generation_id",
     "create_generation",
     "LigandStore",
@@ -387,7 +381,10 @@ __all__ = [
     "has_receptor_rows",
     "PREPARED_DIR",
     "iter_prepared_shards",
-    "prepared_shard_path",
+    "prepared_counts",
+    "prepared_failures",
+    "prepared_dir",
+    "prepared_role",
     "prepared_shard_record_count",
     "shard_scope_spec",
     "store_from_config",

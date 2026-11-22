@@ -35,7 +35,8 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from ms_flow.core.data.shard import PayloadKind, Serializer, Shard, ShardWriter
+from ms_flow.core.data.shard import Serializer, Shard, ShardWriter
+from amdockvs.core.constants import ShardKind
 
 SDF = Path(__file__).resolve().parents[2] / "data" / "Enamine_H100K" / "Enamine_H100K.sdf"
 IN_SCHEMA = pa.schema([("id", pa.uint64()), ("record", pa.string())])
@@ -156,7 +157,7 @@ def read_A(d: Path, start: int, n: int) -> int:
 
 def bench_inputs(root: Path, payload: str, n: int, out) -> None:
     base = base_records(payload)
-    kind = PayloadKind.SMILES if payload == "smiles" else PayloadKind.SDF
+    kind = ShardKind.SMILES if payload == "smiles" else ShardKind.SDF
     for layout in ("A", "B128", "B256", "B1000"):
         d = root / f"in_{payload}_{n}_{layout}"
         shutil.rmtree(d, ignore_errors=True)

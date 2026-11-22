@@ -261,8 +261,6 @@ def test_existing_project_opens_tabs_for_its_shards_and_results(practice):
 
 
 def test_sharded_project_without_ligand_rows_opens_shards_instead(practice):
-    from amdockvs.models import DockingRun, ScreeningShardRun
-    from ms_flow.core.data.catalog import shard_id
     from ms_flow.core.database.project_models import CatalogFile
 
     app, runtime, _window, _messages = practice
@@ -278,11 +276,9 @@ def test_sharded_project_without_ligand_rows_opens_shards_instead(practice):
     assert second.central_widget.open_view(COMPLEXES_VIEW_ID) is None
     second.close()
     app.processEvents()
-    with runtime.workspace.project_db.get_session() as session:
-        session.add(DockingRun(id=1, engine="vina", protocol_hash="test"))
-        session.flush()
-        session.add(ScreeningShardRun(docking_run_id=1, shard_id=shard_id(1, 0), file_id=1, receptor_molecule_id=1,
-                                      engine="vina", state="done", result_path="runs/result.parquet"))
+    with runtime.workspace.project_db.get_session() as session:  # a key's result rows
+        session.add(CatalogFile(path="runs/result.parquet", role="table:dock-0123456789abcdef",
+                                n_shards=0, n_records=1, n_active=1))
         session.commit()
     assert runtime.docking.has_results()
     third = AMDockVSMainWindow(runtime=runtime)

@@ -7,9 +7,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from amdockvs.core.rows import prep_row, shard_prep_row
+from amdockvs.core.rows import prep_row
 from amdockvs.docking.preparation.profiles import get_preparation_profile
-from amdockvs.io.shards import shard_file_name
 
 
 def _prep_rows_from_summary(summary: dict, *, entity_kind: str) -> list[dict[str, Any]]:
@@ -80,19 +79,27 @@ def prepare_entities(payload: dict, progress_cb=None):
 
 
 def prepare_ligand_shards(payload: dict, progress_cb=None):
+    """Each shard into its own derived file (`catalog_sink` registers it as the chunk arrives).
+    The name is new per run, so a redo never overwrites a file a catalog row still points at;
+    a campaign's prep, which `located` must find there, names it (`output_name`)."""
+    from uuid import uuid4
+
+    from ms_flow.core.data.catalog import file_row
+
     engine = str(payload.get("engine") or "ad4")
+    profile = get_preparation_profile(engine)
+    if profile.prepare_shard is None:
+        raise ValueError(f"Preparation profile '{engine}' does not support sharded libraries.")
     rows: list[dict[str, Any]] = []
     for index, shard in enumerate(list(payload.get("shards") or [])):
         source = Path(str(shard["shard_path"])).expanduser().resolve()
-        ids = shard.get("ids")
-        output_path = Path(str(shard["output_dir"])).expanduser().resolve() / shard_file_name(source, ids)
-        profile = get_preparation_profile(engine)
-        if profile.prepare_shard is None:
-            raise ValueError(f"Preparation profile '{engine}' does not support sharded libraries.")
-        stats = profile.prepare_shard(source, output_path, engine=engine, ids=ids)
-        if output_path.is_file():  # the row exists = prepared
-            rows.append(shard_prep_row(shard_id=int(shard["shard_id"]), family=engine,
-                                       n_records=int(stats["n_records"]), n_failed=int(stats["n_failed"])))
+        name = shard.get("output_name") or f"{int(shard['shard_id'])}-{uuid4().hex[:8]}{source.suffix}"
+        output_path = Path(str(shard["output_dir"])).expanduser().resolve() / name
+        profile.prepare_shard(source, output_path, engine=engine, ids=shard.get("ids"),
+                              scope=shard.get("import_batch_id"), origin=int(shard["shard_id"]))
+        if output_path.is_file():
+            rows.append(file_row(output_path, role=str(payload["role"]),
+                                 generation_id=shard.get("generation_id")))
         if progress_cb is not None:
             progress_cb(((index + 1) / max(1, len(payload["shards"]))) * 100.0)
     return rows

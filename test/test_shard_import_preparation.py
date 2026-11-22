@@ -97,13 +97,14 @@ def test_without_preparation_the_raw_record_is_kept(runtime, tmp_path):
     assert _shard(runtime, source) == [("smiles", "OCC ethanol")]
 
 
-def test_shards_sharing_a_file_prepare_into_one_file_each(runtime, tmp_path):
-    """Three logical shards in one Parquet file: each prepares only its own id range."""
+def test_shards_sharing_a_file_prepare_each_into_its_own_shard(runtime, tmp_path):
+    """Three logical shards in one Parquet file: each prepares only its own id range, and the
+    per-task files are compacted into one when the job is over."""
     from ms_flow.core.data import catalog
     from ms_flow.core.data.shard import Shard
 
     from amdockvs.io.shards import shard_ids
-    from amdockvs.molecules.storage import prepared_shard_path
+    from amdockvs.molecules.storage import iter_prepared_shards
 
     source = tmp_path / "lib.smi"
     source.write_text("".join(f"{'C' * (i + 1)}O mol{i}\n" for i in range(10)))
@@ -117,13 +118,15 @@ def test_shards_sharing_a_file_prepare_into_one_file_each(runtime, tmp_path):
     job = runtime.docking.prepare_ligand_shards(executor_name="thread")
     state = runtime.wait_for_jobs([job], timeout_s=120)[job]
     assert str(state.status).endswith("completed"), state
-    prepared = [prepared_shard_path(row["path"], "ad4", shard_ids(row)) for row in rows]
-    assert len(set(prepared)) == 3
+    prepared = sorted(iter_prepared_shards(runtime.workspace.project_db, engine="ad4"), key=lambda row: row["base_id"])
+    assert [row["id"] for row in prepared] == [row["id"] for row in rows]
+    assert len({row["prepared_path"] for row in prepared}) == 1
     seen = []
-    for row, path in zip(rows, prepared):
-        with Shard.open(path) as shard:
+    for row, source_row in zip(prepared, rows):
+        assert row["prepared_ids"] == shard_ids(source_row)
+        with Shard.open(row["prepared_path"], ids=row["prepared_ids"]) as shard:
             ids = [record.id for record in shard]
-        lo, hi = shard_ids(row)
+        lo, hi = row["prepared_ids"]
         assert ids and all(lo <= i < hi for i in ids)
         seen += ids
     assert seen == list(range(10))

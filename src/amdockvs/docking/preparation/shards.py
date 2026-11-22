@@ -5,16 +5,17 @@ one `ligand_preps` row per molecule. Neither scales to a screening library — t
 reason the library is sharded. What travels instead is the shard: the prepared PDBQT text sits
 at the *same id* as the molecule it came from, so nothing is renumbered and nothing is joined.
 
-A molecule that fails preparation leaves a hole at its id, exactly as in the chemistry pass.
+A molecule that fails preparation leaves a hole at its id, its reason in the file's dropped
+sidecar (ms_flow `read_dropped`).
 """
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any, Sequence
 
-from ms_flow.core.data.shard import PayloadKind, Serializer, Shard, ShardWriter
+from ms_flow.core.data.shard import Serializer, Shard, ShardWriter
+from amdockvs.core.constants import ShardKind
 
 from amdockvs.chemistry.pipeline import run_pipeline
 from amdockvs.chemistry.shards import read_shard
@@ -66,58 +67,6 @@ def _with_3d(mols: Sequence[Any]) -> list[Any]:
     return out
 
 
-def _source_shard(path: Path, ids=None) -> tuple[Path, Any]:
-    """Re-preparing reads the molecules, not the PDBQT: follow `prepared_from` back one step."""
-    with Shard.open(path, ids=ids) as shard:
-        if shard.kind != PayloadKind.PDBQT:
-            return path, ids
-        origin = str(shard.metadata.get("prepared_from") or "")
-        origin_ids = shard.metadata.get("prepared_ids")
-    if not origin or not Path(origin).is_file():
-        raise RuntimeError(f"{path}: prepared shard with no readable source to re-prepare from.")
-    return Path(origin), origin_ids
-
-
-# One line per failed ligand, beside the shard it belongs to. A file per shard is a dozen files
-# for a library that has millions of molecules, and it is greppable without opening a container.
-FAILURE_LOG_SUFFIX = ".failures.jsonl"
-
-
-def failure_log_path(shard_path: str | Path) -> Path:
-    return Path(shard_path).with_suffix(Path(shard_path).suffix + FAILURE_LOG_SUFFIX)
-
-
-def failure_report(failures: Sequence[tuple[int, str]]) -> dict[str, Any]:
-    """How many failed and why, grouped — the summary that lives in the shard's header.
-
-    The ids are not here: they are in the log beside the shard, which has no size limit. The
-    header answers "is something wrong with this shard", the log answers "which ones".
-    """
-    reasons: dict[str, int] = {}
-    for _id, reason in failures:
-        reasons[str(reason)] = reasons.get(str(reason), 0) + 1
-    return {"n_failed": len(failures), "reasons": reasons}
-
-
-def write_failure_log(shard_path: str | Path, failures: Sequence[tuple[int, str]]) -> Path | None:
-    """Every failed id with its reason, as JSONL beside the prepared shard. None if nothing failed."""
-    if not failures:
-        return None
-    path = failure_log_path(shard_path)
-    with path.open("w", encoding="utf-8") as handle:
-        for id_, reason in failures:
-            handle.write(json.dumps({"id": int(id_), "reason": str(reason)}) + "\n")
-    return path
-
-
-def read_failure_log(shard_path: str | Path) -> list[dict[str, Any]]:
-    """The log back as rows, for whoever wants to look at the ligands that failed."""
-    path = failure_log_path(shard_path)
-    if not path.is_file():
-        return []
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
-
-
 def _reason(exc: BaseException) -> str:
     """One line, so grouping actually groups: Meeko reports the same fault per molecule."""
     text = " ".join(str(exc).split())
@@ -131,64 +80,45 @@ def prepare_ligand_shard(
     engine: str = "ad4",
     ensure_3d: bool = True,
     ids=None,
+    scope: int | None = None,
+    origin: int | None = None,
 ) -> dict[str, int]:
-    """Every molecule of one shard as PDBQT text, in one PDBQT shard. No db, no per-ligand file.
-    `ids`: the shard's range inside `shard_in` (`shard_ids`), None = the whole file."""
+    """Every molecule of one shard as PDBQT text, in one derived file of one group: the same ids,
+    ``origin`` = the source shard's id. A molecule that fails is dropped with its reason (the
+    file's dropped sidecar). No db, no per-ligand file. `ids`: the shard's range inside
+    `shard_in` (`shard_ids`), None = the whole file."""
     if str(engine).strip().lower() != "ad4":
         raise ValueError(f"Unsupported shard preparation engine: {engine}")
-    source, ids = _source_shard(Path(shard_in).expanduser().resolve(), ids)
+    source = Path(shard_in).expanduser().resolve()
     with Shard.open(source, ids=ids) as shard:
-        header = {
-            "base_id": shard.base_id,
-            "slot_count": shard.slot_count,
-            "shard_id": shard.shard_id,
-            "metadata": dict(shard.metadata),
-        }
-    source_ids = ids
-    ids, mols = read_shard(source, source_ids)
+        base_id, slot_count = shard.base_id, shard.slot_count
+    if ids is not None:
+        base_id, slot_count = int(ids[0]), int(ids[1]) - int(ids[0])
+    record_ids, mols = read_shard(source, ids)
     if ensure_3d:
         mols = _with_3d(mols)
 
     out_path = Path(shard_out).expanduser().resolve()
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    written = 0
-    failures: list[tuple[int, str]] = []
-    # Two passes over the same writer would mean two files; the report is built while writing
-    # and stamped at close, which the container allows because the header is written last.
-    with ShardWriter(
-        out_path,
-        dataset_id=None,
-        shard_id=header["shard_id"],
-        base_id=header["base_id"],
-        kind=PayloadKind.PDBQT,
-        serializer=Serializer.UTF8,
-        slot_count=header["slot_count"],
-        metadata={**header["metadata"], "prepared_from": str(source), "prepared_engine": engine,
-                  **({"prepared_ids": list(source_ids)} if source_ids is not None else {})},
-    ) as writer:
-        for id_, mol in zip(ids, mols):
+    written = failed = 0
+    with ShardWriter(out_path, dataset_id=None, shard_id=0, base_id=base_id, kind=ShardKind.PDBQT,
+                     serializer=Serializer.UTF8, slot_count=slot_count,
+                     metadata={"prepared_engine": engine}) as writer:
+        for id_, mol in zip(record_ids, mols):
             if mol is None or isinstance(mol, Exception):
-                failures.append((id_, _reason(mol) if isinstance(mol, Exception) else "unreadable record"))
+                writer.drop(id_, _reason(mol) if isinstance(mol, Exception) else "unreadable record")
+                failed += 1
                 continue
             try:
                 text = result_text(prepare_ligand_vina_pdbqt_from_mol(mol))
             except Exception as exc:  # noqa: BLE001 - one unpreparable ligand is a hole, not a lost shard
-                failures.append((id_, _reason(exc)))
+                writer.drop(id_, _reason(exc))
+                failed += 1
                 continue
             writer.add(id_, text.encode("utf-8"))
             written += 1
-        if failures:
-            writer.metadata["prep_failures"] = {
-                **failure_report(failures),
-                "log": failure_log_path(out_path).name,
-            }
-    write_failure_log(out_path, failures)
-    return {
-        "n_input": len(ids),
-        "n_records": written,
-        "n_failed": len(failures),
-        "failures": failure_report(failures) if failures else {},
-    }
+        writer.end_group(scope=scope, base_id=base_id, slot_count=slot_count, origin=origin)
+    return {"n_input": len(record_ids), "n_records": written, "n_failed": failed}
 
 
 def smiles_from_pdbqt(text: str) -> str:
@@ -213,12 +143,14 @@ def extract_ligands(
     start: int = 0,
     count: int | None = None,
     record_ids: Sequence[int] | None = None,
+    ids=None,
 ) -> list[dict[str, Any]]:
     """A slice of a prepared shard as `.pdbqt` files — the only shape a docking engine reads.
 
     The inverse of the preparation rule and its exception: what a stage *produces* goes into the
     shard, but what an external binary *consumes* has to be a file. It exists for the length of
-    one chunk and the caller deletes it.
+    one chunk and the caller deletes it. `ids`: the shard's range in its file (`prepared_ids`),
+    None = the whole file.
 
     ponytail: the slice is reached by walking record indices from 0. That is a header-side walk
     (no payload is loaded until the slice starts), so at 1000 records per shard it costs
@@ -228,7 +160,7 @@ def extract_ligands(
     dest.mkdir(parents=True, exist_ok=True)
     ligands: list[dict[str, Any]] = []
     selected_ids = None if record_ids is None else {int(value) for value in record_ids}
-    with Shard.open(Path(shard_path).expanduser().resolve()) as shard:
+    with Shard.open(Path(shard_path).expanduser().resolve(), ids=ids) as shard:
         for offset, record in enumerate(shard):
             if offset < int(start):
                 continue
@@ -248,12 +180,7 @@ def extract_ligands(
 
 
 __all__ = [
-    "FAILURE_LOG_SUFFIX",
     "extract_ligands",
-    "failure_log_path",
-    "failure_report",
-    "read_failure_log",
-    "write_failure_log",
     "prepare_ligand_shard",
     "result_text",
     "smiles_from_pdbqt",

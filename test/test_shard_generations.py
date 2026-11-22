@@ -15,15 +15,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from amdockvs.io.shards import ShardGenerationWriter
 from ms_flow.core.data import catalog
 from ms_flow.core.database.project_models import CatalogFile
-from amdockvs.molecules.storage import (
-    ShardStore,
-    activate_generation,
-    active_generation_id,
-    create_generation,
-    shard_scope_spec,
-)
+from ms_flow.core.data.catalog import activate_generation, active_generation_id, create_generation
+from amdockvs.molecules.storage import ShardStore, shard_scope_spec
 from amdockvs.runtime import AMDockVSRuntime
-from catalog_seed import file_id_of, seed_library, write_library_file
+from catalog_seed import file_id_of, seed_library, seed_prepared, write_library_file
 
 
 @pytest.fixture
@@ -149,7 +144,7 @@ def test_chunk_items_count_full_chunks_and_a_short_last_one(monkeypatch):
 def test_the_project_summary_reads_the_library_off_the_inventory(project, tmp_path):
     """A sharded library is not rows: its stats come from the active generation's shards."""
     from amdockvs.models import DockingRun
-    from amdockvs.models.screening import ScreeningTarget, ShardPrep
+    from amdockvs.models.screening import ScreeningTarget
     from amdockvs.molecules.library_stats import format_bytes, library_stats
 
     project_db, root = project
@@ -159,15 +154,11 @@ def test_the_project_summary_reads_the_library_off_the_inventory(project, tmp_pa
     _populate(project_db, first, tmp_path, count=3, tag="first")
     second = create_generation(project_db, step="protonate", folder=root)
     activate_generation(project_db, second)
-    file_ids = []
+    file_ids = [seed_library(project_db, tmp_path, scope=1, records=600, name=f"p_{index}", generation_id=second)[0]
+                for index in range(3)]
+    catalog.update_file(project_db, file_ids[2], error="boom")
+    seed_prepared(project_db, catalog.get_shard(project_db, catalog.shard_id(file_ids[0], 0)), tmp_path, dropped={7})
     with project_db.get_session() as session:
-        for index, error in enumerate(("", "", "boom")):
-            row = CatalogFile(generation_id=second, path=str(tmp_path / f"p_{index}.parquet"),
-                              n_shards=1, n_records=0 if error else 900, n_active=0 if error else 900, error=error)
-            session.add(row)
-            session.flush()
-            file_ids.append(row.id)
-        session.add(ShardPrep(shard_id=catalog.shard_id(file_ids[0], 0), family="ad4", n_records=899, n_failed=1))
         session.add(DockingRun(id=1, engine="vina"))
         session.flush()
         session.add(ScreeningTarget(docking_run_id=1, receptor_molecule_id=7, ligands_done=1800, hits=12))
@@ -176,7 +167,7 @@ def test_the_project_summary_reads_the_library_off_the_inventory(project, tmp_pa
     stats = library_stats(project_db, tmp_path)
     assert (stats.ligands, stats.shards, stats.failed_shards) == (1800, 3, 1)
     assert (stats.last_step, stats.previous_step) == ("protonate", "import")
-    assert stats.prepared == {"ad4": (1, 899, 1)}
+    assert stats.prepared == {"ad4": (1, 599, 1)}
     assert (stats.campaigns, stats.receptors_docked, stats.ligands_docked, stats.hits) == (1, 1, 1800, 12)
     assert stats.disk_bytes > 0
     assert format_bytes(1536) == "1.5 KB" and format_bytes(12) == "12 B"
@@ -187,32 +178,20 @@ def test_a_forgotten_generation_takes_its_prepared_twins_but_one_docked_on_stays
     its generation (rows and files) until the run is deleted, so nothing docked is lost."""
     from sqlmodel import select
 
-    from amdockvs.models import DockingRun, ScreeningShardRun, ShardPrep
-    from amdockvs.molecules.storage import prepared_shard_path
+    from amdockvs.screening.campaign import record_docked
 
     project_db, root = project
     prepared, docked = create_generation(project_db, step="import", folder=root), None
     activate_generation(project_db, prepared)
     (prepared_file,) = _populate(project_db, prepared, tmp_path, count=1, tag="a")
-    twin = prepared_shard_path(prepared_file, "ad4", (0, 1000))
-    twin.parent.mkdir(parents=True, exist_ok=True)
-    twin.write_bytes(b"pdbqt")
-    with project_db.get_session() as session:
-        session.add(ShardPrep(shard_id=catalog.shard_id(file_id_of(project_db, prepared_file), 0),
-                              family="ad4", n_records=1000))
-        session.commit()
+    twin = seed_prepared(project_db, catalog.get_shard(project_db, catalog.shard_id(
+        file_id_of(project_db, prepared_file), 0)), tmp_path)
 
     docked = create_generation(project_db, step="protonate", folder=root)
     (docked_file,) = _populate(project_db, docked, tmp_path, count=1, tag="b")
     activate_generation(project_db, docked)
-    with project_db.get_session() as session:
-        run = DockingRun(run_id="r")
-        session.add(run)
-        session.flush()
-        file_id = file_id_of(project_db, docked_file)
-        session.add(ScreeningShardRun(docking_run_id=run.id, shard_id=catalog.shard_id(file_id, 0), file_id=file_id,
-                                      receptor_molecule_id=1, engine="vina", state="done"))
-        session.commit()
+    record_docked(project_db, key="dock-generation", generation_id=docked,
+                  shard_id=catalog.shard_id(file_id_of(project_db, docked_file), 0))
 
     for step in ("generate_3d", "minimize"):  # two more rewrites: both earlier ones fall out
         generation = create_generation(project_db, step=step, folder=root)
@@ -222,20 +201,21 @@ def test_a_forgotten_generation_takes_its_prepared_twins_but_one_docked_on_stays
     assert not prepared_file.exists() and not twin.exists()
     assert docked_file.exists()
     with project_db.get_session() as session:
-        assert session.exec(select(ShardPrep)).all() == []
+        assert not session.exec(select(CatalogFile).where(CatalogFile.role != catalog.SOURCE)).all()
         assert {int(r.generation_id) for r in session.exec(select(CatalogFile)).all()} == {docked, generation - 1, generation}
 
 
 def test_a_rewrite_lands_in_one_file_per_scope(project, tmp_path):
     """Workers write a file per shard; the switch adopts them into one big file first."""
-    from ms_flow.core.data.shard import PayloadKind, Serializer, Shard, ShardWriter
+    from ms_flow.core.data.shard import Serializer, Shard, ShardWriter
+    from amdockvs.core.constants import ShardKind
 
     project_db, root = project
     second = create_generation(project_db, step="protonate", folder=root)
     writer = ShardGenerationWriter(project_db=project_db, generation_id=second)
     for index in range(3):
         path = tmp_path / f"out_{index}.parquet"
-        with ShardWriter(path, dataset_id=None, shard_id=0, base_id=10 * index, kind=PayloadKind.SDF,
+        with ShardWriter(path, dataset_id=None, shard_id=0, base_id=10 * index, kind=ShardKind.SDF,
                          serializer=Serializer.UTF8, slot_count=10, scope=5) as shard:
             shard.add(10 * index, f"m{index}".encode())
         writer.handle(f"chunk-{index}", [{"import_batch_id": 5, "shard_index": index, "path": str(path),

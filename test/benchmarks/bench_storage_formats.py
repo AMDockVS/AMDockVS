@@ -330,7 +330,8 @@ def read_rows_volumes(project: Path, rt, ids: list[int]) -> None:
 
 
 def write_mshard(rows: list[dict], work: Path, per_shard: int) -> Path:
-    from ms_flow.core.data.shard import PayloadKind, Serializer, ShardWriter
+    from ms_flow.core.data.shard import Serializer, ShardWriter
+    from amdockvs.core.constants import ShardKind
 
     out = work / f"st_mshard_{per_shard}"
     out.mkdir()
@@ -338,7 +339,7 @@ def write_mshard(rows: list[dict], work: Path, per_shard: int) -> Path:
         for shard_id, lo in enumerate(range(0, len(rows), per_shard)):
             part = rows[lo:lo + per_shard]
             with ShardWriter(out / f"shard_{shard_id:05d}.mshard", dataset_id=None, shard_id=shard_id,
-                             base_id=part[0]["id"], kind=PayloadKind.SDF, serializer=Serializer.RAW,
+                             base_id=part[0]["id"], kind=ShardKind.SDF, serializer=Serializer.RAW,
                              slot_count=len(part)) as w:
                 for r in part:
                     w.add(r["id"], r["sdf"].encode())

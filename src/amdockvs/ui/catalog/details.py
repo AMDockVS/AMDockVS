@@ -238,16 +238,12 @@ class CatalogDetailsView(QWidget):
             for family, (prepared, failed) in sorted(preps.items())
         } or {"Status": "not prepared"})
         header = _shard_header(path)
-        # The one per-molecule thing worth surfacing: which ligands the last stage dropped and
-        # why. A sharded library has no per-molecule row to carry an error, so the header holds
-        # the tally and the `.failures.jsonl` beside the shard holds every id.
-        failures = dict((header.get("metadata") or {}).get("prep_failures") or {})
-        reasons = dict(failures.get("reasons") or {})
+        # The one per-molecule thing worth surfacing: why the last preparation dropped ligands.
+        # A sharded library has no per-molecule row to carry an error: the prepared file's
+        # dropped sidecar holds every id with its reason.
+        reasons = self.runtime.molecules.file_prep_failures(int(getattr(shard, "id", 0) or 0))
         if reasons:
-            section = {reason: str(count) for reason, count in reasons.items()}
-            if failures.get("log"):
-                section["Log"] = str(failures["log"])
-            self._add_section("Preparation failures", section)
+            self._add_section("Preparation failures", {reason: str(n) for reason, n in sorted(reasons.items())})
         self.json_text.setPlainText(json.dumps(header, indent=2, ensure_ascii=False, default=str))
         self._sync_actions()
 

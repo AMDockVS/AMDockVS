@@ -17,7 +17,8 @@ import io
 from pathlib import Path
 from typing import Any, Sequence
 
-from ms_flow.core.data.shard import PayloadKind, Serializer, Shard, ShardWriter
+from ms_flow.core.data.shard import Serializer, Shard, ShardWriter
+from amdockvs.core.constants import ShardKind
 
 from amdockvs.chemistry.pipeline import normalize_steps, run_pipeline
 from amdockvs.io.shards import FORMAT_FOR_KIND, mol_from_record
@@ -73,7 +74,7 @@ def write_shard(
         dataset_id=None,
         shard_id=shard_id,
         base_id=base_id,
-        kind=PayloadKind.SDF,  # whatever came in, what a pipeline emits is a molecule
+        kind=ShardKind.SDF,  # whatever came in, what a pipeline emits is a molecule
         serializer=Serializer.UTF8,
         slot_count=slot_count,
         metadata=dict(metadata or {}),

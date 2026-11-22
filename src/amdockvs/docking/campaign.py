@@ -7,10 +7,10 @@ A sharded library (`dock_shards_campaign`):
     hits  the poses of the best `hit_cap` of each receptor, read from those fragments
     off   with off-targets: the reference receptor's best against each of them
 
-What comes back is the receipts of `vs` (the progress), the hits and the off-target hits: what
+What comes back is what `vs` docked (the progress), the hits and the off-target hits: what
 `dock_shards_job` would have written here, without a fragment travelling. The campaign is an
 ms_flow job (`ms_flow.campaign`): submitted again, with another run id too, it is found where it
-is by its identity, and what comes again is written once — receipts and hits are upserts, the
+is by its identity, and what comes again is written once — done-sets and hits are upserts, the
 counters are counted again, not added to, and under a new run id the hits move to that run.
 
 Ligand rows (`dock_rows_campaign`): the chunks `docking_job` would run here, their ligands packed
@@ -28,8 +28,11 @@ from uuid import uuid4
 
 from pydantic import Field
 from ms_flow.campaign import From, Stage, campaign
+from ms_flow.core.data import catalog
+from ms_flow.core.data.catalog import active_generation_id
 from ms_flow.core.data.shard import MAX_RECORDS, PayloadKind, Serializer, ShardWriter
 from ms_flow.engine import File
+from ms_flow.engine.files import KeptDir
 from ms_flow.runner import plain, unplain
 
 from amdockvs.core.jobs import configs
@@ -47,7 +50,7 @@ from amdockvs.docking.shard_tasks import (
     by_fragment, dock_stage, hit_poses, off_target_elements, prepare_stage, prepared_elements, rank,
 )
 from amdockvs.io.shards import SHARD_SUFFIX
-from amdockvs.molecules.storage import iter_prepared_shards, prepared_shard_path
+from amdockvs.molecules.storage import prepared_dir, prepared_role
 from amdockvs.screening.campaign import finish_run, plan_targets, reopen_run, stop_run
 
 # What a chunk of `vs` says about one receptor, which an off-target says for itself.
@@ -61,6 +64,9 @@ class DockCampaignParams(DockShardsJobParams):
     off_receptor_set_id: int | None = Field(default=None, ge=1)
     off_receptor_filters: dict[str, Any] = Field(default_factory=dict)
     cpu_required: int = Field(default=1, ge=1)  # of one chunk: one shard against one receptor
+    # The queue it goes to, as this project names it: where the files it prepares there stay.
+    # Not its identity — the same campaign is the same campaign, whichever queue it is sent to.
+    executor: str = ""
 
     @property
     def has_off_targets(self) -> bool:
@@ -68,11 +74,18 @@ class DockCampaignParams(DockShardsJobParams):
 
 
 class CampaignWriter(ShardHitWriter):
-    """What comes back, here: receipts without a fragment path (the fragments stay there, so
-    nothing here ranks again), and the hits, which come ranked."""
+    """What comes back, here: the shards marked done without a result file (the files stay
+    there, so nothing here ranks again), and the hits, which come ranked."""
+
+    def __init__(self, *, executor: str = "", preparation_engine: str = "", **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.executor, self.preparation_engine = str(executor), str(preparation_engine)
 
     def write(self, results: list) -> None:
         for result in results:
+            if result["stage"] == "prep":
+                self._prepared_there(result)
+                continue
             if result["stage"] == "hits":
                 self._materialize_selected(self._of_run(result["hits"]))
                 continue
@@ -80,12 +93,23 @@ class CampaignWriter(ShardHitWriter):
             self._materialize_selected(self._of_run(hit for envelope in envelopes for hit in envelope["hits"]))
             self.handle("", [{**envelope, "hits": [], "result_shard": ""} for envelope in envelopes])
 
+    def _prepared_there(self, result: dict) -> None:
+        """A shard prepared on the queue's own disk: its file is registered as being there, so the
+        Shards view says where it is and only a step running there opens it. Registered once: a
+        campaign that found it already made returns the same row."""
+        if not self.executor:
+            return
+        generation_id = active_generation_id(self.project_db)
+        for row in result.get("files") or []:
+            catalog.add_file(self.project_db, row["path"], generation_id=generation_id, role=row["role"],
+                             location=self.executor, counts=row, once=True)
+
     def _of_run(self, hits) -> list[dict]:
         return [{**hit, "docking_run_id": self.docking_run_id} for hit in hits]
 
     def finish(self) -> None:
         # Submitted again under another run id, it is that run's now: moved, not copied —
-        # with the receipts and result fragments the pairs it docked again had there.
+        # with whatever the pairs it docked again had there.
         supersede_shard_runs(self.project_db, docking_run_id=self.docking_run_id)
         finish_run(self.project_db, docking_run_id=self.docking_run_id)
 
@@ -93,7 +117,8 @@ class CampaignWriter(ShardHitWriter):
 def _writer(params: DockCampaignParams, project) -> CampaignWriter:
     return CampaignWriter(project_db=configs[project]["project_db"], hit_cap=params.hit_cap,
                           hit_threshold=params.hit_threshold, run_id=params.run_id, engine=params.engine,
-                          protocol_hash=str(params.protocol_metadata.hash or ""))
+                          protocol_hash=str(params.protocol_metadata.hash or ""), executor=params.executor,
+                          preparation_engine=params.preparation_engine)
 
 
 def _ended(params: DockCampaignParams, project, snapshot) -> None:
@@ -117,23 +142,28 @@ def _there(chunk: dict, cpu: int) -> dict:
 
 def _unprepared(elements: list[dict], engine: str) -> list[dict]:
     """The `prep` elements of a campaign: a shard not prepared here, once, and where `located`
-    finds it there; its chunks in `elements` are told so (an element of `vs` waits for them)."""
+    finds it there; its chunks in `elements` are told so (an element of `vs` waits for them).
+    One the host already holds is not prepared again — that `prepare_stage` sees, not this side,
+    so the campaign is the same campaign however much of it that host has done."""
     prep = {}
     for element in elements:
         for place, shard in enumerate(element["shards"]):
             if shard["shard_path"]:
                 continue
-            twin = prepared_shard_path(shard["molecules"], engine, shard.get("ids"))
-            where = {"prepared_in": worker_output_dir(twin.parent), "prepared_as": twin.name}
+            # There, a file of this one shard (whole: no `prepared_ids`), named for `located`.
+            # Kept: in the project's folder there, so the next campaign to that host docks it as is.
+            where = {"prepared_in": KeptDir(worker_output_dir(prepared_dir(shard["molecules"], engine))),
+                     "prepared_as": f"{shard['shard_id']}{Path(shard['molecules']).suffix}"}
             element["shards"][place] = {**{k: v for k, v in shard.items() if k not in ("molecules", "ids")}, **where}
-            prep.setdefault(shard["shard_id"], {"engine": engine, "shards": [{
+            prep.setdefault(shard["shard_id"], {"engine": engine, "role": prepared_role(engine), "shards": [{
                 "shard_id": shard["shard_id"], "shard_path": shard["molecules"], "ids": shard.get("ids"),
-                "output_dir": where["prepared_in"]}]})
+                "import_batch_id": shard.get("import_batch_id"), "output_dir": where["prepared_in"],
+                "output_name": where["prepared_as"]}]})
     return list(prep.values())
 
 
 @campaign(name="amdock_dock_shards_campaign", params_model=DockCampaignParams, output=_writer,
-          volatile=("run_id",), finalize=_ended)
+          volatile=("run_id", "executor"), finalize=_ended)
 def dock_shards_campaign(params: DockCampaignParams, project) -> list[Stage]:
     config = configs[project]
     project_db = config["project_db"]
@@ -147,7 +177,7 @@ def dock_shards_campaign(params: DockCampaignParams, project) -> list[Stage]:
     elements = [_there(chunk, params.cpu_required) for chunk in chunks]
     ranked = partial(rank, cap=params.hit_cap, threshold=params.hit_threshold)
     prep = _unprepared(elements, params.preparation_engine)
-    stages = [Stage("prep", prepare_stage, prep, deliver="none"),
+    stages = [Stage("prep", prepare_stage, prep),
               Stage("vs", dock_stage, From("prep", prepared_elements, (elements,)), reduce=ranked)] if prep else [
               Stage("vs", dock_stage, elements, reduce=ranked)]
     stages.append(Stage("hits", hit_poses, From("vs", by_fragment)))

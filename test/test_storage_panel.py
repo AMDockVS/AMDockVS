@@ -66,7 +66,7 @@ def test_a_sharded_project_shows_its_library_in_the_project_dialog(tmp_path, mon
     from PySide6.QtWidgets import QApplication, QDialog, QLabel
 
     from ms_flow.core.database.project_models import CatalogFile
-    from amdockvs.molecules.storage import activate_generation, create_generation
+    from ms_flow.core.data.catalog import activate_generation, create_generation
     from amdockvs.ui.shell.project_summary import _library_section
 
     app = QApplication.instance() or QApplication(["amdockvs-library-section-test"])

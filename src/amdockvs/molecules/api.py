@@ -537,20 +537,22 @@ class MoleculeAPI:
     def file_preps(self, file_id: int) -> dict[str, tuple[int, int]]:
         """One catalog file's preparations: family -> (prepared records, failed records), over the
         shards of it that are prepared."""
-        from ms_flow.core.data.catalog import GROUP_BITS
-        from sqlmodel import func, select
+        from ms_flow.core.data.catalog import shard_spec
 
-        from amdockvs.models import ShardPrep
+        from amdockvs.molecules.storage import prepared_counts
 
         self.runtime._require_active_project()
-        first = int(file_id) << GROUP_BITS
-        with self.runtime.workspace.project_db.get_session() as session:
-            rows = session.exec(
-                select(ShardPrep.family, func.sum(ShardPrep.n_records), func.sum(ShardPrep.n_failed))
-                .where(ShardPrep.shard_id.between(first, first | ((1 << GROUP_BITS) - 1)))
-                .group_by(ShardPrep.family)
-            ).all()
-        return {str(family): (int(done or 0), int(failed or 0)) for family, done, failed in rows}
+        return {family: (done, failed) for family, (_n, done, failed) in
+                prepared_counts(self.runtime.workspace.project_db, shard_spec(id=int(file_id))).items()}
+
+    def file_prep_failures(self, file_id: int) -> dict[str, int]:
+        """reason -> how many records of one catalog file a preparation dropped."""
+        from ms_flow.core.data.catalog import shard_spec
+
+        from amdockvs.molecules.storage import prepared_failures
+
+        self.runtime._require_active_project()
+        return prepared_failures(self.runtime.workspace.project_db, shard_spec(id=int(file_id)))
 
     def list_fragments(self, molecule_id: int) -> list[dict[str, Any]]:
         self.runtime._require_active_project()

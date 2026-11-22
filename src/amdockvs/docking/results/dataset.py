@@ -1,48 +1,57 @@
-"""Durable, columnar result fragments for sharded docking campaigns.
+"""Durable, columnar results of sharded docking campaigns.
 
-The worker that docks a shard writes them, so what reads the project database (the receipts,
-the selection of hits) imports SQL where it runs, not here.
+What is docked lives in ms_flow, not in a table here: a done-set of shard ids per key
+(`ms_flow.core.data.states`, kind `DONE_KIND`) and the result rows as table files of the catalog
+(role `result_role(key)`), which the parent compacts to one file per key. A key is one target:
+what a shard is docked against, and under which selection.
+
+The worker that docks a shard writes the files, so what reads the project database (the ranking,
+the hits) imports SQL where it runs, not here.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 
 from amdockvs.core.paths import get_default_project_root
 from amdockvs.docking.results.metrics import SCORE_METRICS
-from amdockvs.core.vocab import TargetState
 
 RESULT_DATASET_FORMAT = "amdock-docking-results-parquet-v1"
-
-# Which ligands of a shard one receipt stands for. A whole shard is the empty string; an
-# off-target stage docks only the Top-N picked from its reference receptor, so its receipt
-# stands for that selection alone and must not retire the whole-shard receipt it overlaps.
-SHARD_SELECTION_ALL = ""
+DONE_KIND = "docking"
 
 
-def shard_selection(selected_from_receptor_id: Any = None, exclusion_key: str = "") -> str:
-    """The selection key of a receipt: empty for the whole shard, `top:<receptor id>` for the
-    Top-N an off-target stage took from that reference receptor, `excl:<cuts>` for a shard the
-    active exclusions left partial — so undoing a cut docks the rest instead of skipping it."""
-    reference = int(selected_from_receptor_id or 0)
-    if reference:
-        return f"top:{reference}"
-    return f"excl:{exclusion_key}" if exclusion_key else SHARD_SELECTION_ALL
+def state_key(*, engine: str, protocol_hash: str, receptor_id: Any, binding_site_id: Any = 0,
+              input_key: str = "", selection: str = "") -> str:
+    """The key of one target: engine, protocol, receptor, its site, what it was prepared as
+    (`docking_input_key`: a receptor prepared again, or given a new box, is docked again) and the
+    selection — empty for the library, `off_target_selection` for a stage docking a Top-N."""
+    text = json.dumps([str(engine).strip().lower(), str(protocol_hash or ""), int(receptor_id or 0),
+                       int(binding_site_id or 0), str(input_key or ""), str(selection or "")])
+    return "dock-" + hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
 
 
-def selection_covers(docked: str, stored: str) -> bool:
-    """True when docking `docked` again accounts for everything a receipt for `stored` holds:
-    a whole shard covers any subset of it; a subset covers only the same subset."""
-    return not str(docked or "") or str(docked or "") == str(stored or "")
+def off_target_selection(reference_receptor_id: Any, run_id: str) -> str:
+    """An off-target stage docks one reference run's Top-N, not the library: a key of its own,
+    scoped to that run, so it neither satisfies nor replaces a library docking of its receptor."""
+    return f"top:{int(reference_receptor_id or 0)}:{run_id}" if reference_receptor_id else ""
+
+
+def result_role(key: str) -> str:
+    """The catalog role of a key's result rows."""
+    return f"table:{key}"
 
 
 RESULT_SCHEMA = pa.schema([
     pa.field("ligand_id", pa.int64(), nullable=False),
+    # Ligand ids restart in every import: with the shard id a row's ligand is unique.
+    pa.field("shard_id", pa.int64(), nullable=False),
+    pa.field("docking_run_id", pa.int64(), nullable=False),
     pa.field("receptor_id", pa.int64(), nullable=False),
     pa.field("score", pa.float64()),
     pa.field("score_type", pa.string(), nullable=False),
@@ -56,12 +65,15 @@ RESULT_SCHEMA = pa.schema([
 ])
 
 SUMMARY_COLUMNS = (
-    "ligand_id", "receptor_id", "score", "score_type", "status", "engine", "has_pose",
+    "ligand_id", "shard_id", "docking_run_id", "receptor_id", "score", "score_type", "status",
+    "engine", "has_pose",
 )
 FULL_COLUMNS = tuple(field.name for field in RESULT_SCHEMA)
 SUPPORTED_FILTERS = {
-    "engine", "receptor_id", "receptor_id__in", "score__gte", "score__lte", "status",
+    "docking_run_id__in", "engine", "receptor_id", "receptor_id__in", "score__gte", "score__lte", "status",
 }
+# What makes a row unique inside a key: the newest wins when a pair is docked again.
+UNIQUE_BY = ("shard_id", "ligand_id")
 
 
 def _safe_component(value: object, *, fallback: str) -> str:
@@ -70,21 +82,13 @@ def _safe_component(value: object, *, fallback: str) -> str:
 
 
 def result_fragment_path(output_dir: str | Path, payload: Mapping[str, Any], shard: Mapping[str, Any]) -> Path:
-    run_id = _safe_component(payload.get("run_id"), fallback="run")
-    protocol = _safe_component(
-        dict(payload.get("protocol_metadata") or {}).get("hash"), fallback="default"
-    )
-    receptor_id = int(payload.get("receptor_id") or 0)
-    # The global id: a shard index repeats in every import batch and generation.
+    """One task's result rows: in its key's folder, the one `compact_tables` merges into a file,
+    under a name no other attempt of the same pair can take."""
+    from uuid import uuid4
+
+    key = _safe_component(payload.get("state_key"), fallback="default")
     shard_id = int(shard.get("shard_id") or 0)
-    return (
-        Path(output_dir)
-        / "runs"
-        / run_id
-        / f"proto_{protocol}"
-        / f"receptor_{receptor_id:05d}"
-        / f"shard_{shard_id:06d}.results.parquet"
-    )
+    return Path(output_dir) / "results" / key / f"shard_{shard_id}-{uuid4().hex[:8]}.results.parquet"
 
 
 def local_pose_path(value: object) -> Path | None:
@@ -99,12 +103,15 @@ def local_pose_path(value: object) -> Path | None:
     return candidate if candidate is not None and candidate.is_file() else None
 
 
-def result_row(row: Mapping[str, Any], *, smiles: str, engine: str = "") -> dict[str, Any]:
+def result_row(row: Mapping[str, Any], *, smiles: str, engine: str = "", shard_id: Any = 0,
+               docking_run_id: Any = 0) -> dict[str, Any]:
     """One engine row as a parquet row; `metrics_json` holds the result columns past the score."""
     pose_path = local_pose_path(row.get("pose_path"))
     metrics = {key: row.get(key) for key in (*SCORE_METRICS, "rmsd_vs_reference", "error", "extra")}
     return {
         "ligand_id": int(row.get("ligand_molecule_id") or 0),
+        "shard_id": int(shard_id or 0),
+        "docking_run_id": int(docking_run_id or 0),
         "receptor_id": int(row.get("receptor_molecule_id") or 0),
         "score": None if row.get("score") is None else float(row["score"]),
         "score_type": str(row.get("score_type") or ""),
@@ -119,6 +126,8 @@ def result_row(row: Mapping[str, Any], *, smiles: str, engine: str = "") -> dict
 
 
 ROW_GROUP_BYTES = 16 << 20  # pose text buffered per row group: bounds a worker's memory
+# Rows per row group when a key's files are merged: pose text is most of a row.
+COMPACT_ROWS_PER_GROUP = 4096
 
 
 class ResultFragmentWriter:
@@ -150,6 +159,8 @@ class ResultFragmentWriter:
         # durability is unchanged, the fragment is published only on success anyway.
         payload = dict(row)
         payload.setdefault("has_pose", bool(payload.get("pose_text")))
+        payload.setdefault("shard_id", 0)
+        payload.setdefault("docking_run_id", 0)
         self._rows.append(payload)
         self._bytes += len(payload.get("pose_text") or "")
         if self._bytes >= ROW_GROUP_BYTES:
@@ -173,64 +184,45 @@ class ResultFragmentWriter:
             self.temporary.unlink(missing_ok=True)
 
 
-def _project_path(project_root: str | Path, value: str) -> Path:
-    path = Path(str(value or ""))
-    return path if path.is_absolute() else Path(project_root) / path
-
-
 def result_metadata(path: str | Path) -> dict[str, Any]:
     raw = (pq.ParquetFile(Path(path)).schema_arrow.metadata or {}).get(b"amdock.metadata", b"{}")
     return dict(json.loads(raw.decode("utf-8")))
 
 
-def completed_result_receipts(
-    project_db,
-    *,
-    run_id: str,
-    protocol_hash: str,
-    engine: str = "",
-    across_runs: bool = False,
-) -> list[ScreeningShardRun]:
-    """The receipts with a fragment to read: this submission's, or — with `across_runs` — the
-    whole-shard receipts of every screening run of the same engine and protocol.
+def key_files(project_db, keys: Iterable[str]) -> list[Path]:
+    """The result files of `keys`, each read in the generation its done-set is of: a key marked
+    again under a new library starts over, and its files of the old one are not its rows."""
+    from ms_flow.core.data import catalog, states
 
-    A resubmitted campaign skips what another run of its protocol already docked, so it writes
-    no receipt of its own for those shards. A stage that ranks what the library holds (the
-    reference Top-N an off-target stage docks) has to read them where they are, or it reads
-    nothing and docks nothing. One (shard, receptor) is counted once, by its newest receipt.
-    """
-    from sqlmodel import select
+    wanted = set(keys)
+    if not wanted:
+        return []
+    generations = {row["key"]: row["generation_id"] for row in states.progress(project_db, DONE_KIND)
+                   if row["key"] in wanted}
+    paths: list[Path] = []
+    for key in sorted(wanted):
+        spec = {"role": result_role(key)}
+        if generations.get(key) is not None:
+            spec["generation_id"] = int(generations[key])
+        paths.extend(Path(row["path"]) for row in catalog.files(project_db, catalog.shard_spec(**spec))
+                     if row["status"] == catalog.READY and Path(row["path"]).is_file())
+    return paths
 
-    from amdockvs.models import DockingRun, ScreeningShardRun
 
-    scope = (
-        (DockingRun.engine == str(engine).strip().lower(), DockingRun.run_kind == "screening",
-         DockingRun.protocol_hash == str(protocol_hash), ScreeningShardRun.selection == "")
-        if across_runs else (DockingRun.run_id == str(run_id),)
-    )
-    with project_db.get_session() as session:
-        rows = list(session.exec(
-            select(ScreeningShardRun)
-            .join(DockingRun, DockingRun.id == ScreeningShardRun.docking_run_id)
-            .where(
-                *scope,
-                ScreeningShardRun.protocol_hash == str(protocol_hash),
-                ScreeningShardRun.state == TargetState.DONE,
-                ScreeningShardRun.result_path != "",
-            )
-            .order_by(ScreeningShardRun.id)
-        ).all())
-    if not across_runs:
-        return rows
-    newest = {(int(row.shard_id), int(row.receptor_molecule_id)): row for row in rows}
-    return sorted(newest.values(), key=lambda row: int(row.id or 0))
+def compact_keys(project_db, keys: Iterable[str]) -> None:
+    """One file per key, the newest row per (shard, ligand): a redo replaces, a replay is one."""
+    from ms_flow.core.data import catalog
+
+    for key in sorted(set(keys)):
+        catalog.compact_tables(project_db, result_role(key), unique_by=UNIQUE_BY, stats=["ligand_id"],
+                               rows_per_group=COMPACT_ROWS_PER_GROUP)
 
 
 def _arrow_filters(filters: Mapping[str, Any]) -> list[tuple[str, str, Any]]:
     result: list[tuple[str, str, Any]] = []
     for key, value in filters.items():
-        if key == "receptor_id__in":
-            result.append(("receptor_id", "in", [int(item) for item in value]))
+        if key in ("receptor_id__in", "docking_run_id__in"):
+            result.append((key[:-4], "in", [int(item) for item in value]))
         elif key == "score__lte":
             result.append(("score", "<=", float(value)))
         elif key == "score__gte":
@@ -248,32 +240,19 @@ def _summary_rows(path: Path, filters: Mapping[str, Any]) -> list[dict[str, Any]
     ).to_pylist()
 
 
-def fragment_ligand_ids(path: str | Path) -> set[int]:
-    """The shard record ids one result fragment holds — the pairs that receipt is the evidence
-    for. Empty when the fragment is gone or unreadable: provenance is then unknown, never
-    "nothing"."""
-    file = Path(path).expanduser()
-    if not file.is_file():
-        return set()
-    try:
-        table = pq.read_table(file, columns=["ligand_id"])
-    except (OSError, pa.ArrowInvalid):
-        return set()
-    return {int(value) for value in table.column("ligand_id").to_pylist() if value is not None}
+def _row_key(row: Mapping[str, Any]) -> tuple[int, int, int]:
+    return int(row.get("shard_id") or 0), int(row.get("ligand_id") or 0), int(row.get("receptor_id") or 0)
 
 
-def _selected_payloads(path: Path, keys: set[tuple[int, int]]) -> dict[tuple[int, int], dict[str, Any]]:
-    ligand_ids = sorted({key[0] for key in keys})
+def _selected_payloads(path: Path, keys: set[tuple[int, int, int]]) -> dict[tuple[int, int, int], dict[str, Any]]:
+    """The full rows of `keys` ((shard id, ligand id, receptor id)) in one file."""
+    ligand_ids = sorted({key[1] for key in keys})
     rows = pq.read_table(
         path,
         columns=list(FULL_COLUMNS),
         filters=[("ligand_id", "in", ligand_ids)],
     ).to_pylist()
-    return {
-        (int(row.get("ligand_id") or 0), int(row.get("receptor_id") or 0)): row
-        for row in rows
-        if (int(row.get("ligand_id") or 0), int(row.get("receptor_id") or 0)) in keys
-    }
+    return {_row_key(row): row for row in rows if _row_key(row) in keys}
 
 
 def _pose(payload: Mapping[str, Any]) -> tuple[str, str]:
@@ -283,33 +262,14 @@ def _pose(payload: Mapping[str, Any]) -> tuple[str, str]:
     return str(payload.get("pose_text") or ""), suffix
 
 
-def _receipt_shards(project_db, receipts) -> dict[int, dict[str, Any]]:
-    """The shard each receipt is of, read from its catalog file (any generation): a receipt whose
-    file is gone has none, and its fragment is left out of what is ranked."""
-    from ms_flow.core.data import catalog
-
-    found = {int(receipt.shard_id): catalog.get_shard(project_db, int(receipt.shard_id)) for receipt in receipts}
-    return {shard_id: row for shard_id, row in found.items() if row is not None}
-
-
 def select_hit_refs(
     project_db,
     *,
-    project_root: str | Path,
-    run_id: str,
-    protocol_hash: str,
+    keys: Iterable[str],
     filters: Mapping[str, Any] | None = None,
     top_n: int,
-    engine: str = "",
-    across_runs: bool = False,
 ) -> list[dict[str, Any]]:
-    """Rank using only lightweight columns and return shard/record identities.
-
-    `across_runs` ranks over every screening run of `engine` and this protocol, not this
-    submission alone: the run that docked the library may be an earlier one this submission
-    skipped."""
-    from amdockvs.docking.results.repository import docking_run_id
-
+    """Rank the result rows of `keys` using only lightweight columns; shard/record identities."""
     from amdockvs.screening.materialize import TopNGate
 
     cap = int(top_n)
@@ -320,100 +280,52 @@ def select_hit_refs(
     if unsupported:
         raise ValueError(f"Unsupported result filters: {', '.join(sorted(unsupported))}.")
 
-    receipts = completed_result_receipts(
-        project_db, run_id=run_id, protocol_hash=protocol_hash,
-        engine=engine, across_runs=across_runs,
-    )
-    shards = _receipt_shards(project_db, receipts)
-
     gate = TopNGate(cap=cap, threshold=None)
-    for receipt in receipts:
-        path = _project_path(project_root, receipt.result_path)
-        if not path.is_file() or int(receipt.shard_id) not in shards:
-            continue
-        candidates = []
-        for row in _summary_rows(path, normalized_filters):
-            if row.get("score") is None or not bool(row.get("has_pose")):
-                continue
-            candidates.append({
-                **row,
-                "_result_shard": str(path),
-                "_result_record_id": int(row.get("ligand_id") or 0),
-                "_shard_id": int(receipt.shard_id),
-            })
-        gate.take(candidates)
-
+    for path in key_files(project_db, keys):
+        gate.take(
+            {**row, "_result_shard": str(path), "_result_record_id": int(row.get("ligand_id") or 0),
+             "_shard_id": int(row.get("shard_id") or 0)}
+            for row in _summary_rows(path, normalized_filters)
+            if row.get("score") is not None and bool(row.get("has_pose"))
+        )
     return gate.drain()
 
 
 def select_hits(
     project_db,
     *,
-    project_root: str | Path,
-    run_id: str,
-    protocol_hash: str,
+    keys: Iterable[str],
     filters: Mapping[str, Any] | None = None,
     top_n: int,
 ) -> list[dict[str, Any]]:
     """Rank projected score columns, then load poses only for the selected rows."""
-    from amdockvs.docking.results.repository import docking_run_id
+    from ms_flow.core.data import catalog
 
-    selected = select_hit_refs(
-        project_db,
-        project_root=project_root,
-        run_id=run_id,
-        protocol_hash=protocol_hash,
-        filters=filters,
-        top_n=top_n,
-    )
-    receipts = completed_result_receipts(
-        project_db, run_id=run_id, protocol_hash=protocol_hash
-    )
-    shards = _receipt_shards(project_db, receipts)
     from amdockvs.io.batches import library_names  # SQL: kept off the worker's import path
 
-    libraries = library_names(project_db) if shards else {}
-    receipt_by_path = {
-        _project_path(project_root, receipt.result_path): receipt
-        for receipt in receipts
-    }
-    metadata_by_path = {
-        path: result_metadata(path)
-        for path in {Path(row["_result_shard"]) for row in selected}
-    }
-
-    keys_by_path: dict[Path, set[tuple[int, int]]] = {}
+    selected = select_hit_refs(project_db, keys=keys, filters=filters, top_n=top_n)
+    keys_by_path: dict[Path, set[tuple[int, int, int]]] = {}
     for row in selected:
-        keys_by_path.setdefault(Path(row["_result_shard"]), set()).add(
-            (int(row["ligand_id"]), int(row["receptor_id"]))
-        )
-    payloads = {
-        path: _selected_payloads(path, keys)
-        for path, keys in keys_by_path.items()
-    }
-
-    # The run the parent created before the first shard (get-or-create, so a recovery finds it too).
-    runs = {
-        engine: docking_run_id(project_db, run_id=run_id, engine=engine, run_kind="screening", protocol={
-            **dict(metadata.get("protocol") or {}), "hash": protocol_hash})
-        for path, metadata in metadata_by_path.items()
-        for engine in {str(receipt_by_path[path].engine)} if path in receipt_by_path
-    }
+        keys_by_path.setdefault(Path(row["_result_shard"]), set()).add(_row_key(row))
+    payloads = {path: _selected_payloads(path, wanted) for path, wanted in keys_by_path.items()}
+    metadata = {path: result_metadata(path) for path in keys_by_path}
+    # The shard each row is of, any generation: a row whose shard's file is gone is left out.
+    shards = {shard_id: catalog.get_shard(project_db, shard_id)
+              for shard_id in {int(row["_shard_id"]) for row in selected}}
+    libraries = library_names(project_db) if selected else {}
 
     hits: list[dict[str, Any]] = []
     for row in selected:
         path = Path(row["_result_shard"])
-        key = (int(row["ligand_id"]), int(row["receptor_id"]))
-        payload = payloads.get(path, {}).get(key)
-        receipt = receipt_by_path.get(path)
-        source_shard = None if receipt is None else shards.get(int(receipt.shard_id))
-        if payload is None or receipt is None or source_shard is None:
+        payload = payloads.get(path, {}).get(_row_key(row))
+        source_shard = shards.get(int(row["_shard_id"]))
+        if payload is None or source_shard is None:
             continue
         pose_text, pose_suffix = _pose(payload)
         ligand_id = int(payload.get("ligand_id") or 0)
         hits.append({
             **json.loads(payload.get("metrics_json") or "{}"),
-            "docking_run_id": runs[str(receipt.engine)],
+            "docking_run_id": int(payload.get("docking_run_id") or 0),
             "name": f"{libraries.get(source_shard['scope'], 'library')}:{ligand_id}",
             "import_batch_id": source_shard["scope"],
             "source_index": ligand_id,
@@ -421,30 +333,42 @@ def select_hits(
             "score": float(payload["score"]),
             "score_type": str(payload.get("score_type") or ""),
             "pose_rank": 1,
-            "receptor_molecule_id": int(payload.get("receptor_id") or receipt.receptor_molecule_id),
-            # The fragment's (one receptor, one box): "" from before fragments recorded it.
-            "input_key": str(metadata_by_path[path].get("input_key") or ""),
+            "receptor_molecule_id": int(payload.get("receptor_id") or 0),
+            # The key's (one receptor, one box).
+            "input_key": str(metadata[path].get("input_key") or ""),
             "_pose_text": pose_text,
             "_pose_suffix": pose_suffix,
             "_result_shard": str(path),
             "_result_record_id": ligand_id,
-            "_shard_id": int(receipt.shard_id),
+            "_shard_id": int(row["_shard_id"]),
         })
     return hits
 
 
+def docked_pairs(project_db, keys: Iterable[str]) -> set[tuple[int, int]]:
+    """(docking run id, shard id) of every row the files of `keys` hold: which run docked what."""
+    pairs: set[tuple[int, int]] = set()
+    for path in key_files(project_db, keys):
+        table = pq.read_table(path, columns=["docking_run_id", "shard_id"]).group_by(
+            ["docking_run_id", "shard_id"]).aggregate([])
+        pairs.update(zip(map(int, table["docking_run_id"].to_pylist()), map(int, table["shard_id"].to_pylist())))
+    return pairs
+
+
 __all__ = [
+    "DONE_KIND",
     "RESULT_DATASET_FORMAT",
-    "SHARD_SELECTION_ALL",
     "ResultFragmentWriter",
-    "completed_result_receipts",
-    "fragment_ligand_ids",
+    "compact_keys",
+    "docked_pairs",
+    "key_files",
     "local_pose_path",
+    "off_target_selection",
     "result_fragment_path",
     "result_metadata",
+    "result_role",
     "result_row",
     "select_hit_refs",
     "select_hits",
-    "selection_covers",
-    "shard_selection",
+    "state_key",
 ]

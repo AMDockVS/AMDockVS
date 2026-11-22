@@ -10,71 +10,16 @@ shard), so nothing here caches a digest a compaction would make stale.
 
 from __future__ import annotations
 
-from sqlalchemy import Index, UniqueConstraint
+from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 from amdockvs.models.codes import code_field
 
 from amdockvs.core.constants import (
     TABLE_DOCKING_RUNS,
-    TABLE_SCREENING_SHARD_RUNS,
     TABLE_SCREENING_TARGETS,
-    TABLE_SHARD_PREPS,
 )
 from amdockvs.core.vocab import TargetState
-
-
-class ShardPrep(SQLModel, table=True):
-    """A shard prepared for one family: the row exists = prepared. Its file is derived
-    (`molecules.storage.prepared_shard_path`), not stored; failures are counted, not listed."""
-
-    __tablename__ = TABLE_SHARD_PREPS
-    __table_args__ = ({"sqlite_with_rowid": False},)
-
-    shard_id: int = Field(primary_key=True)  # ms_flow's shard id: (file id << 20) | row group
-    family: str = code_field("prep_family", "ad4", primary_key=True)
-    n_records: int = Field(default=0)
-    n_failed: int = Field(default=0)  # > 0 = partial
-
-
-class ScreeningShardRun(SQLModel, table=True):
-    """Idempotent receipt for one shard/receptor pair in a campaign.
-
-    Target-level aggregate progress remains in ``ScreeningTarget``. The receptor key is needed
-    so a partially completed campaign resumes only missing pairs instead of counting the same
-    receptor twice after a retry.
-    """
-
-    __tablename__ = TABLE_SCREENING_SHARD_RUNS
-    __table_args__ = (
-        UniqueConstraint("docking_run_id", "shard_id", "receptor_molecule_id", "binding_site_id"),
-        Index("idx_screening_shard_run_lookup", "docking_run_id", "state"),
-    )
-
-    id: int | None = Field(default=None, primary_key=True)
-    docking_run_id: int = Field(foreign_key=f"{TABLE_DOCKING_RUNS}.id")
-    shard_id: int = Field(index=True)  # ms_flow's shard id: (file id << 20) | row group
-    # Its file, a foreign key so the generation a receipt was computed on is kept while it exists.
-    file_id: int = Field(foreign_key="ms_shard_files.id", index=True)
-    receptor_molecule_id: int = Field(default=0, index=True)
-    # The receptor's site this receipt docked into; 0 without one (a blind run, an explicit box).
-    # 0, not NULL: it is part of a UNIQUE key, and SQLite counts two NULLs as different rows.
-    binding_site_id: int = Field(default=0, index=True)
-    engine: str = code_field("engine", index=True)
-    protocol_hash: str = Field(default="", index=True)
-    ligands_scored: int = Field(default=0)
-    hits: int = Field(default=0)
-    result_path: str = Field(default="")
-    # Which ligands of the shard this receipt stands for: empty is the whole shard, and
-    # ``top:<reference receptor id>`` is an off-target stage, which docks only the Top-N
-    # picked from that receptor. A forced re-dock replaces a receipt only when what it
-    # docked again covers it, so a subset never retires a whole-shard receipt.
-    selection: str = Field(default="")
-    # What the shard was docked against (`docking_input_key`): a later skip_existing run skips
-    # the pair only while the receptor preparation and box are still the same.
-    input_key: str = Field(default="")
-    state: str = code_field("run_state", TargetState.SCHEDULED, index=True)
-    error: str = Field(default="")
 
 
 class ScreeningTarget(SQLModel, table=True):
@@ -101,10 +46,11 @@ class ScreeningTarget(SQLModel, table=True):
     hits: int = Field(default=0)  # passed the prefilter
     imported: int = Field(default=0)  # of those, materialized as rows (the top-N)
     state: str = code_field("run_state", TargetState.SCHEDULED, index=True)
+    # The keys (`docking.results.dataset.state_key`, comma-joined: one per site) its shards were
+    # docked under. What is done of each, and its result rows, are ms_flow's under that key.
+    state_keys: str = Field(default="")
 
 
 __all__ = [
-    "ScreeningShardRun",
     "ScreeningTarget",
-    "ShardPrep",
 ]

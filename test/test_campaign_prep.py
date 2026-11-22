@@ -19,7 +19,7 @@ def test_unprepared_shards_are_prepared_once_and_docked_from_there(tmp_path):
 
     (tmp_path / "ready.parquet").write_bytes(b"")
     assert [e["shards"][0]["shard_id"] for e in prepared_elements([], elements)] == [1, 1]  # prep failed: not docked
-    twin = Path(prep[0]["shards"][0]["output_dir"]) / raw.name
+    twin = Path(prep[0]["shards"][0]["output_dir"]) / prep[0]["shards"][0]["output_name"]
     twin.parent.mkdir(parents=True)
     twin.write_bytes(b"")
     docked = list(prepared_elements([], elements))

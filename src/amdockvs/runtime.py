@@ -22,7 +22,6 @@ from amdockvs.core.constants import (
     TABLE_QSAR_MODELS,
     TABLE_QSAR_PREDICTIONS,
     TABLE_RECEPTOR_PREPS,
-    TABLE_SCREENING_SHARD_RUNS,
 )
 from amdockvs.manifest import AMDOCKVS_PROJECT_RESOURCES
 from amdockvs.core.configuration import (
@@ -378,15 +377,10 @@ class AMDockVSRuntime(AppRuntime):
     def _add_columns(self) -> None:
         """Columns a project made before them lacks: `docking_results.input_key` (2026-11). The box of an older
         result is unknown; its key is its receptor payload (`legacy_input_key`), so skip_existing
-        still docks again a receptor prepared since, without docking the whole library again.
-        `screening_shard_runs.selection` (2026-11, empty: every receipt written before it stood
-        for a whole shard)."""
+        still docks again a receptor prepared since, without docking the whole library again."""
         added = (
             (TABLE_DOCKING_RESULTS, "input_key", "VARCHAR NOT NULL DEFAULT ''",
              "UPDATE {table} SET input_key = 'legacy:' || COALESCE(receptor_payload_id, 0)"),
-            (TABLE_SCREENING_SHARD_RUNS, "selection", "VARCHAR NOT NULL DEFAULT ''", None),
-            # Empty on an older receipt: it never matches, so its pair is docked again.
-            (TABLE_SCREENING_SHARD_RUNS, "input_key", "VARCHAR NOT NULL DEFAULT ''", None),
             # NULL on an older row: it was prepared before preparation had anything to report.
             (TABLE_RECEPTOR_PREPS, "warnings", "VARCHAR", None),
         )

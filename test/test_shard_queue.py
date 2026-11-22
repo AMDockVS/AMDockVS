@@ -28,10 +28,9 @@ def _files(db):
 
 def _shards(db):
     """Every shard of every file, ready or not, in file then id order."""
-    return [SimpleNamespace(path=f["path"], file_id=f["id"], status=f["status"], base_id=base,
-                            slot_count=slots, n_records=n, scope=scope)
-            for f in _files(db) for base, slots, n, scope in
-            (file_groups(f["path"]) if f["status"] == catalog.READY else [])]
+    return [SimpleNamespace(path=f["path"], file_id=f["id"], status=f["status"], base_id=g.base_id,
+                            slot_count=g.slot_count, n_records=g.n_records, scope=g.scope)
+            for f in _files(db) for g in (file_groups(f["path"]) if f["status"] == catalog.READY else [])]
 
 
 def _group(batch, count, first_index=0):

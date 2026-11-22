@@ -212,11 +212,8 @@ class DockingAPI:
 
     def recoverable_ranked_runs(self) -> list[dict[str, Any]]:
         """Interrupted top-N campaigns recoverable from completed result shards."""
-        context = self.runtime._require_active_project()
-        return recoverable_ranked_runs(
-            self.runtime.workspace.project_db,
-            project_root=context.path,
-        )
+        self.runtime._require_active_project()
+        return recoverable_ranked_runs(self.runtime.workspace.project_db)
 
     def select_hits(
         self,
@@ -227,12 +224,16 @@ class DockingAPI:
         top_n: int,
     ) -> list[dict[str, Any]]:
         """Select a recomputable Top-N from the durable HTP result dataset."""
-        context = self.runtime._require_active_project()
+        from amdockvs.docking.results.repository import find_docking_run
+        from amdockvs.screening.campaign import target_keys
+
+        self.runtime._require_active_project()
+        project_db = self.runtime.workspace.project_db
+        run = find_docking_run(project_db, run_id=run_id, engine="", run_kind="screening",
+                               protocol_hash=protocol_hash)
         return select_shard_hits(
-            self.runtime.workspace.project_db,
-            project_root=context.path,
-            run_id=run_id,
-            protocol_hash=protocol_hash,
+            project_db,
+            keys=target_keys(project_db, [run or 0]),
             filters=filters,
             top_n=top_n,
         )
@@ -246,10 +247,9 @@ class DockingAPI:
         threshold: float = 0.0,
     ) -> dict[str, int]:
         """Materialize the best available N without submitting docking work."""
-        context = self.runtime._require_active_project()
+        self.runtime._require_active_project()
         return recover_ranked_hits(
             self.runtime.workspace.project_db,
-            project_root=context.path,
             run_id=run_id,
             protocol_hash=protocol_hash,
             top_n=top_n,
@@ -688,6 +688,7 @@ class DockingAPI:
                 off_receptor_filters=self._program_scope_filters(off_scope, role="receptor", program=program_spec)
                 if off_target_set is not None else {},
                 cpu_required=cpu,
+                executor=str(executor_name),
             )
             return self.runtime.submit_campaign(dock_shards_campaign, params=campaign_params.model_dump(mode="python"),
                                                 executor_name=executor_name, priority=SHARDS_PRIORITY)

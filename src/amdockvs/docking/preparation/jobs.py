@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 from itertools import batched
-from pathlib import Path
 from typing import Any, Iterator, Mapping
 
 from pydantic import BaseModel, Field
 
 from ms_flow.query import QuerySpec
-from ms_flow.sinks import graph_sink, table_sink
+from ms_flow.sinks import catalog_sink, graph_sink
 from amdockvs.core.jobs import JobSpec
 from amdockvs.docking.preparation.tasks import prepare_entities, prepare_ligand_shards
 
@@ -20,8 +19,8 @@ from amdockvs.docking.repository import (
     iter_entity_rows,
     molecule_scope_spec,
 )
-from amdockvs.models import LigandPrep, MoleculeRecord, ReceptorPrep, ShardPrep
-from amdockvs.molecules.storage import PREPARED_DIR, ShardStore, prepared_shard_path, shard_scope_spec
+from amdockvs.models import LigandPrep, MoleculeRecord, ReceptorPrep
+from amdockvs.molecules.storage import prepared_dir, prepared_role
 
 
 # A molecule the engine can't prepare is excluded with the reason (docking skips it, Filter's
@@ -281,8 +280,20 @@ class PrepareLigandShardsJobParams(BaseModel):
     file_ids: list[int] | None = None  # the library files to prepare; None = every file
 
 
+def _compact_prepared(params: dict, config: dict) -> None:
+    """A task's file per shard, merged into big ones once the job is over (every outcome: what a
+    canceled job made is kept, and its shards are not made again)."""
+    from ms_flow.core.data import catalog
+
+    project_db = config["project_db"]
+    generation_id = catalog.active_generation_id(project_db)
+    if generation_id is not None:
+        catalog.compact(project_db, generation_id, role=prepared_role(PrepareLigandShardsJobParams(**params).engine))
+
+
 class PrepareLigandShardsJobSpec(JobSpec):
-    """Whole shards per chunk: molecules in, PDBQT text out, both inside shard containers."""
+    """Whole shards per chunk: molecules in, PDBQT text out, a derived file per shard. The catalog
+    row of that file is the state (role `prepared:<family>`): no table of its own."""
 
     name = "amdock_prepare_ligand_shards_job"
     task_name = "amdock_prepare_ligand_shards_task"
@@ -290,62 +301,47 @@ class PrepareLigandShardsJobSpec(JobSpec):
     params_model = PrepareLigandShardsJobParams
     executor = "compute"
     supported_executors = AMDOCKVS_OFFLOADABLE_EXECUTORS
-    # The key columns are listed: the model default leaves primary keys out of an upsert.
-    output_spec = table_sink(
-        model=ShardPrep, columns=("shard_id", "family", "n_records", "n_failed"),
-        write_mode="upsert", conflict_keys=("shard_id", "family"),
-    )
+    output_spec = catalog_sink()
     output_flush_every = DEFAULT_OUTPUT_FLUSH_EVERY
     store_results = False
     required = ()
     produces = ()
+    finalize = staticmethod(_compact_prepared)
 
     @staticmethod
     def build_chunks(params: dict, config: dict | None = None) -> Iterator[dict[str, Any]]:
+        from ms_flow.core.data import catalog
+
         parsed = PrepareLigandShardsJobParams(**params)
-        config_map = dict(config or {})
-        project_db = config_map.get("project_db")
+        project_db = dict(config or {}).get("project_db")
         if project_db is None:
             raise ValueError("prepare_ligand_shards_job requires project_db in config.")
-
-        from sqlmodel import select
-
-        with project_db.get_session() as session:
-            prepared_ids = set(session.exec(select(ShardPrep.shard_id).where(ShardPrep.family == parsed.engine)).all())
-
+        role = prepared_role(parsed.engine)
         picked = None if parsed.file_ids is None else {int(value) for value in parsed.file_ids}
-
-        def pending() -> Iterator[dict[str, Any]]:
-            # whole: prepared once for everything, so undoing an exclusion needs no re-prep.
-            for row in ShardStore(project_db).iter_rows(shard_scope_spec(), whole=True):
-                shard_path = Path(str(row.get("path") or ""))
-                shard_id = int(row.get("id") or 0)
-                ids = shard_ids(row)
-                if picked is not None and int(row.get("file_id") or 0) not in picked:
-                    continue  # ponytail: filtered here, the files table is small
-                prepared = shard_id in prepared_ids and prepared_shard_path(shard_path, parsed.engine, ids).is_file()
-                if prepared and not parsed.force:
-                    continue
-                yield {
-                    "shard_id": shard_id,
-                    "shard_path": worker_file(shard_path),
-                    "ids": ids,
-                    # Beside the input, in a folder named after the engine — same shape as the
-                    # chemistry pass, so a campaign's stages read as a chain of folders.
-                    "output_dir": worker_output_dir(
-                        shard_path.parent / PREPARED_DIR.format(engine=parsed.engine)
-                    ),
-                    "import_batch_id": row.get("scope"),
-                    "shard_index": int(row.get("shard_index") or 0),
-                }
-
+        # whole: prepared once for everything, so undoing an exclusion needs no re-prep.
+        todo = [row for row in (catalog.shards(project_db, whole=True) if parsed.force
+                                else catalog.underived(project_db, role))
+                if picked is None or int(row["file_id"]) in picked]  # ponytail: the files table is small
+        # What a dead run published but never registered goes first. ponytail: a second prep job
+        # of the same family running now would lose its unregistered files; the UI runs one.
+        for folder in {prepared_dir(row["path"], parsed.engine) for row in todo}:
+            catalog.sweep(project_db, folder)
         emitted = False
-        for shard in pending():
+        for row in todo:
             emitted = True
-            yield {"shards": [shard], "engine": parsed.engine}
+            yield {"engine": parsed.engine, "role": role, "shards": [{
+                "shard_id": int(row["id"]),
+                "shard_path": worker_file(row["path"]),
+                "ids": shard_ids(row),
+                "generation_id": row["generation_id"],
+                # Beside the input, in a folder named after the engine.
+                "output_dir": worker_output_dir(prepared_dir(row["path"], parsed.engine)),
+                "import_batch_id": row["scope"],
+                "shard_index": int(row["shard_index"]),
+            }]}
         if not emitted:
             # MF still needs one chunk to close the job out cleanly when nothing is pending.
-            yield {"shards": [], "engine": parsed.engine}
+            yield {"shards": [], "engine": parsed.engine, "role": role}
 
     run_chunk = staticmethod(prepare_ligand_shards)
 

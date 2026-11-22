@@ -29,7 +29,6 @@ from amdockvs.models import (
     DockingResultRecord,
     DockingRun,
     MoleculeRecord,
-    ScreeningShardRun,
     ScreeningTarget,
 )
 
@@ -155,11 +154,12 @@ def _plan_docked(target, run):
 
     A run by shards writes no row per pair (only the few hits it imports), so the parent counts
     its ligands into `ligands_done` as its chunks land: there, the plan is the whole count."""
-    result, shard_run = aliased(DockingResultRecord), aliased(ScreeningShardRun)
+    result = aliased(DockingResultRecord)
     own = (select(func.count(distinct(result.ligand_molecule_id)))
            .where(result.receptor_molecule_id == target.receptor_molecule_id, result.docking_run_id == run.id)
            .scalar_subquery())
-    by_shards = exists(select(shard_run.id).where(shard_run.docking_run_id == run.id))
+    # A campaign is a run whose targets name the keys their results are under.
+    by_shards = target.state_keys != ""
     return case((by_shards, target.ligands_done), else_=target.ligands_done + own)
 
 

@@ -270,11 +270,7 @@ class LoaderAPI:
         joins the library instead of replacing it, and only the very first one has a
         generation to open.
         """
-        from amdockvs.molecules.storage import (
-            activate_generation,
-            active_generation_id,
-            create_generation,
-        )
+        from ms_flow.core.data.catalog import activate_generation, active_generation_id, create_generation
 
         project_db = self.runtime.workspace.project_db
         generation_id = active_generation_id(project_db)

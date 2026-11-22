@@ -14,7 +14,7 @@ panel the plan pairs with this table (§6) waits for there to be dispatches to s
 
 from __future__ import annotations
 
-from ms_flow.core.data.catalog import LIBRARY
+from ms_flow.core.data.catalog import SOURCE
 from ms_flow.core.database.project_models import CatalogFile
 
 from amdockvs.ui.catalog.common import BoundTableWidget, batch_columns
@@ -48,11 +48,14 @@ def _shard_table_config() -> TableConfig:
             ColumnDef("n_active", label="Active", width=100, sortable=True, align=AlignHint.RIGHT,
                       kind=ColumnKind.INTEGER),
             ColumnDef("error", label="Error", width=240, sortable=False),
-            ColumnDef("role", label="Role", width=110, sortable=True, visible=False),
+            # Filter by Role for prepared/derived files and result tables (default: the library).
+            ColumnDef("role", label="Role", width=130, sortable=True),
+            # "" = here; else the queue that wrote the file and keeps it (local reads skip it).
+            ColumnDef("location", label="Location", width=110, sortable=True),
             ColumnDef("generation_id", label="Generation", width=90, sortable=True, align=AlignHint.RIGHT,
                       kind=ColumnKind.INTEGER, visible=False),
         ],
-        default_filters=[FilterSpec("role", FilterOperator.EQ, LIBRARY, label="library")],
+        default_filters=[FilterSpec("role", FilterOperator.EQ, SOURCE, label="library")],
         default_sort=[SortSpec("id", descending=False)],
         page_size=50,
         page_size_options=[25, 50, 100, 250],

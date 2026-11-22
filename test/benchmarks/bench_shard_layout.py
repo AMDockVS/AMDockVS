@@ -28,7 +28,8 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from ms_flow.core.data.shard import PayloadKind, Serializer, Shard, ShardWriter
+from ms_flow.core.data.shard import Serializer, Shard, ShardWriter
+from amdockvs.core.constants import ShardKind
 
 SDF = Path(__file__).resolve().parents[2] / "data" / "Enamine_H100K" / "Enamine_H100K.sdf"
 SCHEMA = pa.schema([("id", pa.uint64()), ("record", pa.string())])
@@ -207,7 +208,7 @@ def main() -> None:
     ap.add_argument("--out", type=Path, required=True)
     a = ap.parse_args()
     base = base_records(a.payload)
-    kind = PayloadKind.SMILES if a.payload == "smiles" else PayloadKind.SDF
+    kind = ShardKind.SMILES if a.payload == "smiles" else ShardKind.SDF
     for n in a.shards:
         for layout in a.layouts:
             r = run_layout(layout, a.root, base, n, a.per_shard, a.big_records, a.payload, kind)

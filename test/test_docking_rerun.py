@@ -1,4 +1,5 @@
 """Screening replaces its configuration; redocking retains its protocol comparisons."""
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -12,7 +13,7 @@ from amdockvs.docking.protocols import protocol_hash
 from amdockvs.docking.rerun import DockingProtocolConflictError, resolved_protocol
 from amdockvs.docking.results.repository import docking_run_id
 from amdockvs.docking.submission import DockingSubmissionService
-from amdockvs.models import DockingRun, DockingResultRecord, MoleculeRecord, ScreeningShardRun, ScreeningTarget
+from amdockvs.models import DockingRun, DockingResultRecord, MoleculeRecord, ScreeningTarget
 from ms_flow.core.data.catalog import shard_id as catalog_shard_id
 from ms_flow.core.database.project_models import CatalogFile
 from amdockvs.molecules.scopes import MoleculeScope
@@ -47,6 +48,38 @@ def _fixture(tmp_path, monkeypatch):
 def _results(store):
     with store.get_session() as session:
         return list(session.exec(select(DockingResultRecord)).all())
+
+
+def _docked_shard(store, tmp_path, *, protocol_hash: str, receptor_id: int = 1) -> str:
+    """What a finished screening of one shard leaves: a result file, its done-set entry and the
+    plan row naming the key. Returns the key."""
+    from amdockvs.docking.results.dataset import ResultFragmentWriter, result_row, state_key
+    from amdockvs.screening.campaign import record_docked
+
+    key = state_key(engine="vina", protocol_hash=protocol_hash, receptor_id=receptor_id)
+    path = tmp_path / "old.results.parquet"
+    with ResultFragmentWriter(path, metadata={}) as writer:
+        writer.add(result_row({"ligand_molecule_id": 1, "receptor_molecule_id": receptor_id,
+                               "score": -9.0}, smiles="C", engine="vina"))
+    with store.get_session() as session:
+        session.add(CatalogFile(id=1, path="source.mshard", n_shards=1, n_records=5, n_active=5))
+        session.add(ScreeningTarget(docking_run_id=1, receptor_molecule_id=receptor_id,
+                                    engine="vina", state_keys=key))
+        session.commit()
+    record_docked(store, key=key, shard_id=catalog_shard_id(1, 0), result_path=str(path))
+    return key
+
+
+def _key_files(store, keys):
+    from amdockvs.docking.results.dataset import key_files
+
+    return key_files(store, keys)
+
+
+def _done_shards(store, key):
+    from amdockvs.screening.campaign import done_shards
+
+    return done_shards(store, key)
 
 
 def test_changed_configuration_blocks_before_deleting_or_submitting(tmp_path, monkeypatch):
@@ -134,37 +167,28 @@ def test_changing_offtarget_configuration_requires_the_reference_to_be_rerun(tmp
     store.dispose()
 
 
-def test_shard_replacement_clears_receipts_and_result_files(tmp_path, monkeypatch):
-    api, store, _old, calls = _fixture(tmp_path, monkeypatch)
-    fragment = tmp_path / "old.results.parquet"
-    fragment.write_text("previous results")
-    with store.get_session() as session:
-        session.add(CatalogFile(id=1, path="source.mshard", n_shards=1, n_records=5, n_active=5))
-        session.flush()  # no relationship() tells the unit of work the shard goes first
-        session.add(ScreeningShardRun(docking_run_id=1, shard_id=catalog_shard_id(1, 0), file_id=1,
-                                     receptor_molecule_id=1, engine="vina", ligands_scored=5,
-                                     result_path=fragment.name, state="done"))
-        session.commit()
+def test_shard_replacement_clears_the_done_set_and_result_files(tmp_path, monkeypatch):
+    api, store, old, calls = _fixture(tmp_path, monkeypatch)
+    key = _docked_shard(store, tmp_path, protocol_hash=old["hash"])
+    fragment = Path(_key_files(store, [key])[0])
     monkeypatch.setattr("amdockvs.docking.api.dock_shards_job", SimpleNamespace(count_chunks=lambda *_a, **_k: 1))
     api.run_shards(program="vina", exhaustiveness=1, replace_existing=True,
                    output_dir=tmp_path / "out", hit_threshold=0, hit_cap=5)
     assert _results(store) == [] and not fragment.exists()
     with store.get_session() as session:
-        assert session.exec(select(ScreeningShardRun)).all() == []
-        assert len(session.exec(select(CatalogFile)).all()) == 1
+        assert session.exec(select(ScreeningTarget)).all() == []
+        assert len(session.exec(select(CatalogFile)).all()) == 1  # the library file, not its results
+    assert _done_shards(store, key) == set()
     assert len(calls) == 1 and calls[0]["priority"] == -1  # beside the table's jobs, below them
     store.dispose()
 
 
-def test_shard_receipts_alone_are_enough_to_detect_a_configuration_change(tmp_path, monkeypatch):
-    api, store, _old, _calls = _fixture(tmp_path, monkeypatch)
+def test_shard_results_alone_are_enough_to_detect_a_configuration_change(tmp_path, monkeypatch):
+    api, store, old, _calls = _fixture(tmp_path, monkeypatch)
     with store.get_session() as session:
         session.exec(delete(DockingResultRecord))
-        session.add(CatalogFile(id=1, path="source.mshard", n_shards=1, n_records=5, n_active=5))
-        session.flush()  # no relationship() tells the unit of work the shard goes first
-        session.add(ScreeningShardRun(docking_run_id=1, shard_id=catalog_shard_id(1, 0), file_id=1,
-                                     receptor_molecule_id=1, engine="vina", ligands_scored=5, state="done"))
         session.commit()
+    _docked_shard(store, tmp_path, protocol_hash=old["hash"])
     with pytest.raises(DockingProtocolConflictError):
         api.check_protocol(program="vina", engine_config={"exhaustiveness": 1})
     store.dispose()

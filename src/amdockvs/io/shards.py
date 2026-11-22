@@ -24,7 +24,8 @@ from pathlib import Path
 from typing import Any, Iterator
 from uuid import uuid4
 
-from ms_flow.core.data.shard import MAX_RECORDS, PayloadKind, Serializer, ShardWriter
+from ms_flow.core.data.shard import MAX_RECORDS, Serializer, ShardWriter
+from amdockvs.core.constants import ShardKind
 
 from amdockvs.io.parsers import iter_record_span
 from amdockvs.io.payloads import ImportBatchPayload
@@ -42,14 +43,14 @@ SHARD_RECORDS = 256
 
 # What the container stamps in the header so a reader knows how to parse a record's bytes.
 _PAYLOAD_KIND = {
-    FileFormat.SDF: PayloadKind.SDF,
-    FileFormat.SMILES: PayloadKind.SMILES,
-    FileFormat.PDBQT: PayloadKind.PDBQT,
+    FileFormat.SDF: ShardKind.SDF,
+    FileFormat.SMILES: ShardKind.SMILES,
+    FileFormat.PDBQT: ShardKind.PDBQT,
 }
 
 
 def payload_kind_for(input_format: str) -> int:
-    return _PAYLOAD_KIND.get(str(input_format or ""), PayloadKind.GENERIC_BYTES)
+    return _PAYLOAD_KIND.get(str(input_format or ""), ShardKind.BYTES)
 
 
 FORMAT_FOR_KIND = {kind: fmt for fmt, kind in _PAYLOAD_KIND.items()}
@@ -482,9 +483,7 @@ class ShardGenerationWriter:
         and the switch silently replaces the library with nothing. That is the one outcome a
         rewrite must never be allowed to reach.
         """
-        from ms_flow.core.data.catalog import compact, record_count, shard_spec
-
-        from amdockvs.molecules.storage import activate_generation
+        from ms_flow.core.data.catalog import activate_generation, compact, record_count, shard_spec
 
         written = record_count(self._project_db, shard_spec(generation_id=self._generation_id), whole=True)
         if written <= 0:
@@ -494,7 +493,6 @@ class ShardGenerationWriter:
                 "previous generation is still the library."
             )
         # A worker wrote a file per task; a few big files are what the library keeps.
-        # Before activation: nothing (a prepared twin) is named after these paths yet.
         compact(self._project_db, self._generation_id)
         activate_generation(self._project_db, self._generation_id)
 

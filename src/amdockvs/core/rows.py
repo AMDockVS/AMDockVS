@@ -30,11 +30,6 @@ def prep_row(*, role_type: str, molecule_id: int, family: str, payload_id: Any =
     return {"molecule_id": molecule_id, "family": family, "payload_id": payload_id, "error": error}
 
 
-def shard_prep_row(*, shard_id: int, family: str, n_records: int = 0, n_failed: int = 0) -> dict[str, Any]:
-    return {"shard_id": int(shard_id), "family": str(family), "n_records": int(n_records),
-            "n_failed": int(n_failed)}
-
-
 def interaction_rows(receptor_payload_id: Any, pose_payload_id: Any, interactions: list[dict]) -> list[dict[str, Any]]:
     """The rows of one pose in its receptor. No interactions is one "none" row: the pose was looked at."""
     interactions = interactions or [{"interaction_type": "none", "residue": "", "geometry": {"method": "ms_contactmap"}}]

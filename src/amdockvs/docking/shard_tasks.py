@@ -21,7 +21,7 @@ from amdockvs.docking.rescoring import rescore_rows
 from amdockvs.docking.preparation.shards import extract_ligands
 from amdockvs.docking.results.dataset import (
     ResultFragmentWriter, _pose, _selected_payloads, _summary_rows, local_pose_path, result_fragment_path,
-    result_metadata, result_row, shard_selection,
+    result_metadata, result_row,
 )
 
 # How the cap is spent: the best `cap` of everything scored per receptor, picked from the result
@@ -103,9 +103,12 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
         "hits": [],
         "hits_found": 0,
         "result_shard": "",
-        # What this receipt will stand for: the whole shard, or the Top-N of an off-target stage.
-        # The parent names it per shard (the exclusions may have left this one partial).
-        "selection": str(shard.get("selection") or "") or shard_selection(payload.get("selected_from_receptor_id")),
+        # Where the parent files this: the target's key, under which cuts this shard was docked
+        # (the exclusions may have left this one partial) and the generation of its id.
+        "state_key": str(payload.get("state_key") or ""),
+        "narrowed_by": str(shard.get("narrowed_by") or ""),
+        "generation_id": shard.get("generation_id"),
+        "docking_run_id": payload.get("docking_run_id"),
         "input_key": str(payload.get("input_key") or ""),
     }
     shard_path = str(shard.get("shard_path") or "")
@@ -121,6 +124,7 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
             shard_path,
             staging,
             record_ids=shard.get("record_ids"),
+            ids=shard.get("prepared_ids"),
         )
         smiles = {int(ligand["id"]): str(ligand["smiles"]) for ligand in ligands}
         pairs = [
@@ -190,7 +194,8 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
                     pair_rows[0],
                 )
                 ligand_id = int(row.get("ligand_molecule_id") or 0)
-                stored = result_row(row, smiles=smiles.get(ligand_id, ""), engine=str(payload.get("engine") or ""))
+                stored = result_row(row, smiles=smiles.get(ligand_id, ""), engine=str(payload.get("engine") or ""),
+                                    shard_id=envelope["shard_id"], docking_run_id=payload.get("docking_run_id"))
                 writer.add(stored)
                 is_hit = (
                     row.get("score") is not None
@@ -245,15 +250,34 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
 # --- The stages of a campaign, run on the cluster (see `amdockvs.docking.campaign`) ----------
 
 
+def _kept(element: dict) -> list[dict]:
+    """The rows of what an earlier campaign of this project already left on this disk, so a
+    second one over the same library only points at it (its folder purged = prepared again)."""
+    from ms_flow.core.data.catalog import file_row
+
+    rows = []
+    for shard in element["shards"]:
+        where = Path(str(shard["output_dir"])).expanduser().resolve() / str(shard["output_name"])
+        if not where.is_file():
+            return []
+        rows.append(file_row(where, role=str(element["role"]), generation_id=shard.get("generation_id")))
+    return rows
+
+
 @task()
 def prepare_stage(element: dict) -> dict:
     """A shard of a library prepared there, by a campaign that found it unprepared here: left
-    where `located` finds it, and not sent back (what is docked is what comes)."""
+    where `located` finds it; only its catalog row comes back, never the file."""
     from amdockvs.docking.preparation.tasks import prepare_ligand_shards
 
-    if not prepare_ligand_shards(element):
+    rows = _kept(element) or prepare_ligand_shards(element)
+    if not any(row.get("n_records") for row in rows):  # else it would count as prepared there
         raise RuntimeError(f"shard {element['shards'][0]['shard_id']}: nothing of it could be prepared")
-    return {"shard_id": element["shards"][0]["shard_id"]}
+    # Its file stays here: what comes back is its row, so the campaign registers where it is and
+    # the next one to this host does not prepare it again.
+    files = [{key: row[key] for key in ("path", "role", "n_shards", "n_records", "n_active", "scopes")}
+             for row in rows]
+    return {"stage": "prep", "shard_id": element["shards"][0]["shard_id"], "files": files}
 
 
 def located(shard: dict) -> dict:
@@ -274,7 +298,9 @@ def prepared_elements(_prepared, elements: list[dict]):
 
 @task()
 def dock_stage(element: dict) -> dict:
-    """`dock_shards` as a stage's task: its envelopes, said which stage and which library they are of."""
+    """`dock_shards` as a stage's task: its envelopes, said which stage and which library they are of.
+    A shard the campaign prepared on this disk (in an earlier campaign too) is where `located` says."""
+    element = {**element, "shards": [located(shard) for shard in element["shards"]]}
     envelopes = dock_shards(element)
     for envelope, shard in zip(envelopes, element["shards"]):
         envelope.update(library=str(shard.get("library") or "library"), import_batch_id=shard.get("import_batch_id"))
@@ -314,11 +340,14 @@ def by_fragment(refs: list[dict]) -> list[dict]:
 def hit_poses(element: dict) -> dict:
     """The ranked of one fragment as hits (the rows `ingest_hits` takes), each with its pose."""
     refs = element["refs"]
-    payloads = _selected_payloads(Path(element["fragment"]), {(int(r["ligand_id"]), int(r["receptor_id"])) for r in refs})
+    payloads = _selected_payloads(
+        Path(element["fragment"]),
+        {(int(r["_shard_id"]), int(r["ligand_id"]), int(r["receptor_id"])) for r in refs},
+    )
     input_key = str(result_metadata(element["fragment"]).get("input_key") or "")
     hits = []
     for ref in refs:
-        payload = payloads.get((int(ref["ligand_id"]), int(ref["receptor_id"])))
+        payload = payloads.get((int(ref["_shard_id"]), int(ref["ligand_id"]), int(ref["receptor_id"])))
         if payload is None:
             raise ValueError(f"{element['fragment']}: ligand {ref['ligand_id']} is ranked but not in it")
         pose_text, pose_suffix = _pose(payload)

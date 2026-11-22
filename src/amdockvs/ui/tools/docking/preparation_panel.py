@@ -113,22 +113,25 @@ def _prep_table_config(*, role_type: str) -> TableConfig:
 
 
 def _shard_prep_table_config() -> TableConfig:
-    """Per-(shard, family) preparation, from `shard_preps`: a row = that shard is prepared."""
-    from amdockvs.models import ShardPrep
+    """The prepared files (catalog role `prepared:<family>`): a shard in one is prepared. A file
+    holds many shards; what failed in them is in the Shards view's details."""
+    from ms_flow.core.database.project_models import CatalogFile
 
     return TableConfig(
-        model_class=ShardPrep,
+        model_class=CatalogFile,
         columns=[
-            ColumnDef("shard_id", label="Shard", width=90, sortable=True, filterable=True, align=AlignHint.RIGHT),
-            ColumnDef("family", label="Family", width=120, sortable=True, filterable=True,
-                      kind=ColumnKind.CHOICE,
-                      choices=tuple(sorted({spec.preparation_engine for spec in list_docking_programs()}))),
+            ColumnDef("id", label="File", width=70, sortable=True, align=AlignHint.RIGHT, kind=ColumnKind.INTEGER),
+            ColumnDef("role", label="Family", width=130, sortable=True, filterable=True),
+            ColumnDef("n_shards", label="Shards", width=90, sortable=True, align=AlignHint.RIGHT,
+                      kind=ColumnKind.INTEGER),
             ColumnDef("n_records", label="Prepared", width=90, sortable=True, align=AlignHint.RIGHT,
                       kind=ColumnKind.INTEGER),
-            ColumnDef("n_failed", label="Failed", width=90, sortable=True, align=AlignHint.RIGHT,
-                      kind=ColumnKind.INTEGER),
+            ColumnDef("path", label="Path", width=320, sortable=True),
+            ColumnDef("generation_id", label="Generation", width=90, sortable=True, align=AlignHint.RIGHT,
+                      kind=ColumnKind.INTEGER, visible=False),
         ],
-        default_sort=[SortSpec("shard_id", descending=False)],
+        default_filters=[FilterSpec("role", FilterOperator.LIKE, "prepared:%", label="prepared")],
+        default_sort=[SortSpec("id", descending=False)],
         page_size=20,
         page_size_options=[10, 20, 50, 100],
         load_mode=TableLoadMode.INFINITE,
