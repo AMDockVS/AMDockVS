@@ -47,14 +47,12 @@ class MoleculeDisplayConfiguration(BaseModel):
 
 
 class _VinaFamilySettings(BaseModel):
-    """Per-program defaults the docking panel pre-fills; every value stays tuneable per run."""
+    """How the program runs on this machine. Its docking parameters are not here: Docking Studio
+    starts them from the program's own defaults and each project keeps its own."""
 
     model_config = ConfigDict(extra="forbid")
 
     path: str = Field("", title="Executable", description="Path to the binary; empty autodetects.")
-    exhaustiveness: int = Field(8, ge=1, le=256, title="Exhaustiveness", description="Search exhaustiveness.")
-    num_modes: int = Field(9, ge=1, le=128, title="Num modes", description="Number of poses to generate.")
-    cpu_per_task: int = Field(1, ge=1, le=128, title="CPU per task", description="CPU cores per docking task.")
     batch_size: int = Field(
         1,
         ge=1,
@@ -475,9 +473,12 @@ class ThemeConfiguration(BaseModel):
 _LEGACY_KEYS = {
     "docking.binding_site_box_size": "docking.box_size",
     "docking.temperature_k": "docking.temperature",
-    "docking.exhaustiveness": "docking.vina.exhaustiveness",
-    "docking.num_modes": "docking.vina.num_modes",
-    "docking.cpu_per_task": "docking.vina.cpu_per_task",
+    # Docking parameters left Settings: each project keeps its own (docking/studio_setup.py).
+    "docking.exhaustiveness": None,
+    "docking.num_modes": None,
+    "docking.cpu_per_task": None,
+    **{f"docking.{program}.{name}": None for program in ("vina", "gnina")
+       for name in ("exhaustiveness", "num_modes", "cpu_per_task")},
     "batch_sizes.docking": None,
     "docking.batch_size": None,  # now per program: docking.<engine>.batch_size
     "batch_sizes.ligand": "preparation.ligands_per_task",

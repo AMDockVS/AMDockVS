@@ -31,6 +31,7 @@ from amdockvs.docking.methods import METHODS, get_method
 from amdockvs.integrations.registry import MANAGED_TOOLS
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.docking.protocols import PROTOCOL_SCHEMA, protocol_hash, protocol_identity
+from amdockvs.ui.common.widgets import set_widget_value
 from amdockvs.core.vocab import MoleculeType
 from ms_components.tool_panel import ToolPanel
 
@@ -227,13 +228,14 @@ class ProtocolEditorWidget:
             # Vina/AutoDock-Vina settings (shared by the Vina-family runners). CPU-per-task
             # lives here, not in the Run step: it's program-specific (Vina exposes it,
             # AutoDock-GPU does not), so it belongs to each program's own config.
-            dd = self._docking_defaults().vina
-            self.exhaustiveness = _spinbox(minimum=1, maximum=256, value=dd.exhaustiveness)
-            self.num_modes = _spinbox(minimum=1, maximum=128, value=dd.num_modes)
-            self.vina_cpu = _spinbox(minimum=1, maximum=128, value=dd.cpu_per_task)
+            dd = spec.validate_config({})  # the program's own defaults, as the other pages
+            self.exhaustiveness = _spinbox(minimum=1, maximum=256, value=dd["exhaustiveness"])
+            self.num_modes = _spinbox(minimum=1, maximum=128, value=dd["num_modes"])
+            self.vina_cpu = _spinbox(minimum=1, maximum=128, value=dd["vina_cpu"])
             self.vina_seed = _seed_spinbox(spec)
             self.scoring_combo = QComboBox(page)
-            self.scoring_combo.addItems(list(VINA_PROGRAM.scoring_functions))
+            for name in VINA_PROGRAM.scoring_functions:  # its data too: restores match it
+                self.scoring_combo.addItem(name, name)
             self.scoring_combo.setCurrentText("vina")
             form.addRow("Exhaustiveness", self.exhaustiveness)
             form.addRow("Num modes", self.num_modes)
@@ -242,13 +244,14 @@ class ProtocolEditorWidget:
             form.addRow("Scoring", self.scoring_combo)
         elif spec.key == GNINA_PROGRAM.key:
             # gnina reuses the Vina PDBQT prep; "Scoring" here is the --cnn_scoring mode.
-            dd = self._docking_defaults().gnina
-            self.gnina_exhaustiveness = _spinbox(minimum=1, maximum=256, value=dd.exhaustiveness)
-            self.gnina_num_modes = _spinbox(minimum=1, maximum=128, value=dd.num_modes)
-            self.gnina_cpu = _spinbox(minimum=1, maximum=128, value=dd.cpu_per_task)
+            dd = spec.validate_config({})
+            self.gnina_exhaustiveness = _spinbox(minimum=1, maximum=256, value=dd["exhaustiveness"])
+            self.gnina_num_modes = _spinbox(minimum=1, maximum=128, value=dd["num_modes"])
+            self.gnina_cpu = _spinbox(minimum=1, maximum=128, value=dd["vina_cpu"])
             self.gnina_seed = _seed_spinbox(spec)
             self.gnina_cnn_combo = QComboBox(page)
-            self.gnina_cnn_combo.addItems(list(GNINA_PROGRAM.scoring_functions))
+            for name in GNINA_PROGRAM.scoring_functions:
+                self.gnina_cnn_combo.addItem(name, name)
             self.gnina_cnn_combo.setCurrentText("rescore")
             gpu_hint = QLabel(
                 "CNN mode: rescore/none are CPU-bound; refinement/all are GPU-bound and run "
@@ -324,12 +327,6 @@ class ProtocolEditorWidget:
                 values[name] = widget.text()
         return values
 
-    def _docking_defaults(self):
-        """User-configured docking defaults (amdockvs config, project layer included)."""
-        from amdockvs.core.configuration import app_config
-
-        return app_config(self.runtime).docking
-
     def _current_program_key(self) -> str:
         programs = getattr(self, "program_list", None)
         specs = list(list_docking_programs())
@@ -372,41 +369,33 @@ class ProtocolEditorWidget:
             }
         return self._schema_config_from_widgets(program)
 
+    def _page_widgets(self, program: str) -> dict[str, QWidget]:
+        """The config field -> the widget on `program`'s page that sets it."""
+        if program == VINA_PROGRAM.key:
+            return {"scoring_function": self.scoring_combo, "exhaustiveness": self.exhaustiveness,
+                    "num_modes": self.num_modes, "vina_cpu": self.vina_cpu, "seed": self.vina_seed}
+        if program == GNINA_PROGRAM.key:
+            return {"scoring_function": self.gnina_cnn_combo, "exhaustiveness": self.gnina_exhaustiveness,
+                    "num_modes": self.gnina_num_modes, "vina_cpu": self.gnina_cpu, "seed": self.gnina_seed}
+        return dict(self._program_config_widgets.get(program, {}))
+
     def _apply_protocol_config_to_widgets(self, protocol: dict) -> None:
+        """Put `protocol`'s config into its program's page. A field it leaves out, or holds a value
+        the widget does not take (a recorded 999 where the box stops at 256), shows the program's
+        own default -- never a value the widget picks instead (`set_widget_value`)."""
         program = str(protocol.get("program") or VINA_PROGRAM.key)
         config = dict(protocol.get("config") or {})
         method = self.method_combo.findData(str(config.get("method") or "standard"))
         if method >= 0:
             self.method_combo.setCurrentIndex(method)  # first: it decides the scoring choices
         self._select_program(program)  # its settings; what a docking run has ticked is not touched
-        docking = self._docking_defaults()
-        if program == VINA_PROGRAM.key:
-            dd = docking.vina
-            self.scoring_combo.setCurrentText(str(config.get("scoring_function") or "vina"))
-            self.exhaustiveness.setValue(int(config.get("exhaustiveness") or dd.exhaustiveness))
-            self.num_modes.setValue(int(config.get("num_modes") or dd.num_modes))
-            self.vina_cpu.setValue(int(config.get("vina_cpu") or dd.cpu_per_task))
-            self.vina_seed.setValue(int(config.get("seed") or 0))
-        elif program == GNINA_PROGRAM.key:
-            dd = docking.gnina
-            self.gnina_cnn_combo.setCurrentText(str(config.get("scoring_function") or "rescore"))
-            self.gnina_exhaustiveness.setValue(int(config.get("exhaustiveness") or dd.exhaustiveness))
-            self.gnina_num_modes.setValue(int(config.get("num_modes") or dd.num_modes))
-            self.gnina_cpu.setValue(int(config.get("vina_cpu") or dd.cpu_per_task))
-            self.gnina_seed.setValue(int(config.get("seed") or 0))
-        else:
-            for name, widget in self._program_config_widgets.get(program, {}).items():
-                value = config.get(name)
-                if value is None:
-                    continue
-                if isinstance(widget, QComboBox):
-                    widget.setCurrentIndex(max(0, widget.findData(value)))
-                elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
-                    widget.setValue(value)
-                elif isinstance(widget, QCheckBox):
-                    widget.setChecked(bool(value))
-                elif isinstance(widget, QLineEdit):
-                    widget.setText(str(value))
+        try:
+            defaults = get_docking_program(program).validate_config({})
+        except Exception:  # noqa: BLE001 - a program this build does not know has no page either
+            defaults = {}
+        for name, widget in self._page_widgets(program).items():
+            if not set_widget_value(widget, config.get(name)):
+                set_widget_value(widget, defaults.get(name))
 
     @staticmethod
     def _protocol_hash(program: str, config: dict, rescoring: list[dict] | None = None) -> str:

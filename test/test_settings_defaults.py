@@ -90,7 +90,7 @@ def test_legacy_keys_migrate_to_their_new_home(tmp_path, monkeypatch, caplog):
         "external_tools": {"vina_path": "/opt/vina", "p2rank_home": "/opt/p2rank", "tools_home": "/opt/tools"},
     }))
     config = create_amdock_configuration().get_value("")
-    assert config.docking.vina.exhaustiveness == 32
+    assert not hasattr(config.docking.vina, "exhaustiveness")  # each project keeps its own now
     assert config.docking.temperature == 310.0
     assert not hasattr(config.docking, "batch_size")  # per program now: the old value is dropped
     assert config.preparation.ligands_per_task == 7
@@ -98,7 +98,7 @@ def test_legacy_keys_migrate_to_their_new_home(tmp_path, monkeypatch, caplog):
     assert config.docking.vina.path == "/opt/vina"
     assert config.binding_sites.p2rank.home == "/opt/p2rank"
     notices = "\n".join(caplog.messages)
-    assert "'docking.exhaustiveness' is now 'docking.vina.exhaustiveness'" in notices
+    assert "'docking.exhaustiveness' no longer exists" in notices
     assert "'batch_sizes.output_flush_every' no longer exists" in notices
     assert "'docking.batch_size' no longer exists" in notices
     assert "batch_sizes" not in toml.load(path)  # rewritten on load: said once
