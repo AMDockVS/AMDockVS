@@ -22,7 +22,7 @@ from amdockvs.docking.rescoring import rescore_rows, sdf_records as _sdf_records
 
 
 def _poses_as_payloads(rows: list[dict]) -> list[dict]:
-    """Each row's pose, the record of its rank in the engine's SDF, as a part of one payload group
+    """Each row's pose, its original record in the engine's SDF, as a part of one payload group
     per file (the poses of a pair are one needle, each with its own id); the pose files are deleted."""
     root = get_default_project_root()
     groups: dict[str, tuple[list[str], PayloadGroup]] = {}
@@ -36,7 +36,7 @@ def _poses_as_payloads(rows: list[dict]) -> list[dict]:
             records = _sdf_records(path.read_text(encoding="utf-8", errors="replace")) if path.is_file() else []
             groups[str(path)] = records, PayloadGroup(kind="sdf", series=SERIES_POSES)
         records, group = groups[str(path)]
-        index = int(row.get("pose_rank") or 1) - 1
+        index = int((row.get("extra") or {}).get("pose_index", int(row.get("pose_rank") or 1) - 1))
         if 0 <= index < len(records):
             row["pose_payload_id"] = group.add(records[index].encode())
     for path in groups:

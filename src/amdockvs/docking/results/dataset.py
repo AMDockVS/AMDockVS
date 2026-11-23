@@ -107,6 +107,12 @@ def result_row(row: Mapping[str, Any], *, smiles: str, engine: str = "", shard_i
                docking_run_id: Any = 0) -> dict[str, Any]:
     """One engine row as a parquet row; `metrics_json` holds the result columns past the score."""
     pose_path = local_pose_path(row.get("pose_path"))
+    pose_text = "" if pose_path is None else pose_path.read_text(encoding="utf-8", errors="replace")
+    pose_index = (row.get("extra") or {}).get("pose_index")
+    if pose_path is not None and pose_path.suffix.lower() == ".sdf" and pose_index is not None:
+        from amdockvs.docking.rescoring import sdf_records
+
+        pose_text = sdf_records(pose_text)[int(pose_index)]
     metrics = {key: row.get(key) for key in (*SCORE_METRICS, "rmsd_vs_reference", "error", "extra")}
     return {
         "ligand_id": int(row.get("ligand_molecule_id") or 0),
@@ -120,7 +126,7 @@ def result_row(row: Mapping[str, Any], *, smiles: str, engine: str = "", shard_i
         "has_pose": pose_path is not None,
         "smiles": str(smiles or ""),
         "metrics_json": json.dumps(metrics, ensure_ascii=True, default=str),
-        "pose_text": "" if pose_path is None else pose_path.read_text(encoding="utf-8", errors="replace"),
+        "pose_text": pose_text,
         "pose_suffix": ".pose" if pose_path is None else pose_path.suffix.lower(),
     }
 
