@@ -598,15 +598,63 @@ AD_K = 5
 AD_THRESHOLD = 0.3
 
 
-def domain_similarity(train_bits, query_bits, k: int = AD_K) -> np.ndarray:
-    """Mean Tanimoto of each query row to its ``k`` most similar training rows (0/1 matrices)."""
+# Similarity cells per block of query rows in domain_similarity (float32: 128 MB a matrix).
+_AD_BLOCK_CELLS = 32_000_000
+
+
+def domain_similarity(train_bits, query_bits, k: int = AD_K, *, exclude=None) -> np.ndarray:
+    """Mean Tanimoto of each query row to its ``k`` most similar training rows (0/1 matrices).
+
+    ``exclude`` (one int per query row, -1 for none) is a training row that query row may not
+    count: the query IS that training molecule, and its own similarity of 1.0 would make every
+    training molecule look in-domain. Such rows average over the other training molecules.
+
+    Query rows go in blocks so memory stays bounded (~2 block matrices): the whole query × train
+    matrix at once was 4.3 GB a copy for 39k ligands × 27k training molecules, ~18 GB with its
+    temporaries."""
     train = np.asarray(train_bits, dtype=np.float32)
     query = np.atleast_2d(np.asarray(query_bits, dtype=np.float32))
-    inter = query @ train.T
-    union = query.sum(axis=1)[:, None] + train.sum(axis=1)[None, :] - inter
-    tanimoto = np.divide(inter, union, out=np.zeros_like(inter), where=union > 0)
+    skip = None if exclude is None else np.asarray(exclude, dtype=np.int64)
+    if skip is not None and skip.shape != (query.shape[0],):
+        raise ValueError("exclude needs one training row index (or -1) per query row.")
+    if skip is not None and (skip < -1).any():
+        # Only -1 means "nothing to skip". Letting any negative through would quietly read as
+        # that and hand back a score measured against one molecule too many.
+        raise ValueError("exclude takes a training row index, or -1 for none; not a negative index.")
+    # Never more neighbours than there are training molecules, and never fewer than one. A row
+    # that skips its own molecule has one candidate fewer, but only *that* row: taking the
+    # reduction off everyone would make a molecule's score depend on which rows it was batched
+    # with, and the same molecule would land on either side of AD_THRESHOLD run to run.
     k = max(1, min(int(k), train.shape[0]))
-    return -np.partition(-tanimoto, k - 1, axis=1)[:, :k].mean(axis=1)
+    train_t, train_sum = train.T.copy(), train.sum(axis=1)
+    query_sum = query.sum(axis=1)
+    out = np.empty(query.shape[0], dtype=np.float64)
+    step = max(1, _AD_BLOCK_CELLS // max(1, train.shape[0]))
+    for start in range(0, query.shape[0], step):
+        rows = slice(start, start + step)
+        inter = query[rows] @ train_t
+        union = query_sum[rows, None] + train_sum[None, :]
+        union -= inter
+        np.divide(inter, union, out=inter, where=union > 0)  # union 0 -> inter is 0 already
+        del union
+        inter *= -1  # the k largest = the k smallest of the negation, partitioned in place
+        if skip is not None:
+            own = np.flatnonzero(skip[rows] >= 0)
+            inter[own, skip[rows][own]] = np.inf  # sorts last: never among the k nearest
+        inter.partition(k - 1, axis=1)
+        nearest = -inter[:, :k]
+        if skip is None:
+            out[rows] = nearest.mean(axis=1)
+        else:
+            # Only when k left room for it does a row's own molecule reach the k nearest; drop it
+            # there and average over what that row actually had.
+            own = np.isneginf(nearest)
+            counts = k - own.sum(axis=1)
+            np.copyto(nearest, 0.0, where=own)
+            # counts hits 0 only for a lone training molecule queried as itself, which has no
+            # other neighbour to average: the sum is 0 too, so it scores 0.
+            out[rows] = nearest.sum(axis=1) / np.maximum(counts, 1)
+    return out
 
 
 def save_model(path: str | Path, model: FittedModel) -> Path:

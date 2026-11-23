@@ -303,3 +303,76 @@ def test_every_algorithm_has_help_for_its_task(task):
         assert "When to use:" in text and "Speed:" in text, algorithm
     assert "balance actives" in algorithm_help("random_forest", "classification")
     assert "balance actives" not in algorithm_help("random_forest", "regression")
+
+
+def test_domain_similarity_is_the_same_in_blocks(monkeypatch):
+    # query rows go through in blocks to bound memory; any block size gives the one-shot answer
+    import amdockvs.qsar.modeling as modeling
+
+    rng = np.random.default_rng(1)
+    train = (rng.random((60, 64)) < 0.15).astype(np.uint8)
+    query = (rng.random((25, 64)) < 0.15).astype(np.uint8)
+    query[0] = 0  # an empty fingerprint: similarity 0, not a division error
+    whole = domain_similarity(train, query, k=5)
+    for rows_per_block in (1, 7):
+        monkeypatch.setattr(modeling, "_AD_BLOCK_CELLS", rows_per_block * train.shape[0])
+        assert np.allclose(domain_similarity(train, query, k=5), whole)
+        # ...and the blocks were real: a step wide enough to swallow the query proves nothing
+        assert -(-query.shape[0] // rows_per_block) > 1
+    assert whole[0] == 0.0
+
+
+def test_domain_similarity_leaves_out_the_molecule_itself():
+    # brute force: a training molecule's k nearest are taken among the OTHER training molecules
+    rng = np.random.default_rng(3)
+    train = (rng.random((30, 48)) < 0.2).astype(np.uint8)
+    train[5] = train[4]  # a different molecule with the same fingerprint still counts (1.0)
+    query = np.vstack([train[:8], (rng.random((4, 48)) < 0.2).astype(np.uint8)])
+    exclude = list(range(8)) + [-1] * 4
+    got = domain_similarity(train, query, k=3, exclude=exclude)
+
+    def tanimoto(a, b):
+        union = np.sum(a | b)
+        return np.sum(a & b) / union if union else 0.0
+
+    for row, skip in enumerate(exclude):
+        sims = sorted((tanimoto(query[row], t) for i, t in enumerate(train) if i != skip), reverse=True)
+        assert got[row] == pytest.approx(np.mean(sims[:3]), abs=1e-6)
+    # row 4 skips itself but keeps its twin (row 5) at 1.0 among its neighbours
+    assert max(tanimoto(train[4], t) for i, t in enumerate(train) if i != 4) == 1.0
+    assert got[4] > got[6]  # ...which lifts it, unlike a molecule without a twin
+
+
+def test_domain_similarity_of_a_lone_training_molecule_against_itself_is_zero():
+    train = np.array([[1, 1, 0, 0]], dtype=np.uint8)
+    assert domain_similarity(train, train, k=5, exclude=[0]).tolist() == [0.0]
+
+
+def test_domain_similarity_of_a_molecule_does_not_depend_on_its_batch():
+    # Only a row that skips its own molecule loses a candidate. Taking that off every row (the
+    # obvious shortcut) would make a score depend on which rows it was measured alongside, and
+    # float it across AD_THRESHOLD between runs. k >= n_train is the only regime they differ in.
+    rng = np.random.default_rng(7)
+    train = (rng.random((4, 16)) < 0.4).astype(np.uint8)
+    for k in (4, 5, 9):  # k == n_train, and beyond it
+        alone = domain_similarity(train, train[1:2], k=k)[0]
+        batched = domain_similarity(train, train[0:2], k=k, exclude=[0, -1])[1]
+        assert batched == pytest.approx(alone), k
+        # and the row that does skip itself averages over the other three, not over two
+        skipped = domain_similarity(train, train[0:2], k=k, exclude=[0, -1])[0]
+
+        def tanimoto(a, b):
+            union = np.sum(a | b)
+            return np.sum(a & b) / union if union else 0.0
+
+        assert skipped == pytest.approx(np.mean([tanimoto(train[0], t) for t in train[1:]]), abs=1e-6)
+
+
+@pytest.mark.parametrize("exclude,message", [
+    ([-2, -1], "negative index"),  # only -1 means "nothing to skip"
+    ([0], "one training row index"),  # one per query row
+])
+def test_domain_similarity_rejects_an_exclude_it_cannot_read(exclude, message):
+    train = np.array([[1, 1, 0, 0], [1, 0, 0, 0]], dtype=np.uint8)
+    with pytest.raises(ValueError, match=message):
+        domain_similarity(train, train, k=1, exclude=exclude)
