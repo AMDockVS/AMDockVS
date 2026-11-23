@@ -33,8 +33,53 @@ _SCALE_SENSITIVE = frozenset(
     {"linear_regression", "ridge", "lasso", "svr", "knn", "logistic_regression", "svc"}
 )
 # Classifiers that accept class_weight='balanced' — the honest default for imbalanced endpoints
-# (e.g. Tox21: 96% inactive). GradientBoosting/kNN/baseline don't take it, so they're excluded.
-_BALANCEABLE = frozenset({"logistic_regression", "random_forest", "svc"})
+# (e.g. Tox21: 96% inactive). kNN/baseline don't take it, so they're excluded.
+_BALANCEABLE = frozenset({"logistic_regression", "random_forest", "svc", "gradient_boosting"})
+
+# 'gradient_boosting' now trains a histogram-based model, whose parameters are named differently
+# from the exact GradientBoosting it replaced. A model trained before the swap has the old names
+# stored in its settings (build.py keeps hyperparams, and they are part of the model's identity),
+# so re-training, cross-validating or y-scrambling it would die on a bare TypeError from sklearn.
+# Translate what maps, and name the replacement for what does not.
+_HISTGB_RENAMED = {"n_estimators": "max_iter"}
+_HISTGB_UNSUPPORTED = {
+    "subsample": "it bins the data instead of subsampling rows",
+    "min_samples_split": "set min_samples_leaf",
+    "criterion": "splits are scored by binned gain, with no choice of criterion",
+    "init": "it has no initial estimator",
+    "ccp_alpha": "limit tree size with max_leaf_nodes or min_samples_leaf",
+    "min_impurity_decrease": "set min_samples_leaf or max_leaf_nodes",
+    "min_weight_fraction_leaf": "set min_samples_leaf",
+    "alpha": "only the quantile loss takes a quantile, set as quantile=",
+}
+# The losses were renamed with the implementation. Whatever is left unmapped sklearn itself
+# rejects by name, listing what it does take, which is help enough.
+_HISTGB_LOSSES = {"ls": "squared_error", "lad": "absolute_error", "deviance": "log_loss"}
+_HISTGB_LOSSES_GONE = {
+    "huber": "it has no huber loss; absolute_error is the robust one it does take",
+    "exponential": "it has no exponential loss; log_loss is the only classification loss",
+}
+
+
+def _histgb_hyperparams(hyperparams: dict[str, Any]) -> dict[str, Any]:
+    """``hyperparams`` in the histogram-based model's vocabulary, or a readable error."""
+    out = dict(hyperparams)
+    for old, new in _HISTGB_RENAMED.items():
+        if old in out:
+            out.setdefault(new, out.pop(old))  # an explicit new name wins, the old one still goes
+    refused = {name: _HISTGB_UNSUPPORTED[name] for name in out if name in _HISTGB_UNSUPPORTED}
+    loss = out.get("loss")
+    if loss in _HISTGB_LOSSES_GONE:
+        refused["loss"] = _HISTGB_LOSSES_GONE[loss]
+    elif loss in _HISTGB_LOSSES:
+        out["loss"] = _HISTGB_LOSSES[loss]
+    if refused:
+        raise ValueError(
+            "gradient_boosting trains a histogram-based model, which does not take "
+            + "; ".join(f"'{name}' ({why})" for name, why in sorted(refused.items()))
+            + "."
+        )
+    return out
 
 
 def _build_estimator(
@@ -52,8 +97,8 @@ def _build_estimator(
     require_sklearn()
     from sklearn.dummy import DummyClassifier, DummyRegressor
     from sklearn.ensemble import (
-        GradientBoostingClassifier,
-        GradientBoostingRegressor,
+        HistGradientBoostingClassifier,
+        HistGradientBoostingRegressor,
         RandomForestClassifier,
         RandomForestRegressor,
     )
@@ -75,7 +120,10 @@ def _build_estimator(
         "ridge": lambda: Ridge(**{"alpha": 1.0, **hp}),
         "lasso": lambda: Lasso(**{"alpha": 0.1, **hp}),
         "random_forest": lambda: RandomForestRegressor(**{"n_estimators": 300, "random_state": 0, "n_jobs": -1, **hp}),
-        "gradient_boosting": lambda: GradientBoostingRegressor(**{"random_state": 0, **hp}),
+        # Histogram-based (LightGBM-style): binned splits on all cores, ~40x faster than the exact
+        # GradientBoosting on 2048-bit fingerprints, which lose nothing to binning (two values).
+        "gradient_boosting": lambda: HistGradientBoostingRegressor(
+            **{"random_state": 0, **_histgb_hyperparams(hp)}),
         "svr": lambda: SVR(**hp),
         "knn": lambda: KNeighborsRegressor(**hp),
     }
@@ -83,7 +131,8 @@ def _build_estimator(
         "baseline": lambda: DummyClassifier(strategy="prior"),
         "logistic_regression": lambda: LogisticRegression(**{"max_iter": 1000, **balance, **hp}),
         "random_forest": lambda: RandomForestClassifier(**{"n_estimators": 300, "random_state": 0, "n_jobs": -1, **balance, **hp}),
-        "gradient_boosting": lambda: GradientBoostingClassifier(**{"random_state": 0, **hp}),
+        "gradient_boosting": lambda: HistGradientBoostingClassifier(
+            **{"random_state": 0, **balance, **_histgb_hyperparams(hp)}),
         "svc": lambda: SVC(**{"probability": True, **balance, **hp}),
         "knn": lambda: KNeighborsClassifier(**hp),
     }
@@ -110,6 +159,94 @@ def supported_algorithms(task: str = "regression") -> tuple[str, ...]:
     if task == "classification":
         return ("baseline", "logistic_regression", "random_forest", "gradient_boosting", "svc", "knn")
     return ("baseline", "linear_regression", "ridge", "lasso", "random_forest", "gradient_boosting", "svr", "knn")
+
+
+# (what it is, when to use it, cost) per algorithm, written against the settings _build_estimator
+# uses; a (regression, classification) pair where the two differ. Shown as the Build tab's help.
+_ALGORITHM_HELP: dict[str, tuple[str, ...]] = {
+    "baseline": (
+        "Ignores the molecules and always predicts the training mean.",
+        "Ignores the molecules and predicts the training class frequencies.",
+        "Not a real model: it is the score any useful model must clearly beat. Train it alongside "
+        "the others as a reference.",
+        "Instant.",
+    ),
+    "linear_regression": (
+        "Ordinary least squares on scaled features: one signed weight per feature.",
+        "Easy to read, but with many correlated descriptors or fingerprint bits the weights become "
+        "unstable and it overfits. Ridge is usually the better linear choice.",
+        "Fast.",
+    ),
+    "ridge": (
+        "Linear regression with an L2 penalty (alpha = 1) that shrinks the weights.",
+        "Stable with correlated descriptors; a strong, quick linear reference model.",
+        "Fast.",
+    ),
+    "lasso": (
+        "Linear regression with an L1 penalty (alpha = 0.1) that sets many weights to exactly zero.",
+        "A sparse model that also picks the descriptors that matter. On fingerprints it can drop "
+        "too much and underfit.",
+        "Fast.",
+    ),
+    "logistic_regression": (
+        "Linear classifier that outputs class probabilities, with classes weighted to balance "
+        "actives and inactives.",
+        "A good first model, especially on fingerprints; its weights show which features push "
+        "towards active.",
+        "Fast.",
+    ),
+    "random_forest": (
+        "300 decision trees, each on a bootstrap sample of the molecules, averaged together.",
+        "300 decision trees, each on a bootstrap sample of the molecules, voting together; classes "
+        "are weighted to balance actives and inactives.",
+        "Robust, non-linear, little tuning needed, and copes with irrelevant features. Like all "
+        "tree models it cannot predict values outside the training range.",
+        "Moderate; uses all CPU cores.",
+    ),
+    "gradient_boosting": (
+        "Histogram gradient boosting: small trees added one at a time, each correcting the errors "
+        "of the previous ones.",
+        "Histogram gradient boosting: small trees added one at a time, each correcting the errors "
+        "of the previous ones; classes are weighted to balance actives and inactives.",
+        "Often the most accurate on tabular data. Above 10,000 molecules it holds out 10% of the "
+        "training set to stop adding trees once they no longer help. Cannot predict values "
+        "outside the training range.",
+        "Fast; uses all CPU cores.",
+    ),
+    "svr": (
+        "Support vector regression with an RBF kernel on scaled features.",
+        "Strong on small and medium sets with smooth structure-activity trends.",
+        "Training time grows roughly with the square of the molecule count: slow above ~10,000.",
+    ),
+    "svc": (
+        "Support vector classifier with an RBF kernel on scaled features; classes are weighted to "
+        "balance actives and inactives.",
+        "Strong on small and medium sets. Its probabilities come from an extra internal 5-fold "
+        "calibration.",
+        "Training time grows roughly with the square of the molecule count, and calibration "
+        "repeats it 5 times: very slow above ~10,000.",
+    ),
+    "knn": (
+        "Predicts from the 5 most similar training molecules (Euclidean distance; descriptors "
+        "are scaled first).",
+        "The similarity principle as a model: simple and transparent, but sensitive to irrelevant "
+        "features and weaker on diverse sets.",
+        "No training cost; prediction slows on large training sets.",
+    ),
+}
+
+
+def algorithm_help(algorithm: str, task: str = "regression") -> str:
+    """Plain-text description of ``algorithm`` for ``task``: what it does, when to use it, cost."""
+    parts = _ALGORITHM_HELP.get(algorithm)
+    if not parts:
+        return ""
+    what, *rest = parts
+    if len(rest) == 3:  # a (regression, classification) pair leads
+        classification_what = rest.pop(0)
+        what = classification_what if task == "classification" else what
+    use, cost = rest
+    return f"{what}\n\nWhen to use: {use}\n\nSpeed: {cost}"
 
 
 SUPPORTED_QSAR_ALGORITHMS = frozenset(supported_algorithms("regression") + supported_algorithms("classification"))
@@ -411,6 +548,26 @@ def _surviving_feature_names(estimator, feature_names: Sequence[str]) -> list[st
     return names
 
 
+def _histogram_gain_importances(model) -> np.ndarray | None:
+    """Normalised total split gain per feature for a HistGradientBoosting model, which exposes no
+    ``feature_importances_``. Reads its fitted trees (private ``_predictors``); None for any other
+    estimator or if that layout changes."""
+    predictors = getattr(model, "_predictors", None)
+    n_features = getattr(model, "n_features_in_", None)
+    if not predictors or not n_features:
+        return None
+    try:
+        gains = np.zeros(int(n_features), dtype=float)
+        for iteration in predictors:  # one tree per class (multiclass) per iteration
+            for tree in iteration:
+                nodes = tree.nodes[tree.nodes["is_leaf"] == 0]  # uint8, not bool
+                np.add.at(gains, nodes["feature_idx"], nodes["gain"])
+    except (AttributeError, KeyError, ValueError, IndexError):
+        return None
+    total = gains.sum()
+    return gains / total if total > 0 else gains
+
+
 def feature_importance(estimator, feature_names: Sequence[str], *, top_n: int = 15) -> list[tuple[str, float]]:
     """Top-N (name, weight) by magnitude: tree importances, or the signed coefficients of a
     linear model (comparable because the pipeline scales its features); [] when the estimator
@@ -418,6 +575,8 @@ def feature_importance(estimator, feature_names: Sequence[str], *, top_n: int = 
     estimator's retained features."""
     model = estimator.named_steps["model"] if hasattr(estimator, "named_steps") else estimator
     importances = getattr(model, "feature_importances_", None)
+    if importances is None:
+        importances = _histogram_gain_importances(model)
     if importances is None:
         coef = getattr(model, "coef_", None)
         if coef is None:
@@ -483,6 +642,7 @@ def load_model(path: str | Path) -> FittedModel:
 
 
 __all__ = [
+    "algorithm_help",
     "FittedModel",
     "SUPPORTED_QSAR_ALGORITHMS",
     "classification_metrics",

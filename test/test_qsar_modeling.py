@@ -212,9 +212,94 @@ def test_linear_models_expose_signed_weights():
     assert abs(weights["noise_a"]) < abs(weights["down"])
 
 
+def test_gradient_boosting_is_histogram_based_balanced_and_ranks_by_gain():
+    # HistGradientBoosting has no feature_importances_: the split gain of its trees stands in
+    rng = np.random.default_rng(0)
+    x = (rng.random((300, 8)) > 0.5).astype(float)
+    y = ((x[:, 0] == 1) & (rng.random(300) > 0.6)).astype(int)  # imbalanced, driven by bit_0
+    names = tuple(f"bit_{i}" for i in range(8))
+    model = fit_model(x, y, feature_names=names, algorithm="gradient_boosting", task="classification",
+                      feature_kind="ecfp4", fp_radius=2, fp_nbits=8)
+    assert type(model.estimator).__name__ == "HistGradientBoostingClassifier"
+    assert model.estimator.class_weight == "balanced"
+    importance = feature_importance(model.estimator, names)
+    assert importance[0][0] == "bit_0"
+    assert sum(v for _, v in importance) == pytest.approx(1.0)
+    # Only the gain of nodes that actually split counts. Leaves carry gain -1 under feature_idx 0,
+    # so summing them in would both invent importance for bit_0 and drag the total negative —
+    # recompute from the trees to pin the filter down, not just the ranking.
+    gains = np.zeros(len(names))
+    for stage in model.estimator._predictors:
+        for tree in stage:
+            nodes = tree.nodes
+            split = nodes[nodes["is_leaf"] == 0]
+            np.add.at(gains, split["feature_idx"], split["gain"])
+    assert (gains >= 0).all() and gains.sum() > 0
+    assert dict(importance) == pytest.approx(dict(zip(names, gains / gains.sum())))
+
+
+def test_gradient_boosting_importance_covers_every_tree_of_a_multiclass_fit():
+    # One tree per iteration for two classes, one PER CLASS beyond that: a reading that takes
+    # only the first tree of each iteration scores the same on binary data and loses two thirds
+    # of a three-class fit.
+    rng = np.random.default_rng(1)
+    x = (rng.random((300, 6)) > 0.5).astype(float)
+    y = (x[:, 0] + x[:, 1]).astype(int)  # three classes (0, 1, 2), driven by bit_0 and bit_1
+    names = tuple(f"bit_{i}" for i in range(6))
+    model = fit_model(x, y, feature_names=names, algorithm="gradient_boosting", task="classification",
+                      feature_kind="ecfp4", fp_radius=2, fp_nbits=6)
+    assert len(set(y)) == 3 and all(len(stage) == 3 for stage in model.estimator._predictors)
+    importance = feature_importance(model.estimator, names)
+    assert {n for n, _ in importance[:2]} == {"bit_0", "bit_1"}
+    assert sum(v for _, v in importance) == pytest.approx(1.0)
+    # Every class's tree counts, not just the first of each iteration: ranking alone cannot tell
+    # the difference, so compare against the gain of all 3 x n_iter trees.
+    gains = np.zeros(len(names))
+    for iteration in model.estimator._predictors:
+        for tree in iteration:
+            split = tree.nodes[tree.nodes["is_leaf"] == 0]
+            np.add.at(gains, split["feature_idx"], split["gain"])
+    assert dict(importance) == pytest.approx(dict(zip(names, gains / gains.sum())))
+
+
+@pytest.mark.parametrize("hyperparams,attribute,value", [
+    ({"n_estimators": 37}, "max_iter", 37),  # renamed, not refused
+    ({"n_estimators": 37, "max_iter": 50}, "max_iter", 50),  # the new name wins
+    ({"loss": "ls"}, "loss", "squared_error"),
+])
+def test_gradient_boosting_translates_the_old_parameter_names(hyperparams, attribute, value):
+    from amdockvs.qsar.modeling import _build_estimator
+
+    estimator = _build_estimator("gradient_boosting", "regression", hyperparams, feature_kind="ecfp4")
+    assert getattr(estimator, attribute) == value
+
+
+@pytest.mark.parametrize("name", ["subsample", "min_samples_split", "criterion", "init",
+                                  "ccp_alpha", "min_impurity_decrease", "min_weight_fraction_leaf",
+                                  "alpha"])
+def test_gradient_boosting_refuses_parameters_it_dropped_by_name(name):
+    # These reach us from a model trained before the swap, stored in its settings: the error has
+    # to say which parameter and what to use instead, not arrive as a bare TypeError from sklearn.
+    from amdockvs.qsar.modeling import _build_estimator
+
+    with pytest.raises(ValueError, match=name):
+        _build_estimator("gradient_boosting", "regression", {name: 0.5}, feature_kind="ecfp4")
+
+
 def test_domain_similarity_is_mean_tanimoto_to_the_k_nearest():
     train = np.array([[1, 1, 0, 0], [1, 0, 0, 0], [0, 0, 1, 1]])
     query = np.array([[1, 1, 0, 0], [0, 0, 0, 0]])
     # to [1,1,0,0]: 1, 0.5, 0 -> the two nearest average 0.75; an empty query is like nothing
     assert np.allclose(domain_similarity(train, query, k=2), [0.75, 0.0])
     assert np.allclose(domain_similarity(train, query, k=99), [0.5, 0.0])  # k caps at the set size
+
+
+@pytest.mark.parametrize("task", ["regression", "classification"])
+def test_every_algorithm_has_help_for_its_task(task):
+    from amdockvs.qsar.modeling import algorithm_help, supported_algorithms
+
+    for algorithm in supported_algorithms(task):
+        text = algorithm_help(algorithm, task)
+        assert "When to use:" in text and "Speed:" in text, algorithm
+    assert "balance actives" in algorithm_help("random_forest", "classification")
+    assert "balance actives" not in algorithm_help("random_forest", "regression")
