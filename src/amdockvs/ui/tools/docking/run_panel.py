@@ -35,6 +35,7 @@ from amdockvs.docking.planning import (
     DockingRunIdentity,
     DockingRunRequest,
     docking_signature,
+    program_run_id,
 )
 from amdockvs.ui.view_ids import COMPLEXES_VIEW_ID
 from amdockvs.ui.tools.docking.preparation_panel import _FLEX_NEEDS_RECEPTOR
@@ -1005,9 +1006,7 @@ class RunPanel:
         job_ids: dict[str, str] = {}
         for index, protocol in enumerate(protocols):
             config = dict(protocol.config)
-            protocol_run_id = str(params["run_id"])
-            if len(protocols) > 1:
-                protocol_run_id = f"{protocol_run_id}-{protocol.hash[:12] or index + 1}"
+            protocol_run_id = program_run_id(str(params["run_id"]), protocol.hash, index, len(protocols))
             common = {
                 "program": protocol.program,
                 "hit_threshold": float(params["hit_threshold"]),

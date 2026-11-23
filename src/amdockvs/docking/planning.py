@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
@@ -51,6 +52,25 @@ class DockingProtocol:
 
 
 MoleculeSource = MoleculeScope | MoleculeSetRef
+
+
+def program_run_id(click_id: str, protocol_hash: str, index: int, programs: int) -> str:
+    """The `run_id` of one program's job of a click over sharded libraries: the click's own when
+    it runs one program, else the click's with the protocol's hash (or its place) after it, so
+    each program's campaign keeps its own records. `click_id` undoes it."""
+    if programs <= 1:
+        return str(click_id)
+    return f"{click_id}-{str(protocol_hash)[:12] or index + 1}"
+
+
+_PROGRAM_RUN_ID = re.compile(r"^([0-9a-f]{32})-(?:[0-9a-f]{12}|\d+)$")
+
+
+def click_id(run_id: str) -> str:
+    """The Run click `run_id` belongs to: `program_run_id` undone. Only that exact shape (the
+    click's 32-hex id and its suffix) is undone, so a `run_id` an API caller chose is its own."""
+    match = _PROGRAM_RUN_ID.match(str(run_id or ""))
+    return match.group(1) if match else str(run_id or "")
 
 
 @dataclass(frozen=True)
