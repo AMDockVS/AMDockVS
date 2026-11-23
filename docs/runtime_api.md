@@ -177,12 +177,14 @@ P2Rank predicts them once it is installed through the tools facade:
 ```python
 status = runtime.tools.install("p2rank")
 
-job_id = runtime.binding_sites.predict(receptor_ids=[int(receptor.id)])
+job_id = runtime.binding_sites.predict(receptor_ids=[int(receptor.id)], threads="auto", batch_size=100)
 runtime.watch_job(job_id)
 sites = runtime.binding_sites.select(molecule_id=int(receptor.id), source="p2rank")
 ```
 
 `runtime.tools.status()` lists every managed tool and whether it is ready.
+For predictions on many receptors, pass all their IDs in one call. MolSuite
+queues batches of up to `batch_size` receptors on the selected executor.
 
 ## Docking
 

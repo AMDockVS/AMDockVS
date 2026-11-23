@@ -27,7 +27,13 @@ scope is empty, adjust this option or the filters in the Receptors catalog.
 - **Profile** — Choose **Ignore B-factors (predicted models, NMR, cryo-EM)**
   (the default) or **Use B-factors (X-ray structures)**. The selected profile
   applies to the whole run, including runs containing a mixture of structure types.
-- **Threads** — Set the number of CPU threads used by P2Rank.
+- **Threads per instance** — **Auto** uses half the usable CPUs on the smallest
+  participating node, rounded down, with at least one thread and at most the
+  number of proteins per batch. Choose a number to set it explicitly.
+- **Proteins per batch** — The maximum number of receptors sent in one task
+  (default **100**). Each task starts P2Rank once per effective profile present
+  in its batch. MolSuite can run several batches at a time, and tracks completion
+  and retries by batch.
 
 **Ignore B-factors (predicted models, NMR, cryo-EM)** is AMDockVS's default.
 It uses P2Rank's AlphaFold prediction model, which keeps the chemical and
@@ -54,7 +60,9 @@ The differences between the two profiles are defined in P2Rank's
 and [AlphaFold](https://github.com/rdk/p2rank/blob/2.5.1/distro/config/alphafold.groovy)
 configurations.
 
-P2Rank and Java 17 or later must be available. When the runtime is missing,
+P2Rank and Java 17 or later must be available wherever the selected executor
+runs tasks. On remote workers, use the managed P2Rank directory, a launcher on
+`PATH`, or set `AMDOCK_P2RANK_HOME` to the installation directory. When the local runtime is missing,
 the **P2Rank Runtime** section reports its status and provides **Open Settings**
 to reach **Settings → External tools**.
 

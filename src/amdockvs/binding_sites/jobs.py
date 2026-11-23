@@ -14,7 +14,7 @@ from amdockvs.core.jobs import job
 from amdockvs.binding_sites.tasks import p2rank_prediction_task
 
 from amdockvs.core.constants import (
-    AMDOCKVS_PROCESS_EXECUTORS,
+    AMDOCKVS_OFFLOADABLE_EXECUTORS,
     RESOURCE_POCKET_PREDICTIONS,
     TABLE_MOLECULE_MODELS,
     TABLE_MOLECULES,
@@ -53,6 +53,8 @@ class P2RankPredictionParams(BaseModel):
     profiles: dict[int, str] = Field(default_factory=dict)
     recalculate_receptor_ids: list[int] = Field(default_factory=list)
     threads: int = Field(default=1, ge=1, le=128)
+    # Omitted by old journals. Keep their original receptor payloads and chunk keys on resume.
+    batch_size: int | None = Field(default=None, ge=1)
     run_id: str
     output_dir: str = ""
     p2rank_command: str
@@ -204,7 +206,7 @@ def p2rank_prediction_finalize(
     name="amdock_pocket_prediction_job",
     params_model=P2RankPredictionParams,
     executor="compute",
-    supported_executors=AMDOCKVS_PROCESS_EXECUTORS,
+    supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
     output_spec=table_sink(model=BindingSite, write_mode="bulk"),
     finalize=p2rank_prediction_finalize,
     store_results=False,
@@ -227,6 +229,11 @@ def p2rank_prediction_job(params: dict, config: dict | None = None) -> Iterator[
     # of that decision only the project database can answer.
     resolves = any(_profile_for(parsed, receptor_id) == "auto" for receptor_id in recalculate_ids)
     predicted_ids = _predicted_molecule_ids(project_db) if resolves else set()
+    common = {
+        "threads": parsed.threads, "run_id": parsed.run_id, "version": parsed.version,
+        "p2rank_command": parsed.p2rank_command, "java_command": parsed.java_command,
+    }
+    batch = []
     emitted = False
     in_scope = False
     for receptor in db_pages(project_db, scope_spec(parsed), page_size=32):
@@ -239,17 +246,12 @@ def p2rank_prediction_job(params: dict, config: dict | None = None) -> Iterator[
         if receptor_path is None:
             raise ValueError(f"Receptor {receptor_id} has no structure.")
         emitted = True
-        yield {
+        item = {
             "receptor_id": receptor_id,
             "receptor_name": str(receptor.get("name") or f"receptor_{receptor_id}"),
             "receptor_path": worker_file(receptor_path, cache=True),
             "profile": _profile_for(parsed, receptor_id),
             "predicted": receptor_id in predicted_ids,
-            "threads": int(parsed.threads),
-            "run_id": parsed.run_id,
-            "version": parsed.version,
-            "p2rank_command": parsed.p2rank_command,
-            "java_command": parsed.java_command,
             "output_dir": worker_output_dir(
                 _prediction_output_dir(
                     output_root,
@@ -258,6 +260,15 @@ def p2rank_prediction_job(params: dict, config: dict | None = None) -> Iterator[
                 )
             ),
         }
+        if parsed.batch_size is None:
+            yield {**item, **common}
+        else:
+            batch.append(item)
+            if len(batch) == parsed.batch_size:
+                yield {**common, "receptors": batch}
+                batch = []
+    if batch:
+        yield {**common, "receptors": batch}
     if not in_scope:
         _raise_unreadable_scope(project_db, parsed)
     if not emitted:

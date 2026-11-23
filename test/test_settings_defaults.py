@@ -138,10 +138,11 @@ def test_contact_map_is_its_own_configuration_over_its_own_file(tmp_path, monkey
     assert own.load_view_settings()["palette"] == "soft"
 
 
-def test_p2rank_threads_default_to_a_quarter_of_the_machines_cpus(monkeypatch):
-    from amdockvs.core import configuration
+def test_p2rank_settings_default_to_auto_and_100_proteins():
+    from amdockvs.core.configuration import P2RankSettings
 
-    for cpus, threads in ((16, 4), (6, 1), (2, 1), (None, 1), (1024, 128)):
-        monkeypatch.setattr(configuration.os, "cpu_count", lambda cpus=cpus: cpus)
-        assert configuration.P2RankSettings().threads == threads
-    assert configuration.P2RankSettings(threads=3).threads == 3  # a value set in Settings wins
+    assert P2RankSettings().threads == 0
+    assert P2RankSettings().batch_size == 100
+    assert P2RankSettings(threads=3, batch_size=50).model_dump() == {
+        "home": "", "profile": "auto", "threads": 3, "batch_size": 50,
+    }
