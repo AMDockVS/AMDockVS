@@ -109,6 +109,18 @@ def test_a_recorded_value_the_widget_does_not_take_is_skipped_and_the_rest_resto
     assert build.ligand_protonation_ph.value() == 7.4 and build.pkasso_threads.value() == 5
 
 
+def test_pocket_detection_reopens_on_its_last_run(project):
+    from amdockvs.binding_sites.jobs import P2RankPredictionParams, p2rank_prediction_job
+    from amdockvs.ui.tools.binding_sites.detection import PocketDetectionWidget
+
+    _submit(project, p2rank_prediction_job, P2RankPredictionParams(
+        receptor_ids=[1], profile="alphafold", threads=3, run_id="r", p2rank_command="prank",
+        java_command="java").model_dump(mode="python"))
+    pockets = PocketDetectionWidget(runtime=project)
+    project.keep(pockets)
+    assert pockets.profile_combo.currentData() == "alphafold" and pockets.threads_spin.value() == 3
+
+
 def test_a_run_over_table_and_shards_keeps_what_only_the_table_takes(project):
     from amdockvs.chemistry.jobs import (
         LigandChemistryJobParams, ShardChemistryJobParams, ligand_chemistry_job, shard_chemistry_job)
