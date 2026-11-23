@@ -67,9 +67,9 @@ def test_prediction_params_validate_per_receptor_profiles():
         )
 
 
-def _write_outputs(root: Path) -> None:
-    root.mkdir(parents=True)
-    with (root / "protein.pdb_predictions.csv").open("w", encoding="utf-8", newline="") as handle:
+def _write_outputs(root: Path, name: str = "protein.pdb") -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    with (root / f"{name}_predictions.csv").open("w", encoding="utf-8", newline="") as handle:
         writer = csv.writer(handle)
         writer.writerow(
             [
@@ -91,19 +91,18 @@ def _write_outputs(root: Path) -> None:
         )
     visualizations = root / "visualizations"
     data = visualizations / "data"
-    data.mkdir(parents=True)
-    with gzip.open(data / "protein.pdb_points.pdb.gz", "wt", encoding="utf-8") as handle:
+    data.mkdir(parents=True, exist_ok=True)
+    with gzip.open(data / f"{name}_points.pdb.gz", "wt", encoding="utf-8") as handle:
         handle.write(
             "HETATM    1 H    STP 1   1       0.000   1.000   2.000  0.50 0.100\n"
             "HETATM    2 H    STP 1   1      12.000  13.000  14.000  0.50 0.600\n"
         )
-    (visualizations / "protein.pdb_pymol.pml").write_text("show spheres\n", encoding="utf-8")
+    (visualizations / f"{name}_pymol.pml").write_text("show spheres\n", encoding="utf-8")
 
 
 @pytest.mark.parametrize("profile", [None, "auto", "default", "alphafold"])
 def test_prediction_command_runs_the_resolved_profile(tmp_path, monkeypatch, profile):
     output = tmp_path / "output"
-    _write_outputs(output)
     receptor = tmp_path / "protein.pdb"
     receptor.touch()
     command = tmp_path / "prank"
@@ -112,10 +111,14 @@ def test_prediction_command_runs_the_resolved_profile(tmp_path, monkeypatch, pro
     java.touch()
     monkeypatch.setattr("amdockvs.binding_sites.p2rank.java_major_version", lambda _path: 17)
     commands = []
-    monkeypatch.setattr(
-        "amdockvs.binding_sites.p2rank._run_managed",
-        lambda args, **kwargs: commands.append(args),
-    )
+    def predict_dataset(args, **kwargs):
+        commands.append(args)
+        entries = Path(args[2]).read_text(encoding="utf-8").splitlines()
+        assert entries == ["receptor_7.pdb", "receptor_8.pdb"]
+        for name in entries:
+            _write_outputs(Path(args[args.index("-o") + 1]), name)
+
+    monkeypatch.setattr("amdockvs.binding_sites.p2rank._run_managed", predict_dataset)
     payload = {
         "receptor_path": str(receptor), "output_dir": str(output),
         "p2rank_command": str(command), "java_command": str(java),
@@ -123,10 +126,17 @@ def test_prediction_command_runs_the_resolved_profile(tmp_path, monkeypatch, pro
     }
     if profile is not None:
         payload["profile"] = profile
-    rows = run_p2rank_prediction(payload)
+    rows = run_p2rank_prediction({
+        **payload, "threads": 7, "receptors": [
+            payload, {**payload, "receptor_id": 8, "output_dir": str(tmp_path / "other")},
+        ],
+    })
     # The receptor is an empty file: "auto" (the default) cannot judge it and keeps P2Rank's own model.
     expected = profile if profile in {"default", "alphafold"} else "default"
     assert rows[0]["extra_data"]["profile"] == expected
+    assert {row["molecule_id"] for row in rows} == {7, 8}
+    assert len(commands) == 1
+    assert commands[0][commands[0].index("-threads") + 1] == "2"
     if expected == "alphafold":
         assert commands[0][-2:] == ["-c", "alphafold"]
     else:
@@ -630,12 +640,47 @@ def _submitting_pocket_api(project_store: ProjectStore, tmp_path, monkeypatch) -
     ))
     submitted: list = []
     runtime = SimpleNamespace(
-        workspace=SimpleNamespace(project_db=project_store),
+        workspace=SimpleNamespace(
+            project_db=project_store, settings_manager=SimpleNamespace(settings=SimpleNamespace(executors={})),
+            engine=SimpleNamespace(executor_node_resources=lambda *a, **k: ((14, 0, 8192),)),
+        ),
         _require_active_project=lambda: None,
+        _run_on=lambda _job, executor: executor,
+        _asks=lambda _executor: {},
         get_project_resource_path=lambda _resource: tmp_path / "results" / "pockets",
         submit_job=lambda *a, **k: submitted.append(k) or f"job-{len(submitted)}",
     )
     return BindingSiteAPI(runtime), submitted
+
+
+def test_prediction_submits_fixed_batches_and_resolves_auto_at_the_destination(tmp_path, monkeypatch):
+    from amdockvs.binding_sites.jobs import p2rank_prediction_job
+    from payload_seed import seed_payload
+
+    store = ProjectStore.open_at(tmp_path / "project.db")
+    try:
+        payload_id = seed_payload(store, _pdb(23.45, 77.0), "pdb")
+        with store.get_session() as session:
+            session.add_all([
+                MoleculeRecord(id=i, name=f"receptor {i}", is_receptor=True, has_3d=True,
+                               stored_payload_id=payload_id)
+                for i in range(1, 17)
+            ])
+            session.commit()
+        api, submitted = _submitting_pocket_api(store, tmp_path, monkeypatch)
+        api.predict(receptor_ids=list(range(1, 17)), batch_size=10)
+        request, = submitted
+        assert request["cpu_required"] == request["params"]["threads"] == 7
+        assert request["total_chunks"] == 2
+        chunks = list(p2rank_prediction_job.build_chunks(request["params"], config={"project_db": store}))
+        assert [[item["receptor_id"] for item in chunk["receptors"]] for chunk in chunks] == [
+            list(range(1, 11)), list(range(11, 17)),
+        ]
+        api.runtime.workspace.engine.executor_node_resources = lambda *a, **k: ((14, 0, 8192), (4, 0, 8192))
+        api.predict(receptor_ids=list(range(1, 17)), batch_size=10)
+        assert submitted[-1]["cpu_required"] == 2
+    finally:
+        ProjectStore.clear_cached_stores()
 
 
 def test_a_named_run_refuses_to_predict_a_receptor_it_already_predicted(tmp_path, monkeypatch):

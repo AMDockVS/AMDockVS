@@ -136,3 +136,13 @@ def test_contact_map_is_its_own_configuration_over_its_own_file(tmp_path, monkey
     assert {entry.path: entry for entry in shared.entries()}["palette"].choices == PALETTES
     shared.set_value("palette", "soft")
     assert own.load_view_settings()["palette"] == "soft"
+
+
+def test_p2rank_settings_default_to_auto_and_100_proteins():
+    from amdockvs.core.configuration import P2RankSettings
+
+    assert P2RankSettings().threads == 0
+    assert P2RankSettings().batch_size == 100
+    assert P2RankSettings(threads=3, batch_size=50).model_dump() == {
+        "home": "", "profile": "auto", "threads": 3, "batch_size": 50,
+    }
