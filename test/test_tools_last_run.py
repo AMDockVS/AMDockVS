@@ -54,6 +54,18 @@ def _build(runtime):
     return widget
 
 
+def test_tools_with_no_runs_keep_the_values_they_are_built_with(project):
+    from amdockvs.ui.tools.binding_sites.detection import PocketDetectionWidget
+    from amdockvs.ui.tools.molecules.diversity import DiversitySelectionWidget
+
+    build = _build(project)
+    assert build.ligand_protonation_ph.value() == 7.4 and build.ligand_num_conformers.value() == 20
+    pockets = PocketDetectionWidget(runtime=project)
+    diversity = DiversitySelectionWidget(runtime=project)
+    project.keep(pockets), project.keep(diversity)
+    assert pockets.threads_spin.value() >= 1 and diversity.radius_spin.value() == 2
+
+
 def test_build_reopens_on_its_last_ligand_run(project):
     from amdockvs.chemistry.jobs import LigandChemistryJobParams, ligand_chemistry_job
 
@@ -121,6 +133,19 @@ def test_pocket_detection_reopens_on_its_last_run(project):
     assert pockets.profile_combo.currentData() == "alphafold" and pockets.threads_spin.value() == 3
 
 
+def test_diversity_reopens_on_its_last_cluster_not_on_a_preview(project):
+    from amdockvs.diversity.jobs import SelectionClusterJobParams, cluster_molecules_job
+    from amdockvs.ui.tools.molecules.diversity import DiversitySelectionWidget
+
+    _submit(project, cluster_molecules_job, SelectionClusterJobParams(
+        method="bitbirch", threshold=0.5, fp_radius=3, fp_nbits=1024, cluster_run_id="c").model_dump(mode="python"))
+    diversity = DiversitySelectionWidget(runtime=project)
+    project.keep(diversity)
+    threshold = diversity._method_widgets["bitbirch"]["threshold"]
+    assert threshold.value() == 0.5 and diversity._cluster_params()["threshold"] == 0.5
+    assert diversity.radius_spin.value() == 3 and diversity.nbits_spin.value() == 1024
+
+
 def test_a_run_over_table_and_shards_keeps_what_only_the_table_takes(project):
     from amdockvs.chemistry.jobs import (
         LigandChemistryJobParams, ShardChemistryJobParams, ligand_chemistry_job, shard_chemistry_job)
@@ -139,6 +164,27 @@ def test_a_run_over_table_and_shards_keeps_what_only_the_table_takes(project):
     assert build.ligand_protonation_ph.value() == 6.8 and build.ligand_random_seed.value() == 11
 
 
+def test_an_open_preview_pile_wins_whole_and_the_next_preview_extends_it(project):
+    import json
+
+    from amdockvs.diversity.jobs import SelectionClusterJobParams, cluster_molecules_job
+    from amdockvs.ui.tools.molecules.diversity import DiversitySelectionWidget
+
+    _submit(project, cluster_molecules_job, SelectionClusterJobParams(
+        method="bitbirch", threshold=0.5, fp_radius=3, fp_nbits=1024, cluster_run_id="c").model_dump(mode="python"))
+    # A Preview made after that Cluster, at another threshold and fingerprint, left in the cache.
+    key = [["all", None], 2, 3072, None, "", [["method", "bitbirch"], ["threshold", 0.65]]]
+    cache = project.active_context.path / "cache" / "diversity_preview.json"
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_text(json.dumps({"selections": [{"molecule_ids": [1]}], "basis_key": key, "seen_ids": [1]}))
+    diversity = DiversitySelectionWidget(runtime=project)
+    project.keep(diversity)
+    assert diversity._cluster_params() == {"method": "bitbirch", "threshold": 0.65}  # the pile's, not the Cluster's
+    assert (diversity.radius_spin.value(), diversity.nbits_spin.value()) == (2, 3072)
+    scope = diversity._scope_params()
+    assert scope is not None and diversity._scope_key(scope) == diversity._basis_key  # the next Preview extends it
+
+
 def test_a_recorded_number_the_widget_does_not_offer_changes_nothing(project):
     from amdockvs.chemistry.jobs import LigandChemistryJobParams, ligand_chemistry_job
 
@@ -149,3 +195,26 @@ def test_a_recorded_number_the_widget_does_not_offer_changes_nothing(project):
     assert build.ligand_protonation_ph.value() == 7.4  # not 1.0 (True is 1 in Python)
     assert build.ligand_embed_attempts.value() == 1  # not 50 (Qt clamps 999 to the maximum)
     assert build.ligand_protonation_method.currentData() == "openbabel" and build.ligand_random_seed.value() == 5
+
+
+def test_a_cluster_clicked_after_the_preview_pile_wins_the_settings(project):
+    import json
+    import os
+
+    from amdockvs.diversity.jobs import SelectionClusterJobParams, cluster_molecules_job
+    from amdockvs.ui.tools.molecules.diversity import DiversitySelectionWidget
+
+    key = [["all", None], 2, 3072, None, "", [["method", "bitbirch"], ["threshold", 0.65]]]
+    cache = project.active_context.path / "cache" / "diversity_preview.json"
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_text(json.dumps({"selections": [{"molecule_ids": [1]}], "basis_key": key, "seen_ids": [1]}))
+    os.utime(cache, (time.time() - 60, time.time() - 60))  # the Preview, a minute before the Cluster
+    _submit(project, cluster_molecules_job, SelectionClusterJobParams(
+        method="bitbirch", threshold=0.5, fp_radius=3, fp_nbits=1024, cluster_run_id="c").model_dump(mode="python"))
+    diversity = DiversitySelectionWidget(runtime=project)
+    project.keep(diversity)
+    assert diversity._cluster_params() == {"method": "bitbirch", "threshold": 0.5}  # the Cluster's
+    assert (diversity.radius_spin.value(), diversity.nbits_spin.value()) == (3, 1024)
+    assert len(diversity._selections) == 1  # the pile is still there to look at
+    scope = diversity._scope_params()
+    assert scope is not None and diversity._scope_key(scope) != diversity._basis_key  # the next Preview starts anew
