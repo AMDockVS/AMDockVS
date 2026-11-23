@@ -32,7 +32,8 @@ n_points = 120
 [binding_sites.p2rank]
 home = ""
 profile = "auto"
-threads = 1
+threads = 0 # Auto
+batch_size = 100
 
 [docking]
 box_size = 22.0

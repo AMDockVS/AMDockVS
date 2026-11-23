@@ -354,7 +354,11 @@ class P2RankSettings(BaseModel):
         description="P2Rank model: 'auto' picks per receptor from its structure; 'alphafold' ignores "
                     "B-factors; 'default' uses experimental X-ray B-factors.",
     )
-    threads: int = Field(1, ge=1, le=128, title="Threads", description="Default threads per prediction job.")
+    threads: int = Field(
+        0, ge=0, le=128, title="Threads per P2Rank instance",
+        description="0 selects Auto, based on the CPU budget of the executor.",
+    )
+    batch_size: int = Field(100, ge=1, title="Proteins per P2Rank batch")
 
 
 class BindingSitesConfiguration(BaseModel):
@@ -529,6 +533,7 @@ _PACKAGED_DEFAULT = AMDockConfiguration.model_validate(
 DEFAULT_MAX_2D_PREVIEW_HEAVY_ATOMS = _PACKAGED_DEFAULT.molecule_display.max_2d_preview_heavy_atoms
 DEFAULT_BINDING_SITE_BOX_SIZE = _PACKAGED_DEFAULT.docking.box_size
 DEFAULT_P2RANK_PROFILE = _PACKAGED_DEFAULT.binding_sites.p2rank.profile
+DEFAULT_P2RANK_BATCH_SIZE = _PACKAGED_DEFAULT.binding_sites.p2rank.batch_size
 DEFAULT_TEMPERATURE_K = _PACKAGED_DEFAULT.docking.temperature
 DEFAULT_LIGAND_BATCH_SIZE = _PACKAGED_DEFAULT.preparation.ligands_per_task
 DEFAULT_DOCKING_BATCH_SIZE = _PACKAGED_DEFAULT.docking.vina.batch_size
@@ -600,6 +605,7 @@ __all__ = [
     "DEFAULT_MOLECULES_PER_CPU",
     "DEFAULT_MAX_2D_PREVIEW_HEAVY_ATOMS",
     "DEFAULT_OUTPUT_FLUSH_EVERY",
+    "DEFAULT_P2RANK_BATCH_SIZE",
     "DEFAULT_P2RANK_PROFILE",
     "DEFAULT_SHARD_MAX_BYTES",
     "DEFAULT_SHARD_SUGGEST_RECORDS",

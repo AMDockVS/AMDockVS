@@ -34,6 +34,7 @@ B_FACTOR_CONSTANT = "constant"  # one value on every atom, e.g. zeroed by OpenMM
 B_FACTOR_VARIES = "varies"  # an experimental column P2Rank's default model can read
 
 P2RANK_VERSION = "2.5.1"
+P2RANK_LAUNCHER = "prank"
 P2RANK_ARCHIVE_NAME = f"p2rank_{P2RANK_VERSION}.tar.gz"
 P2RANK_DOWNLOAD_URL = (
     f"https://github.com/rdk/p2rank/releases/download/{P2RANK_VERSION}/{P2RANK_ARCHIVE_NAME}"
@@ -122,7 +123,7 @@ def java_major_version(command: str | Path | None = None) -> int | None:
 
 def p2rank_status(version: str = P2RANK_VERSION) -> P2RankInstallation:
     home = p2rank_home(version)
-    command = home / "prank"
+    command = home / P2RANK_LAUNCHER
     java = find_java_command()
     java_version = java_major_version(java)
     tool_ok = command.is_file() and (home / "bin" / "p2rank.jar").is_file()
@@ -354,11 +355,12 @@ def parse_p2rank_outputs(
     profile: str,
     profile_reason: str = "",
     version: str = P2RANK_VERSION,
+    input_name: str = "*",
 ) -> list[dict[str, Any]]:
     output = Path(output_dir).expanduser().resolve()
-    predictions_path = _find_single(output, "*_predictions.csv")
-    points_path = _find_single(output, "*_points.pdb.gz")
-    pml_path = _find_single(output, "*.pml", required=False)
+    predictions_path = _find_single(output, f"{input_name}_predictions.csv")
+    points_path = _find_single(output, f"{input_name}_points.pdb.gz")
+    pml_path = _find_single(output, "*.pml" if input_name == "*" else f"{input_name}_pymol.pml", required=False)
     points = _point_coordinates_by_rank(points_path)
 
     rows: list[dict[str, Any]] = []
@@ -483,20 +485,27 @@ def effective_profile(requested: str, path: str | Path, *, predicted: bool = Fal
 
 
 def run_p2rank_prediction(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    receptor_path = Path(str(payload.get("receptor_path") or "")).expanduser().resolve()
-    if not receptor_path.is_file():
-        raise FileNotFoundError(f"P2Rank receptor file does not exist: {receptor_path}")
-    output_dir = Path(str(payload.get("output_dir") or "")).expanduser().resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
+    """Run a list of receptors, also accepting a receptor from an older recorded job."""
+    receptors = payload.get("receptors", [payload])
+    if not receptors:
+        return []
+    version = str(payload.get("version") or P2RANK_VERSION)
     command_path = Path(str(payload.get("p2rank_command") or "")).expanduser().resolve()
     if not command_path.is_file():
-        raise FileNotFoundError(f"P2Rank command does not exist: {command_path}")
+        command_path = p2rank_home(version) / P2RANK_LAUNCHER
+        if not command_path.is_file():
+            command_path = Path(shutil.which(P2RANK_LAUNCHER) or command_path)
+    if not command_path.is_file():
+        raise FileNotFoundError(f"Install P2Rank {version} on the worker; launcher not found: {command_path}")
     java_path = Path(str(payload.get("java_command") or "")).expanduser().resolve()
+    if not java_path.is_file():
+        java_path = find_java_command()
+    if java_path is None:
+        raise FileNotFoundError("Install Java 17 or later on the P2Rank worker.")
     detected_java_version = java_major_version(java_path)
     if detected_java_version is None or detected_java_version < 17:
         raise RuntimeError(f"P2Rank requires Java 17+; invalid Java command: {java_path}")
 
-    requested_profile = str(payload.get("profile") or DEFAULT_P2RANK_PROFILE).strip().lower()
     env = dict(os.environ)
     java_home = java_path.parent.parent
     env["JAVA_HOME"] = str(java_home)
@@ -505,35 +514,57 @@ def run_p2rank_prediction(payload: dict[str, Any]) -> list[dict[str, Any]]:
     # AMDock stores receptors as mmCIF, so use the project's PDB tool boundary.
     from amdockvs.io.formats import as_pdb
 
-    with as_pdb(receptor_path) as readable_receptor:
-        profile, profile_reason = effective_profile(
-            requested_profile, readable_receptor, predicted=bool(payload.get("predicted")),
-        )
-        command = [
-            str(command_path),
-            "predict",
-            "-f",
-            str(readable_receptor),
-            "-o",
-            str(output_dir),
-            "-threads",
-            str(max(1, int(payload.get("threads") or 1))),
-            "-visualizations",
-            "1",
-            "-vis_renderers",
-            "pymol",
-        ]
-        if profile == "alphafold":
-            command.extend(["-c", "alphafold"])
-        _run_managed(command, cwd=command_path.parent, env=env)
-    return parse_p2rank_outputs(
-        output_dir=output_dir,
-        receptor_id=int(payload.get("receptor_id") or 0),
-        run_id=str(payload.get("run_id") or ""),
-        profile=profile,
-        profile_reason=profile_reason,
-        version=str(payload.get("version") or P2RANK_VERSION),
-    )
+    rows: list[dict[str, Any]] = []
+    with tempfile.TemporaryDirectory(prefix="amdock_p2rank_") as folder:
+        root = Path(folder)
+        groups: dict[str, list[tuple[dict, str, str]]] = {}
+        for receptor in receptors:
+            receptor_path = Path(str(receptor["receptor_path"])).expanduser().resolve()
+            if not receptor_path.is_file():
+                raise FileNotFoundError(f"P2Rank receptor file does not exist: {receptor_path}")
+            name = f"receptor_{int(receptor['receptor_id'])}.pdb"
+            with as_pdb(receptor_path) as readable:
+                profile, reason = effective_profile(
+                    receptor.get("profile") or DEFAULT_P2RANK_PROFILE, readable,
+                    predicted=bool(receptor.get("predicted")),
+                )
+                shutil.copyfile(readable, root / name)
+            groups.setdefault(profile, []).append((receptor, name, reason))
+
+        for profile, group in groups.items():
+            dataset = root / f"{profile}.ds"
+            dataset.write_text("".join(f"{name}\n" for _, name, _ in group), encoding="utf-8")
+            output = root / profile
+            threads = min(len(group), max(1, int(payload.get("threads") or 1)))
+            command = [str(command_path), "predict", str(dataset), "-o", str(output),
+                       "-threads", str(threads), "-visualizations", "1", "-vis_renderers", "pymol"]
+            if profile == "alphafold":
+                command.extend(["-c", "alphafold"])
+            _run_managed(command, cwd=command_path.parent, env=env)
+            for receptor, name, reason in group:
+                destination = Path(str(receptor["output_dir"])).expanduser().resolve()
+                for relative in (f"{name}_predictions.csv", f"{name}_residues.csv",
+                                 f"visualizations/{name}_pymol.pml",
+                                 f"visualizations/data/{name}_points.pdb.gz", f"visualizations/data/{name}"):
+                    source = output / relative
+                    if source.is_file():
+                        target = destination / relative
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copyfile(source, target)
+                try:
+                    if not (output / f"{name}_predictions.csv").is_file():
+                        raise RuntimeError("no prediction CSV was produced")
+                    if not (output / "visualizations" / "data" / f"{name}_points.pdb.gz").is_file():
+                        raise RuntimeError("no pocket points file was produced")
+                    rows.extend(parse_p2rank_outputs(
+                        output_dir=destination, receptor_id=int(receptor["receptor_id"]),
+                        run_id=str(payload.get("run_id") or ""), profile=profile,
+                        profile_reason=reason, version=version, input_name=name,
+                    ))
+                except (OSError, ValueError, RuntimeError) as exc:
+                    label = receptor.get("receptor_name") or receptor["receptor_id"]
+                    raise RuntimeError(f"P2Rank failed to produce usable output for {label}: {exc}") from exc
+    return rows
 
 
 __all__ = [
