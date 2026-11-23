@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+from contextlib import suppress
 from uuid import uuid4
 
 from PySide6.QtCore import QEvent, QSignalBlocker, Qt
@@ -31,9 +33,12 @@ from amdockvs.docking.methods import METHODS, get_method
 from amdockvs.integrations.registry import MANAGED_TOOLS
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.docking.protocols import PROTOCOL_SCHEMA, protocol_hash, protocol_identity
+from amdockvs.docking.studio_setup import setup_from_project
 from amdockvs.ui.common.widgets import set_widget_value
 from amdockvs.core.vocab import MoleculeType
 from ms_components.tool_panel import ToolPanel
+
+_log = logging.getLogger(__name__)
 
 # What a docking run starts ticked with: the first of these that can run here. QuickVina 2 scores
 # with Vina's function and gets there sooner; Vina needs no install, so there is always one.
@@ -735,8 +740,13 @@ class ProtocolEditorWidget:
         if allowed and combo.currentIndex() not in allowed:
             combo.setCurrentIndex(allowed[0])
 
-    def _refresh_program_availability(self) -> None:
+    def _refresh_program_availability(self, *, fallback: bool = False) -> None:
+        """Show, enable and tick the programs the method and this machine run. When it unticks the
+        last one that was ticked (Zinc cannot run QuickVina, a program went missing), or with
+        `fallback`, the usual default is ticked instead. A selection the user emptied stays empty:
+        Run asks for a program."""
         self._sync_scoring_choices()
+        unticked = False
         specs = list(list_docking_programs())
         available_keys = {spec.key for spec in specs if self._program_compatible(spec)}
         runnable_keys = available_keys - set(getattr(self, "_missing_programs", ()))
@@ -748,8 +758,9 @@ class ProtocolEditorWidget:
             check = (getattr(self, "_program_checks", {}) or {}).get(spec.key)
             if check is not None:
                 check.setEnabled(spec.key in runnable_keys)
-                if spec.key not in runnable_keys:
+                if spec.key not in runnable_keys and check.isChecked():
                     check.setChecked(False)
+                    unticked = True
         if programs is not None and programs.currentItem() is not None and programs.currentItem().isHidden():
             visible = [index for index, spec in enumerate(specs) if spec.key in available_keys]
             programs.setCurrentRow(visible[0] if visible else -1)
@@ -757,7 +768,7 @@ class ProtocolEditorWidget:
             key for key, check in (getattr(self, "_program_checks", {}) or {}).items()
             if key in runnable_keys and check.isChecked()
         ]
-        if not checked_available and runnable_keys:
+        if not checked_available and runnable_keys and (unticked or fallback):
             preferred = next((key for key in DEFAULT_PROGRAMS if key in runnable_keys), sorted(runnable_keys)[0])
             check = self._program_checks.get(preferred)
             if check is not None:
@@ -809,6 +820,139 @@ class ProtocolEditorWidget:
         if check is not None:
             check.setChecked(item.checkState() == Qt.CheckState.Checked)
 
+    def _pages_config(self) -> dict[str, dict]:
+        """Every program's settings as its page shows them."""
+        configs: dict[str, dict] = {}
+        for spec in list_docking_programs():
+            with suppress(Exception):  # a program whose page never got built
+                configs[str(spec.key)] = self._protocol_config_from_widgets(str(spec.key))
+        return configs
+
+    def _swap_pages_for_run_kind(self) -> None:
+        """Docking and Redocking share the program pages and the method. Leaving Docking puts its
+        setup aside; coming back puts it into the pages again, so a variant picked or edited in
+        Redocking is neither what a Docking run uses nor what the project keeps for Docking."""
+        kind = self._run_kind()
+        previous = getattr(self, "_pages_kind", "docking")
+        self._pages_kind = kind
+        if kind == previous:
+            return
+        if previous == "docking":
+            ticked = [key for key, check in self._program_checks.items() if check.isChecked()]
+            self._docking_aside = (self._method(), self._pages_config(), ticked)
+            # The editor shows the selected variant, as picking it in the table does; still
+            # showing Docking's values, "Update selected" would write those into the variant.
+            self._load_selected_protocol_into_editor()
+            return
+        if kind != "docking" or getattr(self, "_docking_aside", None) is None:
+            return
+        method, configs, ticked = self._docking_aside
+        self._docking_aside = None
+        index = self.method_combo.findData(method)
+        if index >= 0:
+            self.method_combo.setCurrentIndex(index)  # first: it decides the scoring choices
+        row = self.program_list.currentRow()
+        for program, config in configs.items():
+            with suppress(Exception):
+                self._apply_protocol_config_to_widgets({"program": program, "config": {**config, "method": method}})
+        self.program_list.setCurrentRow(row)  # filling the pages moved it
+        # The ticks too: Redocking hides them, but its method still unticks what it cannot run
+        # (Zinc: Uni-Dock) and ticks a fallback, which is not the Docking setup.
+        for key, check in self._program_checks.items():
+            check.setChecked(key in ticked and check.isEnabled())
+        # Ticks none of which runs any more get the usual default; none at all stays none.
+        self._refresh_program_availability(fallback=bool(ticked))
+
+    def restore_docking_setup(self) -> None:
+        """Open on what the project's last Run clicks committed to (docking/studio_setup.py); with
+        none, the pages stay on the programs' defaults. A setup that cannot be put back never stops
+        the project from opening: the user is told, and the Programs step starts from the defaults."""
+        try:
+            setup = setup_from_project(getattr(getattr(self.runtime, "active_context", None), "path", None))
+            if setup:
+                self._apply_docking_setup(setup)
+        except Exception as error:  # noqa: BLE001 - a recorded value this build cannot put back
+            _log.warning("Could not restore the Docking Studio setup from the submitted runs", exc_info=True)
+            try:
+                self._reset_to_defaults()  # what the notice says: not the half of it that went in
+            except Exception:  # noqa: BLE001 - the project opens whatever the Programs step holds
+                _log.warning("Could not reset the Docking Studio setup to the defaults", exc_info=True)
+            self._setup_notice(f"{error}.")
+
+    def _reset_to_defaults(self) -> None:
+        """The Programs step as a project with no runs opens on: Docking, the standard method,
+        each program's own defaults, the usual ticks and the default variant."""
+        self._docking_aside = None  # nothing to bring back: leaving Redocking keeps the defaults
+        self._protocols = []  # first: every refresh below redraws the variant table
+        index = self.experiment_kind_combo.findData("docking")
+        self.experiment_kind_combo.setCurrentIndex(max(index, 0))
+        self.method_combo.setCurrentIndex(max(self.method_combo.findData("standard"), 0))
+        for spec in list_docking_programs():
+            with suppress(Exception):
+                self._apply_protocol_config_to_widgets(
+                    {"program": str(spec.key), "config": {**spec.validate_config({}), "method": "standard"}})
+        for check in self._program_checks.values():
+            check.setChecked(False)
+        self._refresh_program_availability(fallback=True)  # none ticked: the usual default
+        self._select_program(VINA_PROGRAM.key)  # the default variant is Vina's, as when built
+        self._ensure_default_protocol()
+        self._select_program(next((key for key, check in self._program_checks.items() if check.isChecked()), ""))
+
+    def _setup_notice(self, problem: str) -> None:
+        """Say, without blocking the project opening, that the recorded setup was not used."""
+        from PySide6.QtCore import QTimer
+        from PySide6.QtWidgets import QMessageBox
+
+        def show() -> None:
+            box = QMessageBox(QMessageBox.Icon.Warning, "Docking Studio",
+                              "The settings of this project's last runs could not be put back, so the "
+                              "Programs step starts from the programs' defaults.", parent=self.window())
+            box.setInformativeText(problem)
+            box.setModal(False)
+            box.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+            box.show()
+
+        QTimer.singleShot(0, show)  # after the studio is built and shown
+
+    def _apply_docking_setup(self, setup: dict) -> None:
+        # Variants first: putting them in the table loads the first one into the pages.
+        # Made again, not copied: each gets its own id and the hash of this build, and keeps only
+        # what its page sets (plus the method). A run also records what the machine resolved,
+        # such as the Vina binary, which is not part of the variant.
+        variants = []
+        for variant in setup.get("variants") or ():
+            program = str(variant["program"])
+            page = set(self._protocol_config_from_widgets(program)) | {"method"}
+            config = {k: v for k, v in dict(variant.get("config") or {}).items() if k in page}
+            variants.append(self._make_protocol(program=program, config=config, label=variant.get("label") or None,
+                                                rescoring=variant.get("rescoring")))
+        if variants:
+            self._protocols = variants[:MAX_REDOCKING_PROTOCOLS]
+            self._refresh_protocol_table()
+        # The method before the settings: it decides the scoring choices. One this machine cannot
+        # run (AutoDock4Zn without autogrid4) leaves the default.
+        index = self.method_combo.findData(str(setup.get("method") or ""))
+        if index >= 0 and self.method_combo.model().item(index).isEnabled():
+            self.method_combo.setCurrentIndex(index)
+        method = self._method()
+        keys = [str(spec.key) for spec in list_docking_programs()]
+        for program, config in dict(setup.get("configs") or {}).items():
+            if program in keys and isinstance(config, dict):
+                with suppress(Exception):  # a value this build no longer takes keeps the default
+                    self._apply_protocol_config_to_widgets(
+                        {"program": program, "config": {**config, "method": method}})
+        programs = [key for key in setup.get("programs") or () if key in self._program_checks]
+        if programs:
+            for key, check in self._program_checks.items():
+                check.setChecked(key in programs and check.isEnabled())
+            self._refresh_program_availability(fallback=True)  # none left that runs: the usual default
+        self._select_program(next((key for key, check in self._program_checks.items() if check.isChecked()), ""))
+        # Last: entering Redocking puts the Docking setup just restored aside, and the editor
+        # shows the selected variant (`_swap_pages_for_run_kind`).
+        kind = self.experiment_kind_combo.findData(str(setup.get("experiment") or ""))
+        if kind >= 0:
+            self.experiment_kind_combo.setCurrentIndex(kind)
+
     def _sync_ligand_source_choice(self) -> None:
         """Offer shards vs rows only where both can exist, and only the choices that can run.
 
@@ -825,6 +969,7 @@ class ProtocolEditorWidget:
         self.ligand_sources.set_rows_available(bool(ligand_rows))
 
     def _on_experiment_config_changed(self) -> None:
+        self._swap_pages_for_run_kind()
         self._sync_ligand_source_choice()
         self._refresh_program_availability()
         self._sync_protocol_ui()
