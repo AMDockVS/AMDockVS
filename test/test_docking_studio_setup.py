@@ -348,3 +348,46 @@ def test_a_recorded_value_the_page_does_not_take_shows_the_programs_default(stud
     assert studio.exhaustiveness.maximum() < 999
     assert studio.exhaustiveness.value() == defaults["exhaustiveness"]  # not the box's 256
     assert studio.num_modes.value() == 4 and studio.scoring_combo.currentText() == "vinardo"
+
+
+def _ticked(studio):
+    return sorted(key for key, check in studio._program_checks.items() if check.isChecked())
+
+
+def _zinc_round_trip(studio, ticked, in_zinc=None):
+    from amdockvs.docking.engines.autogrid import AUTOGRID_UNAVAILABLE
+
+    if AUTOGRID_UNAVAILABLE:
+        pytest.skip("Zinc needs autogrid4")
+    for key, check in studio._program_checks.items():
+        check.setChecked(key in ticked)
+    studio.method_combo.setCurrentIndex(studio.method_combo.findData("zinc"))
+    shown = _ticked(studio)
+    if in_zinc is not None:
+        in_zinc()
+    studio.method_combo.setCurrentIndex(studio.method_combo.findData("standard"))
+    return shown, _ticked(studio)
+
+
+def test_a_method_round_trip_ticks_again_what_the_method_unticked(studio_factory):
+    studio = studio_factory()
+    in_zinc, back = _zinc_round_trip(studio, {"qvina", "unidock"})
+    assert in_zinc == ["vina"]  # neither runs Zinc: the default stands in
+    assert back == ["qvina", "unidock"]  # and leaves with them
+
+
+def test_a_program_ticked_by_choice_stays_ticked_across_a_method_round_trip(studio_factory):
+    studio = studio_factory()
+    in_zinc, back = _zinc_round_trip(studio, {"vina", "unidock"})
+    assert in_zinc == ["vina"] and back == ["unidock", "vina"]
+
+
+def test_a_tick_changed_by_hand_on_the_way_is_the_selection_from_then_on(studio_factory):
+    studio = studio_factory()
+
+    def retick_vina():
+        studio._program_checks["vina"].setChecked(False)
+        studio._program_checks["vina"].setChecked(True)
+
+    _in_zinc, back = _zinc_round_trip(studio, {"qvina"}, in_zinc=retick_vina)
+    assert back == ["vina"]

@@ -207,6 +207,7 @@ class ProtocolEditorWidget:
         use.setToolTip("Docking mode: include this software as an independent job.")
         if spec.key == DEFAULT_PROGRAMS[0]:
             use.setChecked(True)
+        use.toggled.connect(self._forget_held_ticks)  # first: a tick changed by hand is a new choice
         use.toggled.connect(self.refresh)
         self._program_checks[spec.key] = use
         title = QLabel(
@@ -740,11 +741,35 @@ class ProtocolEditorWidget:
         if allowed and combo.currentIndex() not in allowed:
             combo.setCurrentIndex(allowed[0])
 
+    def _forget_held_ticks(self, _on: bool = False) -> None:
+        """A tick changed by anything but `_refresh_program_availability` (the user, a restore, a
+        reset) is the selection now: what that refresh unticked is not ticked again."""
+        if not getattr(self, "_auto_ticking", False):
+            self._held_ticks: set[str] = set()
+            self._fallback_tick: str | None = None
+
     def _refresh_program_availability(self, *, fallback: bool = False) -> None:
         """Show, enable and tick the programs the method and this machine run. When it unticks the
         last one that was ticked (Zinc cannot run QuickVina, a program went missing), or with
         `fallback`, the usual default is ticked instead. A selection the user emptied stays empty:
-        Run asks for a program."""
+        Run asks for a program.
+
+        What it unticks is held, and ticked again once it runs again -- standard -> Zinc ->
+        standard keeps the programs ticked for standard, and drops the default ticked only in
+        their place -- until a tick is changed otherwise (`_forget_held_ticks`)."""
+        self._auto_ticking = True
+        try:
+            self._refresh_program_ticks(fallback=fallback)
+        finally:
+            self._auto_ticking = False
+        self._sync_program_items()
+        self._refresh_prep_targets()
+        self._refresh_receptor_prep_targets()
+        self._refresh_protocol_table()
+
+    def _refresh_program_ticks(self, *, fallback: bool) -> None:
+        held: set[str] = getattr(self, "_held_ticks", None) or set()
+        self._held_ticks = held
         self._sync_scoring_choices()
         unticked = False
         specs = list(list_docking_programs())
@@ -761,6 +786,17 @@ class ProtocolEditorWidget:
                 if spec.key not in runnable_keys and check.isChecked():
                     check.setChecked(False)
                     unticked = True
+                    held.add(spec.key)
+        back = [key for key in sorted(held) if key in runnable_keys and key in self._program_checks]
+        for key in back:  # runs again: ticked again
+            self._program_checks[key].setChecked(True)
+            held.discard(key)
+        stand_in = getattr(self, "_fallback_tick", None)
+        if back and stand_in and stand_in not in back and not held:
+            check = self._program_checks.get(stand_in)
+            if check is not None:
+                check.setChecked(False)  # it was only ticked in their place
+            self._fallback_tick = None
         if programs is not None and programs.currentItem() is not None and programs.currentItem().isHidden():
             visible = [index for index, spec in enumerate(specs) if spec.key in available_keys]
             programs.setCurrentRow(visible[0] if visible else -1)
@@ -773,11 +809,9 @@ class ProtocolEditorWidget:
             check = self._program_checks.get(preferred)
             if check is not None:
                 check.setChecked(True)
+                if unticked and held:
+                    self._fallback_tick = preferred
             self._select_program(preferred)
-        self._sync_program_items()
-        self._refresh_prep_targets()
-        self._refresh_receptor_prep_targets()
-        self._refresh_protocol_table()
 
     def _sync_program_items(self) -> None:
         """Each program's box in the list, from its "Run <program>" check: ticked, and tickable
