@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 from PySide6.QtCore import QRect, QSize, Qt, Signal
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
@@ -273,7 +275,57 @@ class WrapCombo(QComboBox):
         )
 
 
-__all__ = ["add_run_on", "QueueResources", "right_aligned", "RunDestinationCombo", "split_button", "WrapCombo"]
+def set_widget_value(widget, value) -> bool:
+    """Put a recorded `value` into `widget` (a combo by its item data, a spin box, a check box, a
+    line edit). A value the widget does not offer -- a choice renamed or removed since, a number of
+    the wrong kind or outside its range -- leaves it as it is: False, and never a value the widget
+    picks instead. Item data is compared as JSON keeps it (a tuple comes back as a list)."""
+    from PySide6.QtWidgets import QAbstractButton, QDoubleSpinBox
+
+    if value is None or widget is None:
+        return False
+    if isinstance(widget, QComboBox):
+        same = (lambda data: list(data) == list(value)) if isinstance(value, (list, tuple)) else (lambda data: data == value)
+        for index in range(widget.count()):
+            data = widget.itemData(index)
+            if isinstance(data, bool) != isinstance(value, bool):  # True == 1 in Python
+                continue
+            if (isinstance(data, (list, tuple)) == isinstance(value, (list, tuple))) and same(data):
+                widget.setCurrentIndex(index)
+                return True
+        return False
+    if isinstance(widget, (QDoubleSpinBox, QSpinBox)):
+        # A number it offers, or nothing: not a Boolean (True is 1 in Python), not one Qt would
+        # clamp to its range without a word (999 attempts become 50), not NaN or infinity.
+        # Nor text (a journal keeps numbers as numbers), nor more decimals than it shows (6.55
+        # in a one-decimal box would read 6.6).
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return False
+        number = float(value)
+        if not math.isfinite(number) or not widget.minimum() <= number <= widget.maximum():
+            return False
+        if isinstance(widget, QSpinBox):
+            if number != int(number):
+                return False
+            widget.setValue(int(number))
+        else:
+            if abs(round(number, widget.decimals()) - number) > 1e-9:
+                return False
+            widget.setValue(number)
+        return True
+    if isinstance(widget, QAbstractButton) and widget.isCheckable():
+        if not isinstance(value, bool):
+            return False
+        widget.setChecked(bool(value))
+        return True
+    if isinstance(widget, QLineEdit):
+        widget.setText(str(value))
+        return True
+    return False
+
+
+__all__ = ["add_run_on", "QueueResources", "right_aligned", "RunDestinationCombo", "set_widget_value", "split_button",
+           "WrapCombo"]
 
 
 class LigandSources(QWidget):
