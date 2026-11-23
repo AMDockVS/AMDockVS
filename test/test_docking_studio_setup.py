@@ -68,11 +68,6 @@ def _set_kind(studio, kind):
 
 
 def test_a_project_with_no_runs_starts_from_the_programs_own_defaults(studio_factory):
-    from amdockvs.core.configuration import app_config
-
-    settings = app_config(studio_factory.runtime).docking
-    for name in ("exhaustiveness", "num_modes", "cpu_per_task"):  # not Settings' to say
-        assert not hasattr(settings.vina, name) and not hasattr(settings.gnina, name)
     assert setup_from_project(studio_factory.runtime.active_context.path) == {}
     studio = studio_factory()
     for program in (VINA_PROGRAM, GNINA_PROGRAM):
@@ -81,6 +76,22 @@ def test_a_project_with_no_runs_starts_from_the_programs_own_defaults(studio_fac
         assert {k: shown[k] for k in ("exhaustiveness", "num_modes", "vina_cpu")} == \
             {k: defaults[k] for k in ("exhaustiveness", "num_modes", "vina_cpu")}
     assert studio_factory.notices == []
+
+
+def test_programs_use_settings_until_a_job_supplies_its_own_values(studio_factory):
+    runtime = studio_factory.runtime
+    settings = runtime.amdock_configuration
+    settings.set_global_value("docking.vina.exhaustiveness", 32)
+    settings.set_global_value("docking.gnina.cpu_per_task", 4)
+    assert studio_factory().exhaustiveness.value() == 32
+
+    settings.set_value("docking.vina.exhaustiveness", 24)
+    assert studio_factory().exhaustiveness.value() == 24
+
+    _submit(runtime, "a", "vina", exhaustiveness=16)
+    studio = studio_factory()
+    assert studio.exhaustiveness.value() == 16
+    assert studio.gnina_cpu.value() == 4
 
 
 def test_it_reopens_on_the_last_run_not_on_an_edit_that_never_ran(studio_factory):
@@ -151,6 +162,28 @@ def test_a_project_last_run_in_redocking_shows_its_variants(studio_factory):
     assert studio.exhaustiveness.value() == 27  # Docking's last run
 
 
+@pytest.mark.parametrize(("invalid_config", "has_valid_variant"), [
+    ({"exhaustiveness": 999}, False),
+    ({"exhaustiveness": 999}, True),
+    ({"energy_range": 6.0}, True),
+])
+def test_redocking_skips_a_variant_the_editor_cannot_represent(studio_factory, invalid_config, has_valid_variant):
+    runtime = studio_factory.runtime
+    if has_valid_variant:
+        _submit(runtime, "r", "vina", kind="redocking", exhaustiveness=16)
+    _submit(runtime, "r", "vina", kind="redocking", **invalid_config)
+
+    studio = studio_factory()
+    assert studio_factory.notices == ["Saved Redocking variants with unsupported options were skipped (1)."]
+    if has_valid_variant:
+        assert studio._run_kind() == "redocking"
+        selected, = studio._selected_protocols()
+        assert selected["config"]["exhaustiveness"] == studio.exhaustiveness.value() == 16
+    else:
+        assert studio._run_kind() == "docking"
+        assert all(variant["config"]["exhaustiveness"] != 999 for variant in studio._protocols)
+
+
 def test_a_variant_picked_in_redocking_does_not_become_the_docking_run(studio_factory):
     studio = studio_factory()
     studio.exhaustiveness.setValue(27)
@@ -175,7 +208,7 @@ def test_a_setup_that_cannot_be_put_back_opens_on_the_defaults_and_says_so(studi
     monkeypatch.setattr(protocol_editor, "setup_from_project", broken)
     studio = studio_factory()  # builds: the project opens
     assert studio.exhaustiveness.value() == VINA_PROGRAM.validate_config({})["exhaustiveness"]
-    assert studio_factory.notices == ["unreadable run."]
+    assert studio_factory.notices == ["The Programs step starts from its initial settings. unreadable run."]
 
 
 def test_the_latest_click_ticks_even_when_its_jobs_ran_in_another_order():
@@ -248,13 +281,14 @@ def test_re_entering_redocking_shows_the_selected_variant(studio_factory):
     assert studio._program_config_widgets["qvina"]["seed"].value() == 216
 
 
-def test_a_submission_this_build_refuses_is_skipped_and_the_rest_restored(studio_factory):
+@pytest.mark.parametrize("invalid_seed", ["unreadable", True])
+def test_a_submission_this_build_refuses_is_skipped_and_the_rest_restored(studio_factory, invalid_seed):
     from amdockvs.docking.jobs import RedockingJobParams, redocking_job
 
     runtime = studio_factory.runtime
     _submit(runtime, "d", "vina", exhaustiveness=12)
     root = runtime.active_context.path
-    bad = {**VINA_PROGRAM.validate_config({}), "seed": "unreadable"}
+    bad = {**VINA_PROGRAM.validate_config({}), "seed": invalid_seed}
     runtime.submit_job(redocking_job, params=RedockingJobParams(
         run_id="r", protocol_metadata={"program": "vina", "config": bad, "hash": "h"}, engine_config={},
         output_dir=str(root / "out")).model_dump(mode="python"))
@@ -284,7 +318,7 @@ def test_a_setup_that_fails_halfway_leaves_the_defaults_not_half_of_it(studio_fa
 
     monkeypatch.setattr(protocol_editor.ProtocolEditorWidget, "_apply_docking_setup", halfway)
     studio = studio_factory()
-    assert studio_factory.notices == ["a value this build cannot put back."]
+    assert studio_factory.notices == ["The Programs step starts from its initial settings. a value this build cannot put back."]
     assert studio._run_kind() == "docking" and studio._method() == "standard"
     defaults = {spec.key: spec.validate_config({}) for spec in protocol_editor.list_docking_programs()}
     assert studio._program_config_widgets["qvina"]["seed"].value() == defaults["qvina"]["seed"]
@@ -314,7 +348,7 @@ def test_a_malformed_rescoring_entry_is_skipped_and_cannot_break_the_reset(studi
     _submit(runtime, "d", "vina", exhaustiveness=12)
     monkeypatch.setattr(protocol_editor.ProtocolEditorWidget, "_apply_docking_setup", halfway)
     studio = studio_factory()  # opens: the reset clears the variants before anything redraws them
-    assert studio_factory.notices == ["halfway."]
+    assert studio_factory.notices == ["The Programs step starts from its initial settings. halfway."]
     assert studio._run_kind() == "docking" and [p["rescoring"] for p in studio._protocols] == [[]]
 
 

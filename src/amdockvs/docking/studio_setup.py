@@ -5,7 +5,7 @@ was typed after. What happens to the job afterwards -- waiting in a queue, on a 
 cluster, cancelled, failed -- does not change what was committed to. MolSuite records every
 submitted job in the project's journal (`<project>/executor.db`) when it is submitted, with the
 params it was submitted with (`origin`); that record is read here, in submission order. Nothing is
-written for this. A project that submitted no docking starts from each program's own defaults.
+written for this. Settings supply the defaults for a program without docking history.
 """
 from __future__ import annotations
 
@@ -38,11 +38,11 @@ def _program_config(program: str, config: object) -> dict[str, Any] | None:
     if spec is None or not isinstance(config, dict):
         return None
     try:
-        validated = spec.validate_config(config)
+        validated = spec.validate_config(config, strict=True)
     except (TypeError, ValueError) as error:  # pydantic's ValidationError is a ValueError
         _log.warning("Ignoring a submitted %s configuration this build refuses: %s", program, error)
         return None
-    return {name: value for name, value in validated.items() if name in spec.config_model.model_fields}
+    return {name: value for name, value in validated.items() if name in config and name in spec.config_model.model_fields}
 
 
 def submitted_docking(project_root: str | Path | None) -> list[dict[str, Any]]:

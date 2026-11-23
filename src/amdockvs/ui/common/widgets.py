@@ -275,11 +275,12 @@ class WrapCombo(QComboBox):
         )
 
 
-def set_widget_value(widget, value) -> bool:
+def set_widget_value(widget, value, *, apply: bool = True) -> bool:
     """Put a recorded `value` into `widget` (a combo by its item data, a spin box, a check box, a
     line edit). A value the widget does not offer -- a choice renamed or removed since, a number of
     the wrong kind or outside its range -- leaves it as it is: False, and never a value the widget
-    picks instead. Item data is compared as JSON keeps it (a tuple comes back as a list)."""
+    picks instead. Item data is compared as JSON keeps it (a tuple comes back as a list).
+    Pass apply=False to check the value without changing the widget."""
     from PySide6.QtWidgets import QAbstractButton, QDoubleSpinBox
 
     if value is None or widget is None:
@@ -291,7 +292,12 @@ def set_widget_value(widget, value) -> bool:
             if isinstance(data, bool) != isinstance(value, bool):  # True == 1 in Python
                 continue
             if (isinstance(data, (list, tuple)) == isinstance(value, (list, tuple))) and same(data):
-                widget.setCurrentIndex(index)
+                model = widget.model()
+                item = model.index(index, widget.modelColumn(), widget.rootModelIndex())
+                if not model.flags(item) & Qt.ItemFlag.ItemIsEnabled:
+                    continue
+                if apply:
+                    widget.setCurrentIndex(index)
                 return True
         return False
     if isinstance(widget, (QDoubleSpinBox, QSpinBox)):
@@ -301,25 +307,29 @@ def set_widget_value(widget, value) -> bool:
         # in a one-decimal box would read 6.6).
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             return False
-        number = float(value)
-        if not math.isfinite(number) or not widget.minimum() <= number <= widget.maximum():
+        if not widget.minimum() <= value <= widget.maximum() or not math.isfinite(value):
             return False
+        number = float(value)
         if isinstance(widget, QSpinBox):
             if number != int(number):
                 return False
-            widget.setValue(int(number))
+            if apply:
+                widget.setValue(int(number))
         else:
             if abs(round(number, widget.decimals()) - number) > 1e-9:
                 return False
-            widget.setValue(number)
+            if apply:
+                widget.setValue(number)
         return True
     if isinstance(widget, QAbstractButton) and widget.isCheckable():
         if not isinstance(value, bool):
             return False
-        widget.setChecked(bool(value))
+        if apply:
+            widget.setChecked(value)
         return True
     if isinstance(widget, QLineEdit):
-        widget.setText(str(value))
+        if apply:
+            widget.setText(str(value))
         return True
     return False
 

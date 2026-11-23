@@ -63,7 +63,8 @@ def test_tools_with_no_runs_keep_the_values_they_are_built_with(project):
     pockets = PocketDetectionWidget(runtime=project)
     diversity = DiversitySelectionWidget(runtime=project)
     project.keep(pockets), project.keep(diversity)
-    assert pockets.threads_spin.value() >= 1 and diversity.radius_spin.value() == 2
+    assert pockets.threads_spin.value() == 0  # Auto
+    assert diversity.radius_spin.value() == 2
 
 
 def test_build_reopens_on_its_last_ligand_run(project):
@@ -121,16 +122,44 @@ def test_a_recorded_value_the_widget_does_not_take_is_skipped_and_the_rest_resto
     assert build.ligand_protonation_ph.value() == 7.4 and build.pkasso_threads.value() == 5
 
 
-def test_pocket_detection_reopens_on_its_last_run(project):
+@pytest.mark.parametrize(("batch_size", "shown_threads"), [(None, 3), (8, 0)])
+def test_pocket_detection_reopens_jobs_without_a_thread_mode(project, batch_size, shown_threads):
     from amdockvs.binding_sites.jobs import P2RankPredictionParams, p2rank_prediction_job
     from amdockvs.ui.tools.binding_sites.detection import PocketDetectionWidget
 
     _submit(project, p2rank_prediction_job, P2RankPredictionParams(
-        receptor_ids=[1], profile="alphafold", threads=3, run_id="r", p2rank_command="prank",
+        receptor_ids=[1], profile="alphafold", threads=3, batch_size=batch_size, run_id="r", p2rank_command="prank",
         java_command="java").model_dump(mode="python"))
     pockets = PocketDetectionWidget(runtime=project)
     project.keep(pockets)
-    assert pockets.profile_combo.currentData() == "alphafold" and pockets.threads_spin.value() == 3
+    assert pockets.profile_combo.currentData() == "alphafold" and pockets.threads_spin.value() == shown_threads
+
+
+@pytest.mark.parametrize(("requested_threads", "effective_threads", "shown_threads"), [("auto", 1, 0), (3, 3, 3)])
+def test_pocket_detection_restores_the_requested_thread_mode(
+    project, monkeypatch, requested_threads, effective_threads, shown_threads
+):
+    from types import SimpleNamespace
+
+    from amdockvs.binding_sites import api
+    from amdockvs.project.submitted import last_params
+    from amdockvs.ui.tools.binding_sites.detection import PocketDetectionWidget
+
+    plan = SimpleNamespace(missing_structure_ids=(), recalculate_receptor_ids=(1,))
+    monkeypatch.setattr(project.binding_sites, "plan_prediction", lambda **kwargs: plan)
+    monkeypatch.setattr(api, "p2rank_status", lambda: SimpleNamespace(
+        installed=True, java_version=17, command="prank", java_command="java",
+    ))
+    project.binding_sites.predict(receptor_ids=[1], threads=requested_threads)
+    deadline = time.monotonic() + 10
+    while not (params := last_params(project.active_context.path, ("amdock_pocket_prediction_job",))):
+        assert time.monotonic() < deadline, "the submission never reached the journal"
+        time.sleep(0.02)
+    assert params["threads"] == effective_threads
+
+    pockets = PocketDetectionWidget(runtime=project)
+    project.keep(pockets)
+    assert pockets.threads_spin.value() == shown_threads
 
 
 def test_diversity_reopens_on_its_last_cluster_not_on_a_preview(project):

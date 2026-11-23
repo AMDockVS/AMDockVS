@@ -53,6 +53,8 @@ class P2RankPredictionParams(BaseModel):
     profiles: dict[int, str] = Field(default_factory=dict)
     recalculate_receptor_ids: list[int] = Field(default_factory=list)
     threads: int = Field(default=1, ge=1, le=128)
+    # Older job records only store the effective count.
+    threads_auto: bool | None = None
     # Omitted by old journals. Keep their original receptor payloads and chunk keys on resume.
     batch_size: int | None = Field(default=None, ge=1)
     run_id: str

@@ -27,6 +27,7 @@ from ms_flow.core.configuration import PydanticConfiguration
 
 from amdockvs.core.constants import MIN_BOX_EDGE
 from amdockvs.core.home import amdock_home
+from amdockvs.docking.engines.programs import VINA_FAMILY_CPU, VINA_FAMILY_EXHAUSTIVENESS, VINA_FAMILY_NUM_MODES
 
 
 MAX_2D_PREVIEW_HEAVY_ATOMS = "max_2d_preview_heavy_atoms"
@@ -47,12 +48,18 @@ class MoleculeDisplayConfiguration(BaseModel):
 
 
 class _VinaFamilySettings(BaseModel):
-    """How the program runs on this machine. Its docking parameters are not here: Docking Studio
-    starts them from the program's own defaults and each project keeps its own."""
+    """Executable and the defaults used before this project's first submission."""
 
     model_config = ConfigDict(extra="forbid")
 
     path: str = Field("", title="Executable", description="Path to the binary; empty autodetects.")
+    exhaustiveness: int = Field(
+        VINA_FAMILY_EXHAUSTIVENESS, ge=1, le=256, title="Exhaustiveness", description="Search exhaustiveness."
+    )
+    num_modes: int = Field(
+        VINA_FAMILY_NUM_MODES, ge=1, le=128, title="Num modes", description="Number of poses to generate."
+    )
+    cpu_per_task: int = Field(VINA_FAMILY_CPU, ge=1, le=128, title="CPU per task", description="CPU cores per docking task.")
     batch_size: int = Field(
         1,
         ge=1,
@@ -477,12 +484,9 @@ class ThemeConfiguration(BaseModel):
 _LEGACY_KEYS = {
     "docking.binding_site_box_size": "docking.box_size",
     "docking.temperature_k": "docking.temperature",
-    # Docking parameters left Settings: each project keeps its own (docking/studio_setup.py).
-    "docking.exhaustiveness": None,
-    "docking.num_modes": None,
-    "docking.cpu_per_task": None,
-    **{f"docking.{program}.{name}": None for program in ("vina", "gnina")
-       for name in ("exhaustiveness", "num_modes", "cpu_per_task")},
+    "docking.exhaustiveness": "docking.vina.exhaustiveness",
+    "docking.num_modes": "docking.vina.num_modes",
+    "docking.cpu_per_task": "docking.vina.cpu_per_task",
     "batch_sizes.docking": None,
     "docking.batch_size": None,  # now per program: docking.<engine>.batch_size
     "batch_sizes.ligand": "preparation.ligands_per_task",
@@ -578,7 +582,7 @@ def create_contact_map_configuration() -> PydanticConfiguration:
 
 
 def app_config(runtime=None) -> AMDockConfiguration:
-    """Effective settings as the validated model: read them as `app_config(rt).docking.num_modes`.
+    """Effective settings as the validated model, for example `app_config(rt).docking.vina.num_modes`.
 
     Pass the runtime whenever you have one. Only *its* configuration object has the active
     project's root set, and PydanticConfiguration.set_value writes to the project layer while a

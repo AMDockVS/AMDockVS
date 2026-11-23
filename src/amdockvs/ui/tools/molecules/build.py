@@ -30,7 +30,7 @@ from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.common.failures import recover_with, show_failures
 from amdockvs.ui.common.job_follower import JobFollower
 from amdockvs.ui.common.widgets import LigandSources, add_run_on, gate_workflow_save, set_widget_value
-from amdockvs.project.submitted import last_params, project_root, restoring, submitted_jobs
+from amdockvs.project.submitted import project_root, restoring, submitted_jobs
 from amdockvs.core.vocab import MoleculeType
 from ms_components.ms_table import FilterOperator, FilterSpec
 from ms_components.tool_panel import ToolPanel, format_count, hint_label
@@ -391,25 +391,27 @@ class MoleculeBuildWidget(QWidget):
         self._activate_after_check: str | None = None
         from amdockvs.ui.shell.settings_tools import tool_events
         tool_events.installed.connect(self._on_tool_installed)
-        self.restore_last_run()  # what this project's last Run of each step committed to
+        restoring("Build", self.restore_last_run)
         self.refresh()
 
     # --- the project's last run (project/submitted.py) -------------------------------------------
     _LIGAND_JOBS = ("amdock_ligand_chemistry_job", "amdock_shard_chemistry_job")
+    _PROTEIN_JOB = "amdock_receptor_chemistry_job"
+    _PREDICTION_JOB = "amdock_receptor_prediction_job"
 
     def restore_last_run(self) -> None:
         """Each step's options as the project's last Run of it submitted them; a step never run
         keeps the values it was built with. Which molecules are picked is never kept."""
-        root = project_root(self.runtime)
-        restoring("Build (small molecules)", lambda: self._restore_ligand_run(root))
-        restoring("Build (proteins)", lambda: self._restore_protein_runs(root))
+        jobs = submitted_jobs(project_root(self.runtime), self._LIGAND_JOBS + (self._PROTEIN_JOB, self._PREDICTION_JOB))
+        restoring("Build (small molecules)", lambda: self._restore_ligand_run(jobs))
+        restoring("Build (proteins)", lambda: self._restore_protein_runs(jobs))
 
-    def _restore_ligand_run(self, root) -> None:
+    def _restore_ligand_run(self, jobs: list[dict]) -> None:
         """The steps both stores take from the latest ligand run, and what only the table takes --
         the conformer ensemble, the batch size -- from the latest run over the table: a Run over
         table and shards submits the shards' job last, and that job carries neither."""
-        jobs = [job for job in submitted_jobs(root, self._LIGAND_JOBS)
-                if isinstance(job["params"].get("operation"), list)]  # a pipeline: what Run submits
+        jobs = [job for job in jobs
+                if job["name"] in self._LIGAND_JOBS and isinstance(job["params"].get("operation"), list)]
         if not jobs:
             return
 
@@ -442,8 +444,8 @@ class MoleculeBuildWidget(QWidget):
                 set_widget_value(self.ligand_random_seed, conformers.get("random_seed"))
             set_widget_value(self.batch_size_ligands, table[-1]["params"].get("batch_size"))
 
-    def _restore_protein_runs(self, root) -> None:
-        receptors = submitted_jobs(root, ("amdock_receptor_chemistry_job",))
+    def _restore_protein_runs(self, jobs: list[dict]) -> None:
+        receptors = [job for job in jobs if job["name"] == self._PROTEIN_JOB]
         last = {}
         for job in receptors:  # each operation's latest
             last[str(job["params"].get("operation") or "")] = job["params"]
@@ -463,7 +465,7 @@ class MoleculeBuildWidget(QWidget):
                 set_widget_value(widget, options.get(key))
         if receptors:
             set_widget_value(self.batch_size_receptors, receptors[-1]["params"].get("batch_size"))
-        prediction = last_params(root, ("amdock_receptor_prediction_job",))
+        prediction = next((job["params"] for job in reversed(jobs) if job["name"] == self._PREDICTION_JOB), None)
         if prediction is not None:
             set_widget_value(self.receptor_predictor, prediction.get("model"))
             set_widget_value(self.receptor_predict_force, prediction.get("force"))

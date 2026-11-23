@@ -631,7 +631,12 @@ class PocketDetectionWidget(QWidget):
         params = last_params(project_root(self.runtime), ("amdock_pocket_prediction_job",))
         if params is not None:
             set_widget_value(self.profile_combo, params.get("profile"))
-            set_widget_value(self.threads_spin, params.get("threads"))
+            threads_auto = params.get("threads_auto")
+            if threads_auto is True:
+                self.threads_spin.setValue(0)
+            elif threads_auto is False or (threads_auto is None and params.get("batch_size") is None):
+                # Jobs from before batch prediction only supported a fixed thread count.
+                set_widget_value(self.threads_spin, params.get("threads"))
 
     def _open_tool_settings(self) -> None:
         opener = getattr(self.window(), "open_settings", None)

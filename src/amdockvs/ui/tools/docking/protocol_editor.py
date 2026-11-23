@@ -35,6 +35,7 @@ from amdockvs.ui.common.async_query import run_async
 from amdockvs.docking.protocols import PROTOCOL_SCHEMA, protocol_hash, protocol_identity
 from amdockvs.docking.studio_setup import setup_from_project
 from amdockvs.ui.common.widgets import set_widget_value
+from amdockvs.core.configuration import app_config
 from amdockvs.core.vocab import MoleculeType
 from ms_components.tool_panel import ToolPanel
 
@@ -55,6 +56,14 @@ def _spinbox(*, minimum: int, maximum: int, value: int) -> QSpinBox:
     widget.setRange(minimum, maximum)
     widget.setValue(value)
     return widget
+
+
+def _vina_scoring_choices(method: str) -> tuple[str, ...]:
+    docking_method = get_method(method)
+    return tuple(
+        score for score in VINA_PROGRAM.scoring_functions
+        if docking_method.allows(VINA_PROGRAM.key, score) and not (score == "ad4" and AUTOGRID_UNAVAILABLE)
+    )
 
 
 def _seed_spinbox(spec) -> QSpinBox:
@@ -234,7 +243,7 @@ class ProtocolEditorWidget:
             # Vina/AutoDock-Vina settings (shared by the Vina-family runners). CPU-per-task
             # lives here, not in the Run step: it's program-specific (Vina exposes it,
             # AutoDock-GPU does not), so it belongs to each program's own config.
-            dd = spec.validate_config({})  # the program's own defaults, as the other pages
+            dd = self._program_defaults(spec.key)
             self.exhaustiveness = _spinbox(minimum=1, maximum=256, value=dd["exhaustiveness"])
             self.num_modes = _spinbox(minimum=1, maximum=128, value=dd["num_modes"])
             self.vina_cpu = _spinbox(minimum=1, maximum=128, value=dd["vina_cpu"])
@@ -248,9 +257,13 @@ class ProtocolEditorWidget:
             form.addRow("CPU per task", self.vina_cpu)
             form.addRow("Random seed", self.vina_seed)
             form.addRow("Scoring", self.scoring_combo)
+            self._program_config_widgets[spec.key] = {
+                "scoring_function": self.scoring_combo, "exhaustiveness": self.exhaustiveness,
+                "num_modes": self.num_modes, "vina_cpu": self.vina_cpu, "seed": self.vina_seed,
+            }
         elif spec.key == GNINA_PROGRAM.key:
             # gnina reuses the Vina PDBQT prep; "Scoring" here is the --cnn_scoring mode.
-            dd = spec.validate_config({})
+            dd = self._program_defaults(spec.key)
             self.gnina_exhaustiveness = _spinbox(minimum=1, maximum=256, value=dd["exhaustiveness"])
             self.gnina_num_modes = _spinbox(minimum=1, maximum=128, value=dd["num_modes"])
             self.gnina_cpu = _spinbox(minimum=1, maximum=128, value=dd["vina_cpu"])
@@ -271,6 +284,10 @@ class ProtocolEditorWidget:
             form.addRow("Random seed", self.gnina_seed)
             form.addRow("CNN scoring", self.gnina_cnn_combo)
             form.addRow(gpu_hint)
+            self._program_config_widgets[spec.key] = {
+                "scoring_function": self.gnina_cnn_combo, "exhaustiveness": self.gnina_exhaustiveness,
+                "num_modes": self.gnina_num_modes, "vina_cpu": self.gnina_cpu, "seed": self.gnina_seed,
+            }
         else:
             self._build_schema_config(form, spec, page)
         return page
@@ -320,7 +337,7 @@ class ProtocolEditorWidget:
         if path:
             target.setText(path)
 
-    def _schema_config_from_widgets(self, program: str) -> dict:
+    def _protocol_config_from_widgets(self, program: str) -> dict:
         values: dict[str, object] = {}
         for name, widget in self._program_config_widgets.get(program, {}).items():
             if isinstance(widget, QComboBox):
@@ -355,51 +372,28 @@ class ProtocolEditorWidget:
                 return str(spec.label)
         return str(program)
 
-    def _protocol_config_from_widgets(self, program: str) -> dict:
-        if program == VINA_PROGRAM.key:
-            return {
-                "scoring_function": self.scoring_combo.currentText(),
-                "exhaustiveness": int(self.exhaustiveness.value()),
-                "num_modes": int(self.num_modes.value()),
-                "vina_cpu": int(self.vina_cpu.value()),
-                "seed": int(self.vina_seed.value()),
-            }
-        if program == GNINA_PROGRAM.key:
-            # gnina carries the --cnn_scoring mode in scoring_function (its own engine slot).
-            return {
-                "scoring_function": self.gnina_cnn_combo.currentText(),
-                "exhaustiveness": int(self.gnina_exhaustiveness.value()),
-                "num_modes": int(self.gnina_num_modes.value()),
-                "vina_cpu": int(self.gnina_cpu.value()),
-                "seed": int(self.gnina_seed.value()),
-            }
-        return self._schema_config_from_widgets(program)
-
-    def _page_widgets(self, program: str) -> dict[str, QWidget]:
-        """The config field -> the widget on `program`'s page that sets it."""
-        if program == VINA_PROGRAM.key:
-            return {"scoring_function": self.scoring_combo, "exhaustiveness": self.exhaustiveness,
-                    "num_modes": self.num_modes, "vina_cpu": self.vina_cpu, "seed": self.vina_seed}
-        if program == GNINA_PROGRAM.key:
-            return {"scoring_function": self.gnina_cnn_combo, "exhaustiveness": self.gnina_exhaustiveness,
-                    "num_modes": self.gnina_num_modes, "vina_cpu": self.gnina_cpu, "seed": self.gnina_seed}
-        return dict(self._program_config_widgets.get(program, {}))
+    def _program_defaults(self, program: str) -> dict:
+        defaults = get_docking_program(program).validate_config({})
+        if program in (VINA_PROGRAM.key, GNINA_PROGRAM.key):
+            settings = getattr(app_config(self.runtime).docking, program)
+            defaults.update(
+                exhaustiveness=settings.exhaustiveness, num_modes=settings.num_modes, vina_cpu=settings.cpu_per_task,
+            )
+        return defaults
 
     def _apply_protocol_config_to_widgets(self, protocol: dict) -> None:
-        """Put `protocol`'s config into its program's page. A field it leaves out, or holds a value
-        the widget does not take (a recorded 999 where the box stops at 256), shows the program's
-        own default -- never a value the widget picks instead (`set_widget_value`)."""
+        """Restore a program page, using the current defaults for missing or unsupported values."""
         program = str(protocol.get("program") or VINA_PROGRAM.key)
         config = dict(protocol.get("config") or {})
         method = self.method_combo.findData(str(config.get("method") or "standard"))
         if method >= 0:
             self.method_combo.setCurrentIndex(method)  # first: it decides the scoring choices
         self._select_program(program)  # its settings; what a docking run has ticked is not touched
-        try:
-            defaults = get_docking_program(program).validate_config({})
-        except Exception:  # noqa: BLE001 - a program this build does not know has no page either
-            defaults = {}
-        for name, widget in self._page_widgets(program).items():
+        widgets = self._program_config_widgets.get(program)
+        if not widgets:
+            return
+        defaults = self._program_defaults(program)
+        for name, widget in widgets.items():
             if not set_widget_value(widget, config.get(name)):
                 set_widget_value(widget, defaults.get(name))
 
@@ -544,7 +538,7 @@ class ProtocolEditorWidget:
 
     def _load_selected_protocol_into_editor(self) -> None:
         row = self._selected_protocol_row()
-        if row < 0:
+        if self._run_kind() != "redocking" or row < 0:
             return
         self._apply_protocol_config_to_widgets(self._protocols[row])
 
@@ -732,10 +726,9 @@ class ProtocolEditorWidget:
         combo = getattr(self, "scoring_combo", None)
         if combo is None:
             return
-        method = get_method(self._method())
+        choices = _vina_scoring_choices(self._method())
         model = combo.model()
-        allowed = [row for row in range(combo.count()) if method.allows(VINA_PROGRAM.key, combo.itemText(row))
-                   and not (AUTOGRID_UNAVAILABLE and combo.itemText(row) == "ad4")]  # ad4 scores on autogrid4 maps
+        allowed = [row for row in range(combo.count()) if combo.itemData(row) in choices]
         for row in range(combo.count()):
             model.item(row).setEnabled(row in allowed)
         if allowed and combo.currentIndex() not in allowed:
@@ -899,8 +892,7 @@ class ProtocolEditorWidget:
 
     def restore_docking_setup(self) -> None:
         """Open on what the project's last Run clicks committed to (docking/studio_setup.py); with
-        none, the pages stay on the programs' defaults. A setup that cannot be put back never stops
-        the project from opening: the user is told, and the Programs step starts from the defaults."""
+        none, the pages keep their initial values from Settings and the engines."""
         try:
             setup = setup_from_project(getattr(getattr(self.runtime, "active_context", None), "path", None))
             if setup:
@@ -911,11 +903,11 @@ class ProtocolEditorWidget:
                 self._reset_to_defaults()  # what the notice says: not the half of it that went in
             except Exception:  # noqa: BLE001 - the project opens whatever the Programs step holds
                 _log.warning("Could not reset the Docking Studio setup to the defaults", exc_info=True)
-            self._setup_notice(f"{error}.")
+            self._setup_notice(f"The Programs step starts from its initial settings. {error}.")
 
     def _reset_to_defaults(self) -> None:
         """The Programs step as a project with no runs opens on: Docking, the standard method,
-        each program's own defaults, the usual ticks and the default variant."""
+        the initial values, the usual ticks and the default variant."""
         self._docking_aside = None  # nothing to bring back: leaving Redocking keeps the defaults
         self._protocols = []  # first: every refresh below redraws the variant table
         index = self.experiment_kind_combo.findData("docking")
@@ -924,7 +916,7 @@ class ProtocolEditorWidget:
         for spec in list_docking_programs():
             with suppress(Exception):
                 self._apply_protocol_config_to_widgets(
-                    {"program": str(spec.key), "config": {**spec.validate_config({}), "method": "standard"}})
+                    {"program": str(spec.key), "config": {"method": "standard"}})
         for check in self._program_checks.values():
             check.setChecked(False)
         self._refresh_program_availability(fallback=True)  # none ticked: the usual default
@@ -933,14 +925,13 @@ class ProtocolEditorWidget:
         self._select_program(next((key for key, check in self._program_checks.items() if check.isChecked()), ""))
 
     def _setup_notice(self, problem: str) -> None:
-        """Say, without blocking the project opening, that the recorded setup was not used."""
+        """Report a restore problem without blocking the project from opening."""
         from PySide6.QtCore import QTimer
         from PySide6.QtWidgets import QMessageBox
 
         def show() -> None:
             box = QMessageBox(QMessageBox.Icon.Warning, "Docking Studio",
-                              "The settings of this project's last runs could not be put back, so the "
-                              "Programs step starts from the programs' defaults.", parent=self.window())
+                              "Some options from this project's last runs could not be restored.", parent=self.window())
             box.setInformativeText(problem)
             box.setModal(False)
             box.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
@@ -948,16 +939,35 @@ class ProtocolEditorWidget:
 
         QTimer.singleShot(0, show)  # after the studio is built and shown
 
+    def _variant_fits_editor(self, program: str, config: dict) -> bool:
+        method = str(config.get("method") or "standard")
+        index = self.method_combo.findData(method)
+        if index < 0 or not self.method_combo.model().item(index).isEnabled():
+            return False
+        for name, widget in self._program_config_widgets[program].items():
+            if name == "scoring_function" and program == VINA_PROGRAM.key:
+                if config[name] not in _vina_scoring_choices(method):
+                    return False
+            elif not set_widget_value(widget, config.get(name), apply=False):
+                return False
+        return True
+
     def _apply_docking_setup(self, setup: dict) -> None:
-        # Variants first: putting them in the table loads the first one into the pages.
-        # Made again, not copied: each gets its own id and the hash of this build, and keeps only
-        # what its page sets (plus the method). A run also records what the machine resolved,
-        # such as the Vina binary, which is not part of the variant.
+        # Keep the editor and the protocol sent by Run in agreement, even for API-submitted jobs.
         variants = []
+        skipped_variants = 0
         for variant in setup.get("variants") or ():
             program = str(variant["program"])
-            page = set(self._protocol_config_from_widgets(program)) | {"method"}
-            config = {k: v for k, v in dict(variant.get("config") or {}).items() if k in page}
+            page = self._program_config_widgets[program].keys() | {"method"}
+            defaults = get_docking_program(program).validate_config({})
+            recorded = {**defaults, **variant["config"]}
+            config = {key: value for key, value in recorded.items() if key in page}
+            # The executable is resolved on this machine. Other options outside the form
+            # would change to the engine defaults the next time this variant runs.
+            hidden_options = recorded.keys() - page - {"vina_command"}
+            if any(recorded[key] != defaults[key] for key in hidden_options) or not self._variant_fits_editor(program, config):
+                skipped_variants += 1
+                continue
             variants.append(self._make_protocol(program=program, config=config, label=variant.get("label") or None,
                                                 rescoring=variant.get("rescoring")))
         if variants:
@@ -983,9 +993,14 @@ class ProtocolEditorWidget:
         self._select_program(next((key for key, check in self._program_checks.items() if check.isChecked()), ""))
         # Last: entering Redocking puts the Docking setup just restored aside, and the editor
         # shows the selected variant (`_swap_pages_for_run_kind`).
-        kind = self.experiment_kind_combo.findData(str(setup.get("experiment") or ""))
+        experiment = setup.get("experiment")
+        if skipped_variants and not variants and experiment == "redocking":
+            experiment = "docking"
+        kind = self.experiment_kind_combo.findData(str(experiment or ""))
         if kind >= 0:
             self.experiment_kind_combo.setCurrentIndex(kind)
+        if skipped_variants:
+            self._setup_notice(f"Saved Redocking variants with unsupported options were skipped ({skipped_variants}).")
 
     def _sync_ligand_source_choice(self) -> None:
         """Offer shards vs rows only where both can exist, and only the choices that can run.

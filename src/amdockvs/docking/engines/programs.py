@@ -11,6 +11,9 @@ from amdockvs.workflows.rules import apply_workflow_filters
 
 #: The range the program forms always offered; kept so stored protocols still validate.
 SEED_MIN, SEED_MAX = -1_000_000, 1_000_000
+VINA_FAMILY_EXHAUSTIVENESS = 8
+VINA_FAMILY_NUM_MODES = 9
+VINA_FAMILY_CPU = 1
 
 
 def _seed_field(*, zero_is_random: bool = False) -> Any:
@@ -30,11 +33,11 @@ class DockingEngineConfig(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    exhaustiveness: int = Field(default=8, ge=1)
-    num_modes: int = Field(default=9, ge=1)
+    exhaustiveness: int = Field(default=VINA_FAMILY_EXHAUSTIVENESS, ge=1)
+    num_modes: int = Field(default=VINA_FAMILY_NUM_MODES, ge=1)
     scoring_function: str = "vina"
     vina_command: str = "vina"
-    vina_cpu: int = Field(default=1, ge=1)
+    vina_cpu: int = Field(default=VINA_FAMILY_CPU, ge=1)
     seed: int = _seed_field()
     spacing: float = Field(default=0.375, gt=0.0)
     energy_range: float = Field(default=3.0, ge=0.0)
@@ -45,9 +48,9 @@ class DockingEngineConfig(BaseModel):
 class GninaEngineConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    exhaustiveness: int = Field(default=8, ge=1, le=256)
-    num_modes: int = Field(default=9, ge=1, le=128)
-    vina_cpu: int = Field(default=1, ge=1, le=128, title="CPU per task")
+    exhaustiveness: int = Field(default=VINA_FAMILY_EXHAUSTIVENESS, ge=1, le=256)
+    num_modes: int = Field(default=VINA_FAMILY_NUM_MODES, ge=1, le=128)
+    vina_cpu: int = Field(default=VINA_FAMILY_CPU, ge=1, le=128, title="CPU per task")
     scoring_function: Literal["rescore", "none", "refinement", "all"] = "rescore"
     seed: int = _seed_field()
 
@@ -161,8 +164,9 @@ class DockingProgramSpec:
     def operation_name(self, action: str) -> str:
         return f"docking.{self.key}.{action}"
 
-    def validate_config(self, value: Mapping[str, Any] | None = None) -> dict[str, Any]:
-        config = self.config_model.model_validate(dict(value or {})).model_dump(mode="python")
+    def validate_config(self, value: Mapping[str, Any] | None = None, *,
+                        strict: bool | None = None) -> dict[str, Any]:
+        config = self.config_model.model_validate(dict(value or {}), strict=strict).model_dump(mode="python")
         check_program(config.get("method"), self.key, config.get("scoring_function"))
         return config
 
