@@ -146,3 +146,22 @@ def test_p2rank_settings_default_to_auto_and_100_proteins():
     assert P2RankSettings(threads=3, batch_size=50).model_dump() == {
         "home": "", "profile": "auto", "threads": 3, "batch_size": 50,
     }
+
+
+def test_global_docking_defaults_live_in_the_model_and_carry_to_new_projects(tmp_path, monkeypatch):
+    """config.toml does not repeat the Vina-family docking defaults; the model holds them, and a
+    value the user sets globally is what a project with no override of its own starts from."""
+    import toml
+
+    from amdockvs.core.configuration import AMDOCKVS_DEFAULT_CONFIG_PATH, create_amdock_configuration
+
+    packaged = toml.load(AMDOCKVS_DEFAULT_CONFIG_PATH)["docking"]
+    assert not {"exhaustiveness", "num_modes", "cpu_per_task"} & (set(packaged["vina"]) | set(packaged["gnina"]))
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+    config = create_amdock_configuration()
+    assert config.get_value("docking.vina.exhaustiveness") == 8  # the model's default
+    config.set_global_value("docking.gnina.num_modes", 20)
+
+    fresh = create_amdock_configuration()  # the next session
+    fresh.set_project_root(tmp_path / "new_project")
+    assert fresh.get_value("docking.gnina.num_modes") == 20

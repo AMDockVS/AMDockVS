@@ -27,7 +27,6 @@ from ms_flow.core.configuration import PydanticConfiguration
 
 from amdockvs.core.constants import MIN_BOX_EDGE
 from amdockvs.core.home import amdock_home
-from amdockvs.docking.engines.programs import VINA_FAMILY_CPU, VINA_FAMILY_EXHAUSTIVENESS, VINA_FAMILY_NUM_MODES
 
 
 MAX_2D_PREVIEW_HEAVY_ATOMS = "max_2d_preview_heavy_atoms"
@@ -48,18 +47,15 @@ class MoleculeDisplayConfiguration(BaseModel):
 
 
 class _VinaFamilySettings(BaseModel):
-    """Executable and the defaults used before this project's first submission."""
+    """Executable, and the docking values a project shows until its first Run records its own.
+    Set globally, they are what every new project starts from; config.toml leaves them to the model."""
 
     model_config = ConfigDict(extra="forbid")
 
     path: str = Field("", title="Executable", description="Path to the binary; empty autodetects.")
-    exhaustiveness: int = Field(
-        VINA_FAMILY_EXHAUSTIVENESS, ge=1, le=256, title="Exhaustiveness", description="Search exhaustiveness."
-    )
-    num_modes: int = Field(
-        VINA_FAMILY_NUM_MODES, ge=1, le=128, title="Num modes", description="Number of poses to generate."
-    )
-    cpu_per_task: int = Field(VINA_FAMILY_CPU, ge=1, le=128, title="CPU per task", description="CPU cores per docking task.")
+    exhaustiveness: int = Field(8, ge=1, le=256, title="Exhaustiveness", description="Search exhaustiveness.")
+    num_modes: int = Field(9, ge=1, le=128, title="Num modes", description="Number of poses to generate.")
+    cpu_per_task: int = Field(1, ge=1, le=128, title="CPU per task", description="CPU cores per docking task.")
     batch_size: int = Field(
         1,
         ge=1,

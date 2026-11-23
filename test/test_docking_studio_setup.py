@@ -67,7 +67,7 @@ def _set_kind(studio, kind):
     studio.experiment_kind_combo.setCurrentIndex(studio.experiment_kind_combo.findData(kind))
 
 
-def test_a_project_with_no_runs_starts_from_the_programs_own_defaults(studio_factory):
+def test_a_project_with_no_runs_starts_from_the_settings_defaults(studio_factory):
     assert setup_from_project(studio_factory.runtime.active_context.path) == {}
     studio = studio_factory()
     for program in (VINA_PROGRAM, GNINA_PROGRAM):
@@ -208,7 +208,7 @@ def test_a_setup_that_cannot_be_put_back_opens_on_the_defaults_and_says_so(studi
     monkeypatch.setattr(protocol_editor, "setup_from_project", broken)
     studio = studio_factory()  # builds: the project opens
     assert studio.exhaustiveness.value() == VINA_PROGRAM.validate_config({})["exhaustiveness"]
-    assert studio_factory.notices == ["The Programs step starts from its initial settings. unreadable run."]
+    assert studio_factory.notices == ["The Programs step starts from its initial settings: unreadable run."]
 
 
 def test_the_latest_click_ticks_even_when_its_jobs_ran_in_another_order():
@@ -318,7 +318,7 @@ def test_a_setup_that_fails_halfway_leaves_the_defaults_not_half_of_it(studio_fa
 
     monkeypatch.setattr(protocol_editor.ProtocolEditorWidget, "_apply_docking_setup", halfway)
     studio = studio_factory()
-    assert studio_factory.notices == ["The Programs step starts from its initial settings. a value this build cannot put back."]
+    assert studio_factory.notices == ["The Programs step starts from its initial settings: a value this build cannot put back."]
     assert studio._run_kind() == "docking" and studio._method() == "standard"
     defaults = {spec.key: spec.validate_config({}) for spec in protocol_editor.list_docking_programs()}
     assert studio._program_config_widgets["qvina"]["seed"].value() == defaults["qvina"]["seed"]
@@ -348,7 +348,7 @@ def test_a_malformed_rescoring_entry_is_skipped_and_cannot_break_the_reset(studi
     _submit(runtime, "d", "vina", exhaustiveness=12)
     monkeypatch.setattr(protocol_editor.ProtocolEditorWidget, "_apply_docking_setup", halfway)
     studio = studio_factory()  # opens: the reset clears the variants before anything redraws them
-    assert studio_factory.notices == ["The Programs step starts from its initial settings. halfway."]
+    assert studio_factory.notices == ["The Programs step starts from its initial settings: halfway."]
     assert studio._run_kind() == "docking" and [p["rescoring"] for p in studio._protocols] == [[]]
 
 

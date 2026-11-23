@@ -903,7 +903,7 @@ class ProtocolEditorWidget:
                 self._reset_to_defaults()  # what the notice says: not the half of it that went in
             except Exception:  # noqa: BLE001 - the project opens whatever the Programs step holds
                 _log.warning("Could not reset the Docking Studio setup to the defaults", exc_info=True)
-            self._setup_notice(f"The Programs step starts from its initial settings. {error}.")
+            self._setup_notice(f"The Programs step starts from its initial settings: {error}.")
 
     def _reset_to_defaults(self) -> None:
         """The Programs step as a project with no runs opens on: Docking, the standard method,
