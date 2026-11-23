@@ -32,7 +32,7 @@ n_points = 120
 [binding_sites.p2rank]
 home = ""
 profile = "auto"
-threads = 1
+# threads: unset, a quarter of the machine's CPUs (configuration.P2RankSettings)
 
 [docking]
 box_size = 22.0

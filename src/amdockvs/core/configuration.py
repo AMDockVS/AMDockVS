@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import tomllib
@@ -343,6 +344,12 @@ class ResiduePocketSettings(BaseModel):
     )
 
 
+def _quarter_of_cpus() -> int:
+    """A quarter of this machine's CPUs (at least 1, at most 128): enough for P2Rank to go fast,
+    leaving the rest to whatever runs alongside it."""
+    return max(1, min(128, (os.cpu_count() or 1) // 4))
+
+
 class P2RankSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -356,7 +363,10 @@ class P2RankSettings(BaseModel):
         description="P2Rank model: 'auto' picks per receptor from its structure; 'alphafold' ignores "
                     "B-factors; 'default' uses experimental X-ray B-factors.",
     )
-    threads: int = Field(1, ge=1, le=128, title="Threads", description="Default threads per prediction job.")
+    threads: int = Field(
+        default_factory=_quarter_of_cpus, ge=1, le=128, title="Threads",
+        description="Default threads per prediction job: a quarter of this machine's CPUs, at least one.",
+    )
 
 
 class BindingSitesConfiguration(BaseModel):
