@@ -1616,11 +1616,13 @@ model options and return values are defined by the current implementation.</p>
 <p>P2Rank predicts them once it is installed through the tools facade:</p>
 <div class="highlight"><pre><span></span><code><span class="n">status</span> <span class="o">=</span> <span class="n">runtime</span><span class="o">.</span><span class="n">tools</span><span class="o">.</span><span class="n">install</span><span class="p">(</span><span class="s2">"p2rank"</span><span class="p">)</span>
 
-<span class="n">job_id</span> <span class="o">=</span> <span class="n">runtime</span><span class="o">.</span><span class="n">binding_sites</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">receptor_ids</span><span class="o">=</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">receptor</span><span class="o">.</span><span class="n">id</span><span class="p">)])</span>
+<span class="n">job_id</span> <span class="o">=</span> <span class="n">runtime</span><span class="o">.</span><span class="n">binding_sites</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">receptor_ids</span><span class="o">=</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">receptor</span><span class="o">.</span><span class="n">id</span><span class="p">)],</span> <span class="n">threads</span><span class="o">=</span><span class="s2">"auto"</span><span class="p">,</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">100</span><span class="p">)</span>
 <span class="n">runtime</span><span class="o">.</span><span class="n">watch_job</span><span class="p">(</span><span class="n">job_id</span><span class="p">)</span>
 <span class="n">sites</span> <span class="o">=</span> <span class="n">runtime</span><span class="o">.</span><span class="n">binding_sites</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">molecule_id</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">receptor</span><span class="o">.</span><span class="n">id</span><span class="p">),</span> <span class="n">source</span><span class="o">=</span><span class="s2">"p2rank"</span><span class="p">)</span>
 </code></pre></div>
-<p><code>runtime.tools.status()</code> lists every managed tool and whether it is ready.</p>
+<p><code>runtime.tools.status()</code> lists every managed tool and whether it is ready.
+For predictions on many receptors, pass all their IDs in one call. MolSuite
+queues batches of up to <code>batch_size</code> receptors on the selected executor.</p>
 <h2 id="docking">Docking<a class="headerlink" href="#docking" title="Permanent link">&para;</a></h2>
 <p>A docking run needs prepared molecules and a grid on each receptor:</p>
 <div class="highlight"><pre><span></span><code><span class="n">runtime</span><span class="o">.</span><span class="n">watch_jobs</span><span class="p">([</span>

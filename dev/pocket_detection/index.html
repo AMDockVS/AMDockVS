@@ -1403,7 +1403,13 @@ scope is empty, adjust this option or the filters in the Receptors catalog.</p>
 <li><strong>Profile</strong> — Choose <strong>Ignore B-factors (predicted models, NMR, cryo-EM)</strong>
   (the default) or <strong>Use B-factors (X-ray structures)</strong>. The selected profile
   applies to the whole run, including runs containing a mixture of structure types.</li>
-<li><strong>Threads</strong> — Set the number of CPU threads used by P2Rank.</li>
+<li><strong>Threads per instance</strong> — <strong>Auto</strong> uses half the usable CPUs on the smallest
+  participating node, rounded down, with at least one thread and at most the
+  number of proteins per batch. Choose a number to set it explicitly.</li>
+<li><strong>Proteins per batch</strong> — The maximum number of receptors sent in one task
+  (default <strong>100</strong>). Each task starts P2Rank once per effective profile present
+  in its batch. MolSuite can run several batches at a time, and tracks completion
+  and retries by batch.</li>
 </ul>
 <p><strong>Ignore B-factors (predicted models, NMR, cryo-EM)</strong> is AMDockVS's default.
 It uses P2Rank's AlphaFold prediction model, which keeps the chemical and
@@ -1426,7 +1432,9 @@ meaningful experimental B-factors.</p>
 <a href="https://github.com/rdk/p2rank/blob/2.5.1/distro/config/default.groovy">Standard</a>
 and <a href="https://github.com/rdk/p2rank/blob/2.5.1/distro/config/alphafold.groovy">AlphaFold</a>
 configurations.</p>
-<p>P2Rank and Java 17 or later must be available. When the runtime is missing,
+<p>P2Rank and Java 17 or later must be available wherever the selected executor
+runs tasks. On remote workers, use the managed P2Rank directory, a launcher on
+<code>PATH</code>, or set <code>AMDOCK_P2RANK_HOME</code> to the installation directory. When the local runtime is missing,
 the <strong>P2Rank Runtime</strong> section reports its status and provides <strong>Open Settings</strong>
 to reach <strong>Settings → External tools</strong>.</p>
 <p>Each run adds its pockets next to the earlier ones; a run with another profile
