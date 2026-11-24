@@ -4,6 +4,7 @@ Closing the project leaves the engine running, and with it the pool of workers i
 job started (one per CPU, each gone only after 60 s idle): a suite piles them up by the dozen.
 """
 
+import gc
 import weakref
 
 import pytest
@@ -21,6 +22,11 @@ def _tracked_init(self, *args, **kwargs):
 
 AMDockVSRuntime.__init__ = _tracked_init
 
+# Cyclic garbage is collected on the main thread only, as the app does (amdockvs.ui.common.gui_gc):
+# a worker thread collecting a finished test's widgets deadlocked against the GUI thread, which
+# hung the tutorial tests one run in two.
+gc.disable()
+
 
 @pytest.fixture(autouse=True)
 def _shut_down_runtimes():
@@ -28,6 +34,7 @@ def _shut_down_runtimes():
     for runtime in list(_made):
         runtime.shutdown()
     _made.clear()
+    gc.collect()  # here, on the main thread: never on a worker that happens to allocate
 
 
 @pytest.fixture
