@@ -199,6 +199,14 @@ class BuildMixin:
         identities, existing, specs = {}, {}, []
         for algo in algorithms:
             spec = {**settings, "algorithm": algo}
+            if algo == "gradient_boosting":
+                # The identity says what a model was trained from, and 'gradient_boosting' no
+                # longer means what it did: it trains the histogram-based estimator, balanced for
+                # classification. Without this, a model built by the exact one matches a request
+                # for the new one, so the old estimator is kept and reported as already trained -
+                # described in the Build tab as something it is not. Only this algorithm's
+                # identity changes; every other stored model still matches as before.
+                spec["estimator"] = "hist"
             identity = hashlib.sha256(json.dumps([spec, data], sort_keys=True).encode()).hexdigest()
             identities[algo] = identity
             if identity in stored:
