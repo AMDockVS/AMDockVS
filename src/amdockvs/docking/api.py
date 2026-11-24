@@ -161,6 +161,16 @@ def _requirements_message(program: str, check: Mapping[str, Any]) -> str:
     )
 
 
+def _recorded_cofactors(receptor: MoleculeRecord) -> tuple[str, ...] | None:
+    """The cofactor codes import recorded for ``receptor`` (the kept ones), or None when it
+    recorded none at all - which is not the same as recording an empty list."""
+    components = ((receptor.extra_data or {}).get("structure") or {}).get("components")
+    if not isinstance(components, Mapping) or not isinstance(components.get("cofactors"), list):
+        return None
+    return tuple(sorted({str(c.get("resname") or "").upper() for c in components["cofactors"]
+                         if isinstance(c, Mapping) and c.get("resname")}))
+
+
 @dataclass
 class DockingAPI:
     runtime: Any
@@ -856,6 +866,58 @@ class DockingAPI:
             else:
                 with scratch_file(text.encode(), f".{kind}") as path, as_pdb(path) as readable:
                     cache[key] = zinc_atoms(readable)  # mmCIF too: the Zn check reads PDB columns
+        return cache[key]
+
+    def receptor_cofactors(
+            self,
+            receptors: MoleculeScope | Selection[MoleculeRecord] | None = None,
+            *,
+            unprepared_for: tuple[str, ...] | list[str] = (),
+    ) -> dict[int, tuple[str, tuple[str, ...]]]:
+        """{receptor_id: (name, cofactor HET codes)} for the receptors in ``receptors`` (all of
+        them when None) whose stored structure holds a cofactor; receptors with none are left out.
+
+        These are the cofactors import kept, and exactly the ones `prepare_receptors` drops
+        unless ``keep_cofactors=True``. Import records them per receptor (the preview's
+        ``structure.components.cofactors``, written by the bulk path too), so a proteome costs
+        one pass over its rows and no structure is read; only a receptor with no such record
+        (made some other way) has its structure parsed. ``unprepared_for`` (engine families)
+        leaves out the receptors already prepared for every one of them: the ones a run
+        without ``force`` would not touch."""
+        self.runtime._require_active_project()
+        project_db = self._project_db()
+        skip: set[int] = set()
+        engines = [str(e).strip().lower() for e in unprepared_for if str(e).strip()]
+        if engines:
+            model, molecule_column, payload_column = prep_table("receptor")
+            with project_db.get_session() as session:
+                ready = [set(session.exec(select(molecule_column).where(
+                    model.family == engine, payload_column.is_not(None))).all()) for engine in engines]
+            skip = set.intersection(*ready)
+        found: dict[int, tuple[str, tuple[str, ...]]] = {}
+        for receptor in self.runtime.molecules.filter(receptors, filters={"is_receptor": True}, order=("id",)):
+            if int(receptor.id) in skip:
+                continue
+            codes = _recorded_cofactors(receptor)
+            if codes is None:
+                codes = self._receptor_cofactor_codes(project_db, receptor)
+            if codes:
+                found[int(receptor.id)] = (str(receptor.name or f"#{receptor.id}"), codes)
+        return found
+
+    def _receptor_cofactor_codes(self, project_db, receptor) -> tuple[str, ...]:
+        """`cofactor_codes` of a receptor's stored structure. Read once per payload, as
+        `_receptor_zinc_atoms` is: payload ids are never reused."""
+        from amdockvs.docking.preparation.entities import cofactor_codes
+
+        payload_id = molecule_payload_id(receptor)
+        if payload_id is None:
+            return ()
+        key = (str(project_db.db_path), int(payload_id))
+        cache = self.__dict__.setdefault("_cofactors_by_payload", {})
+        if key not in cache:
+            text, kind = read_structure(project_db, payload_id)
+            cache[key] = cofactor_codes(text, kind)
         return cache[key]
 
     def check_required(

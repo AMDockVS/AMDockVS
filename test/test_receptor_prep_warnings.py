@@ -96,7 +96,12 @@ def test_a_warning_reaches_the_receptor_prep_row(tmp_path, monkeypatch):
             [row] = session.exec(select(ReceptorPrep)).all()
             return row.rigid_payload_id, row.error, row.warnings
 
-    payload, error, warnings = prepare(_FMN_PDB.replace("FMN", "ZZZ"))  # no component anywhere
+    # The CCD pass runs for a receptor holding a kept cofactor (the FMN), and types its other
+    # non-standard residues too: here one with no component anywhere.
+    unknown = "".join(line.replace("FMN A 398", "ZZZ A 399") + "\n" for line in _FMN_PDB.splitlines()
+                      if line.startswith("HETATM") and "FMN" in line)
+    payload, error, warnings = prepare(_FMN_PDB.replace("END", unknown + "END") if "END" in _FMN_PDB
+                                       else _FMN_PDB + unknown)
     assert payload is not None and error is None, "a warning must not mark the receptor failed"
     assert warnings and "ZZZ" in warnings
     payload, error, warnings = prepare(_FMN_PDB)

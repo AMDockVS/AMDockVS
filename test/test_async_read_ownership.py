@@ -125,10 +125,13 @@ def test_the_preparation_panel_owns_the_reads_it_starts(monkeypatch):
         runtime=SimpleNamespace(docking=SimpleNamespace(method_misfit_receptor_ids=lambda **_kw: []),
                                 molecules=SimpleNamespace(excluded_since=lambda _since: [])),
         _prep_started={"receptor": 3},
+        cofactor_notice=object(),  # the note the cofactor read fills
+        _selected_receptor_scope=lambda: None,
     )
     panel = preparation_panel.PreparationPanel
+    studio._refresh_cofactor_notice = lambda: panel._refresh_cofactor_notice(studio)
     panel._sync_receptor_table_filter(studio)
     panel._report_prep_failures(studio, SimpleNamespace(noun="receptor"))
 
-    assert len(calls) == 2
-    assert [call.get("owner") for call in calls] == [studio, studio]
+    assert len(calls) == 3  # the cofactor read, the method misfits, the failures
+    assert [call.get("owner") for call in calls] == [studio, studio, studio]

@@ -141,3 +141,76 @@ def test_every_column_fits_the_dialog_without_scrolling(tmp_path, monkeypatch):
     assert panel.table.columnWidth(3) >= 120, "Ligands keeps room for one chip"
     assert all(panel.table.columnWidth(column) == 130 for column in (4, 5, COFACTORS_COLUMN))
     panel.close()
+
+
+def test_receptor_cofactors_names_what_preparation_would_leave_out(tmp_path, monkeypatch):
+    """The Receptors step warns when a receptor in scope carries a cofactor and "Include
+    cofactors" is off: import showed it, preparation drops it unless that box is ticked. The
+    API reads the stored structure, so it reports what import kept and nothing it took off."""
+    pytest.importorskip("rdkit")
+    from amdockvs.runtime import AMDockVSRuntime
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    runtime = AMDockVSRuntime()
+    runtime.create_project(name="cofactors", folder=tmp_path / "project")
+    with_both = _receptor(tmp_path / "both.pdb")
+    stripped = _receptor(tmp_path / "stripped.pdb")
+    jobs = runtime.loader.load_receptors(
+        [with_both, stripped], executor_name="thread",
+        per_file={str(stripped.resolve()): {"selected_cofactors": []}})
+    status = runtime.wait_for_jobs(list(jobs), timeout_s=120, poll_s=0.05)
+    assert all(item.status == "completed" for item in status.values())
+
+    found = runtime.docking.receptor_cofactors()
+    assert sorted(codes for _name, codes in found.values()) == [("FMN", "HEM")]
+    (name,) = [name for name, _codes in found.values()]
+    assert name == "both"
+    scope = runtime.molecules.select(role="receptor")
+    assert runtime.docking.receptor_cofactors(scope) == found
+
+    # Import recorded them: answering reads no structure, a proteome's worth included.
+    def no_structure_reads(*_args):
+        raise AssertionError("an imported receptor's structure was read")
+
+    with monkeypatch.context() as patch:  # not undo(): that would hand HOME back mid-test
+        patch.setattr(type(runtime.docking), "_receptor_cofactor_codes", no_structure_reads)
+        assert runtime.docking.receptor_cofactors() == found
+
+    # A receptor with no record (made some other way) is read instead, and still counted.
+    from amdockvs.models import MoleculeRecord
+
+    with runtime.workspace.project_db.get_session() as session:
+        record = session.get(MoleculeRecord, next(iter(found)))
+        extra = dict(record.extra_data)
+        extra["structure"] = {key: value for key, value in extra["structure"].items() if key != "components"}
+        record.extra_data = extra
+        session.add(record)
+        session.commit()
+    assert runtime.docking.receptor_cofactors() == found
+
+
+def test_include_cofactors_retypes_only_the_receptors_that_have_one(tmp_path, monkeypatch):
+    """The CCD pass behind "Include cofactors" types every non-standard residue. In a mixed
+    batch a receptor with no cofactor is prepared as with the box off: nothing of its changes."""
+    from types import SimpleNamespace
+
+    from amdockvs.docking.preparation import entities
+
+    seen = {}
+
+    def fake_prepare(*, source_path, output_path, ccd_components, **_kw):
+        seen[source_path.read_text().count("HETATM")] = ccd_components
+        output_path.write_text("REMARK\n")
+        return SimpleNamespace(artifact=SimpleNamespace(path=output_path), metadata={}, warnings=[])
+
+    monkeypatch.setattr(entities, "prepare_receptor_vina_pdbqt", fake_prepare)
+    monkeypatch.setattr(entities, "_prepared", lambda text: text)
+    with_cofactors = _receptor(tmp_path / "rec.pdb").read_bytes()
+    dry = b"\n".join(l for l in with_cofactors.splitlines() if not l.startswith(b"HETATM")) + b"\n"
+    assert entities.cofactor_codes(with_cofactors, "pdb") == ("FMN", "HEM")
+    assert entities.cofactor_codes(dry, "pdb") == ()
+    rows = [{"id": 1, "structure": with_cofactors, "structure_kind": "pdb"},
+            {"id": 2, "structure": dry, "structure_kind": "pdb"}]
+    result = entities.prepare_entities_rows(entity_kind="receptor", engine="ad4", rows=rows, keep_cofactors=True)
+    assert result["failure_count"] == 0, result["failures"]
+    assert seen == {9: True, 0: False}
