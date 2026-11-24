@@ -117,6 +117,7 @@ class LigandActivityWidget(QWidget):
         self._open_results_view = open_results_view
         self._show_histogram = show_histogram
         self._in_flight = None  # (endpoint, model) of the refresh running now: a repeat is dropped
+        self._fetch = 0  # the refresh the table is waiting for; an older one's answer is stale
 
         outer = QVBoxLayout(self)
         outer.setSpacing(8)
@@ -189,7 +190,7 @@ class LigandActivityWidget(QWidget):
     def _current_model_id(self) -> int | None:
         return self.model_combo.currentData() if hasattr(self, "model_combo") else None
 
-    def refresh_view(self) -> None:
+    def refresh_view(self, *, force: bool = False) -> None:
         if not hasattr(self, "table"):
             return
         from amdockvs.ui.tools.qsar.chart import class_counts, histogram
@@ -198,9 +199,13 @@ class LigandActivityWidget(QWidget):
         model_id = self._current_model_id()
         # Opening the view asks twice (the widget on creation, then the window as it shows the
         # chart): the second answer would be the first one again, so one fetch serves both.
-        if self._in_flight == (endpoint, model_id):
+        # ...but a refresh asked for after the rows CHANGED must go out even so: the answer
+        # already in flight was read before the change and would put the old rows back.
+        if not force and self._in_flight == (endpoint, model_id):
             return
         self._in_flight = (endpoint, model_id)
+        self._fetch += 1
+        fetch = self._fetch
 
         def work():
             # All heavy work off the GUI thread: resolve the endpoint (default to the first when
@@ -217,10 +222,14 @@ class LigandActivityWidget(QWidget):
             return kinds, resolved, rows, models, subsets, bins
 
         def done(payload) -> None:
+            if fetch != self._fetch:
+                return  # a later refresh overtook this one; its rows are the current ones
             self._in_flight = None
             self._fill(payload)
 
         def failed(exc) -> None:
+            if fetch != self._fetch:
+                return
             self._in_flight = None
             self.status.setText(str(exc))
 
@@ -305,7 +314,7 @@ class LigandActivityWidget(QWidget):
             f"Loaded {result['loaded']} activities (matched by {result['match_by']}); "
             f"skipped {result['skipped_missing_ligand']} unmatched, {result['skipped_invalid_value']} invalid."
         )
-        self.refresh_view()
+        self.refresh_view(force=True)  # the rows changed: never serve a fetch from before it
 
     def _load_matrix(self) -> None:
         from amdockvs.ui.tools.qsar.activities import map_activity_columns_dialog
@@ -329,7 +338,7 @@ class LigandActivityWidget(QWidget):
         )
         if result["endpoints"]:
             self.endpoint_combo.setCurrentText(result["endpoints"][0])
-        self.refresh_view()
+        self.refresh_view(force=True)  # the rows changed: never serve a fetch from before it
 
     def _normalize(self) -> None:
         QMessageBox.information(
@@ -349,4 +358,4 @@ class LigandActivityWidget(QWidget):
             except Exception as exc:
                 QMessageBox.warning(self, "Activities", str(exc))
                 break
-        self.refresh_view()
+        self.refresh_view(force=True)  # the rows changed: never serve a fetch from before it
