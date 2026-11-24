@@ -220,8 +220,17 @@ class ChartController:
         """bins = (labels, counts), already computed off the GUI thread by the caller."""
         if self._chart is None:
             return
+        # The Activity view fills in the background - at start-up it is open behind QSAR Analysis -
+        # and the chart dock is shared, so pushing from there would plant a distribution over the
+        # model's own chart. It gets the chart when it is the view being read; coming back to it
+        # re-pushes through sync_to_active_view.
+        if self.w.central_widget.current_view_id() != LIGAND_ACTIVITY_VIEW_ID:
+            return
+        from amdockvs.ui.tools.qsar.chart import ClassCounts
+
         labels, counts = bins
-        self._chart.show_distribution_bins(endpoint or "value", labels, counts)
+        self._chart.show_distribution_bins(endpoint or "value", labels, counts,
+                                           annotate=isinstance(bins, ClassCounts))
         self._show()
 
     def show_feature_importance(self, label: str, pairs, notes=None, images=None) -> None:
@@ -236,12 +245,14 @@ class ChartController:
         )
         self._show()
 
-    def show_roc_curves(self, curves, empty: str = "No ROC curve.") -> None:
+    def show_roc_curves(self, curves, empty: str = "No ROC curve.", subset: str = "") -> None:
         """curves = [{'label', 'points':[(fpr,tpr)], 'auc'}]. Overlaid ROC series + chance diagonal;
         none = an empty chart titled ``empty`` (a stale one would pass for this selection's)."""
         if self._chart is None:
             return
-        title = empty if not curves else "ROC" if len(curves) > 1 else f"ROC — {curves[0].get('label', '')}"
+        sizes = {c.get("n") for c in curves}
+        shared = f", n={next(iter(sizes)):,}" if len(sizes) == 1 and None not in sizes else ""
+        title = f"ROC{f' · {subset}' if subset else ''}{shared}" if curves else empty  # model + AUC: legend
         self._chart.show_curves(title, curves, "False positive rate", "True positive rate", diagonal=True)
         self._show()
 
@@ -273,12 +284,16 @@ class ChartController:
         self._chart.show_grouped_bars(label or "Train/test distribution", categories, groups, x_title)
         self._show()
 
-    def show_similarity_distribution(self, label: str, bins) -> None:
-        """bins = (labels, counts) of applicability-domain similarities, binned off the GUI thread."""
+    def show_similarity_distribution(self, label: str, bins, empty: str = "") -> None:
+        """bins = (labels, counts) of applicability-domain similarities, binned off the GUI thread;
+        none = an empty chart titled ``empty`` (a stale one would pass for this selection\'s)."""
         if self._chart is None:
             return
         labels, counts = bins
-        self._chart.show_distribution_bins(label or "AD similarity", labels, counts)
+        if not counts and empty:
+            self._chart.show_message(empty)
+        else:
+            self._chart.show_distribution_bins(label or "AD similarity", labels, counts)
         self._show()
 
     def show_size_distribution(self, label: str, labels, counts) -> None:

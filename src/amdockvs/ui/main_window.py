@@ -743,8 +743,8 @@ class AMDockVSMainWindow(QMainWindow):
     def highlight_fit_molecule(self, molecule_id: int) -> None:
         self.charts.highlight_fit_molecule(molecule_id)
 
-    def show_similarity_distribution(self, label: str, bins) -> None:
-        self.charts.show_similarity_distribution(label, bins)
+    def show_similarity_distribution(self, label: str, bins, empty: str = "") -> None:
+        self.charts.show_similarity_distribution(label, bins, empty)
 
     def show_size_distribution(self, label: str, labels, counts) -> None:
         self.charts.show_size_distribution(label, labels, counts)

@@ -6,6 +6,8 @@ filtering. Heavy calls go through run_async so the GUI never blocks.
 """
 from __future__ import annotations
 
+import html
+
 from PySide6.QtCore import QItemSelectionModel, Qt, QTimer
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -34,7 +36,7 @@ from PySide6.QtWidgets import (
 from amdockvs.models import MoleculeRecord, QSARModelRecord
 from amdockvs.qsar.build import FEATURE_SOURCES
 from amdockvs.qsar.model_analysis import member_columns, member_scope, model_scores
-from amdockvs.qsar.modeling import AD_K, AD_THRESHOLD, supported_algorithms
+from amdockvs.qsar.modeling import AD_K, AD_THRESHOLD, algorithm_help, supported_algorithms
 from amdockvs.qsar.splitters import SPLITTERS
 from amdockvs.ui.catalog.common import (
     PREVIEW_2D_COLUMN_FIELD,
@@ -43,6 +45,7 @@ from amdockvs.ui.catalog.common import (
     project_table,
 )
 from amdockvs.ui.common.async_query import run_async
+from amdockvs.ui.common.widgets import help_button
 from ms_components.chips import FlowLayout
 from ms_components.ms_stepper import Orientation, QStepper
 from ms_components.ms_table import (
@@ -77,6 +80,19 @@ class _FreshCombo(QComboBox):
     def showPopup(self) -> None:
         self._reload()
         super().showPopup()
+
+
+def _rich_help(text: str) -> str:
+    """Plain help paragraphs as a rich-text tooltip: Qt wraps rich text but runs plain text off
+    the screen. A leading "Label:" of a paragraph is set in bold."""
+    paragraphs = []
+    for paragraph in text.split("\n\n"):
+        label, sep, rest = paragraph.partition(": ")
+        if sep and len(label) <= 15:
+            paragraphs.append(f"<p><b>{html.escape(label)}:</b> {html.escape(rest)}</p>")
+        else:
+            paragraphs.append(f"<p>{html.escape(paragraph)}</p>")
+    return "<qt>" + "".join(paragraphs) + "</qt>"
 
 
 def _form_step(rows: list[tuple[str, QWidget]]) -> QWidget:
@@ -212,6 +228,7 @@ class QSARBuildWidget(QWidget):
         self.algo_box_layout = QVBoxLayout(self.algo_box)
         self.algo_box_layout.setContentsMargins(0, 0, 0, 0)
         self.algo_checks: dict[str, QCheckBox] = {}
+        self._algo_rows: list[QWidget] = []
         self.cv_folds = QSpinBox(box)
         self.cv_folds.setRange(0, 20)
         self.cv_folds.setToolTip("k-fold cross-validation (0 = off). Reports Q² for regression.")
@@ -249,13 +266,24 @@ class QSARBuildWidget(QWidget):
 
     def _sync_algorithms(self) -> None:
         """Rebuild the algorithm checkboxes for the current task (tick several to train + compare)."""
-        for cb in self.algo_checks.values():
-            cb.setParent(None)
+        for row in self._algo_rows:
+            row.setParent(None)
+        self._algo_rows.clear()
         self.algo_checks.clear()
-        for i, name in enumerate(supported_algorithms(self.task_combo.currentText())):
-            cb = QCheckBox(name, self.algo_box)
+        task = self.task_combo.currentText()
+        for i, name in enumerate(supported_algorithms(task)):
+            row = QWidget(self.algo_box)
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            cb = QCheckBox(name, row)
             cb.setChecked(i == 0)
-            self.algo_box_layout.addWidget(cb)
+            tip = _rich_help(algorithm_help(name, task))
+            cb.setToolTip(tip)
+            row_layout.addWidget(cb)
+            row_layout.addWidget(help_button(row, tip, name=f"{name} help"))
+            row_layout.addStretch(1)
+            self.algo_box_layout.addWidget(row)
+            self._algo_rows.append(row)
             self.algo_checks[name] = cb
         is_categorical = self._endpoint_kinds.get(self.train_endpoint.currentText().strip()) == "categorical"
         self.class_threshold.setEnabled(self.task_combo.currentText() == "classification" and not is_categorical)
@@ -403,13 +431,14 @@ def _models_config() -> TableConfig:
             ColumnDef("name", label="Model", width=200),
             ColumnDef("task", label="Task", width=120),
             ColumnDef("algorithm", label="Algorithm", width=160),
-            ColumnDef("feature_type", label="Features", width=125, formatter=lambda v: _FEATURES.get(v, v)),
-            ColumnDef("target", label="Endpoint", width=125),
-            ColumnDef("splitter", label="Split", width=110),
-            ColumnDef("n_train", label="Train n", **count),
-            ColumnDef("n_test", label="Test n", **count),
+            # the scores next to what produced them; the setup that is often shared goes last
             ColumnDef("test_score", label="Test R² / MCC", expr=test_score, **number),
             ColumnDef("cv_score", label="Q² / AUC", expr=cv_score, **number),
+            ColumnDef("n_train", label="Train n", **count),
+            ColumnDef("n_test", label="Test n", **count),
+            ColumnDef("feature_type", label="Features", width=125, formatter=lambda v: _FEATURES.get(v, v)),
+            ColumnDef("splitter", label="Split", width=110),
+            ColumnDef("target", label="Endpoint", width=125),
             ColumnDef("source", label="Source", width=110, visible=False),
         ],
         default_sort=[SortSpec("id", descending=True)],
@@ -530,9 +559,10 @@ class QSARModelsWidget(QWidget):
         flow.addWidget(self.eval_subset)
         self._actions: dict[str, QPushButton] = {}
         for key, text, tip in (
+            # the performance chart of each task first (only one of the two applies), then the rest
+            ("roc", "ROC curve", "ROC + AUC (classification); several selected models overlay."),
             ("plot", "Observed vs predicted", "Fit scatter (regression): colour = model, marker = subset."),
             ("importance", "Feature importance", "Tree importances or linear weights of the selected model."),
-            ("roc", "ROC curve", "ROC + AUC (classification); several selected models overlay."),
             ("ad", "Applicability domain", "Tanimoto of the ligands to the selected model's training set."),
         ):
             button = QPushButton(text, bar)
@@ -720,25 +750,28 @@ class QSARModelsWidget(QWidget):
         blocks = [f"<b>{record.name}</b> &nbsp;·&nbsp; {record.task.title()} &nbsp;·&nbsp; {record.algorithm}"
                   f" &nbsp;·&nbsp; {str(m.get('feature_kind', '—')).upper()}<br>Endpoint: {record.target}"
                   f" &nbsp;·&nbsp; Split: {record.splitter or '—'}", "<hr>"]
-        if m.get("train") or m.get("test"):
-            blocks.append(
-                "<table width='100%'><tr>"
-                f"<th align='left'>Training (n={record.n_train})</th>"
-                f"<th align='left'>Holdout test (n={record.n_test})</th></tr><tr>"
-                f"<td valign='top'>{metric_lines(m.get('train'))}</td>"
-                f"<td valign='top'>{metric_lines(m.get('test'))}</td></tr></table>")
-        cv = []
-        if m.get("cv_folds"):
-            cv.append(f"{m['cv_folds']} folds on the training molecules")
-        for key, label in (("q2", "Pooled out-of-fold Q²"), ("cv_r2_mean", "Mean fold R²"), ("cv_rmse", "CV RMSE"),
-                           ("cv_mcc", "CV MCC"), ("cv_accuracy", "CV accuracy")):
-            if m.get(key) is not None:
-                cv.append(f"{label}: {m[key]:.3f}")
-        if cv:
-            blocks.extend(["<hr><b>Cross-validation</b><br>", "<br>".join(cv)])
+        # Training, holdout and the validation of the training set (CV, y-scramble) side by side:
+        # one row of columns instead of a section each.
+        validation = [f"<b>{label}</b> {m[key]:.3f}" for key, label in (
+            ("q2", "Pooled out-of-fold Q²"), ("cv_r2_mean", "Mean fold R²"), ("cv_rmse", "CV RMSE"),
+            ("cv_mcc", "CV MCC"), ("cv_accuracy", "CV accuracy")) if m.get(key) is not None]
         if m.get("y_scramble") is not None:
             label = "y-scramble Q²" if m.get("y_scramble_metric") == "q2_pooled_oof" else "y-scramble MCC"
-            blocks.extend(["<hr>", f"<b>{label}:</b> {m['y_scramble']:.3f}"])
+            validation.append(f"<b>{label}</b> {m['y_scramble']:.3f}")
+        columns = []
+        if m.get("train") or m.get("test"):
+            columns += [(f"Training (n={record.n_train})", metric_lines(m.get("train"))),
+                        (f"Holdout test (n={record.n_test})", metric_lines(m.get("test")))]
+        if validation:
+            folds = f" ({m['cv_folds']} folds)" if m.get("cv_folds") else ""
+            columns.append((f"Cross-validation{folds}", "<br>".join(validation)))
+        if columns:
+            blocks.append(
+                "<table width='100%'><tr>"
+                + "".join(f"<th align='left'>{head}</th>" for head, _body in columns)
+                + "</tr><tr>"
+                + "".join(f"<td valign='top'>{body}</td>" for _head, body in columns)
+                + "</tr></table>")
         warnings = [str(m[k]) for k in ("cv_warning", "y_scramble_warning") if m.get(k)]
         if warnings:
             blocks.extend(["<hr>", "<br>".join(warnings)])
@@ -807,8 +840,17 @@ class QSARModelsWidget(QWidget):
             return
         self._chart = kind
         self._draws += 1
+        charts = getattr(self.window(), "charts", None)
+        if charts is not None and hasattr(charts, "reveal"):
+            charts.reveal()  # up before the chart is computed, so its loading bar is seen there
         {"plot": self._plot_fit, "importance": self._show_importance,
          "roc": self._show_roc, "ad": self._show_ad}[kind](models)
+
+    def _chart_area(self):
+        """The plot area of the chart dock: a slow chart shows its loading bar there, where the
+        chart will appear."""
+        dock = getattr(self.window(), "qsar_chart_dock", None)
+        return getattr(dock, "stack", None)
 
     def _latest(self, done):
         draw = self._draws
@@ -852,7 +894,8 @@ class QSARModelsWidget(QWidget):
                                 + ", ".join(f"{s['label']} ({len(s['points'])})" for s in series)
                                 if series else empty)
 
-        run_async(_compute, self._latest(_done), on_error=lambda exc: QMessageBox.warning(self, "QSAR plot", str(exc)))
+        run_async(_compute, self._latest(_done), on_error=self._latest(lambda exc: QMessageBox.warning(self, "QSAR plot", str(exc))),
+                  busy=self._chart_area(), busy_text="Loading observed vs predicted…")
 
     def _show_importance(self, models) -> None:
         show = getattr(self.window(), "show_feature_importance", None)
@@ -862,7 +905,13 @@ class QSARModelsWidget(QWidget):
         metrics = dict(model.metrics or {})
         pairs = [(str(n), float(v)) for n, v in metrics.get("feature_importance") or []][:15]
         if not pairs:
-            self.status.setText("This model exposes no feature weights (tree and linear models do; kNN/SVM don't).")
+            reason = "This model exposes no feature weights (tree and linear models do; kNN/SVM don't)."
+            self.status.setText(reason)
+            # The dock is already up: say so in the chart too. Leaving the last model's bars
+            # standing there would read as this model's.
+            chart = getattr(self.window(), "qsar_chart_dock", None)
+            if chart is not None:
+                chart.show_message(reason)
             return
         label = f"#{model.id} {metrics.get('feature_kind', '')}"
         if metrics.get("feature_kind") != "ecfp4":
@@ -881,7 +930,8 @@ class QSARModelsWidget(QWidget):
             return [fragments[n]["smiles"] if n in fragments else "" for n, _v in pairs], images
 
         run_async(_compute, self._latest(lambda result: show(label, shown, *result)),
-                  on_error=self._latest(lambda _e: show(label, shown)))
+                  on_error=self._latest(lambda _e: show(label, shown)), busy=self._chart_area(),
+                  busy_text="Loading feature importance…")
 
     def _show_roc(self, models) -> None:
         show = getattr(self.window(), "show_roc_curves", None)
@@ -895,41 +945,66 @@ class QSARModelsWidget(QWidget):
             for mid, name in specs:  # one bad model shouldn't sink the batch
                 try:
                     res = self.runtime.qsar.roc_curve_points(model=mid, subset=subset)
-                    curves.append({"label": f"#{mid} {name} (AUC={res['auc']:.3f}, n={res['n']})",
+                    curves.append({"label": f"#{mid} {name} · AUC {res['auc']:.3f}", "n": res["n"],
                                    "points": res["points"], "auc": res["auc"]})
                 except Exception as exc:
                     failed.append(f"#{mid} {name}: {exc}")
+            if len({c["n"] for c in curves}) > 1:  # the same molecules: n goes once, in the title
+                for curve in curves:
+                    curve["label"] += f" · n={curve['n']}"
             return curves, failed
 
         def _done(result):
             curves, failed = result
-            show(curves, "No ROC curve: " + "; ".join(failed) if failed else "No ROC curve.")
+            show(curves, "No ROC curve: " + "; ".join(failed) if failed else "No ROC curve.", subset)
             msg = f"ROC [{subset}]: " + ", ".join(c["label"] for c in curves) if curves else "No ROC curves produced."
             if failed:
                 msg += " | Skipped: " + "; ".join(failed)
             self.status.setText(msg)
 
-        run_async(_compute, self._latest(_done), on_error=lambda exc: QMessageBox.warning(self, "QSAR ROC", str(exc)))
+        run_async(_compute, self._latest(_done), on_error=self._latest(lambda exc: QMessageBox.warning(self, "QSAR ROC", str(exc))),
+                  busy=self._chart_area(), busy_text="Loading ROC curve…")
 
     def _show_ad(self, models) -> None:
         show = getattr(self.window(), "show_similarity_distribution", None)
         if show is None:
             return
         model_id = int(models[0].id)
+        subset = self.eval_subset.currentData()  # the same molecules the other charts score on
 
         def _work():
+            from amdockvs.qsar.model_analysis import EmptySubsetError
             from amdockvs.ui.tools.qsar.chart import histogram
 
-            rows = self.runtime.qsar.applicability_domain(model=model_id)
+            try:
+                rows = self.runtime.qsar.applicability_domain(model=model_id, subset=subset)
+            except EmptySubsetError:
+                # Nothing in this subset: the empty chart says which, as elsewhere. Every other
+                # ValueError (no ECFP4 fingerprints yet, an external model with no training
+                # molecules) says what to do about it, so it goes to on_error to be read —
+                # _empty_subset would answer a question the user did not ask.
+                return None
             return histogram([r["similarity"] for r in rows]), sum(1 for r in rows if r["in_domain"]), len(rows)
+
+        empty = _empty_subset(models[0], subset)
+        title = f"#{model_id} Tanimoto to training set · {subset}"
+
+        def _done(res) -> None:
+            if res is None:
+                show("", ([], []), empty)
+                self.status.setText(empty)
+                return
+            show(title, res[0])
+            self.status.setText(f"Applicability domain #{model_id} [{subset}]: {res[1]}/{res[2]} ligands "
+                                f"in-domain (mean Tanimoto ≥ {AD_THRESHOLD} to {AD_K} nearest training "
+                                f"molecules).")
 
         run_async(
             _work,
-            self._latest(lambda res: (
-                show(f"#{model_id} Tanimoto to training set", res[0]),
-                self.status.setText(f"Applicability domain #{model_id}: {res[1]}/{res[2]} ligands in-domain "
-                                    f"(mean Tanimoto ≥ {AD_THRESHOLD} to {AD_K} nearest training molecules)."))),
-            on_error=lambda exc: QMessageBox.warning(self, "QSAR applicability domain", str(exc)),
+            self._latest(_done),
+            on_error=self._latest(lambda exc: QMessageBox.warning(self, "QSAR applicability domain", str(exc))),
+            busy=self._chart_area(),
+            busy_text="Loading applicability domain…",
         )
 
 
@@ -1297,7 +1372,6 @@ class QSARAnalysisWidget(QTabWidget):
         self.results = PredictionsWidget(runtime=runtime, parent=self)
         self.addTab(self.models, "Model analysis")
         self.addTab(self.results, "Result analysis")
-        _lead_when_models(self, runtime, self.results)
         _breathe(self)
         self.currentChanged.connect(self._sync_chart)
 
@@ -1317,12 +1391,10 @@ class QSARAnalysisWidget(QTabWidget):
             charts.sync_to_active_view(QSAR_ANALYSIS_VIEW_ID)
 
     def show_trained(self, request: dict) -> None:
-        self._chosen = True
         self.setCurrentWidget(self.models)
         self.models.show_trained(request)
 
     def show_predictions(self, model_id: int) -> None:
-        self._chosen = True
         self.setCurrentWidget(self.results)
         self.results.show_model(model_id)
 

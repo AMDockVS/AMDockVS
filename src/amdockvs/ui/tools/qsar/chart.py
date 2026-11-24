@@ -8,6 +8,9 @@ visible page.
 """
 from __future__ import annotations
 
+from collections import Counter
+from typing import NamedTuple
+
 import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import QEvent, Qt, QTimer, Signal
@@ -19,9 +22,40 @@ from PySide6.QtWidgets import (
 from ms_components.ms_dockwidget.widget import DockManager, MSDockWidget
 
 pg.setConfigOptions(antialias=True)
-_AXIS_GREY = (130, 130, 130)  # readable on both light and dark themes
-_SINGLE = (80, 140, 210)      # single-series bars/scatter
-_DASH = pg.mkPen((150, 150, 150), style=Qt.DashLine)
+
+# Categorical series colours in a FIXED order (never cycled or generated), one step per mode. The
+# order is what keeps neighbours apart for colour-blind readers: validated on every app theme's
+# Base surface (white … #2e3440) - adjacent CVD ΔE >= 8.4, normal-vision ΔE >= 19.3; the first
+# three also pass all-pairs, so scatter colours stay apart. Lines/bars carry a legend label too.
+_SERIES = {
+    "light": ("#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"),
+    "dark": ("#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#0ca30c", "#9085e9", "#e66767"),
+}
+
+
+def series_color(index: int, dark: bool) -> QColor:
+    """Slot ``index`` of the categorical palette; past the eighth it repeats (fold extra series
+    into small multiples rather than relying on this)."""
+    slots = _SERIES["dark" if dark else "light"]
+    return QColor(slots[int(index) % len(slots)])
+
+
+def _mix(a: QColor, b: QColor, t: float) -> QColor:
+    return QColor(round(a.red() + (b.red() - a.red()) * t), round(a.green() + (b.green() - a.green()) * t),
+                  round(a.blue() + (b.blue() - a.blue()) * t))
+
+
+class ClassCounts(NamedTuple):
+    """(labels, counts) of a categorical endpoint: one bar per class, not bins of an axis."""
+    labels: list[str]
+    counts: list[int]
+
+
+def class_counts(values) -> ClassCounts:
+    """Molecules per class label, classes in ascending order (0 before 1)."""
+    counts = Counter(int(round(float(v))) for v in values if v is not None)
+    classes = sorted(counts)
+    return ClassCounts([str(c) for c in classes], [counts[c] for c in classes])
 
 
 def histogram(values, bins: int = 10) -> tuple[list[str], list[int]]:
@@ -53,12 +87,8 @@ class QSARChartDockWidget(MSDockWidget):
         self.stack = QStackedWidget(self)
         self.chart_plot = pg.PlotWidget(background=None)  # bar / curve / scatter fits
         self.universe_view = pg.PlotWidget(background=None)  # chemical universe + heatmap
-        for view in (self.chart_plot, self.universe_view):
-            for name in ("left", "bottom"):
-                axis = view.getPlotItem().getAxis(name)
-                axis.setPen(pg.mkPen(_AXIS_GREY))
-                axis.setTextPen(pg.mkPen(_AXIS_GREY))
-        self._chart_legend = self.chart_plot.getPlotItem().addLegend(offset=(-10, 10), labelTextColor=_AXIS_GREY)
+        self._chart_legend = self.chart_plot.getPlotItem().addLegend(offset=(-10, 10))
+        self._redraw = None  # the last fit chart drawn, replayed when the theme changes
         # Fit the dock's width instead of imposing our own: the QStackedWidget's width hint is the
         # WIDEST child, which could inflate the dock past its area and spill the plot off the right
         # edge. Ignored horizontal = "take whatever width you're given"; a small minimum still lets
@@ -66,9 +96,13 @@ class QSARChartDockWidget(MSDockWidget):
         for view in (self.chart_plot, self.universe_view):
             view.setMinimumSize(80, 80)
             view.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
+            # Breathing room inside the dock: without it the y-axis label sits flush against the
+            # splitter, and the title against the dock's title bar.
+            view.getPlotItem().layout.setContentsMargins(10, 6, 10, 6)
         self.stack.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Expanding)
         universe = self.universe_view.getPlotItem()
-        self._universe_legend = universe.addLegend(offset=(-10, 10), labelTextColor=_AXIS_GREY)
+        self._universe_legend = universe.addLegend(offset=(-10, 10))
+        self._apply_theme()
         self._highlight = None
         self.stack.addWidget(self.chart_plot)
         self.stack.addWidget(self.universe_view)
@@ -89,17 +123,68 @@ class QSARChartDockWidget(MSDockWidget):
             QToolTip.hideText()
         return super().eventFilter(obj, event)
 
-    @staticmethod
-    def _color(index: int, total: int):
-        return pg.intColor(index, hues=max(total, 6))
+    def _dark(self) -> bool:
+        return self.palette().color(QPalette.Base).lightnessF() < 0.5
 
-    def _chart(self):
+    def _color(self, index: int) -> QColor:
+        return series_color(index, self._dark())
+
+    def _ink(self) -> QColor:
+        return self.palette().color(QPalette.WindowText)
+
+    def _muted(self) -> QColor:
+        """Axis lines, tick labels and reference lines: recessive, between text and surface."""
+        return _mix(self._ink(), self.palette().color(QPalette.Base), 0.4)
+
+    def _dash(self):
+        return pg.mkPen(self._muted(), width=1.5, style=Qt.DashLine)
+
+    def _title(self, plot, text) -> None:
+        plot.setTitle(text, color=self._ink().name())
+
+    def _apply_theme(self) -> None:
+        """Plot surface = the theme's Base (the table surface: the series colours are validated
+        against it), axes and legend in the theme's ink."""
+        base, ink, muted = self.palette().color(QPalette.Base), self._ink(), self._muted()
+        for view in (self.chart_plot, self.universe_view):
+            view.setBackground(base)
+            for name in ("left", "bottom"):
+                axis = view.getPlotItem().getAxis(name)
+                axis.setPen(pg.mkPen(muted))
+                axis.setTextPen(pg.mkPen(muted))
+                axis.label.setDefaultTextColor(ink)
+        for legend in (self._chart_legend, self._universe_legend):
+            legend.setBrush(pg.mkBrush(base.red(), base.green(), base.blue(), 225))  # lines read through
+            legend.setPen(pg.mkPen(muted.red(), muted.green(), muted.blue(), 90))
+            legend.setLabelTextColor(ink)
+
+    def changeEvent(self, event) -> None:  # noqa: N802 - Qt override
+        super().changeEvent(event)
+        if event.type() == QEvent.PaletteChange:  # the user switched theme
+            self._apply_theme()
+            if self._redraw is not None and self.stack.currentWidget() is self.chart_plot:
+                fn, args, kwargs = self._redraw
+                fn(*args, **kwargs)
+
+    def _legend_add(self, item, name: str) -> None:
+        self._chart_legend.addItem(item, name)
+        self._chart_legend.setVisible(True)
+
+    def _remember(self, fn, *args, **kwargs) -> None:
+        self._redraw = (fn, args, kwargs)
+
+    def _chart(self, legend_corner: str = "top_right"):
         """Switch to the fit-chart page and return a cleared PlotItem (ticks + title reset so a
-        previous chart's category ticks don't bleed through)."""
+        previous chart's category ticks don't bleed through). ``legend_corner`` puts the legend
+        where this chart's data leaves room (bottom_right for ROC, top_left for observed/predicted)."""
         self.stack.setCurrentWidget(self.chart_plot)
         plot = self.chart_plot.getPlotItem()
         plot.clear()
         self._chart_legend.clear()
+        self._chart_legend.setVisible(False)  # an empty legend still draws its frame; shown on the first entry
+        corner = {"top_right": ((1, 0), (-10, 10)), "bottom_right": ((1, 1), (-10, -10)),
+                  "top_left": ((0, 0), (10, 10))}[legend_corner]
+        self._chart_legend.anchor(itemPos=corner[0], parentPos=corner[0], offset=corner[1])
         plot.setTitle(None)
         self._bar_values, self._bar_labels, self._bar_images = [], [], []
         self._fit_series: list[tuple[list, list, list]] = []  # (ids, xs, ys) per scatter series
@@ -114,23 +199,40 @@ class QSARChartDockWidget(MSDockWidget):
     def show_distribution(self, label: str, values) -> None:
         self.show_distribution_bins(label, *histogram(values))
 
-    def show_distribution_bins(self, label: str, labels, counts) -> None:
+    def show_distribution_bins(self, label: str, labels, counts, *, annotate: bool = False) -> None:
         """Render a precomputed histogram (labels, counts). The binning is done off the GUI thread
-        by the caller so a big endpoint never freezes the UI here."""
+        by the caller so a big endpoint never freezes the UI here. ``annotate`` writes each bar's
+        count and share over it (class counts: a 1% minority class is otherwise a sliver)."""
+        self._remember(self.show_distribution_bins, label, labels, counts, annotate=annotate)
         plot = self._chart()
-        plot.setTitle(f"Count vs {label}" if label else "Count", color=_AXIS_GREY)
+        self._title(plot, f"Count vs {label}" if label else "Count")
         counts = [float(c) for c in counts]
         if counts:
             xs = list(range(len(counts)))
-            plot.addItem(pg.BarGraphItem(x=xs, height=counts, width=0.8, brush=pg.mkBrush(_SINGLE), pen=None))
+            plot.addItem(pg.BarGraphItem(x=xs, height=counts, width=0.8 if not annotate else 0.6,
+                                         brush=pg.mkBrush(self._color(0)), pen=None))
+            if annotate:
+                total = sum(counts) or 1.0
+                for x, count in zip(xs, counts):
+                    text = pg.TextItem(f"{int(count):,} ({count / total:.1%})", color=self._ink(), anchor=(0.5, 1))
+                    text.setPos(x, count)
+                    plot.addItem(text)
+                plot.setYRange(0, max(counts) * 1.12, padding=0)  # room for the top label
             if len(labels) == len(counts):
                 plot.getAxis("bottom").setTicks([[(i, str(labels[i])) for i in xs]])
         plot.setLabel("bottom", label or "")
         plot.setLabel("left", "Count")
 
+    def show_message(self, text: str) -> None:
+        """An empty fit chart carrying only ``text`` — why there is nothing to draw. A stale chart
+        left up would otherwise pass for this selection\'s."""
+        self._remember(self.show_message, text)
+        self._title(self._chart(), text)
+
     def show_grouped_bars(self, title: str, categories, groups, x_title: str = "") -> None:
         """Grouped bars: categories on X, one bar-set per group. Used for train-vs-test balance —
         groups = {'train': [...], 'test': [...]} aligned to categories (classes or value bins)."""
+        self._remember(self.show_grouped_bars, title, categories, groups, x_title)
         plot = self._chart()
         names = list(groups.keys())
         categories = list(categories)
@@ -141,12 +243,12 @@ class QSARChartDockWidget(MSDockWidget):
             offs = [x + (gi - (count - 1) / 2) * width for x in xs]
             bar = pg.BarGraphItem(
                 x=offs, height=[float(v) for v in groups[name]], width=width,
-                brush=pg.mkBrush(self._color(gi, count)), pen=None,
+                brush=pg.mkBrush(self._color(gi)), pen=pg.mkPen(self.palette().color(QPalette.Base), width=2),
             )
             plot.addItem(bar)
-            self._chart_legend.addItem(bar, str(name))
+            self._legend_add(bar, str(name))
         plot.getAxis("bottom").setTicks([[(i, str(categories[i])) for i in xs]])
-        plot.setTitle(title, color=_AXIS_GREY)
+        self._title(plot, title)
         plot.setLabel("bottom", x_title)
         plot.setLabel("left", "Molecules")
 
@@ -155,13 +257,14 @@ class QSARChartDockWidget(MSDockWidget):
         top→bottom. ``notes`` (one per bar, "" for none) sit on the bar's row, right-aligned at the
         longest bar's end (over the bar when it reaches that far). Hovering a bar shows its value;
         hovering a note shows ``images[i]`` (one PNG per bar, b"" for none)."""
+        self._remember(self.show_hbars, title, labels, values, x_title, notes=notes, images=images)
         plot = self._chart()
         labels = list(labels)
         values = [float(v) for v in values]
         notes = list(notes or [""] * len(values))
         if values:
             ys = list(range(len(values) - 1, -1, -1))  # index 0 at the top
-            plot.addItem(pg.BarGraphItem(x0=0, y=ys, height=0.7, width=values, brush=pg.mkBrush(_SINGLE), pen=None))
+            plot.addItem(pg.BarGraphItem(x0=0, y=ys, height=0.7, width=values, brush=pg.mkBrush(self._color(0)), pen=None))
             plot.getAxis("left").setTicks([[(ys[i], str(labels[i])) for i in range(len(labels))]])
             right = max(values + [0.0])
             text = self.palette().color(QPalette.WindowText)  # readable on the bar and off it
@@ -173,25 +276,31 @@ class QSARChartDockWidget(MSDockWidget):
             self._bar_values = values
             self._bar_images = list(images or [b""] * len(values))
         plot.setLabel("bottom", x_title or "importance")
-        plot.setTitle(title, color=_AXIS_GREY)
+        self._title(plot, title)
 
     def show_curves(self, title: str, curves, x_title: str, y_title: str, *, diagonal: bool = False) -> None:
         """Several line series overlaid with a legend: curves = [{'label', 'points':[(x,y)]}].
-        Used to compare ROC curves of the ticked models on one axis."""
-        plot = self._chart()
-        curves = list(curves)
+        Used to compare ROC curves of the ticked models on one axis. With ``diagonal`` (ROC) both
+        axes are the unit interval and the legend sits bottom-right, the corner a ROC curve leaves
+        empty."""
+        curves = list(curves)  # before _remember: a generator would replay empty on a theme switch
+        self._remember(self.show_curves, title, curves, x_title, y_title, diagonal=diagonal)
+        plot = self._chart("bottom_right" if diagonal else "top_right")
+        if diagonal:  # under the curves
+            ref = plot.plot([0.0, 1.0], [0.0, 1.0], pen=self._dash())
         for index, curve in enumerate(curves):
             points = curve.get("points", [])
             item = plot.plot(
                 [float(x) for x, _ in points],
                 [float(y) for _, y in points],
-                pen=pg.mkPen(self._color(index, len(curves)), width=2),
+                pen=pg.mkPen(self._color(index), width=2),
             )
-            self._chart_legend.addItem(item, str(curve.get("label", "")))
+            self._legend_add(item, str(curve.get("label", "")))
         if diagonal:
-            ref = plot.plot([0.0, 1.0], [0.0, 1.0], pen=_DASH)
-            self._chart_legend.addItem(ref, "chance")
-        plot.setTitle(title, color=_AXIS_GREY)
+            self._legend_add(ref, "chance")
+            plot.setXRange(0.0, 1.0, padding=0.02)
+            plot.setYRange(0.0, 1.0, padding=0.02)
+        self._title(plot, title)
         plot.setLabel("bottom", x_title)
         plot.setLabel("left", y_title)
 
@@ -200,9 +309,10 @@ class QSARChartDockWidget(MSDockWidget):
         'ids'?, 'color'?, 'symbol'?}]. One scatter series per spec (legend on) + a shared y=x reference
         line; 'color' indexes the palette (default: the spec's position), 'symbol' is a pyqtgraph
         marker. With 'ids', hovering a point announces its molecule (universeHovered)."""
-        plot = self._chart()
+        series = list(series)  # before _remember: a generator would replay empty on a theme switch
+        self._remember(self.show_scatter_series, title, series)
+        plot = self._chart("top_left")  # the y=x cloud leaves the upper-left corner emptiest
         series = list(series)
-        n_colors = len({spec.get("color", i) for i, spec in enumerate(series)})
         allv: list[float] = []
         for index, spec in enumerate(series):
             points = spec.get("points", [])
@@ -211,17 +321,17 @@ class QSARChartDockWidget(MSDockWidget):
             allv += xs + ys
             ids = list(spec.get("ids") or [])
             self._fit_series.append((ids, xs, ys))
-            brush = pg.mkBrush(self._color(spec.get("color", index), n_colors))
+            brush = pg.mkBrush(self._color(spec.get("color", index)))
             item = pg.ScatterPlotItem(x=xs, y=ys, size=8, pen=None, brush=brush, symbol=spec.get("symbol", "o"),
                                       data=ids or None, hoverable=bool(ids), hoverSize=12, tip=None)
             if ids:
                 item.sigHovered.connect(self._on_spot_hover)
             plot.addItem(item)
-            self._chart_legend.addItem(item, str(spec.get("label", "")))
+            self._legend_add(item, str(spec.get("label", "")))
         if allv:
             lo, hi = min(allv), max(allv)
-            plot.plot([lo, hi], [lo, hi], pen=_DASH)
-        plot.setTitle(title, color=_AXIS_GREY)
+            plot.plot([lo, hi], [lo, hi], pen=self._dash())
+        self._title(plot, title)
         plot.setLabel("bottom", "Observed")
         plot.setLabel("left", "Predicted")
 
@@ -239,15 +349,16 @@ class QSARChartDockWidget(MSDockWidget):
 
     def show_scatter(self, observed, predicted, label: str = "") -> None:
         """Observed-vs-predicted scatter with a y=x reference line (StarDrop's model-fit plot)."""
+        self._remember(self.show_scatter, observed, predicted, label)
         plot = self._chart()
         xs = [float(o) for o in observed]
         ys = [float(p) for p in predicted]
-        plot.addItem(pg.ScatterPlotItem(x=xs, y=ys, size=9, pen=None, brush=pg.mkBrush(_SINGLE)))
+        plot.addItem(pg.ScatterPlotItem(x=xs, y=ys, size=9, pen=None, brush=pg.mkBrush(self._color(0))))
         allv = xs + ys
         if allv:
             lo, hi = min(allv), max(allv)
-            plot.plot([lo, hi], [lo, hi], pen=_DASH)
-        plot.setTitle(f"Observed vs predicted{f' ({label})' if label else ''}", color=_AXIS_GREY)
+            plot.plot([lo, hi], [lo, hi], pen=self._dash())
+        self._title(plot, f"Observed vs predicted{f' ({label})' if label else ''}")
         plot.setLabel("bottom", "Observed")
         plot.setLabel("left", "Predicted")
 
@@ -273,7 +384,7 @@ class QSARChartDockWidget(MSDockWidget):
 
         pool = np.asarray(pool_points, dtype=float) if len(pool_points or []) else np.empty((0, 2))
         if pool.size == 0 and not any(g.get("points") for g in groups):
-            plot.setTitle("Chemical universe — press Preview to cluster the current scope.", color=_AXIS_GREY)
+            plot.setTitle("Chemical universe — press Preview to cluster the current scope.", color=self._ink().name())
             return
 
         n_reps = sum(len(g.get("points") or []) for g in groups)
@@ -284,7 +395,7 @@ class QSARChartDockWidget(MSDockWidget):
         plot.setTitle(
             f"Chemical universe (PCA) - {pool.shape[0]} sampled · {n_reps} representatives "
             f"({len(groups)} previews) · {pct}",
-            color=_AXIS_GREY,
+            color=self._ink().name(),
         )
         plot.setLabel("bottom", f"PC1 ({evr[0] * 100:.1f}%)" if known else "PC1")
         plot.setLabel("left", f"PC2 ({evr[1] * 100:.1f}%)" if known else "PC2")
@@ -308,7 +419,7 @@ class QSARChartDockWidget(MSDockWidget):
                 pos=np.asarray(pts, dtype=float), size=rep_size,
                 pen=None, brush=pg.mkBrush(int(r), int(g), int(b), rep_alpha),
                 data=list(group.get("ids") or []),  # per-point molecule_id for the hover preview
-                hoverable=True, hoverSize=rep_size + 6, hoverPen=pg.mkPen("w", width=1.5),
+                hoverable=True, hoverSize=rep_size + 6, hoverPen=pg.mkPen(self._ink(), width=1.5),
                 tip=None,  # suppress pyqtgraph's x/y/data tooltip — the molecule preview is the one place
             )
             item.sigHovered.connect(self._on_spot_hover)
@@ -316,7 +427,7 @@ class QSARChartDockWidget(MSDockWidget):
             self._universe_legend.addItem(item, group.get("label") or "representatives")
         if dim:  # the picked cluster's centroid(s): bright, larger, white-ringed, on top
             item = pg.ScatterPlotItem(
-                pos=highlight, size=rep_size + 7, pen=pg.mkPen("w", width=2),
+                pos=highlight, size=rep_size + 7, pen=pg.mkPen(self._ink(), width=2),
                 brush=pg.mkBrush(255, 214, 10),
             )
             plot.addItem(item)
@@ -333,7 +444,7 @@ class QSARChartDockWidget(MSDockWidget):
         self._universe_legend.clear()
         arr = np.asarray(matrix, dtype=float)
         if arr.ndim != 2 or arr.size == 0:
-            plot.setTitle("No correlations to show.", color=_AXIS_GREY)
+            plot.setTitle("No correlations to show.", color=self._ink().name())
             return
         image = pg.ImageItem(arr)
         cmap = pg.colormap.get("CET-D1")  # diverging blue-white-red, ships with pyqtgraph
@@ -341,7 +452,7 @@ class QSARChartDockWidget(MSDockWidget):
             image.setLookupTable(cmap.getLookupTable(0.0, 1.0, 256))
         image.setLevels((-1.0, 1.0))
         plot.addItem(image)
-        plot.setTitle(f"{title} ({arr.shape[0]}×{arr.shape[0]})", color=_AXIS_GREY)
+        plot.setTitle(f"{title} ({arr.shape[0]}×{arr.shape[0]})", color=self._ink().name())
         labels = list(labels)
         for name in ("left", "bottom"):
             axis = plot.getAxis(name)

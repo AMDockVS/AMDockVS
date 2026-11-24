@@ -46,6 +46,7 @@ class BusyOverlay(QWidget):
         # Text follows the palette; the scrim is painted (QSS can't alpha a palette color).
         self._label.setStyleSheet("background: transparent; font-weight: 600;")
         host.installEventFilter(self)
+        self._active = 0  # requests in flight on this host: the last one to land hides it
         self.hide()
 
     def paintEvent(self, _event) -> None:
@@ -59,13 +60,17 @@ class BusyOverlay(QWidget):
             self.setGeometry(self.parent().rect())
         return False
 
-    def start(self) -> None:
+    def start(self, text: str | None = None) -> None:
+        self._active += 1
+        self._label.setText(text or "Loading…")  # the latest request names what is coming
         self.setGeometry(self.parent().rect())
         self.raise_()
         self.show()
 
     def stop(self) -> None:
-        self.hide()
+        self._active = max(0, self._active - 1)
+        if not self._active:
+            self.hide()
 
 
 class BusySpinner(QWidget):
@@ -165,10 +170,13 @@ def run_async(
     *,
     pool: QThreadPool | None = None,
     busy: QWidget | None = None,
+    busy_text: str | None = None,
     compact: bool = False,
     owner: QObject | None = None,
 ) -> None:
     """Run `fn` off the GUI thread and hand its result to `on_result` on the GUI thread.
+
+    `busy_text` names what the full overlay on `busy` is loading ("Loading ROC curve…").
 
     `owner` is the object the answer is for — the panel that asked. A read started before
     that object was destroyed still finishes (a query cannot be interrupted mid-flight),
@@ -180,7 +188,7 @@ def run_async(
     overlay = None
     if busy is not None:
         overlay = _ensure_spinner(busy) if compact else _ensure_overlay(busy)
-        overlay.start()
+        overlay.start() if compact else overlay.start(busy_text)
 
     def _finish() -> bool:
         """Clean up and say whether the result still has somewhere to go."""
