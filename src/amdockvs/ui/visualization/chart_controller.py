@@ -20,7 +20,7 @@ _MIN_READABLE_CHART_WIDTH = 240
 
 # A chart needs more width than the 3D viewer whose slot it takes: two axes with their labels and
 # tick numbers are overhead the plot itself doesn't get, so it opens a little wider than a third.
-_CHART_WIDTH_SHARE = 0.40
+_CHART_WIDTH_SHARE = 1 / 3
 
 # QMainWindow grants a dock resize geometrically rather than in one step (131 -> 516 -> 546 ->
 # ... -> 576 for one claim of 576), so a claim takes several passes to land. Give it room to
@@ -179,8 +179,20 @@ class ChartController:
         if self._claims >= _MAX_WIDTH_CLAIMS or chart.width() == self._last_claim:
             self._settling = False  # out of tries, or the last claim moved nothing: refused
             return
+        # Growing, only take what the centre can give up. The chart sits on the far side of the
+        # centre from the tool panel, so a claim the centre cannot cover comes off that panel
+        # instead: asking for 40% of a full window took 53 px off Docking Studio and never gave
+        # them back. Shrinking is never refused - that hands width back to everyone else.
+        want = self._chart_width
+        if want > chart.width():
+            central = self.w.centralWidget()
+            slack = max(0, central.width() - central.minimumSizeHint().width()) if central else 0
+            want = min(want, chart.width() + slack)
+        if want == chart.width():
+            self._settling = False  # nothing to take without robbing the tool panel; leave it
+            return
         self._last_claim = chart.width()
-        self.w.resizeDocks([chart], [self._chart_width], Qt.Horizontal)
+        self.w.resizeDocks([chart], [want], Qt.Horizontal)
         # Ask again next pass whether or not that landed. QMainWindow grants a dock resize
         # geometrically, and a refused one changes nothing at all, so waiting on a resize event
         # to drive the next claim would wait forever.

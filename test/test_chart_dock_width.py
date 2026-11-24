@@ -33,6 +33,21 @@ class _Dock:
         return self._floating
 
 
+class _Central:
+    """The centre, with the slack a growing claim is allowed to take from it."""
+
+    def __init__(self, width, minimum):
+        self._w, self._min = width, minimum
+
+    def width(self):
+        return self._w
+
+    def minimumSizeHint(self):  # noqa: N802 - Qt name
+        from PySide6.QtCore import QSize
+
+        return QSize(self._min, 0)
+
+
 class _Window:
     """Enough QMainWindow for the controller: a dock whose width the layout may refuse to grant.
 
@@ -40,17 +55,22 @@ class _Window:
     A resize event only follows when the width actually changed, as Qt does it.
     """
 
-    def __init__(self, width=1400, grant=None):
+    def __init__(self, width=1400, grant=None, central_slack=10_000):
         self.qsar_chart_dock = _Dock()
         self._w, self._grant = width, grant
+        self._central = _Central(central_slack, 0)
         self.controller = None
 
     def width(self):
         return self._w
 
+    def centralWidget(self):  # noqa: N802 - Qt name
+        return self._central
+
     def resizeDocks(self, docks, sizes, orientation):  # noqa: N802 - Qt name
         want = sizes[0] if self._grant is None else min(sizes[0], self._grant)
         if want != docks[0]._w:
+            self._central._w -= want - docks[0]._w  # the centre gives up what the dock takes
             docks[0]._w = want
             self.controller._note_chart_width(want)
 
@@ -112,15 +132,42 @@ def test_the_startup_measure_still_corrects_a_width_nobody_chose():
     controller = _controller(window)
     controller._queue_widen(force=True)
     _settle(controller)
-    assert window.qsar_chart_dock.width() == 360  # 40% of 900
+    opened = int(900 * _CHART_WIDTH_SHARE)
+    assert window.qsar_chart_dock.width() == opened
 
-    window.resizeDocks([window.qsar_chart_dock], [360], Qt.Horizontal)  # height-only: same width
+    # the same width again: a height-only resize decides nothing
+    window.resizeDocks([window.qsar_chart_dock], [opened], Qt.Horizontal)
     window._w = 1920
     assert not controller._chosen
 
     controller.size_chart_to_third()
     _settle(controller)
     assert window.qsar_chart_dock.width() == int(1920 * _CHART_WIDTH_SHARE)
+
+
+def test_a_chart_wider_than_its_share_hands_the_width_back():
+    # Taking the viewer's slot can leave the chart wider than its share. Shrinking to the share
+    # gives width back to the centre, which is what lets the centre meet the minimum of the tab
+    # that just opened; refusing to shrink left the tool panel short by the difference.
+    window = _Window(width=1920)
+    controller = _controller(window)
+    window.qsar_chart_dock._w = 692  # the 3D viewer's width, wider than a third
+    controller._queue_widen(force=True)
+    _settle(controller)
+    assert window.qsar_chart_dock.width() == int(1920 * _CHART_WIDTH_SHARE)
+
+
+def test_a_claim_grows_only_by_what_the_centre_can_spare():
+    # The chart sits on the far side of the centre from the tool panel, so width the centre
+    # cannot cover is taken off that panel and never handed back: opening a chart on a full
+    # window cost Docking Studio 53 px. The chart gets the centre's slack and no more.
+    window = _Window(width=1920, central_slack=40)
+    controller = _controller(window)
+    window.qsar_chart_dock._w = 500  # what the 3D viewer left behind
+    controller._queue_widen(force=True)
+    _settle(controller)
+    assert controller._chart_width == int(1920 * _CHART_WIDTH_SHARE)  # it still wants its share
+    assert window.qsar_chart_dock.width() == 540  # ...but takes only the centre's 40
 
 
 def test_the_claim_gives_up_when_the_layout_will_not_grant_it():
