@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Callable
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -15,13 +15,94 @@ from PySide6.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
+    QTableView,
     QVBoxLayout,
     QWidget,
 )
 
 from amdockvs.ui.common.async_query import run_async
+
+_HEADERS = ("Ligand id", "Name", "Value", "Unit", "Subset")
+_VALUE, _UNIT = 2, 3  # the editable columns
+
+
+class _ActivityModel(QAbstractTableModel):
+    """The activity rows as a model over a plain list: Qt asks only for the visible cells, so
+    39k rows load in a blink (a QTableWidget built ~200k items on the GUI thread, ~2.4 s).
+    Edits to Value/Unit go through ``write(row, value_text, unit_text) -> bool``."""
+
+    def __init__(self, write, parent=None):
+        super().__init__(parent)
+        self._rows: list[list] = []  # [molecule_id, name, value | None, unit, subset]
+        self._kind = "continuous"
+        self._write = write
+
+    def set_rows(self, rows: list[list], kind: str) -> None:
+        self.beginResetModel()
+        self._rows, self._kind = rows, kind
+        self.endResetModel()
+
+    def append(self, molecule_id: int, name: str, unit: str) -> None:
+        at = len(self._rows)
+        self.beginInsertRows(QModelIndex(), at, at)
+        self._rows.append([int(molecule_id), name, None, unit, ""])
+        self.endInsertRows()
+
+    def molecule_id(self, row: int) -> int:
+        return int(self._rows[row][0])
+
+    def molecule_ids(self) -> set[int]:
+        return {int(r[0]) for r in self._rows}
+
+    def rowCount(self, parent=QModelIndex()) -> int:  # noqa: N802 - Qt override
+        return 0 if parent.isValid() else len(self._rows)
+
+    def columnCount(self, parent=QModelIndex()) -> int:  # noqa: N802 - Qt override
+        return 0 if parent.isValid() else len(_HEADERS)
+
+    def headerData(self, section, orientation, role=Qt.DisplayRole):  # noqa: N802 - Qt override
+        if role == Qt.DisplayRole:
+            return _HEADERS[section] if orientation == Qt.Horizontal else str(section + 1)
+        return None
+
+    def _text(self, row: list, column: int) -> str:
+        value = row[column]
+        if column == _VALUE:
+            if value is None:
+                return ""
+            # categorical endpoints show whole-number class labels; continuous show 4 decimals
+            return str(int(round(float(value)))) if self._kind == "categorical" else f"{float(value):.4f}"
+        return str(value if value is not None else "")
+
+    def data(self, index, role=Qt.DisplayRole):
+        if not index.isValid():
+            return None
+        if role in (Qt.DisplayRole, Qt.EditRole):
+            return self._text(self._rows[index.row()], index.column())
+        return None
+
+    def flags(self, index):
+        base = super().flags(index)
+        return base | Qt.ItemIsEditable if index.column() in (_VALUE, _UNIT) else base
+
+    def setData(self, index, text, role=Qt.EditRole) -> bool:  # noqa: N802 - Qt override
+        if role != Qt.EditRole or index.column() not in (_VALUE, _UNIT):
+            return False
+        row = self._rows[index.row()]
+        value_text = str(text) if index.column() == _VALUE else self._text(row, _VALUE)
+        unit_text = str(text).strip() if index.column() == _UNIT else str(row[_UNIT] or "")
+        if index.column() == _UNIT and row[_VALUE] is None:
+            # Nothing to record yet, but the unit is the user's answer to "in what?": keep it on
+            # the row, so it stays on screen and the value typed next is stored in it. Rejecting
+            # the edit instead would revert the cell and silently record the combo's unit.
+            row[_UNIT] = unit_text
+            self.dataChanged.emit(index, index)
+            return True
+        if not self._write(index.row(), value_text, unit_text):
+            return False
+        row[_VALUE], row[_UNIT] = float(value_text), unit_text
+        self.dataChanged.emit(self.index(index.row(), _VALUE), self.index(index.row(), _UNIT))
+        return True
 
 
 
@@ -35,7 +116,7 @@ class LigandActivityWidget(QWidget):
         self.runtime = runtime
         self._open_results_view = open_results_view
         self._show_histogram = show_histogram
-        self._loading = False
+        self._in_flight = None  # (endpoint, model) of the refresh running now: a repeat is dropped
 
         outer = QVBoxLayout(self)
         outer.setSpacing(8)
@@ -90,11 +171,11 @@ class LigandActivityWidget(QWidget):
         controls_row.addStretch(1)
         outer.addLayout(controls_row)
 
-        self.table = QTableWidget(0, 5, self)
-        self.table.setHorizontalHeaderLabels(["Ligand id", "Name", "Value", "Unit", "Subset"])
+        self.model = _ActivityModel(self._write_activity, self)
+        self.table = QTableView(self)
+        self.table.setModel(self.model)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.itemChanged.connect(self._on_item_changed)
         outer.addWidget(self.table, 1)
 
         self.status = QLabel("", self)
@@ -108,34 +189,18 @@ class LigandActivityWidget(QWidget):
     def _current_model_id(self) -> int | None:
         return self.model_combo.currentData() if hasattr(self, "model_combo") else None
 
-    def _fmt_value(self, value) -> str:
-        """Categorical endpoints show whole-number class labels; continuous show 4 decimals."""
-        if value is None:
-            return ""
-        if getattr(self, "_current_kind", "continuous") == "categorical":
-            return str(int(round(float(value))))
-        return f"{float(value):.4f}"
-
-    def _set_row(self, r: int, mid: int, name: str, value, unit: str, subset: str = "") -> None:
-        id_item = QTableWidgetItem(str(mid))
-        id_item.setFlags(id_item.flags() & ~Qt.ItemIsEditable)
-        name_item = QTableWidgetItem(name)
-        name_item.setFlags(name_item.flags() & ~Qt.ItemIsEditable)
-        subset_item = QTableWidgetItem(subset)
-        subset_item.setFlags(subset_item.flags() & ~Qt.ItemIsEditable)
-        self.table.setItem(r, 0, id_item)
-        self.table.setItem(r, 1, name_item)
-        self.table.setItem(r, 2, QTableWidgetItem(self._fmt_value(value)))
-        self.table.setItem(r, 3, QTableWidgetItem(unit or self.unit_combo.currentText().strip()))
-        self.table.setItem(r, 4, subset_item)
-
     def refresh_view(self) -> None:
         if not hasattr(self, "table"):
             return
-        from amdockvs.ui.tools.qsar.chart import histogram
+        from amdockvs.ui.tools.qsar.chart import class_counts, histogram
 
         endpoint = self._current_endpoint() or None
         model_id = self._current_model_id()
+        # Opening the view asks twice (the widget on creation, then the window as it shows the
+        # chart): the second answer would be the first one again, so one fetch serves both.
+        if self._in_flight == (endpoint, model_id):
+            return
+        self._in_flight = (endpoint, model_id)
 
         def work():
             # All heavy work off the GUI thread: resolve the endpoint (default to the first when
@@ -146,27 +211,31 @@ class LigandActivityWidget(QWidget):
             rows = self.runtime.qsar.activity_rows(endpoint=resolved)
             models = self.runtime.qsar.list_models()
             subsets = self.runtime.qsar.model_subsets(model=model_id) if model_id else {}
-            bins = histogram([r["value"] for r in rows if r["value"] is not None])
+            values = [r["value"] for r in rows if r["value"] is not None]
+            # classes are counted per label, not binned along a continuous axis
+            bins = class_counts(values) if kinds.get(resolved) == "categorical" else histogram(values)
             return kinds, resolved, rows, models, subsets, bins
 
-        run_async(
-            work,
-            self._fill,
-            on_error=lambda exc: self.status.setText(str(exc)),
-            busy=self.table,
-        )
+        def done(payload) -> None:
+            self._in_flight = None
+            self._fill(payload)
+
+        def failed(exc) -> None:
+            self._in_flight = None
+            self.status.setText(str(exc))
+
+        run_async(work, done, on_error=failed, busy=self.table, busy_text="Loading activities…")
 
     def _fill(self, payload) -> None:
         kinds, resolved_endpoint, rows, models, subsets, bins = payload
         endpoints = sorted(kinds)
-        self._loading = True
         self.endpoint_combo.blockSignals(True)
         self.endpoint_combo.clear()
         self.endpoint_combo.addItems(endpoints)
         if resolved_endpoint:
             self.endpoint_combo.setCurrentText(resolved_endpoint)
         self.endpoint_combo.blockSignals(False)
-        self._current_kind = kinds.get(resolved_endpoint, "continuous")
+        kind = kinds.get(resolved_endpoint, "continuous")
         current_model = self._current_model_id()
         self.model_combo.blockSignals(True)
         self.model_combo.clear()
@@ -176,39 +245,32 @@ class LigandActivityWidget(QWidget):
         idx = self.model_combo.findData(current_model)
         self.model_combo.setCurrentIndex(idx if idx >= 0 else 0)
         self.model_combo.blockSignals(False)
-        # blockSignals: every setItem would otherwise fire itemChanged (N*5 emissions) and lag hard.
-        self.table.blockSignals(True)
-        self.table.setUpdatesEnabled(False)
-        self.table.setRowCount(len(rows))
-        for r, row in enumerate(rows):
-            self._set_row(r, row["molecule_id"], row["name"], row["value"], row["unit"],
-                          subsets.get(row["molecule_id"], ""))
-        self.table.setUpdatesEnabled(True)
-        self.table.blockSignals(False)
-        self._loading = False
+        unit = self.unit_combo.currentText().strip()
+        self.model.set_rows([[row["molecule_id"], row["name"], row["value"], row["unit"] or unit,
+                              subsets.get(row["molecule_id"], "")] for row in rows], kind)
         n_test = sum(1 for v in subsets.values() if v == "test")
         suffix = f" - {n_test} test / {len(subsets) - n_test} train" if subsets else ""
         self.status.setText(f"{len(rows)} activity row(s) for endpoint '{self._current_endpoint() or '(all)'}'{suffix}.")
         if self._show_histogram is not None:
             self._show_histogram(self._current_endpoint(), bins)
 
-    def _on_item_changed(self, item) -> None:
-        if self._loading or item.column() not in (2, 3):
-            return
+    def _write_activity(self, row: int, value_text: str, unit: str) -> bool:
+        """An edited Value/Unit cell, written through; False keeps the cell as it was."""
         endpoint = self._current_endpoint()
         if not endpoint:
             QMessageBox.information(self, "Activities", "Set an endpoint first.")
-            return
+            return False
         try:
-            ligand_id = int(self.table.item(item.row(), 0).text())
-            value = float(self.table.item(item.row(), 2).text())
+            value = float(value_text)
         except (TypeError, ValueError):
-            return
-        unit = (self.table.item(item.row(), 3).text() if self.table.item(item.row(), 3) else "").strip()
+            return False  # no value yet (a unit typed on a new row): nothing to record
         try:
-            self.runtime.qsar.set_activity(ligand_id=ligand_id, endpoint=endpoint, value=value, unit=unit)
+            self.runtime.qsar.set_activity(ligand_id=self.model.molecule_id(row), endpoint=endpoint,
+                                           value=value, unit=unit)
         except Exception as exc:
             QMessageBox.warning(self, "Activities", str(exc))
+            return False
+        return True
 
     def _add_ligands(self) -> None:
         from amdockvs.ui.tools.qsar.activities import pick_ligands
@@ -216,15 +278,11 @@ class LigandActivityWidget(QWidget):
         chosen = pick_ligands(self, self.runtime)
         if not chosen:
             return
-        self._loading = True
-        existing = {int(self.table.item(r, 0).text()) for r in range(self.table.rowCount())}
+        existing = self.model.molecule_ids()
+        unit = self.unit_combo.currentText().strip()
         for mid, name in chosen:
-            if mid in existing:
-                continue
-            r = self.table.rowCount()
-            self.table.insertRow(r)
-            self._set_row(r, mid, name, None, "")
-        self._loading = False
+            if mid not in existing:
+                self.model.append(mid, name, unit)
         self.status.setText("Enter a value in the Value column to record each activity.")
 
     def _load_csv(self) -> None:
@@ -282,7 +340,7 @@ class LigandActivityWidget(QWidget):
 
     def _delete_selected(self) -> None:
         endpoint = self._current_endpoint() or None
-        ids = sorted({int(self.table.item(idx.row(), 0).text()) for idx in self.table.selectedIndexes()})
+        ids = sorted({self.model.molecule_id(idx.row()) for idx in self.table.selectionModel().selectedRows()})
         if not ids:
             return
         for ligand_id in ids:

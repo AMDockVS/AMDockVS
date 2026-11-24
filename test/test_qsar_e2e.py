@@ -77,11 +77,13 @@ def test_qsar_from_activities_to_a_filtered_library(tmp_path, monkeypatch):
         labeled_ids = {by_name[name] for name, _ in LABELED}
 
         # a. activities, matched to the ligands by structure
+        assert not runtime.qsar.has_activities()  # nothing measured yet: the Activity tab stays shut
         table = tmp_path / "activities.csv"
         table.write_text("smiles,value\n" + "".join(f"{smi},{_activity(smi)}\n" for _, smi in LABELED), encoding="utf-8")
         loaded = runtime.qsar.load_activities(table, endpoint=ENDPOINT, match_by="smiles")
         measured = {int(a.molecule_id): float(a.value) for a in runtime.qsar.list_activities(endpoint=ENDPOINT)}
         assert set(measured) == labeled_ids, loaded
+        assert runtime.qsar.has_activities()  # ...and opens on its own data, before any model exists
         completed(runtime.qsar.compute_descriptors(only_missing=False, compute_fingerprints=True, executor_name="thread"))
 
         # b. a training set that is diverse AND spans the activity. Cluster the measured ligands

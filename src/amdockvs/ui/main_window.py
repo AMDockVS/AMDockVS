@@ -277,12 +277,15 @@ class AMDockVSMainWindow(QMainWindow):
     def _open_default_views(self) -> None:
         """Open the tabs that have data; in front goes the first of Docking Results, QSAR
         Analysis, Receptors, Ligands, Shards that opened. An empty project opens Receptors."""
+        # Activity opens on its own measurements, not on the models: the data a model is trained
+        # against is there before any model exists, and is what you go back to between models.
         # open_view() only returns the tab if it already exists; opening is open_or_focus_view().
         sharded, ligand_rows = self.views._library_shape()
         has_data = {  # in tab-bar order
             RECEPTOR_VIEW_ID: self.runtime.molecules.has_receptors(),
             LIGANDS_VIEW_ID: ligand_rows,
             SHARDS_VIEW_ID: sharded,
+            LIGAND_ACTIVITY_VIEW_ID: self.runtime.qsar.has_activities(),
             QSAR_ANALYSIS_VIEW_ID: bool(self.runtime.qsar.list_models()),
             COMPLEXES_VIEW_ID: self.runtime.docking.has_results(),
         }
@@ -290,7 +293,8 @@ class AMDockVSMainWindow(QMainWindow):
         opened = [view_id for view_id, present in has_data.items() if present] or [RECEPTOR_VIEW_ID, LIGANDS_VIEW_ID]
         for view_id in opened:
             self.open_or_focus_view(view_id)
-        front = (COMPLEXES_VIEW_ID, QSAR_ANALYSIS_VIEW_ID, RECEPTOR_VIEW_ID, LIGANDS_VIEW_ID, SHARDS_VIEW_ID)
+        front = (COMPLEXES_VIEW_ID, QSAR_ANALYSIS_VIEW_ID, LIGAND_ACTIVITY_VIEW_ID,
+                 RECEPTOR_VIEW_ID, LIGANDS_VIEW_ID, SHARDS_VIEW_ID)
         self.open_or_focus_view(next(v for v in front if v in opened))
 
     def resizeEvent(self, event):

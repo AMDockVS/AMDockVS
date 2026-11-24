@@ -137,22 +137,26 @@ class ActivitiesMixin:
         """Activities joined with the ligand name, for the editor table:
         [{molecule_id, name, value, unit}] ordered by ligand id."""
         self.runtime._require_active_project()
+        # Four columns in one join: whole records (and an IN list of every id for the names) took
+        # ~1.4 s for 39k activities.
         with self.runtime.workspace.project_db.get_session() as session:
-            statement = select(ActivityRecord)
+            statement = (
+                select(ActivityRecord.molecule_id, MoleculeRecord.name, ActivityRecord.value, ActivityRecord.unit)
+                .join(MoleculeRecord, MoleculeRecord.id == ActivityRecord.molecule_id, isouter=True)
+            )
             if endpoint is not None:
                 statement = statement.where(ActivityRecord.activity_type == str(endpoint))
-            rows = list(session.exec(statement.order_by(ActivityRecord.molecule_id)))
-            names = {
-                int(m.id): str(m.name or "")
-                for m in session.exec(
-                    select(MoleculeRecord).where(MoleculeRecord.id.in_([int(r.molecule_id) for r in rows] or [0]))
-                )
-            }
+            rows = session.exec(statement.order_by(ActivityRecord.molecule_id)).all()
         return [
-            {"molecule_id": int(r.molecule_id), "name": names.get(int(r.molecule_id), ""),
-             "value": float(r.value), "unit": str(r.unit or "")}
-            for r in rows
+            {"molecule_id": int(mid), "name": str(name or ""), "value": float(value), "unit": str(unit or "")}
+            for mid, name, value, unit in rows
         ]
+
+    def has_activities(self) -> bool:
+        """Whether any activity is recorded here — a one-row lookup, like `molecules.has_receptors`."""
+        self.runtime._require_active_project()
+        with self.runtime.workspace.project_db.get_session() as session:
+            return session.exec(select(ActivityRecord.id).limit(1)).first() is not None
 
     def list_endpoints(self) -> list[str]:
         """Distinct activity endpoints present in the project."""
