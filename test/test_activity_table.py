@@ -32,11 +32,26 @@ def test_an_edit_writes_through_and_a_refused_one_keeps_the_cell():
     assert model.setData(model.index(0, 2), "2.5")
     assert writes[-1] == (0, "2.5", "uM") and model.index(0, 2).data() == "2.5000"
     assert model.setData(model.index(0, 3), "nM")  # a unit edit re-records the current value
-    assert writes[-1] == (0, "2.5000", "nM")
+    assert writes[-1] == (0, "2.5", "nM")
     accept["ok"] = False
     assert not model.setData(model.index(0, 2), "9")
     assert model.index(0, 2).data() == "2.5000"
     assert not model.setData(model.index(0, 1), "renamed")  # the name is not editable
+
+
+def test_a_unit_edit_keeps_the_value_at_full_precision():
+    """The cell shows 4 decimals (or a whole class); the value re-recorded with a new unit is the
+    stored one, not that rounding of it."""
+    writes = []
+    model = _ActivityModel(lambda row, value, unit: writes.append((row, value, unit)) or True)
+    model.set_rows([[7, "a", 1.234567, "nM", ""]], "continuous")
+    assert model.index(0, 2).data() == "1.2346"
+    assert model.setData(model.index(0, 3), "uM")
+    assert writes[-1] == (0, "1.234567", "uM")
+    assert model.index(0, 2).data() == "1.2346" and model._rows[0][2] == 1.234567
+    model.set_rows([[7, "a", 0.6, "", ""]], "categorical")  # shown as class "1"
+    assert model.setData(model.index(0, 3), "class")
+    assert float(writes[-1][1]) == 0.6
 
 
 def test_a_unit_typed_before_the_value_is_kept_and_records_that_value():

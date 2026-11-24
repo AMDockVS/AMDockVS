@@ -89,7 +89,10 @@ class _ActivityModel(QAbstractTableModel):
         if role != Qt.EditRole or index.column() not in (_VALUE, _UNIT):
             return False
         row = self._rows[index.row()]
-        value_text = str(text) if index.column() == _VALUE else self._text(row, _VALUE)
+        # A unit edit re-records the value as stored, not as shown: the cell rounds it (4 decimals,
+        # whole classes), and writing that back changed 1.234567 to 1.2346 with only the unit edited.
+        value_text = (str(text) if index.column() == _VALUE
+                      else "" if row[_VALUE] is None else repr(float(row[_VALUE])))
         unit_text = str(text).strip() if index.column() == _UNIT else str(row[_UNIT] or "")
         if index.column() == _UNIT and row[_VALUE] is None:
             # Nothing to record yet, but the unit is the user's answer to "in what?": keep it on
