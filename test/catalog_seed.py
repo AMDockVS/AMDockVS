@@ -24,7 +24,7 @@ def seed_library(project_db, folder, *, scope, shards=1, records=2, name="lib", 
                  kind=ShardKind.SMILES) -> tuple[int, list[int]]:
     """`write_library_file` into `folder`, registered in the catalog: (file id, the shard ids).
     Shard ids are the catalog's own (`catalog.shard_id`)."""
-    path = write_library_file(Path(folder) / f"{name}.parquet", scope=scope, shards=shards, records=records,
+    path = write_library_file(Path(folder) / f"{name}.arrows", scope=scope, shards=shards, records=records,
                               kind=kind)
     file_id = catalog.add_file(project_db, path, generation_id=generation_id)
     return file_id, [catalog.shard_id(file_id, index) for index in range(shards)]
@@ -46,7 +46,7 @@ def seed_prepared(project_db, shard, folder, *, dropped=(), family="ad4") -> Pat
     from amdockvs.molecules.storage import prepared_role
 
     base, slots = int(shard["base_id"]), int(shard["slot_count"])
-    path = Path(folder) / f"prepared_{family}" / f"{shard['id']}.parquet"
+    path = Path(folder) / f"prepared_{family}" / f"{shard['id']}.arrows"
     path.parent.mkdir(parents=True, exist_ok=True)
     with ShardWriter(path, dataset_id=None, shard_id=0, base_id=base, kind=ShardKind.PDBQT,
                      serializer=Serializer.UTF8, slot_count=slots) as writer:

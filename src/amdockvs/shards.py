@@ -8,7 +8,7 @@ from typing import Any
 from ms_flow.core.data import catalog
 from ms_flow.core.data.shard import Shard
 
-from amdockvs.io.shards import shard_file_name, shard_ids
+from amdockvs.io.shards import shard_file_name, shard_number
 
 
 @dataclass
@@ -30,7 +30,7 @@ class ShardAPI:
             path = Path(self.runtime.workspace.active_context.path) / path
         if not path.is_file():
             raise FileNotFoundError(path)
-        return Shard.open(path, ids=shard_ids(row))
+        return Shard.open(path, shard=shard_number(row))
 
 
-__all__ = ["ShardAPI", "shard_file_name", "shard_ids"]
+__all__ = ["ShardAPI", "shard_file_name", "shard_number"]

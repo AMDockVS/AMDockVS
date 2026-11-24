@@ -35,7 +35,7 @@ def _library_file(session, folder, source: str, *, n_records: int = 3, name: str
     from ms_flow.core.database.project_models import CatalogFile
 
     scope = _batch(session, source)
-    path = write_library_file(Path(folder) / f"{name}.parquet", scope=scope, records=n_records)
+    path = write_library_file(Path(folder) / f"{name}.arrows", scope=scope, records=n_records)
     file = CatalogFile(path=str(path), n_shards=1, n_records=n_records, n_active=n_records, scopes=str(scope))
     session.add(file)
     session.flush()
@@ -97,7 +97,7 @@ def _pdbqt_shard(path: Path, count: int = 5) -> Path:
 
 
 def test_a_slice_comes_out_as_files_with_the_record_ids_and_their_smiles(tmp_path):
-    shard = _pdbqt_shard(tmp_path / "shard_0.parquet")
+    shard = _pdbqt_shard(tmp_path / "shard_0.arrows")
     ligands = extract_ligands(shard, tmp_path / "staging", start=2, count=2)
     assert [ligand["id"] for ligand in ligands] == [2, 3]
     assert [Path(ligand["path"]).name for ligand in ligands] == ["2.pdbqt", "3.pdbqt"]
@@ -107,7 +107,7 @@ def test_a_slice_comes_out_as_files_with_the_record_ids_and_their_smiles(tmp_pat
 
 
 def test_selected_record_ids_extract_only_the_reference_top_n(tmp_path):
-    shard = _pdbqt_shard(tmp_path / "shard_0.parquet")
+    shard = _pdbqt_shard(tmp_path / "shard_0.arrows")
     ligands = extract_ligands(shard, tmp_path / "selected", record_ids=[1, 4])
     assert [ligand["id"] for ligand in ligands] == [1, 4]
     assert sorted(path.name for path in (tmp_path / "selected").iterdir()) == ["1.pdbqt", "4.pdbqt"]
@@ -118,15 +118,15 @@ def test_a_wrapped_smiles_remark_is_joined_and_the_idx_remark_ignored():
     assert smiles_from_pdbqt(text) == "CCc1ccccc1O"
 
 
-def test_prepared_ids_extract_one_shard_of_a_file_holding_many(tmp_path):
-    path = tmp_path / "merged.parquet"
+def test_prepared_shard_extracts_one_shard_of_a_file_holding_many(tmp_path):
+    path = tmp_path / "merged.arrows"
     with ShardWriter(path, dataset_id=None, shard_id=0, base_id=0, kind=ShardKind.PDBQT,
                      serializer=Serializer.UTF8, slot_count=10) as writer:
         for lo in (0, 5):
             for logical_id in range(lo, lo + 5):
                 writer.add(logical_id, f"REMARK SMILES C\nATOM {logical_id}\n".encode())
             writer.end_group(scope=1, base_id=lo, slot_count=5, origin=lo)
-    ligands = extract_ligands(path, tmp_path / "staging", ids=(5, 10))
+    ligands = extract_ligands(path, tmp_path / "staging", shard=1)
     assert [ligand["id"] for ligand in ligands] == [5, 6, 7, 8, 9]
 
 
@@ -307,7 +307,7 @@ def test_the_streaming_gate_still_writes_as_it_goes():
 
 
 def test_docking_streams_each_ligand_into_a_result_shard_and_removes_loose_poses(tmp_path, monkeypatch):
-    prepared = _pdbqt_shard(tmp_path / "prepared.parquet", count=2)
+    prepared = _pdbqt_shard(tmp_path / "prepared.arrows", count=2)
     output = tmp_path / "results" / "docking" / "screening"
     progress = []
 

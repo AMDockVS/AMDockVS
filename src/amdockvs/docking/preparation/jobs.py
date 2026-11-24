@@ -13,7 +13,7 @@ from amdockvs.docking.preparation.tasks import prepare_entities, prepare_ligand_
 from amdockvs.core.configuration import DEFAULT_OUTPUT_FLUSH_EVERY, batch_size_for
 from amdockvs.core.payloads import molecule_payload_id, payload_store
 from amdockvs.core.worker_io import worker_file, worker_output_dir
-from amdockvs.io.shards import shard_ids
+from amdockvs.io.shards import shard_number
 from amdockvs.core.constants import AMDOCKVS_OFFLOADABLE_EXECUTORS
 from amdockvs.docking.repository import (
     iter_entity_rows,
@@ -332,7 +332,7 @@ class PrepareLigandShardsJobSpec(JobSpec):
             yield {"engine": parsed.engine, "role": role, "shards": [{
                 "shard_id": int(row["id"]),
                 "shard_path": worker_file(row["path"]),
-                "ids": shard_ids(row),
+                "shard": shard_number(row),
                 "generation_id": row["generation_id"],
                 # Beside the input, in a folder named after the engine.
                 "output_dir": worker_output_dir(prepared_dir(row["path"], parsed.engine)),

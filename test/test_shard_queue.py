@@ -29,8 +29,9 @@ def _files(db):
 def _shards(db):
     """Every shard of every file, ready or not, in file then id order."""
     return [SimpleNamespace(path=f["path"], file_id=f["id"], status=f["status"], base_id=g.base_id,
-                            slot_count=g.slot_count, n_records=g.n_records, scope=g.scope)
-            for f in _files(db) for g in (file_groups(f["path"]) if f["status"] == catalog.READY else [])]
+                            slot_count=g.slot_count, n_records=g.n_records, scope=g.scope, shard_index=n)
+            for f in _files(db)
+            for n, g in enumerate(file_groups(f["path"]) if f["status"] == catalog.READY else [])]
 
 
 def _group(batch, count, first_index=0):
@@ -39,10 +40,6 @@ def _group(batch, count, first_index=0):
         "input_format": "sdf",
         "records": [(first_index + i, f"mol {batch} {first_index + i}") for i in range(count)],
     }
-
-
-def _ids(row):
-    return (row.base_id, row.base_id + row.slot_count)
 
 
 def test_shards_hold_exactly_the_asked_size_whatever_the_chunks_were(tmp_path):
@@ -61,7 +58,7 @@ def test_shards_hold_exactly_the_asked_size_whatever_the_chunks_were(tmp_path):
 
     ids = []
     for row in _shards(db):
-        with Shard.open(row.path, ids=_ids(row)) as shard:
+        with Shard.open(row.path, shard=row.shard_index) as shard:
             ids.extend(record.id for record in shard)
             assert len(shard) == row.n_records
     assert ids == list(range(10))  # correlative across shards, not per shard
@@ -82,7 +79,7 @@ def test_a_full_file_is_closed_and_its_rows_committed(tmp_path, monkeypatch):
 
 
 def test_provenance_survives_the_cut(tmp_path):
-    import pyarrow.parquet as pq
+    from ms_flow.core.data import container
 
     db = _db(tmp_path)
     writer = ShardQueueWriter(project_db=db, shard_dir=tmp_path / "shards", shard_size=2)
@@ -90,9 +87,11 @@ def test_provenance_survives_the_cut(tmp_path):
     writer.handle("c0", [{"import_batch_id": 7, "input_format": "sdf", "records": [(0, "a"), (2, "b")]}])
     writer.flush()
 
-    with Shard.open(_shards(db)[0].path, ids=_ids(_shards(db)[0])) as shard:
+    with Shard.open(_shards(db)[0].path, shard=0) as shard:
         assert [record.id for record in shard] == [0, 1]
-    assert pq.read_table(_shards(db)[0].path, columns=["source_index"]).column(0).to_pylist() == [0, 2]
+    path = _shards(db)[0].path
+    info, rows = container.read_index(path)
+    assert container.read_table(path, info, rows, ["source_index"]).column(0).to_pylist() == [0, 2]
 
 
 def test_two_files_never_share_a_shard(tmp_path):
@@ -123,7 +122,7 @@ def test_a_partial_shard_left_for_the_end_rolls_into_a_new_file(tmp_path, monkey
         (1, 0, 4), (2, 4, 4), (1, 8, 3), (2, 11, 2)]
     assert len({row.path for row in _shards(db)}) == 2
     for row in _shards(db):
-        with Shard.open(row.path, ids=_ids(row)) as shard:
+        with Shard.open(row.path, shard=row.shard_index) as shard:
             assert [record.load().split()[1] for record in shard] == [str(row.scope)] * row.n_records
 
 
@@ -138,5 +137,5 @@ def test_a_second_import_does_not_overwrite_the_first(tmp_path):
     assert [row.base_id for row in _shards(db)] == [0, 0]  # ids restart per import
     assert len({row.path for row in _shards(db)}) == 2
     for row in _shards(db):
-        with Shard.open(row.path, ids=_ids(row)) as shard:
+        with Shard.open(row.path, shard=row.shard_index) as shard:
             assert [record.load() for record in shard] == [f"mol {row.scope} {i}" for i in range(2)]

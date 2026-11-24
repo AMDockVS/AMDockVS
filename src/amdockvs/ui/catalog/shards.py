@@ -1,7 +1,7 @@
 """The `htpvs` library, as far as the project is concerned: an inventory of files.
 
 In `vs` the Ligands table *is* the library. In `htpvs` the library never enters the project,
-so what there is to look at is one row per parquet file: its shards (row groups), the records it
+so what there is to look at is one row per shard file: its shards, the records it
 holds (Total) and the ones the exclusions leave (Active). A file being written is listed too, with
 the counts it has so far, so an import is watched filling. It is the same `BoundTableWidget` over
 another model; the only reason it is a separate view is that a file of shards is not a molecule

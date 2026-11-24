@@ -26,7 +26,7 @@ def _project_with_shard(tmp_path):
         session.refresh(batch)
     _file_id, (shard_id,) = seed_library(runtime.workspace.project_db, tmp_path, scope=int(batch.id),
                                          records=100, name="raw")
-    return runtime, shard_id, tmp_path / "raw.parquet"
+    return runtime, shard_id, tmp_path / "raw.arrows"
 
 
 def test_engine_artifact_does_not_replace_the_chemical_shard(tmp_path):

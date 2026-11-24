@@ -653,9 +653,9 @@ class DockShardsJobSpec(JobSpec):
             shard = {
                 "shard_id": int(row.get("id") or 0),
                 "shard_path": worker_file(row["prepared_path"]) if row["prepared_path"] else "",
-                # A prepared file holds many shards: `prepared_ids` is this one's range in it.
-                **({"prepared_ids": row.get("prepared_ids")} if row["prepared_path"]
-                   else {"molecules": worker_file(row["path"]), "ids": row.get("ids")}),
+                # A prepared file holds many shards: `prepared_shard` is this one's number in it.
+                **({"prepared_shard": row.get("prepared_shard")} if row["prepared_path"]
+                   else {"molecules": worker_file(row["path"]), "shard": row.get("shard")}),
                 "import_batch_id": row.get("scope"),
                 "library": str(row.get("library") or ""),
                 "shard_index": int(row.get("shard_index") or 0),

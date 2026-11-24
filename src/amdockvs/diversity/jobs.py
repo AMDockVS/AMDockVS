@@ -24,7 +24,7 @@ from amdockvs.core.jobs import configs, job
 from amdockvs.diversity.tasks import cluster_molecules_task, shard_fingerprints_task
 
 from amdockvs.core.configuration import DEFAULT_LIGAND_BATCH_SIZE
-from amdockvs.io.shards import shard_ids
+from amdockvs.io.shards import shard_number
 from amdockvs.molecules.storage import ShardStore, as_store, store_from_config
 from amdockvs.core.worker_io import worker_file, worker_output_dir
 from amdockvs.core.constants import (
@@ -277,7 +277,7 @@ def shard_fingerprints_job(params: dict, config: dict | None = None) -> Iterator
     for row in ShardStore(project_db).iter_rows():
         yield {
             "shard_path": worker_file(row["path"]),
-            "ids": shard_ids(row),
+            "shard": shard_number(row),
             "record_ids": row.get("record_ids"),  # what the exclusions left of it
             "shard_id": int(row["id"]),
             "import_batch_id": row.get("scope"),

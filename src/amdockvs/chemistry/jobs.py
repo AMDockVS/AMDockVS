@@ -25,7 +25,7 @@ from amdockvs.chemistry.descriptors import BASIC_DESCRIPTOR_FIELDS
 from amdockvs.chemistry.pipeline import normalize_steps
 from amdockvs.chemistry.structures import with_structures
 from amdockvs.chemistry.tools.esmfold import FAST_MODEL
-from amdockvs.io.shards import shard_generation_writer, shard_ids
+from amdockvs.io.shards import shard_generation_writer, shard_number
 from amdockvs.models import MoleculeModel, MoleculeRecord
 
 
@@ -355,7 +355,7 @@ def shard_chemistry_job(params: dict, config: dict | None = None) -> Iterator[di
         shard_path = Path(str(row.get("path") or ""))
         yield {
             "shard_path": worker_file(shard_path),
-            "ids": shard_ids(row),
+            "shard": shard_number(row),
             "output_dir": output_dir,
             "import_batch_id": row.get("scope"),
             "shard_index": int(row.get("shard_index") or 0),

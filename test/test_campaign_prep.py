@@ -9,7 +9,7 @@ def test_unprepared_shards_are_prepared_once_and_docked_from_there(tmp_path):
     from amdockvs.docking.campaign import _unprepared
     from amdockvs.docking.shard_tasks import prepared_elements
 
-    raw = tmp_path / "shards" / "shard_000002.parquet"
+    raw = tmp_path / "shards" / "shard_000002.arrows"
     ready = {"shard_id": 1, "shard_path": str(tmp_path / "ready.parquet")}
     pending = {"shard_id": 2, "shard_path": "", "molecules": str(raw)}
     elements = [{"receptor_id": receptor, "shards": [dict(shard)]} for receptor in (1, 2) for shard in (ready, pending)]

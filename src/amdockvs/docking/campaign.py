@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 from functools import partial
 from pathlib import Path
 from typing import Any, Iterable
@@ -150,13 +149,13 @@ def _unprepared(elements: list[dict], engine: str) -> list[dict]:
         for place, shard in enumerate(element["shards"]):
             if shard["shard_path"]:
                 continue
-            # There, a file of this one shard (whole: no `prepared_ids`), named for `located`.
+            # There, a file of this one shard (whole: no `prepared_shard`), named for `located`.
             # Kept: in the project's folder there, so the next campaign to that host docks it as is.
             where = {"prepared_in": KeptDir(worker_output_dir(prepared_dir(shard["molecules"], engine))),
                      "prepared_as": f"{shard['shard_id']}{Path(shard['molecules']).suffix}"}
-            element["shards"][place] = {**{k: v for k, v in shard.items() if k not in ("molecules", "ids")}, **where}
+            element["shards"][place] = {**{k: v for k, v in shard.items() if k not in ("molecules", "shard")}, **where}
             prep.setdefault(shard["shard_id"], {"engine": engine, "role": prepared_role(engine), "shards": [{
-                "shard_id": shard["shard_id"], "shard_path": shard["molecules"], "ids": shard.get("ids"),
+                "shard_id": shard["shard_id"], "shard_path": shard["molecules"], "shard": shard.get("shard"),
                 "import_batch_id": shard.get("import_batch_id"), "output_dir": where["prepared_in"],
                 "output_name": where["prepared_as"]}]})
     return list(prep.values())
@@ -249,9 +248,11 @@ class _Packer:
         if self._writer is None:
             return
         self._writer.close()
+        from ms_flow.core.data import container
+
         sha = _sha256(self._writer.path)
         path = self.folder / f"{sha[:16]}{SHARD_SUFFIX}"  # a name; `digests` keep the whole sha
-        os.replace(self._writer.path, path)
+        container.move(self._writer.path, path)  # its index goes with it
         self.shards.append((path, sha))
         self._writer = None
 
@@ -307,9 +308,12 @@ def drop_transport(manifest: Path) -> None:
         except (OSError, ValueError, KeyError):
             return set()
 
+    from ms_flow.core.data.companions import whole
+
     others = set().union(*(named(path) for path in manifest.parent.glob("*.json") if path != manifest))
     for shard in named(manifest) - others:
-        Path(shard).unlink(missing_ok=True)
+        for path in whole(shard):  # its index goes with it
+            Path(path).unlink(missing_ok=True)
     manifest.unlink(missing_ok=True)
 
 

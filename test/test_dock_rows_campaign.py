@@ -34,7 +34,7 @@ def test_rows_travel_in_shards_and_are_the_same_chunks_there(tmp_path, monkeypat
                                   tmp_path / "transport", cpu=2)
     again = campaign.pack_rows(_chunks(File(str(receptor)), Dir(str(tmp_path / "out"))), tmp_path / "transport", cpu=2)
     assert again == manifest  # the same ligands make the same files: a campaign submitted again is found
-    shards = sorted((tmp_path / "transport").glob("*.parquet"))
+    shards = sorted((tmp_path / "transport").glob("*.arrows"))
     assert len(shards) == 2 and not list((tmp_path / "transport").glob(".packing-*"))  # 1+2, then 3: each ligand once
 
     written = json.loads(manifest.read_text())
@@ -64,7 +64,7 @@ def test_an_ended_campaign_takes_its_transport_away_but_not_what_another_still_n
     assert shared < set(json.loads(first.read_text())["digests"])  # ligands 1+2: the same file
 
     campaign.drop_transport(first)
-    assert {str(path) for path in folder.glob("*.parquet")} == shared and second.exists()
+    assert {str(path) for path in folder.glob("*.arrows")} == shared and second.exists()
     campaign.drop_transport(second)
     assert not list(folder.iterdir())
 

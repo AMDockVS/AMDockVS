@@ -132,7 +132,7 @@ class ShardStore:
         from amdockvs.chemistry.shards import _molblock
         from amdockvs.core.payloads import structure_payload
         from amdockvs.io.batches import library_names
-        from amdockvs.io.shards import FORMAT_FOR_KIND, mol_from_record, shard_ids, shard_key, split_shard_key
+        from amdockvs.io.shards import FORMAT_FOR_KIND, mol_from_record, shard_key, shard_number, split_shard_key
         from amdockvs.screening.materialize import promote_records
 
         wanted: dict[int, set[int]] = {}
@@ -146,7 +146,7 @@ class ShardStore:
             for row in self.iter_rows(spec, batch_size=1000, whole=True):  # asked by key: excluded or not
                 if not record_ids:
                     break
-                with Shard.open(Path(str(row["path"])), ids=shard_ids(row)) as shard:
+                with Shard.open(Path(str(row["path"])), shard=shard_number(row)) as shard:
                     input_format = FORMAT_FOR_KIND.get(shard.kind, "")
                     for record_id in [value for value in record_ids if value in shard]:
                         record_ids.discard(record_id)
@@ -237,11 +237,11 @@ def iter_prepared_shards(project_db, *, engine: str, unprepared: bool = False) -
 
 def _prepared_shards(project_db, *, engine: str, unprepared: bool = False) -> Iterator[dict[str, Any]]:
     """The library's shards, each with its newest prepared copy of one family: ``prepared_path``
-    and ``prepared_ids`` (its range in that file). With `unprepared`, the others come too, with
+    and ``prepared_shard`` (its number in that file). With `unprepared`, the others come too, with
     an empty ``prepared_path`` and the count of the shard itself.
     ponytail: one dict entry per prepared shard (4k per 1M records)."""
     from amdockvs.io.batches import library_names
-    from amdockvs.io.shards import shard_ids
+    from amdockvs.io.shards import shard_number
 
     made = {int(row["origin"]): row for row in catalog.derived(project_db, prepared_role(engine), whole=True)}
     libraries = library_names(project_db)
@@ -256,16 +256,21 @@ def _prepared_shards(project_db, *, engine: str, unprepared: bool = False) -> It
             "library": libraries.get(shard["scope"], "library"),
             "shard_index": int(shard["shard_index"]),
             "path": shard["path"],
-            "ids": shard_ids(shard),
+            "shard": shard_number(shard),
             "base_id": shard["base_id"],
             "slot_count": shard["slot_count"],
         }
         twin = made.get(int(shard["id"]))
         if twin is not None:
-            yield {**row, "prepared_path": str(twin["path"]), "prepared_ids": shard_ids(twin),
-                   "n_records": int(twin["n_records"]), "n_failed": int(twin["n_dropped"])}
+            # the prepared copy has the source's range; its own bitmap says which ids it could make.
+            # ponytail: past ms_flow PRESENT_SLOTS (65536; shards hold 256) narrow would read the
+            # library shard's ids instead; pass the prepared path then.
+            yield {**row, "prepared_path": str(twin["path"]), "prepared_shard": shard_number(twin),
+                   "n_records": int(twin["n_records"]), "n_failed": int(twin["n_dropped"]),
+                   "present": twin.get("present")}
         elif unprepared:
-            yield {**row, "prepared_path": "", "prepared_ids": None, "n_records": int(shard["n_records"])}
+            yield {**row, "prepared_path": "", "prepared_shard": None, "n_records": int(shard["n_records"]),
+                   "present": shard.get("present")}
 
 
 def _prepared_roles(project_db) -> list[str]:
@@ -291,18 +296,18 @@ def prepared_counts(project_db, spec: QuerySpec | None = None) -> dict[str, tupl
 
 def prepared_failures(project_db, spec: QuerySpec | None = None) -> dict[str, int]:
     """reason -> how many records of the library shards of `spec` a preparation dropped (the
-    dropped sidecars of their newest prepared copies)."""
+    dropped rows of their newest prepared copies)."""
     from collections import Counter
 
     from ms_flow.core.data.shard import read_dropped
 
-    from amdockvs.io.shards import shard_ids
+    from amdockvs.io.shards import shard_number
 
     tally: Counter = Counter()
     for role in _prepared_roles(project_db):
         for row in catalog.derived(project_db, role, spec, whole=True):
             if row["n_dropped"]:
-                tally.update(reason for _id, reason in read_dropped(row["path"], shard_ids(row)))
+                tally.update(reason for _id, reason in read_dropped(row["path"], shard_number(row)))
     return dict(tally)
 
 

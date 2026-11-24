@@ -124,7 +124,7 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
             shard_path,
             staging,
             record_ids=shard.get("record_ids"),
-            ids=shard.get("prepared_ids"),
+            shard=shard.get("prepared_shard"),
         )
         smiles = {int(ligand["id"]): str(ligand["smiles"]) for ligand in ligands}
         pairs = [
@@ -143,7 +143,7 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
             }
             for ligand in ligands
         ]
-        with Shard.open(shard_path) as source_shard:
+        with Shard.open(shard_path, shard=shard.get("prepared_shard")) as source_shard:
             header = {
                 "dataset_id": source_shard.dataset_id,
                 "shard_id": source_shard.shard_id,

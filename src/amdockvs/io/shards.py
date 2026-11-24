@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Iterator
 from uuid import uuid4
 
-from ms_flow.core.data.shard import MAX_RECORDS, Serializer, ShardWriter
+from ms_flow.core.data.shard import MAX_RECORDS, SUFFIX, Serializer, ShardWriter
 from amdockvs.core.constants import ShardKind
 
 from amdockvs.io.parsers import iter_record_span
@@ -33,7 +33,7 @@ from amdockvs.io.rows import cull_mol, htp_mol_filter
 from amdockvs.core.constants import RESOURCE_SHARDS
 from amdockvs.core.vocab import FileFormat
 
-SHARD_SUFFIX = ".parquet"
+SHARD_SUFFIX = SUFFIX  # an Arrow container: X.arrows with X.arrows.index beside it
 
 # Records per shard. Not a setting: the shard is the unit of retry and of the smallest task an
 # engine is handed (a GPU engine stacks several per task), and storage cost is flat across sizes
@@ -75,19 +75,20 @@ def is_shard_key(key: int) -> bool:
     return int(key) >> _RECORD_BITS > 0
 
 
-def shard_ids(row: Any) -> tuple[int, int] | None:
-    """A catalog shard's ids inside its file, as `Shard.open(ids=)` takes them; None = the whole
-    file. Takes a shard row (`ms_flow.core.data.catalog.shards`), a dict or an object."""
+def shard_number(row: Any) -> int | None:
+    """A catalog shard's number inside its file, as `Shard.open(shard=)` takes it (ids restart per
+    import, so they are no address); None = the whole file. Takes a shard row
+    (`ms_flow.core.data.catalog.shards`), a dict or an object."""
     get = row.get if isinstance(row, Mapping) else (lambda key: getattr(row, key, None))
-    base = get("base_id")
-    return None if base is None else (int(base), int(base) + int(get("slot_count") or 0))
+    number = get("shard_index")
+    return None if number is None else int(number)
 
 
-def shard_file_name(path: str | Path, ids: Any = None) -> str:
+def shard_file_name(path: str | Path, shard: int | None = None) -> str:
     """The name of a file made from one shard (its prepared twin, a step's output): the source's
-    own for a whole-file shard, ``<stem>.<base_id><suffix>`` for one of the many in a file."""
+    own for a whole-file shard, ``<stem>.<shard number><suffix>`` for one of the many in a file."""
     path = Path(path)
-    return path.name if ids is None else f"{path.stem}.{int(ids[0])}{path.suffix}"
+    return path.name if shard is None else f"{path.stem}.{int(shard)}{path.suffix}"
 
 
 def mol_from_record(raw: str, input_format: str):

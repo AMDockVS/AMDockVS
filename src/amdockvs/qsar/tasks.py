@@ -109,7 +109,7 @@ def predict_shard_task(payload: dict) -> dict:
 
     fitted = load_model(payload["model_path"])
     keys, rows, mols = [], [], []
-    for record_id, mol in zip(*read_shard(payload["shard_path"], payload.get("ids"), payload.get("record_ids"))):
+    for record_id, mol in zip(*read_shard(payload["shard_path"], payload.get("shard"), payload.get("record_ids"))):
         try:
             vector = None if mol is None else _feature_vector(mol, fitted)
         except Exception:  # noqa: BLE001 - one odd molecule does not fail its shard

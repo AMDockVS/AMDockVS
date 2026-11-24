@@ -240,7 +240,7 @@ class CatalogDetailsView(QWidget):
         header = _shard_header(path)
         # The one per-molecule thing worth surfacing: why the last preparation dropped ligands.
         # A sharded library has no per-molecule row to carry an error: the prepared file's
-        # dropped sidecar holds every id with its reason.
+        # dropped rows hold every id with its reason.
         reasons = self.runtime.molecules.file_prep_failures(int(getattr(shard, "id", 0) or 0))
         if reasons:
             self._add_section("Preparation failures", {reason: str(n) for reason, n in sorted(reasons.items())})
@@ -360,20 +360,21 @@ class CatalogDetailsView(QWidget):
 __all__ = ["CatalogDetailsView"]
 
 
-def _shard_header(path: Path, ids=None) -> dict:
-    """What the shard file itself declares. Opening it is a header read, not a library walk."""
+def _shard_header(path: Path) -> dict:
+    """What the shard file itself declares: its counts from the header, the rest from its first
+    shard (every shard of a file shares them), so no library walk."""
     if not path.is_file():
         return {"error": "shard file not found"}
     try:
-        from ms_flow.core.data.shard import Shard
+        from ms_flow.core.data.shard import Shard, file_groups
 
-        with Shard.open(path, ids=ids) as shard_file:
+        groups = [group for group in file_groups(path) if not group.retired]
+        with Shard.open(path, shard=groups[0].shard if groups else None) as shard_file:
             return {
                 "dataset_id": str(shard_file.dataset_id),
                 "shard_id": shard_file.shard_id,
-                "base_id": shard_file.base_id,
-                "slot_count": shard_file.slot_count,
-                "record_count": shard_file.record_count,
+                "shards": len(groups),
+                "record_count": sum(group.n_records for group in groups),
                 "kind": shard_file.kind,
                 "serializer": shard_file.serializer,
                 "metadata": shard_file.metadata,

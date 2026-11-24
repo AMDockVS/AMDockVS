@@ -41,15 +41,15 @@ def _shard(runtime, path, **prefilter):
     from ms_flow.core.data import catalog
     from ms_flow.core.data.shard import Shard
 
-    from amdockvs.io.shards import FORMAT_FOR_KIND, shard_ids
+    from amdockvs.io.shards import FORMAT_FOR_KIND, shard_number
 
     jobs = runtime.loader.shard_ligands([str(path)], executor_name="thread", prefilter=prefilter or None)
     states = runtime.wait_for_jobs(list(jobs), timeout_s=60)
     assert all(str(state.status).endswith("completed") for state in states.values()), states
-    rows = [(row["path"], shard_ids(row)) for row in catalog.shards(runtime.workspace.project_db, whole=True)]
+    rows = [(row["path"], shard_number(row)) for row in catalog.shards(runtime.workspace.project_db, whole=True)]
     out = []
-    for shard_path, ids in rows:
-        with Shard.open(shard_path, ids=ids) as shard:
+    for shard_path, number in rows:
+        with Shard.open(shard_path, shard=number) as shard:
             out += [(FORMAT_FOR_KIND.get(shard.kind, ""), record.load()) for record in shard]
     return out
 
@@ -103,7 +103,6 @@ def test_shards_sharing_a_file_prepare_each_into_its_own_shard(runtime, tmp_path
     from ms_flow.core.data import catalog
     from ms_flow.core.data.shard import Shard
 
-    from amdockvs.io.shards import shard_ids
     from amdockvs.molecules.storage import iter_prepared_shards
 
     source = tmp_path / "lib.smi"
@@ -123,10 +122,10 @@ def test_shards_sharing_a_file_prepare_each_into_its_own_shard(runtime, tmp_path
     assert len({row["prepared_path"] for row in prepared}) == 1
     seen = []
     for row, source_row in zip(prepared, rows):
-        assert row["prepared_ids"] == shard_ids(source_row)
-        with Shard.open(row["prepared_path"], ids=row["prepared_ids"]) as shard:
+        assert row["prepared_shard"] is not None
+        with Shard.open(row["prepared_path"], shard=row["prepared_shard"]) as shard:
             ids = [record.id for record in shard]
-        lo, hi = row["prepared_ids"]
+        lo, hi = source_row["base_id"], source_row["base_id"] + source_row["slot_count"]
         assert ids and all(lo <= i < hi for i in ids)
         seen += ids
     assert seen == list(range(10))

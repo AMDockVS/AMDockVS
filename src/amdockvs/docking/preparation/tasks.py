@@ -95,7 +95,7 @@ def prepare_ligand_shards(payload: dict, progress_cb=None):
         source = Path(str(shard["shard_path"])).expanduser().resolve()
         name = shard.get("output_name") or f"{int(shard['shard_id'])}-{uuid4().hex[:8]}{source.suffix}"
         output_path = Path(str(shard["output_dir"])).expanduser().resolve() / name
-        profile.prepare_shard(source, output_path, engine=engine, ids=shard.get("ids"),
+        profile.prepare_shard(source, output_path, engine=engine, shard=shard.get("shard"),
                               scope=shard.get("import_batch_id"), origin=int(shard["shard_id"]))
         if output_path.is_file():
             rows.append(file_row(output_path, role=str(payload["role"]),

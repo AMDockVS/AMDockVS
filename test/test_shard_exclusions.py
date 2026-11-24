@@ -62,7 +62,7 @@ def test_a_cut_narrows_what_the_steps_read_but_not_what_they_transform(runtime, 
 def test_a_narrowed_shard_prepares_whole_and_docks_only_what_is_left(runtime, tmp_path):
     from ms_flow.core.data.shard import Shard
 
-    from amdockvs.io.shards import shard_ids, shard_key
+    from amdockvs.io.shards import shard_key
     from ms_flow.core.data import catalog
     from amdockvs.molecules.storage import ShardStore, iter_prepared_shards
 
@@ -70,7 +70,6 @@ def test_a_narrowed_shard_prepares_whole_and_docks_only_what_is_left(runtime, tm
     project_db = runtime.workspace.project_db
     rows = sorted(catalog.shards(project_db, whole=True), key=lambda row: row["base_id"])
     batch, first = int(rows[0]["scope"]), rows[0]
-    ids = shard_ids(first)
     ShardStore(project_db).exclude([shard_key(batch, 1)], reason="filter")
 
     job = runtime.docking.prepare_ligand_shards(executor_name="thread")
@@ -78,8 +77,7 @@ def test_a_narrowed_shard_prepares_whole_and_docks_only_what_is_left(runtime, tm
     assert str(state.status).endswith("completed"), state
     prepared = {int(row["id"]): row for row in iter_prepared_shards(project_db, engine="ad4")}
     row = prepared[int(first["id"])]
-    assert row["prepared_ids"] == ids
-    with Shard.open(row["prepared_path"], ids=ids) as shard:
+    with Shard.open(row["prepared_path"], shard=row["prepared_shard"]) as shard:
         assert [record.id for record in shard] == [0, 1, 2, 3]  # prepared whole
     assert row["record_ids"] == [0, 2, 3] and row["n_records"] == 3
     # And that is what a docking of it would read out of the prepared file.

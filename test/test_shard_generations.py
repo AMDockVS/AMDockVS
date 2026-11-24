@@ -34,7 +34,7 @@ def _populate(project_db, generation_id, directory, *, count=3, tag="g"):
     for index in range(count):
         seed_library(project_db, directory, scope=1, records=1000, name=f"{tag}_{index:05d}",
                      generation_id=generation_id)
-    return [directory / f"{tag}_{index:05d}.parquet" for index in range(count)]
+    return [directory / f"{tag}_{index:05d}.arrows" for index in range(count)]
 
 
 def test_a_scope_never_spans_two_generations(project, tmp_path):
@@ -66,7 +66,7 @@ def test_a_failed_rewrite_leaves_the_library_alone(project, tmp_path):
 
     second = create_generation(project_db, step="protonate", folder=root)
     writer = ShardGenerationWriter(project_db=project_db, generation_id=second)
-    path = write_library_file(tmp_path / "p_00000.parquet", scope=1, records=998)
+    path = write_library_file(tmp_path / "p_00000.arrows", scope=1, records=998)
     writer.handle("chunk-0", [{"path": str(path)}])
     writer.on_error("chunk-1", "boom")
     # flush() never runs: the job failed.
@@ -214,7 +214,7 @@ def test_a_rewrite_lands_in_one_file_per_scope(project, tmp_path):
     second = create_generation(project_db, step="protonate", folder=root)
     writer = ShardGenerationWriter(project_db=project_db, generation_id=second)
     for index in range(3):
-        path = tmp_path / f"out_{index}.parquet"
+        path = tmp_path / f"out_{index}.arrows"
         with ShardWriter(path, dataset_id=None, shard_id=0, base_id=10 * index, kind=ShardKind.SDF,
                          serializer=Serializer.UTF8, slot_count=10, scope=5) as shard:
             shard.add(10 * index, f"m{index}".encode())
@@ -224,6 +224,6 @@ def test_a_rewrite_lands_in_one_file_per_scope(project, tmp_path):
 
     rows = sorted(ShardStore(project_db).iter_rows(shard_scope_spec()), key=lambda r: r["base_id"])
     assert len({row["path"] for row in rows}) == 1 and [r["base_id"] for r in rows] == [0, 10, 20]
-    assert not (tmp_path / "out_0.parquet").exists()
-    with Shard.open(rows[2]["path"], ids=(rows[2]["base_id"], rows[2]["base_id"] + rows[2]["slot_count"])) as shard:
+    assert not (tmp_path / "out_0.arrows").exists()
+    with Shard.open(rows[2]["path"], shard=rows[2]["shard_index"]) as shard:
         assert [r.load() for r in shard] == ["m2"]

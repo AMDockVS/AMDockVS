@@ -5,8 +5,8 @@ one `ligand_preps` row per molecule. Neither scales to a screening library — t
 reason the library is sharded. What travels instead is the shard: the prepared PDBQT text sits
 at the *same id* as the molecule it came from, so nothing is renumbered and nothing is joined.
 
-A molecule that fails preparation leaves a hole at its id, its reason in the file's dropped
-sidecar (ms_flow `read_dropped`).
+A molecule that fails preparation is a dropped row at its id, with its reason, inside the same
+container (ms_flow `read_dropped`).
 """
 
 from __future__ import annotations
@@ -79,22 +79,20 @@ def prepare_ligand_shard(
     *,
     engine: str = "ad4",
     ensure_3d: bool = True,
-    ids=None,
+    shard: int | None = None,
     scope: int | None = None,
     origin: int | None = None,
 ) -> dict[str, int]:
     """Every molecule of one shard as PDBQT text, in one derived file of one group: the same ids,
-    ``origin`` = the source shard's id. A molecule that fails is dropped with its reason (the
-    file's dropped sidecar). No db, no per-ligand file. `ids`: the shard's range inside
-    `shard_in` (`shard_ids`), None = the whole file."""
+    ``origin`` = the source shard's id. A molecule that fails is dropped with its reason (a
+    dropped row of the container). No db, no per-ligand file. `shard`: the shard's number inside
+    `shard_in` (`shard_number`), None = the whole file."""
     if str(engine).strip().lower() != "ad4":
         raise ValueError(f"Unsupported shard preparation engine: {engine}")
     source = Path(shard_in).expanduser().resolve()
-    with Shard.open(source, ids=ids) as shard:
-        base_id, slot_count = shard.base_id, shard.slot_count
-    if ids is not None:
-        base_id, slot_count = int(ids[0]), int(ids[1]) - int(ids[0])
-    record_ids, mols = read_shard(source, ids)
+    with Shard.open(source, shard=shard) as opened:
+        base_id, slot_count = opened.base_id, opened.slot_count
+    record_ids, mols = read_shard(source, shard)
     if ensure_3d:
         mols = _with_3d(mols)
 
@@ -143,14 +141,14 @@ def extract_ligands(
     start: int = 0,
     count: int | None = None,
     record_ids: Sequence[int] | None = None,
-    ids=None,
+    shard: int | None = None,
 ) -> list[dict[str, Any]]:
     """A slice of a prepared shard as `.pdbqt` files — the only shape a docking engine reads.
 
     The inverse of the preparation rule and its exception: what a stage *produces* goes into the
     shard, but what an external binary *consumes* has to be a file. It exists for the length of
-    one chunk and the caller deletes it. `ids`: the shard's range in its file (`prepared_ids`),
-    None = the whole file.
+    one chunk and the caller deletes it. `shard`: the shard's number in its file
+    (`prepared_shard`), None = the whole file.
 
     ponytail: the slice is reached by walking record indices from 0. That is a header-side walk
     (no payload is loaded until the slice starts), so at 1000 records per shard it costs
@@ -160,8 +158,8 @@ def extract_ligands(
     dest.mkdir(parents=True, exist_ok=True)
     ligands: list[dict[str, Any]] = []
     selected_ids = None if record_ids is None else {int(value) for value in record_ids}
-    with Shard.open(Path(shard_path).expanduser().resolve(), ids=ids) as shard:
-        for offset, record in enumerate(shard):
+    with Shard.open(Path(shard_path).expanduser().resolve(), shard=shard) as opened:
+        for offset, record in enumerate(opened):
             if offset < int(start):
                 continue
             if selected_ids is not None and int(record.id) not in selected_ids:

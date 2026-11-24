@@ -211,7 +211,7 @@ def key_files(project_db, keys: Iterable[str]) -> list[Path]:
         if generations.get(key) is not None:
             spec["generation_id"] = int(generations[key])
         paths.extend(Path(row["path"]) for row in catalog.files(project_db, catalog.shard_spec(**spec))
-                     if row["status"] == catalog.READY and Path(row["path"]).is_file())
+                     if row["status"] in catalog.READABLE and Path(row["path"]).is_file())
     return paths
 
 

@@ -30,8 +30,8 @@ def _smiles_shard(path: Path, smiles=("CCO", "c1ccccc1O")) -> Path:
 
 
 def test_a_smiles_shard_comes_out_as_pdbqt_at_the_same_ids(tmp_path):
-    out = tmp_path / "prepared" / "shard_0.parquet"
-    stats = prepare_ligand_shard(_smiles_shard(tmp_path / "shard_0.parquet"), out, scope=3, origin=9)
+    out = tmp_path / "prepared" / "shard_0.arrows"
+    stats = prepare_ligand_shard(_smiles_shard(tmp_path / "shard_0.arrows"), out, scope=3, origin=9)
     assert stats == {"n_input": 2, "n_records": 2, "n_failed": 0}
     with Shard.open(out) as shard:
         assert shard.kind == ShardKind.PDBQT
@@ -40,12 +40,12 @@ def test_a_smiles_shard_comes_out_as_pdbqt_at_the_same_ids(tmp_path):
     assert all("ATOM" in str(text) for text in records.values())
     assert [(g.base_id, g.slot_count, g.scope, g.origin) for g in file_groups(out)] == [(0, 2, 3, 9)]
     # 3D was generated in place: no per-ligand file (and, nothing failed, no dropped sidecar).
-    assert list(out.parent.iterdir()) == [out]
+    assert sorted(out.parent.iterdir()) == [out, out.with_name(out.name + ".index")]
 
 
 def test_a_molecule_that_fails_is_dropped_with_its_reason(tmp_path):
-    out = tmp_path / "prepared" / "shard_0.parquet"
-    stats = prepare_ligand_shard(_smiles_shard(tmp_path / "shard_0.parquet", ("CCO", "not a smiles")), out)
+    out = tmp_path / "prepared" / "shard_0.arrows"
+    stats = prepare_ligand_shard(_smiles_shard(tmp_path / "shard_0.arrows", ("CCO", "not a smiles")), out)
     assert (stats["n_records"], stats["n_failed"]) == (1, 1)
     assert file_groups(out)[0].n_dropped == 1
     [(dropped, reason)] = read_dropped(out)
