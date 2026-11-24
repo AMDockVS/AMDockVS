@@ -145,8 +145,10 @@ class ChartController:
         if width >= _MIN_READABLE_CHART_WIDTH:
             self._chart_width = width  # whoever set it, stop fighting it
             if dragging:
-                # Theirs, so the startup re-measure must not take it back. A tab switch squeezing
-                # the dock reaches here too, with no button down: accepted, but not adopted.
+                # Theirs, so the startup re-measure must not take it back. A squeeze with no
+                # button down - a switch to a tab whose centre needs more room - is taken as the
+                # dock's width too, but is not marked as chosen, so the next re-measure can undo
+                # it. The chart does not reclaim the share by itself when that tab is left.
                 self._chosen = True
                 self._settling = False
         self._claims = 0

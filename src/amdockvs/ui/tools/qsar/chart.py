@@ -312,7 +312,6 @@ class QSARChartDockWidget(MSDockWidget):
         series = list(series)  # before _remember: a generator would replay empty on a theme switch
         self._remember(self.show_scatter_series, title, series)
         plot = self._chart("top_left")  # the y=x cloud leaves the upper-left corner emptiest
-        series = list(series)
         allv: list[float] = []
         for index, spec in enumerate(series):
             points = spec.get("points", [])
