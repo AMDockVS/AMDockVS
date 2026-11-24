@@ -230,6 +230,9 @@ class _Handled:
         self._handler, self._failed, self._closed = handler, 0, False
 
     def write(self, results: list) -> None:
+        if hasattr(self._handler, "write"):  # a group commit (`catalog.ContainerWriter`): the whole group
+            self._handler.write(results)
+            return
         for result in results:
             self._handler.handle("", result)
 

@@ -169,3 +169,22 @@ def test_a_job_with_a_handler_continues_after_the_engines_process_died(tmp_path,
     finally:
         runtime.shutdown()
     assert sorted({int(value) for value in handled.read_text().split()}) == [value * 2 for value in range(600)]
+
+
+def test_a_handler_with_write_gets_the_whole_group():
+    """Group commit (M4b): a handler that can take a group gets it in one call, not one by one."""
+    from amdockvs.core.jobs import _Handled
+
+    class Grouped:
+        def __init__(self):
+            self.calls = []
+
+        def write(self, results):
+            self.calls.append(list(results))
+
+        def handle(self, key, result):
+            raise AssertionError("one by one")
+
+    handler = Grouped()
+    _Handled(handler).write([1, 2, 3])
+    assert handler.calls == [[1, 2, 3]]
