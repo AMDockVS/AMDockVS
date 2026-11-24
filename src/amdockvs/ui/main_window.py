@@ -166,6 +166,7 @@ class AMDockVSMainWindow(QMainWindow):
             starts_visible=False,
         )
         self.qsar_chart_dock.universeHovered.connect(self.charts.on_universe_hover)
+        self.charts.watch_chart_width()  # the chart keeps its own width across slot swaps
         # Glowing molecule (RDKit similarity map): shares the 2D Interactions slot under the
         # chart, so a model's chart and the molecule picked from it are read together.
         self.qsar_glow_dock = Glowing2DDockWidget("Glowing molecule", self.dock_manager, self)
@@ -348,6 +349,7 @@ class AMDockVSMainWindow(QMainWindow):
                 self.resizeDocks([self.pymol_dock], [self._third_width()], Qt.Horizontal)
                 self._pymol_sized = True
                 QTimer.singleShot(0, lambda: self._give_viewer_spare_width(force=True))
+            self.charts.size_chart_to_third()  # the chart, when it holds PyMOL's place instead
         except Exception:
             pass
 

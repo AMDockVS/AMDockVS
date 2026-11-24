@@ -1,7 +1,7 @@
 from importlib.resources import files
 from typing import Callable
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
     QLabel,
@@ -41,6 +41,31 @@ class _PreviewTabStyle(QProxyStyle):
         super().drawControl(element, option, painter, widget)
 
 
+class _CurrentPageTabs(QTabWidget):
+    """A QTabWidget reports the widest page's minimum, whichever tab is on show. One wide view
+    then holds the whole centre open: the Activity editor's toolbar asks for ~750 px, and with
+    that tab merely *open* the docks beside the centre (PyMOL, the chart) were locked out of the
+    width - the chart opened at 255 px while the user was reading Clusters.
+
+    Only the page on show sets the floor, as ``_CurrentPageStack`` does for the tool panel. A
+    hidden tab constrains nothing; the one in front still asks for all it needs.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.currentChanged.connect(self.updateGeometry)  # the floor moves with the tab on show
+
+    def _page_floor(self, hint):
+        page = self.currentWidget()
+        if page is None:
+            return hint
+        bar = self.tabBar().sizeHint()
+        return hint.boundedTo(QSize(max(page.minimumSizeHint().width(), bar.width()), hint.height()))
+
+    def minimumSizeHint(self):  # noqa: N802 - Qt override
+        return self._page_floor(super().minimumSizeHint())
+
+
 class MainContentWidget(QStackedWidget):
     current_view_changed = Signal(object)
     view_open_state_changed = Signal(str, bool)
@@ -66,7 +91,7 @@ class MainContentWidget(QStackedWidget):
         self.content_splitter = QSplitter(Qt.Orientation.Vertical, self)
         self.addWidget(self.content_splitter)
 
-        self.main_content_tabs = QTabWidget(self)
+        self.main_content_tabs = _CurrentPageTabs(self)
         self.main_content_tabs.setTabsClosable(True)
         self.main_content_tabs.setMovable(True)
         self.main_content_tabs.currentChanged.connect(self._on_current_tab_changed)

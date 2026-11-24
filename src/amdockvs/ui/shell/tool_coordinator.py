@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtWidgets import QStackedWidget, QStyle, QWidget
+from PySide6.QtWidgets import QDockWidget, QStackedWidget, QStyle, QWidget
 
 from amdockvs.ui.registry import TOOLS
 from amdockvs.ui.resources.icons import icon as load_icon
@@ -73,6 +73,25 @@ class ToolCoordinator:
         if getattr(window, "tools_dock", None) is None or not window._has_active_project():
             return  # tools are bound to the open project; built when one opens
         size = QSize(window._third_width(), max(window.height(), 600))
+        # grab() on a hidden widget lays out its top-level window as if the hidden ancestors were
+        # shown (Qt's prepareToRender): every page grabbed in the closed tools dock lays the window
+        # out with that dock open, the center stops at its minimum and the docks on screen give up
+        # the width - the chart opened on QSAR Analysis dropped 768 -> 569 px. Hand it back before
+        # the event loop paints any of it.
+        on_screen = [dock for dock in window.findChildren(QDockWidget)
+                     if dock.isVisible() and not dock.isFloating()
+                     and window.dockWidgetArea(dock) in (Qt.DockWidgetArea.LeftDockWidgetArea,
+                                                         Qt.DockWidgetArea.RightDockWidgetArea)]
+        widths = [dock.width() for dock in on_screen]
+        try:
+            self._warm_up_pages(size)
+        finally:
+            if on_screen:
+                window.resizeDocks(on_screen, widths, Qt.Orientation.Horizontal)
+                window.layout().activate()  # now, not on the next pass: no frame is drawn squeezed
+
+    def _warm_up_pages(self, size: QSize) -> None:
+        window = self.w
         for tool in TOOLS:
             widget = self.widgets.get(tool.view_id) or self._build(tool.view_id)
             pages = [widget]
