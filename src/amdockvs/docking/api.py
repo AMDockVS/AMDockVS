@@ -56,7 +56,6 @@ from amdockvs.docking.jobs import (
     count_pending_redocking_pairs,
     screening_input_keys,
     DockingJobParams,
-    DockingJobSpec,
     RedockingJobParams,
     docking_job,
     redocking_job,
@@ -73,14 +72,17 @@ from amdockvs.docking.rerun import (
     check_protocol_conflict, clear_previous_docking, resolved_protocol, stored_protocol_hash)
 from amdockvs.docking.shard_jobs import (
     DockShardsJobParams,
+    TopNJobParams,
     dock_shards_job,
     recover_ranked_hits,
     recoverable_ranked_runs,
     select_hits as select_shard_hits,
+    shard_top_n_job,
 )
 from amdockvs.molecules.storage import has_shards
 from amdockvs.docking.campaign import (
-    DockCampaignParams, dock_rows_campaign, dock_shards_campaign, drop_transport, pack_rows, transport_folder,
+    DockCampaignParams, dock_rows_campaign, dock_shards_campaign, drop_transport, pack_params, pack_rows_job,
+    packed_manifest, transport_folder,
 )
 from amdockvs.screening.materialize import PAYLOAD_LIGHT
 from amdockvs.docking.results.tables import receptor_progress
@@ -249,7 +251,7 @@ class DockingAPI:
         """Materialize the best available N without submitting docking work."""
         self.runtime._require_active_project()
         return recover_ranked_hits(
-            self.runtime.workspace.project_db,
+            self.runtime,
             run_id=run_id,
             protocol_hash=protocol_hash,
             top_n=top_n,
@@ -693,7 +695,7 @@ class DockingAPI:
             )
             return self.runtime.submit_campaign(dock_shards_campaign, params=campaign_params.model_dump(mode="python"),
                                                 executor_name=executor_name, priority=SHARDS_PRIORITY)
-        return self.runtime.submit_job(
+        docking = self.runtime.submit_job(
             dock_shards_job,
             queue_behind="docking",
             params=params.model_dump(mode="python"),
@@ -701,6 +703,19 @@ class DockingAPI:
             depends_on=depends_on,
             priority=SHARDS_PRIORITY,
             cpu_required=cpu,
+        )
+        if selected_from_receptor_id is not None:  # an off-target stage streams its hits
+            return docking
+        # The Top-N, chained: it starts once the docking completed, and its end is the run's. Its
+        # id is the run's, so whoever waits for it waits for the hits.
+        return self.runtime.submit_job(
+            shard_top_n_job,
+            params=TopNJobParams(run_id=params.run_id, engine=params.engine,
+                                 protocol_hash=str(params.protocol_metadata.hash or ""), hit_cap=params.hit_cap,
+                                 hit_threshold=params.hit_threshold, payload=params.payload).model_dump(mode="python"),
+            executor_name=DEFAULT_LOCAL_CPU_EXECUTOR,
+            depends_on=[docking],
+            priority=SHARDS_PRIORITY,
         )
 
     def prepare_receptors(
@@ -1355,11 +1370,16 @@ class DockingAPI:
         prepared when it is submitted."""
         self._check_queue(params, depends_on)
         project_db = self.runtime.workspace.project_db
-        config = self.runtime._job_config()
         if reset_results:
             clear_previous_docking(project_db, program=program_spec)
         values = params.model_dump(mode="python")
-        manifest = pack_rows(DockingJobSpec.build_chunks(values, config), transport_folder(project_db), cpu)
+        # Packed by workers; the campaign is submitted once its manifest exists.
+        packing = pack_params(values, transport_folder(project_db), cpu=cpu)
+        job_id = self.runtime.submit_job(pack_rows_job, params=packing, executor_name=DEFAULT_LOCAL_CPU_EXECUTOR)
+        status = self.runtime.wait_for_job(job_id, poll_s=0.1)
+        if not str(status.status).lower().endswith("completed"):
+            raise RuntimeError(f"Packing the run for the queue ended {status.status}: {status.error or ''}")
+        manifest = packed_manifest(packing)
         if not json.loads(manifest.read_text(encoding="utf-8"))["elements"]:
             drop_transport(manifest)
             raise RuntimeError("Nothing to dock: every pair in scope already has a result.")

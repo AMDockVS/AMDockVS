@@ -111,4 +111,24 @@ def transform_ligand_shard(shard_in: str | Path, shard_out: str | Path, steps, s
     return {"n_input": len(mols), "n_records": written, "n_failed": len(mols) - written}
 
 
-__all__ = ["read_shard", "transform_ligand_shard", "write_shard"]
+def promotion_records(payload: dict, progress_cb=None) -> dict:
+    """The worker side of a promotion: the records named, out of one shard, as `promote_records`
+    takes them (the structure already compressed). A record that no longer parses is left out."""
+    from amdockvs.chemistry.descriptors import canonical_smiles
+    from amdockvs.core.payloads import structure_payload
+
+    wanted = [int(i) for i in payload.get("record_ids") or ()]
+    if not wanted:
+        return {"records": []}
+    cluster_of = dict(zip(wanted, payload.get("cluster_ids") or ()))
+    batch, library = payload.get("import_batch_id"), payload.get("library") or "library"
+    ids, mols = read_shard(payload["shard_path"], payload.get("shard"), wanted)
+    return {"records": [
+        {"name": f"{library}:{record_id}", "import_batch_id": batch, "source_index": record_id,
+         "smiles": canonical_smiles(mol), "structure": structure_payload(_molblock(mol), "sdf").packed(),
+         "cluster_id": cluster_of.get(record_id)}
+        for record_id, mol in zip(ids, mols) if mol is not None
+    ]}
+
+
+__all__ = ["promotion_records", "read_shard", "transform_ligand_shard", "write_shard"]

@@ -108,3 +108,46 @@ def test_qsar_scores_the_shards_by_reference_and_promotes_the_cut(runtime, tmp_p
     assert sorted(values.values(), reverse=True) == sorted(frame["value"], reverse=True)[:3]
     assert runtime.qsar.promote_shard_predictions(model=model, top_n=3)["molecule_ids"] == cut["molecule_ids"]
     assert set(_ligands(runtime)) - before == promoted  # cutting again reuses the rows
+
+
+def _keys(runtime, count: int) -> list[int]:
+    from amdockvs.molecules.storage import ShardStore
+
+    row = next(iter(ShardStore(runtime.workspace.project_db).iter_rows()))
+    return [shard_key(row["scope"], int(row["base_id"]) + n) for n in range(count)]
+
+
+def test_promote_twice_is_one_row(runtime):
+    """A promotion is a job; done again (a redo, a second cut) it finds its rows."""
+    from amdockvs.molecules.promotion import promote
+
+    keys = _keys(runtime, 2)
+    first = promote(runtime, keys)
+    assert set(first) == set(keys)
+    assert promote(runtime, keys) == first
+    assert set(_ligands(runtime)) == set(first.values())
+
+
+def test_the_parent_never_encodes_a_promotion(runtime, monkeypatch):
+    """The parent names the records; the worker opens the shard, parses and compresses."""
+    import json
+
+    from amdockvs.molecules.promotion import PromoteJobSpec
+
+    def refuse(*_args, **_kwargs):
+        raise AssertionError("the parent compressed a payload")
+
+    params, config = {"keys": _keys(runtime, 3)}, {"project_db": runtime.workspace.project_db}
+    with monkeypatch.context() as parent:
+        parent.setattr("ms_flow.payloads._compress", refuse)
+        chunks = list(PromoteJobSpec.build_chunks(params, config))
+    assert "structure" not in json.dumps(chunks)  # refs, never records
+    results = [PromoteJobSpec.run_chunk(chunk) for chunk in chunks]  # the worker
+    with monkeypatch.context() as parent:
+        parent.setattr("ms_flow.payloads._compress", refuse)
+        writer = PromoteJobSpec.result_handler_factory(params, config)
+        for result in results:
+            writer.handle("", result)
+        writer.on_job_terminal("completed")
+        writer.close()
+    assert len(_ligands(runtime)) == 3

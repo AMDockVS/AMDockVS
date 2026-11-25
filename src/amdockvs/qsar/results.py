@@ -8,6 +8,7 @@ from sqlalchemy.orm import aliased
 from sqlmodel import select
 
 from amdockvs.models import MoleculeRecord, QSARModelRecord, QSARPredictionRecord
+from amdockvs.molecules.promotion import promote
 from amdockvs.molecules.storage import ShardStore
 from amdockvs.project.sets import QSARModelRef
 
@@ -97,7 +98,7 @@ class ResultsMixin:
                 f"{'>=' if higher_is_better else '<='} {float(cutoff):g}" if cutoff is not None else "")
             if store.exclude(rest, reason=f"qsar: outside the cut of model #{model_id} ({how.strip()})") is not None:
                 excluded = len(rest)
-        promoted = store.promote(int(key) for key, *_ in kept)
+        promoted = promote(self.runtime, (int(key) for key, *_ in kept))
         ids = [promoted[key] for key, *_ in kept if key in promoted]
         with self.runtime.workspace.project_db.get_session() as session:
             for start in range(0, len(ids), 900):

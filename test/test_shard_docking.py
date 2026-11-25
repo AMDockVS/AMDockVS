@@ -142,6 +142,12 @@ class _Recorder:
         self.hits.append(rows)
 
 
+def _top_n_job(runtime, **params) -> None:
+    """The Top-N job of a ranked run, waited for: what follows its docking job."""
+    job = runtime.submit_job(shard_jobs.shard_top_n_job, params=params, executor_name="compute")
+    assert runtime.wait_for_job(job, poll_s=0.05).status == "completed"
+
+
 def _run(project_db, run_id, *, engine="vina", protocol_hash="") -> int:
     """The `docking_runs` row a job's feed would have created."""
     from amdockvs.docking.results.repository import docking_run_id
@@ -525,6 +531,9 @@ def test_top_n_writes_nothing_until_the_campaign_closes(tmp_path):
             assert session.exec(select(DockingResultRecord)).all() == []
         writer.close()
         with project_db.get_session() as session:
+            assert session.exec(select(DockingResultRecord)).all() == []  # the Top-N job comes after it
+        _top_n_job(runtime, run_id="run-top", engine="vina", protocol_hash="proto-top", hit_cap=2, hit_threshold=-8.0)
+        with project_db.get_session() as session:
             names = [row.name for row in session.exec(
                 select(MoleculeRecord).where(MoleculeRecord.is_ligand.is_(True))
             ).all()]
@@ -580,10 +589,7 @@ def test_general_top_n_is_ranked_per_receptor_and_deduplicates_ligands(tmp_path)
                     })
             record_docked(project_db, key=key, shard_id=shard_id, result_path=str(result_path))
 
-        ShardHitWriter(
-            project_db=project_db, hit_cap=1, hit_threshold=0.0,
-            run_id="run", engine="vina", protocol_hash="proto",
-        ).close()
+        _top_n_job(runtime, run_id="run", engine="vina", protocol_hash="proto", hit_cap=1, hit_threshold=0.0)
 
         with project_db.get_session() as session:
             ligands = session.exec(
@@ -668,9 +674,7 @@ def test_interrupted_top_n_is_recovered_from_completed_result_shards(tmp_path):
             ("interrupted", 2, 4)
         ]
 
-        recovered = shard_jobs.recover_ranked_hits(
-            project_db,
-            project_root=tmp_path,
+        recovered = runtime.docking.recover_ranked_hits(
             run_id="interrupted",
             protocol_hash="proto-recover",
             top_n=2,
@@ -1325,5 +1329,131 @@ def test_a_partial_replacement_retires_the_hits_of_the_shard_it_replaced(tmp_pat
         # The hit of the replaced shard goes with its rows; the untouched shard keeps both.
         assert results == sorted([(old_run, untouched), (new_run, fresh)])
         assert targets == [old_run]  # the old run still has a shard against that receptor
+    finally:
+        runtime.close_project()
+
+
+# --- M6c: the final Top-N is a job of its own, its poses read and compressed by its workers ---
+
+_TOP_N = {"run_id": "run-top", "engine": "vina", "protocol_hash": "proto-top", "hit_cap": 2,
+          "hit_threshold": -8.0}
+
+
+def _docked_ranked(project_db, folder) -> int:
+    """A ranked run whose docking job ended: three ligands scored against one receptor, the
+    docking's writer closed. The receptor's id."""
+    from amdockvs.models import MoleculeRecord
+
+    with project_db.get_session() as session:
+        receptor = MoleculeRecord(name="R", molecule_type="protein", is_receptor=True)
+        shard_id = _library_file(session, folder, "lib.smi", n_records=3)
+        session.add(receptor)
+        session.commit()
+        receptor_id = int(receptor.id)
+    run = _run(project_db, "run-top", protocol_hash="proto-top")
+    key = _key(receptor_id, protocol_hash="proto-top")
+    with project_db.get_session() as session:
+        _plan(session, docking_run_id=run, receptor_id=receptor_id, keys=[key])
+        session.commit()
+    result_shard = Path(folder) / "results" / "parts" / "ranked.arrows"
+    with shard_tasks.ResultFragmentWriter(result_shard, metadata={
+            "input_key": "inputs-top", "protocol": {"hash": "proto-top", "label": "Vina"},
+            "selection": {"mode": "top_n", "cap": 2, "threshold": -8.0}}) as fragment:
+        for index, score in enumerate((-9.0, -12.0, -8.5)):
+            fragment.add({"ligand_id": index, "shard_id": shard_id, "docking_run_id": run,
+                          "receptor_id": receptor_id, "score": score, "score_type": "vina_score",
+                          "status": "done", "engine": "vina", "smiles": "CCO", "metrics_json": "{}",
+                          "pose_text": f"pose-{index}\n", "pose_suffix": ".sdf"})
+    writer = ShardHitWriter(project_db=project_db, hit_cap=2, hit_threshold=-8.0, run_id="run-top",
+                            engine="vina", protocol_hash="proto-top")
+    writer.handle("c0", [{"shard_id": shard_id, "receptor_id": receptor_id, "scored": 3, "hits": [],
+                          "hits_found": 3, "result_shard": str(result_shard), "state_key": key,
+                          "docking_run_id": run}])
+    writer.on_job_terminal("completed")
+    writer.close()
+    return receptor_id
+
+
+def _hits(project_db) -> list[tuple]:
+    from sqlmodel import select
+
+    from amdockvs.core.payloads import read_structure
+    from amdockvs.models import DockingResultRecord, MoleculeRecord
+
+    with project_db.get_session() as session:
+        names = {int(row.id): row.name for row in session.exec(
+            select(MoleculeRecord).where(MoleculeRecord.is_ligand.is_(True))).all()}
+        results = session.exec(select(DockingResultRecord)).all()
+    assert len(names) == len(results)  # one molecule per hit: a redo makes none again
+    return sorted((names[row.ligand_molecule_id], row.score, row.input_key,
+                   read_structure(project_db, row.pose_payload_id)) for row in results)
+
+
+def _states(project_db) -> set[str]:
+    from amdockvs.screening.campaign import list_targets
+
+    return {row["state"] for row in list_targets(project_db, run_id="run-top")}
+
+
+_EXPECTED_HITS = [("lib:0", -9.0, "inputs-top", ("pose-0\n", "sdf")),
+                  ("lib:1", -12.0, "inputs-top", ("pose-1\n", "sdf"))]
+
+
+def test_the_parent_never_encodes(tmp_path, monkeypatch):
+    """The parent ranks (refs out) and inserts (compressed poses in); the worker reads and compresses."""
+    import json
+
+    from amdockvs.core.vocab import TargetState
+    from amdockvs.runtime import AMDockVSRuntime
+
+    def refuse(*_args, **_kwargs):
+        raise AssertionError("the parent compressed a payload")
+
+    runtime = AMDockVSRuntime()
+    runtime.create_project(name="top-n-parent", folder=tmp_path)
+    try:
+        project_db = runtime.workspace.project_db
+        _docked_ranked(project_db, tmp_path)
+        assert _hits(project_db) == [] and _states(project_db) == {TargetState.RUNNING}  # not finished yet
+        spec, config = shard_jobs.TopNJobSpec, {"project_db": project_db}
+        with monkeypatch.context() as parent:
+            parent.setattr("ms_flow.payloads._compress", refuse)
+            chunks = list(spec.build_chunks(dict(_TOP_N), config))
+        assert "pose-" not in json.dumps(chunks)  # refs, never blobs
+        results = [spec.run_chunk(chunk) for chunk in chunks]  # the worker
+        with monkeypatch.context() as parent:
+            parent.setattr("ms_flow.payloads._compress", refuse)
+            writer = spec.result_handler_factory(dict(_TOP_N), config)
+            for result in results:
+                writer.handle("", result)
+            writer.on_job_terminal("completed")
+            writer.close()
+        assert _hits(project_db) == _EXPECTED_HITS
+        assert _states(project_db) == {TargetState.DONE}
+    finally:
+        runtime.close_project()
+
+
+def test_a_killed_top_n_is_redone(tmp_path):
+    """Killed after it inserted, the run is not finished; done again, the same hits, once each."""
+    from amdockvs.core.vocab import TargetState
+    from amdockvs.runtime import AMDockVSRuntime
+
+    runtime = AMDockVSRuntime()
+    runtime.create_project(name="top-n-killed", folder=tmp_path)
+    try:
+        project_db = runtime.workspace.project_db
+        _docked_ranked(project_db, tmp_path)
+        spec, config = shard_jobs.TopNJobSpec, {"project_db": project_db}
+        killed = spec.result_handler_factory(dict(_TOP_N), config)
+        for chunk in spec.build_chunks(dict(_TOP_N), config):
+            killed.handle("", spec.run_chunk(chunk))
+        del killed  # the process died: no close
+        assert _hits(project_db) == _EXPECTED_HITS and _states(project_db) == {TargetState.RUNNING}
+
+        job = runtime.submit_job(shard_jobs.shard_top_n_job, params=dict(_TOP_N), executor_name="compute")
+        assert runtime.wait_for_job(job, poll_s=0.05).status == "completed"
+        assert _hits(project_db) == _EXPECTED_HITS
+        assert _states(project_db) == {TargetState.DONE}
     finally:
         runtime.close_project()

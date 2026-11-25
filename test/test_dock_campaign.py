@@ -17,6 +17,16 @@ def _fragment(path: Path, scores: dict[tuple[int, int], float], *, shard_id: int
     return path
 
 
+def _unpacked(payload) -> str:
+    import zlib
+
+    if payload.codec == "zlib":
+        return zlib.decompress(payload.data).decode()
+    import zstandard
+
+    return zstandard.ZstdDecompressor().decompress(payload.data, max_output_size=payload.raw_length).decode()
+
+
 def _result(path: Path, shard_id: int) -> dict:
     return {"stage": "vs", "envelopes": [{"shard_id": shard_id, "result_shard": str(path), "library": "lib",
                                           "import_batch_id": 3}]}
@@ -32,8 +42,8 @@ def test_the_far_stages_rank_read_poses_and_send_the_reference_best_to_the_off_t
     elements = by_fragment(refs)
     assert sorted(len(element["refs"]) for element in elements) == [1, 2]
     hits = [hit for element in elements for hit in hit_poses(element)["hits"]]
-    assert {(hit["name"], hit["_pose_text"], hit["import_batch_id"]) for hit in hits} == {
-        ("lib:3", "pose-3-10", 3), ("lib:4", "pose-4-10", 3), ("lib:1", "pose-1-20", 3)}
+    assert all(hit["pose"].raw_length is not None for hit in hits)  # compressed there, not here
+    assert {(hit["name"], _unpacked(hit["pose"]), hit["import_batch_id"]) for hit in hits} == {("lib:3", "pose-3-10", 3), ("lib:4", "pose-4-10", 3), ("lib:1", "pose-1-20", 3)}
 
     shards = {1: {"shard_id": 1, "path": "s1"}, 2: {"shard_id": 2, "path": "s2"}}
     targets = [{"receptor_id": 30}, {"receptor_id": 40}]

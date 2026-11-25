@@ -105,3 +105,69 @@ def test_clearing_the_queue_files_by_hand_frees_what_a_stopped_campaign_kept(tmp
     assert campaign.clear_transport(None) == size > 0
     assert not list(folder.iterdir())
     assert campaign.clear_transport(None) == 0  # nothing left, or never packed
+
+
+def test_the_same_rows_pack_to_the_same_campaign(tmp_path, monkeypatch):
+    """Packed by a job (the parent plans, workers write the shards), the manifest is the one
+    `pack_rows` writes in process: the same name, so a campaign submitted again is found."""
+    import shutil
+
+    import amdockvs.docking.campaign as campaign
+    import amdockvs.docking.tasks as tasks
+    from amdockvs.docking.jobs import DockingJobSpec
+
+    receptor = tmp_path / "r.pdbqt"
+    receptor.write_text("RECEPTOR")
+    folder = tmp_path / "transport"
+    monkeypatch.setattr(campaign, "TRANSPORT_RECORDS", 2)
+    expected = campaign.pack_rows(_chunks(File(str(receptor)), Dir(str(tmp_path / "out"))), folder, cpu=2)
+    text, files = expected.read_text(), sorted(p.name for p in folder.iterdir())
+    shutil.rmtree(folder)
+    monkeypatch.setattr(DockingJobSpec, "build_chunks",
+                        staticmethod(lambda *_a, **_k: _chunks(File(str(receptor)), Dir(str(tmp_path / "out")))))
+
+    def refuse(*_args, **_kwargs):
+        raise AssertionError("the parent wrote a shard")
+
+    spec = campaign.PackRowsJobSpec
+    for _ in range(2):  # again: the same campaign
+        params = campaign.pack_params({}, folder, cpu=2)
+        with monkeypatch.context() as parent:
+            parent.setattr(tasks, "ShardWriter", refuse)
+            chunks = list(spec.build_chunks(params, {}))
+        results = [spec.run_chunk(chunk) for chunk in chunks]  # the workers
+        with monkeypatch.context() as parent:
+            parent.setattr(tasks, "ShardWriter", refuse)
+            writer = spec.result_handler_factory(params, {})
+            for result in results:
+                writer.handle("", result)
+            writer.on_job_terminal("completed")
+            writer.close()
+            manifest = campaign.packed_manifest(params)
+        assert (manifest, manifest.read_text()) == (expected, text)
+        assert sorted(p.name for p in folder.iterdir()) == files  # nothing of the job's own left
+
+
+def test_the_pack_job_runs_through_the_engine(tmp_path, monkeypatch):
+    """Submitted and waited for, as `DockingAPI._run_rows_on_queue` does: the same manifest."""
+    import amdockvs.docking.campaign as campaign
+    from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR
+    from amdockvs.docking.jobs import DockingJobSpec
+    from amdockvs.runtime import AMDockVSRuntime
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    receptor = tmp_path / "r.pdbqt"
+    receptor.write_text("RECEPTOR")
+    monkeypatch.setattr(campaign, "TRANSPORT_RECORDS", 2)
+    expected = campaign.pack_rows(_chunks(File(str(receptor)), Dir(str(tmp_path / "out"))), tmp_path / "ref", cpu=2)
+    monkeypatch.setattr(DockingJobSpec, "build_chunks",
+                        staticmethod(lambda *_a, **_k: _chunks(File(str(receptor)), Dir(str(tmp_path / "out")))))
+    runtime = AMDockVSRuntime()
+    runtime.create_project(name="pack-rows", folder=tmp_path / "project")
+    try:
+        params = campaign.pack_params({}, tmp_path / "ref", cpu=2)
+        job_id = runtime.submit_job(campaign.pack_rows_job, params=params, executor_name=DEFAULT_LOCAL_CPU_EXECUTOR)
+        assert str(runtime.wait_for_job(job_id, poll_s=0.1).status).lower().endswith("completed")
+        assert campaign.packed_manifest(params) == expected
+    finally:
+        runtime.close_project()

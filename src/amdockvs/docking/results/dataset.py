@@ -313,24 +313,6 @@ def _selected_payloads(path: Path, shards: Iterable[int] | None,
     return {_row_key(row): row for row in table.to_pylist() if _row_key(row) in keys}
 
 
-def _linked_payloads(project_db, links: Iterable[int],
-                     keys: set[tuple[int, int, int]]) -> dict[tuple[int, int, int], dict[str, Any]]:
-    """The payload rows of `keys` in the payload shards `links` (a summary shard's `meta["bulk"]`:
-    those of its own attempt)."""
-    from ms_flow.core.data import catalog
-
-    by_file: dict[int, list[int]] = {}
-    for link in links:
-        file_id, number = catalog.split_shard_id(int(link))
-        by_file.setdefault(file_id, []).append(number)
-    found: dict[tuple[int, int, int], dict[str, Any]] = {}
-    for file_id, numbers in by_file.items():
-        shard = catalog.get_shard(project_db, catalog.shard_id(file_id, numbers[0]))
-        if shard is not None:  # its file is gone: its rows are left out
-            found.update(_selected_payloads(Path(shard["path"]), numbers, keys))
-    return found
-
-
 def _pose(payload: Mapping[str, Any]) -> tuple[str, str]:
     suffix = str(payload.get("pose_suffix") or ".pose").lower()
     if not suffix.startswith(".") or not suffix[1:].isalnum():
@@ -377,6 +359,97 @@ def select_hit_refs(
     return _ranked(project_db, keys=keys, filters=filters, top_n=top_n)[0]
 
 
+def hit_refs(
+    project_db,
+    *,
+    keys: Iterable[str],
+    filters: Mapping[str, Any] | None = None,
+    top_n: int,
+) -> dict[str, Any]:
+    """The rows the ranking picks, as what a worker needs to load their poses (`load_hits`): each
+    hit without what only its payload holds, and the payload shards of each summary's own attempt
+    to read that from. Refs, never a blob: JSON."""
+    from ms_flow.core.data import catalog
+
+    from amdockvs.io.batches import library_names  # SQL: kept off the worker's import path
+
+    selected, metas = _ranked(project_db, keys=keys, filters=filters, top_n=top_n)
+    # The shard each row is of, any generation: a row whose shard's file is gone is left out.
+    shards = {shard_id: catalog.get_shard(project_db, shard_id)
+              for shard_id in {int(row["_shard_id"]) for row in selected}}
+    libraries = library_names(project_db) if selected else {}
+    hits, summaries = [], {}
+    for row in selected:
+        source_shard = shards.get(int(row["_shard_id"]))
+        if source_shard is None:
+            continue
+        summary, ligand_id = int(row["_result_shard"]), int(row.get("ligand_id") or 0)
+        summaries.setdefault(summary, metas[summary])
+        hits.append({
+            "docking_run_id": int(row.get("docking_run_id") or 0),
+            "name": f"{libraries.get(source_shard['scope'], 'library')}:{ligand_id}",
+            "import_batch_id": source_shard["scope"],
+            "source_index": ligand_id,
+            "score": float(row["score"]),
+            "score_type": str(row.get("score_type") or ""),
+            "pose_rank": 1,
+            "receptor_molecule_id": int(row.get("receptor_id") or 0),
+            # The key's (one receptor, one box).
+            "input_key": str(metas[summary].get("input_key") or ""),
+            "_row": list(_row_key(row)),
+            "_result_shard": summary,
+            "_result_record_id": ligand_id,
+            "_shard_id": int(row["_shard_id"]),
+        })
+    payloads = []
+    for summary, meta in summaries.items():
+        by_file: dict[int, list[int]] = {}
+        for link in meta.get("bulk") or ():
+            file_id, number = catalog.split_shard_id(int(link))
+            by_file.setdefault(file_id, []).append(number)
+        files = []
+        for file_id, numbers in by_file.items():
+            shard = catalog.get_shard(project_db, catalog.shard_id(file_id, numbers[0]))
+            if shard is not None:  # its file is gone: its rows are left out
+                files.append([str(shard["path"]), numbers])
+        payloads.append({"summary": summary, "files": files})
+    return {"hits": hits, "payloads": payloads}
+
+
+def load_hits(refs: Mapping[str, Any], *, encode: bool = True) -> list[dict[str, Any]]:
+    """The hits of `hit_refs`, read from their payloads: with `encode`, each with its pose as a
+    compressed payload (series `poses`), compressed here (a worker); else as `_pose_text`."""
+    from amdockvs.core.payloads import structure_payload
+    from amdockvs.core.constants import SERIES_POSES
+
+    wanted: dict[int, set[tuple[int, int, int]]] = {}
+    for hit in refs["hits"]:
+        wanted.setdefault(int(hit["_result_shard"]), set()).add(tuple(hit["_row"]))
+    found: dict[tuple[int, tuple[int, int, int]], dict[str, Any]] = {}
+    for entry in refs["payloads"]:
+        summary = int(entry["summary"])
+        for path, numbers in entry["files"]:
+            for key, row in _selected_payloads(Path(path), numbers, wanted.get(summary, set())).items():
+                found[summary, key] = row
+    hits = []
+    for ref in refs["hits"]:
+        payload = found.get((int(ref["_result_shard"]), tuple(ref["_row"])))
+        if payload is None:
+            continue
+        pose_text, pose_suffix = _pose(payload)
+        hit = {**json.loads(payload.get("metrics_json") or "{}"),
+               **{key: value for key, value in ref.items() if key != "_row"},
+               "smiles": str(payload.get("smiles") or "")}
+        if not encode:
+            hits.append({**hit, "_pose_text": pose_text, "_pose_suffix": pose_suffix})
+            continue
+        if not pose_text:
+            raise ValueError(f"Result shard {ref['_result_shard']} record {ref['_result_record_id']} "
+                             "has no embedded pose.")
+        hits.append({**hit, "pose": structure_payload(pose_text, pose_suffix, SERIES_POSES).packed()})
+    return hits
+
+
 def select_hits(
     project_db,
     *,
@@ -385,51 +458,8 @@ def select_hits(
     top_n: int,
 ) -> list[dict[str, Any]]:
     """Rank the summaries, then load poses only for the selected rows, from the payload of each
-    one's own attempt."""
-    from ms_flow.core.data import catalog
-
-    from amdockvs.io.batches import library_names  # SQL: kept off the worker's import path
-
-    selected, metas = _ranked(project_db, keys=keys, filters=filters, top_n=top_n)
-    by_summary: dict[int, set[tuple[int, int, int]]] = {}
-    for row in selected:
-        by_summary.setdefault(int(row["_result_shard"]), set()).add(_row_key(row))
-    payloads = {summary: _linked_payloads(project_db, metas[summary].get("bulk") or (), wanted)
-                for summary, wanted in by_summary.items()}
-    # The shard each row is of, any generation: a row whose shard's file is gone is left out.
-    shards = {shard_id: catalog.get_shard(project_db, shard_id)
-              for shard_id in {int(row["_shard_id"]) for row in selected}}
-    libraries = library_names(project_db) if selected else {}
-
-    hits: list[dict[str, Any]] = []
-    for row in selected:
-        summary = int(row["_result_shard"])
-        payload = payloads[summary].get(_row_key(row))
-        source_shard = shards.get(int(row["_shard_id"]))
-        if payload is None or source_shard is None:
-            continue
-        pose_text, pose_suffix = _pose(payload)
-        ligand_id = int(row.get("ligand_id") or 0)
-        hits.append({
-            **json.loads(payload.get("metrics_json") or "{}"),
-            "docking_run_id": int(row.get("docking_run_id") or 0),
-            "name": f"{libraries.get(source_shard['scope'], 'library')}:{ligand_id}",
-            "import_batch_id": source_shard["scope"],
-            "source_index": ligand_id,
-            "smiles": str(payload.get("smiles") or ""),
-            "score": float(row["score"]),
-            "score_type": str(row.get("score_type") or ""),
-            "pose_rank": 1,
-            "receptor_molecule_id": int(row.get("receptor_id") or 0),
-            # The key's (one receptor, one box).
-            "input_key": str(metas[summary].get("input_key") or ""),
-            "_pose_text": pose_text,
-            "_pose_suffix": pose_suffix,
-            "_result_shard": summary,
-            "_result_record_id": ligand_id,
-            "_shard_id": int(row["_shard_id"]),
-        })
-    return hits
+    one's own attempt: as text, for a reader here (`load_hits` in a worker is what stores them)."""
+    return load_hits(hit_refs(project_db, keys=keys, filters=filters, top_n=top_n), encode=False)
 
 
 def docked_pairs(project_db, keys: Iterable[str]) -> set[tuple[int, int]]:
@@ -464,6 +494,8 @@ __all__ = [
     "result_roles",
     "result_row",
     "run_counts",
+    "hit_refs",
+    "load_hits",
     "select_hit_refs",
     "select_hits",
     "state_key",

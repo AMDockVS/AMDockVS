@@ -22,19 +22,19 @@ import hashlib
 import json
 from functools import partial
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator
 from uuid import uuid4
 
-from pydantic import Field
+from pydantic import BaseModel, Field
 from ms_flow.campaign import From, Stage, campaign
 from ms_flow.core.data import catalog
 from ms_flow.core.data.catalog import active_generation_id
-from ms_flow.core.data.shard import MAX_RECORDS, PayloadKind, Serializer, ShardWriter
+from ms_flow.core.data.shard import MAX_RECORDS
 from ms_flow.engine import File
 from ms_flow.engine.files import KeptDir
 from ms_flow.runner import plain, unplain
 
-from amdockvs.core.jobs import configs
+from amdockvs.core.jobs import JobSpec, configs
 from amdockvs.core.vocab import TargetState
 from amdockvs.core.worker_io import worker_file, worker_output_dir
 from amdockvs.docking.jobs import DockingJobParams, DockingJobSpec, _supersede
@@ -44,11 +44,10 @@ from amdockvs.docking.rerun import supersede_shard_runs
 from amdockvs.docking.shard_jobs import (
     SCREENING_SUBDIR, DockShardsJobParams, DockShardsJobSpec, ShardHitWriter, receptor_targets,
 )
-from amdockvs.docking.tasks import dock_rows
+from amdockvs.docking.tasks import dock_rows, pack_transport
 from amdockvs.docking.shard_tasks import (
     by_fragment, dock_stage, hit_poses, off_target_elements, prepare_stage, prepared_elements, rank,
 )
-from amdockvs.io.shards import SHARD_SUFFIX
 from amdockvs.molecules.storage import prepared_dir, prepared_role
 from amdockvs.screening.campaign import finish_run, plan_targets, reopen_run, stop_run
 
@@ -210,61 +209,54 @@ def dock_shards_campaign(params: DockCampaignParams, project) -> list[Stage]:
 TRANSPORT_RECORDS = 1000  # ligands of a transport shard: how many files travel, not how many tasks run
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with open(path, "rb") as file:
-        for block in iter(lambda: file.read(1 << 20), b""):
-            digest.update(block)
-    return digest.hexdigest()
+def _plan(chunks: Iterable[dict], cpu: int, elements: list[dict]) -> Iterator[list[tuple[int, bytes]]]:
+    """The chunks of `docking_job` as the elements of `dock_rows`, appended to `elements`: their
+    ligands, once each, planned into transport shards in the order they come (yielded as each
+    closes: a new one when an id can not follow the last, the ids of a shard only increase within
+    `MAX_RECORDS` of its first, or it holds `TRANSPORT_RECORDS`), and what the pairs of a chunk
+    share (its receptor, its box) said once. An element's `ligands` are indexes of those shards."""
+    where: dict[int, int] = {}
+    records: list[tuple[int, bytes]] = []
+    index = 0
+    for chunk in chunks:
+        pairs = [dict(pair) for pair in chunk["pairs"]]
+        mine = set()
+        for pair in pairs:
+            if "ligand" not in pair:
+                continue
+            ligand_id, data = int(pair["ligand_id"]), bytes(pair.pop("ligand"))
+            if ligand_id not in where:
+                if records and (ligand_id <= records[-1][0] or ligand_id - records[0][0] >= MAX_RECORDS
+                                or len(records) >= TRANSPORT_RECORDS):
+                    yield records
+                    records, index = [], index + 1
+                records.append((ligand_id, data))
+                where[ligand_id] = index
+            mine.add(where[ligand_id])
+        common = {key: value for key, value in pairs[0].items()
+                  if all(key in pair and pair[key] == value for pair in pairs[1:])}
+        elements.append({**chunk, "_cpu_required": cpu, "ligands": sorted(mine), "common": common,
+                         "pairs": [{key: value for key, value in pair.items() if key not in common} for pair in pairs]})
+    if records:
+        yield records
 
 
-class _Packer:
-    """Ligands, once each, into transport shards under `folder` in the order they come; a shard
-    is named by its sha256, so the same ligands make the same file."""
-
-    def __init__(self, folder: Path):
-        self.folder, self.where, self.shards = folder, {}, []
-        self._writer, self._last, self._count = None, -1, 0
-
-    def put(self, ligand_id: int, data: bytes) -> int:
-        """The index of the shard `ligand_id` is in: a new one when it can not follow the last
-        (the ids of a shard only increase, within `MAX_RECORDS` of its first)."""
-        if ligand_id in self.where:
-            return self.where[ligand_id]
-        writer = self._writer
-        if (writer is None or ligand_id <= self._last or ligand_id - writer.base_id >= MAX_RECORDS
-                or self._count >= TRANSPORT_RECORDS):
-            self._close()
-            self._writer = ShardWriter(self.folder / f".packing-{uuid4().hex}{SHARD_SUFFIX}", dataset_id=None,
-                                       shard_id=0, base_id=ligand_id, kind=PayloadKind.GENERIC_BYTES,
-                                       serializer=Serializer.RAW, slot_count=MAX_RECORDS)
-            self._count = 0
-        self._writer.add(ligand_id, data)
-        self._last, self._count = ligand_id, self._count + 1
-        self.where[ligand_id] = len(self.shards)
-        return len(self.shards)
-
-    def _close(self) -> None:
-        if self._writer is None:
-            return
-        self._writer.close()
-        from ms_flow.core.data import container
-
-        sha = _sha256(self._writer.path)
-        path = self.folder / f"{sha[:16]}{SHARD_SUFFIX}"  # a name; `digests` keep the whole sha
-        container.move(self._writer.path, path)  # its index goes with it
-        self.shards.append((path, sha))
-        self._writer = None
-
-    def close(self) -> list[tuple[Path, str]]:
-        self._close()
-        return self.shards
+def _write_manifest(folder: Path, elements: list[dict], shards: list[tuple[str, str]]) -> Path:
+    """The manifest of `elements`, their shard indexes now the files `shards` ([(path, sha)], in
+    index order), named by its sha256: the same ligands, the same name."""
+    for element in elements:
+        element["ligands"] = [File(str(shards[index][0])) for index in element["ligands"]]
+    text = json.dumps({"elements": plain(elements, "a docking chunk"),
+                       "digests": {str(path): sha for path, sha in shards}}, sort_keys=True)
+    manifest = folder / f"{hashlib.sha256(text.encode()).hexdigest()[:16]}.json"
+    manifest.write_text(text, encoding="utf-8")
+    return manifest
 
 
 def pack_rows(chunks: Iterable[dict], folder: Path, cpu: int) -> Path:
     """The chunks of `docking_job` as the elements of `dock_rows`, written to a manifest under
-    `folder` (returned), named by its sha256: their ligands moved into transport shards there,
-    and what the pairs of a chunk share (its receptor, its box) said once.
+    `folder` (returned), their ligands moved into transport shards there. In process: what
+    `PackRowsJobSpec` does with workers, the same files and the same manifest.
 
     Read by the campaign each time it is submitted, so it is the same campaign however many of
     its pairs came back since. Nothing registers the shards: they are not a library, and the
@@ -272,22 +264,106 @@ def pack_rows(chunks: Iterable[dict], folder: Path, cpu: int) -> Path:
     Removed when the campaign completes (`drop_transport`); a stopped one keeps them for Resume.
     """
     folder.mkdir(parents=True, exist_ok=True)
-    packer, elements = _Packer(folder), []
-    for chunk in chunks:
-        pairs = [dict(pair) for pair in chunk["pairs"]]
-        shards = sorted({packer.put(int(pair["ligand_id"]), bytes(pair.pop("ligand"))) for pair in pairs
-                         if "ligand" in pair})
-        common = {key: value for key, value in pairs[0].items()
-                  if all(key in pair and pair[key] == value for pair in pairs[1:])}
-        elements.append({**chunk, "_cpu_required": cpu, "ligands": shards, "common": common,
-                         "pairs": [{key: value for key, value in pair.items() if key not in common} for pair in pairs]})
-    shards = packer.close()
-    for element in elements:
-        element["ligands"] = [File(str(shards[index][0])) for index in element["ligands"]]
-    text = json.dumps({"elements": plain(elements, "a docking chunk"),
-                       "digests": {str(path): sha for path, sha in shards}}, sort_keys=True)
-    manifest = folder / f"{hashlib.sha256(text.encode()).hexdigest()[:16]}.json"
-    manifest.write_text(text, encoding="utf-8")
+    elements: list[dict] = []
+    shards = [pack_transport({"folder": str(folder), "index": index, "records": records})
+              for index, records in enumerate(_plan(chunks, cpu, elements))]
+    return _write_manifest(folder, elements, [(shard["path"], shard["sha"]) for shard in shards])
+
+
+class PackRowsParams(BaseModel):
+    """A run over rows to pack for a queue: its `docking_job` params, where, and `key`, what
+    names the job's own files there until the manifest is written (`packed_manifest`)."""
+
+    docking: dict[str, Any] = Field(default_factory=dict)
+    folder: str
+    cpu: int = 1
+    key: str
+
+
+def pack_params(docking: dict, folder: Path, *, cpu: int) -> dict:
+    return PackRowsParams(docking=dict(docking), folder=str(folder), cpu=int(cpu), key=uuid4().hex).model_dump()
+
+
+def _job_files(params: PackRowsParams) -> tuple[Path, Path]:
+    """(the planned elements, the names of the shards written): the job's, until the manifest."""
+    folder = Path(params.folder)
+    return folder / f".plan-{params.key}.json", folder / f".plan-{params.key}.names"
+
+
+class PackNames:
+    """Parent-side sink of `PackRowsJobSpec`: the name of each shard a worker wrote, one line each."""
+
+    def __init__(self, params: PackRowsParams) -> None:
+        self.path = _job_files(params)[1]
+
+    def handle(self, chunk_id: str, result: Any) -> None:
+        if result:
+            with open(self.path, "a", encoding="utf-8") as file:
+                file.write(json.dumps([int(result["index"]), str(result["path"]), str(result["sha"])]) + "\n")
+
+    def flush(self) -> None:
+        """Every chunk wrote what it brought."""
+
+    def on_job_terminal(self, status: str) -> None:
+        """What is left for the manifest is the caller's (`packed_manifest`)."""
+
+    def close(self) -> None:
+        """Nothing held open."""
+
+
+def pack_names(params: dict, config: dict) -> PackNames:
+    return PackNames(PackRowsParams(**params))
+
+
+class PackRowsJobSpec(JobSpec):
+    """The ligands of a run over rows into transport shards: the parent plans (one chunk per
+    shard, its ligands' bytes as the database holds them), a worker writes and names the file,
+    the parent keeps the names. The manifest is written after it (`packed_manifest`)."""
+
+    name = "amdock_pack_rows_job"
+    task_name = "amdock_pack_rows"
+    description = "Pack the ligands of a docking run over rows for a cluster's queue."
+    params_model = PackRowsParams
+    executor = "compute"
+    result_handler_factory = pack_names
+    store_results = False
+    required = ()
+    produces = ()
+    run_chunk = staticmethod(pack_transport)
+
+    @staticmethod
+    def build_chunks(params: dict, config: dict | None = None) -> Iterator[dict]:
+        parsed = PackRowsParams(**params)
+        plan, names = _job_files(parsed)
+        plan.parent.mkdir(parents=True, exist_ok=True)
+        names.unlink(missing_ok=True)
+        elements: list[dict] = []
+        emitted = False
+        for index, records in enumerate(_plan(DockingJobSpec.build_chunks(parsed.docking, config), parsed.cpu,
+                                              elements)):
+            emitted = True
+            yield {"folder": parsed.folder, "index": index, "records": records}
+        plan.write_text(json.dumps(plain(elements, "a docking chunk")), encoding="utf-8")
+        if not emitted:  # MF needs one chunk to close the job out
+            yield {"records": []}
+
+
+pack_rows_job = PackRowsJobSpec.to_job_definition()
+
+
+def packed_manifest(params: dict) -> Path:
+    """The manifest of a finished `PackRowsJobSpec`, written from its plan and the names of what
+    its workers wrote; the job's own files go."""
+    parsed = PackRowsParams(**params)
+    plan, names = _job_files(parsed)
+    if not plan.exists():
+        raise RuntimeError(f"Packing {parsed.key} left no plan: it did not finish.")
+    elements = unplain(json.loads(plan.read_text(encoding="utf-8")))
+    lines = names.read_text(encoding="utf-8").splitlines() if names.exists() else []
+    shards = [(path, sha) for _index, path, sha in sorted(json.loads(line) for line in lines)]
+    manifest = _write_manifest(Path(parsed.folder), elements, shards)
+    plan.unlink(missing_ok=True)
+    names.unlink(missing_ok=True)
     return manifest
 
 
@@ -364,4 +440,5 @@ def dock_rows_campaign(params: DockRowsCampaignParams, project) -> list[Stage]:
 
 
 __all__ = ["CampaignWriter", "clear_transport", "DockCampaignParams", "DockRowsCampaignParams", "dock_rows_campaign",
-           "dock_shards_campaign", "drop_transport", "pack_rows", "transport_folder"]
+           "dock_shards_campaign", "drop_transport", "pack_params", "pack_rows", "pack_rows_job",
+           "packed_manifest", "PackRowsJobSpec", "PackRowsParams", "transport_folder"]

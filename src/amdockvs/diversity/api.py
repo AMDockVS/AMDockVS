@@ -24,6 +24,7 @@ from sqlmodel import select
 from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR, SHARDS_PRIORITY
 from amdockvs.io.shards import is_shard_key
 from amdockvs.molecules.storage import ShardStore
+from amdockvs.molecules.promotion import promote, promote_records_job, promotion_params
 from amdockvs.models import ClusteringResult, ClusteringRun, MoleculeRecord
 from amdockvs.models.sets import SetPurpose
 from amdockvs.project.sets import MoleculeSetRef, create_snapshot_set
@@ -36,6 +37,7 @@ from amdockvs.diversity.clustering import (
 from amdockvs.diversity.jobs import (
     SelectionClusterJobParams,
     _fingerprint_from_structure,
+    _fp_type_for_radius,
     activity_values,
     scope_molecule_count,
     scope_molecule_rows,
@@ -241,12 +243,23 @@ class DiversityAPI:
                 shard_fingerprints_job, params=params.model_dump(mode="python"), executor_name=executor_name,
                 depends_on=depends_on, **priority,
             )]
-        return self.runtime.submit_job(
+        cluster = self.runtime.submit_job(
             cluster_molecules_job,
             params=params.model_dump(mode="python"),
             executor_name=executor_name,
             cpu_required=num_cpus,
             depends_on=depends_on,
+            **priority,
+        )
+        if not shards:
+            return cluster
+        # The representatives become rows after the run: chained, never waited for in its sink.
+        return self.runtime.submit_job(
+            promote_records_job,
+            params=promotion_params(cluster_run_id=params.cluster_run_id, method=params.method,
+                                    fp_type=_fp_type_for_radius(params.fp_radius)),
+            executor_name=DEFAULT_LOCAL_CPU_EXECUTOR,
+            depends_on=[cluster],
             **priority,
         )
 
@@ -608,7 +621,19 @@ class DiversityAPI:
         picked_ids = [int(i) for i in frame["molecule_id"].to_numpy()[picks]]
         of_run = ClusteringResult.cluster_run_id == run_id
         if picked_ids and is_shard_key(picked_ids[0]):
-            picked_ids = self._promote_picks(run_id, picked_ids, labels[picks])
+            # The promotion reads the picks off the sidecar; a failed one puts the old flags back.
+            before = frame["is_centroid"].copy() if "is_centroid" in frame else None
+            frame["is_centroid"] = flags
+            frame.to_parquet(sidecar, index=False)
+            try:
+                picked_ids = self._promote_picks(run_id, picked_ids)
+            except Exception:
+                if before is None:
+                    frame = frame.drop(columns="is_centroid")
+                else:
+                    frame["is_centroid"] = before
+                frame.to_parquet(sidecar, index=False)
+                raise
         with self.runtime.workspace.project_db.get_session() as session:
             session.exec(sql_update(ClusteringResult).where(of_run).values(is_centroid=False))
             for start in range(0, len(picked_ids), 900):
@@ -623,25 +648,15 @@ class DiversityAPI:
         frame.to_parquet(sidecar, index=False)
         return {"n_molecules": len(frame), "n_clusters": int(len(np.unique(labels))), "n_reps": len(picks)}
 
-    def _promote_picks(self, run_id: str, keys: list[int], labels) -> list[int]:
-        """A run over shards: its picks are library records until they are promoted. A pick
-        without a row yet gets one (a representative row of a run is a molecule of it); one
-        promoted by an earlier pick keeps its row. Returns the picks' molecule ids."""
-        cluster_of = dict(zip(keys, (int(label) for label in labels)))
-        promoted = ShardStore(self.runtime.workspace.project_db).promote(keys)
-        of_run = ClusteringResult.cluster_run_id == run_id
+    def _promote_picks(self, run_id: str, keys: list[int]) -> list[int]:
+        """A run over shards: its picks (the sidecar's flags) are library records until they are
+        promoted. A pick without a row yet gets one (a representative row of a run is a molecule
+        of it); one promoted by an earlier pick keeps its row. Returns the picks' molecule ids."""
         with self.runtime.workspace.project_db.get_session() as session:
-            template = session.exec(select(ClusteringResult).where(of_run)).first()
-            known = set(session.exec(select(ClusteringResult.molecule_id).where(of_run)).all())
-            session.add_all(
-                ClusteringResult(
-                    molecule_id=molecule_id, cluster_run_id=run_id, cluster_id=cluster_of[key],
-                    method=getattr(template, "method", ""), fp_type=getattr(template, "fp_type", ""),
-                )
-                for key, molecule_id in promoted.items() if molecule_id not in known
-            )
-            session.commit()
-        return list(promoted.values())
+            template = session.exec(select(ClusteringResult).where(ClusteringResult.cluster_run_id == run_id)).first()
+        promoted = promote(self.runtime, keys, cluster_run_id=run_id, method=getattr(template, "method", ""),
+                           fp_type=getattr(template, "fp_type", ""))
+        return [promoted[key] for key in keys if key in promoted]
 
     def centroid_ids(self, cluster_run_id: str) -> list[int]:
         return [r["molecule_id"] for r in self.get_run(cluster_run_id) if r["is_centroid"]]

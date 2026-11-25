@@ -20,7 +20,7 @@ from amdockvs.docking.engines.registry import run_docking_chunk
 from amdockvs.docking.rescoring import rescore_rows
 from amdockvs.docking.preparation.shards import extract_ligands
 from amdockvs.docking.results.dataset import (
-    ResultFragmentWriter, _pose, _selected_payloads, _summary_table, _top, local_pose_path, payload_part,
+    ResultFragmentWriter, _pose, _selected_payloads, _summary_table, _top, load_hits, local_pose_path, payload_part,
     result_fragment_path, result_metadata, result_row,
 )
 
@@ -218,7 +218,7 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
                         )
                         hit["input_key"] = str(payload.get("input_key") or "")
                         # Compressed when pickled, so in the worker: the parent only appends it.
-                        hit["pose"] = structure_payload(stored["pose_text"], stored["pose_suffix"], SERIES_POSES)
+                        hit["pose"] = structure_payload(stored["pose_text"], stored["pose_suffix"], SERIES_POSES).packed()
                         hits.append(hit)
                 # The result shard is now the durable copy. No engine-specific loose pose
                 # survives the callback; a hit carries its pose as a payload.
@@ -342,10 +342,16 @@ def by_fragment(refs: list[dict]) -> list[dict]:
     return [{"fragment": path, "refs": rows} for path, rows in fragments.items()]
 
 
+def top_n_hits(refs: dict, progress_cb=None) -> dict:
+    """A chunk of `shard_top_n_job` (`hit_refs` of one receptor): its hits, each with its pose
+    read and compressed here, so the parent only inserts them."""
+    return {"hits": load_hits(refs)}
+
+
 @task()
 def hit_poses(element: dict) -> dict:
     """The ranked of one fragment as hits (the rows `ingest_hits` takes), each with its pose (the
-    payload part beside the fragment)."""
+    payload part beside the fragment), compressed here."""
     refs = element["refs"]
     payloads = _selected_payloads(
         payload_part(element["fragment"]), None,
@@ -360,6 +366,8 @@ def hit_poses(element: dict) -> dict:
             raise ValueError(f"{element['fragment']}: ligand {ref['ligand_id']} is ranked but not in it")
         pose_text, pose_suffix = _pose(payload)
         ligand_id = int(payload["ligand_id"])
+        if not pose_text:
+            raise ValueError(f"{element['fragment']}: ligand {ligand_id} has no embedded pose")
         hits.append({
             **json.loads(payload.get("metrics_json") or "{}"),
             "name": f"{ref['_library']}:{ligand_id}",
@@ -372,8 +380,7 @@ def hit_poses(element: dict) -> dict:
             "receptor_molecule_id": int(payload["receptor_id"]),
             "binding_site_id": int(payload.get("binding_site_id") or 0) or None,
             "input_key": input_key,
-            "_pose_text": pose_text,
-            "_pose_suffix": pose_suffix,
+            "pose": structure_payload(pose_text, pose_suffix, SERIES_POSES).packed(),  # compressed here
             "_result_shard": element["fragment"],
             "_result_record_id": ligand_id,
         })

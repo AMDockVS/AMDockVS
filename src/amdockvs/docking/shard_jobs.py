@@ -26,13 +26,10 @@ from sqlmodel import select
 from ms_flow.core.data.exclusions import active_exclusions
 
 from amdockvs.core.jobs import JobSpec
-from amdockvs.docking.shard_tasks import HIT_MODE_TOP_N, dock_shards
+from amdockvs.docking.shard_tasks import HIT_MODE_TOP_N, dock_shards, top_n_hits
 
 from amdockvs.core.worker_io import worker_file, worker_output_dir
-from amdockvs.core.constants import (
-    AMDOCKVS_OFFLOADABLE_EXECUTORS, DEFAULT_VINA_COMMAND, SERIES_POSES,
-)
-from amdockvs.core.payloads import structure_payload
+from amdockvs.core.constants import AMDOCKVS_OFFLOADABLE_EXECUTORS, DEFAULT_LOCAL_CPU_EXECUTOR, DEFAULT_VINA_COMMAND
 from amdockvs.docking.engines.programs import chunk_resources
 from amdockvs.docking.protocols import DockingProtocolMetadata
 from amdockvs.docking.repository import inputs_dir, list_entity_rows, resolve_docking_output_dir, with_input_files
@@ -40,6 +37,7 @@ from amdockvs.docking.results.repository import docking_run_id, find_docking_run
 from amdockvs.docking.results.dataset import (
     UNIQUE_BY,
     docked_pairs,
+    hit_refs,
     key_files,
     off_target_selection,
     result_fragment_path,
@@ -84,20 +82,10 @@ def result_shard_path(output_dir: str | Path, payload: dict, shard: dict) -> Pat
     return result_fragment_path(output_dir, payload, shard)
 
 
-def _with_poses(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """The rows the hit gate selected, each with its pose as a payload (series `poses`) and
-    without the keys that located it in its result shard."""
-    selected: list[dict[str, Any]] = []
-    for original in rows:
-        row = {key: value for key, value in original.items() if not key.startswith("_")}
-        if "_pose_text" in original:
-            if not original["_pose_text"]:
-                raise ValueError(f"Result shard {original.get('_result_shard')} record "
-                                 f"{original.get('_result_record_id')} has no embedded pose.")
-            row["pose"] = structure_payload(original["_pose_text"], original.get("_pose_suffix") or ".pose",
-                                            SERIES_POSES)
-        selected.append(row)
-    return selected
+def _public(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The hits as `ingest_hits` takes them: without the keys that located them in their result
+    shard. Each already carries its pose, compressed where it was read (a worker)."""
+    return [{key: value for key, value in row.items() if not key.startswith("_")} for row in rows]
 
 
 def _count_imported(project_db, docking_run_id: int | None, rows: list[dict[str, Any]]) -> None:
@@ -171,15 +159,17 @@ def recoverable_ranked_runs(project_db, *, project_root: str | Path | None = Non
 
 
 def recover_ranked_hits(
-    project_db,
+    runtime,
     *,
-    project_root: str | Path | None = None,
     run_id: str,
     protocol_hash: str,
     top_n: int,
     threshold: float = RANKED_PREFILTER_SCORE,
 ) -> dict[str, int]:
-    """Rebuild a partial top-N from completed result shards, without rerunning docking."""
+    """Rebuild a partial top-N from completed result shards, without rerunning docking: the Top-N
+    job (`shard_top_n_job`), waited for, leaving the run's state as it is. Not from a thread that
+    cannot wait."""
+    project_db = runtime.workspace.project_db
     cap = int(top_n)
     if cap <= 0:
         raise ValueError("top_n must be greater than zero.")
@@ -190,36 +180,17 @@ def recover_ranked_hits(
         # Whatever engine it ran under: the recovery dialog knows the run and its protocol only.
         run = session.exec(runs_where(run_id=run_id, run_kind="screening",
                                       protocol_hash=protocol_hash)).first()
-    with project_db.get_session() as session:
-        receptor_ids = sorted({
-            int(row) for row in session.exec(select(ScreeningTarget.receptor_molecule_id).where(
-                ScreeningTarget.docking_run_id == int(run or 0), ScreeningTarget.state_keys != "")).all()
-        })
     readable_shards, scanned = run_counts(project_db, target_keys(project_db, [run or 0]), run or 0)
-    selected = _with_poses([
-        hit
-        for receptor_id in receptor_ids
-        for hit in select_hits(
-            project_db,
-            keys=target_keys(project_db, [run or 0], receptor_id=receptor_id),
-            filters={"score__lte": float(threshold), "receptor_id": receptor_id},
-            top_n=cap,
-        )
-    ])
-
-    materialized = ingest_hits(
-        project_db,
-        selected,
-        gate=HitGate(cap=max(1, len(selected))),
-        payload=PAYLOAD_LIGHT,
-        reuse_existing=True,
-    ) if selected else []
-    if run:
-        _count_imported(project_db, run, materialized)
+    job = runtime.submit_job(shard_top_n_job, executor_name=DEFAULT_LOCAL_CPU_EXECUTOR, params=TopNJobParams(
+        run_id=run_id, protocol_hash=protocol_hash, hit_cap=cap, hit_threshold=float(threshold),
+        finish=False).model_dump(mode="python"))
+    ended = runtime.wait_for_job(job)
+    if ended.status != "completed":
+        raise RuntimeError(f"The Top-N of run {run_id} ended {ended.status}: {ended.error or ''}".strip())
     return {
         "shards": readable_shards,
         "scored": scanned,
-        "selected": len(materialized),
+        "selected": _materialized_count(project_db, run_id=run_id, protocol_hash=protocol_hash),
     }
 
 
@@ -316,7 +287,7 @@ class ShardHitWriter:
             return []
         materialized = ingest_hits(
             self.project_db,
-            _with_poses(rows),
+            _public(rows),
             gate=HitGate(cap=len(rows)),
             payload=self.store.payload,
             reuse_existing=True,
@@ -374,7 +345,9 @@ class ShardHitWriter:
         """Nothing to flush mid-run: the top-N is picked when the run ends."""
 
     def close(self) -> None:
-        """Finalize hits on success; expose cancellation/failure without promoting partial top-N."""
+        """On success, supersede then retire; the run is finished by the Top-N job after it
+        (`shard_top_n_job`), or here for an off-target stage, whose hits came as it went. Stopped,
+        its receptors say so, and no partial Top-N is promoted."""
         completed = self.terminal_status == "completed"
         try:
             if completed:
@@ -390,35 +363,14 @@ class ShardHitWriter:
             for writer in self._writers.values():  # no part comes after the last chunk: their locks go
                 writer.close()
             self._writers.clear()
-        if completed:
-            if not self.selected_from_receptor_id:
-                with self.project_db.get_session() as session:
-                    receptor_ids = sorted({
-                        int(row) for row in session.exec(select(ScreeningTarget.receptor_molecule_id).where(
-                            ScreeningTarget.docking_run_id == run,
-                            ScreeningTarget.state_keys != "")).all()
-                    })
-                selected = [
-                    hit
-                    for receptor_id in receptor_ids
-                    for hit in select_hits(
-                        self.project_db,
-                        keys=target_keys(self.project_db, [run], receptor_id=receptor_id),
-                        filters={
-                            "score__lte": self.hit_threshold,
-                            "receptor_id": receptor_id,
-                        },
-                        top_n=self.hit_cap,
-                    )
-                ]
-                self._materialize_selected(selected)
+        if not completed:
+            stop_run(
+                self.project_db,
+                docking_run_id=self.docking_run_id,
+                state=TargetState.CANCELED if self.terminal_status == "canceled" else TargetState.FAILED,
+            )
+        elif self.selected_from_receptor_id:  # its hits came as it went: nothing comes after it
             finish_run(self.project_db, docking_run_id=self.docking_run_id)
-            return
-        stop_run(
-            self.project_db,
-            docking_run_id=self.docking_run_id,
-            state=TargetState.CANCELED if self.terminal_status == "canceled" else TargetState.FAILED,
-        )
 
     def on_job_terminal(self, status: str) -> None:
         self.terminal_status = str(status or "failed")
@@ -728,15 +680,116 @@ class DockShardsJobSpec(JobSpec):
 dock_shards_job = DockShardsJobSpec.to_job_definition()
 
 
+class TopNJobParams(BaseModel):
+    """The run whose Top-N becomes rows, and its gate. `finish`: the run is finished when this
+    ends (False for a recovery, which leaves the run's state as it is)."""
+
+    run_id: str
+    engine: str = ""
+    protocol_hash: str = ""
+    hit_cap: int = Field(ge=1)
+    hit_threshold: float = RANKED_PREFILTER_SCORE
+    payload: str = PAYLOAD_LIGHT
+    finish: bool = True
+
+
+def _top_n_run(project_db, params: TopNJobParams) -> int | None:
+    """The run of `params`, under whichever engine when it names none (a recovery knows the run
+    and its protocol only)."""
+    with project_db.get_session() as session:
+        return session.exec(runs_where(run_id=params.run_id, engine=params.engine or None, run_kind="screening",
+                                       protocol_hash=params.protocol_hash or None)).first()
+
+
+class TopNWriter:
+    """Parent-side sink of `shard_top_n_job`: the hits it gets, poses already compressed, become
+    rows (once each: a redo reuses what it finds), and the run is finished when the job ends."""
+
+    def __init__(self, *, project_db: Any, params: TopNJobParams) -> None:
+        self.project_db, self.params, self.terminal_status = project_db, params, "completed"
+
+    @property
+    def docking_run_id(self) -> int | None:
+        return _top_n_run(self.project_db, self.params)
+
+    def handle(self, chunk_id: str, result: Any) -> None:
+        hits = _public(list((result or {}).get("hits") or []))
+        if hits:
+            materialized = ingest_hits(self.project_db, hits, gate=HitGate(cap=len(hits)),
+                                       payload=self.params.payload, reuse_existing=True)
+            _count_imported(self.project_db, self.docking_run_id, materialized)
+
+    def flush(self) -> None:
+        """Every chunk wrote what it brought."""
+
+    def on_job_terminal(self, status: str) -> None:
+        self.terminal_status = str(status or "failed")
+
+    def close(self) -> None:
+        if not self.params.finish:
+            return
+        if self.terminal_status == "completed":
+            finish_run(self.project_db, docking_run_id=self.docking_run_id)
+            return
+        stop_run(self.project_db, docking_run_id=self.docking_run_id,
+                 state=TargetState.CANCELED if self.terminal_status == "canceled" else TargetState.FAILED)
+
+
+def top_n_writer(params: dict, config: dict) -> TopNWriter:
+    return TopNWriter(project_db=config["project_db"], params=TopNJobParams(**params))
+
+
+class TopNJobSpec(JobSpec):
+    """The final Top-N of a ranked run, after its docking job: the parent ranks the summaries (refs,
+    one chunk per receptor), a worker reads the poses of those and compresses them, the parent
+    inserts. A killed one is done again whole: what it inserted is found, not duplicated."""
+
+    name = "amdock_shard_top_n_job"
+    task_name = "amdock_shard_top_n"
+    description = "Turn the best docked ligands of a ranked run into result rows."
+    params_model = TopNJobParams
+    executor = "compute"
+    result_handler_factory = top_n_writer
+    store_results = False
+    required = ()
+    produces = ()
+    run_chunk = staticmethod(top_n_hits)
+
+    @staticmethod
+    def build_chunks(params: dict, config: dict | None = None) -> Iterator[dict]:
+        parsed = TopNJobParams(**params)
+        project_db = dict(config or {})["project_db"]
+        run = _top_n_run(project_db, parsed) or 0
+        with project_db.get_session() as session:
+            receptor_ids = sorted({int(row) for row in session.exec(select(ScreeningTarget.receptor_molecule_id).where(
+                ScreeningTarget.docking_run_id == run, ScreeningTarget.state_keys != "")).all()})
+        emitted = False
+        for receptor_id in receptor_ids:
+            refs = hit_refs(project_db, keys=target_keys(project_db, [run], receptor_id=receptor_id),
+                            filters={"score__lte": parsed.hit_threshold, "receptor_id": receptor_id},
+                            top_n=parsed.hit_cap)
+            if refs["hits"]:
+                emitted = True
+                yield refs
+        if not emitted:  # MF needs one chunk to close the job out
+            yield {"hits": [], "payloads": []}
+
+
+shard_top_n_job = TopNJobSpec.to_job_definition()
+
+
 __all__ = [
     "DockShardsJobParams",
     "DockShardsJobSpec",
     "SCREENING_SUBDIR",
     "ShardHitWriter",
+    "TopNJobParams",
+    "TopNJobSpec",
     "dock_shards_job",
     "recover_ranked_hits",
     "recoverable_ranked_runs",
     "result_shard_path",
     "select_hits",
     "shard_hit_writer",
+    "shard_top_n_job",
 ]

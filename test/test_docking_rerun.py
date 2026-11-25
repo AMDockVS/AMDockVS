@@ -179,7 +179,8 @@ def test_shard_replacement_clears_the_done_set_and_result_files(tmp_path, monkey
         assert session.exec(select(ScreeningTarget)).all() == []
         assert len(session.exec(select(CatalogFile)).all()) == 1  # the library file, not its results
     assert _done_shards(store, key) == set()
-    assert len(calls) == 1 and calls[0]["priority"] == -1  # beside the table's jobs, below them
+    # The docking beside the table's jobs, below them; its Top-N after it.
+    assert len(calls) == 2 and calls[0]["priority"] == -1 and calls[1]["depends_on"] == ["job"]
     store.dispose()
 
 
