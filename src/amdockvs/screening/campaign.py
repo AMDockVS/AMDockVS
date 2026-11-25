@@ -15,7 +15,7 @@ from pathlib import Path
 from ms_flow.core.data import catalog, states
 from sqlmodel import select
 
-from amdockvs.docking.results.dataset import DONE_KIND, result_role
+from amdockvs.docking.results.dataset import DONE_KIND, payload_part, result_roles
 from amdockvs.models import DockingRun, ScreeningTarget
 from amdockvs.core.vocab import TargetState
 
@@ -132,20 +132,41 @@ def done_shards(project_db, key: str, *, narrowed_by: str = "") -> set[int]:
     return {int(s) for s in states.done(project_db, DONE_KIND, key, narrowed_by=narrowed_by or None)}
 
 
-def record_docked(project_db, *, key: str, shard_id: int, result_path: str = "", narrowed_by: str = "",
-                  generation_id: int | None = None, force: bool = False) -> bool:
-    """One shard docked for `key`: its result file into the catalog, then the shard into the
-    done-set (that order: a crash in between docks it again, and the compaction keeps one copy).
-    False when it was already recorded — a replay — and nothing is written; `force` (a forced
-    re-dock, whose shards are done already) records it anyway, and its caller dedupes replays.
+def record_docked(project_db, *, key: str, shard_id: int, result_path: str = "", part: str = "",
+                  narrowed_by: str = "", generation_id: int | None = None, force: bool = False,
+                  writer=None) -> bool:
+    """One shard docked for `key`: its two result parts (`result_path`, the summary, and the payload
+    beside it) committed into the key's containers, then the shard into the done-set (that order: a
+    crash in between docks it again, and `part` — the run's id of this task — makes the commit of a
+    replay a no-op). False when it was already recorded — a replay — and nothing is written; `force`
+    (a forced re-dock, whose shards are done already) records it anyway. `writer`: the parent's
+    `PairWriter` of the key, kept open over a run; one of its own (the parts' folder's parent) without.
 
     ponytail: the done-set is read whole per call (one parquet of shard ids per key, ~4k per
     million records); a set kept in the writer if a campaign of millions of shards shows it."""
-    if not force and int(shard_id) in done_shards(project_db, key, narrowed_by=narrowed_by):
-        return False
+    from uuid import uuid4
+
     path = Path(str(result_path or ""))
+    if not force and int(shard_id) in done_shards(project_db, key, narrowed_by=narrowed_by):
+        if str(result_path or ""):  # a replay's parts: never committed, never read
+            from ms_flow.core.data.companions import whole
+
+            for name in [*whole(path), *whole(payload_part(path))]:
+                Path(name).unlink(missing_ok=True)
+        return False
     if str(result_path or "") and path.is_file():
-        catalog.add_file(project_db, path, generation_id=generation_id, role=result_role(key))
+        part = str(part or uuid4().hex)
+        own = writer is None
+        if own:
+            writer = catalog.PairWriter(project_db, path.parent.parent, generation_id=generation_id,
+                                        roles=result_roles(key), prefix=part)
+        try:
+            (receipt,) = writer.commit_parts([{"part": part, "path": str(path), "bulk": str(payload_part(path))}])
+        finally:
+            if own:
+                writer.close()
+        if "error" in receipt:
+            raise RuntimeError(receipt["error"])
     states.mark_done(project_db, DONE_KIND, key, [int(shard_id)], narrowed_by=str(narrowed_by or ""),
                      generation_id=generation_id)
     return True

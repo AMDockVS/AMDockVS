@@ -20,8 +20,8 @@ from amdockvs.docking.engines.registry import run_docking_chunk
 from amdockvs.docking.rescoring import rescore_rows
 from amdockvs.docking.preparation.shards import extract_ligands
 from amdockvs.docking.results.dataset import (
-    ResultFragmentWriter, _pose, _selected_payloads, _summary_rows, local_pose_path, result_fragment_path,
-    result_metadata, result_row,
+    ResultFragmentWriter, _pose, _selected_payloads, _summary_table, _top, local_pose_path, payload_part,
+    result_fragment_path, result_metadata, result_row,
 )
 
 # How the cap is spent: the best `cap` of everything scored per receptor, picked from the result
@@ -179,6 +179,8 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
                     ),
                 },
             },
+            # The library shard docked: a newer result of it replaces this one's rows.
+            origin=int(shard.get("shard_id") or 0), base_id=header["base_id"], slot_count=header["slot_count"],
         ) as writer:
             def consume_pair(pair_rows: list[dict]) -> None:
                 nonlocal hits_found, processed
@@ -310,22 +312,26 @@ def dock_stage(element: dict) -> dict:
 def rank(results, *, cap: int, threshold: float) -> list[dict]:
     """The best `cap` of each receptor below `threshold`, over every fragment the stage wrote
     there: as references into them, which is what `hit_poses` and `off_target_elements` read."""
-    from amdockvs.screening.materialize import TopNGate
+    import numpy as np
+    import pyarrow as pa
+    import pyarrow.compute as pc
 
-    gates: dict[int, TopNGate] = {}
+    tables, tags = [], []
     for result in results:
         for envelope in result["envelopes"]:
             path = str(envelope.get("result_shard") or "")
             if not path:
                 continue
-            for row in _summary_rows(Path(path), {"status": "done", "score__lte": float(threshold)}):
-                if row.get("score") is None or not row.get("has_pose"):
-                    continue
-                gate = gates.setdefault(int(row["receptor_id"]), TopNGate(cap=int(cap), threshold=None))
-                gate.take([{**row, "_result_shard": path, "_shard_id": int(envelope["shard_id"]),
-                            "_library": envelope["library"], "_import_batch_id": envelope["import_batch_id"]}])
-                gate.discarded()  # what fell out is not kept
-    return [row for gate in gates.values() for row in gate.drain()]
+            table = _summary_table(Path(path), {"status": "done", "score__lte": float(threshold)})
+            tables.append(table.append_column("_tag", pa.array(np.full(table.num_rows, len(tags)))))
+            tags.append({"_result_shard": path, "_shard_id": int(envelope["shard_id"]),
+                         "_library": envelope["library"], "_import_batch_id": envelope["import_batch_id"]})
+    if not tables:
+        return []
+    table = pa.concat_tables(tables)
+    return [{**row, **tags[row.pop("_tag")]}
+            for receptor in pc.unique(table["receptor_id"]).to_pylist()
+            for row in _top(table.filter(pc.equal(table["receptor_id"], receptor)), int(cap)).to_pylist()]
 
 
 def by_fragment(refs: list[dict]) -> list[dict]:
@@ -338,16 +344,18 @@ def by_fragment(refs: list[dict]) -> list[dict]:
 
 @task()
 def hit_poses(element: dict) -> dict:
-    """The ranked of one fragment as hits (the rows `ingest_hits` takes), each with its pose."""
+    """The ranked of one fragment as hits (the rows `ingest_hits` takes), each with its pose (the
+    payload part beside the fragment)."""
     refs = element["refs"]
     payloads = _selected_payloads(
-        Path(element["fragment"]),
+        payload_part(element["fragment"]), None,
         {(int(r["_shard_id"]), int(r["ligand_id"]), int(r["receptor_id"])) for r in refs},
     )
     input_key = str(result_metadata(element["fragment"]).get("input_key") or "")
     hits = []
     for ref in refs:
         payload = payloads.get((int(ref["_shard_id"]), int(ref["ligand_id"]), int(ref["receptor_id"])))
+        payload = None if payload is None else {**ref, **payload}
         if payload is None:
             raise ValueError(f"{element['fragment']}: ligand {ref['ligand_id']} is ranked but not in it")
         pose_text, pose_suffix = _pose(payload)

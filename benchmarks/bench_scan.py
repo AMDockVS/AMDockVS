@@ -2,10 +2,10 @@
 
 Setup (not timed): a project is created in a throwaway HOME; N synthetic result rows
 (RESULT_SCHEMA, no pose text, has_pose=True) are written through `ResultFragmentWriter` in
-fragments of 100k rows, each registered like the campaign does (`record_docked`: catalog file of
-role `result_role(key)` + done-set), then `compact_keys` merges them (one file per key).
-Timed, through the app's read path (`key_files` -> parquet files of the key's catalog role):
-  scan_score_s      read only the `score` column of every file of the key (pq.read_table columns=)
+fragments of 256 rows (a library shard), each committed like the campaign does (`record_docked`
+through one `PairWriter`: the summary and payload containers of the key + done-set).
+Timed, through the app's read path (`key_files` -> summary containers of the key):
+  scan_score_s      read only the `score` column of every summary container (`read_rows` columns=)
   scan_score_rows   rows read (must equal N)
   ranking_s         `select_hit_refs(top_n=100)`: the Top-N ranking the app runs (SUMMARY_COLUMNS,
                     status=done filter), for information
@@ -18,7 +18,7 @@ from pathlib import Path
 
 import _common as c
 
-FRAGMENT_ROWS = 100_000  # --fragment-rows
+FRAGMENT_ROWS = 256  # --fragment-rows: one library shard
 
 
 def main():
@@ -29,10 +29,11 @@ def main():
     ap.add_argument("--fragment-rows", type=int, default=FRAGMENT_ROWS)
     args = ap.parse_args()
 
-    import pyarrow.parquet as pq
+    from ms_flow.core.data.catalog import PairWriter
+    from ms_flow.core.data.shard import read_rows
 
     from amdockvs.docking.results.dataset import (
-        ResultFragmentWriter, compact_keys, key_files, select_hit_refs, state_key,
+        ResultFragmentWriter, key_files, result_roles, select_hit_refs, state_key,
     )
     from amdockvs.screening.campaign import record_docked
 
@@ -41,13 +42,14 @@ def main():
         db = runtime.workspace.project_db
         key = state_key(engine="vina", protocol_hash="bench", receptor_id=1)
         rng = random.Random(args.seed)
-        folder = Path(c._HOME) / "frags"
-        folder.mkdir()
+        folder = Path(c._HOME) / "results" / key
+        (folder / "parts").mkdir(parents=True)
+        pair = PairWriter(db, folder, generation_id=None, roles=result_roles(key), prefix="bench:")
         t0, written, shard_id = time.perf_counter(), 0, 0
         while written < args.records:
             n = min(args.fragment_rows, args.records - written)
-            path = folder / f"frag_{shard_id}.results.parquet"
-            with ResultFragmentWriter(path, metadata={}) as writer:
+            path = folder / "parts" / f"frag_{shard_id}.arrows"
+            with ResultFragmentWriter(path, metadata={}, origin=shard_id + 1) as writer:
                 for i in range(n):
                     writer.add({
                         "ligand_id": written + i + 1, "shard_id": shard_id, "docking_run_id": 1,
@@ -56,15 +58,16 @@ def main():
                         "smiles": "CCOc1ccccc1C(=O)N", "metrics_json": '{"error": null}',
                         "pose_text": "", "pose_suffix": ".pdbqt",
                     })
-            record_docked(db, key=key, shard_id=shard_id + 1, result_path=str(path))
+            record_docked(db, key=key, shard_id=shard_id + 1, result_path=str(path),
+                          part=f"bench:{shard_id + 1}", writer=pair)
             written += n
             shard_id += 1
-        compact_keys(db, [key])
+        pair.close()
         setup_s = time.perf_counter() - t0
 
         files = key_files(db, [key])
         t0 = time.perf_counter()
-        rows = sum(pq.read_table(f, columns=["score"]).num_rows for f in files)
+        rows = sum(read_rows(f, None, ["score"]).num_rows for f in files)
         scan_s = time.perf_counter() - t0
         t0 = time.perf_counter()
         top = select_hit_refs(db, keys=[key], top_n=100)

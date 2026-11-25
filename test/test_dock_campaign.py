@@ -23,8 +23,8 @@ def _result(path: Path, shard_id: int) -> dict:
 
 
 def test_the_far_stages_rank_read_poses_and_send_the_reference_best_to_the_off_targets(tmp_path):
-    a = _fragment(tmp_path / "a.parquet", {(1, 10): -9.0, (2, 10): -7.0, (3, 10): -11.0, (1, 20): -10.0}, shard_id=1)
-    b = _fragment(tmp_path / "b.parquet", {(4, 10): -10.0, (5, 10): -5.0}, shard_id=2)
+    a = _fragment(tmp_path / "a.arrows", {(1, 10): -9.0, (2, 10): -7.0, (3, 10): -11.0, (1, 20): -10.0}, shard_id=1)
+    b = _fragment(tmp_path / "b.arrows", {(4, 10): -10.0, (5, 10): -5.0}, shard_id=2)
 
     refs = rank([_result(a, 1), _result(b, 2)], cap=2, threshold=-6.0)
     assert [(ref["ligand_id"], ref["receptor_id"]) for ref in refs] == [(3, 10), (4, 10), (1, 20)]
@@ -73,7 +73,7 @@ def test_what_comes_back_twice_is_written_once(tmp_path):
         for run in runs.values():
             plan_targets(db, docking_run_id=run, receptors=[{"receptor_id": receptor_id, "state_key": key}],
                          ligands_total=2, engine="vina")
-        fragment = _fragment(tmp_path / "far.parquet", {(1, receptor_id): -9.0, (2, receptor_id): -8.0},
+        fragment = _fragment(tmp_path / "far.arrows", {(1, receptor_id): -9.0, (2, receptor_id): -8.0},
                              shard_id=shard_id)
         [element] = by_fragment(rank([{"stage": "vs", "envelopes": [
             {"shard_id": shard_id, "result_shard": str(fragment), "library": "lib", "import_batch_id": batch_id}]}],
@@ -122,13 +122,16 @@ def test_an_old_project_gets_the_columns_added_since(tmp_path):
         runtime.close_project()
 
 
-def test_a_fragment_is_one_row_group_with_statistics_on_ligand_id_only(tmp_path):
-    import pyarrow.parquet as pq
+def test_a_fragment_is_two_one_shard_parts_and_only_the_payload_holds_poses(tmp_path):
+    from ms_flow.core.data.shard import file_groups, read_rows
 
-    meta = pq.ParquetFile(_fragment(tmp_path / "f.parquet", {(i, 10): -float(i) for i in range(1, 200)})).metadata
-    assert (meta.num_row_groups, meta.num_rows) == (1, 199)
-    stats = {meta.schema.column(c).name: meta.row_group(0).column(c).is_stats_set for c in range(meta.num_columns)}
-    assert stats["ligand_id"] and not stats["pose_text"]
+    from amdockvs.docking.results.dataset import payload_part
+
+    summary = _fragment(tmp_path / "f.arrows", {(i, 10): -float(i) for i in range(1, 200)})
+    for part in (summary, payload_part(summary)):
+        assert [group.n_records for group in file_groups(part)] == [199]
+    assert "pose_text" not in read_rows(summary).column_names
+    assert "pose_text" in read_rows(payload_part(summary)).column_names
 
 
 def test_what_the_queue_prepared_on_its_own_disk_is_registered_there_and_once(tmp_path):
@@ -146,16 +149,16 @@ def test_what_the_queue_prepared_on_its_own_disk_is_registered_there_and_once(tm
         params = DockCampaignParams(output_dir=str(tmp_path), engine="vina", preparation_engine="ad4",
                                     hit_threshold=-8.0, hit_cap=10, executor="lab")
         elements = [{"stage": "vs", "shards": [{"shard_id": 11, "shard_path": "",
-                                                "molecules": str(tmp_path / "lib.parquet")}]}]
+                                                "molecules": str(tmp_path / "lib.arrows")}]}]
         prep = _unprepared(elements, "ad4")
         assert [one["shards"][0]["shard_id"] for one in prep] == [11]
         where = elements[0]["shards"][0]
-        assert where["prepared_as"] == "11.parquet" and "molecules" not in where
+        assert where["prepared_as"] == "11.arrows" and "molecules" not in where
 
         writer = CampaignWriter(project_db=db, hit_cap=10, hit_threshold=-8.0, run_id="r", engine="vina",
                                 protocol_hash="p", executor="lab", preparation_engine="ad4")
         writer.write([{"stage": "prep", "shard_id": 11, "files": [
-            {"path": "/scratch/lab/ad4/11.parquet", "role": "prepared:ad4", "n_shards": 1,
+            {"path": "/scratch/lab/ad4/11.arrows", "role": "prepared:ad4", "n_shards": 1,
              "n_records": 3, "n_active": 3, "scopes": "1"}]}])
 
         (row,) = [file for file in catalog.files(db, catalog.shard_spec(role="prepared:ad4"))]
@@ -164,7 +167,7 @@ def test_what_the_queue_prepared_on_its_own_disk_is_registered_there_and_once(tm
 
         # A second campaign prepares nothing there (`_kept`) and returns the row of what is there.
         writer.write([{"stage": "prep", "shard_id": 11, "files": [
-            {"path": "/scratch/lab/ad4/11.parquet", "role": "prepared:ad4", "n_shards": 1,
+            {"path": "/scratch/lab/ad4/11.arrows", "role": "prepared:ad4", "n_shards": 1,
              "n_records": 3, "n_active": 3, "scopes": "1"}]}])
         assert [file["id"] for file in catalog.files(db, catalog.shard_spec(role="prepared:ad4"))] == [row["id"]]
     finally:

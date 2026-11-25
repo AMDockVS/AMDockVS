@@ -134,3 +134,26 @@ def test_shards_sharing_a_file_prepare_each_into_its_own_shard(runtime, tmp_path
         assert ids and all(lo <= i < hi for i in ids)
         seen += ids
     assert seen == list(range(10))
+
+
+def test_a_resumed_prep_makes_the_same_part_ids(runtime, tmp_path, monkeypatch):
+    """Trap 17: the part ids come from a token fixed in the params at submit, so a resumed (or
+    replayed) forced run skips what it already committed instead of appending it again."""
+    from amdockvs.docking.preparation import jobs
+
+    source = tmp_path / "lib.smi"
+    source.write_text("".join(f"{'C' * (i + 1)}O mol{i}\n" for i in range(6)))
+    states = runtime.wait_for_jobs(list(runtime.loader.shard_ligands([str(source)], executor_name="thread",
+                                                                     shard_size=4)), timeout_s=60)
+    assert all(str(state.status).endswith("completed") for state in states.values()), states
+
+    submitted = {}
+    monkeypatch.setattr(runtime, "submit_job", lambda job, *, params, **_kw: submitted.update(params) or "job")
+    runtime.docking.prepare_ligand_shards(force=True)
+    assert submitted.get("run")
+
+    config = {"project_db": runtime.workspace.project_db}
+    parts = [[s["part"] for chunk in jobs.PrepareLigandShardsJobSpec.build_chunks(submitted, config)
+              for s in chunk["shards"]] for _ in range(2)]
+    assert parts[0] == parts[1] and len(parts[0]) == 2
+    assert all(part.startswith(f"{submitted['run']}:") for part in parts[0])

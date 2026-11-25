@@ -8,7 +8,7 @@ from sqlalchemy import and_, delete, exists, or_
 from sqlmodel import select
 
 from amdockvs.docking.protocols import DockingProtocolMetadata
-from amdockvs.docking.results.dataset import DONE_KIND, docked_pairs, result_role
+from amdockvs.docking.results.dataset import DONE_KIND, docked_pairs, result_roles
 from amdockvs.docking.results.repository import _decode_metadata, supersede_results
 from amdockvs.models import (
     DockingResultRecord, DockingRun, MoleculeRecord, ScreeningTarget,
@@ -92,14 +92,15 @@ def clear_previous_docking(project_db, *, program) -> None:
         session.commit()
     # The key's files and what it had done go together: nothing of it is left to resume from.
     for key in sorted(keys):
-        catalog.remove(project_db, result_role(key))
+        for role in result_roles(key):
+            catalog.remove(project_db, role)
         states.forget(project_db, DONE_KIND, key)
 
 
 def supersede_shard_runs(project_db, *, docking_run_id: int | None, keys: set[str] | None = None) -> int:
     """A forced campaign completed: what it docked again replaces what older runs held for those
-    shards, instead of sitting beside it. Called before the keys are compacted, which is what
-    drops the older *rows* — one per (shard, ligand) survives, the newest.
+    shards, instead of sitting beside it. The older *rows* stay in the key's containers; a read
+    keeps one per (shard, ligand), the newest.
 
     Within a key (one receptor, one site, one input, one protocol), a shard this run docked
     again retires what an older run of the same key had for it. An off-target stage has a key of
@@ -132,7 +133,7 @@ def supersede_shard_runs(project_db, *, docking_run_id: int | None, keys: set[st
     return _retire(project_db, current, stale)
 def _retire(project_db, current: DockingRun, stale: set[tuple[int, int, int]]) -> int:
     """The materialized results and plan rows of what `stale` ((older run, receptor, shard))
-    retires; the rows themselves go when the keys are compacted."""
+    retires; the rows themselves stay, hidden by the newer ones."""
     if not stale:
         supersede_results(project_db, run_id=str(current.run_id))
         return 0

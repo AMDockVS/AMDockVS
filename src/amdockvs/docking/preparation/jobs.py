@@ -278,6 +278,9 @@ class PrepareLigandShardsJobParams(BaseModel):
     engine: str = "ad4"
     force: bool = False
     file_ids: list[int] | None = None  # the library files to prepare; None = every file
+    # The part ids' prefix, fixed at submit: a resume makes the same ids and skips what it
+    # committed (trap 17); a new submission is a new run, so a forced redo is no replay.
+    run: str = ""
 
 
 class PrepareLigandShardsJobSpec(JobSpec):
@@ -317,7 +320,7 @@ class PrepareLigandShardsJobSpec(JobSpec):
         # of the same family running now would lose its unregistered files; the UI runs one.
         for folder in {prepared_dir(row["path"], parsed.engine) for row in todo}:
             catalog.sweep(project_db, folder)
-        emitted, run = False, uuid4().hex[:12]  # a part id per submission: a forced redo is no replay
+        emitted, run = False, parsed.run or uuid4().hex[:12]  # no run: a caller that is not the API
         for row in todo:
             emitted = True
             yield {"engine": parsed.engine, "role": role, "shards": [{

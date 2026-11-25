@@ -19,7 +19,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
-import pyarrow.parquet as pq
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlmodel import select
@@ -39,12 +38,13 @@ from amdockvs.docking.protocols import DockingProtocolMetadata
 from amdockvs.docking.repository import inputs_dir, list_entity_rows, resolve_docking_output_dir, with_input_files
 from amdockvs.docking.results.repository import docking_run_id, find_docking_run, runs_where
 from amdockvs.docking.results.dataset import (
-    compact_keys,
     docked_pairs,
     key_files,
     off_target_selection,
     result_fragment_path,
     result_metadata,
+    result_roles,
+    run_counts,
     select_hit_refs,
     select_hits,
     state_key,
@@ -144,7 +144,8 @@ def recoverable_ranked_runs(project_db, *, project_root: str | Path | None = Non
             continue
         if _materialized_count(project_db, run_id=run_id, protocol_hash=protocol_hash):
             continue
-        paths = key_files(project_db, target_keys(project_db, [run]))
+        keys = target_keys(project_db, [run])
+        paths = key_files(project_db, keys)
         if not paths:
             continue
         metadata = result_metadata(paths[0])
@@ -153,7 +154,7 @@ def recoverable_ranked_runs(project_db, *, project_root: str | Path | None = Non
         if mode not in {HIT_MODE_TOP_N, "unknown"} or selection.get("selected_from_receptor_id"):
             continue  # an off-target stage streams its hits: nothing to recover
         protocol = dict(metadata.get("protocol") or {})
-        shards, scored = _run_counts(paths, run)
+        shards, scored = run_counts(project_db, keys, run)
         candidates.append({
             "run_id": run_id,
             "protocol_hash": protocol_hash,
@@ -166,17 +167,6 @@ def recoverable_ranked_runs(project_db, *, project_root: str | Path | None = Non
             "docking_run_id": run,
         })
     return sorted(candidates, key=lambda row: row["docking_run_id"], reverse=True)
-
-
-def _run_counts(paths: list[Path], run: int) -> tuple[int, int]:
-    """(shards, rows) that `run` wrote into these result files."""
-    shards: set[int] = set()
-    rows = 0
-    for path in paths:
-        table = pq.read_table(path, columns=["shard_id"], filters=[("docking_run_id", "=", int(run))])
-        shards.update(table["shard_id"].to_pylist())
-        rows += table.num_rows
-    return len(shards), rows
 
 
 def recover_ranked_hits(
@@ -204,7 +194,7 @@ def recover_ranked_hits(
             int(row) for row in session.exec(select(ScreeningTarget.receptor_molecule_id).where(
                 ScreeningTarget.docking_run_id == int(run or 0), ScreeningTarget.state_keys != "")).all()
         })
-    readable_shards, scanned = _run_counts(key_files(project_db, target_keys(project_db, [run or 0])), run or 0)
+    readable_shards, scanned = run_counts(project_db, target_keys(project_db, [run or 0]), run or 0)
     selected = _with_poses([
         hit
         for receptor_id in receptor_ids
@@ -303,6 +293,7 @@ class ShardHitWriter:
             int(selected_from_receptor_id) if selected_from_receptor_id else None
         )
         self.terminal_status = "completed"
+        self._writers: dict[tuple[str, Any], Any] = {}  # (key, generation): its PairWriter, open over the run
         self.store = ShardStore(
             project_db,
             gate=HitGate(cap=self.hit_cap, threshold=self.hit_threshold),
@@ -340,16 +331,21 @@ class ShardHitWriter:
                 self._materialize_selected(hits)
             hit_count = int(envelope.get("hits_found", len(hits)) or 0)
             if shard_id > 0 and envelope.get("state_key"):
+                key, generation = str(envelope["state_key"]), envelope.get("generation_id")
+                result_path = str(envelope.get("result_shard") or "")
                 recorded = record_docked(
                     self.project_db,
-                    key=str(envelope["state_key"]),
+                    key=key,
                     shard_id=shard_id,
-                    result_path=str(envelope.get("result_shard") or ""),
+                    result_path=result_path,
+                    # The task's id in this run: a replay of it is committed once.
+                    part=f"{self.run_id}:{shard_id}" if self.run_id else "",
                     narrowed_by=str(envelope.get("narrowed_by") or ""),
-                    generation_id=envelope.get("generation_id"),
+                    generation_id=generation,
                     # A forced campaign docks what is already done: its rows must be stored, and
-                    # the compaction at the end keeps the newest per (shard, ligand).
+                    # a read keeps the newest per (shard, ligand).
                     force=not self.skip_existing,
+                    writer=self._writer(key, generation, result_path) if result_path else None,
                 )
                 if recorded:
                     advance_target(
@@ -360,6 +356,16 @@ class ShardHitWriter:
                         hits=hit_count,
                     )
 
+    def _writer(self, key: str, generation: Any, result_path: str):
+        """The key's `PairWriter`, opened at its first part (the parts' folder's parent)."""
+        from ms_flow.core.data.catalog import PairWriter
+
+        if (key, generation) not in self._writers:
+            self._writers[key, generation] = PairWriter(
+                self.project_db, Path(result_path).parent.parent, generation_id=generation,
+                roles=result_roles(key), prefix=f"{self.run_id}:" if self.run_id else "")
+        return self._writers[key, generation]
+
     def on_error(self, chunk_id: str, error: str) -> None:
         """MF owns the failure; undone in the key's set, a resubmission runs it again."""
 
@@ -368,15 +374,16 @@ class ShardHitWriter:
 
     def close(self) -> None:
         """Finalize hits on success; expose cancellation/failure without promoting partial top-N."""
+        for writer in self._writers.values():  # no part comes after the last chunk: their locks go
+            writer.close()
+        self._writers.clear()
         if self.terminal_status == "completed":
             run = self.docking_run_id or 0
             keys = target_keys(self.project_db, [run])
             if not self.skip_existing:
                 # Forced: what this run docked again replaces what older runs held for those
-                # pairs. Read before compacting, while both copies are still there.
+                # pairs (older copies stay in the containers; a read keeps the newest).
                 supersede_shard_runs(self.project_db, docking_run_id=run, keys=keys)
-            # One file per key: a redo leaves one row per (shard, ligand), the newest.
-            compact_keys(self.project_db, keys)
             if not self.selected_from_receptor_id:
                 with self.project_db.get_session() as session:
                     receptor_ids = sorted({

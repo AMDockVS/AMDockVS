@@ -57,7 +57,7 @@ def _docked_shard(store, tmp_path, *, protocol_hash: str, receptor_id: int = 1) 
     from amdockvs.screening.campaign import record_docked
 
     key = state_key(engine="vina", protocol_hash=protocol_hash, receptor_id=receptor_id)
-    path = tmp_path / "old.results.parquet"
+    path = tmp_path / "results" / "parts" / "old.arrows"
     with ResultFragmentWriter(path, metadata={}) as writer:
         writer.add(result_row({"ligand_molecule_id": 1, "receptor_molecule_id": receptor_id,
                                "score": -9.0}, smiles="C", engine="vina"))

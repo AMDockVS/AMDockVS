@@ -555,6 +555,7 @@ class DockingAPI:
             engine=program_spec.preparation_engine,
             force=force,
             file_ids=None if file_ids is None else [int(value) for value in file_ids],
+            run=uuid4().hex[:12],
         )
         return self.runtime.submit_job(
             prepare_ligand_shards_job,

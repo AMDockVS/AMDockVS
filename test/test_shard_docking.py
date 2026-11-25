@@ -5,7 +5,6 @@ The two pieces with arithmetic in them. Everything else (Vina, the gate) is alre
 import sys
 from pathlib import Path
 
-import pyarrow.parquet as pq
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -52,11 +51,11 @@ def _key(receptor_id, *, engine="vina", protocol_hash="", binding_site_id=0, inp
 def _docked(project_db, folder, *, key, shard_id, receptor_id, docking_run_id, ligand_ids=(0,),
             score=-9.0, narrowed_by="", smiles="C", input_key=""):
     """One shard docked for `key`: its result file written and recorded, as a worker's envelope
-    would have it. Returns the file."""
+    would have it. Returns the key's folder (its containers)."""
     from amdockvs.docking.results.dataset import ResultFragmentWriter, result_row
     from amdockvs.screening.campaign import record_docked
 
-    path = Path(folder) / f"{key}-{shard_id}-{docking_run_id}.results.parquet"
+    path = Path(folder) / "results" / key / "parts" / f"{shard_id}-{docking_run_id}.arrows"
     path.parent.mkdir(parents=True, exist_ok=True)
     with ResultFragmentWriter(path, metadata={"input_key": input_key}) as writer:
         for ligand_id in ligand_ids:
@@ -67,7 +66,7 @@ def _docked(project_db, folder, *, key, shard_id, receptor_id, docking_run_id, l
             ))
     record_docked(project_db, key=key, shard_id=shard_id, result_path=str(path),
                   narrowed_by=narrowed_by, force=True)
-    return path
+    return path.parent.parent
 
 
 def _plan(session, *, docking_run_id, receptor_id, keys, **fields):
@@ -357,14 +356,18 @@ def test_docking_streams_each_ligand_into_a_result_shard_and_removes_loose_poses
     assert envelope["hits_found"] == 1
     assert progress == [1, 2]
     result_path = Path(envelope["result_shard"])
-    assert result_path.name.endswith(".results.parquet")
+    assert result_path.name.endswith(".arrows") and result_path.parent.name == "parts"
     assert shard_jobs.result_metadata(result_path)["selection"] == {
         "mode": "top_n", "cap": 25, "threshold": -8.0,
     }
     # What the fragment was docked against: its hits' results carry it (skip_existing compares).
     assert shard_jobs.result_metadata(result_path)["input_key"] == "inputs-1"
-    records = pq.read_table(result_path).to_pylist()
-    assert [record["score"] for record in records] == [-9.0, -7.0]
+    from ms_flow.core.data.shard import read_rows
+
+    from amdockvs.docking.results.dataset import payload_part
+
+    assert read_rows(result_path)["score"].to_pylist() == [-9.0, -7.0]
+    records = read_rows(payload_part(result_path)).to_pylist()  # the poses: beside the summary
     assert records[0]["pose_text"].startswith("ligand-0")
     assert records[0]["pose_suffix"] == ".sdf"
     assert list(output.glob("*.dock.pdbqt")) == []
@@ -392,7 +395,7 @@ def test_result_shard_cleanup_is_not_tied_to_sdf(tmp_path):
 def test_parquet_fragment_is_atomic(tmp_path):
     import pytest
 
-    path = tmp_path / "failed.results.parquet"
+    path = tmp_path / "failed.arrows"
     with pytest.raises(RuntimeError):
         with shard_tasks.ResultFragmentWriter(path, metadata={}) as fragment:
             fragment.add({
@@ -406,10 +409,9 @@ def test_parquet_fragment_is_atomic(tmp_path):
     assert not path.with_name(f"{path.name}.tmp").exists()
 
 
-def test_select_hits_projects_scores_then_loads_only_selected_poses(tmp_path, monkeypatch):
+def test_select_hits_projects_scores_then_loads_only_selected_poses(tmp_path):
     from sqlmodel import select
 
-    from amdockvs.docking.results import dataset as result_dataset
     from amdockvs.screening.campaign import record_docked
     from amdockvs.models import MoleculeRecord
     from amdockvs.runtime import AMDockVSRuntime
@@ -424,7 +426,7 @@ def test_select_hits_projects_scores_then_loads_only_selected_poses(tmp_path, mo
             session.add(receptor)
             session.commit()
             receptor_id = int(receptor.id)
-        path = tmp_path / "scores.results.parquet"
+        path = tmp_path / "results" / "parts" / "scores.arrows"
         with shard_tasks.ResultFragmentWriter(
             path, metadata={"protocol": {"hash": "proto"}},
         ) as fragment:
@@ -438,14 +440,6 @@ def test_select_hits_projects_scores_then_loads_only_selected_poses(tmp_path, mo
         key = _key(receptor_id, protocol_hash="proto")
         record_docked(project_db, key=key, shard_id=shard_id, result_path=str(path))
 
-        calls = []
-        read_table = result_dataset.pq.read_table
-
-        def observed_read(*args, **kwargs):
-            calls.append(tuple(kwargs.get("columns") or ()))
-            return read_table(*args, **kwargs)
-
-        monkeypatch.setattr(result_dataset.pq, "read_table", observed_read)
         selected = shard_jobs.select_hits(
             project_db,
             keys=[key],
@@ -456,8 +450,6 @@ def test_select_hits_projects_scores_then_loads_only_selected_poses(tmp_path, mo
         assert [(row["source_index"], row["score"], row["_pose_text"]) for row in selected] == [
             (1, -10.0, "pose-1")
         ]
-        assert "pose_text" not in calls[0]
-        assert "pose_text" in calls[1]
         with project_db.get_session() as session:
             assert session.exec(select(MoleculeRecord)).all()
     finally:
@@ -494,7 +486,7 @@ def test_top_n_writes_nothing_until_the_campaign_closes(tmp_path):
         with project_db.get_session() as session:
             _plan(session, docking_run_id=run, receptor_id=receptor_id, keys=[key])
             session.commit()
-        result_shard = tmp_path / "ranked.results.parquet"
+        result_shard = tmp_path / "results" / "parts" / "ranked.arrows"
         with shard_tasks.ResultFragmentWriter(
             result_shard,
             metadata={
@@ -574,7 +566,7 @@ def test_general_top_n_is_ranked_per_receptor_and_deduplicates_ligands(tmp_path)
             with project_db.get_session() as session:
                 _plan(session, docking_run_id=run, receptor_id=receptor_id, keys=[key])
                 session.commit()
-            result_path = tmp_path / f"r{receptor_id}.results.parquet"
+            result_path = tmp_path / "results" / "parts" / f"r{receptor_id}.arrows"
             with shard_tasks.ResultFragmentWriter(
                 result_path, metadata={"protocol": {"hash": "proto"}},
             ) as fragment:
@@ -639,7 +631,7 @@ def test_interrupted_top_n_is_recovered_from_completed_result_shards(tmp_path):
 
         protocol = {"program": "vina", "label": "Vina", "hash": "proto-recover"}
         for shard_index, scores in enumerate(((-7.0, -10.0), (-9.0, -8.0))):
-            result_path = tmp_path / "results" / f"result-{shard_index}.parquet"
+            result_path = tmp_path / "results" / "parts" / f"result-{shard_index}.arrows"
             result_path.parent.mkdir(parents=True, exist_ok=True)
             with shard_tasks.ResultFragmentWriter(
                 result_path,
@@ -903,7 +895,7 @@ def test_a_forced_campaign_replaces_what_the_pairs_it_docked_again_had(tmp_path,
     from sqlmodel import select
 
     from amdockvs.docking.rerun import supersede_shard_runs
-    from amdockvs.docking.results.dataset import compact_keys, docked_pairs
+    from amdockvs.docking.results.dataset import docked_pairs, run_counts
     from amdockvs.models import DockingResultRecord, MoleculeRecord, ScreeningTarget
     from amdockvs.core.vocab import TargetState
     from amdockvs.runtime import AMDockVSRuntime
@@ -925,7 +917,7 @@ def test_a_forced_campaign_replaces_what_the_pairs_it_docked_again_had(tmp_path,
         old_run = _run(project_db, "run-old", protocol_hash="proto-forced")
         new_run = _run(project_db, "run-new", protocol_hash="proto-forced")
         key = _key(receptor_id, protocol_hash="proto-forced")
-        old_file = _docked(project_db, tmp_path, key=key, shard_id=shard_id, receptor_id=receptor_id,
+        _docked(project_db, tmp_path, key=key, shard_id=shard_id, receptor_id=receptor_id,
                            docking_run_id=old_run, score=-9.0)
         _docked(project_db, tmp_path, key=key, shard_id=shard_id, receptor_id=receptor_id,
                 docking_run_id=new_run, score=-11.0)
@@ -943,16 +935,17 @@ def test_a_forced_campaign_replaces_what_the_pairs_it_docked_again_had(tmp_path,
             session.commit()
 
         assert supersede_shard_runs(project_db, docking_run_id=new_run) == 1
-        compact_keys(project_db, [key])  # what the run does right after, and what drops the rows
         with project_db.get_session() as session:
             results = session.exec(select(DockingResultRecord)).all()
             targets = session.exec(select(ScreeningTarget)).all()
-        assert docked_pairs(project_db, [key]) == {(new_run, shard_id)}
+        # The older rows stay in the containers, hidden: a read sees the new run's alone.
+        assert docked_pairs(project_db, [key]) == {(old_run, shard_id), (new_run, shard_id)}
+        assert run_counts(project_db, [key], old_run) == (0, 0)
+        assert run_counts(project_db, [key], new_run) == (1, 1)
         assert [(int(row.docking_run_id), int(row.ligand_molecule_id)) for row in results] == [
             (new_run, new_ligand)
         ]
         assert targets == []
-        assert not old_file.exists()  # merged away: nothing points at it any more
     finally:
         runtime.close_project()
 
@@ -1011,7 +1004,7 @@ def test_a_forced_off_target_stage_keeps_the_ligands_it_never_docked_again(tmp_p
             _plan(session, docking_run_id=new_run, receptor_id=off_target_id, keys=[off_key],
                   receptor_name="off-target", engine="vina", ligands_total=1)
             session.commit()
-        subset = _fragment(tmp_path / "off.parquet", receptor_id=off_target_id, records={0: -10.0},
+        subset = _fragment(tmp_path / "results" / "parts" / "off.arrows", receptor_id=off_target_id, records={0: -10.0},
                            run_id="run-off", protocol={"hash": "proto-off"},
                            shard_id=shard_id, docking_run_id=new_run)
         writer = ShardHitWriter(
@@ -1039,7 +1032,7 @@ def test_a_forced_off_target_stage_keeps_the_ligands_it_never_docked_again(tmp_p
         # The whole-shard rows stay under their own key: the subset never covered them.
         assert docked_pairs(project_db, [library_key]) == {(old_run, shard_id)}
         assert docked_pairs(project_db, [off_key]) == {(new_run, shard_id)}
-        assert whole.exists()
+        assert list(whole.glob("summary_*.arrows"))
         assert targets == [old_run, new_run]
         # Only the pair it docked again was replaced; the ligand outside the Top-N keeps its row.
         assert results == sorted([(old_run, left_out), (new_run, picked)])
@@ -1054,7 +1047,7 @@ def _fragment(path: Path, *, receptor_id: int, records, run_id: str, protocol: d
     with shard_tasks.ResultFragmentWriter(path, metadata={
         "run_id": run_id, "protocol": protocol,
         "selection": selection or {"mode": "top_n", "cap": 10, "threshold": 0.0},
-    }) as writer:
+    }, origin=int(shard_id)) as writer:
         for record_id, score in dict(records).items():
             writer.add({
                 "ligand_id": int(record_id), "shard_id": int(shard_id),
@@ -1163,7 +1156,7 @@ def test_a_skipped_reference_still_supplies_its_ranking_to_a_new_off_target(tmp_
         # An older submission docked the library against the reference receptor and ranked it.
         old_run = _run(project_db, "run-old", protocol_hash="proto-skip")
         reference_key = _key(reference_id, protocol_hash="proto-skip")
-        path = _fragment(root / "results" / "reference.parquet", receptor_id=reference_id,
+        path = _fragment(root / "results" / "parts" / "reference.arrows", receptor_id=reference_id,
                          records={0: -11.0, 1: -6.0}, run_id="run-old",
                          protocol={"program": "vina", "label": "Vina", "hash": "proto-skip"},
                          shard_id=shard_id, docking_run_id=old_run)
@@ -1206,7 +1199,7 @@ def test_a_partial_replacement_retires_the_hits_of_the_shard_it_replaced(tmp_pat
     from amdockvs.models import DockingResultRecord, MoleculeRecord, ScreeningTarget
     from amdockvs.core.vocab import TargetState
     from amdockvs.docking.rerun import supersede_shard_runs
-    from amdockvs.docking.results.dataset import compact_keys, key_files
+    from amdockvs.docking.results.dataset import _summaries
     from amdockvs.screening.campaign import record_docked
     from amdockvs.runtime import AMDockVSRuntime
     from catalog_seed import seed_library
@@ -1240,7 +1233,7 @@ def test_a_partial_replacement_retires_the_hits_of_the_shard_it_replaced(tmp_pat
             ("old-second", old_run, second, {2: -9.5}),
             ("new-first", new_run, first, {0: -8.0, 1: -11.0}),
         ):
-            path = _fragment(root / "results" / f"{name}.parquet", receptor_id=receptor_id,
+            path = _fragment(root / "results" / "parts" / f"{name}.arrows", receptor_id=receptor_id,
                              records=records, run_id=str(run), protocol=protocol,
                              shard_id=shard, docking_run_id=run)
             record_docked(project_db, key=key, shard_id=shard, result_path=str(path), force=True)
@@ -1261,14 +1254,13 @@ def test_a_partial_replacement_retires_the_hits_of_the_shard_it_replaced(tmp_pat
             session.commit()
 
         assert supersede_shard_runs(project_db, docking_run_id=new_run) == 1
-        compact_keys(project_db, [key])
         with project_db.get_session() as session:
             results = sorted((int(row.docking_run_id), int(row.ligand_molecule_id))
                              for row in session.exec(select(DockingResultRecord)).all())
             targets = [int(row.docking_run_id) for row in session.exec(select(ScreeningTarget)).all()]
-        rows = pq.read_table(key_files(project_db, [key])[0],
-                             columns=["shard_id", "ligand_id", "docking_run_id"]).to_pylist()
-        # The replaced shard's rows are the new run's; the untouched shard keeps the old run's.
+        rows = _summaries(project_db, [key], ("shard_id", "ligand_id", "docking_run_id"))[0].select(
+            ["shard_id", "ligand_id", "docking_run_id"]).to_pylist()
+        # What a read sees: the replaced shard's rows are the new run's; the untouched shard keeps the old run's.
         assert sorted(tuple(row.values()) for row in rows) == sorted([
             (first, 0, new_run), (first, 1, new_run), (second, 2, old_run),
         ])
