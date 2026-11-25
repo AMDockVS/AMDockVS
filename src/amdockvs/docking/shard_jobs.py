@@ -38,6 +38,7 @@ from amdockvs.docking.protocols import DockingProtocolMetadata
 from amdockvs.docking.repository import inputs_dir, list_entity_rows, resolve_docking_output_dir, with_input_files
 from amdockvs.docking.results.repository import docking_run_id, find_docking_run, runs_where
 from amdockvs.docking.results.dataset import (
+    UNIQUE_BY,
     docked_pairs,
     key_files,
     off_target_selection,
@@ -374,16 +375,22 @@ class ShardHitWriter:
 
     def close(self) -> None:
         """Finalize hits on success; expose cancellation/failure without promoting partial top-N."""
-        for writer in self._writers.values():  # no part comes after the last chunk: their locks go
-            writer.close()
-        self._writers.clear()
-        if self.terminal_status == "completed":
-            run = self.docking_run_id or 0
-            keys = target_keys(self.project_db, [run])
-            if not self.skip_existing:
-                # Forced: what this run docked again replaces what older runs held for those
-                # pairs (older copies stay in the containers; a read keeps the newest).
-                supersede_shard_runs(self.project_db, docking_run_id=run, keys=keys)
+        completed = self.terminal_status == "completed"
+        try:
+            if completed:
+                run = self.docking_run_id or 0
+                keys = target_keys(self.project_db, [run])
+                if not self.skip_existing:
+                    # Forced: what this run docked again replaces what older runs held for those
+                    # pairs. It reads that history, so it comes before the retire.
+                    supersede_shard_runs(self.project_db, docking_run_id=run, keys=keys)
+                for writer in self._writers.values():  # an older shard this run covers leaves the reads
+                    writer.retire_covered(UNIQUE_BY[-1])
+        finally:
+            for writer in self._writers.values():  # no part comes after the last chunk: their locks go
+                writer.close()
+            self._writers.clear()
+        if completed:
             if not self.selected_from_receptor_id:
                 with self.project_db.get_session() as session:
                     receptor_ids = sorted({

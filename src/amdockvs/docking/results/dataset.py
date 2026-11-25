@@ -231,8 +231,11 @@ def _summaries(project_db, keys: Iterable[str], columns: Iterable[str] = SUMMARY
                newest: bool = True) -> tuple[pa.Table, dict[int, dict[str, Any]]]:
     """The summary rows of `keys` as one table, `_result_shard` (the shard id of each) beside them,
     and the meta of every shard read. `newest`: one row per (shard, ligand) of a key, the last
-    committed; only a key with a library shard docked twice (an origin repeated) is deduplicated."""
+    committed; only the shards of a library shard docked twice (an origin repeated) are deduplicated."""
+    from collections import Counter
+
     import numpy as np
+    import pyarrow.compute as pc
 
     from ms_flow.core.data.catalog import shard_id
     from ms_flow.core.data.shard import file_groups, read_rows
@@ -249,12 +252,16 @@ def _summaries(project_db, keys: Iterable[str], columns: Iterable[str] = SUMMARY
         sizes = [group.n_records + group.n_dropped for group in groups]
         table = read_rows(path, [group.shard for group in groups], names)
         by_key.setdefault(key, []).append((table.append_column(
-            "_result_shard", pa.array(np.repeat(ids, sizes), pa.int64())), [group.origin for group in groups]))
+            "_result_shard", pa.array(np.repeat(ids, sizes), pa.int64())), list(zip(ids, (g.origin for g in groups)))))
     tables = []
     for parts in by_key.values():
-        table = pa.concat_tables([table for table, _origins in parts])
-        origins = [origin for _table, found in parts for origin in found]
-        tables.append(_newest(table) if newest and len(origins) != len(set(origins)) else table)
+        table = pa.concat_tables([table for table, _shards in parts])
+        counts = Counter(origin for _table, shards in parts for _id, origin in shards)
+        twice = [shard for _table, shards in parts for shard, origin in shards if counts[origin] > 1]
+        if newest and twice:  # the index alone tells which origins repeat: only their rows are deduped
+            again = pc.is_in(table["_result_shard"], pa.array(twice, pa.int64()))
+            table = pa.concat_tables([table.filter(pc.invert(again)), _newest(table.filter(again))])
+        tables.append(table)
     if not tables:
         empty = pa.schema([RESULT_SCHEMA.field(name) for name in names]).empty_table()
         return empty.append_column("_result_shard", pa.array([], pa.int64())), metas

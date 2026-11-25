@@ -99,8 +99,8 @@ def clear_previous_docking(project_db, *, program) -> None:
 
 def supersede_shard_runs(project_db, *, docking_run_id: int | None, keys: set[str] | None = None) -> int:
     """A forced campaign completed: what it docked again replaces what older runs held for those
-    shards, instead of sitting beside it. The older *rows* stay in the key's containers; a read
-    keeps one per (shard, ligand), the newest.
+    shards, instead of sitting beside it. A read keeps one row per (shard, ligand), the newest; the
+    run's finish then retires the older shards its redo covers whole, so this reads them first.
 
     Within a key (one receptor, one site, one input, one protocol), a shard this run docked
     again retires what an older run of the same key had for it. An off-target stage has a key of

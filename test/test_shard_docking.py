@@ -57,7 +57,7 @@ def _docked(project_db, folder, *, key, shard_id, receptor_id, docking_run_id, l
 
     path = Path(folder) / "results" / key / "parts" / f"{shard_id}-{docking_run_id}.arrows"
     path.parent.mkdir(parents=True, exist_ok=True)
-    with ResultFragmentWriter(path, metadata={"input_key": input_key}) as writer:
+    with ResultFragmentWriter(path, metadata={"input_key": input_key}, origin=int(shard_id)) as writer:
         for ligand_id in ligand_ids:
             writer.add(result_row(
                 {"ligand_molecule_id": ligand_id, "receptor_id": receptor_id, "score": score,
@@ -946,6 +946,64 @@ def test_a_forced_campaign_replaces_what_the_pairs_it_docked_again_had(tmp_path,
             (new_run, new_ligand)
         ]
         assert targets == []
+    finally:
+        runtime.close_project()
+
+
+def test_retire_happens_after_supersede(tmp_path, monkeypatch):
+    """M6b: a forced run's finish reads the history first (what older runs held goes with them),
+    then retires the older shard its redo covers: from then on a read has one copy."""
+    from ms_flow.core.data import catalog
+    from ms_flow.core.data.shard import file_groups
+    from sqlmodel import select
+
+    from amdockvs.docking.results.dataset import docked_pairs, summary_role
+    from amdockvs.models import DockingResultRecord, MoleculeRecord, ScreeningTarget
+    from amdockvs.core.vocab import TargetState
+    from amdockvs.runtime import AMDockVSRuntime
+
+    runtime = AMDockVSRuntime()
+    runtime.create_project(name="retire-after-supersede", folder=tmp_path)
+    try:
+        project_db = runtime.workspace.project_db
+        with project_db.get_session() as session:
+            receptor = MoleculeRecord(name="R", molecule_type="protein", is_receptor=True)
+            ligand = MoleculeRecord(name="old-hit", molecule_type="small_molecule", is_ligand=True)
+            shard_id = _library_file(session, tmp_path, "library.smi", n_records=2)
+            session.add_all([receptor, ligand])
+            session.commit()
+            receptor_id, ligand_id = int(receptor.id), int(ligand.id)
+        old_run = _run(project_db, "run-old", protocol_hash="proto")
+        key = _key(receptor_id, protocol_hash="proto")
+        folder = _docked(project_db, tmp_path, key=key, shard_id=shard_id, receptor_id=receptor_id,
+                         docking_run_id=old_run, ligand_ids=(0, 1))
+        new_run = _run(project_db, "run-new", protocol_hash="proto")
+        with project_db.get_session() as session:
+            session.add(ScreeningTarget(
+                docking_run_id=old_run, receptor_molecule_id=receptor_id, receptor_name="R", engine="vina",
+                ligands_total=2, ligands_done=2, state=TargetState.DONE, state_keys=key))
+            session.add(DockingResultRecord(docking_run_id=old_run, receptor_molecule_id=receptor_id,
+                                            ligand_molecule_id=ligand_id, pose_rank=1, score=-9.0, engine="vina"))
+            _plan(session, docking_run_id=new_run, receptor_id=receptor_id, keys=[key], receptor_name="R",
+                  engine="vina", ligands_total=2)
+            session.commit()
+        redo = _fragment(folder / "parts" / "redo.arrows", receptor_id=receptor_id, records={0: -10.0, 1: -7.0},
+                         run_id="run-new", protocol={"hash": "proto"}, shard_id=shard_id, docking_run_id=new_run)
+        writer = ShardHitWriter(project_db=project_db, hit_cap=10, hit_threshold=0.0, run_id="run-new",
+                                engine="vina", protocol_hash="proto", skip_existing=False)
+        monkeypatch.setattr(writer, "_materialize_selected", lambda rows: [])
+        writer.handle("chunk", [{"shard_id": shard_id, "receptor_id": receptor_id, "scored": 2, "hits": [],
+                                 "hits_found": 2, "result_shard": str(redo), "state_key": key,
+                                 "docking_run_id": new_run}])
+        writer.on_job_terminal("completed")
+        writer.close()
+
+        with project_db.get_session() as session:
+            assert session.exec(select(DockingResultRecord)).all() == []  # supersede saw the old run
+            assert [int(row.docking_run_id) for row in session.exec(select(ScreeningTarget)).all()] == [new_run]
+        (summary,) = list(catalog.files(project_db, catalog.shard_spec(role=summary_role(key))))
+        assert [group.retired for group in file_groups(summary["path"])] == [True, False]
+        assert docked_pairs(project_db, [key]) == {(new_run, shard_id)}
     finally:
         runtime.close_project()
 
