@@ -79,9 +79,10 @@ def prepare_entities(payload: dict, progress_cb=None):
 
 
 def prepare_ligand_shards(payload: dict, progress_cb=None):
-    """Each shard into its own derived file (`catalog_sink` registers it as the chunk arrives).
-    The name is new per run, so a redo never overwrites a file a catalog row still points at;
-    a campaign's prep, which `located` must find there, names it (`output_name`)."""
+    """Each shard into a part of its own, whose receipt (`part`) `catalog_sink` appends to the
+    containers of the role. The name is new per run, so a redo never overwrites a part not yet
+    committed; a campaign's prep, which `located` must find there, names its file
+    (`output_name`) and keeps it whole: it has no `part`."""
     from uuid import uuid4
 
     from ms_flow.core.data.catalog import file_row
@@ -99,7 +100,7 @@ def prepare_ligand_shards(payload: dict, progress_cb=None):
                               scope=shard.get("import_batch_id"), origin=int(shard["shard_id"]))
         if output_path.is_file():
             rows.append(file_row(output_path, role=str(payload["role"]),
-                                 generation_id=shard.get("generation_id")))
+                                 generation_id=shard.get("generation_id"), part=shard.get("part")))
         if progress_cb is not None:
             progress_cb(((index + 1) / max(1, len(payload["shards"]))) * 100.0)
     return rows

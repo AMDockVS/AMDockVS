@@ -280,20 +280,10 @@ class PrepareLigandShardsJobParams(BaseModel):
     file_ids: list[int] | None = None  # the library files to prepare; None = every file
 
 
-def _compact_prepared(params: dict, config: dict) -> None:
-    """A task's file per shard, merged into big ones once the job is over (every outcome: what a
-    canceled job made is kept, and its shards are not made again)."""
-    from ms_flow.core.data import catalog
-
-    project_db = config["project_db"]
-    generation_id = catalog.active_generation_id(project_db)
-    if generation_id is not None:
-        catalog.compact(project_db, generation_id, role=prepared_role(PrepareLigandShardsJobParams(**params).engine))
-
-
 class PrepareLigandShardsJobSpec(JobSpec):
-    """Whole shards per chunk: molecules in, PDBQT text out, a derived file per shard. The catalog
-    row of that file is the state (role `prepared:<family>`): no table of its own."""
+    """Whole shards per chunk: molecules in, PDBQT text out, a part per shard, appended to the
+    containers of role `prepared:<family>` as it arrives (`catalog_sink`): what a canceled job
+    made is kept, and its shards are not made again. The catalog is the state: no table of its own."""
 
     name = "amdock_prepare_ligand_shards_job"
     task_name = "amdock_prepare_ligand_shards_task"
@@ -306,10 +296,11 @@ class PrepareLigandShardsJobSpec(JobSpec):
     store_results = False
     required = ()
     produces = ()
-    finalize = staticmethod(_compact_prepared)
 
     @staticmethod
     def build_chunks(params: dict, config: dict | None = None) -> Iterator[dict[str, Any]]:
+        from uuid import uuid4
+
         from ms_flow.core.data import catalog
 
         parsed = PrepareLigandShardsJobParams(**params)
@@ -326,7 +317,7 @@ class PrepareLigandShardsJobSpec(JobSpec):
         # of the same family running now would lose its unregistered files; the UI runs one.
         for folder in {prepared_dir(row["path"], parsed.engine) for row in todo}:
             catalog.sweep(project_db, folder)
-        emitted = False
+        emitted, run = False, uuid4().hex[:12]  # a part id per submission: a forced redo is no replay
         for row in todo:
             emitted = True
             yield {"engine": parsed.engine, "role": role, "shards": [{
@@ -338,6 +329,7 @@ class PrepareLigandShardsJobSpec(JobSpec):
                 "output_dir": worker_output_dir(prepared_dir(row["path"], parsed.engine)),
                 "import_batch_id": row["scope"],
                 "shard_index": int(row["shard_index"]),
+                "part": f"{run}:{int(row['id'])}",
             }]}
         if not emitted:
             # MF still needs one chunk to close the job out cleanly when nothing is pending.

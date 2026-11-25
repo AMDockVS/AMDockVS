@@ -80,6 +80,40 @@ def test_a_failed_rewrite_leaves_the_library_alone(project, tmp_path):
     assert store.record_count(shard_scope_spec()) == 998
 
 
+def test_a_failed_rewrite_leaves_the_previous_generation_active(project, tmp_path):
+    """A rewrite's parts are appended to the containers of a generation nothing reads yet as
+    they arrive, and go once committed; without the switch at the end the previous one stays."""
+    from ms_flow.core.data import container
+    from ms_flow.core.data.shard import Serializer, ShardWriter
+    from amdockvs.core.constants import ShardKind
+
+    project_db, root = project
+    first = create_generation(project_db, step="import", folder=root)
+    activate_generation(project_db, first)
+    _populate(project_db, first, tmp_path, count=3, tag="first")
+
+    second = create_generation(project_db, step="protonate", folder=root)
+    out = tmp_path / "second"
+    out.mkdir()
+    writer = ShardGenerationWriter(project_db=project_db, generation_id=second)
+    for index in range(3):
+        path = out / f"out_{index}.arrows"
+        with ShardWriter(path, dataset_id=None, shard_id=0, base_id=10 * index, kind=ShardKind.SDF,
+                         serializer=Serializer.UTF8, slot_count=10, scope=5) as shard:
+            shard.add(10 * index, f"m{index}".encode())
+        writer.write([[{"import_batch_id": 5, "shard_index": index, "path": str(path), "n_records": 1}]])
+    writer.on_error("chunk-3", "boom")
+    writer.close()  # the job ended failed: flush() never ran
+
+    store = ShardStore(project_db)
+    assert active_generation_id(project_db) == first
+    assert store.record_count(shard_scope_spec()) == 3000
+    made = list(catalog.files(project_db, catalog.shard_spec(generation_id=second)))
+    assert len(made) == 1 and made[0]["n_shards"] == 3  # one container, no merge pass
+    assert all(row["part"] for row in container.read_index(made[0]["path"])[1])
+    assert not list(out.glob("out_*"))  # each part went at its commit
+
+
 def test_the_window_is_two_deep(project, tmp_path):
     project_db, root = project
     grandparent = create_generation(project_db, step="import", folder=root)

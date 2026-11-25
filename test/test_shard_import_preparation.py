@@ -99,8 +99,10 @@ def test_without_preparation_the_raw_record_is_kept(runtime, tmp_path):
 
 def test_shards_sharing_a_file_prepare_each_into_its_own_shard(runtime, tmp_path):
     """Three logical shards in one Parquet file: each prepares only its own id range, and the
-    per-task files are compacted into one when the job is over."""
-    from ms_flow.core.data import catalog
+    per-task parts are appended to one container as they arrive, no merge pass."""
+    from pathlib import Path
+
+    from ms_flow.core.data import catalog, container
     from ms_flow.core.data.shard import Shard
 
     from amdockvs.molecules.storage import iter_prepared_shards
@@ -120,6 +122,9 @@ def test_shards_sharing_a_file_prepare_each_into_its_own_shard(runtime, tmp_path
     prepared = sorted(iter_prepared_shards(runtime.workspace.project_db, engine="ad4"), key=lambda row: row["base_id"])
     assert [row["id"] for row in prepared] == [row["id"] for row in rows]
     assert len({row["prepared_path"] for row in prepared}) == 1
+    path = Path(prepared[0]["prepared_path"])
+    assert all(row["part"] for row in container.read_index(path)[1])
+    assert sorted(p.name for p in path.parent.iterdir() if p.suffix != ".lock") == [path.name, path.name + ".index"]
     seen = []
     for row, source_row in zip(prepared, rows):
         assert row["prepared_shard"] is not None

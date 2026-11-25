@@ -452,21 +452,29 @@ class ShardGenerationWriter:
     chunk at a time, so a job that died at shard 600 of 1000 left a library that was 60% the
     new step and 40% the old one, with no way to tell which was which.
 
-    Here each worker's file is registered in a generation nothing reads yet, and `flush()` —
-    which MolSuite calls once, when the job actually completes — compacts them into big files
-    and only then makes them the library. A failed job leaves an inert generation behind, not
-    a corrupted one.
+    Here each worker's file is a part, appended to the containers of a generation nothing reads
+    yet as its group arrives (`ms_flow.sinks.CatalogWriter`), and `flush()` — which MolSuite
+    calls once, when the job actually completes — makes it the library. A failed job leaves an
+    inert generation behind, not a corrupted one.
     """
 
     def __init__(self, *, project_db: Any, generation_id: int) -> None:
+        from ms_flow.sinks import CatalogWriter
+
         self._project_db = project_db
         self._generation_id = int(generation_id)
+        self._sink = CatalogWriter(project_db)
+
+    def write(self, results: list) -> None:
+        from ms_flow.core.data.catalog import SOURCE
+
+        # A part per source shard: its file's name is that shard's, once per generation.
+        self._sink.write([[{"part": f"{self._generation_id}:{Path(row['path']).name}", "path": row["path"],
+                            "role": SOURCE, "generation_id": self._generation_id} for row in result or []]
+                          for result in results])
 
     def handle(self, chunk_id: str, result: Any) -> None:
-        from ms_flow.core.data.catalog import add_file
-
-        for row in result or []:
-            add_file(self._project_db, row["path"], generation_id=self._generation_id)
+        self.write([result])
 
     def on_error(self, chunk_id: str, error: str) -> None:
         """A failed shard contributes no file, so it is simply absent from the generation.
@@ -484,8 +492,9 @@ class ShardGenerationWriter:
         and the switch silently replaces the library with nothing. That is the one outcome a
         rewrite must never be allowed to reach.
         """
-        from ms_flow.core.data.catalog import activate_generation, compact, record_count, shard_spec
+        from ms_flow.core.data.catalog import activate_generation, record_count, shard_spec
 
+        self._sink.finish()  # a part that could not be committed fails the rewrite: the library stays
         written = record_count(self._project_db, shard_spec(generation_id=self._generation_id), whole=True)
         if written <= 0:
             raise RuntimeError(
@@ -493,9 +502,10 @@ class ShardGenerationWriter:
                 "replace the library with an empty one. Every molecule failed the step; the "
                 "previous generation is still the library."
             )
-        # A worker wrote a file per task; a few big files are what the library keeps.
-        compact(self._project_db, self._generation_id)
         activate_generation(self._project_db, self._generation_id)
+
+    def close(self) -> None:
+        self._sink.close()
 
 
 def shard_generation_writer(params: dict, config: dict) -> ShardGenerationWriter:
