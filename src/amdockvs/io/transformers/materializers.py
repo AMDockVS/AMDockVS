@@ -194,14 +194,10 @@ def offload_source_properties(rows: list[dict[str, Any]]) -> Any:
     if not src_idx:
         return None
 
-    import io
+    from ms_flow.core.data import tables
 
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-
-    buffer = io.BytesIO()
-    pq.write_table(pa.table({"source_index": src_idx, "key": keys, "value": vals}), buffer, compression="zstd")
-    payload = structure_payload(buffer.getvalue(), "parquet", SERIES_PROPERTIES)
+    data = tables.to_bytes({"source_index": src_idx, "key": keys, "value": vals})
+    payload = structure_payload(data, "parquet", SERIES_PROPERTIES)
     for row in rows:
         row["source_properties"] = []
         row["properties_payload_id"] = payload

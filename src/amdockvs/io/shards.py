@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, Iterator
 from uuid import uuid4
 
-from ms_flow.core.data.shard import SUFFIX, Serializer, ShardWriter
+from ms_flow.core.data.shard import SUFFIX, Group, PartWriter
 from amdockvs.core.constants import ShardKind
 
 from amdockvs.io.parsers import iter_record_span
@@ -347,35 +347,23 @@ def write_ligand_span(payload: dict[str, Any], progress_cb=None) -> list[dict[st
     size = max(1, int(part["shard_records"]))
     path = Path(part["dir"]) / f".part-{uuid4().hex[:16]}{SUFFIX}"
     path.parent.mkdir(parents=True, exist_ok=True)
-    with ShardWriter(path, dataset_id=None, shard_id=0, base_id=first * width,
-                     slot_count=max(1, (end - first) * width), kind=payload_kind_for(group["input_format"]),
-                     serializer=Serializer.UTF8, metadata={"input_format": group["input_format"]},
-                     source_index=True, scope=batch.import_batch_id) as writer:
-        shard, at = None, 0
+    span = Group(base_id=first * width, slot_count=max(1, (end - first) * width), n_records=0, scope=None)
+    with PartWriter(path, kind=payload_kind_for(group["input_format"]), like=span, group_size=size * width,
+                    meta={"input_format": group["input_format"]}, scope=batch.import_batch_id) as writer:
+        at = 0
         while at < len(records):
             ordinal = records[at][0]
             texts = []
             while at < len(records) and records[at][0] == ordinal:
                 texts.append(records[at][1])
                 at += 1
-            mine = (ordinal - first) // size
-            if mine != shard:
-                if shard is not None:
-                    _end_shard(writer, first, end, size, width, shard)
-                shard = mine
             if len(texts) > width:
                 writer.drop(ordinal * width, f"{len(texts)} molecules from one record, at most {width}")
                 continue
             for k, text in enumerate(texts):
                 writer.add(ordinal * width + k, text.encode("utf-8"), source_index=ordinal)
-        _end_shard(writer, first, end, size, width, shard)
     return [file_row(path, part=str(part["id"]), role=SOURCE, generation_id=part["generation_id"])
             | {"import_batch_id": batch.import_batch_id}]
-
-
-def _end_shard(writer, first: int, end: int, size: int, width: int, shard: int) -> None:
-    lo = first + shard * size
-    writer.end_group(base_id=lo * width, slot_count=(min(lo + size, end) - lo) * width)
 
 
 def _over_the_bits(path, records: int, width: int) -> str:

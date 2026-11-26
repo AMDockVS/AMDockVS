@@ -9,7 +9,7 @@ from __future__ import annotations
 from contextlib import ExitStack, suppress
 from pathlib import Path
 
-from ms_flow.core.data.shard import MAX_RECORDS, PayloadKind, Serializer, Shard, ShardWriter
+from ms_flow.core.data.shard import PartWriter, PayloadKind, Serializer, Shard
 from ms_flow.engine import chain, report, task
 from ms_flow.payloads import PayloadGroup, PayloadPart, scratch_file
 
@@ -160,12 +160,10 @@ def pack_transport(payload: dict, progress_cb=None) -> dict:
         return {}
     folder = Path(payload["folder"])
     folder.mkdir(parents=True, exist_ok=True)
-    writer = ShardWriter(folder / f".packing-{uuid4().hex}{SHARD_SUFFIX}", dataset_id=None, shard_id=0,
-                         base_id=int(records[0][0]), kind=PayloadKind.GENERIC_BYTES, serializer=Serializer.RAW,
-                         slot_count=MAX_RECORDS)
-    for ligand_id, data in records:
-        writer.add(int(ligand_id), bytes(data))
-    writer.close()
+    with PartWriter(folder / f".packing-{uuid4().hex}{SHARD_SUFFIX}", kind=PayloadKind.GENERIC_BYTES,
+                    serializer=Serializer.RAW) as writer:
+        for ligand_id, data in records:
+            writer.add(int(ligand_id), bytes(data))
     digest = hashlib.sha256()
     with open(writer.path, "rb") as file:
         for block in iter(lambda: file.read(1 << 20), b""):

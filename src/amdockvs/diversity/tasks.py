@@ -133,6 +133,7 @@ def _write_graph_sidecar(
 
         import numpy as np
         import pandas as pd
+        from ms_flow.core.data import tables
 
         from amdockvs.diversity.clustering import fit_project_2d, project_2d_onto
 
@@ -161,6 +162,6 @@ def _write_graph_sidecar(
         frame.attrs["evr"] = [float(value) for value in list(_evr)[:2]]
         out_dir = Path(output_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
-        frame.to_parquet(out_dir / f"{run_id}.parquet", index=False)
+        tables.write(out_dir / f"{run_id}.parquet", frame)
     except Exception:  # noqa: BLE001 — the graph is a nicety; never fail the clustering over it
         pass

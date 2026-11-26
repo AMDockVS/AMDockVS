@@ -21,6 +21,8 @@ import numpy as np
 from sqlalchemy import update as sql_update
 from sqlmodel import select
 
+from ms_flow.core.data import tables
+
 from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR, SHARDS_PRIORITY
 from amdockvs.io.shards import is_shard_key
 from amdockvs.molecules.storage import ShardStore
@@ -624,7 +626,7 @@ class DiversityAPI:
             # The promotion reads the picks off the sidecar; a failed one puts the old flags back.
             before = frame["is_centroid"].copy() if "is_centroid" in frame else None
             frame["is_centroid"] = flags
-            frame.to_parquet(sidecar, index=False)
+            tables.write(sidecar, frame)
             try:
                 picked_ids = self._promote_picks(run_id, picked_ids)
             except Exception:
@@ -632,7 +634,7 @@ class DiversityAPI:
                     frame = frame.drop(columns="is_centroid")
                 else:
                     frame["is_centroid"] = before
-                frame.to_parquet(sidecar, index=False)
+                tables.write(sidecar, frame)
                 raise
         with self.runtime.workspace.project_db.get_session() as session:
             session.exec(sql_update(ClusteringResult).where(of_run).values(is_centroid=False))
@@ -645,7 +647,7 @@ class DiversityAPI:
             session.exec(sql_update(ClusteringRun).where(ClusteringRun.run_id == run_id).values(n_reps=len(picks)))
             session.commit()
         frame["is_centroid"] = flags
-        frame.to_parquet(sidecar, index=False)
+        tables.write(sidecar, frame)
         return {"n_molecules": len(frame), "n_clusters": int(len(np.unique(labels))), "n_reps": len(picks)}
 
     def _promote_picks(self, run_id: str, keys: list[int]) -> list[int]:
@@ -764,7 +766,7 @@ class DiversityAPI:
         frame = pd.DataFrame(
             list(points), columns=["x", "y", "molecule_id", "cluster_id", "is_centroid"]
         )
-        frame.to_parquet(snapshot, index=False)
+        tables.write(snapshot, frame)
         row = ClusteringRun(
             run_id=run_id, method=str(method), threshold=float(threshold), scope_label=str(scope_label),
             fp_radius=int(fp_radius), fp_nbits=int(fp_nbits),

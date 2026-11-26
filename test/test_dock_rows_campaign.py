@@ -133,11 +133,11 @@ def test_the_same_rows_pack_to_the_same_campaign(tmp_path, monkeypatch):
     for _ in range(2):  # again: the same campaign
         params = campaign.pack_params({}, folder, cpu=2)
         with monkeypatch.context() as parent:
-            parent.setattr(tasks, "ShardWriter", refuse)
+            parent.setattr(tasks, "PartWriter", refuse)
             chunks = list(spec.build_chunks(params, {}))
         results = [spec.run_chunk(chunk) for chunk in chunks]  # the workers
         with monkeypatch.context() as parent:
-            parent.setattr(tasks, "ShardWriter", refuse)
+            parent.setattr(tasks, "PartWriter", refuse)
             writer = spec.result_handler_factory(params, {})
             for result in results:
                 writer.handle("", result)

@@ -17,7 +17,7 @@ import io
 from pathlib import Path
 from typing import Any, Sequence
 
-from ms_flow.core.data.shard import Serializer, Shard, ShardWriter
+from ms_flow.core.data.shard import Group, PartWriter, Shard
 from amdockvs.core.constants import ShardKind
 
 from amdockvs.chemistry.pipeline import normalize_steps, run_pipeline
@@ -56,13 +56,12 @@ def write_shard(
     ids: Sequence[int],
     mols: Sequence[Any],
     *,
-    base_id: int,
-    slot_count: int,
-    shard_id: int = 0,
+    like: Any,
     metadata: dict[str, Any] | None = None,
     scope: int | None = None,
 ) -> int:
-    """Write the molecules that survived, each at its own id. Returns how many were written.
+    """Write the molecules that survived, each at its own id, over ``like``'s range (the source
+    shard). Returns how many were written.
 
     Failures are dropped here, not earlier: `run_pipeline` keeps them in place so the caller
     can count them, and this is the caller. Dropped means *absent*, not renumbered. ``scope``:
@@ -71,17 +70,8 @@ def write_shard(
     path = Path(shard_path).expanduser().resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
     written = 0
-    with ShardWriter(
-        path,
-        dataset_id=None,
-        shard_id=shard_id,
-        base_id=base_id,
-        kind=ShardKind.SDF,  # whatever came in, what a pipeline emits is a molecule
-        serializer=Serializer.UTF8,
-        slot_count=slot_count,
-        metadata=dict(metadata or {}),
-        scope=scope,
-    ) as writer:
+    # whatever came in, what a pipeline emits is a molecule
+    with PartWriter(path, kind=ShardKind.SDF, like=like, meta=metadata, scope=scope) as writer:
         for id_, mol in zip(ids, mols):
             if mol is None or isinstance(mol, Exception):
                 continue
@@ -94,12 +84,7 @@ def transform_ligand_shard(shard_in: str | Path, shard_out: str | Path, steps, s
                            scope: int | None = None) -> dict[str, int]:
     """Run the step list over a whole shard. One file/CPU, no database in sight."""
     with Shard.open(Path(shard_in).expanduser().resolve(), shard=shard) as opened:
-        header = {
-            "base_id": opened.base_id,
-            "slot_count": opened.slot_count,
-            "shard_id": opened.shard_id,
-            "metadata": dict(opened.metadata),
-        }
+        like, metadata = Group(opened.base_id, opened.slot_count, 0, None), dict(opened.metadata)
         ids = [record.id for record in opened]
         mols = [mol_from_record(record.load(), FORMAT_FOR_KIND.get(opened.kind, "")) for record in opened]
     results = run_pipeline(mols, normalize_steps(steps))
@@ -107,10 +92,8 @@ def transform_ligand_shard(shard_in: str | Path, shard_out: str | Path, steps, s
         shard_out,
         ids,
         results,
-        base_id=header["base_id"],
-        slot_count=header["slot_count"],
-        shard_id=header["shard_id"],
-        metadata=header["metadata"],
+        like=like,
+        metadata=metadata,
         scope=scope,
     )
     return {"n_input": len(mols), "n_records": written, "n_failed": len(mols) - written}

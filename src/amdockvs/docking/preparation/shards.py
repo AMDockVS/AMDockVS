@@ -14,7 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Sequence
 
-from ms_flow.core.data.shard import Serializer, Shard, ShardWriter
+from ms_flow.core.data.shard import Group, PartWriter, Shard
 from amdockvs.core.constants import ShardKind
 
 from amdockvs.chemistry.pipeline import run_pipeline
@@ -91,7 +91,7 @@ def prepare_ligand_shard(
         raise ValueError(f"Unsupported shard preparation engine: {engine}")
     source = Path(shard_in).expanduser().resolve()
     with Shard.open(source, shard=shard) as opened:
-        base_id, slot_count = opened.base_id, opened.slot_count
+        like = Group(opened.base_id, opened.slot_count, 0, None)
     record_ids, mols = read_shard(source, shard)
     if ensure_3d:
         mols = _with_3d(mols)
@@ -99,9 +99,8 @@ def prepare_ligand_shard(
     out_path = Path(shard_out).expanduser().resolve()
     out_path.parent.mkdir(parents=True, exist_ok=True)
     written = failed = 0
-    with ShardWriter(out_path, dataset_id=None, shard_id=0, base_id=base_id, kind=ShardKind.PDBQT,
-                     serializer=Serializer.UTF8, slot_count=slot_count,
-                     metadata={"prepared_engine": engine}) as writer:
+    with PartWriter(out_path, kind=ShardKind.PDBQT, like=like, scope=scope, origin=origin,
+                    meta={"prepared_engine": engine}) as writer:
         for id_, mol in zip(record_ids, mols):
             if mol is None or isinstance(mol, Exception):
                 writer.drop(id_, _reason(mol) if isinstance(mol, Exception) else "unreadable record")
@@ -115,7 +114,6 @@ def prepare_ligand_shard(
                 continue
             writer.add(id_, text.encode("utf-8"))
             written += 1
-        writer.end_group(scope=scope, base_id=base_id, slot_count=slot_count, origin=origin)
     return {"n_input": len(record_ids), "n_records": written, "n_failed": failed}
 
 

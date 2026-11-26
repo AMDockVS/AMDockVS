@@ -101,7 +101,7 @@ def predict_shard_task(payload: dict) -> dict:
     from pathlib import Path
 
     import numpy as np
-    import pandas as pd
+    from ms_flow.core.data import tables
 
     from amdockvs.chemistry.shards import read_shard
     from amdockvs.io.shards import shard_key
@@ -126,14 +126,14 @@ def predict_shard_task(payload: dict) -> dict:
         positive_probability = fitted.predict_positive_probability(x_matrix)
     out = Path(str(payload["output_dir"])) / f"{int(payload['shard_id'])}.parquet"
     out.parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame({
+    tables.write(out, {
         "key": np.asarray(keys, dtype=np.int64),
         "value": np.asarray(values, dtype=float),
         "confidence": np.full(len(keys), np.nan) if confidence is None else np.asarray(confidence, dtype=float),
         "positive_probability": (np.full(len(keys), np.nan) if positive_probability is None
                                  else np.asarray(positive_probability, dtype=float)),
         "ad_similarity": np.asarray([np.nan if v is None else v for v in _domain(mols, fitted)], dtype=float),
-    }).to_parquet(out, index=False)
+    })
     return {"path": str(out), "count": len(keys)}
 
 

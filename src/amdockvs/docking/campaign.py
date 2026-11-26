@@ -99,8 +99,8 @@ class CampaignWriter(ShardHitWriter):
             return
         generation_id = active_generation_id(self.project_db)
         for row in result.get("files") or []:
-            catalog.add_file(self.project_db, row["path"], generation_id=generation_id, role=row["role"],
-                             location=self.executor, counts=row, once=True)
+            catalog.add_remote(self.project_db, row["path"], location=self.executor, role=row["role"],
+                               counts=row, generation_id=generation_id)
 
     def _of_run(self, hits) -> list[dict]:
         return [{**hit, "docking_run_id": self.docking_run_id} for hit in hits]
