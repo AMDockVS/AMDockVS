@@ -104,6 +104,11 @@ def _active_indicator_icon() -> QIcon:
 
 # PyMOL selection that mirrors the typed one while the selection editor is open.
 _SELECTION_PREVIEW = "amdock_box_selection"
+_WORKING_BOX_OBJECT = "amdock_grid_working"
+
+
+def _site_box_object(site_id: int) -> str:
+    return f"amdock_grid_bs_{site_id}"
 
 
 @dataclass
@@ -523,6 +528,20 @@ class GridBoxSettingDockWidget(QWidget):
             (float(site.center_x), float(site.center_y), float(site.center_z)),
             (float(site.size_x), float(site.size_y), float(site.size_z)),
         )
+
+    def surface_box_extent(self, cmd):
+        """Use the visible working box, then the focused or active saved box on the canvas."""
+        if not self._drawn_for:
+            return None
+        visible = set(cmd.get_names("objects", enabled_only=1))
+        current = self._selected_site()
+        site_ids = [int(current.id or 0)] if current is not None else []
+        site_ids.append(self._active_site_id())
+        site_ids.extend(int(site.id or 0) for site in self._selected_sites())
+        for name in (_WORKING_BOX_OBJECT, *map(_site_box_object, site_ids)):
+            if name in visible:
+                return cmd.get_extent(name)
+        return None
 
     def _active_site_id(self) -> int:
         """The current receptor's active site (0: none), from the sites it has loaded."""
@@ -981,7 +1000,7 @@ class GridBoxSettingDockWidget(QWidget):
         for site in sites:
             self._draw_reference_site(
                 cmd, site, active=(site == self._selected_site()),
-                name=f"amdock_grid_bs_{int(site.id or 0)}",
+                name=_site_box_object(int(site.id or 0)),
                 show_faces=show_faces, show_edges=show_edges,
             )
         # The temporary/working box persists (drawn whenever checked) regardless of tree
@@ -1055,7 +1074,7 @@ class GridBoxSettingDockWidget(QWidget):
                 edge_color=(1.0, 1.0, 1.0),
                 edge_width=float(self._working.edge_width),
                 face_opacity=float(self._working.opacity),
-                obj_name="amdock_grid_working",
+                obj_name=_WORKING_BOX_OBJECT,
             )
         except Exception:
             return
