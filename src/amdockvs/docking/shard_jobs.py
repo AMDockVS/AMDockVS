@@ -318,6 +318,8 @@ class ShardHitWriter:
                     # a read keeps the newest per (shard, ligand).
                     force=not self.skip_existing,
                     writer=self._writer(key, generation, result_path) if result_path else None,
+                    done_ids=envelope.get("done_ids"),
+                    failed_ids=envelope.get("failed_ids"),
                 )
                 if recorded:
                     advance_target(

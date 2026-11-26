@@ -83,3 +83,9 @@ def test_a_narrowed_shard_prepares_whole_and_docks_only_what_is_left(runtime, tm
     # And that is what a docking of it would read out of the prepared file.
     with Shard.open(row["prepared_path"], record_ids=row["record_ids"]) as shard:
         assert [record.id for record in shard] == [0, 2, 3]
+
+
+def test_the_shards_view_shows_the_shards_cut_whole():
+    from amdockvs.ui.catalog.shards import _shard_table_config
+
+    assert "n_shards_excluded" in [column.field for column in _shard_table_config().columns]

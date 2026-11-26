@@ -134,13 +134,15 @@ def done_shards(project_db, key: str, *, narrowed_by: str = "") -> set[int]:
 
 def record_docked(project_db, *, key: str, shard_id: int, result_path: str = "", part: str = "",
                   narrowed_by: str = "", generation_id: int | None = None, force: bool = False,
-                  writer=None) -> bool:
+                  writer=None, done_ids=None, failed_ids=None) -> bool:
     """One shard docked for `key`: its two result parts (`result_path`, the summary, and the payload
     beside it) committed into the key's containers, then the shard into the done-set (that order: a
     crash in between docks it again, and `part` — the run's id of this task — makes the commit of a
     replay a no-op). False when it was already recorded — a replay — and nothing is written; `force`
     (a forced re-dock, whose shards are done already) records it anyway. `writer`: the parent's
     `PairWriter` of the key, kept open over a run; one of its own (the parts' folder's parent) without.
+    `done_ids`/`failed_ids`: the shard's ligands docked and not, as the worker named them; without
+    them the shard counts done with unknown ligand counts.
 
     ponytail: the done-set is read whole per call (one parquet of shard ids per key, ~4k per
     million records); a set kept in the writer if a campaign of millions of shards shows it."""
@@ -167,8 +169,10 @@ def record_docked(project_db, *, key: str, shard_id: int, result_path: str = "",
                 writer.close()
         if "error" in receipt:
             raise RuntimeError(receipt["error"])
+    records = None if done_ids is None and failed_ids is None else {
+        int(shard_id): (list(done_ids or ()), list(failed_ids or ()))}
     states.mark_done(project_db, DONE_KIND, key, [int(shard_id)], narrowed_by=str(narrowed_by or ""),
-                     generation_id=generation_id)
+                     generation_id=generation_id, records=records)
     return True
 
 

@@ -380,6 +380,31 @@ def test_docking_streams_each_ligand_into_a_result_shard_and_removes_loose_poses
     assert list(output.glob("*.dock.sdf")) == []
 
 
+def test_a_docked_shard_names_the_ligands_done_and_failed(tmp_path, monkeypatch):
+    prepared = _pdbqt_shard(tmp_path / "prepared.arrows", count=3)
+    output = tmp_path / "results" / "docking" / "screening"
+
+    def fake_dock(payload):
+        # Ligand 0 docks, 1 comes back without a score, 2 never comes back.
+        for pair, score in zip(payload["pairs"][:2], (-9.0, None)):
+            ligand_id = int(pair["ligand_id"])
+            sdf = Path(payload["output_dir"]) / f"{ligand_id}.dock.sdf"
+            sdf.write_text(f"ligand-{ligand_id}\n$$$$\n")
+            payload["_pair_callback"]([{
+                "receptor_molecule_id": 7, "ligand_molecule_id": ligand_id, "pose_rank": 1,
+                "score": score, "score_type": "vina_score", "pose_path": str(sdf),
+            }])
+        return []
+
+    monkeypatch.setattr(shard_tasks, "run_docking_chunk", fake_dock)
+    envelope = shard_tasks.dock_one_shard(
+        {"output_dir": str(output), "receptor_id": 7, "receptor_path": "receptor.pdbqt",
+         "hit_threshold": -8.0, "hit_cap": 25, "run_id": "run-1"},
+        {"shard_id": 4, "shard_path": str(prepared), "shard_index": 0, "n_records": 3},
+    )
+    assert (envelope["done_ids"], envelope["failed_ids"]) == ([0], [1, 2])
+
+
 def test_result_shard_cleanup_is_not_tied_to_sdf(tmp_path):
     pose = tmp_path / "ligand.ad4.pdbqt"
     pose.write_text("MODEL 1\nENDMDL\n")

@@ -75,6 +75,23 @@ def test_shard_completion_is_scoped_to_engine_protocol_and_receptor(tmp_path):
         runtime.close_project()
 
 
+def test_a_docked_shard_records_its_ligand_counts(tmp_path):
+    from ms_flow.core.data import states
+
+    from amdockvs.screening.campaign import DONE_KIND
+
+    runtime, shard_id, _source = _project_with_shard(tmp_path)
+    db = runtime.workspace.project_db
+    try:
+        key = state_key(engine="vina", protocol_hash="p1", receptor_id=10)
+        assert record_docked(db, key=key, shard_id=shard_id, done_ids=[0, 1, 3], failed_ids=[2]) is True
+        (row,) = states.progress(db, DONE_KIND)
+        assert (row["shards_done"], row["records_done"], row["records_failed"]) == (1, 3, 1)
+        assert states.failed(db, DONE_KIND, key, shard_id).tolist() == [2]
+    finally:
+        runtime.close_project()
+
+
 def test_ligand_pipeline_selects_the_shard_adapter_without_a_row_scope(monkeypatch):
     runtime = SimpleNamespace(
         workspace=SimpleNamespace(project_db=object()),

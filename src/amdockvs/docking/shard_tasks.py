@@ -11,6 +11,7 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from ms_flow.core.data.shard import Shard
 from ms_flow.engine import task
 
@@ -103,6 +104,10 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
         "hits": [],
         "hits_found": 0,
         "result_shard": "",
+        # The shard's ligands docked (a score and a pose) and failed (the rest, also those the
+        # engine never returned): the parent's done-set lists the fewer of the two.
+        "done_ids": [],
+        "failed_ids": [],
         # Where the parent files this: the target's key, under which cuts this shard was docked
         # (the exclusions may have left this one partial) and the generation of its id.
         "state_key": str(payload.get("state_key") or ""),
@@ -151,6 +156,7 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
                 "slot_count": source_shard.slot_count,
             }
         processed = 0
+        done: list[int] = []
         hits: list[dict] = []
         hits_found = 0
         # ponytail: the first rescoring function of the protocol, as in `docking.tasks`.
@@ -199,6 +205,8 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
                 stored = result_row(row, smiles=smiles.get(ligand_id, ""), engine=str(payload.get("engine") or ""),
                                     shard_id=envelope["shard_id"], docking_run_id=payload.get("docking_run_id"))
                 writer.add(stored)
+                if row.get("score") is not None and stored.get("has_pose"):
+                    done.append(ligand_id)
                 is_hit = (
                     row.get("score") is not None
                     and bool(stored.get("has_pose"))
@@ -243,6 +251,8 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
                 for pair_rows in by_ligand.values():
                     consume_pair(pair_rows)
     envelope["scored"] = processed
+    envelope["done_ids"] = np.unique(done).astype(int).tolist()
+    envelope["failed_ids"] = np.setdiff1d([pair["ligand_id"] for pair in pairs], done).astype(int).tolist()
     envelope["hits"] = hits
     envelope["hits_found"] = hits_found
     envelope["result_shard"] = str(result_path)

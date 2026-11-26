@@ -47,6 +47,9 @@ def _shard_table_config() -> TableConfig:
             # Total minus the exclusions (Filter's cuts): what a step that selects will read.
             ColumnDef("n_active", label="Active", width=100, sortable=True, align=AlignHint.RIGHT,
                       kind=ColumnKind.INTEGER),
+            # Shards the cuts emptied: a step that selects skips them whole.
+            ColumnDef("n_shards_excluded", label="Excluded", width=90, sortable=True, align=AlignHint.RIGHT,
+                      kind=ColumnKind.INTEGER),
             ColumnDef("error", label="Error", width=240, sortable=False),
             # Filter by Role for prepared/derived files and result tables (default: the library).
             ColumnDef("role", label="Role", width=130, sortable=True),
