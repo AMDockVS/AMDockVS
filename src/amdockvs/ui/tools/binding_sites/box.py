@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import cache
 
-from PySide6.QtCore import Qt, Signal, QSize, QTimer
+from PySide6.QtCore import QEvent, Qt, Signal, QSize, QTimer
 from PySide6.QtGui import QColor, QBrush, QIcon, QKeySequence, QPainter, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -186,8 +186,7 @@ class GridBoxSettingDockWidget(QWidget):
         # The unsaved working box goes away with Delete or the row's context menu.
         self.site_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.site_tree.customContextMenuRequested.connect(self._show_tree_menu)
-        discard = QShortcut(QKeySequence.StandardKey.Delete, self.site_tree, self._discard_working_box)
-        discard.setContext(Qt.ShortcutContext.WidgetShortcut)
+        self.site_tree.installEventFilter(self)
         layout.addWidget(self.site_tree, 1)
 
         # Every way to start a box is one visible click; Predict hands over to Pocket Detection,
@@ -931,6 +930,19 @@ class GridBoxSettingDockWidget(QWidget):
         if select_if_created:
             self.site_tree.setCurrentItem(working_item)
             working_item.setSelected(True)
+
+    def eventFilter(self, watched, event) -> bool:
+        if (watched is self.site_tree
+                and event.type() in (QEvent.Type.ShortcutOverride, QEvent.Type.KeyPress)
+                and event.matches(QKeySequence.StandardKey.Delete)):
+            # Keep the window's catalog Delete shortcut from acting on a Grid Box key press.
+            event.accept()
+            if event.type() == QEvent.Type.KeyPress:
+                current = self.site_tree.currentItem()
+                if current is not None and current.data(0, Qt.UserRole) == ("working", None):
+                    self._discard_working_box()
+            return True
+        return super().eventFilter(watched, event)
 
     def _show_tree_menu(self, pos) -> None:
         item = self.site_tree.itemAt(pos)

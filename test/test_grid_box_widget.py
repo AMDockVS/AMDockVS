@@ -324,19 +324,34 @@ def test_set_active_is_off_for_the_site_that_is_already_active(grid_box_widget):
 
 
 def test_a_new_working_box_can_be_discarded_back_to_the_active_site(grid_box_widget):
+    from PySide6.QtGui import QKeySequence, QShortcut
     from PySide6.QtTest import QTest
 
     widget = grid_box_widget
-    rows = lambda: [widget.site_tree.topLevelItem(r).data(0, Qt.UserRole) for r in range(widget.site_tree.topLevelItemCount())]
+    tree = widget.site_tree
+    window_shortcut_events = []
+    catalog_delete = QShortcut(QKeySequence.StandardKey.Delete, widget)
+    catalog_delete.activated.connect(lambda: window_shortcut_events.append("activated"))
+    catalog_delete.activatedAmbiguously.connect(lambda: window_shortcut_events.append("ambiguous"))
+
     widget._new_working_box()
-    assert ("working", None) in rows()
+    assert tree.currentItem().data(0, Qt.UserRole) == ("working", None)
     widget.show()
     widget.activateWindow()
-    widget.site_tree.setFocus()
-    QTest.qWaitForWindowActive(widget)
-    QTest.keyClick(widget.site_tree, Qt.Key.Key_Delete)
-    assert ("working", None) not in rows() and not widget._working.dirty
-    assert (widget.cx.value(), widget.cy.value(), widget.cz.value()) == (4.0, 5.0, 6.0)  # the active site again
+    tree.setFocus()
+    assert QTest.qWaitForWindowActive(widget)
+    assert tree.hasFocus()
+    QTest.keyClick(tree, Qt.Key.Key_Delete)
+    assert tree.topLevelItemCount() == 2 and not widget._working.dirty
+    assert tree.currentItem().data(0, Qt.UserRole) == ("site", 2)
+    assert (widget.cx.value(), widget.cy.value(), widget.cz.value()) == (4.0, 5.0, 6.0)
+
+    widget._new_working_box()
+    tree.setCurrentItem(tree.topLevelItem(0))
+    QTest.keyClick(tree, Qt.Key.Key_Delete)
+    assert tree.topLevelItemCount() == 3 and widget._working.dirty
+    assert tree.currentItem().data(0, Qt.UserRole) == ("site", 1)
+    assert not window_shortcut_events
 
 
 def test_a_box_from_a_ligand_is_saved_as_that_ligands_site(grid_box_widget, monkeypatch):
