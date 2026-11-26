@@ -1424,21 +1424,134 @@ move into its overflow menu.</p>
 global molecule selection used by Build and Docking Studio is made separately
 in the catalog tables.</p>
 <h2 id="3-choose-a-display-preset">3. Choose a display preset<a class="headerlink" href="#3-choose-a-display-preset" title="Permanent link">&para;</a></h2>
-<p>AMDockVS adds presets for the main kinds of scene:</p>
+<p>Open <strong>Presets</strong> in the PyMOL toolbar. The available styles depend on the
+current scene. Click an image to enlarge it. The views use the
+<a href="https://www.rcsb.org/structure/1IEP">ABL–imatinib crystal structure (PDB 1IEP)</a>.</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:4"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><input id="__tabbed_1_4" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Structures</label><label for="__tabbed_1_2">Pockets</label><label for="__tabbed_1_3">Search space</label><label for="__tabbed_1_4">PyMOL</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<div class="pymol-preset-gallery" markdown>
 <ul>
-<li><strong>AMDock · Receptor</strong> shows the receptor as a cartoon with atom coloring
-  based on its role.</li>
-<li><strong>AMDock · Ligand</strong> centers the ligand and shows it as sticks.</li>
-<li><strong>AMDock · Protein-ligand</strong> shows the protein as a cartoon and the ligand
-  or docking pose as sticks.</li>
-<li><strong>Binding sites · Points</strong>, <strong>Binding sites · Residues</strong>, and
-  <strong>Binding sites · Surface</strong> show different views of a predicted pocket.</li>
-<li><strong>Surface · Site highlight</strong> and <strong>Surface · Residue nature</strong> show the
-  search-space region on a receptor surface, using either a highlight color
-  or residue chemical properties.</li>
+<li>
+<p><a class="glightbox" data-title="Blue cartoon of the ABL kinase fold" data-type="image" href="../images/pymol-presets/amdock-receptor.webp"><img alt="Blue cartoon of the ABL kinase fold" height="640" loading="lazy" src="../images/pymol-presets/amdock-receptor.webp" width="900" /></a></p>
+<p><strong>AMDock · Receptor</strong></p>
+<p>Inspect the receptor fold as a cartoon.</p>
+</li>
+<li>
+<p><a class="glightbox" data-title="Orange imatinib sticks with nitrogen atoms in blue and oxygen in red" data-type="image" href="../images/pymol-presets/amdock-ligand.webp"><img alt="Orange imatinib sticks with nitrogen atoms in blue and oxygen in red" height="640" loading="lazy" src="../images/pymol-presets/amdock-ligand.webp" width="900" /></a></p>
+<p><strong>AMDock · Ligand</strong></p>
+<p>Inspect the ligand on its own, centered and shown as sticks.</p>
+</li>
+<li>
+<p><a class="glightbox" data-title="Orange imatinib sticks in the blue ABL receptor cartoon" data-type="image" href="../images/pymol-presets/amdock-protein-ligand.webp"><img alt="Orange imatinib sticks in the blue ABL receptor cartoon" height="640" loading="lazy" src="../images/pymol-presets/amdock-protein-ligand.webp" width="900" /></a></p>
+<p><strong>AMDock · Protein-ligand</strong></p>
+<p>Locate the ligand or docking pose in the receptor fold.</p>
+</li>
 </ul>
-<p>The menu only offers presets that apply to the current scene. Select a
-predicted pocket first to use its binding-site presets.</p>
+</div>
+</div>
+<div class="tabbed-block">
+<p>Select a site in <a href="../pocket_detection/">Pocket Detection</a> to use these presets.</p>
+<div class="pymol-preset-gallery" markdown>
+<ul>
+<li>
+<p><a class="glightbox" data-title="A cluster of gold P2Rank points marking a pocket on the receptor cartoon" data-type="image" href="../images/pymol-presets/binding-points.webp"><img alt="A cluster of gold P2Rank points marking a pocket on the receptor cartoon" height="640" loading="lazy" src="../images/pymol-presets/binding-points.webp" width="900" /></a></p>
+<p><strong>Binding sites · Points</strong></p>
+<p>Locate the predicted pocket and its center.</p>
+</li>
+<li>
+<p><a class="glightbox" data-title="Predicted pocket points with the surrounding receptor residues shown as sticks" data-type="image" href="../images/pymol-presets/binding-residues.webp"><img alt="Predicted pocket points with the surrounding receptor residues shown as sticks" height="640" loading="lazy" src="../images/pymol-presets/binding-residues.webp" width="900" /></a></p>
+<p><strong>Binding sites · Residues</strong></p>
+<p>Inspect receptor residues within 4 Å of the pocket points.</p>
+</li>
+<li>
+<p><a class="glightbox" data-title="Predicted pocket points and residue sticks under a translucent local surface" data-type="image" href="../images/pymol-presets/binding-surface.webp"><img alt="Predicted pocket points and residue sticks under a translucent local surface" height="640" loading="lazy" src="../images/pymol-presets/binding-surface.webp" width="900" /></a></p>
+<p><strong>Binding sites · Surface</strong></p>
+<p>See the local surface around the predicted pocket.</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="tabbed-block">
+<p>Show a box in <strong>Grid Box</strong> to highlight the receptor residues that intersect it.</p>
+<div class="pymol-preset-gallery" markdown>
+<ul>
+<li>
+<p><a class="glightbox" data-title="A patch of pink residues on the neutral receptor surface" data-type="image" href="../images/pymol-presets/surface-highlight.webp"><img alt="A patch of pink residues on the neutral receptor surface" height="640" loading="lazy" src="../images/pymol-presets/surface-highlight.webp" width="900" /></a></p>
+<p><strong>Surface · Site highlight</strong></p>
+<p>Locate the search-space region as a pink patch on the receptor surface.</p>
+</li>
+<li>
+<p><a class="glightbox" data-title="The same receptor surface patch colored by residue chemistry" data-type="image" href="../images/pymol-presets/surface-nature.webp"><img alt="The same receptor surface patch colored by residue chemistry" height="640" loading="lazy" src="../images/pymol-presets/surface-nature.webp" width="900" /></a></p>
+<p><strong>Surface · Residue nature</strong></p>
+<p>Distinguish acidic, basic, polar, aromatic, and hydrophobic residues in the region.</p>
+</li>
+</ul>
+</div>
+</div>
+<div class="tabbed-block">
+<div class="pymol-preset-gallery" markdown>
+<ul>
+<li>
+<p><a class="glightbox" data-title="The receptor and ligand drawn as thin atom-colored bond lines" data-type="image" href="../images/pymol-presets/pymol-default.webp"><img alt="The receptor and ligand drawn as thin atom-colored bond lines" height="640" loading="lazy" src="../images/pymol-presets/pymol-default.webp" width="900" /></a></p>
+<p><strong>PyMOL · Default</strong></p>
+<p>Show bonds as lines and unbonded atoms as crosses.</p>
+</li>
+<li>
+<p><a class="glightbox" data-title="A receptor ribbon, ligand sticks, and red solvent markers" data-type="image" href="../images/pymol-presets/pymol-simple.webp"><img alt="A receptor ribbon, ligand sticks, and red solvent markers" height="640" loading="lazy" src="../images/pymol-presets/pymol-simple.webp" width="900" /></a></p>
+<p><strong>PyMOL · Simple</strong></p>
+<p>Show the receptor as a ribbon with ligand sticks and solvent markers.</p>
+</li>
+<li>
+<p><a class="glightbox" data-title="A receptor ribbon and ligand sticks with solvent markers hidden" data-type="image" href="../images/pymol-presets/pymol-simple-no-solvent.webp"><img alt="A receptor ribbon and ligand sticks with solvent markers hidden" height="640" loading="lazy" src="../images/pymol-presets/pymol-simple-no-solvent.webp" width="900" /></a></p>
+<p><strong>PyMOL · Simple (no solvent)</strong></p>
+<p>Use the Simple view with solvent hidden.</p>
+</li>
+<li>
+<p><a class="glightbox" data-title="Small spheres at atom positions connected by sticks" data-type="image" href="../images/pymol-presets/pymol-ball-and-stick.webp"><img alt="Small spheres at atom positions connected by sticks" height="640" loading="lazy" src="../images/pymol-presets/pymol-ball-and-stick.webp" width="900" /></a></p>
+<p><strong>PyMOL · Ball and stick</strong></p>
+<p>Show atom positions as small spheres and bonds as sticks.</p>
+</li>
+<li>
+<p><a class="glightbox" data-title="A rainbow receptor cartoon with the ligand shown as sticks" data-type="image" href="../images/pymol-presets/pymol-pretty.webp"><img alt="A rainbow receptor cartoon with the ligand shown as sticks" height="640" loading="lazy" src="../images/pymol-presets/pymol-pretty.webp" width="900" /></a></p>
+<p><strong>PyMOL · Pretty</strong></p>
+<p>Follow the protein chain in a rainbow cartoon.</p>
+</li>
+<li>
+<p><a class="glightbox" data-title="A rainbow receptor cartoon and ligand sticks with red water atoms visible" data-type="image" href="../images/pymol-presets/pymol-pretty-solvent.webp"><img alt="A rainbow receptor cartoon and ligand sticks with red water atoms visible" height="640" loading="lazy" src="../images/pymol-presets/pymol-pretty-solvent.webp" width="900" /></a></p>
+<p><strong>PyMOL · Pretty (solvent)</strong></p>
+<p>Use the Pretty view with water molecules visible.</p>
+</li>
+<li>
+<p><a class="glightbox" data-title="A rainbow protein cartoon with smoothed loops and detailed helices" data-type="image" href="../images/pymol-presets/pymol-publication.webp"><img alt="A rainbow protein cartoon with smoothed loops and detailed helices" height="640" loading="lazy" src="../images/pymol-presets/pymol-publication.webp" width="900" /></a></p>
+<p><strong>PyMOL · Publication</strong></p>
+<p>Use a smoothed cartoon with more detailed helices.</p>
+</li>
+<li>
+<p><a class="glightbox" data-title="A tube tracing the protein backbone with varying thickness and color" data-type="image" href="../images/pymol-presets/pymol-b-factor-putty.webp"><img alt="A tube tracing the protein backbone with varying thickness and color" height="640" loading="lazy" src="../images/pymol-presets/pymol-b-factor-putty.webp" width="900" /></a></p>
+<p><strong>PyMOL · B-factor Putty</strong></p>
+<p>Map the stored B-factors to the thickness and color of the backbone.</p>
+</li>
+<li>
+<p><a class="glightbox" data-title="Ligand sticks, receptor bond lines, and dashed polar contacts in the pocket" data-type="image" href="../images/pymol-presets/pymol-technical.webp"><img alt="Ligand sticks, receptor bond lines, and dashed polar contacts in the pocket" height="640" loading="lazy" src="../images/pymol-presets/pymol-technical.webp" width="900" /></a></p>
+<p><strong>PyMOL · Technical</strong></p>
+<p>Inspect bonds and dashed polar contacts.</p>
+</li>
+<li>
+<p><a class="glightbox" data-title="The ligand and nearby residues against a receptor cartoon with dashed polar contacts" data-type="image" href="../images/pymol-presets/pymol-ligand-sites-cartoon.webp"><img alt="The ligand and nearby residues against a receptor cartoon with dashed polar contacts" height="640" loading="lazy" src="../images/pymol-presets/pymol-ligand-sites-cartoon.webp" width="900" /></a></p>
+<p><strong>PyMOL · Ligand Sites (cartoon)</strong></p>
+<p>Inspect the ligand and nearby residues in cartoon context.</p>
+</li>
+<li>
+<p><a class="glightbox" data-title="Ligand sticks in a pocket bordered by patches of receptor surface" data-type="image" href="../images/pymol-presets/pymol-ligand-sites-surface.webp"><img alt="Ligand sticks in a pocket bordered by patches of receptor surface" height="640" loading="lazy" src="../images/pymol-presets/pymol-ligand-sites-surface.webp" width="900" /></a></p>
+<p><strong>PyMOL · Ligand Sites (surface)</strong></p>
+<p>See the shape of the receptor pocket around the ligand sticks.</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
 <h2 id="4-inspect-the-search-space">4. Inspect the search space<a class="headerlink" href="#4-inspect-the-search-space" title="Permanent link">&para;</a></h2>
 <p><strong>Grid Box</strong> opens the side panel beside the 3D canvas. Select a receptor
 to review its sites and the center and dimensions of its working box. The
