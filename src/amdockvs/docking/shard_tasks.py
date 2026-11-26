@@ -22,7 +22,7 @@ from amdockvs.docking.rescoring import rescore_rows
 from amdockvs.docking.preparation.shards import extract_ligands
 from amdockvs.docking.results.dataset import (
     ResultFragmentWriter, _pose, _selected_payloads, _summary_table, _top, load_hits, local_pose_path, payload_part,
-    result_fragment_path, result_metadata, result_row,
+    payload_role, result_fragment_path, result_metadata, result_row, summary_role,
 )
 
 # How the cap is spent: the best `cap` of everything scored per receptor, picked from the result
@@ -319,23 +319,42 @@ def dock_stage(element: dict) -> dict:
     return {"stage": element["stage"], "envelopes": envelopes}
 
 
+def campaign_receipts(result: dict) -> list[dict]:
+    """The receipts of a `dock_stage` result: each docked shard's two parts, committed there into
+    its key's containers (`Stage.commit`), payload and summary as one, as `ShardHitWriter` does here."""
+    receipts = []
+    for envelope in result["envelopes"]:
+        path = str(envelope.get("result_shard") or "")
+        if path:
+            key = str(envelope["state_key"])
+            receipts.append({"part": f"{key}:{int(envelope['shard_id'])}", "path": path, "role": summary_role(key),
+                             "bulk": str(payload_part(path)), "bulk_role": payload_role(key),
+                             "generation_id": envelope.get("generation_id"), "folder": str(Path(path).parent.parent)})
+    return receipts
+
+
 def rank(results, *, cap: int, threshold: float) -> list[dict]:
     """The best `cap` of each receptor below `threshold`, over every fragment the stage wrote
-    there: as references into them, which is what `hit_poses` and `off_target_elements` read."""
+    there (in the containers they were committed to, `_committed`): as references into them,
+    which is what `hit_poses` and `off_target_elements` read."""
     import numpy as np
     import pyarrow as pa
     import pyarrow.compute as pc
 
     tables, tags = [], []
     for result in results:
+        committed = iter(result.get("_committed") or ())
         for envelope in result["envelopes"]:
             path = str(envelope.get("result_shard") or "")
             if not path:
                 continue
-            table = _summary_table(Path(path), {"status": "done", "score__lte": float(threshold)})
+            where = next(committed, None) or {"path": path, "shards": None}  # a part not committed: itself
+            table = _summary_table(Path(where["path"]), {"status": "done", "score__lte": float(threshold)},
+                                   where["shards"])
             tables.append(table.append_column("_tag", pa.array(np.full(table.num_rows, len(tags)))))
-            tags.append({"_result_shard": path, "_shard_id": int(envelope["shard_id"]),
-                         "_library": envelope["library"], "_import_batch_id": envelope["import_batch_id"]})
+            tags.append({"_result_shard": where["path"], "_shard_id": int(envelope["shard_id"]),
+                         "_library": envelope["library"], "_import_batch_id": envelope["import_batch_id"],
+                         "_payload": where.get("bulk") or {"path": str(payload_part(path)), "shards": None}})
     if not tables:
         return []
     table = pa.concat_tables(tables)
@@ -363,10 +382,17 @@ def hit_poses(element: dict) -> dict:
     """The ranked of one fragment as hits (the rows `ingest_hits` takes), each with its pose (the
     payload part beside the fragment), compressed here."""
     refs = element["refs"]
-    payloads = _selected_payloads(
-        payload_part(element["fragment"]), None,
-        {(int(r["_shard_id"]), int(r["ligand_id"]), int(r["receptor_id"])) for r in refs},
-    )
+    keys = {(int(r["_shard_id"]), int(r["ligand_id"]), int(r["receptor_id"])) for r in refs}
+    bulks: dict[str, set | None] = {}  # the payload containers of these refs, and which of their shards
+    for ref in refs:
+        bulk = ref.get("_payload") or {"path": str(payload_part(element["fragment"])), "shards": None}
+        if bulk["shards"] is None or bulks.get(bulk["path"], set()) is None:
+            bulks[bulk["path"]] = None
+        else:
+            bulks.setdefault(bulk["path"], set()).update(bulk["shards"])
+    payloads = {}
+    for path, shards in bulks.items():
+        payloads.update(_selected_payloads(Path(path), None if shards is None else sorted(shards), keys))
     input_key = str(result_metadata(element["fragment"]).get("input_key") or "")
     hits = []
     for ref in refs:

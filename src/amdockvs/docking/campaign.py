@@ -46,7 +46,7 @@ from amdockvs.docking.shard_jobs import (
 )
 from amdockvs.docking.tasks import dock_rows, pack_transport
 from amdockvs.docking.shard_tasks import (
-    by_fragment, dock_stage, hit_poses, off_target_elements, prepare_stage, prepared_elements, rank,
+    by_fragment, campaign_receipts, dock_stage, hit_poses, off_target_elements, prepare_stage, prepared_elements, rank,
 )
 from amdockvs.molecules.storage import prepared_dir, prepared_role
 from amdockvs.screening.campaign import finish_run, plan_targets, reopen_run, stop_run
@@ -175,9 +175,11 @@ def dock_shards_campaign(params: DockCampaignParams, project) -> list[Stage]:
     elements = [_there(chunk, params.cpu_required) for chunk in chunks]
     ranked = partial(rank, cap=params.hit_cap, threshold=params.hit_threshold)
     prep = _unprepared(elements, params.preparation_engine)
+    # What each docking leaves there goes into its key's containers there, not a file per shard.
     stages = [Stage("prep", prepare_stage, prep),
-              Stage("vs", dock_stage, From("prep", prepared_elements, (elements,)), reduce=ranked)] if prep else [
-              Stage("vs", dock_stage, elements, reduce=ranked)]
+              Stage("vs", dock_stage, From("prep", prepared_elements, (elements,)), reduce=ranked,
+                    commit=campaign_receipts)] if prep else [
+              Stage("vs", dock_stage, elements, reduce=ranked, commit=campaign_receipts)]
     stages.append(Stage("hits", hit_poses, From("vs", by_fragment)))
     if not params.has_off_targets:
         return stages
@@ -199,7 +201,8 @@ def dock_shards_campaign(params: DockCampaignParams, project) -> list[Stage]:
                 for key, value in target.items() if value or key != "flex_receptor_path"} for target in targets]
     template = {key: value for key, value in elements[0].items() if key not in _RECEPTOR_KEYS}
     shards = {shard["shard_id"]: shard for element in elements for shard in element["shards"]}
-    stages.append(Stage("off", dock_stage, From("vs", off_target_elements, (template, targets, shards, reference, top))))
+    stages.append(Stage("off", dock_stage, From("vs", off_target_elements, (template, targets, shards, reference, top)),
+                        commit=campaign_receipts))
     return stages
 
 

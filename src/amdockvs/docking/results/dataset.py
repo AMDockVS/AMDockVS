@@ -214,7 +214,8 @@ def _key_containers(project_db, keys: Iterable[str], *, role=summary_role) -> li
             spec["generation_id"] = int(generations[key])
         found.extend(sorted((key, int(row["id"]), Path(row["path"]))
                             for row in catalog.files(project_db, catalog.shard_spec(**spec))
-                            if row["status"] in catalog.READABLE and Path(row["path"]).is_file()))
+                            if row["status"] in catalog.READABLE and not row["location"]
+                            and Path(row["path"]).is_file()))  # one on another host is read there
     return found
 
 
@@ -289,11 +290,12 @@ def _filtered(table: pa.Table, filters: Mapping[str, Any]) -> pa.Table:
     return table.filter(pq.filters_to_expression(found)) if found else table
 
 
-def _summary_table(path: Path, filters: Mapping[str, Any]) -> pa.Table:
-    """The summary rows of one part container (a stage on a cluster ranks its own)."""
+def _summary_table(path: Path, filters: Mapping[str, Any], shards: Iterable[int] | None = None) -> pa.Table:
+    """The summary rows of a container, its shard numbers `shards` (every live one with None): a
+    stage on a cluster ranks its own."""
     from ms_flow.core.data.shard import read_rows
 
-    return _filtered(read_rows(path, None, list(SUMMARY_COLUMNS)), filters)
+    return _filtered(read_rows(path, shards, list(SUMMARY_COLUMNS)), filters)
 
 
 def _row_key(row: Mapping[str, Any]) -> tuple[int, int, int]:

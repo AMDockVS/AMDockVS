@@ -182,3 +182,33 @@ def test_what_the_queue_prepared_on_its_own_disk_is_registered_there_and_once(tm
         assert [file["id"] for file in catalog.files(db, catalog.shard_spec(role="prepared:ad4"))] == [row["id"]]
     finally:
         runtime.close_project()
+
+
+def test_the_far_stages_read_what_was_committed_there(tmp_path):
+    """There, each task's two parts go into the key's containers (`campaign_receipts`, committed by
+    the runner): the parts go, and ranking and poses read the containers."""
+    from ms_flow.runner import commit_there
+
+    from amdockvs.docking.shard_tasks import campaign_receipts
+
+    parts = tmp_path / "out" / "results" / "k" / "parts"
+    parts.mkdir(parents=True)
+    a = _fragment(parts / "a.arrows", {(1, 10): -9.0, (2, 10): -7.0, (3, 10): -11.0}, shard_id=1)
+    b = _fragment(parts / "b.arrows", {(4, 10): -10.0, (5, 10): -5.0}, shard_id=2)
+    results = []
+    for path, shard_id in ((a, 1), (b, 2)):
+        result = _result(path, shard_id)
+        result["envelopes"][0].update(state_key="k", generation_id=None)
+        result["_committed"] = commit_there(tmp_path, campaign_receipts(result))
+        results.append(result)
+    assert not list(parts.iterdir())
+    assert sorted(p.name.split(".")[0] for p in parts.parent.glob("*.arrows")) == ["payload_k", "summary_k"]
+    # a task run again (the kill came between commit and result): the same place, its bulk from the index
+    assert commit_there(tmp_path, campaign_receipts(results[0])) == results[0]["_committed"]
+    assert results[0]["_committed"][0]["bulk"]["shards"] == [0]
+
+    refs = rank(results, cap=2, threshold=-6.0)
+    assert [(ref["ligand_id"], ref["receptor_id"]) for ref in refs] == [(3, 10), (4, 10)]
+    [element] = by_fragment(refs)  # one summary container now
+    hits = hit_poses(element)["hits"]
+    assert {(hit["name"], _unpacked(hit["pose"])) for hit in hits} == {("lib:3", "pose-3-10"), ("lib:4", "pose-4-10")}
