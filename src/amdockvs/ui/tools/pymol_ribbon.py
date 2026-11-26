@@ -396,6 +396,7 @@ def install_amdock_pymol_presets(window) -> None:
             callback=partial(_amdock_binding_highlight_preset, grid_dock=grid_dock),
             contexts=_SURFACE_PRESET_CONTEXTS,
             tooltip="Neutral receptor surface with the search-space residues in a highlight color.",
+            use_comparison_colors=False,
         ),
         PymolPresetSpec(
             key="amdockvs.surface_nature",
@@ -403,6 +404,7 @@ def install_amdock_pymol_presets(window) -> None:
             callback=partial(_amdock_binding_nature_preset, grid_dock=grid_dock),
             contexts=_SURFACE_PRESET_CONTEXTS,
             tooltip="Receptor surface with search-space residues colored by chemical nature.",
+            use_comparison_colors=False,
         ),
     )
     for preset in presets:
