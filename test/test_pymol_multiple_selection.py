@@ -56,6 +56,7 @@ def test_shift_click_accumulates_only_within_the_current_table(viewer_scene, mon
     monkeypatch.setattr(SmartTableView, "refresh", lambda self: None)
     install_pymol_toolbar(window)
     control_bar = window.pymol_dock.control_bar
+    assert "pymol.protein_interface" not in {action.data() for action in control_bar.preset_menu.actions()}
     assert control_bar.toolbar.actions()[-1] is control_bar.export_action
     assert control_bar.toolbar.widgetForAction(control_bar.export_action).popupMode() == QToolButton.InstantPopup
     assert not any("multiple selection" in a.text() for a in window._pymol_overflow_menu.actions())

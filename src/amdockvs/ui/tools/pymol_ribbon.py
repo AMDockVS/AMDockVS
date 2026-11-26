@@ -449,6 +449,8 @@ def install_pymol_toolbar(window) -> None:
     control_bar = getattr(dock, "control_bar", None)
     if control_bar is None or not hasattr(control_bar, "add_menu_action"):
         return
+    # AMDock's preset menu focuses on small-molecule complexes.
+    control_bar.unregister_preset("pymol.protein_interface")
     install_scene_memory(dock)
 
     menu = QMenu(control_bar)
