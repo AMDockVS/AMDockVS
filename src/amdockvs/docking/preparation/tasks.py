@@ -79,10 +79,9 @@ def prepare_entities(payload: dict, progress_cb=None):
 
 
 def prepare_ligand_shards(payload: dict, progress_cb=None):
-    """Each shard into a part of its own, whose receipt (`part`) `catalog_sink` appends to the
-    containers of the role. The name is new per run, so a redo never overwrites a part not yet
-    committed; a campaign's prep, which `located` must find there, names its file
-    (`output_name`) and keeps it whole: it has no `part`."""
+    """Each shard into a part of its own, whose receipt (`part`) is appended to the containers of
+    the role (by `catalog_sink` here, by the runner there). The name is new per run, so a redo never
+    overwrites a part not yet committed."""
     from uuid import uuid4
 
     from ms_flow.core.data.catalog import file_row
@@ -94,7 +93,7 @@ def prepare_ligand_shards(payload: dict, progress_cb=None):
     rows: list[dict[str, Any]] = []
     for index, shard in enumerate(list(payload.get("shards") or [])):
         source = Path(str(shard["shard_path"])).expanduser().resolve()
-        name = shard.get("output_name") or f"{int(shard['shard_id'])}-{uuid4().hex[:8]}{source.suffix}"
+        name = f"{int(shard['shard_id'])}-{uuid4().hex[:8]}{source.suffix}"
         output_path = Path(str(shard["output_dir"])).expanduser().resolve() / name
         profile.prepare_shard(source, output_path, engine=engine, shard=shard.get("shard"),
                               scope=shard.get("import_batch_id"), origin=int(shard["shard_id"]))

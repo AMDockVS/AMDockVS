@@ -144,46 +144,6 @@ def test_a_fragment_is_two_one_shard_parts_and_only_the_payload_holds_poses(tmp_
     assert "pose_text" in read_rows(payload_part(summary)).column_names
 
 
-def test_what_the_queue_prepared_on_its_own_disk_is_registered_there_and_once(tmp_path):
-    """The `prep` of a campaign comes back: the file is registered as being on that queue, and a
-    second campaign, which finds it made and returns the same row, adds nothing."""
-    from ms_flow.core.data import catalog
-
-    from amdockvs.docking.campaign import CampaignWriter, DockCampaignParams, _unprepared
-    from amdockvs.runtime import AMDockVSRuntime
-
-    runtime = AMDockVSRuntime()
-    runtime.create_project(name="prepared-there", folder=tmp_path)
-    try:
-        db = runtime.workspace.project_db
-        params = DockCampaignParams(output_dir=str(tmp_path), engine="vina", preparation_engine="ad4",
-                                    hit_threshold=-8.0, hit_cap=10, executor="lab")
-        elements = [{"stage": "vs", "shards": [{"shard_id": 11, "shard_path": "",
-                                                "molecules": str(tmp_path / "lib.arrows")}]}]
-        prep = _unprepared(elements, "ad4")
-        assert [one["shards"][0]["shard_id"] for one in prep] == [11]
-        where = elements[0]["shards"][0]
-        assert where["prepared_as"] == "11.arrows" and "molecules" not in where
-
-        writer = CampaignWriter(project_db=db, hit_cap=10, hit_threshold=-8.0, run_id="r", engine="vina",
-                                protocol_hash="p", executor="lab", preparation_engine="ad4")
-        writer.write([{"stage": "prep", "shard_id": 11, "files": [
-            {"path": "/scratch/lab/ad4/11.arrows", "role": "prepared:ad4", "n_shards": 1,
-             "n_records": 3, "n_active": 3, "scopes": "1"}]}])
-
-        (row,) = [file for file in catalog.files(db, catalog.shard_spec(role="prepared:ad4"))]
-        assert (row["location"], row["n_records"]) == ("lab", 3)
-        assert catalog.count(db, catalog.shard_spec(role="prepared:ad4")) == 0  # nothing here opens it
-
-        # A second campaign prepares nothing there (`_kept`) and returns the row of what is there.
-        writer.write([{"stage": "prep", "shard_id": 11, "files": [
-            {"path": "/scratch/lab/ad4/11.arrows", "role": "prepared:ad4", "n_shards": 1,
-             "n_records": 3, "n_active": 3, "scopes": "1"}]}])
-        assert [file["id"] for file in catalog.files(db, catalog.shard_spec(role="prepared:ad4"))] == [row["id"]]
-    finally:
-        runtime.close_project()
-
-
 def test_the_far_stages_read_what_was_committed_there(tmp_path):
     """There, each task's two parts go into the key's containers (`campaign_receipts`, committed by
     the runner): the parts go, and ranking and poses read the containers."""

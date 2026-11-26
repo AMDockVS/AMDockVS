@@ -262,66 +262,67 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
 # --- The stages of a campaign, run on the cluster (see `amdockvs.docking.campaign`) ----------
 
 
-def _kept(element: dict) -> list[dict]:
-    """The rows of what an earlier campaign of this project already left on this disk, so a
-    second one over the same library only points at it (its folder purged = prepared again)."""
-    from ms_flow.core.data.catalog import file_row
-
-    rows = []
-    for shard in element["shards"]:
-        where = Path(str(shard["output_dir"])).expanduser().resolve() / str(shard["output_name"])
-        if not where.is_file():
-            return []
-        rows.append(file_row(where, role=str(element["role"]), generation_id=shard.get("generation_id")))
-    return rows
-
-
 @task()
 def prepare_stage(element: dict) -> dict:
-    """A shard of a library prepared there, by a campaign that found it unprepared here: left
-    where `located` finds it; only its catalog row comes back, never the file."""
-    from amdockvs.docking.preparation.tasks import prepare_ligand_shards
+    """A shard of a library prepared there, by a campaign that found it unprepared here, into the
+    containers of a folder the project keeps there (`kept_in`): its part is committed by the runner
+    (`campaign_receipts`). One an earlier campaign of the project already left there is found by
+    its part id and not made again."""
+    from ms_flow.runner import found_there
 
-    rows = _kept(element) or prepare_ligand_shards(element)
+    from amdockvs.docking.preparation import tasks
+
+    shard = element["shards"][0]
+    there = found_there(shard["kept_in"], shard["part"])
+    if there is not None:
+        return {"stage": "prep", "shard_id": shard["shard_id"], "there": there}
+    rows = tasks.prepare_ligand_shards(element)
     if not any(row.get("n_records") for row in rows):  # else it would count as prepared there
-        raise RuntimeError(f"shard {element['shards'][0]['shard_id']}: nothing of it could be prepared")
-    # Its file stays here: what comes back is its row, so the campaign registers where it is and
-    # the next one to this host does not prepare it again.
-    files = [{key: row[key] for key in ("path", "role", "n_shards", "n_records", "n_active", "scopes")}
-             for row in rows]
-    return {"stage": "prep", "shard_id": element["shards"][0]["shard_id"], "files": files}
+        raise RuntimeError(f"shard {shard['shard_id']}: nothing of it could be prepared")
+    return {"stage": "prep", "shard_id": shard["shard_id"], "receipts": [
+        {"part": row["part"], "path": row["path"], "role": row["role"], "generation_id": row["generation_id"],
+         "folder": str(shard["kept_in"])} for row in rows]}
 
 
-def located(shard: dict) -> dict:
-    """A shard as `dock_shards` reads it: one the campaign prepared there is where it left it."""
-    if shard.get("shard_path") or not shard.get("prepared_in"):
-        return shard
-    return {**shard, "shard_path": os.path.join(shard["prepared_in"], shard["prepared_as"])}
-
-
-def prepared_elements(_prepared, elements: list[dict]):
-    """The elements of `vs` after `prep`: those whose shards are all there. A shard that could not
-    be prepared failed its own element of `prep`; its chunks are not docked."""
+def prepared_elements(prepared, elements: list[dict]):
+    """The elements of `vs` after `prep`: each shard prepared there named where it is (its
+    container and its shard number in it). A shard that could not be prepared failed its own
+    element of `prep`; its chunks are not docked."""
+    where = {}
+    for result in prepared:
+        found = result.get("there") or next(iter(result.get("_committed") or ()), None)
+        if found:
+            where[found["part"]] = found
     for element in elements:
-        shards = [located(shard) for shard in element["shards"]]
-        if all(os.path.isfile(shard["shard_path"]) for shard in shards):
+        shards = []
+        for shard in element["shards"]:
+            part = shard.get("prepared_part")
+            if part:
+                if part not in where:
+                    break
+                shard = {**{k: v for k, v in shard.items() if k != "prepared_part"},
+                         "shard_path": where[part]["path"], "prepared_shard": where[part]["shards"][0]}
+            shards.append(shard)
+        else:
             yield {**element, "shards": shards}
 
 
 @task()
 def dock_stage(element: dict) -> dict:
-    """`dock_shards` as a stage's task: its envelopes, said which stage and which library they are of.
-    A shard the campaign prepared on this disk (in an earlier campaign too) is where `located` says."""
-    element = {**element, "shards": [located(shard) for shard in element["shards"]]}
+    """`dock_shards` as a stage's task: its envelopes, said which stage and which library they are of,
+    and where the shard docked is there (an off-target stage docks its best from it again)."""
     envelopes = dock_shards(element)
     for envelope, shard in zip(envelopes, element["shards"]):
-        envelope.update(library=str(shard.get("library") or "library"), import_batch_id=shard.get("import_batch_id"))
+        envelope.update(library=str(shard.get("library") or "library"), import_batch_id=shard.get("import_batch_id"),
+                        shard_path=str(shard.get("shard_path") or ""), prepared_shard=shard.get("prepared_shard"))
     return {"stage": element["stage"], "envelopes": envelopes}
 
 
 def campaign_receipts(result: dict) -> list[dict]:
     """The receipts of a `dock_stage` result: each docked shard's two parts, committed there into
     its key's containers (`Stage.commit`), payload and summary as one, as `ShardHitWriter` does here."""
+    if result["stage"] == "prep":  # a shard prepared there: its part, into the folder the project keeps
+        return list(result.get("receipts") or ())
     receipts = []
     for envelope in result["envelopes"]:
         path = str(envelope.get("result_shard") or "")
@@ -354,6 +355,7 @@ def rank(results, *, cap: int, threshold: float) -> list[dict]:
             tables.append(table.append_column("_tag", pa.array(np.full(table.num_rows, len(tags)))))
             tags.append({"_result_shard": where["path"], "_shard_id": int(envelope["shard_id"]),
                          "_library": envelope["library"], "_import_batch_id": envelope["import_batch_id"],
+                         "_shard_path": envelope.get("shard_path") or "", "_prepared_shard": envelope.get("prepared_shard"),
                          "_payload": where.get("bulk") or {"path": str(payload_part(path)), "shards": None}})
     if not tables:
         return []
@@ -428,10 +430,15 @@ def off_target_elements(refs: list[dict], template: dict, targets: list[dict], s
     """The best `top` of the `reference` receptor docked against each off-target: only their
     records are taken out of their shards. `refs` are what `rank` made, the best first."""
     picked: dict[int, set[int]] = {}
+    docked_from: dict[int, dict] = {}  # where the reference docked it from, there
     for ref in [ref for ref in refs if int(ref["receptor_id"]) == int(reference)][:int(top)]:
         picked.setdefault(int(ref["_shard_id"]), set()).add(int(ref["ligand_id"]))
+        if ref.get("_shard_path"):
+            docked_from[int(ref["_shard_id"])] = {"shard_path": ref["_shard_path"],
+                                                  "prepared_shard": ref.get("_prepared_shard")}
     for shard_id, ids in sorted(picked.items()):
-        shard = {**located(shards[shard_id]), "record_ids": sorted(ids), "n_records": len(ids)}
+        shard = {**{k: v for k, v in shards[shard_id].items() if k != "prepared_part"},
+                 **docked_from.get(shard_id, {}), "record_ids": sorted(ids), "n_records": len(ids)}
         for target in targets:
             yield {**template, **target, "stage": "off", "shards": [shard], "chunks_total": len(targets),
                    "selected_from_receptor_id": int(reference)}

@@ -31,7 +31,7 @@ from ms_flow.core.data import catalog
 from ms_flow.core.data.catalog import active_generation_id
 from ms_flow.core.data.shard import MAX_RECORDS
 from ms_flow.engine import File
-from ms_flow.engine.files import KeptDir
+from ms_flow.engine.files import Dir, KeptDir
 from ms_flow.runner import plain, unplain
 
 from amdockvs.core.jobs import JobSpec, configs
@@ -81,8 +81,7 @@ class CampaignWriter(ShardHitWriter):
 
     def write(self, results: list) -> None:
         for result in results:
-            if result["stage"] == "prep":
-                self._prepared_there(result)
+            if result["stage"] == "prep":  # its container is registered as being there, by the campaign
                 continue
             if result["stage"] == "hits":
                 self._materialize_selected(self._of_run(result["hits"]))
@@ -90,17 +89,6 @@ class CampaignWriter(ShardHitWriter):
             envelopes = result["envelopes"]
             self._materialize_selected(self._of_run(hit for envelope in envelopes for hit in envelope["hits"]))
             self.handle("", [{**envelope, "hits": [], "result_shard": ""} for envelope in envelopes])
-
-    def _prepared_there(self, result: dict) -> None:
-        """A shard prepared on the queue's own disk: its file is registered as being there, so the
-        Shards view says where it is and only a step running there opens it. Registered once: a
-        campaign that found it already made returns the same row."""
-        if not self.executor:
-            return
-        generation_id = active_generation_id(self.project_db)
-        for row in result.get("files") or []:
-            catalog.add_remote(self.project_db, row["path"], location=self.executor, role=row["role"],
-                               counts=row, generation_id=generation_id)
 
     def _of_run(self, hits) -> list[dict]:
         return [{**hit, "docking_run_id": self.docking_run_id} for hit in hits]
@@ -139,24 +127,25 @@ def _there(chunk: dict, cpu: int) -> dict:
 
 
 def _unprepared(elements: list[dict], engine: str) -> list[dict]:
-    """The `prep` elements of a campaign: a shard not prepared here, once, and where `located`
-    finds it there; its chunks in `elements` are told so (an element of `vs` waits for them).
-    One the host already holds is not prepared again — that `prepare_stage` sees, not this side,
-    so the campaign is the same campaign however much of it that host has done."""
+    """The `prep` elements of a campaign: a shard not prepared here, once; its chunks in `elements`
+    are told its part (an element of `vs` waits for it and is told where it went). Its part is
+    written in the campaign's folder there and committed into the containers of a folder the
+    project keeps there (`kept_in`), so the next campaign to that host docks it as is: one the host
+    already holds is not prepared again — that `prepare_stage` sees, not this side, so the
+    campaign is the same campaign however much of it that host has done."""
     prep = {}
     for element in elements:
         for place, shard in enumerate(element["shards"]):
             if shard["shard_path"]:
                 continue
-            # There, a file of this one shard (whole: no `prepared_shard`), named for `located`.
-            # Kept: in the project's folder there, so the next campaign to that host docks it as is.
-            where = {"prepared_in": KeptDir(worker_output_dir(prepared_dir(shard["molecules"], engine))),
-                     "prepared_as": f"{shard['shard_id']}{Path(shard['molecules']).suffix}"}
-            element["shards"][place] = {**{k: v for k, v in shard.items() if k not in ("molecules", "shard")}, **where}
+            part = f"prep:{engine}:{int(shard['shard_id'])}"
+            element["shards"][place] = {**{k: v for k, v in shard.items() if k not in ("molecules", "shard")},
+                                        "prepared_part": part}
+            kept = worker_output_dir(prepared_dir(shard["molecules"], engine))
             prep.setdefault(shard["shard_id"], {"engine": engine, "role": prepared_role(engine), "shards": [{
                 "shard_id": shard["shard_id"], "shard_path": shard["molecules"], "shard": shard.get("shard"),
-                "import_batch_id": shard.get("import_batch_id"), "output_dir": where["prepared_in"],
-                "output_name": where["prepared_as"]}]})
+                "import_batch_id": shard.get("import_batch_id"), "generation_id": shard.get("generation_id"),
+                "part": part, "output_dir": Dir(str(Path(kept) / "parts")), "kept_in": KeptDir(kept)}]})
     return list(prep.values())
 
 
@@ -176,7 +165,7 @@ def dock_shards_campaign(params: DockCampaignParams, project) -> list[Stage]:
     ranked = partial(rank, cap=params.hit_cap, threshold=params.hit_threshold)
     prep = _unprepared(elements, params.preparation_engine)
     # What each docking leaves there goes into its key's containers there, not a file per shard.
-    stages = [Stage("prep", prepare_stage, prep),
+    stages = [Stage("prep", prepare_stage, prep, commit=campaign_receipts),
               Stage("vs", dock_stage, From("prep", prepared_elements, (elements,)), reduce=ranked,
                     commit=campaign_receipts)] if prep else [
               Stage("vs", dock_stage, elements, reduce=ranked, commit=campaign_receipts)]
