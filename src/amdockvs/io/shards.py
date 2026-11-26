@@ -4,16 +4,15 @@ An `htpvs` import is the normal import minus the expensive half: the feed is the
 byte-level record splitter (`loaders.stream_import_payload_batches`), but the records end up
 in shard containers instead of being parsed into rows of the project database.
 
-The work is split in two. Workers **filter**: they parse their span only where a prefilter
-demands it, and hand back the survivors. A single parent-side queue (`ShardQueueWriter`)
-**cuts**: it packs exactly `shard_size` survivors per shard, so shards are uniform whatever
-the filter rejected, and ids run correlative across the whole import.
+Workers do the whole of it: each filters its span, encodes the survivors and writes them as a
+part (`write_ligand_span`); the parent only commits the parts (`ShardImportWriter`). A record's
+id is planned, not counted: its ordinal in the source file times F (`fan_out`), and a fragment
+split off it the next ids. So the ids depend neither on which task finished first nor on what a
+filter dropped, and a killed import resumes without duplicates. A filter leaves holes.
 
 A shard is not a file in the source's format: it is a container (`ms_flow.core.data.shard`)
 holding the raw record bytes, with the format in its header. Nothing downstream sniffs an
-extension. The ordinal a record had in its source file does not survive as its id — it lives
-in the file's `source_index` column, which is where provenance goes once the queue decides who
-sits next to whom.
+extension. The ordinal also stays in the `source_index` column.
 """
 
 from __future__ import annotations
@@ -24,13 +23,12 @@ from pathlib import Path
 from typing import Any, Iterator
 from uuid import uuid4
 
-from ms_flow.core.data.shard import MAX_RECORDS, SUFFIX, Serializer, ShardWriter
+from ms_flow.core.data.shard import SUFFIX, Serializer, ShardWriter
 from amdockvs.core.constants import ShardKind
 
 from amdockvs.io.parsers import iter_record_span
 from amdockvs.io.payloads import ImportBatchPayload
 from amdockvs.io.rows import cull_mol, htp_mol_filter
-from amdockvs.core.constants import RESOURCE_SHARDS
 from amdockvs.core.vocab import FileFormat
 
 SHARD_SUFFIX = SUFFIX  # an Arrow container: X.arrows with X.arrows.index beside it
@@ -310,139 +308,128 @@ def _stored_record(mol, stored_format: str) -> str:
     return _sdf_record(mol)
 
 
-class ShardQueueWriter:
-    """The parent-side queue: survivors in, uniform shards out.
+# Ids a record may take: its own and its fragments' (ordinal * F + k). F = 1 without fan-out.
+FAN_OUT = 8
+_ID_LIMIT = 1 << _RECORD_BITS  # a record id fits the low half of `shard_key`
 
-    Replaces the job's output sink (a shard is a file plus a row, and only this side of the
-    process boundary can decide where a record lands). Runs on the executor's result thread,
-    one shard at a time, which is what buys exact record counts and correlative ids.
 
-    Shards do not get a file each, nor a file per source: the whole import rolls through one
-    open file per stored format, `MAX_RECORDS` ids each, every shard its own row group with its
-    batch as its scope in the file's header. The catalog gets one row per *file* (ms_flow's),
-    registered as ``writing`` when it opens — a view watches it fill — and ``ready`` once it is
-    closed and on disk; only then is it read. A library of 168 source files is four rows of 1M,
-    not 15k shard rows. A shard still never mixes two batches; a file may.
+def fan_out(prefilter) -> int:
+    return FAN_OUT if prefilter is not None and getattr(prefilter, "split_fragments", False) else 1
 
-    ponytail: not idempotent, by decision. A retried span is re-filtered and lands wherever
-    the queue happens to be, so shard boundaries differ between runs and a re-import appends
-    rather than upserting — a failed import is restarted from the beginning, not resumed.
-    Resuming would need the queue to checkpoint (span -> shard) receipts. A crash loses the
-    open file (its `.tmp` stays behind, its row stays ``writing``); what was closed before is
-    the library.
+
+def write_ligand_span(payload: dict[str, Any], progress_cb=None) -> list[dict[str, Any]]:
+    """One span of a source file -> one part of shards, written here; its receipt goes back.
+
+    ``payload["part"]``: where (``dir``), as what (``id``, ``generation_id``) and how big
+    (``shard_records`` source records a shard). A shard covers ``shard_records`` ordinals from
+    the span's start, so its range never depends on the filter. More than F molecules from one
+    record: the record is a drop with its reason, the import goes on.
+    """
+    from ms_flow.core.data.catalog import SOURCE, file_row
+
+    payload = dict(payload)
+    part = dict(payload.pop("part"))
+    batch = ImportBatchPayload.model_validate(payload)
+    width = fan_out(batch.prefilter)
+    spanned = batch.span_count > 0 and batch.span_offset >= 0
+    first = batch.span_first_index if spanned else None
+    end = batch.span_first_index + batch.span_count if spanned else None
+    if end is not None and end * width > _ID_LIMIT:
+        raise ValueError(_over_the_bits(batch.file_path, end, width))
+    (group,) = filter_ligand_span(payload)
+    records = group["records"]
+    if not records:
+        return []
+    if first is None:
+        first, end = records[0][0], records[-1][0] + 1
+        if end * width > _ID_LIMIT:
+            raise ValueError(_over_the_bits(batch.file_path, end, width))
+    size = max(1, int(part["shard_records"]))
+    path = Path(part["dir"]) / f".part-{uuid4().hex[:16]}{SUFFIX}"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with ShardWriter(path, dataset_id=None, shard_id=0, base_id=first * width,
+                     slot_count=max(1, (end - first) * width), kind=payload_kind_for(group["input_format"]),
+                     serializer=Serializer.UTF8, metadata={"input_format": group["input_format"]},
+                     source_index=True, scope=batch.import_batch_id) as writer:
+        shard, at = None, 0
+        while at < len(records):
+            ordinal = records[at][0]
+            texts = []
+            while at < len(records) and records[at][0] == ordinal:
+                texts.append(records[at][1])
+                at += 1
+            mine = (ordinal - first) // size
+            if mine != shard:
+                if shard is not None:
+                    _end_shard(writer, first, end, size, width, shard)
+                shard = mine
+            if len(texts) > width:
+                writer.drop(ordinal * width, f"{len(texts)} molecules from one record, at most {width}")
+                continue
+            for k, text in enumerate(texts):
+                writer.add(ordinal * width + k, text.encode("utf-8"), source_index=ordinal)
+        _end_shard(writer, first, end, size, width, shard)
+    return [file_row(path, part=str(part["id"]), role=SOURCE, generation_id=part["generation_id"])
+            | {"import_batch_id": batch.import_batch_id}]
+
+
+def _end_shard(writer, first: int, end: int, size: int, width: int, shard: int) -> None:
+    lo = first + shard * size
+    writer.end_group(base_id=lo * width, slot_count=(min(lo + size, end) - lo) * width)
+
+
+def _over_the_bits(path, records: int, width: int) -> str:
+    return (f"{Path(path).name}: {records} records do not fit the record ids of one source "
+            f"(at most {_ID_LIMIT // width} with {width} id(s) a record). Split the file.")
+
+
+class ShardImportWriter:
+    """The import's sink: the parts the workers wrote, committed into the generation's containers
+    (`ms_flow.sinks.CatalogWriter`), idempotent by part id. Holds no record.
+
+    A batch's `n_imported` is what its committed shards hold, read from the catalog when the job
+    ends or stops: set, never added to, so a replay or a resume counts nothing twice.
     """
 
-    # The open file's row is updated every this many shards: a live count, not a write per shard.
-    PROGRESS_EVERY = 64
+    def __init__(self, *, project_db: Any, generation_id: int | None) -> None:
+        from ms_flow.sinks import CatalogWriter
 
-    def __init__(
-        self,
-        *,
-        project_db: Any,
-        shard_dir: str | Path,
-        shard_size: int,
-        generation_id: int | None = None,
-    ) -> None:
-        self._project_db = project_db
-        self._shard_dir = Path(shard_dir).expanduser().resolve()
-        self._shard_dir.mkdir(parents=True, exist_ok=True)
-        # Opened by the caller (io/api.py), like the chemistry step's. An import *adds* to the
-        # library, so it joins the active generation rather than forking one: only a rewrite
-        # has a previous state worth being able to fall back to.
-        self._generation_id = generation_id
-        self._shard_size = max(1, int(shard_size))
-        # One bucket per (batch, format): mixing two files in one shard would leave the scope
-        # of the shard a lie. One open file per format: the header says how to read every
-        # record in it.
-        self._pending: dict[tuple[int | None, str], list[tuple[int, str]]] = {}
-        # format -> (writer, catalog file id, shards in it, records in it, records per batch)
-        self._files: dict[str, tuple[ShardWriter, int, list[int], dict[int | None, int]]] = {}
-        self._next_id = 0
+        self._project_db, self._generation_id = project_db, generation_id
+        self._sink = CatalogWriter(project_db)
+        self._batches: set[int] = set()
+
+    def write(self, results: list) -> None:
+        receipts = [list(result or []) for result in results]
+        self._batches.update(int(r["import_batch_id"]) for group in receipts for r in group
+                             if r.get("import_batch_id") is not None)
+        self._sink.write([group for group in receipts if group])
 
     def handle(self, chunk_id: str, result: Any) -> None:
-        for group in list(result or []):
-            key = (group.get("import_batch_id"), str(group.get("input_format") or ""))
-            bucket = self._pending.setdefault(key, [])
-            bucket.extend((int(index), str(raw)) for index, raw in group.get("records") or [])
-            while len(bucket) >= self._shard_size:
-                self._write_shard(key, bucket[: self._shard_size])
-                del bucket[: self._shard_size]
+        self.write([result])
 
     def on_error(self, chunk_id: str, error: str) -> None:
-        """A failed span contributes no records. Nothing to undo — see the class note."""
+        """A failed span wrote no part: nothing to undo, a resume runs it again."""
 
     def flush(self) -> None:
-        """Called once the job is done: write what is left, one partial shard per source."""
-        for key, bucket in list(self._pending.items()):
-            if bucket:
-                self._write_shard(key, bucket)
-            self._pending.pop(key, None)
-        self.close()
+        try:
+            self._sink.finish()
+        finally:
+            self._count()
 
     def close(self) -> None:
-        """Every open file closed and made ``ready``: also what a stopped job keeps."""
-        for input_format in list(self._files):
-            self._close_file(input_format)
+        """What a stopped job keeps: what committed, counted."""
+        self._sink.close()
+        self._count()
 
-    def _write_shard(self, key: tuple[int | None, str], records: list[tuple[int, str]]) -> None:
-        from ms_flow.core.data.catalog import WRITING, add_file, update_file
+    def _count(self) -> None:
+        from amdockvs.io.batches import set_imported
 
-        import_batch_id, input_format = key
-        base_id = self._next_id
-        self._next_id += len(records)
-        open_file = self._files.get(input_format)
-        # Ids run across the whole import (every format draws from one counter), so a file is
-        # full when this shard's ids no longer fit its window, not after a count of shards.
-        if open_file is not None and base_id + len(records) > open_file[0].base_id + open_file[0].slot_count:
-            self._close_file(input_format)
-        if input_format not in self._files:
-            # Made unique: every import restarts its ids at 0 in the same directory, so a name
-            # built from ids alone would overwrite the last import.
-            path = self._shard_dir / f"library_{uuid4().hex[:12]}{SHARD_SUFFIX}"
-            writer = ShardWriter(
-                path,
-                dataset_id=None,
-                shard_id=0,  # a file of many shards, listed in its header
-                base_id=base_id,
-                kind=payload_kind_for(input_format),
-                serializer=Serializer.UTF8,
-                slot_count=MAX_RECORDS,
-                metadata={"input_format": input_format},
-                # Ids are dense, so this column is the only place the source ordinal survives.
-                source_index=True,
-            )
-            file_id = add_file(self._project_db, path, generation_id=self._generation_id, status=WRITING)
-            self._files[input_format] = (writer, file_id, [0, 0], {})
-        writer, file_id, counts, per_batch = self._files[input_format]
-        for offset, (index, raw) in enumerate(records):
-            writer.add(base_id + offset, raw.encode("utf-8"), source_index=index)
-        writer.end_group(scope=import_batch_id, base_id=base_id, slot_count=len(records))
-        counts[0] += 1
-        counts[1] += len(records)
-        per_batch[import_batch_id] = per_batch.get(import_batch_id, 0) + len(records)
-        if counts[0] % self.PROGRESS_EVERY == 0:
-            update_file(self._project_db, file_id, n_shards=counts[0], n_records=counts[1], n_active=counts[1])
-
-    def _close_file(self, input_format: str) -> None:
-        from ms_flow.core.data.catalog import finish_file
-
-        from amdockvs.io.batches import add_imported
-
-        writer, file_id, _counts, per_batch = self._files.pop(input_format)
-        writer.close()  # fsynced and renamed: only now may it be read
-        finish_file(self._project_db, file_id)
-        add_imported(self._project_db, per_batch)
+        set_imported(self._project_db, self._batches, generation_id=self._generation_id)
 
 
-def shard_queue_writer(params: dict, config: dict) -> ShardQueueWriter:
-    """`result_handler_factory` of the import: shards of `batch_size` records each, in the
-    project's shard directory, into `generation_id`."""
-    return ShardQueueWriter(
-        project_db=config["project_db"],
-        shard_dir=config["project_resources"][RESOURCE_SHARDS]["path"],
-        shard_size=params["batch_size"],
-        generation_id=params.get("generation_id"),
-    )
+def shard_import_writer(params: dict, config: dict) -> ShardImportWriter:
+    """`result_handler_factory` of the import."""
+    return ShardImportWriter(project_db=config["project_db"], generation_id=params.get("generation_id"))
 
 
 class ShardGenerationWriter:
@@ -517,14 +504,16 @@ __all__ = [
     "FORMAT_FOR_KIND",
     "SHARD_SUFFIX",
     "ShardGenerationWriter",
-    "ShardQueueWriter",
+    "ShardImportWriter",
+    "fan_out",
     "shard_generation_writer",
     "filter_ligand_span",
     "is_shard_key",
     "mol_from_record",
     "payload_kind_for",
     "shard_key",
-    "shard_queue_writer",
+    "shard_import_writer",
+    "write_ligand_span",
     "smiles_record",
     "split_shard_key",
 ]

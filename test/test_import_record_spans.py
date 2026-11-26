@@ -155,3 +155,73 @@ def test_a_short_malformed_tail_is_still_a_record_whatever_the_block_size(tmp_pa
         with path.open("rb") as handle:
             expected = [(start, end) for _record, start, end in _split_sdf_spans(iter(handle))]
         assert list(_sdf_offsets(path, block=block)) == expected, (count, tail, block)
+
+
+def _plan(path, **caps):
+    return [(c["span_first_index"], c["span_count"], c["span_offset"], c["span_end"])
+            for c in stream_import_payload_batches(kind="ligand", file_path=path, storage_dir=path.parent / "s",
+                                                   **caps)]
+
+
+def _reference_plan(path, *, batch_size, chunk_bytes, ramp):
+    """The per-record planner as it was (#M7): the oracle the block planner must match."""
+    from amdockvs.io.loaders import IMPORT_RAMP_UP_SIZES
+
+    _fmt, _cfg, spans = iter_record_spans(kind="ligand", file_path=path)
+    out, batch, size = [], [], 0
+    for record in spans:
+        n = record["end"] - record["offset"]
+        cap = min(batch_size, IMPORT_RAMP_UP_SIZES[len(out)] if ramp and len(out) < len(IMPORT_RAMP_UP_SIZES)
+                  else batch_size)
+        if batch and (size + n > chunk_bytes or len(batch) >= cap):
+            out.append((batch[0]["source_index"], len(batch), batch[0]["offset"], batch[-1]["end"]))
+            batch, size = [], 0
+        batch.append(record)
+        size += n
+    if batch:
+        out.append((batch[0]["source_index"], len(batch), batch[0]["offset"], batch[-1]["end"]))
+    return out
+
+
+SMILES_CASES = {
+    "lib.smi": SMI,
+    "crlf.smi": SMI.replace("\n", "\r\n"),
+    "no_end.smi": SMI.rstrip("\n"),
+    "gaps.smi": "smiles name\n\n   \nCCO a\n# note\n  # indented note\n\tCCN b\n \n" + "C c\n" * 40 + "\n\n",
+    "only_header.smi": "smiles name\n",
+    "empty.smi": "",
+    "quoted.csv": "smiles,name\n" + "CC,a\n" * 30 + 'CCO,"ethanol,\nquoted"\n' + "CN,b\n" * 30,
+    "quote_in_a_space_table.smi": 'smiles name\n' + 'CC 5"-x\n' * 20,
+}
+
+
+def test_the_block_planner_gives_the_per_record_chunks(tmp_path, monkeypatch):
+    """Same chunks as the per-record planner, whatever the caps and the block edges."""
+    import itertools
+
+    from amdockvs.io.parsers import readers
+
+    for name, text in SMILES_CASES.items():
+        path = tmp_path / name
+        path.write_bytes(text.encode())
+        for batch_size, chunk_bytes, ramp in itertools.product((1, 3, 1024), (1, 20, 4 << 20), (True, False)):
+            expected = _reference_plan(path, batch_size=batch_size, chunk_bytes=chunk_bytes, ramp=ramp)
+            for block in (1, 7, 64, 16 << 20):
+                monkeypatch.setattr(readers, "_OFFSET_BLOCK", block)
+                got = _plan(path, batch_size=batch_size, chunk_bytes=chunk_bytes, ramp=ramp)
+                assert got == expected, (name, batch_size, chunk_bytes, ramp, block)
+
+
+def test_a_smiles_plan_has_no_python_step_per_line(tmp_path, monkeypatch):
+    """1M SMILES took the parent ~1 s line by line, ~0.05 s with numpy (M7 gate, 2026-11-25)."""
+    from amdockvs.io.parsers import readers
+
+    path = tmp_path / "lib.smi"
+    path.write_text("smiles name\n" + "CCO x\n" * 5000)
+
+    def per_line(*_a, **_k):
+        raise AssertionError("the planner split the table line by line")
+
+    monkeypatch.setattr(readers, "_split_smiles_spans", per_line)
+    assert [count for _first, count, _o, _e in _plan(path, batch_size=1024, chunk_bytes=4 << 20,
+                                                     ramp=False)] == [1024] * 4 + [904]

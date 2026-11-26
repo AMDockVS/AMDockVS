@@ -16,9 +16,9 @@ from amdockvs.core.jobs import JobDefinition
 WITHOUT_SINK = {
     "amdock_diagram_job": "writes no rows: it leaves PNG/SVG on disk.",
     "amdock_shard_ligands_job": (
-        "declares a result_handler_factory instead: ShardQueueWriter writes the shard file and "
-        "its screening_shards row together, because only the parent process knows which records "
-        "share a shard. A table sink cannot write the file."
+        "declares a result_handler_factory instead: ShardImportWriter commits the parts workers "
+        "wrote to the shard catalog, then counts each batch from it. A table sink cannot commit "
+        "a container part."
     ),
     "amdock_shard_chemistry_job": (
         "declares a result_handler_factory instead: ShardGenerationWriter writes the rows into "

@@ -60,11 +60,13 @@ def write_shard(
     slot_count: int,
     shard_id: int = 0,
     metadata: dict[str, Any] | None = None,
+    scope: int | None = None,
 ) -> int:
     """Write the molecules that survived, each at its own id. Returns how many were written.
 
     Failures are dropped here, not earlier: `run_pipeline` keeps them in place so the caller
-    can count them, and this is the caller. Dropped means *absent*, not renumbered.
+    can count them, and this is the caller. Dropped means *absent*, not renumbered. ``scope``:
+    the source's (ids restart per source, so a shard is named by scope and id).
     """
     path = Path(shard_path).expanduser().resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -78,6 +80,7 @@ def write_shard(
         serializer=Serializer.UTF8,
         slot_count=slot_count,
         metadata=dict(metadata or {}),
+        scope=scope,
     ) as writer:
         for id_, mol in zip(ids, mols):
             if mol is None or isinstance(mol, Exception):
@@ -87,7 +90,8 @@ def write_shard(
     return written
 
 
-def transform_ligand_shard(shard_in: str | Path, shard_out: str | Path, steps, shard=None) -> dict[str, int]:
+def transform_ligand_shard(shard_in: str | Path, shard_out: str | Path, steps, shard=None, *,
+                           scope: int | None = None) -> dict[str, int]:
     """Run the step list over a whole shard. One file/CPU, no database in sight."""
     with Shard.open(Path(shard_in).expanduser().resolve(), shard=shard) as opened:
         header = {
@@ -107,6 +111,7 @@ def transform_ligand_shard(shard_in: str | Path, shard_out: str | Path, steps, s
         slot_count=header["slot_count"],
         shard_id=header["shard_id"],
         metadata=header["metadata"],
+        scope=scope,
     )
     return {"n_input": len(mols), "n_records": written, "n_failed": len(mols) - written}
 

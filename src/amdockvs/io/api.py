@@ -4,6 +4,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
+from uuid import uuid4
 
 from amdockvs.io.jobs import (
     MAX_SHARD_RECORDS,
@@ -18,7 +19,8 @@ from amdockvs.io.jobs import (
 from amdockvs.core.normalize import PathLike, group_files, normalize_files, resolved_path
 from amdockvs.core.configuration import app_config
 from amdockvs.core.constants import RESOURCE_IMPORT_STATS, RESOURCE_SHARDS
-from amdockvs.io.shards import SHARD_RECORDS
+from amdockvs.io.parsers import count_import_records
+from amdockvs.io.shards import _ID_LIMIT, SHARD_RECORDS, _over_the_bits, fan_out
 from amdockvs.core.vocab import ImportKind
 from amdockvs.io.batches import register_batches, stamp_job
 from amdockvs.io.payloads import validate_prefilter
@@ -51,6 +53,22 @@ def _checked_prefilter(prefilter: Mapping[str, Any] | None) -> dict[str, Any] | 
         return None
     validate_prefilter(prefilter)
     return dict(prefilter)
+
+
+def _refuse_over_the_id_bits(files: list[Path], prefilter) -> None:
+    """A record id is its ordinal times F (`io.shards.fan_out`) and fits 32 bits: a source with
+    more records cannot be imported as one batch. The count is the cheap estimate; the worker
+    checks the exact ordinals too."""
+    from amdockvs.io.payloads import ImportPrefilterPolicy
+
+    width = fan_out(ImportPrefilterPolicy.model_validate(prefilter) if prefilter else None)
+    for file_path in files:
+        try:
+            records = count_import_records(file_path, approx=True)
+        except Exception:  # noqa: BLE001 - the worker checks the exact ordinals
+            continue
+        if records * width > _ID_LIMIT:
+            raise ValueError(_over_the_bits(file_path, records, width))
 
 
 def _total_import_chunks(files: list[Path], *, batch_size: int, ramp: bool = True) -> int:
@@ -250,6 +268,8 @@ class LoaderAPI:
         }
         if prefilter := _checked_prefilter(prefilter):
             params["prefilter"] = prefilter
+        _refuse_over_the_id_bits(normalized_files, prefilter)
+        params["run"] = uuid4().hex[:12]  # a resume of this job finds the parts it committed
         return [
             self._submit_job(
                 shard_ligands_job,

@@ -75,11 +75,11 @@ def test_htpvs_import_shards_and_the_pipeline_runs_over_them(tmp_path, monkeypat
         # 3D is what the pipeline was asked for, so the shard now carries conformers...
         from amdockvs.chemistry.shards import read_shard
 
-        out_ids, out_mols = read_shard(done[0]["path"])
+        out_ids, out_mols = read_shard(done[0]["path"], done[0]["shard_index"])  # sources share a container
         assert out_mols and all(mol.GetNumConformers() > 0 for mol in out_mols)
         # ...and the ids came through the pipeline: a shard is addressed, not just stacked.
-        source_shard = next(row for row in shards if row["shard_index"] == done[0]["shard_index"])
-        in_ids, _in_mols = read_shard(source_shard["path"])
+        source_shard = next(row for row in shards if (row["scope"], row["base_id"]) == (done[0]["scope"], done[0]["base_id"]))
+        in_ids, _in_mols = read_shard(source_shard["path"], source_shard["shard_index"])
         assert out_ids and set(out_ids) <= set(in_ids)
 
         # A second run is the next generation, not a no-op: it reads the one above, and the

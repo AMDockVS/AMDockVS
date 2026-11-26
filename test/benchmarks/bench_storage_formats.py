@@ -685,7 +685,6 @@ def stage_write1m(library: Path, work: Path, n: int = 1_000_000) -> None:
     workers do that in a real import). Variants:
       sqlite_blob        molecules rows + SDF blobs in a table of project.db
       sqlite_volumes     molecules rows + ms_flow volumes (today's rows import)
-      shards_today       screening_shards rows + one Parquet per 1000 (today's ShardQueueWriter)
       shards_big         screening_shards rows + one Parquet, row group = shard (proposed)
       sqlite_shards_big  molecules rows + shards_big (descriptors queryable in SQL)
     """
@@ -696,7 +695,6 @@ def stage_write1m(library: Path, work: Path, n: int = 1_000_000) -> None:
 
     from amdockvs import AMDockVSRuntime
     from amdockvs.core.payloads import payload_store, structure_payload
-    from amdockvs.io.shards import ShardQueueWriter
     from amdockvs.models import MoleculeRecord
     from ms_flow.core.database.project_models import CatalogFile
 
@@ -729,7 +727,7 @@ def stage_write1m(library: Path, work: Path, n: int = 1_000_000) -> None:
             s.add(CatalogFile(path=str(path), n_shards=n // per_shard, n_records=n, n_active=n))
             s.commit()
 
-    for variant in ("sqlite_blob", "sqlite_volumes", "shards_today", "shards_big", "sqlite_shards_big"):
+    for variant in ("sqlite_blob", "sqlite_volumes", "shards_big", "sqlite_shards_big"):
         rt = AMDockVSRuntime()
         project = work / f"w1m_{variant}"
         rt.create_project(name=f"w1m_{variant}", folder=project)
@@ -753,12 +751,6 @@ def stage_write1m(library: Path, work: Path, n: int = 1_000_000) -> None:
                         else:
                             molecules(s, part, [None] * len(part))
                         s.commit()
-            if variant == "shards_today":
-                q = ShardQueueWriter(project_db=store_db, shard_dir=project / "shards", shard_size=per_shard)
-                for lo in range(0, n, step):
-                    q.handle("c", [{"import_batch_id": None, "input_format": "sdf",
-                                    "records": [(r["id"], r["sdf"]) for r in rows[lo:lo + step]]}])
-                q.flush()
             if variant in ("shards_big", "sqlite_shards_big"):
                 big_shards(project, store_db)
             with store_db.engine.begin() as con:

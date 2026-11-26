@@ -7,10 +7,10 @@ from typing import Any, Iterator, Mapping
 
 from pydantic import BaseModel, Field
 
-from ms_flow.sinks import graph_sink, table_sink
+from ms_flow.sinks import graph_sink
 from ms_flow.specs import InputSource
 from amdockvs.core.jobs import job
-from amdockvs.io.tasks import filter_ligand_span_task, materialize_import_rows, materialize_multithreaded_sdf_rows
+from amdockvs.io.tasks import write_ligand_span_task, materialize_import_rows, materialize_multithreaded_sdf_rows
 
 from amdockvs.core.configuration import (
     DEFAULT_LIGAND_BATCH_SIZE,
@@ -21,6 +21,7 @@ from amdockvs.core.constants import (
     AMDOCKVS_LOCAL_EXECUTORS,
     AMDOCKVS_PROCESS_EXECUTORS,
     RESOURCE_IMPORT_STATS,
+    RESOURCE_SHARDS,
     TABLE_MOLECULES,
 )
 from ms_flow.core.data.shard import MAX_RECORDS as MAX_SHARD_RECORDS
@@ -32,7 +33,7 @@ from amdockvs.io.loaders import (
 )
 from amdockvs.io.parsers import count_import_records
 from amdockvs.io.payloads import ImportPrefilterPolicy, MultithreadedSDFImportPayload
-from amdockvs.io.shards import shard_queue_writer
+from amdockvs.io.shards import shard_import_writer
 from amdockvs.core.worker_io import worker_output_dir
 from amdockvs.models import (
     BindingSite,
@@ -307,11 +308,10 @@ def iter_import_chunks(
 # (`SHARD_IMPORT_SPAN_RECORDS`); this only closes one early when the records are huge.
 SHARD_MAX_BYTES = int(os.environ.get("AMDOCK_SHARD_MAX_BYTES") or DEFAULT_SHARD_MAX_BYTES)
 
-# Records a shard-import worker filters per chunk, whatever the shard size: the parent cuts the
-# shards, so a chunk is only a parse work-unit. Tying it to the shard size made a library of
-# 3.8M records 385k chunks at 10 per shard. ponytail: a constant; time-based autobatch (as the
-# docking has) if one size stops fitting every format.
-SHARD_IMPORT_SPAN_RECORDS = 1000
+# Source records a shard-import worker filters and writes per chunk (its part): a multiple of the
+# shard size, so an unfiltered import without fan-out gives shards of exactly 256. ponytail: a
+# constant; time-based autobatch (as the docking has) if one size stops fitting every format.
+SHARD_IMPORT_SPAN_RECORDS = 1024
 
 
 @job(
@@ -418,40 +418,51 @@ def load_ligands_multithreaded_sdf_job(params: dict, config: dict | None = None)
 
 
 class ShardLigandsParams(LoadFileParams):
-    """The import params, with the batch size read as *records per shard*."""
+    """The import params, with the batch size read as *source records per shard*."""
 
     batch_size: int = Field(ge=1, le=MAX_SHARD_RECORDS)
     generation_id: int | None = None  # the generation the shards go into
+    run: str = ""  # fixed at submit: the parts of a resumed job are the ones it committed
+
+
+def shard_ligand_chunks(params: dict, config: dict | None = None) -> Iterator[dict]:
+    """The spans of the import, each with the part its worker writes: where, and under which id
+    (submission + source + span, so a resume skips what committed)."""
+    from uuid import uuid4
+
+    params = dict(params or {})
+    shard_dir = dict(dict(config or {}).get("project_resources") or {})[RESOURCE_SHARDS]["path"]
+    run = str(params.get("run") or uuid4().hex[:12])
+    params_map = {
+        **params,
+        "primary_role": "ligand",
+        "molecule_kind": str(params.get("molecule_kind") or "small_molecule"),
+        "batch_size": SHARD_IMPORT_SPAN_RECORDS,  # the chunk is a parse work-unit; the shard size is the part's
+    }
+    for chunk in iter_import_chunks("ligand", params=params_map, config=config, chunk_bytes=SHARD_MAX_BYTES,
+                                    ramp=False):
+        chunk["part"] = {"dir": worker_output_dir(shard_dir), "generation_id": params.get("generation_id"),
+                         "shard_records": int(params["batch_size"]),
+                         "id": f"{run}:{chunk.get('import_batch_id')}:{chunk.get('span_first_index')}"}
+        yield chunk
 
 
 @job(
-    task=filter_ligand_span_task,
+    task=write_ligand_span_task,
     name="amdock_shard_ligands_job",
     finalize=finish_import,
     params_model=ShardLigandsParams,
     executor="compute",
     supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
     task_label=import_label,
-    # No output_spec: `ShardQueueWriter` is the sink. It writes the shard *and* its inventory
-    # row, because only the parent can say which records share a shard.
-    result_handler_factory=shard_queue_writer,
+    # No output_spec: workers write the parts, `ShardImportWriter` commits them.
+    result_handler_factory=shard_import_writer,
     output_flush_every=DEFAULT_OUTPUT_FLUSH_EVERY,
     store_results=False,
 )
 def shard_ligands_job(params: dict, config: dict | None = None) -> Iterator[dict]:
     """`htpvs` import: the library is split, not materialized. `molecules` is never touched."""
-    params_map = {
-        **dict(params or {}),
-        "primary_role": "ligand",
-        "molecule_kind": str(dict(params or {}).get("molecule_kind") or "small_molecule"),
-        # `batch_size` is the shard size, which only the queue reads (`shard_queue_writer`).
-        "batch_size": SHARD_IMPORT_SPAN_RECORDS,
-    }
-    # The chunk is a parse work-unit now, not a shard: how many records survive it is the
-    # queue's problem, and where they land is `ShardQueueWriter`'s.
-    yield from iter_import_chunks(
-        "ligand", params=params_map, config=config, chunk_bytes=SHARD_MAX_BYTES, ramp=False
-    )
+    yield from shard_ligand_chunks(params, config)
 
 
 def estimate_import_chunks(file_path: str | Path, *, batch_size: int, ramp: bool = True) -> int:

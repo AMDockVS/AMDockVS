@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import itertools
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -282,15 +283,15 @@ def _split_mol2_spans(lines: Iterator[bytes]) -> Iterator[tuple[bytes, int, int]
 
 
 def _split_smiles_spans(
-    lines: Iterator[bytes], *, skip_header: bool, delimiter: str = " "
+    lines: Iterator[bytes], *, skip_header: bool, delimiter: str = " ", pos: int = 0
 ) -> Iterator[tuple[bytes, int, int]]:
     """(record bytes, start offset, end offset) for every row of a SMILES table.
 
     A row is a line, except in a comma or tab table, where a quoted cell may hold a newline
     (`CCO,"ethanol,\nquoted",100` is one row): the row runs on until its quotes close.
+    ``pos``: the file offset of the first line (a line start, outside any quote).
     """
     quoting = delimiter.encode() if delimiter in {",", "\t"} else b""
-    pos = 0
     header_skipped = not skip_header
     buffer: list[bytes] = []
     start = 0
@@ -391,6 +392,84 @@ def iter_record_spans(
                 yield {"source_index": index, "offset": start, "end": end}
 
     return input_format, parse_config, spans()
+
+
+# Bytes the block planner reads at a time (`iter_record_offsets`); small in tests to cut records.
+_OFFSET_BLOCK = 16 << 20
+_SPACE = b" \t\n\r\x0b\x0c"  # what bytes.strip() strips
+
+
+def _smiles_offset_blocks(path: Path, *, skip_header: bool, delimiter: str) -> Iterator[tuple[Any, Any]]:
+    """The rows `_split_smiles_spans` finds, as numpy arrays (starts, ends) per block: the feed
+    runs this in the parent, where a Python step per line cost ~1 s per 1M rows. A row is a line
+    with text that is not a comment; only lines that start with a space are looked at in Python.
+    In a comma or tab table, a block holding a quote hands the rest to the line splitter: a
+    quoted cell may hold a newline."""
+    import numpy as np
+
+    quoting = delimiter in {",", "\t"}
+    header_left = skip_header
+    space = np.frombuffer(_SPACE, np.uint8)
+    with path.open("rb") as handle:
+        base, tail = 0, b""
+        while True:
+            more = handle.read(_OFFSET_BLOCK)
+            buf = tail + more
+            if not buf:
+                return
+            if quoting and b'"' in buf:
+                handle.seek(base)
+                rows = _split_smiles_spans(handle, skip_header=header_left, delimiter=delimiter, pos=base)
+                while batch := [row[1:] for row in itertools.islice(rows, 1 << 16)]:
+                    starts, ends = np.array(batch, np.int64).T
+                    yield starts, ends
+                return
+            arr = np.frombuffer(buf, np.uint8)
+            ends = np.flatnonzero(arr == 10) + 1
+            if more and not len(ends):
+                tail = buf  # one line longer than the block
+                continue
+            cut = int(ends[-1]) if more else len(buf)
+            if cut > (int(ends[-1]) if len(ends) else 0):
+                ends = np.append(ends, cut)  # the last line, without its newline
+            starts = np.concatenate(([0], ends[:-1]))
+            first = arr[starts]
+            spaced = np.isin(first, space)
+            keep = ~spaced & (first != ord("#"))
+            for i in np.flatnonzero(spaced):
+                text = buf[starts[i]:ends[i]].strip()
+                keep[i] = bool(text) and not text.startswith(b"#")
+            starts, ends = starts[keep] + base, ends[keep] + base
+            if header_left and len(starts):
+                starts, ends, header_left = starts[1:], ends[1:], False
+            if len(starts):
+                yield starts, ends
+            tail, base = buf[cut:], base + cut
+            if not more:
+                return
+
+
+def iter_record_offsets(*, kind: str, file_path: str | Path) -> tuple[str, dict[str, Any], Iterator | None]:
+    """`iter_record_spans` in blocks: (starts, ends) numpy arrays of the records' byte ranges,
+    the record index running on from block to block. ``None`` where there are no spans."""
+    import numpy as np
+
+    input_format, parse_config, spans = iter_record_spans(kind=kind, file_path=file_path)
+    source_path = Path(file_path).expanduser().resolve()
+    if input_format == FileFormat.SMILES:
+        return input_format, parse_config, _smiles_offset_blocks(
+            source_path, skip_header=bool(parse_config.get("has_header")),
+            delimiter=str(parse_config.get("delimiter") or " "))
+    if input_format == FileFormat.SDF:
+        # ponytail: `_sdf_offsets` still steps per record (C find, no per-line loop); vectorize if it shows
+        def sdf() -> Iterator:
+            offsets = _sdf_offsets(source_path)
+            while batch := list(itertools.islice(offsets, 1 << 16)):
+                starts, ends = np.array(batch, np.int64).T
+                yield starts, ends
+        return input_format, parse_config, sdf()
+    return input_format, parse_config, None
+
 
 
 def iter_record_span(

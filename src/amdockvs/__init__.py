@@ -1,4 +1,10 @@
+import os
 from importlib import import_module
+
+# The app's process does not compute: the engine's workers do, on the cores it hands out. Without
+# this, `import numpy` started an OpenBLAS thread per core that burned ~1 s of CPU here. Before
+# anything imports numpy; a value the user set is kept.
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 _LAZY_EXPORTS = {
     "manifest": ("amdockvs.manifest", "manifest"),

@@ -92,14 +92,18 @@ def _holds_batch(batch_id):
         literal("%,") + cast(batch_id, String) + literal(",%"))
 
 
-def add_imported(project_db, written: Mapping[int | None, int]) -> None:
-    """Add what a shard import wrote to each batch's `n_imported`: the queue counts it as it
-    cuts, since no row per shard is kept to count it from afterwards."""
+def set_imported(project_db, batch_ids: Iterable[int], *, generation_id: int | None = None) -> None:
+    """Each batch's `n_imported` = the records its committed shards hold (in `generation_id`):
+    read from the catalog, so it is the same however often it is set."""
+    from ms_flow.core.data.catalog import record_count, shard_spec
+
+    filters = {} if generation_id is None else {"generation_id": int(generation_id)}
+    counts = {int(b): record_count(project_db, shard_spec(scope=int(b), **filters), whole=True) for b in batch_ids}
+    if not counts:
+        return
     with project_db.get_session() as session:
-        for batch_id, n in dict(written or {}).items():
-            if batch_id is not None and n:
-                session.execute(update(ImportBatch).where(ImportBatch.id == int(batch_id))
-                                .values(n_imported=ImportBatch.n_imported + int(n)))
+        for batch_id, n in counts.items():
+            session.execute(update(ImportBatch).where(ImportBatch.id == batch_id).values(n_imported=int(n)))
         session.commit()
 
 
@@ -164,7 +168,7 @@ def finish_batches(project_db, batch_ids: Mapping[str, int], *, completed: bool)
             if batch is None:
                 continue
             if batch.kind == ImportKind.SHARDS:
-                written, last = batch.n_imported, None  # counted by the queue (`add_imported`)
+                written, last = batch.n_imported, None  # counted from the catalog (`set_imported`)
             else:
                 written, last = session.execute(
                     select(func.count(), func.max(MoleculeRecord.source_index))
@@ -195,7 +199,7 @@ def batch_field(model, name: str):
 
 __all__ = [
     "DuplicateImportError",
-    "add_imported",
+    "set_imported",
     "batch_field",
     "duplicate_imports",
     "file_format_of",
