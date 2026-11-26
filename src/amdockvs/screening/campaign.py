@@ -12,6 +12,8 @@ from typing import Any, Iterable, Mapping
 
 from pathlib import Path
 
+import numpy as np
+
 from ms_flow.core.data import catalog, states
 from sqlmodel import select
 
@@ -144,12 +146,13 @@ def record_docked(project_db, *, key: str, shard_id: int, result_path: str = "",
     `done_ids`/`failed_ids`: the shard's ligands docked and not, as the worker named them; without
     them the shard counts done with unknown ligand counts.
 
-    ponytail: the done-set is read whole per call (one parquet of shard ids per key, ~4k per
-    million records); a set kept in the writer if a campaign of millions of shards shows it."""
+    The done-set is held per process by `states` (read whole once, then its new pieces)."""
     from uuid import uuid4
 
     path = Path(str(result_path or ""))
-    if not force and int(shard_id) in done_shards(project_db, key, narrowed_by=narrowed_by):
+    done = states.done(project_db, DONE_KIND, key, narrowed_by=narrowed_by or None)  # sorted
+    at = int(np.searchsorted(done, np.uint64(shard_id)))
+    if not force and at < len(done) and int(done[at]) == int(shard_id):
         if str(result_path or ""):  # a replay's parts: never committed, never read
             from ms_flow.core.data.companions import whole
 
