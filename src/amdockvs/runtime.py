@@ -450,6 +450,31 @@ class AMDockVSRuntime(AppRuntime):
             self.workspace.project_db, busy=bool(self.list_jobs(statuses=NON_TERMINAL_JOB_STATUSES))
         )
 
+    def queue_copies(self) -> dict[str, dict[str, int]]:
+        """By executor, the project's containers only on its queue and those here with a copy there."""
+        from ms_flow import locations
+
+        self._require_active_project()
+        return locations.copies(self.workspace.project_db)
+
+    def bring_from(self, executor: str) -> list[int]:
+        """Every container the project has only on the queue `executor`, brought here as far as it is
+        made; the catalog ids brought. The executor must be active."""
+        from sqlmodel import select
+
+        from ms_flow.core.database.project_models import CatalogFile
+
+        self._require_active_project()
+        with self.workspace.project_db.get_session() as session:
+            ids = [int(i) for i in session.exec(select(CatalogFile.id).where(CatalogFile.location == str(executor)))]
+        return self.workspace.bring_there(str(executor), ids) if ids else []
+
+    def clean_host(self, executor: str, *, dry: bool = False, confirm: bool = False) -> list[dict]:
+        """The copies on the queue `executor` that have the same copy here removed there; with
+        `confirm` the others too; with `dry` only said. The executor must be active."""
+        self._require_active_project()
+        return self.workspace.clean_host(str(executor), dry=dry, confirm=confirm)
+
     def clear_transport(self) -> int:
         """Delete the files campaigns of rows packed for a queue (see `clear_transport`); the bytes
         freed. Refused while a job is active or interrupted: a campaign going on there needs them."""

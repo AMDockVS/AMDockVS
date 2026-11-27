@@ -140,6 +140,7 @@ class ResultsPivotWidget(QWidget):
             "ranked campaign. Docking is not run again."
         )
         self.recover_button.clicked.connect(self._load_recoverable_runs)
+        self._recovering = self._docking = False  # a recovery underway; a docking still running
         controls.addWidget(self.recover_button)
         self.activity = QWidget(self)
         activity_layout = QHBoxLayout(self.activity)
@@ -163,8 +164,18 @@ class ResultsPivotWidget(QWidget):
         self._freshness_timer.timeout.connect(self._render_freshness)
         QTimer.singleShot(0, self._bind_monitor)
 
+    def _sync_recover(self) -> None:
+        """Recovering a Top-N is for a run that was cut short: not while one docks, nor twice at once."""
+        self.recover_button.setEnabled(not (self._recovering or self._docking))
+        self.recover_button.setToolTip(
+            "Available once the docking stops: it picks the Top-N of what a run that was cut short docked."
+            if self._docking else
+            "Select the best available hits from completed result shards of an interrupted "
+            "ranked campaign. Docking is not run again.")
+
     def _load_recoverable_runs(self) -> None:
-        self.recover_button.setEnabled(False)
+        self._recovering = True
+        self._sync_recover()
         run_async(
             self.runtime.docking.recoverable_ranked_runs,
             self._choose_recoverable_run,
@@ -172,7 +183,8 @@ class ResultsPivotWidget(QWidget):
         )
 
     def _choose_recoverable_run(self, candidates: list[dict]) -> None:
-        self.recover_button.setEnabled(True)
+        self._recovering = False
+        self._sync_recover()
         if not candidates:
             QMessageBox.information(
                 self,
@@ -206,7 +218,8 @@ class ResultsPivotWidget(QWidget):
         )
         if not accepted:
             return
-        self.recover_button.setEnabled(False)
+        self._recovering = True
+        self._sync_recover()
         run_async(
             lambda: self.runtime.docking.recover_ranked_hits(
                 run_id=str(candidate["run_id"]),
@@ -219,7 +232,8 @@ class ResultsPivotWidget(QWidget):
         )
 
     def _recovery_finished(self, result: dict) -> None:
-        self.recover_button.setEnabled(True)
+        self._recovering = False
+        self._sync_recover()
         QMessageBox.information(
             self,
             "Recover Top N",
@@ -229,7 +243,8 @@ class ResultsPivotWidget(QWidget):
         self.refresh()
 
     def _recovery_error(self, error: Exception) -> None:
-        self.recover_button.setEnabled(True)
+        self._recovering = False
+        self._sync_recover()
         QMessageBox.critical(self, "Recover Top N", str(error))
 
     # --- pivots ---------------------------------------------------------------
@@ -357,6 +372,9 @@ class ResultsPivotWidget(QWidget):
                 and "dock_shard" in str(job.name or "").lower()
                 and not job.is_terminal
             )
+        self._docking = any(self._job_kind(job) == _HITS and not job.is_terminal
+                            for job in list(getattr(snapshot, "jobs", ()) or ()))
+        self._sync_recover()
         self._update_activity()
 
     @staticmethod

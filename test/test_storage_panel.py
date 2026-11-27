@@ -92,3 +92,45 @@ def test_a_sharded_project_shows_its_library_in_the_project_dialog(tmp_path, mon
         assert any(label.text().startswith("Last step: import") for label in dlg.findChildren(QLabel))
     finally:
         runtime.shutdown()
+
+
+def test_the_copies_on_queues_are_brought_and_cleaned_from_the_project_dialog(monkeypatch):
+    from amdockvs import AMDockVSRuntime  # noqa: F401  (pydantic before PySide)
+
+    pytest.importorskip("PySide6")
+    from types import SimpleNamespace
+
+    from PySide6.QtWidgets import QApplication, QDialog, QLabel, QPushButton
+
+    from amdockvs.ui.shell import project_summary
+
+    app = QApplication.instance() or QApplication(["amdockvs-queues-test"])
+    calls = []
+    runtime = SimpleNamespace(
+        queue_copies=lambda: {"vhpc": {"there": 3, "here_too": 2}},
+        bring_from=lambda name: calls.append(("bring", name)) or [1, 2, 3],
+        clean_host=lambda name, dry=False, confirm=False: calls.append(("clean", name, dry, confirm)) or [
+            {"path": "/w/a.arrows", "verified": True, "removed": not dry},
+            {"path": "/w/b.arrows", "verified": False, "removed": not dry and confirm}])
+    asked = []
+    monkeypatch.setattr(project_summary, "_confirm_clean",
+                        lambda dlg, name, plan: asked.append((name, len(plan))) or (True, False))
+    dlg = QDialog()
+    dlg.setLayout(project_summary._queues_section(dlg, runtime))
+    buttons = {b.text(): b for b in dlg.findChildren(QPushButton)}
+
+    def settle(n):
+        deadline = time.monotonic() + 10
+        while len(calls) < n and time.monotonic() < deadline:
+            app.processEvents()
+            time.sleep(0.01)
+        for _ in range(20):
+            app.processEvents()
+
+    assert any("3 only there, 2 here too" in w.text() for w in dlg.findChildren(QLabel))
+    buttons["Bring here"].click()
+    settle(1)
+    buttons["Clean vhpc…"].click()
+    settle(3)
+    assert calls == [("bring", "vhpc"), ("clean", "vhpc", True, False), ("clean", "vhpc", False, False)]
+    assert asked == [("vhpc", 2)]
