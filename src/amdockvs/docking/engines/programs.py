@@ -161,8 +161,9 @@ class DockingProgramSpec:
     def operation_name(self, action: str) -> str:
         return f"docking.{self.key}.{action}"
 
-    def validate_config(self, value: Mapping[str, Any] | None = None) -> dict[str, Any]:
-        config = self.config_model.model_validate(dict(value or {})).model_dump(mode="python")
+    def validate_config(self, value: Mapping[str, Any] | None = None, *,
+                        strict: bool | None = None) -> dict[str, Any]:
+        config = self.config_model.model_validate(dict(value or {}), strict=strict).model_dump(mode="python")
         check_program(config.get("method"), self.key, config.get("scoring_function"))
         return config
 

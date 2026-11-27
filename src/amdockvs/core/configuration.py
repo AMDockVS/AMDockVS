@@ -47,7 +47,8 @@ class MoleculeDisplayConfiguration(BaseModel):
 
 
 class _VinaFamilySettings(BaseModel):
-    """Per-program defaults the docking panel pre-fills; every value stays tuneable per run."""
+    """Executable, and the docking values a project shows until its first Run records its own.
+    Set globally, they are what every new project starts from; config.toml leaves them to the model."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -577,7 +578,7 @@ def create_contact_map_configuration() -> PydanticConfiguration:
 
 
 def app_config(runtime=None) -> AMDockConfiguration:
-    """Effective settings as the validated model: read them as `app_config(rt).docking.num_modes`.
+    """Effective settings as the validated model, for example `app_config(rt).docking.vina.num_modes`.
 
     Pass the runtime whenever you have one. Only *its* configuration object has the active
     project's root set, and PydanticConfiguration.set_value writes to the project layer while a

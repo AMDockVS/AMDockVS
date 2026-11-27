@@ -30,7 +30,8 @@ from amdockvs.binding_sites.p2rank import B_FACTOR_CONSTANT, B_FACTOR_PREDICTED,
 from amdockvs.core.configuration import DEFAULT_P2RANK_PROFILE, app_config
 from amdockvs.core.payloads import molecule_payload_id, payload_store
 from amdockvs.ui.common.async_query import run_async
-from amdockvs.ui.common.widgets import help_button
+from amdockvs.ui.common.widgets import help_button, set_widget_value
+from amdockvs.project.submitted import last_params, project_root, restoring
 from amdockvs.ui.tools.pymol_ribbon import (
     apply_receptor_atom_coloring,
     fetch_structures,
@@ -562,6 +563,7 @@ class PocketDetectionWidget(QWidget):
         outer.addLayout(status_row)
 
         self._ready = True
+        restoring("Pocket detection", self.restore_last_run)  # over Settings' defaults
         self._connect_job_signal()
         from amdockvs.ui.shell.settings_tools import tool_events
         tool_events.installed.connect(self._on_tool_installed)
@@ -622,6 +624,19 @@ class PocketDetectionWidget(QWidget):
         self._sync_receptor_scope()
         self.run_button.setEnabled(bool(receptors) and not self._pending_job_ids)
         self._update_scope_label()
+
+    def restore_last_run(self) -> None:
+        """Profile and threads as the project's last P2Rank run submitted them; with none, the
+        defaults in Settings. Which receptors it ran on is never kept."""
+        params = last_params(project_root(self.runtime), ("amdock_pocket_prediction_job",))
+        if params is not None:
+            set_widget_value(self.profile_combo, params.get("profile"))
+            threads_auto = params.get("threads_auto")
+            if threads_auto is True:
+                self.threads_spin.setValue(0)
+            elif threads_auto is False or (threads_auto is None and params.get("batch_size") is None):
+                # Jobs from before batch prediction only supported a fixed thread count.
+                set_widget_value(self.threads_spin, params.get("threads"))
 
     def _open_tool_settings(self) -> None:
         opener = getattr(self.window(), "open_settings", None)

@@ -167,6 +167,7 @@ class DockingStudioWidget(
         self._ready = True
         self._sync_ligand_table_filter()
         self._sync_receptor_table_filter()
+        self.restore_docking_setup()  # what this project's last Run clicks committed to
         self.refresh()
 
     @staticmethod

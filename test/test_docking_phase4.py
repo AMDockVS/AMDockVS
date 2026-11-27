@@ -296,4 +296,4 @@ def test_energy_range_reads_as_kcal_per_mol_not_six_decimals(monkeypatch, tmp_pa
         spin = studio._program_config_widgets[program]["energy_range"]
         assert spin.decimals() == 1 and spin.cleanText().replace(",", ".") == "3.0"
         spin.setValue(2.5)
-        assert studio._schema_config_from_widgets(program)["energy_range"] == 2.5
+        assert studio._protocol_config_from_widgets(program)["energy_range"] == 2.5

@@ -29,7 +29,8 @@ from amdockvs.core.payloads import molecule_payload_id
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.common.failures import recover_with, show_failures
 from amdockvs.ui.common.job_follower import JobFollower
-from amdockvs.ui.common.widgets import LigandSources, add_run_on, gate_workflow_save
+from amdockvs.ui.common.widgets import LigandSources, add_run_on, gate_workflow_save, set_widget_value
+from amdockvs.project.submitted import project_root, restoring, submitted_jobs
 from amdockvs.core.vocab import MoleculeType
 from ms_components.ms_table import FilterOperator, FilterSpec
 from ms_components.tool_panel import ToolPanel, format_count, hint_label
@@ -390,7 +391,84 @@ class MoleculeBuildWidget(QWidget):
         self._activate_after_check: str | None = None
         from amdockvs.ui.shell.settings_tools import tool_events
         tool_events.installed.connect(self._on_tool_installed)
+        restoring("Build", self.restore_last_run)
         self.refresh()
+
+    # --- the project's last run (project/submitted.py) -------------------------------------------
+    _LIGAND_JOBS = ("amdock_ligand_chemistry_job", "amdock_shard_chemistry_job")
+    _PROTEIN_JOB = "amdock_receptor_chemistry_job"
+    _PREDICTION_JOB = "amdock_receptor_prediction_job"
+
+    def restore_last_run(self) -> None:
+        """Each step's options as the project's last Run of it submitted them; a step never run
+        keeps the values it was built with. Which molecules are picked is never kept."""
+        jobs = submitted_jobs(project_root(self.runtime), self._LIGAND_JOBS + (self._PROTEIN_JOB, self._PREDICTION_JOB))
+        restoring("Build (small molecules)", lambda: self._restore_ligand_run(jobs))
+        restoring("Build (proteins)", lambda: self._restore_protein_runs(jobs))
+
+    def _restore_ligand_run(self, jobs: list[dict]) -> None:
+        """The steps both stores take from the latest ligand run, and what only the table takes --
+        the conformer ensemble, the batch size -- from the latest run over the table: a Run over
+        table and shards submits the shards' job last, and that job carries neither."""
+        jobs = [job for job in jobs
+                if job["name"] in self._LIGAND_JOBS and isinstance(job["params"].get("operation"), list)]
+        if not jobs:
+            return
+
+        def steps_of(job) -> dict[str, dict]:
+            return {str(name): dict(options or {}) for name, options in job["params"]["operation"]}
+
+        latest = steps_of(jobs[-1])
+        sections = {"protonate": self.ligand_protonation_section, "generate_3d": self.ligand_3d_section,
+                    "minimize": self.ligand_min_section}
+        for name, section in sections.items():
+            section.setChecked(name in latest)
+        values = {
+            "protonate": {"method": self.ligand_protonation_method, "ph": self.ligand_protonation_ph,
+                          "model": self.pkasso_model, "threads": self.pkasso_threads, "gpu": self.pkasso_gpu},
+            "generate_3d": {"random_seed": self.ligand_random_seed, "method": self.ligand_embed_method,
+                            "attempts": self.ligand_embed_attempts},
+            "minimize": {"forcefield": self.ligand_forcefield, "max_iters": self.ligand_max_iters},
+        }
+        for name, widgets in values.items():
+            for key, widget in widgets.items():
+                set_widget_value(widget, latest.get(name, {}).get(key))
+        table = [job for job in jobs if job["name"] == "amdock_ligand_chemistry_job"]
+        if table:
+            rows = steps_of(table[-1])
+            self.ligand_conformers_section.setChecked("conformers" in rows)
+            conformers = rows.get("conformers", {})
+            set_widget_value(self.ligand_num_conformers, conformers.get("num_conformers"))
+            set_widget_value(self.ligand_prune_rms, conformers.get("prune_rms_thresh"))
+            if "generate_3d" not in latest:  # the seed is shared; 3D's, when it ran, is the latest
+                set_widget_value(self.ligand_random_seed, conformers.get("random_seed"))
+            set_widget_value(self.batch_size_ligands, table[-1]["params"].get("batch_size"))
+
+    def _restore_protein_runs(self, jobs: list[dict]) -> None:
+        receptors = [job for job in jobs if job["name"] == self._PROTEIN_JOB]
+        last = {}
+        for job in receptors:  # each operation's latest
+            last[str(job["params"].get("operation") or "")] = job["params"]
+        values = {
+            "protonate": {"method": self.receptor_protonation_method, "ph": self.receptor_protonation_ph,
+                          "forcefield": self.receptor_protonation_forcefield},
+            "fix": {"add_missing_residues": self.fix_missing_residues, "add_missing_atoms": self.fix_missing_atoms,
+                    "replace_nonstandard": self.fix_replace_nonstandard,
+                    "remove_heterogens": self.fix_remove_heterogens, "keep_water": self.fix_keep_water,
+                    "structure_source": self.receptor_fix_structure},
+            "minimize": {"forcefields": self.receptor_forcefields, "max_iterations": self.receptor_max_iterations,
+                         "tolerance_kj_mol": self.receptor_tolerance},
+        }
+        for operation, widgets in values.items():
+            options = dict((last.get(operation) or {}).get("params") or {})
+            for key, widget in widgets.items():
+                set_widget_value(widget, options.get(key))
+        if receptors:
+            set_widget_value(self.batch_size_receptors, receptors[-1]["params"].get("batch_size"))
+        prediction = next((job["params"] for job in reversed(jobs) if job["name"] == self._PREDICTION_JOB), None)
+        if prediction is not None:
+            set_widget_value(self.receptor_predictor, prediction.get("model"))
+            set_widget_value(self.receptor_predict_force, prediction.get("force"))
 
     def _on_tool_installed(self, tool_id: str) -> None:
         if tool_id in ("openbabel", "pkasso"):

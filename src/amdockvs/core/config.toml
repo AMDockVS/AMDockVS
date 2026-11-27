@@ -41,16 +41,10 @@ temperature = 298.15
 
 [docking.vina]
 path = ""
-exhaustiveness = 8
-num_modes = 9
-cpu_per_task = 1
 batch_size = 1
 
 [docking.gnina]
 path = ""
-exhaustiveness = 8
-num_modes = 9
-cpu_per_task = 1
 batch_size = 1
 
 [docking.qvina]

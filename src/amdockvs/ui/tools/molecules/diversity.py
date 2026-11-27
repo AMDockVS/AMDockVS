@@ -42,6 +42,8 @@ from PySide6.QtWidgets import (
 from amdockvs.models.molecules import MoleculeUsageClass
 from amdockvs.diversity.api import DiversityAPI
 from amdockvs.ui.common.async_query import run_async
+from amdockvs.ui.common.widgets import set_widget_value
+from amdockvs.project.submitted import project_root, restoring, submitted_jobs
 from ms_components.chips import FlowLayout
 from ms_components.ms_table import FilterOperator, FilterSpec
 from amdockvs.ui.view_ids import CLUSTERS_VIEW_ID, LIGANDS_VIEW_ID, SELECTION_VIEW_ID
@@ -117,7 +119,31 @@ class DiversitySelectionWidget(QWidget):
 
         self.set_combo.currentIndexChanged.connect(self._sync_ligands_scope)
         self.refresh()
-        self._load_cache()  # restore a pile left from a previous visit (the plot redraws on show)
+        # A pile left from a previous visit comes back with all it was made with, so the next
+        # Preview extends it (the plot redraws on show); a Cluster clicked after it wins the
+        # settings (restore_last_run).
+        self._load_cache()
+        restoring("Diversity", self.restore_last_run)
+
+    def restore_last_run(self) -> None:
+        """Method, threshold and fingerprint as the project's last 'Cluster' submitted them --
+        unless a Preview pile made after it is open (`_load_cache`): that one is the latest work
+        here and keeps the settings it was made with, so the next Preview extends it. A Cluster
+        clicked after the pile wins: clicking it was the commitment, and the next Preview starts
+        a new pile, as after any change of settings. What was clustered (the Selection, the
+        activity) is never kept."""
+        jobs = submitted_jobs(project_root(self.runtime), ("amdock_cluster_molecules_job",))
+        if not jobs:
+            return
+        params, submitted_at = jobs[-1]["params"], jobs[-1]["submitted_at"]
+        if self._selections and self._pile_saved_at() > float(submitted_at or 0):
+            return  # the pile is newer
+        set_widget_value(self.method_combo, params.get("method"))  # first: it shows the method's page
+        threshold = self._method_widgets.get(str(self.method_combo.currentData() or ""), {}).get("threshold")
+        if params.get("method") == self.method_combo.currentData():
+            set_widget_value(threshold, params.get("threshold"))
+        set_widget_value(self.radius_spin, params.get("fp_radius"))
+        set_widget_value(self.nbits_spin, params.get("fp_nbits"))
 
     def _reset_accumulation(self) -> None:
         """Clear the fixed PCA basis + everything drawn/seen so the next preview starts a new pile."""
@@ -198,11 +224,28 @@ class DiversitySelectionWidget(QWidget):
                     widget.blockSignals(True)
                     setter(value)
                     widget.blockSignals(False)
+            # And the rest of the key -- the activity, the method and its options -- so the next
+            # Preview is made with the same settings and extends the pile instead of replacing it.
+            if len(self._basis_key) >= 6:
+                set_widget_value(self.measured_combo, self._basis_key[4])
+                options = dict(self._basis_key[5] or ())
+                set_widget_value(self.method_combo, options.get("method"))
+                if options.get("method") == self.method_combo.currentData():
+                    for key, widget in self._method_widgets.get(str(options["method"]), {}).items():
+                        set_widget_value(widget, options.get(key))
         if self._selections:
             self.stats_label.setText(
                 f"Restored {len(self._selections)} cached preview sample(s) · {len(self._seen_ids)} "
                 f"molecules. Press 'Cluster' to run over the whole scope."
             )
+
+    def _pile_saved_at(self) -> float:
+        """When the open pile was saved (each Preview saves it); 0 with none."""
+        path = self._cache_path()
+        try:
+            return path.stat().st_mtime if path is not None else 0.0
+        except OSError:
+            return 0.0
 
     def _delete_cache(self) -> None:
         path = self._cache_path()
@@ -313,6 +356,7 @@ class DiversitySelectionWidget(QWidget):
         knobs; ``_cluster_params`` reads the active page. New methods add a page the same way they
         register in ``CLUSTERING_METHODS``."""
         self._method_getters: dict[str, dict[str, Any]] = {}
+        self._method_widgets: dict[str, dict[str, QWidget]] = {}  # what a restore sets (restore_last_run)
         self._method_page_index: dict[str, int] = {}
         for name in DiversityAPI.supported_methods():
             page = QWidget()
@@ -343,6 +387,7 @@ class DiversitySelectionWidget(QWidget):
 
             self._method_page_index[name] = self.method_stack.addWidget(page)
             self._method_getters[name] = getters
+            self._method_widgets[name] = {"threshold": threshold, **({"batch_size": batch} if "batch_size" in getters else {})}
 
     def _on_method_changed(self) -> None:
         name = str(self.method_combo.currentData() or "")

@@ -396,7 +396,8 @@ class BindingSiteAPI:
         count = len(plan.recalculate_receptor_ids)
         if batch_size < 1:
             raise ValueError("P2Rank batch size must be at least 1.")
-        if threads == "auto":
+        threads_auto = threads == "auto"
+        if threads_auto:
             threads = 1
             if count > 1 and batch_size > 1 and executor != "thread":
                 budget = self._prediction_cpu_budget(executor, target, settings)
@@ -408,6 +409,7 @@ class BindingSiteAPI:
             profiles=normalized_profiles,
             recalculate_receptor_ids=list(plan.recalculate_receptor_ids),
             threads=max(1, int(threads)),
+            threads_auto=threads_auto,
             batch_size=batch_size,
             run_id=resolved_run_id,
             output_dir=str(output_dir),
