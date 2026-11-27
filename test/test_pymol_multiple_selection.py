@@ -112,6 +112,9 @@ def test_multiple_pose_selections_keep_their_own_structures_and_contact_targets(
         viewer.load_hit(hit)
     objects = {obj for hit in hits for obj in viewer._pose_objects(hit)}
     assert set(cmd.get_names("objects")) == objects
+    # One receptor payload, one receptor object: the poses share it, each keeps its ligand.
+    assert len(objects) == 3
+    assert viewer._pose_objects(hits[0])[0] == viewer._pose_objects(hits[1])[0]
     drawn = []
     monkeypatch.setattr(interactions_3d, "show_interaction", lambda cmd, **kwargs: drawn.append(kwargs))
     viewer.show_interaction(hits[0], object())
@@ -307,7 +310,7 @@ def test_a_repeat_click_on_the_shown_pose_reloads_nothing(viewer_scene, monkeypa
     click(0)
     assert len(reads) == 1 and set(cmd.get_names("objects")) == set(viewer._pose_objects(hits[0]))
     click(1, Qt.ShiftModifier)
-    assert len(cmd.get_names("objects")) == 4
+    assert len(cmd.get_names("objects")) == 3  # both poses share receptor 7's one object
     click(1)  # the scene holds two poses, the click asks for one
     assert set(cmd.get_names("objects")) == set(viewer._pose_objects(hits[1]))
 
@@ -399,3 +402,264 @@ def test_a_pose_table_swaps_the_pose_and_keeps_the_receptor_and_camera(viewer_sc
     viewer.select_table_row(table)  # a plain row after Shift starts over with one pose
     viewer.load_hit(hits[1])
     assert set(cmd.get_names("objects")) == set(viewer._pose_objects(hits[1]))
+
+
+def _atom(x: float, *, resn: str = "LIG", name: str = "C1", record: str = "HETATM") -> str:
+    return f"{record:<6}    1  {name:<3} {resn} A   1    {x:8.3f}   0.000   0.000  1.00  0.00           C\n"
+
+
+def _shared_receptor_hit(pose: int, *, receptor: int = 7, payload: int | None = 7):
+    return SimpleNamespace(run_kind="screening", receptor_id=receptor, receptor_payload_id=payload,
+                           pose_payload_id=pose, ligand_payload_id=None)
+
+
+def test_poses_read_together_share_one_receptor_whatever_order_their_reads_finish(viewer_scene):
+    """Each pose asks for the receptor while none is loaded yet; the first read to finish loads
+    it and the others only add their ligand: one copy, never reloaded under the others."""
+    viewer, window, cmd = viewer_scene
+    pending = []
+    viewer._read = lambda wanted, then: pending.append((dict(wanted), then))
+    hits = [_shared_receptor_hit(p) for p in (11, 12, 13)]
+    viewer.select_table_row(object(), additive=True, restart=True)
+    for hit in hits:
+        viewer.load_hit(hit)
+    assert all("receptor" in wanted for wanted, _ in pending)
+    for wanted, then in reversed(pending):
+        then({name: ((_atom(float(number)) + "END\n").encode(), "pdb") for name, number in wanted.items()})
+    receptor = viewer._pose_objects(hits[0])[0]
+    ligands = {viewer._pose_objects(hit)[1] for hit in hits}
+    assert set(cmd.get_names("objects")) == {receptor, *ligands}
+    assert cmd.count_atoms(receptor) == 1  # loaded once, not one copy per pose stacked in it
+    assert all(viewer.shows_hit(hit) for hit in hits)
+    assert window.pymol_dock.scene_context.selections["ligand"].count("amdock_result_pose") == 3
+
+
+def test_poses_keep_one_receptor_object_per_receptor_payload(viewer_scene):
+    """Two receptors (the Complexes view lists both), or two preparations of one receptor, are
+    different structures: each keeps its own object. A receptor without a payload id has nothing
+    to load: only its name falls back to the plain one, and its pose still loads."""
+    viewer, window, cmd = viewer_scene
+    hits = [_shared_receptor_hit(11), _shared_receptor_hit(12), _shared_receptor_hit(21, receptor=8, payload=8),
+            _shared_receptor_hit(31, payload=70), _shared_receptor_hit(41, receptor=9, payload=None)]
+    viewer.select_table_row(object(), additive=True, restart=True)
+    for hit in hits:
+        viewer.load_hit(hit)
+    receptors = {viewer._pose_objects(hit)[0] for hit in hits}
+    assert receptors == {"receptor_7_payload_7", "receptor_8_payload_8", "receptor_7_payload_70", "receptor_9"}
+    assert set(cmd.get_names("objects")) == (receptors - {"receptor_9"}) | {
+        viewer._pose_objects(hit)[1] for hit in hits}
+
+
+def test_a_contact_picked_on_a_shared_receptor_replaces_the_previous_poses_pick(viewer_scene):
+    """Contacts draw in their own pose's group, but the receptor object is shared: picking a
+    contact for pose B takes pose A's drawing away, and reloading a pose drops only its own."""
+    from amdockvs.ui.viewers.interactions_3d import interaction_group
+
+    viewer, window, cmd = viewer_scene
+    hits = [_shared_receptor_hit(p) for p in (11, 12)]
+    viewer.select_table_row(object(), additive=True, restart=True)
+    for hit in hits:
+        viewer.load_hit(hit)
+    contact = SimpleNamespace(kind="hydrophobic", residue_key="A:1:LIG", ligand_atoms=[0],
+                              protein_atom="C1", protein_atoms=(), via_water=None)
+    groups = [interaction_group(*viewer._pose_objects(hit)) for hit in hits]
+    assert groups[0] != groups[1]
+    viewer.show_interaction(hits[0], contact)
+    assert groups[0] in cmd.get_names("objects")
+    viewer.show_interaction(hits[1], contact)
+    names = set(cmd.get_names("objects"))
+    assert groups[1] in names and groups[0] not in names
+    window.pymol_dock.cmd.delete(viewer._pose_objects(hits[1])[1])  # pose 12 leaves, then comes back
+    viewer.load_hit(hits[1])
+    assert groups[1] not in cmd.get_names("objects")
+
+
+def test_flexible_poses_on_a_shared_receptor_keep_their_own_side_chains(viewer_scene):
+    viewer, window, cmd = viewer_scene
+
+    def read(wanted, then):
+        found = {}
+        for name, number in wanted.items():
+            text = _atom(float(number)) + "END\n"
+            if name == "pose":  # the side chains docked with this pose ride in its SD property
+                text += "> <flexres>\n" + _atom(float(number), resn="TYR", name="OH", record="ATOM") + "\n"
+            found[name] = (text.encode(), "pdb")
+        then(found)
+
+    viewer._read = read
+    hits = [_shared_receptor_hit(p) for p in (11, 12)]
+    viewer.select_table_row(object(), additive=True, restart=True)
+    for hit in hits:
+        viewer.load_hit(hit)
+    flexres = {f"{viewer._pose_objects(hit)[1]}_flexres" for hit in hits}
+    assert flexres <= set(cmd.get_names("objects"))
+    assert len({viewer._pose_objects(hit)[0] for hit in hits}) == 1
+
+
+def test_changing_the_pose_takes_the_previous_poses_picked_contact_away(viewer_scene):
+    """A contact picked for pose 1 draws its residue as sticks with a label; arrowing to pose 2
+    in the pose table (the receptor stays) must not leave that residue drawn for a pose it is
+    no longer a contact of."""
+    viewer, window, cmd = viewer_scene
+    table = QWidget()
+    table.setProperty(molecular_viewer.SWAPS_POSE, True)
+    hits = [_shared_receptor_hit(p) for p in (11, 12)]
+    viewer.select_table_row(table)
+    viewer.load_hit(hits[0])
+    receptor, _ligand = viewer._pose_objects(hits[0])
+    cmd.hide("everything", receptor)
+    contact = SimpleNamespace(kind="hydrophobic", residue_key="A:1:LIG", ligand_atoms=[0],
+                              protein_atom="C1", protein_atoms=(), via_water=None)
+    viewer.show_interaction(hits[0], contact)
+
+    def labels():
+        shown = []
+        cmd.iterate(receptor, "shown.append(label)", space={"shown": shown})
+        return [text for text in shown if text]
+
+    assert cmd.count_atoms(f"{receptor} and rep sticks") == 1
+    viewer.select_table_row(table)
+    viewer.load_hit(hits[1])
+    assert viewer._pose_objects(hits[1])[0] == receptor  # swapped, receptor kept
+    assert cmd.count_atoms(f"{receptor} and rep sticks") == 0 and not labels()
+    assert not any(name.startswith("amdock_interactions") for name in cmd.get_names("objects"))
+
+
+def test_a_large_selection_shows_the_first_rows_in_table_order_and_the_clicked_one(viewer_scene, monkeypatch):
+    """Past MAX_SCENE_ROWS, PyMOL shows the first selected rows as the table orders them (its
+    sort, best scores first by default) and always the row last clicked; the table keeps the
+    whole selection, and the status bar says what was left out."""
+    from PySide6.QtCore import QItemSelectionModel
+    from amdockvs.ui.catalog import results
+    from ms_components.ms_table import SmartTableView
+
+    viewer, window, cmd = viewer_scene
+    monkeypatch.setattr(SmartTableView, "refresh", lambda self: None)
+    monkeypatch.setattr(results, "run_async", lambda work, done, on_error=None, **_: done(work()))
+    monkeypatch.setattr(results, "MAX_SCENE_ROWS", 3)
+    messages = []
+    window.statusBar = lambda: SimpleNamespace(showMessage=lambda text, _ms: messages.append(text))
+    hits = {rid: SimpleNamespace(run_kind="screening", receptor_id=7, receptor_payload_id=7, result_id=rid,
+                                 pose_payload_id=100 + rid, ligand_payload_id=None, pose_rank=1)
+            for rid in range(1, 7)}
+    page = results.DockingResultsWidget(runtime=SimpleNamespace(
+        workspace=SimpleNamespace(project_db=object()),
+        docking=SimpleNamespace(result_protocols=lambda **_kwargs: [], hit=lambda result_id: hits[result_id]),
+    ), load_hit_in_pymol=viewer.load_hit, parent=window)
+    page.pose_table.set_filters = lambda filters: None
+    page._show_detail = lambda hit: None
+    page.ligand_table._model.load_data([  # table order: result 6 first, then 5, ... 1
+        {"id": rid, "__raw__": SimpleNamespace(id=rid, ligand_molecule_id=50 + rid, docking_run_id=1, score=-rid)}
+        for rid in sorted(hits, reverse=True)], 6, 1)
+    view, model = page.ligand_table._table, page.ligand_table._model
+    selection = view.selectionModel()
+
+    def poses():
+        return {obj for obj in cmd.get_names("objects") if obj.startswith("amdock_result_pose")}
+
+    def expected(*rids):
+        return {viewer._pose_objects(hits[rid])[1] for rid in rids}
+
+    viewer.select_table_row(view)
+    selection.setCurrentIndex(model.index(0, 0), QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
+    viewer.select_table_row(view, additive=True)
+    for row in (5, 3, 1, 4, 2):  # selected out of table order: the scene still follows the table
+        selection.select(model.index(row, 0), QItemSelectionModel.Select | QItemSelectionModel.Rows)
+    assert len(page.ligand_table.get_selected_objects()) == 6  # the table keeps every row
+    assert poses() == expected(6, 5, 4)
+    assert messages and "first 3 of 6" in messages[-1]
+    # Ctrl-click on the last row (deselect, then select it as current): it joins the scene.
+    selection.select(model.index(5, 0), QItemSelectionModel.Deselect | QItemSelectionModel.Rows)
+    selection.setCurrentIndex(model.index(5, 0), QItemSelectionModel.Select | QItemSelectionModel.Rows)
+    assert poses() == expected(6, 5, 1)
+
+
+def test_growing_or_shrinking_a_selection_only_loads_or_removes_the_rows_that_changed(viewer_scene, monkeypatch):
+    """A drag sends one selection change per row crossed. Each row's hit is fetched once, a
+    deselected row's pose leaves without the scene reloading the others, and a read that
+    lands after its row was deselected does not bring the pose back."""
+    from PySide6.QtCore import QItemSelectionModel
+    from amdockvs.ui.catalog import results
+    from ms_components.ms_table import SmartTableView
+
+    viewer, window, cmd = viewer_scene
+    monkeypatch.setattr(SmartTableView, "refresh", lambda self: None)
+    pending = []
+    monkeypatch.setattr(results, "run_async", lambda work, done, on_error=None, **_: pending.append((work, done)))
+    fetched, loads = [], []
+    hits = {rid: SimpleNamespace(run_kind="screening", receptor_id=7, receptor_payload_id=7, result_id=rid,
+                                 pose_payload_id=100 + rid, ligand_payload_id=None, pose_rank=1)
+            for rid in range(1, 7)}
+    page = results.DockingResultsWidget(runtime=SimpleNamespace(
+        workspace=SimpleNamespace(project_db=object()),
+        docking=SimpleNamespace(result_protocols=lambda **_kwargs: [],
+                                hit=lambda result_id: (fetched.append(result_id), hits[result_id])[1]),
+    ), load_hit_in_pymol=lambda hit, rank: (loads.append(hit.result_id), viewer.load_hit(hit, rank)),
+        parent=window)
+    page.pose_table.set_filters = lambda filters: None
+    page._show_detail = lambda hit: None
+    page.ligand_table._model.load_data([
+        {"id": rid, "__raw__": SimpleNamespace(id=rid, ligand_molecule_id=50 + rid, docking_run_id=1, score=-7.0)}
+        for rid in hits], 6, 1)
+    view, model = page.ligand_table._table, page.ligand_table._model
+    selection = view.selectionModel()
+
+    def settle():
+        while pending:
+            work, done = pending.pop(0)
+            done(work())
+
+    def poses():
+        return {obj for obj in cmd.get_names("objects") if obj.startswith("amdock_result_pose")}
+
+    def expected(*rids):
+        return {viewer._pose_objects(hits[rid])[1] for rid in rids}
+
+    viewer.select_table_row(view)
+    selection.select(model.index(0, 0), QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
+    settle()
+    viewer.select_table_row(view, additive=True)
+    for row in range(1, 6):  # a drag down to the last row: one change per row
+        selection.select(model.index(row, 0), QItemSelectionModel.Select | QItemSelectionModel.Rows)
+        settle()
+    assert sorted(fetched) == [1, 2, 3, 4, 5, 6]  # each row once, not 2+3+4+5+6 times
+    assert poses() == expected(1, 2, 3, 4, 5, 6)
+    fetched.clear(), loads.clear()
+    for row in (5, 4):  # dragging back up: rows leave, the others stay as they are
+        selection.select(model.index(row, 0), QItemSelectionModel.Deselect | QItemSelectionModel.Rows)
+    assert fetched == [] and loads == [] and not pending
+    assert poses() == expected(1, 2, 3, 4)
+    selection.select(model.index(4, 0), QItemSelectionModel.Select | QItemSelectionModel.Rows)
+    selection.select(model.index(4, 0), QItemSelectionModel.Deselect | QItemSelectionModel.Rows)
+    settle()  # row 5's read lands after it left again: its pose stays out
+    assert poses() == expected(1, 2, 3, 4)
+
+
+def test_a_pose_removed_while_its_structure_is_read_does_not_come_back(viewer_scene):
+    viewer, window, cmd = viewer_scene
+    pending = []
+    viewer._read = lambda wanted, then: pending.append((dict(wanted), then))
+    hits = [_shared_receptor_hit(p) for p in (11, 12)]
+    viewer.select_table_row(object(), additive=True, restart=True)
+    for hit in hits:
+        viewer.load_hit(hit)
+    assert viewer.remove_hit(hits[1])  # its row left during a drag, before the read landed
+    for wanted, then in pending:
+        then({name: ((_atom(float(number)) + "END\n").encode(), "pdb") for name, number in wanted.items()})
+    poses = {n for n in cmd.get_names("objects") if n.startswith("amdock_result_pose")}
+    assert poses == {viewer._pose_objects(hits[0])[1]}
+
+
+def test_removing_a_pose_keeps_the_other_poses_in_the_scene_roles(viewer_scene):
+    """The roles are merged as PyMOL selections when a pose is added: a removed pose left in
+    them made the selection invalid and dropped every earlier pose from the scene's roles."""
+    viewer, window, cmd = viewer_scene
+    hits = [_shared_receptor_hit(p) for p in (11, 12, 13, 14)]
+    viewer.select_table_row(object(), additive=True, restart=True)
+    for hit in hits[:3]:
+        viewer.load_hit(hit)
+    assert viewer.remove_hit(hits[1])
+    viewer.load_hit(hits[3])
+    ligands = window.pymol_dock.scene_context.selections["ligand"].split(" or ")
+    assert set(ligands) == {viewer._pose_objects(hits[i])[1] for i in (0, 2, 3)}
+    assert window.pymol_dock.scene_context.selections["receptor"] == viewer._pose_objects(hits[0])[0]

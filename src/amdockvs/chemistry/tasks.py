@@ -157,7 +157,7 @@ def shard_chemistry_task(payload: dict, progress_cb=None) -> list[dict]:
     number = payload.get("shard")
     output_path = Path(str(payload["output_dir"])).expanduser().resolve() / shard_file_name(shard_path, number)
     stats = transform_ligand_shard(shard_path, output_path, payload["steps"], number,
-                                   scope=payload.get("import_batch_id"))
+                                   scope=payload.get("import_batch_id"), progress=progress_cb)
     # A shard whose molecules all failed is still a done shard: it holds zero records now.
     return [{
         "import_batch_id": payload.get("import_batch_id"),

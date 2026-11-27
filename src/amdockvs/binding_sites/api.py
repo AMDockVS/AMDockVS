@@ -9,13 +9,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Literal, Mapping
 from uuid import uuid4
 
 from sqlmodel import select
 from ms_flow.selection import Selection
 
-from amdockvs.core.configuration import DEFAULT_P2RANK_PROFILE, app_config
+from amdockvs.core.configuration import DEFAULT_P2RANK_BATCH_SIZE, DEFAULT_P2RANK_PROFILE, app_config
 from amdockvs.core.constants import DEFAULT_LOCAL_CPU_EXECUTOR, RESOURCE_POCKET_PREDICTIONS
 from amdockvs.core.vocab import ComplexPurpose
 from amdockvs.models import BindingSite, ComplexRecord, MoleculeRecord
@@ -350,18 +350,14 @@ class BindingSiteAPI:
         receptor_ids: list[int],
         profile: str = DEFAULT_P2RANK_PROFILE,
         profiles: Mapping[int, str] | None = None,
-        threads: int = 1,
+        threads: int | Literal["auto"] = "auto",
+        batch_size: int = DEFAULT_P2RANK_BATCH_SIZE,
         executor_name: str = DEFAULT_LOCAL_CPU_EXECUTOR,
         run_id: str | None = None,
         depends_on: list[str] | None = None,
         force: bool = False,
     ) -> str:
         self.runtime._require_active_project()
-        installation = p2rank_status()
-        if not installation.installed or (installation.java_version or 0) < 17:
-            raise RuntimeError(
-                f"{installation.message} Install P2Rank from Molecule Tools before running."
-            )
         normalized_receptor_ids = sorted(
             {int(value) for value in receptor_ids if int(value) > 0}
         )
@@ -389,6 +385,23 @@ class BindingSiteAPI:
         resolved_run_id = normalize_run_id(run_id) if named else uuid4().hex
         if named:  # a named run, so it may already hold these receptors
             self._reject_overwriting_run_id(resolved_run_id, plan.recalculate_receptor_ids)
+        executor = self.runtime._run_on(p2rank_prediction_job, executor_name)
+        settings = self.runtime.workspace.settings_manager.settings
+        target = settings.executors.get(executor)
+        local = target is None or (target.kind != "queue" and target.hosts == ["local"])
+        installation = p2rank_status() if local else None
+        if installation is not None and (not installation.installed or (installation.java_version or 0) < 17):
+            raise RuntimeError(
+                f"{installation.message} Install P2Rank from Molecule Tools before running."
+            )
+        count = len(plan.recalculate_receptor_ids)
+        if batch_size < 1:
+            raise ValueError("P2Rank batch size must be at least 1.")
+        if threads == "auto":
+            threads = 1
+            if count > 1 and batch_size > 1 and executor != "thread":
+                budget = self._prediction_cpu_budget(executor, target, settings)
+                threads = min(128, count, batch_size, max(1, budget // 2))
         output_dir = self.runtime.get_project_resource_path(RESOURCE_POCKET_PREDICTIONS)
         params = P2RankPredictionParams(
             receptor_ids=normalized_receptor_ids,
@@ -396,20 +409,39 @@ class BindingSiteAPI:
             profiles=normalized_profiles,
             recalculate_receptor_ids=list(plan.recalculate_receptor_ids),
             threads=max(1, int(threads)),
+            batch_size=batch_size,
             run_id=resolved_run_id,
             output_dir=str(output_dir),
-            p2rank_command=str(installation.command),
-            java_command=str(installation.java_command or ""),
+            p2rank_command=str(installation.command) if installation else "",
+            java_command=str(installation.java_command or "") if installation else "",
             version=P2RANK_VERSION,
         )
         return self.runtime.submit_job(
             p2rank_prediction_job,
             params=params.model_dump(mode="python"),
-            executor_name=executor_name,
+            executor_name=executor,
             depends_on=depends_on,
-            cpu_required=max(1, int(threads)),
-            total_chunks=max(1, len(plan.recalculate_receptor_ids)),
+            cpu_required=params.threads,
+            total_chunks=max(1, (count + batch_size - 1) // batch_size),
         )
+
+    def _prediction_cpu_budget(self, executor, target, settings) -> int:
+        asks = self.runtime._asks(executor)
+        try:
+            nodes = self.runtime.workspace.engine.executor_node_resources(executor, **asks)
+        except AttributeError:  # installed ms_flow predates executor_node_resources
+            nodes = None
+        if nodes:
+            cpus = [int(cpu) for cpu, _, _ in nodes if cpu is not None and cpu >= 1]
+            return min(cpus, default=1)
+        if target is not None and target.kind == "queue":
+            return int(asks.get("resources", {}).get("cpus", target.cpus) or 1)
+        if target is not None and target.hosts == ["local"]:
+            from ms_flow.core.settings.models import share
+            from ms_flow.engine.tokens import usable_cpus
+
+            return share(settings.hosts["local"].cpus, usable_cpus(), 1)
+        return 1
 
     def list_sites(self, *, molecule_id: int) -> list[BindingSite]:
         return list(self.select(molecule_id=molecule_id))

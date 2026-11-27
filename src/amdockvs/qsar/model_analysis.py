@@ -16,6 +16,12 @@ from amdockvs.qsar.modeling import AD_K, AD_THRESHOLD, domain_similarity
 SUBSETS = ("all", "train", "test", "cv")
 
 
+class EmptySubsetError(ValueError):
+    """A model holds no molecules in the requested subset — the one failure a chart answers with
+    an empty plot rather than an error. A ValueError still, so callers that catch the broad class
+    (and the API's own contract) are unchanged; charts catch this one to let the rest through."""
+
+
 def model_scores():
     """(test score, cross-validation score) expressions for the models table: a model is
     regression (R², Q²) or classification (MCC, ROC AUC), so one column per role reads both."""
@@ -83,8 +89,21 @@ class ModelAnalysisMixin:
                 statement = statement.where(member.role == "train", member.oof_predicted.is_not(None))
             rows = list(session.exec(statement))
         if not rows:
-            raise ValueError(f"No molecules in the '{mode}' subset of model #{record.id}.")
+            raise EmptySubsetError(f"No molecules in the '{mode}' subset of model #{record.id}.")
         return record, rows
+
+    def _member_names(self, members) -> dict[int, str]:
+        """{molecule_id: name} for model members, in their order. Chunked: SQLite binds at most
+        32766 values, and a model\'s members can run past that."""
+        ids = [int(r.molecule_id) for r in members]
+        found: dict[int, str] = {}
+        with self.runtime.workspace.project_db.get_session() as session:
+            for start in range(0, len(ids), 900):
+                found.update(session.exec(
+                    select(MoleculeRecord.id, MoleculeRecord.name)
+                    .where(MoleculeRecord.id.in_(ids[start:start + 900]))
+                ).all())
+        return {mid: str(found.get(mid) or "") for mid in ids}
 
     def member_table(self, *, model: QSARModelRef | int) -> list[dict[str, Any]]:
         """One row per molecule the model was built on: molecule_id, name, role ('train'|'test'),
@@ -222,6 +241,7 @@ class ModelAnalysisMixin:
         *,
         model: QSARModelRef | int,
         molecule_set: MoleculeSetRef | MoleculeScope | int | None = None,
+        subset: str | None = None,
         k: int = AD_K,
         threshold: float = AD_THRESHOLD,
         fp_radius: int = 2,
@@ -229,12 +249,23 @@ class ModelAnalysisMixin:
     ) -> list[dict[str, Any]]:
         """Per-ligand applicability domain: mean Tanimoto to the k nearest *training* ligands of
         ``model``; in_domain = that mean >= threshold. Answers "is this prediction an interpolation
-        or an extrapolation?". A prediction made with the default k carries its value already;
-        the rest are measured here from the stored Morgan fingerprints."""
+        or an extrapolation?". A training molecule is measured against the OTHER training
+        molecules (its own similarity of 1.0 is left out). A prediction made with the default k
+        carries its value already; the rest are measured here from the stored Morgan fingerprints.
+
+        ``subset`` ('all', 'train', 'test' or 'cv') measures the model\'s own molecules in that
+        role, as the other model charts do. Without it every ligand in scope is measured - the
+        library-wide question "how much of what I hold does this model cover?"."""
         self.runtime._require_active_project()
         model_id = self._model_id(model)
-        ligands = self._ligands(molecule_set)
-        names = {int(r.id or 0): str(r.name or "") for r in ligands}
+        if subset is not None:
+            if molecule_set is not None:
+                raise ValueError("Measure either a molecule_set or a subset of the model, not both.")
+            names = self._member_names(self.model_members(model=model_id, subset=subset)[1])
+        else:
+            names = {int(r.id or 0): str(r.name or "") for r in self._ligands(molecule_set)}
+        train_ids = [int(mid) for mid, sub in self.model_subsets(model=model_id).items() if sub == "train"]
+        training = set(train_ids)
         stored = {}
         if int(k) == AD_K:
             with self.runtime.workspace.project_db.get_session() as session:
@@ -245,15 +276,21 @@ class ModelAnalysisMixin:
                         .where(QSARPredictionRecord.ad_similarity.is_not(None))
                         .where(QSARPredictionRecord.molecule_id.in_(list(names)[start:start + 900]))
                     ).all())
+            # a stored prediction of a training molecule counted the molecule itself: measure anew
+            for mid in training.intersection(stored):
+                del stored[mid]
         missing = [mid for mid in names if mid not in stored]
         if missing:
-            train_ids = [int(mid) for mid, sub in self.model_subsets(model=model_id).items() if sub == "train"]
             with self.runtime.workspace.project_db.get_session() as session:
                 fp_map = self._fingerprint_matrix(session, train_ids + missing, radius=fp_radius, nbits=fp_nbits)
-            train = [fp_map[i] for i in train_ids if i in fp_map]
+            kept = [i for i in train_ids if i in fp_map]
+            train = [fp_map[i] for i in kept]
+            row_of = {mid: row for row, mid in enumerate(kept)}
             query = [mid for mid in missing if mid in fp_map]
             if train and query:
-                stored.update(zip(query, domain_similarity(train, [fp_map[mid] for mid in query], k=k).tolist()))
+                exclude = [row_of.get(mid, -1) for mid in query]
+                stored.update(zip(query, domain_similarity(
+                    train, [fp_map[mid] for mid in query], k=k, exclude=exclude).tolist()))
             elif not stored:
                 raise ValueError("No training fingerprints for this model - compute Morgan fingerprints "
                                  "(ECFP4) first, or predict with it." if train_ids else

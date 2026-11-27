@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import time
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QEvent, Qt, QTimer
 from PySide6.QtGui import QPainter, QPalette, QPen
 from PySide6.QtWidgets import (
     QComboBox,
@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from amdockvs.ui.common.async_query import run_async
+from amdockvs.ui.common.widgets import cap_combo_to_labels
 
 
 _HITS, _OFFTARGET, _REDOCKING = "hits", "offtarget", "redocking"
@@ -130,8 +131,15 @@ class ResultsPivotWidget(QWidget):
         self.pivot_combo = QComboBox(self)
         for key, label, _reason in _PIVOTS:
             self.pivot_combo.addItem(label, key)
+        # Not sized to its longest item: "<view> - <why it is unavailable>" would set the tab's
+        # minimum width and push the docks aside (the Studio shrinking under Preview & Run).
+        # Its popup still lists every item in full. Nor wider than that longest item: on a wide
+        # window it would be an empty bar (capped again whenever the labels change).
+        self.pivot_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.pivot_combo.setMinimumContentsLength(24)
+        cap_combo_to_labels(self.pivot_combo)
         self.pivot_combo.currentIndexChanged.connect(self._on_pivot_changed)
-        controls.addWidget(self.pivot_combo)
+        controls.addWidget(self.pivot_combo, 2)
         self.reason_label = QLabel("", self)
         controls.addWidget(self.reason_label, 1)
         self.recover_button = QPushButton("Recover Top N", self)
@@ -350,6 +358,7 @@ class ResultsPivotWidget(QWidget):
             item.setEnabled(usable)
             item.setToolTip("" if usable else reason)
             self.pivot_combo.setItemText(row, label if usable else f"{label} - {reason}")
+        cap_combo_to_labels(self.pivot_combo)
         self.reason_label.setText(self._reason(str(self.pivot_combo.currentData() or _HITS)))
 
     # --- live job context -----------------------------------------------------
@@ -449,6 +458,14 @@ class ResultsPivotWidget(QWidget):
             return
         self._freshness_timer.stop()
         self._render_freshness()
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        # A theme or font-size switch changes how wide the longest View label is.
+        if event.type() in (QEvent.Type.FontChange, QEvent.Type.StyleChange):
+            combo = getattr(self, "pivot_combo", None)  # changeEvent can run before it is built
+            if combo is not None:
+                cap_combo_to_labels(combo)
 
     def showEvent(self, event) -> None:
         super().showEvent(event)

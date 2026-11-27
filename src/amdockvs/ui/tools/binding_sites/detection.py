@@ -521,11 +521,18 @@ class PocketDetectionWidget(QWidget):
         # No scope selector: this runs on the receptors the catalog table is showing.
         scope_row = QHBoxLayout()
         scope_row.addStretch(1)
-        scope_row.addWidget(QLabel("Threads", prediction_box))
+        scope_row.addWidget(QLabel("Threads per instance", prediction_box))
         self.threads_spin = QSpinBox(prediction_box)
-        self.threads_spin.setRange(1, 128)
+        self.threads_spin.setRange(0, 128)
+        self.threads_spin.setSpecialValueText("Auto")
+        self.threads_spin.setToolTip("Auto uses half the usable CPUs per node, up to the batch size.")
         self.threads_spin.setValue(p2rank_defaults.threads)
         scope_row.addWidget(self.threads_spin)
+        scope_row.addWidget(QLabel("Proteins per batch", prediction_box))
+        self.batch_size_spin = QSpinBox(prediction_box)
+        self.batch_size_spin.setRange(1, 2_147_483_647)
+        self.batch_size_spin.setValue(p2rank_defaults.batch_size)
+        scope_row.addWidget(self.batch_size_spin)
         self.run_button = QPushButton("Run P2Rank", prediction_box)
         self.run_button.clicked.connect(self._run_prediction)
         scope_row.addWidget(self.run_button)
@@ -783,15 +790,6 @@ class PocketDetectionWidget(QWidget):
                 "The current scope contains no receptors.",
             )
             return
-        if not self._tool_ready:
-            tool = self.runtime.binding_sites.tool_status()
-            QMessageBox.information(
-                self,
-                "P2Rank is not installed",
-                f"{tool.message}\n\nInstall it from Settings > External tools, then run again.",
-            )
-            self._open_tool_settings()
-            return
         self._submit_prediction()
 
     def _submit_prediction(self) -> None:
@@ -840,7 +838,8 @@ class PocketDetectionWidget(QWidget):
             job_id = self.runtime.binding_sites.predict(
                 receptor_ids=receptor_ids,
                 profile=profile,
-                threads=int(self.threads_spin.value()),
+                threads=self.threads_spin.value() or "auto",
+                batch_size=self.batch_size_spin.value(),
             )
         except Exception as exc:
             self._show_error("Could not submit P2Rank", exc)

@@ -71,8 +71,16 @@ def _run_adgpu(
     """Dock `ligands` (output name → PDBQT) over one set of maps in one process. Each name maps
     to its DLG, or to why it failed: a bad ligand fails its own job, the others still run."""
     batch = output_dir / f"{next(iter(ligands))}.lst"
-    batch.write_text(f"{maps_prefix}.maps.fld\n" + "".join(f"{path}\n{name}\n" for name, path in ligands.items()))
-    command = [executable, "--filelist", str(batch), "--nrun", str(int(nrun)), "--xmloutput", "0"]
+    # Paths relative to the folder the run starts in, so the project's own name never reaches
+    # this file: a program that splits a list line on whitespace would otherwise fail every
+    # pair of the task under a project called "AmpC DUDE-Z ... (Unidock)" (Uni-Dock did; this
+    # one reads whole lines, and keeps doing so only as long as nobody changes its parser).
+    here = str(output_dir)
+    listed = [os.path.relpath(f"{maps_prefix}.maps.fld", here)]
+    for name, path in ligands.items():
+        listed += [os.path.relpath(path, here), name]
+    batch.write_text("".join(f"{line}\n" for line in listed))
+    command = [executable, "--filelist", batch.name, "--nrun", str(int(nrun)), "--xmloutput", "0"]
     if flex_receptor_path is not None:
         command += ["--flexres", str(flex_receptor_path)]
     if int(seed):

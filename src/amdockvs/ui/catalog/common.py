@@ -84,14 +84,13 @@ def _depict(data: bytes, kind: str, **options) -> str:
     ponytail: one process for the app's lifetime (spawned on the first preview); a broken one
     is replaced on the next call."""
     global _depiction_pool
-    import multiprocessing
-    from concurrent.futures import ProcessPoolExecutor
     from concurrent.futures.process import BrokenProcessPool
 
     from amdockvs.chemistry.depiction import molecule_svg_for_payload
+    from amdockvs.core.pool import spawn_pool
 
     if _depiction_pool is None:
-        _depiction_pool = ProcessPoolExecutor(1, mp_context=multiprocessing.get_context("spawn"))
+        _depiction_pool = spawn_pool(1)  # exits with the app, even one that is killed
     pool = _depiction_pool
     try:
         return pool.submit(molecule_svg_for_payload, data, kind, **options).result()

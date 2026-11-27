@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import multiprocessing
-from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QThread, QTimer, Qt, Signal, Slot
@@ -33,6 +31,7 @@ from ms_components.tool_panel import PROGRESS_NAME
 
 from amdockvs.core.configuration import app_config
 from amdockvs.core.constants import MIN_BOX_EDGE
+from amdockvs.core.pool import spawn_pool
 from amdockvs.io.downloads import discard_temporary
 from amdockvs.io.formats import QT_RECEPTOR_FILE_FILTER
 from amdockvs.io.receptor_preview import (
@@ -87,7 +86,7 @@ class _ReceptorScanWorker(QObject):
         # needs to build rows. ponytail: one process = one core; ms_flow's jobs keep the rest.
         total = len(self._file_paths)
         try:
-            with ProcessPoolExecutor(1, mp_context=multiprocessing.get_context("spawn")) as pool:
+            with spawn_pool(1) as pool:  # exits with the app, even one that is killed
                 for index, (path, scan) in enumerate(zip(self._file_paths, pool.map(scan_receptor_structure, self._file_paths)), start=1):
                     self.progress.emit(index, total, path, scan)
         finally:

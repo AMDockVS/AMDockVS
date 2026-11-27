@@ -3,7 +3,8 @@ universe scatter and the glowing-molecule map."""
 
 from __future__ import annotations
 
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import QEvent, QObject, QTimer, Qt
+from PySide6.QtWidgets import QApplication
 
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.tools.qsar.chart import render_structure_png
@@ -14,10 +15,44 @@ from amdockvs.ui.view_ids import (
 )
 
 
+# Narrower than this, an axis plus its tick labels leaves no room for the plot.
+_MIN_READABLE_CHART_WIDTH = 240
+
+# A chart needs more width than the 3D viewer whose slot it takes: two axes with their labels and
+# tick numbers are overhead the plot itself doesn't get, so it opens a little wider than a third.
+_CHART_WIDTH_SHARE = 1 / 3
+
+# QMainWindow grants a dock resize geometrically rather than in one step (131 -> 516 -> 546 ->
+# ... -> 576 for one claim of 576), so a claim takes several passes to land. Give it room to
+# converge, then leave the layout alone.
+_MAX_WIDTH_CLAIMS = 12
+
+
+class _ChartWidthWatcher(QObject):
+    """Every width the chart dock is given: the user's (kept) or the layout's (claimed back)."""
+
+    def __init__(self, controller: "ChartController"):
+        super().__init__(controller.w)
+        self._controller = controller
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Type.Resize:
+            self._controller._note_chart_width(event.size().width())
+        return False
+
+
 class ChartController:
     def __init__(self, window):
         self.w = window
-        self._chart_sized = False
+        # The chart dock shares its slot with PyMOL (EXCLUSIVE region): every swap back hands the
+        # chart whatever width the viewer left behind. Keep the chart's own width and restore it.
+        self._chart_width = 0
+        self._chosen = False  # the width came from a deliberate resize, not from our own share
+        self._claims = 0  # claims made since the last show / user resize, see _MAX_WIDTH_CLAIMS
+        self._widen_queued = False  # a claim is already on the event loop
+        self._last_claim = -1  # the dock width the previous claim was issued against
+        self._settling = False  # inside a slot swap: the widths it hands out are not anyone's choice
+        self._width_watcher: _ChartWidthWatcher | None = None
         # Hovering a centroid marker previews its molecule; debounce so a sweep across markers
         # renders only where the cursor settles, and render off-thread (DB read + depiction).
         self._hover_molecule_id: int | None = None
@@ -32,17 +67,136 @@ class ChartController:
         return getattr(self.w, "qsar_chart_dock", None)
 
     def _show(self, dock_id: str = "qsar_chart") -> None:
-        chart = self._chart if dock_id == "qsar_chart" else None
-        opening = chart is not None and not chart.isVisible()
-        width = chart.width() if chart is not None and self._chart_sized else self.w._third_width()
+        self.watch_chart_width()
         self.w.dock_manager.toggle(dock_id, True)
-        if chart is not None and (opening or not self._chart_sized):
-            # An ignored size hint lets the chart shrink, but otherwise its first
-            # appearance gets only the minimum width. Restore its width when the
-            # exclusive dock region switches back from PyMOL; later sizes are the user's.
-            self._chart_sized = True
-            if not chart.isFloating():
-                self.w.resizeDocks([chart], [width], Qt.Horizontal)
+        if dock_id == "qsar_chart":
+            # The chart takes PyMOL's slot, and with it PyMOL's width. toggle() lays the slot out
+            # on the next event-loop pass, so claim the chart's own width after that.
+            self._claims, self._last_claim = 0, -1  # a fresh swap; the budget bounds this one
+            self._queue_widen(force=False)
+
+    def _queue_widen(self, *, force: bool) -> None:
+        """Claim the chart's width on the next pass. One claim at a time: several _show() calls
+        can land in the same pass (each chart a panel draws reveals the dock), and queueing one
+        timer apiece spent the whole claim budget before the layout had answered even once."""
+        self._settling = True
+        if self._widen_queued:
+            return
+        self._widen_queued = True
+
+        def run():
+            self._widen_queued = False
+            self._widen_chart(force=force)
+
+        QTimer.singleShot(0, run)
+
+    def reveal(self) -> None:
+        """Show the chart dock now, ahead of a chart still being computed, so its loading bar is
+        seen where the chart will appear."""
+        self._show()
+
+    def size_chart_to_third(self) -> None:
+        """The window reached its real (maximized) width: a chart already on screen - a project
+        opened on QSAR Analysis - was laid out against the smaller window before it, so the share
+        it was given is of the wrong total. Measure it again."""
+        self.watch_chart_width()
+        if self._chosen:
+            # ...unless the width is the user's. This runs from resizeEvent, which fires on every
+            # resize of a window that never maximizes, and re-measuring there would take the
+            # divider they dragged away from them each time they touched the window edge.
+            return
+        self._claims, self._last_claim = 0, -1
+        self._queue_widen(force=True)  # force: measure it against the window it now has
+
+    def watch_chart_width(self) -> None:
+        """Watch the chart dock's width from the moment it exists, whatever shows it later."""
+        watcher = self._width_watcher
+        if watcher is None and self._chart is not None:
+            self._width_watcher = _ChartWidthWatcher(self)
+            self._chart.installEventFilter(self._width_watcher)
+
+    def _note_chart_width(self, width: int) -> None:
+        """*When* the chart dock was resized decides what the width means. While a slot swap is
+        settling, the width is the layout's doing - it hands the chart whatever PyMOL left behind -
+        and is claimed back. Once the dock holds the width we claimed, the swap is over and every
+        later resize was meant: a splitter drag, a window resize, a caller sizing the dock. Reading
+        it off the resize keeps this independent of *which* code path showed the dock, and of how
+        long a chart took to draw."""
+        chart = self._chart
+        if chart is None or chart.isFloating() or not chart.isVisible():
+            return
+        if not self._chart_width:
+            # Nothing of ours to compare against yet, so there is no "it was left there": this is
+            # simply the width the layout opened with. Take our share instead - reading it as a
+            # preference would latch it, and _widen_chart would then never apply the share.
+            self._queue_widen(force=True)
+            return
+        # A button down on the divider is unambiguous: the user is dragging it right now. That
+        # outranks a swap still settling, which would otherwise claim the drag straight back.
+        dragging = QApplication.mouseButtons() != Qt.MouseButton.NoButton
+        if self._settling and not dragging:
+            if width == self._chart_width or self._claims >= _MAX_WIDTH_CLAIMS:
+                self._settling = False  # granted, or it never will be: stop overruling the layout
+            else:
+                self._queue_widen(force=False)
+            return
+        if width == self._chart_width:
+            return  # a height-only resize, or the width we already hold: nothing was decided
+        if width >= _MIN_READABLE_CHART_WIDTH:
+            self._chart_width = width  # whoever set it, stop fighting it
+            if dragging:
+                # Theirs, so the startup re-measure must not take it back. A squeeze with no
+                # button down - a switch to a tab whose centre needs more room - is taken as the
+                # dock's width too, but is not marked as chosen, so the next re-measure can undo
+                # it. The chart does not reclaim the share by itself when that tab is left.
+                self._chosen = True
+                self._settling = False
+        self._claims = 0
+
+    def _widen_chart(self, *, force: bool) -> None:
+        """The chart's own width: the one the user left it at, else ``_CHART_WIDTH_SHARE`` of the
+        window. Without this it inherits PyMOL's width every time it takes the shared slot back."""
+        chart = self._chart
+        if chart is None or not chart.isVisible() or chart.isFloating():
+            # No width to claim on a dock nobody can see. Leave settling here, or the next width
+            # the user picks would be read as the layout's and claimed straight back.
+            self._settling = False
+            return
+        if not self._chart_width or force:
+            self._chart_width = max(_MIN_READABLE_CHART_WIDTH,
+                                    int(self.w.width() * _CHART_WIDTH_SHARE))
+            self._chosen = False
+        self._claims += 1
+        if chart.width() == self._chart_width:
+            # Already the width we claim, so nothing was resized and no resize event is coming to
+            # end the settling. End it here, or every later resize would be overruled as the
+            # layout's and a width chosen afterwards could never be kept.
+            self._settling = False
+            return
+        # The layout will not always grant it - the centre may be at its minimum. Stop asking, and
+        # above all stop settling: a dock left short otherwise stays locked, with every width the
+        # user drags read as the layout's and taken straight back.
+        if self._claims >= _MAX_WIDTH_CLAIMS or chart.width() == self._last_claim:
+            self._settling = False  # out of tries, or the last claim moved nothing: refused
+            return
+        # Growing, only take what the centre can give up. The chart sits on the far side of the
+        # centre from the tool panel, so a claim the centre cannot cover comes off that panel
+        # instead: asking for 40% of a full window took 53 px off Docking Studio and never gave
+        # them back. Shrinking is never refused - that hands width back to everyone else.
+        want = self._chart_width
+        if want > chart.width():
+            central = self.w.centralWidget()
+            slack = max(0, central.width() - central.minimumSizeHint().width()) if central else 0
+            want = min(want, chart.width() + slack)
+        if want == chart.width():
+            self._settling = False  # nothing to take without robbing the tool panel; leave it
+            return
+        self._last_claim = chart.width()
+        self.w.resizeDocks([chart], [want], Qt.Horizontal)
+        # Ask again next pass whether or not that landed. QMainWindow grants a dock resize
+        # geometrically, and a refused one changes nothing at all, so waiting on a resize event
+        # to drive the next claim would wait forever.
+        self._queue_widen(force=False)
 
     def sync_to_active_view(self, view_id: str | None) -> None:
         """On the Activity view, show the distribution chart (hides PyMOL via EXCLUSIVE region);
@@ -80,8 +234,17 @@ class ChartController:
         """bins = (labels, counts), already computed off the GUI thread by the caller."""
         if self._chart is None:
             return
+        # The Activity view fills in the background - at start-up it is open behind QSAR Analysis -
+        # and the chart dock is shared, so pushing from there would plant a distribution over the
+        # model's own chart. It gets the chart when it is the view being read; coming back to it
+        # re-pushes through sync_to_active_view.
+        if self.w.central_widget.current_view_id() != LIGAND_ACTIVITY_VIEW_ID:
+            return
+        from amdockvs.ui.tools.qsar.chart import ClassCounts
+
         labels, counts = bins
-        self._chart.show_distribution_bins(endpoint or "value", labels, counts)
+        self._chart.show_distribution_bins(endpoint or "value", labels, counts,
+                                           annotate=isinstance(bins, ClassCounts))
         self._show()
 
     def show_feature_importance(self, label: str, pairs, notes=None, images=None) -> None:
@@ -96,12 +259,14 @@ class ChartController:
         )
         self._show()
 
-    def show_roc_curves(self, curves, empty: str = "No ROC curve.") -> None:
+    def show_roc_curves(self, curves, empty: str = "No ROC curve.", subset: str = "") -> None:
         """curves = [{'label', 'points':[(fpr,tpr)], 'auc'}]. Overlaid ROC series + chance diagonal;
         none = an empty chart titled ``empty`` (a stale one would pass for this selection's)."""
         if self._chart is None:
             return
-        title = empty if not curves else "ROC" if len(curves) > 1 else f"ROC — {curves[0].get('label', '')}"
+        sizes = {c.get("n") for c in curves}
+        shared = f", n={next(iter(sizes)):,}" if len(sizes) == 1 and None not in sizes else ""
+        title = f"ROC{f' · {subset}' if subset else ''}{shared}" if curves else empty  # model + AUC: legend
         self._chart.show_curves(title, curves, "False positive rate", "True positive rate", diagonal=True)
         self._show()
 
@@ -133,12 +298,16 @@ class ChartController:
         self._chart.show_grouped_bars(label or "Train/test distribution", categories, groups, x_title)
         self._show()
 
-    def show_similarity_distribution(self, label: str, bins) -> None:
-        """bins = (labels, counts) of applicability-domain similarities, binned off the GUI thread."""
+    def show_similarity_distribution(self, label: str, bins, empty: str = "") -> None:
+        """bins = (labels, counts) of applicability-domain similarities, binned off the GUI thread;
+        none = an empty chart titled ``empty`` (a stale one would pass for this selection\'s)."""
         if self._chart is None:
             return
         labels, counts = bins
-        self._chart.show_distribution_bins(label or "AD similarity", labels, counts)
+        if not counts and empty:
+            self._chart.show_message(empty)
+        else:
+            self._chart.show_distribution_bins(label or "AD similarity", labels, counts)
         self._show()
 
     def show_size_distribution(self, label: str, labels, counts) -> None:

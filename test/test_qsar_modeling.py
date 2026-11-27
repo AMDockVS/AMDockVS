@@ -212,9 +212,167 @@ def test_linear_models_expose_signed_weights():
     assert abs(weights["noise_a"]) < abs(weights["down"])
 
 
+def test_gradient_boosting_is_histogram_based_balanced_and_ranks_by_gain():
+    # HistGradientBoosting has no feature_importances_: the split gain of its trees stands in
+    rng = np.random.default_rng(0)
+    x = (rng.random((300, 8)) > 0.5).astype(float)
+    y = ((x[:, 0] == 1) & (rng.random(300) > 0.6)).astype(int)  # imbalanced, driven by bit_0
+    names = tuple(f"bit_{i}" for i in range(8))
+    model = fit_model(x, y, feature_names=names, algorithm="gradient_boosting", task="classification",
+                      feature_kind="ecfp4", fp_radius=2, fp_nbits=8)
+    assert type(model.estimator).__name__ == "HistGradientBoostingClassifier"
+    assert model.estimator.class_weight == "balanced"
+    importance = feature_importance(model.estimator, names)
+    assert importance[0][0] == "bit_0"
+    assert sum(v for _, v in importance) == pytest.approx(1.0)
+    # Only the gain of nodes that actually split counts. Leaves carry gain -1 under feature_idx 0,
+    # so summing them in would both invent importance for bit_0 and drag the total negative —
+    # recompute from the trees to pin the filter down, not just the ranking.
+    gains = np.zeros(len(names))
+    for stage in model.estimator._predictors:
+        for tree in stage:
+            nodes = tree.nodes
+            split = nodes[nodes["is_leaf"] == 0]
+            np.add.at(gains, split["feature_idx"], split["gain"])
+    assert (gains >= 0).all() and gains.sum() > 0
+    assert dict(importance) == pytest.approx(dict(zip(names, gains / gains.sum())))
+
+
+def test_gradient_boosting_importance_covers_every_tree_of_a_multiclass_fit():
+    # One tree per iteration for two classes, one PER CLASS beyond that: a reading that takes
+    # only the first tree of each iteration scores the same on binary data and loses two thirds
+    # of a three-class fit.
+    rng = np.random.default_rng(1)
+    x = (rng.random((300, 6)) > 0.5).astype(float)
+    y = (x[:, 0] + x[:, 1]).astype(int)  # three classes (0, 1, 2), driven by bit_0 and bit_1
+    names = tuple(f"bit_{i}" for i in range(6))
+    model = fit_model(x, y, feature_names=names, algorithm="gradient_boosting", task="classification",
+                      feature_kind="ecfp4", fp_radius=2, fp_nbits=6)
+    assert len(set(y)) == 3 and all(len(stage) == 3 for stage in model.estimator._predictors)
+    importance = feature_importance(model.estimator, names)
+    assert {n for n, _ in importance[:2]} == {"bit_0", "bit_1"}
+    assert sum(v for _, v in importance) == pytest.approx(1.0)
+    # Every class's tree counts, not just the first of each iteration: ranking alone cannot tell
+    # the difference, so compare against the gain of all 3 x n_iter trees.
+    gains = np.zeros(len(names))
+    for iteration in model.estimator._predictors:
+        for tree in iteration:
+            split = tree.nodes[tree.nodes["is_leaf"] == 0]
+            np.add.at(gains, split["feature_idx"], split["gain"])
+    assert dict(importance) == pytest.approx(dict(zip(names, gains / gains.sum())))
+
+
+@pytest.mark.parametrize("hyperparams,attribute,value", [
+    ({"n_estimators": 37}, "max_iter", 37),  # renamed, not refused
+    ({"n_estimators": 37, "max_iter": 50}, "max_iter", 50),  # the new name wins
+    ({"loss": "ls"}, "loss", "squared_error"),
+])
+def test_gradient_boosting_translates_the_old_parameter_names(hyperparams, attribute, value):
+    from amdockvs.qsar.modeling import _build_estimator
+
+    estimator = _build_estimator("gradient_boosting", "regression", hyperparams, feature_kind="ecfp4")
+    assert getattr(estimator, attribute) == value
+
+
+@pytest.mark.parametrize("name", ["subsample", "min_samples_split", "criterion", "init",
+                                  "ccp_alpha", "min_impurity_decrease", "min_weight_fraction_leaf",
+                                  "alpha"])
+def test_gradient_boosting_refuses_parameters_it_dropped_by_name(name):
+    # These reach us from a model trained before the swap, stored in its settings: the error has
+    # to say which parameter and what to use instead, not arrive as a bare TypeError from sklearn.
+    from amdockvs.qsar.modeling import _build_estimator
+
+    with pytest.raises(ValueError, match=name):
+        _build_estimator("gradient_boosting", "regression", {name: 0.5}, feature_kind="ecfp4")
+
+
 def test_domain_similarity_is_mean_tanimoto_to_the_k_nearest():
     train = np.array([[1, 1, 0, 0], [1, 0, 0, 0], [0, 0, 1, 1]])
     query = np.array([[1, 1, 0, 0], [0, 0, 0, 0]])
     # to [1,1,0,0]: 1, 0.5, 0 -> the two nearest average 0.75; an empty query is like nothing
     assert np.allclose(domain_similarity(train, query, k=2), [0.75, 0.0])
     assert np.allclose(domain_similarity(train, query, k=99), [0.5, 0.0])  # k caps at the set size
+
+
+@pytest.mark.parametrize("task", ["regression", "classification"])
+def test_every_algorithm_has_help_for_its_task(task):
+    from amdockvs.qsar.modeling import algorithm_help, supported_algorithms
+
+    for algorithm in supported_algorithms(task):
+        text = algorithm_help(algorithm, task)
+        assert "When to use:" in text and "Speed:" in text, algorithm
+    assert "balance actives" in algorithm_help("random_forest", "classification")
+    assert "balance actives" not in algorithm_help("random_forest", "regression")
+
+
+def test_domain_similarity_is_the_same_in_blocks(monkeypatch):
+    # query rows go through in blocks to bound memory; any block size gives the one-shot answer
+    import amdockvs.qsar.modeling as modeling
+
+    rng = np.random.default_rng(1)
+    train = (rng.random((60, 64)) < 0.15).astype(np.uint8)
+    query = (rng.random((25, 64)) < 0.15).astype(np.uint8)
+    query[0] = 0  # an empty fingerprint: similarity 0, not a division error
+    whole = domain_similarity(train, query, k=5)
+    for rows_per_block in (1, 7):
+        monkeypatch.setattr(modeling, "_AD_BLOCK_CELLS", rows_per_block * train.shape[0])
+        assert np.allclose(domain_similarity(train, query, k=5), whole)
+        # ...and the blocks were real: a step wide enough to swallow the query proves nothing
+        assert -(-query.shape[0] // rows_per_block) > 1
+    assert whole[0] == 0.0
+
+
+def test_domain_similarity_leaves_out_the_molecule_itself():
+    # brute force: a training molecule's k nearest are taken among the OTHER training molecules
+    rng = np.random.default_rng(3)
+    train = (rng.random((30, 48)) < 0.2).astype(np.uint8)
+    train[5] = train[4]  # a different molecule with the same fingerprint still counts (1.0)
+    query = np.vstack([train[:8], (rng.random((4, 48)) < 0.2).astype(np.uint8)])
+    exclude = list(range(8)) + [-1] * 4
+    got = domain_similarity(train, query, k=3, exclude=exclude)
+
+    def tanimoto(a, b):
+        union = np.sum(a | b)
+        return np.sum(a & b) / union if union else 0.0
+
+    for row, skip in enumerate(exclude):
+        sims = sorted((tanimoto(query[row], t) for i, t in enumerate(train) if i != skip), reverse=True)
+        assert got[row] == pytest.approx(np.mean(sims[:3]), abs=1e-6)
+    # row 4 skips itself but keeps its twin (row 5) at 1.0 among its neighbours
+    assert max(tanimoto(train[4], t) for i, t in enumerate(train) if i != 4) == 1.0
+    assert got[4] > got[6]  # ...which lifts it, unlike a molecule without a twin
+
+
+def test_domain_similarity_of_a_lone_training_molecule_against_itself_is_zero():
+    train = np.array([[1, 1, 0, 0]], dtype=np.uint8)
+    assert domain_similarity(train, train, k=5, exclude=[0]).tolist() == [0.0]
+
+
+def test_domain_similarity_of_a_molecule_does_not_depend_on_its_batch():
+    # Only a row that skips its own molecule loses a candidate. Taking that off every row (the
+    # obvious shortcut) would make a score depend on which rows it was measured alongside, and
+    # float it across AD_THRESHOLD between runs. k >= n_train is the only regime they differ in.
+    rng = np.random.default_rng(7)
+    train = (rng.random((4, 16)) < 0.4).astype(np.uint8)
+    for k in (4, 5, 9):  # k == n_train, and beyond it
+        alone = domain_similarity(train, train[1:2], k=k)[0]
+        batched = domain_similarity(train, train[0:2], k=k, exclude=[0, -1])[1]
+        assert batched == pytest.approx(alone), k
+        # and the row that does skip itself averages over the other three, not over two
+        skipped = domain_similarity(train, train[0:2], k=k, exclude=[0, -1])[0]
+
+        def tanimoto(a, b):
+            union = np.sum(a | b)
+            return np.sum(a & b) / union if union else 0.0
+
+        assert skipped == pytest.approx(np.mean([tanimoto(train[0], t) for t in train[1:]]), abs=1e-6)
+
+
+@pytest.mark.parametrize("exclude,message", [
+    ([-2, -1], "negative index"),  # only -1 means "nothing to skip"
+    ([0], "one training row index"),  # one per query row
+])
+def test_domain_similarity_rejects_an_exclude_it_cannot_read(exclude, message):
+    train = np.array([[1, 1, 0, 0], [1, 0, 0, 0]], dtype=np.uint8)
+    with pytest.raises(ValueError, match=message):
+        domain_similarity(train, train, k=1, exclude=exclude)

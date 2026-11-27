@@ -114,6 +114,7 @@ class AMDockVSMainWindow(QMainWindow):
         self._pymol_sized = False
         self._last_sized_width = 0  # see resizeEvent: breaks the resize/resizeDocks ping-pong
         self._viewer_room_given: set[str] = set()  # views whose spare width PyMOL already took
+        self._viewer_room_base = 0  # PyMOL's width before it took that spare: restored for the tools
         self.dock_manager = DockManager(self)
         self.pymol_dock = None
         self.grid_dock = None
@@ -166,6 +167,7 @@ class AMDockVSMainWindow(QMainWindow):
             starts_visible=False,
         )
         self.qsar_chart_dock.universeHovered.connect(self.charts.on_universe_hover)
+        self.charts.watch_chart_width()  # the chart keeps its own width across slot swaps
         # Glowing molecule (RDKit similarity map): shares the 2D Interactions slot under the
         # chart, so a model's chart and the molecule picked from it are read together.
         self.qsar_glow_dock = Glowing2DDockWidget("Glowing molecule", self.dock_manager, self)
@@ -276,12 +278,15 @@ class AMDockVSMainWindow(QMainWindow):
     def _open_default_views(self) -> None:
         """Open the tabs that have data; in front goes the first of Docking Results, QSAR
         Analysis, Receptors, Ligands, Shards that opened. An empty project opens Receptors."""
+        # Activity opens on its own measurements, not on the models: the data a model is trained
+        # against is there before any model exists, and is what you go back to between models.
         # open_view() only returns the tab if it already exists; opening is open_or_focus_view().
         sharded, ligand_rows = self.views._library_shape()
         has_data = {  # in tab-bar order
             RECEPTOR_VIEW_ID: self.runtime.molecules.has_receptors(),
             LIGANDS_VIEW_ID: ligand_rows,
             SHARDS_VIEW_ID: sharded,
+            LIGAND_ACTIVITY_VIEW_ID: self.runtime.qsar.has_activities(),
             QSAR_ANALYSIS_VIEW_ID: bool(self.runtime.qsar.list_models()),
             COMPLEXES_VIEW_ID: self.runtime.docking.has_results(),
         }
@@ -289,7 +294,8 @@ class AMDockVSMainWindow(QMainWindow):
         opened = [view_id for view_id, present in has_data.items() if present] or [RECEPTOR_VIEW_ID, LIGANDS_VIEW_ID]
         for view_id in opened:
             self.open_or_focus_view(view_id)
-        front = (COMPLEXES_VIEW_ID, QSAR_ANALYSIS_VIEW_ID, RECEPTOR_VIEW_ID, LIGANDS_VIEW_ID, SHARDS_VIEW_ID)
+        front = (COMPLEXES_VIEW_ID, QSAR_ANALYSIS_VIEW_ID, LIGAND_ACTIVITY_VIEW_ID,
+                 RECEPTOR_VIEW_ID, LIGANDS_VIEW_ID, SHARDS_VIEW_ID)
         self.open_or_focus_view(next(v for v in front if v in opened))
 
     def resizeEvent(self, event):
@@ -348,6 +354,7 @@ class AMDockVSMainWindow(QMainWindow):
                 self.resizeDocks([self.pymol_dock], [self._third_width()], Qt.Horizontal)
                 self._pymol_sized = True
                 QTimer.singleShot(0, lambda: self._give_viewer_spare_width(force=True))
+            self.charts.size_chart_to_third()  # the chart, when it holds PyMOL's place instead
         except Exception:
             pass
 
@@ -374,7 +381,24 @@ class AMDockVSMainWindow(QMainWindow):
         spare = page.viewer_spare_width()
         if spare > 0:  # nothing spare yet (e.g. a tool panel is open) is not "given": ask again later
             self._viewer_room_given.add(view_id)
+            self._viewer_room_base = self._viewer_room_base or dock.width()
             self.resizeDocks([dock], [dock.width() + spare], Qt.Horizontal)
+
+    def take_back_viewer_room(self) -> tuple[list, list]:
+        """(docks, widths) that return the spare width PyMOL was given, for the tool panel that
+        is opening to size itself in the same `resizeDocks` call. The spare only exists while the
+        panel is closed (with it open the view has none): kept on reopening, it comes off the panel
+        instead - Docking Studio reopened on Docking Results at 529 px, not 536. Forgotten once
+        handed back, so the view offers it again the next time the panel closes."""
+        dock, base = self.pymol_dock, self._viewer_room_base
+        self._viewer_room_base = 0
+        self._viewer_room_given.clear()
+        if not base or dock is None or not dock.isVisible() or dock.isFloating():
+            return [], []
+        # Back to its width from before, not "minus the spare": showing the panel has already
+        # trimmed PyMOL some, and subtracting on top of that left it short of its third (627 px).
+        # Never wider than it is now: a PyMOL the user narrowed since stays narrow.
+        return [dock], [min(dock.width(), base)]
 
     def _create_menu_bar(self):
         """Plain QMenuBar: File (Projects/Settings/Restart/Exit), View (Catalog Bar), Help.
@@ -741,8 +765,8 @@ class AMDockVSMainWindow(QMainWindow):
     def highlight_fit_molecule(self, molecule_id: int) -> None:
         self.charts.highlight_fit_molecule(molecule_id)
 
-    def show_similarity_distribution(self, label: str, bins) -> None:
-        self.charts.show_similarity_distribution(label, bins)
+    def show_similarity_distribution(self, label: str, bins, empty: str = "") -> None:
+        self.charts.show_similarity_distribution(label, bins, empty)
 
     def show_size_distribution(self, label: str, labels, counts) -> None:
         self.charts.show_size_distribution(label, labels, counts)

@@ -373,10 +373,9 @@ def show_project_summary(window) -> None:
     meta = QFormLayout()
     meta.setLabelAlignment(Qt.AlignRight)
     if path:
-        path_label = QLabel(path)
-        path_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        path_label.setWordWrap(True)
-        meta.addRow("Path:", path_label)
+        # WrappedText, not a word-wrapped QLabel: the dialog (SetMinimumSize) sized that label for
+        # a narrower width, so its last line was cut and the rows below were squeezed.
+        meta.addRow("Path:", WrappedText(path, max_lines=8))
     if summary is not None:
         if getattr(summary, "created_at", None):
             meta.addRow("Created:", QLabel(summary.created_at.strftime("%Y-%m-%d %H:%M")))

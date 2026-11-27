@@ -7,6 +7,7 @@ get excluded) only when asked.
 import sys
 import time
 from pathlib import Path
+from unittest import mock
 
 import pandas as pd
 import pytest
@@ -32,6 +33,19 @@ def _wait(app, done, timeout_s: float = 10.0) -> None:
         app.processEvents()
         time.sleep(0.01)
     assert done()
+
+
+def _settle(app, read, timeout_s: float = 5.0) -> None:
+    """Pump until ``read()`` stops changing: a dock width is claimed back over several passes."""
+    deadline = time.monotonic() + timeout_s
+    last, stable = object(), 0
+    while stable < 5 and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+        now = read()
+        stable = stable + 1 if now == last else 0
+        last = now
+    assert stable >= 5, f"never settled, still moving at {last}"  # a timeout must fail, not pass
 
 
 def _filters(table) -> dict:
@@ -160,16 +174,20 @@ def test_a_run_is_read_in_clusters_and_changes_nothing_until_asked(tmp_path, mon
         assert window.qsar_chart_dock.width() >= 300
         window.resize(1440, 900)
         window.resizeDocks([window.tools_dock], [360], Qt.Horizontal)
-        window.resizeDocks([window.qsar_chart_dock], [420], Qt.Horizontal)
-        app.processEvents()
+        # Dragging the divider is what makes a width the user's, and the controller reads that
+        # off the mouse, so hold a button down over the resize the way a real drag would.
+        with mock.patch.object(QApplication, "mouseButtons", staticmethod(lambda: Qt.LeftButton)):
+            window.resizeDocks([window.qsar_chart_dock], [420], Qt.Horizontal)
+            # The chart claims its share over the next few passes (a dock swap can answer a resize
+            # with one of its own), so read the width it rests at, not one mid-flight.
+            _settle(app, lambda: window.qsar_chart_dock.width())
         assert window.width() <= 1440
         assert window.tools_dock.width() < 480
-        assert window.qsar_chart_dock.width() >= 350
-        chart_width = window.qsar_chart_dock.width()
+        assert window.qsar_chart_dock.width() == 420  # the width asked for, not the chart's share
         window.charts.sync_to_active_view(LIGANDS_VIEW_ID)
         view.restore_plot()
-        app.processEvents()
-        assert window.qsar_chart_dock.width() == chart_width
+        _settle(app, lambda: window.qsar_chart_dock.width())
+        assert window.qsar_chart_dock.width() == 420  # ...and the round trip gave it straight back
         splitter = window.central_widget.content_splitter
         before = splitter.sizes()
         splitter.moveSplitter(splitter.height() // 2, 1)

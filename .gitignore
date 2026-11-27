@@ -271,3 +271,4 @@ scripts/*
 # Scratch work and generated inspection dumps
 .tmp/
 *.inspect.ndjson
+.vscode/settings.json

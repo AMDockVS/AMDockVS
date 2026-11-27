@@ -895,11 +895,10 @@ def test_project_with_qsar_models_and_no_results_opens_on_qsar_analysis(practice
     analysis = second.central_widget.open_view(QSAR_ANALYSIS_VIEW_ID)
     assert analysis is not None and second.central_widget.open_view(RECEPTOR_VIEW_ID) is None  # only data tabs
     assert second.central_widget.main_content_tabs.currentWidget() is analysis
-    # with models the view leads with reading their predictions
+    # the view leads with Model analysis, whose charts hold the shared dock, however many models
+    # the project has; Result analysis is a tab away and keeps PyMOL.
     for _ in range(200):
         app.processEvents()
-        if analysis.currentWidget() is analysis.results:
-            break
-    assert analysis.tabText(0) == "Result analysis" and analysis.currentWidget() is analysis.results
+    assert analysis.tabText(0) == "Model analysis" and analysis.currentWidget() is analysis.models
     second.close()
     app.processEvents()

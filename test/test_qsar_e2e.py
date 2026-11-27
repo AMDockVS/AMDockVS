@@ -77,11 +77,13 @@ def test_qsar_from_activities_to_a_filtered_library(tmp_path, monkeypatch):
         labeled_ids = {by_name[name] for name, _ in LABELED}
 
         # a. activities, matched to the ligands by structure
+        assert not runtime.qsar.has_activities()  # nothing measured yet: the Activity tab stays shut
         table = tmp_path / "activities.csv"
         table.write_text("smiles,value\n" + "".join(f"{smi},{_activity(smi)}\n" for _, smi in LABELED), encoding="utf-8")
         loaded = runtime.qsar.load_activities(table, endpoint=ENDPOINT, match_by="smiles")
         measured = {int(a.molecule_id): float(a.value) for a in runtime.qsar.list_activities(endpoint=ENDPOINT)}
         assert set(measured) == labeled_ids, loaded
+        assert runtime.qsar.has_activities()  # ...and opens on its own data, before any model exists
         completed(runtime.qsar.compute_descriptors(only_missing=False, compute_fingerprints=True, executor_name="thread"))
 
         # b. a training set that is diverse AND spans the activity. Cluster the measured ligands
@@ -146,13 +148,38 @@ def test_qsar_from_activities_to_a_filtered_library(tmp_path, monkeypatch):
         assert lowest["ids"] == sorted(predicted, key=lambda i: (predicted[i], i))[:2]
 
         # the applicability domain travels with each prediction; the other model (same training
-        # set, no predictions) measures it from the stored fingerprints, and they agree
+        # set, no predictions) measures it from the stored fingerprints. They agree off the training
+        # set; a training molecule is measured against the OTHER training molecules there, while
+        # a prediction (fingerprints, no ids) still finds the molecule itself: never higher.
         stored = {row["molecule_id"]: row["ad_similarity"] for row in runtime.qsar.prediction_rows(model=best)}
         assert all(value is not None for value in stored.values())
         other = next(mid for mid in scores if mid != best)
         measured_ad = {row["molecule_id"]: row["similarity"] for row in runtime.qsar.applicability_domain(model=other)}
         assert measured_ad.keys() == stored.keys()
-        assert all(abs(measured_ad[mid] - stored[mid]) < 1e-6 for mid in stored)
+        trained_on = {mid for mid, sub in runtime.qsar.model_subsets(model=other).items() if sub == "train"}
+        assert trained_on and set(stored) - trained_on
+        assert all(abs(measured_ad[mid] - stored[mid]) < 1e-6 for mid in set(stored) - trained_on)
+        assert all(measured_ad[mid] <= stored[mid] + 1e-6 for mid in trained_on & set(stored))
+        assert any(measured_ad[mid] < stored[mid] - 1e-6 for mid in trained_on & set(stored))
+
+        # the domain honours the subset selector, as the other model charts do: each subset
+        # measures only its own molecules, and 'all' is the model's members (not the whole library)
+        by_subset = {sub: runtime.qsar.applicability_domain(model=other, subset=sub)
+                     for sub in ("train", "test", "all")}
+        roles = runtime.qsar.model_subsets(model=other)
+        for sub in ("train", "test"):
+            assert {roles[r["molecule_id"]] for r in by_subset[sub]} == {sub}
+        assert len(by_subset["all"]) == len(by_subset["train"]) + len(by_subset["test"])
+        assert {r["molecule_id"] for r in by_subset["all"]} == set(roles)
+        # an unknown subset is rejected as such, not reported as one that happens to be empty
+        # (EmptySubsetError is a ValueError too, so `raises(ValueError)` alone proves nothing)
+        from amdockvs.qsar.model_analysis import EmptySubsetError
+
+        with pytest.raises(ValueError, match="subset must be one of") as unknown:
+            runtime.qsar.applicability_domain(model=other, subset="bogus")
+        assert not isinstance(unknown.value, EmptySubsetError)
+        with pytest.raises(ValueError):  # a set OR a subset, never both
+            runtime.qsar.applicability_domain(model=other, subset="test", molecule_set=1)
 
         # a model leaves as a bundle and comes back once; without its identity it comes back as a
         # copy that finds every member and predicts the same
@@ -189,13 +216,12 @@ def test_qsar_from_activities_to_a_filtered_library(tmp_path, monkeypatch):
         window.show()
         analysis = window.open_or_focus_view(QSAR_ANALYSIS_VIEW_ID)
         view = analysis.results
-        # the chart belongs to Model analysis: Result analysis keeps PyMOL
-        _wait(app, lambda: analysis.currentWidget() is view)
-        assert not window.qsar_chart_dock.isVisible()
-        analysis.setCurrentWidget(analysis.models)
+        # the view leads with Model analysis, whose charts hold the shared dock
+        _wait(app, lambda: analysis.currentWidget() is analysis.models)
         _wait(app, window.qsar_chart_dock.isVisible)
         toolbar = {a.text() for a in analysis.models.models_table._keyed_actions["qsar_bundles"]}
         assert toolbar == {"Import model…", "Export model…"}
+        # the chart belongs to Model analysis: Result analysis keeps PyMOL
         analysis.setCurrentWidget(view)
         _wait(app, lambda: not window.qsar_chart_dock.isVisible())
         _wait(app, lambda: view.model_combo.findData(best) >= 0)

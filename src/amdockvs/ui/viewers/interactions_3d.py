@@ -91,15 +91,34 @@ def show_interaction(cmd, *, receptor_obj: str, ligand_obj: str, contact) -> int
     return _draw(cmd, receptor_obj, ligand_obj, contact.residue_key, [contact], ligand)
 
 
+def clear_pick(cmd, receptor_obj: str) -> str:
+    """One pick per receptor object: the residue picked before on it (sticks, label) and the
+    contacts drawn then, whichever of its poses they were for, leave. Called before a new pick
+    and when a pose is swapped. Several selected poses share one receptor object, and its
+    residues would otherwise pile up as sticks. The hidden selection that remembers the pick
+    lives in PyMOL, so a cleared scene forgets it too."""
+    picked = f"_{GROUP}_{receptor_obj}_picked"
+    if picked in cmd.get_names("selections"):
+        cmd.hide("sticks", picked)
+        cmd.label(picked, "")
+        cmd.delete(picked)
+    names = set(cmd.get_names("objects"))
+    for group in {interaction_group(receptor_obj, obj) for obj in names} & names:
+        cmd.delete(group)
+    return picked
+
+
 def _draw(cmd, receptor_obj: str, ligand_obj: str, key: str, contacts, ligand) -> int:
     from ms_contactmap.model import INTERACTION_STYLES
     from ms_components.ms_pymol import associate_scene_objects
 
     group = interaction_group(receptor_obj, ligand_obj)
+    picked = clear_pick(cmd, receptor_obj)
     cmd.delete(group)
     residue = residue_selection(receptor_obj, key)
     cmd.show("sticks", f"({residue}) and not hydro")
     cmd.label(f"({residue}) and name CA", '"%s %s%s" % (resn, chain, resi)')
+    cmd.select(picked, residue, enable=0)
     if ligand is None:
         cmd.zoom(residue, 5)
         return 0

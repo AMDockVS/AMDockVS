@@ -275,3 +275,15 @@ def test_build_writes_the_built_structures_descriptors_back_to_the_row():
     nodes = CHEMISTRY_GRAPH_OUTPUT.meta["graph"]["nodes"]
     columns = next(node for node in nodes if node["name"] == "molecules")["columns"]
     assert set(molecule) <= set(columns)
+
+
+def test_progress_climbs_through_every_step_and_ends_at_one():
+    """The job monitor showed every ligand chemistry task at 50% for the whole run: the
+    pipeline, which is all of the time, said nothing. Each step now has a share, and a step
+    that goes molecule by molecule moves inside it."""
+    mols = _mols()
+    said: list[float] = []
+    run_pipeline(mols, [("standardize", {}), ("protonate", {}), ("generate_3d", {})], progress=said.append)
+    assert said == sorted(said) and said[-1] == 1.0
+    inside_3d = [value for value in said if 2 / 3 < value < 1.0]
+    assert len(inside_3d) == len(mols) - 1  # one per molecule, the last one is the step's end

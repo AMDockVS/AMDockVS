@@ -56,6 +56,9 @@ except Exception:  # pragma: no cover - optional UI dependency
     pg = None
 
 
+#: Most selected rows PyMOL shows together; more is a cluttered scene and a slow one to build.
+MAX_SCENE_ROWS = 50
+
 #: Fields the results view can filter on, as (key, label). The key is what SQL understands:
 #: every key is a column of `docking_results`.
 _RESULT_FILTER_FIELDS = (
@@ -179,6 +182,8 @@ class DockingResultsWidget(QWidget):
         self._known_campaign_target_ids: set[int] = set()
         self._receptor_program = ""  # the program the receptor counts are scoped to
         self._together: tuple = (None, set(), 0)  # (table, result ids, scene epoch) shown side by side
+        self._together_hits: dict = {}  # result id -> its hit, once loaded into that scene
+        self._poses_cleared = False  # the pose table is already emptied for a scope with no ligand
         self.filters_changed.connect(lambda: self._refresh_ligands(auto_select=True))
 
         outer = QVBoxLayout(self)
@@ -665,6 +670,8 @@ class DockingResultsWidget(QWidget):
         self._ligand_signature = signature
         if self._ligand_refreshing:
             self.data_refreshed.emit(old_signature is not None and signature != old_signature)
+        # With no ligand in scope there is no ligand for "No poses for this ligand" to be about.
+        self.pose_table.set_empty_state(None if rows else "No poses for this receptor and filter scope")
         if self._select_ligand_id(self._selected_ligand_id, notify=False):
             return
         if self._auto_select_ligand and rows and self._selected_ligand_id is None:
@@ -676,6 +683,13 @@ class DockingResultsWidget(QWidget):
         if not rows:
             self._selected_ligand_id = None
             self._show_detail(None)
+            # The pose table kept the filters of the last ligand shown, so it went on listing
+            # that ligand's poses (a rerun, another program) for a ligand no longer in scope.
+            # Only once: a campaign with nothing docked yet reloads this list every second.
+            if not self._poses_cleared:
+                self._poses_cleared = True
+                self._auto_select_pose = False
+                self.pose_table.set_filters([FilterSpec("ligand_molecule_id", FilterOperator.EQ, -1)])
 
     def _select_ligand_id(self, ligand_id: int | None, *, notify: bool) -> bool:
         target = next(
@@ -732,9 +746,30 @@ class DockingResultsWidget(QWidget):
         _table, ids, epoch = self._together
         return bool(ids) and epoch == self._scene_epoch()
 
+    def _scene_rows(self, table: SmartTableView, objects: list) -> list:
+        """The selected rows PyMOL shows: all of them up to MAX_SCENE_ROWS, else the first ones
+        in table order (the order the user sorted by, best scores first by default), with the
+        row last clicked always among them so the scene and the detail panel agree. The table
+        selection itself stays whole: export and the other actions still see every row."""
+        if len(objects) <= MAX_SCENE_ROWS:
+            return objects
+        rows = sorted(index.row() for index in table._table.selectionModel().selectedRows())
+        shown = [obj for obj in (table._model.get_raw_object(row) for row in rows) if obj is not None]
+        shown = shown[:MAX_SCENE_ROWS]
+        current = self._current(table, objects)
+        if not any(obj is current for obj in shown):
+            shown[-1] = current
+        status = getattr(self.window(), "statusBar", None)
+        if callable(status):
+            status().showMessage(
+                f"PyMOL shows the first {MAX_SCENE_ROWS} of {len(objects)} selected rows "
+                "in table order.", 8000)
+        return shown
+
     def _show_together(self, table: SmartTableView, objects: list) -> None:
         """Several rows selected: every one's pose shares the scene, to compare them. Each row
         of these tables is one result (a ligand row is its best pose)."""
+        objects = self._scene_rows(table, objects)
         ids = {int(getattr(obj, "id", 0) or 0) for obj in objects} - {0}
         shown = self._together[1] if self._together[0] is table and self._showing_together() else set()
         viewer = getattr(self.window(), "viewer", None)
@@ -744,18 +779,27 @@ class DockingResultsWidget(QWidget):
             if shown and viewer is not None:
                 viewer.select_table_row(table._table)  # back to one row: the others leave the scene
             return
-        if viewer is not None and not (shown and shown <= ids):
-            # A second row joined (the scene held one swapped pose) or a row left: start over.
+        # Each selection change only touches what changed: a drag across N rows sends N changes,
+        # and reloading every selected row on each was N²/2 queries and loads.
+        hits = self._together_hits if shown else {}
+        left = [hits.pop(rid) for rid in shown - ids if rid in hits]  # still in flight: dropped on arrival
+        if viewer is not None and (not shown or not all(viewer.remove_hit(hit) for hit in left)):
+            # A second row joined (the scene held one swapped pose), or a pose that cannot be
+            # taken out alone left: start over.
             viewer.select_table_row(table._table, additive=True, restart=True)
+            shown, hits = set(), {}
         epoch = self._scene_epoch()
-        self._together = (table, ids, epoch)
+        self._together, self._together_hits = (table, ids, epoch), hits
 
-        def load(hit) -> None:
-            if hit is not None and epoch == self._scene_epoch():
+        def load(result_id: int, hit) -> None:
+            if (hit is not None and epoch == self._scene_epoch() and self._together[0] is table
+                    and result_id in self._together[1]):
+                self._together_hits[result_id] = hit
                 self._load_hit_in_pymol(hit, self._pose_rank(hit))
 
-        for result_id in sorted(ids):
-            run_async(lambda result_id=result_id: self.runtime.docking.hit(result_id=result_id), load, owner=self)
+        for result_id in sorted(ids - shown):
+            run_async(lambda result_id=result_id: self.runtime.docking.hit(result_id=result_id),
+                      lambda hit, result_id=result_id: load(result_id, hit), owner=self)
 
     def _on_ligand_selection_changed(self, objects: list) -> None:
         if not objects:
@@ -775,6 +819,7 @@ class DockingResultsWidget(QWidget):
         if run:
             filters.append(FilterSpec("docking_run_id", FilterOperator.EQ, run))
         self._auto_select_pose = True
+        self._poses_cleared = False
         self.pose_table.set_filters(filters)
 
     def _on_poses_loaded(self, *_args) -> None:
@@ -809,7 +854,10 @@ class DockingResultsWidget(QWidget):
         if token[0] != self._hit_token:
             from ms_components.ms_pymol import is_additive
 
-            if hit is not None and self._load_hit_in_pymol is not None and is_additive(dock):
+            # A multi-row selection loads (and takes out) its own rows; adding this one too would
+            # leave a pose the selection no longer holds, past MAX_SCENE_ROWS during a drag.
+            if (hit is not None and self._load_hit_in_pymol is not None and is_additive(dock)
+                    and not self._showing_together()):
                 self._load_hit_in_pymol(hit, self._pose_rank(hit))
             return
         self._show_detail(hit)
