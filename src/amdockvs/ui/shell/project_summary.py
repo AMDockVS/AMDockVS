@@ -128,11 +128,14 @@ def _storage_section(dlg: QDialog, runtime) -> QVBoxLayout:
     def compacted() -> tuple:
         before = storage_stats(store)
         report = compact_storage(store) or {}
+        merged = runtime.merge_containers()  # the small shard containers too, as bytes
         stats = storage_stats(store)
         rewritten = int(report.get("volumes") or 0)
         freed = max(0, before.size - stats.size)
-        return stats, (f"Compact: rewrote {rewritten:,} volume(s), freed {freed / 1e6:,.1f} MB."
-                       if rewritten else "Compact: nothing to reclaim.")
+        said = [f"rewrote {rewritten:,} volume(s), freed {freed / 1e6:,.1f} MB" if rewritten else "",
+                f"merged {merged:,} container(s)" if merged else ""]
+        return stats, ("Compact: " + "; ".join(part for part in said if part) + "."
+                       if any(said) else "Compact: nothing to reclaim.")
 
     def cleared() -> tuple:
         freed = runtime.clear_transport()

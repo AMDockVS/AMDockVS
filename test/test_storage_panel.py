@@ -134,3 +134,29 @@ def test_the_copies_on_queues_are_brought_and_cleaned_from_the_project_dialog(mo
     settle(3)
     assert calls == [("bring", "vhpc"), ("clean", "vhpc", True, False), ("clean", "vhpc", False, False)]
     assert asked == [("vhpc", 2)]
+
+
+def test_compacting_the_project_merges_its_small_containers(tmp_path, monkeypatch):
+    """What campaigns sealed one by one (each small) becomes one container again, off the jobs."""
+    from amdockvs import AMDockVSRuntime
+    from ms_flow.core.data import catalog
+    from container_parts import part, receipt
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    runtime = AMDockVSRuntime()
+    try:
+        runtime.create_project(name="merge", folder=tmp_path / "merge", description="")
+        db = runtime.workspace.project_db
+        gen = catalog.create_generation(db, step="import")
+        catalog.activate_generation(db, gen)
+        with catalog.ContainerWriter(db, tmp_path / "merge" / "made", generation_id=gen, role="prepared:x",
+                                     prefix="s:") as writer:
+            for i in range(3):
+                writer.commit_parts([receipt(part(tmp_path / "parts" / f"{i}.arrows", 8 * i), f"s:{i}")])
+                writer.seal()
+        assert len(list(catalog.files(db, catalog.shard_spec(role="prepared:x")))) == 3
+        assert runtime.merge_containers() == 3
+        assert len(list(catalog.files(db, catalog.shard_spec(role="prepared:x")))) == 1
+        assert catalog.count(db, catalog.shard_spec(role="prepared:x")) == 3
+    finally:
+        runtime.shutdown()

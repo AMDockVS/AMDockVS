@@ -450,6 +450,24 @@ class AMDockVSRuntime(AppRuntime):
             self.workspace.project_db, busy=bool(self.list_jobs(statuses=NON_TERMINAL_JOB_STATUSES))
         )
 
+    def merge_containers(self) -> int:
+        """The project's small containers (and those with retired shards) merged into few, role by
+        role, their shards copied as bytes (`catalog.merge`); how many went. Refused while a job is
+        active: a merge changes shard ids under whatever reads them."""
+        from sqlmodel import select
+
+        from ms_flow.core.data import catalog
+        from ms_flow.core.database.project_models import CatalogFile
+
+        self._require_active_project()
+        if self.list_jobs(statuses=NON_TERMINAL_JOB_STATUSES):
+            raise RuntimeError("Jobs are running; merge the containers once they end.")
+        db = self.workspace.project_db
+        with db.get_session() as session:
+            pairs = session.exec(select(CatalogFile.generation_id, CatalogFile.role)
+                                 .where(CatalogFile.location == "").distinct()).all()
+        return sum(catalog.merge(db, generation_id, role) for generation_id, role in pairs)
+
     def queue_copies(self) -> dict[str, dict[str, int]]:
         """By executor, the project's containers only on its queue and those here with a copy there."""
         from ms_flow import locations
