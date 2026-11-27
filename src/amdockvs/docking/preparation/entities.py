@@ -76,6 +76,42 @@ def receptor_excluded_resnames(*, keep_waters: bool, keep_cofactors: bool) -> fr
     return frozenset(excluded)
 
 
+def cofactor_codes(data: bytes | str, kind: str) -> tuple[str, ...]:
+    """The cofactor HET codes in one receptor structure (PDB or mmCIF text), sorted: the
+    residues ``keep_cofactors`` keeps or drops. One reading for preparation and for the
+    Receptors step's warning, so the two never disagree about what a receptor holds.
+
+    Read straight from the text, no conversion: the warning runs it over every receptor in
+    scope, a whole proteome included. A structure that names no cofactor anywhere costs one
+    byte search per code."""
+    from amdockvs.io.receptor_preview import hetero_codes
+
+    raw = data.encode() if isinstance(data, str) else bytes(data)
+    cofactors = hetero_codes("cofactor")
+    if b"HETATM" not in raw or not any(code.encode() in raw for code in cofactors):
+        return ()
+    names: set[str] = set()
+    if str(kind).lower() in {"cif", "mmcif"}:
+        fields: list[bytes] = []
+        column = None
+        for line in raw.splitlines():
+            if line.startswith(b"_atom_site."):
+                fields.append(line.strip())
+                column = None
+            elif line.startswith(b"HETATM"):
+                if column is None:
+                    wanted = (b"_atom_site.auth_comp_id", b"_atom_site.label_comp_id")
+                    column = next((fields.index(f) for f in wanted if f in fields), -1)
+                if column >= 0:
+                    tokens = line.split()
+                    if column < len(tokens):
+                        names.add(tokens[column].decode(errors="replace").strip("'\"").upper())
+    else:  # PDB (and PDBQT): the residue name sits in columns 18-20
+        names = {line[17:20].decode(errors="replace").strip().upper()
+                 for line in raw.splitlines() if line.startswith(b"HETATM")}
+    return tuple(sorted(names & cofactors))
+
+
 def _prepared(text: str):
     return structure_payload(text, "pdbqt", SERIES_PREPARED)
 
@@ -101,7 +137,10 @@ def _prepare_row(row: Mapping[str, Any], *, entity_kind: str, excluded_resnames:
             output_path=output_path,
             flexible_residues=[str(k) for k in (row.get("flexible_residues") or [])],
             exclude_resnames=excluded_resnames,
-            ccd_components=ccd_components,
+            # The CCD pass types every non-standard residue, not just cofactors (modified residues,
+            # other kept HET groups). Run for a receptor with no cofactor, "Include cofactors"
+            # would retype it too: in a mixed batch, the receptors it has nothing to keep for.
+            ccd_components=ccd_components and bool(cofactor_codes(data, kind)),
             ion_charges=ion_charges,
         )
         if result.artifact is None or result.artifact.path is None:
@@ -143,7 +182,7 @@ def prepare_entities_rows(
             prepared, flex, row_warnings = _prepare_row(
                 row, entity_kind=entity_kind, excluded_resnames=excluded_resnames,
                 # Only the kept cofactors need the CCD pass, so a dry receptor is typed and
-                # charged exactly as before.
+                # charged exactly as before - and so is one that has no cofactor (_prepare_row).
                 ccd_components=bool(keep_cofactors) and entity_kind == "receptor",
                 ion_charges=bool(ion_charges) and entity_kind == "receptor",
             )

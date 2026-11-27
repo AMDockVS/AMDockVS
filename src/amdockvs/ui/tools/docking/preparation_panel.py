@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from html import escape
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QFormLayout,
@@ -11,6 +12,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMessageBox,
+    QScrollArea,
     QSpinBox,
     QStackedWidget,
     QWidget,
@@ -49,6 +51,43 @@ def _first_warning(value) -> str:
     if not lines:
         return "—"
     return lines[0] + (f" (+{len(lines) - 1} more)" if len(lines) > 1 else "")
+
+
+class _FitHeightScroll(QScrollArea):
+    """A scroll area that asks for the height its page needs at the width it is given, so the
+    page shows whole and only scrolls when the step itself has no room left. A wrapped note
+    grows the page: with a fixed floor it pushed the last options below a fold of their own."""
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt override
+        hint = super().minimumSizeHint()
+        page = self.widget()
+        if page is None:
+            return hint
+        width = self.viewport().width()
+        need = page.heightForWidth(width) if page.hasHeightForWidth() else -1
+        return QSize(hint.width(), max(hint.height(), need if need > 0 else page.sizeHint().height()))
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt override
+        super().resizeEvent(event)
+        if event.size().width() != event.oldSize().width():
+            self.updateGeometry()  # narrower wraps the note onto more lines: ask again
+
+
+def _cofactor_summary(found: dict[int, tuple[str, tuple[str, ...]]], total: int) -> tuple[str, bool]:
+    """(one line of rich text, whether it speaks of more than one cofactor). Counts, not lists:
+    a proteome in scope can have thousands of receptors with a cofactor, and a note that named
+    them would be the whole page. One receptor is named, as it is all there is to say."""
+    tally: dict[str, int] = {}
+    for _name, codes in found.values():
+        for code in codes:
+            tally[code] = tally.get(code, 0) + 1
+    common = sorted(tally, key=lambda code: (-tally[code], code))
+    codes = ", ".join(common[:3]) + (f", +{len(common) - 3} more" if len(common) > 3 else "")
+    if len(found) == 1:
+        (name, _codes), = found.values()
+        return f"{escape(name)} carries <b>{codes}</b>", len(common) > 1
+    of = f" of {total:,}" if total > len(found) else ""
+    return f"{len(found):,}{of} receptors carry a cofactor (<b>{codes}</b>)", True
 
 
 def _prep_table_config(*, role_type: str) -> TableConfig:
@@ -489,13 +528,66 @@ class PreparationPanel:
         form.addRow(self.force_prepare_receptors)
         form.addRow(self.keep_waters_receptors)
         form.addRow(self.keep_cofactors_receptors)
+        # Import shows the cofactors it found; this box is where they are kept or dropped, and it
+        # starts off. Say so here when a receptor in scope has one, so it is not dropped unseen.
+        self.cofactor_notice = QLabel(page)
+        self.cofactor_notice.setWordWrap(True)  # wraps to the dock: never widens it
+        form.addRow(self.cofactor_notice)
+        self._cofactor_receptors: dict[int, tuple[str, tuple[str, ...]]] = {}
+        self._cofactor_total = 0  # receptors in the scope that was read
+        self.keep_cofactors_receptors.toggled.connect(lambda _on: self._show_cofactor_notice())
         form.addRow(self.ion_charges_receptors)
         # "Include structural waters" stays hidden: a kept water still reaches the PDBQT as
         # ms_adtools types it, and the TIP3P charges the tooltip promises are not implemented.
         # Cofactors are finished (ms_adtools types them from their component: aromaticity,
         # formal charges, ionized acids), so that one is offered.
         form.setRowVisible(self.keep_waters_receptors, False)
-        return self._in_scroll(page)
+        self._cofactor_form = form
+        form.setRowVisible(self.cofactor_notice, False)
+        self._receptor_options_scroll = scroll = _FitHeightScroll(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setWidget(page)
+        return scroll
+
+    def _refresh_cofactor_notice(self) -> None:
+        """Find the cofactors in the receptors of this step's scope (their structures are read,
+        so off the GUI thread), then show or hide the note under "Include cofactors"."""
+        if not hasattr(self, "cofactor_notice"):
+            return
+        try:
+            scope = self._selected_receptor_scope()
+        except Exception:  # noqa: BLE001 - no scope yet (no project, nothing selected): no note
+            return
+        self._cofactor_reads = getattr(self, "_cofactor_reads", 0) + 1
+        read = self._cofactor_reads
+
+        def apply(result) -> None:
+            if read == self._cofactor_reads:  # a later scope's answer is the one that counts
+                self._cofactor_receptors, self._cofactor_total = result
+                self._show_cofactor_notice()
+
+        def work():
+            found = self.runtime.docking.receptor_cofactors(scope)
+            return found, (self.runtime.molecules.count(scope) if found else 0)
+
+        run_async(work, apply,
+                  on_error=lambda _exc: None, owner=self)
+
+    def _show_cofactor_notice(self) -> None:
+        found, total = self._cofactor_receptors, self._cofactor_total
+        show = bool(found) and not self.keep_cofactors_receptors.isChecked()
+        if show:
+            what, many = _cofactor_summary(found, total)
+            self.cofactor_notice.setText(
+                f"{what}. Preparation leaves {'them' if many or len(found) > 1 else 'it'} out unless "
+                "<i>Include cofactors</i> is ticked.")
+            self.cofactor_notice.setToolTip(
+                "Detected while parsing the structures. An empty cofactor pocket is a site the "
+                "ligand can wrongly dock into. Ticking the box changes only the receptors that "
+                "carry one: the others are prepared the same either way.")
+        self._cofactor_form.setRowVisible(self.cofactor_notice, show)
+        self._receptor_options_scroll.updateGeometry()  # the page grew or shrank by the note
 
     def _build_receptor_program_prep_page(self, spec) -> QWidget:
         page = QWidget(self)
@@ -668,6 +760,7 @@ class PreparationPanel:
         if widget is None or not self.isVisible():
             return  # hideEvent hands the table back; built hidden (warm_up), there is no hide
         self._push_receptor_scope(widget)
+        self._refresh_cofactor_notice()  # the scope may have changed: so may its cofactors
         # Receptors whose box does not fit the method are hidden; reading their structures
         # happens off the GUI thread, then the scope is pushed again if the set changed.
         method = self._method()
@@ -883,6 +976,17 @@ class PreparationPanel:
             self._error("Prepare Receptor", exc)
             return
         self.prepare_receptor_button.setEnabled(False)
+        # Read on the GUI thread, used off it: which cofactors this run would leave out.
+        ask_cofactors = not self.keep_cofactors_receptors.isChecked()
+        engines = () if self.force_prepare_receptors.isChecked() else tuple(
+            {self.runtime.docking.get_program_spec(p).preparation_engine for p in programs})
+
+        def gaps_of_run() -> dict:
+            gaps = self._receptor_gaps(receptor_scope, needs_3d=True, needs_box=needs_box)
+            gaps["cofactors"] = (self.runtime.docking.receptor_cofactors(receptor_scope, unprepared_for=engines)
+                                 if ask_cofactors else {})
+            gaps["receptors"] = self.runtime.molecules.count(receptor_scope) if gaps["cofactors"] else 0
+            return gaps
 
         def checked(gaps: dict) -> None:
             self.prepare_receptor_button.setEnabled(True)
@@ -893,8 +997,7 @@ class PreparationPanel:
             self._error("Prepare Receptor", exc)
 
         # Two counts over a scope that can hold a whole proteome: off the GUI thread.
-        run_async(lambda: self._receptor_gaps(receptor_scope, needs_3d=True, needs_box=needs_box),
-                  checked, on_error=failed, owner=self)
+        run_async(gaps_of_run, checked, on_error=failed, owner=self)
 
     def _prepare_receptors_checked(self, programs: list[str], receptor_scope, gaps: dict) -> None:
         if gaps["no_3d"] and self._ask_missing_receptor_3d(gaps["no_3d"], gaps["no_3d_names"]) == "build":
@@ -902,6 +1005,8 @@ class PreparationPanel:
             build.tabs.setCurrentWidget(build.proteins_tab)
             return
         if not self._confirm_receptor_search_boxes(gaps, title="Prepare Receptors"):
+            return
+        if gaps.get("cofactors") and not self._confirm_cofactors(gaps["cofactors"], gaps.get("receptors", 0)):
             return
         job_ids: dict[str, str] = {}
         options = dict(
@@ -975,6 +1080,26 @@ class PreparationPanel:
                 gaps["first_no_box"] = int(first[0].id) if first else None
                 gaps["no_box_names"] = tuple(self._receptor_label(row) for row in first)
         return gaps
+
+    def _confirm_cofactors(self, found: dict, total: int) -> bool:
+        """Receptors this run prepares carry a cofactor and "Include cofactors" is off: keep
+        them (the box is ticked), leave them out, or go back. False only for going back."""
+        what, many = _cofactor_summary(found, total)
+        them = "them" if many or len(found) > 1 else "it"
+        box = QMessageBox(QMessageBox.Icon.Question, "Prepare Receptors", f"{what}.", parent=self)
+        box.setInformativeText(
+            f"<i>Include cofactors</i> is off, so preparation leaves {them} out, and an empty "
+            f"cofactor pocket is a site the ligand can wrongly dock into. Including {them} changes "
+            "only the receptors that carry one.")
+        include = box.addButton("Include cofactors", QMessageBox.ButtonRole.AcceptRole)
+        leave = box.addButton("Leave out", QMessageBox.ButtonRole.DestructiveRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(include)
+        box.exec()
+        if box.clickedButton() is include:
+            self.keep_cofactors_receptors.setChecked(True)  # the options below read the box
+            return True
+        return box.clickedButton() is leave
 
     def _first_names(self, selection) -> tuple[str, ...]:
         """The names of this selection's first NAMED receptors, for a warning that names them."""
