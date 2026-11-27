@@ -33,11 +33,27 @@ from amdockvs.runtime import AMDockVSRuntime  # noqa: E402
 _SERIAL = {"test_docking_poses.py", "test_run_destinations.py"}  # they start a local Ray cluster
 
 
+_QT = ("PySide6", "QApplication", "amdockvs.ui", "ms_components.ms_monitor", "ms_components.labels")
+_uses_qt: dict = {}
+
+
+def _qt_module(path) -> bool:
+    if path not in _uses_qt:
+        text = path.read_text(errors="replace")
+        _uses_qt[path] = any(name in text for name in _QT)
+    return _uses_qt[path]
+
+
 @pytest.hookimpl(tryfirst=True)  # before xdist reads the group
 def pytest_collection_modifyitems(items):
     for item in items:
         if item.path.name in _SERIAL:
             item.add_marker(pytest.mark.xdist_group("serial"))
+        if "e2e" in item.path.parts:
+            item.add_marker(pytest.mark.e2e)
+        if _qt_module(item.path):
+            item.add_marker(pytest.mark.ui)
+
 
 
 _MEM = os.environ.get("AMDOCK_TEST_MEM")

@@ -152,8 +152,17 @@ def practice(tmp_path, monkeypatch):
     try:
         yield app, runtime, window, messages
     finally:
+        # Deleted here, on the main thread, once nothing works for it: a window only closed goes to
+        # Python's cycle collector, which may run on a read thread and deadlock destroying it there.
+        from PySide6.QtCore import QCoreApplication, QEvent
+
+        from amdockvs.ui.common.async_query import drain_async_reads
+
         window.close()
         runtime.shutdown()
+        drain_async_reads()
+        window.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         app.processEvents()
 
 

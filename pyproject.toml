@@ -71,6 +71,8 @@ pockets = ["jdk4py>=21"]
 # every sklearn import is lazy, so it works without a restart.
 qsar = ["scikit-learn>=1.5"]
 all = ["amdockvs[bblean,pockets,qsar]"]
+# What the suite runs with: in parallel, and a test that hangs fails with its stack.
+test = ["pytest>=8", "pytest-xdist>=3", "pytest-timeout>=2"]
 
 [project.urls]
 Homepage = "https://github.com/AMDockVS/AMDockVS"
@@ -104,5 +106,16 @@ amdockvs = [
 ]
 
 # docs/benchmarks holds *_test.py measurement scripts, not tests.
+#
+# By layer, in parallel (`--dist loadgroup` keeps the Ray tests on one worker), about a minute each:
+#   pytest -n 8 --dist loadgroup -m "not ui and not e2e"   # the API: first, for any change
+#   pytest -n 8 --dist loadgroup -m "ui or e2e"            # the UI: when the UI changed
+# Markers are given in test/conftest.py: `ui` to a module that uses Qt, `e2e` under test/e2e.
 [tool.pytest.ini_options]
 testpaths = ["test"]
+markers = [
+    "ui: the test uses Qt widgets (given by test/conftest.py)",
+    "e2e: an end-to-end walkthrough under test/e2e",
+]
+timeout = 300
+timeout_method = "thread"  # a hang in Qt's own loop fails with the stack of every thread
