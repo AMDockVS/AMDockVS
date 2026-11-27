@@ -78,6 +78,11 @@ class ToolCoordinator:
         # out with that dock open, the center stops at its minimum and the docks on screen give up
         # the width - the chart opened on QSAR Analysis dropped 768 -> 569 px. Hand it back before
         # the event loop paints any of it.
+        # Settle the layout first: a resizeDocks still pending (the startup third for PyMOL) would
+        # otherwise land inside the grabs, and the widths noted here would put back the ones from
+        # before it - a project opened from the welcome screen kept PyMOL at 860 px, and Docking
+        # Studio lost 536 -> 445 px at Preview & Run.
+        window.layout().activate()
         on_screen = [dock for dock in window.findChildren(QDockWidget)
                      if dock.isVisible() and not dock.isFloating()
                      and window.dockWidgetArea(dock) in (Qt.DockWidgetArea.LeftDockWidgetArea,
