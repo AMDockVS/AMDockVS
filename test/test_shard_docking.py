@@ -285,22 +285,8 @@ def test_the_run_panel_chains_reference_then_off_target_jobs():
     assert submitted[1]["selected_from_receptor_id"] == 7
     assert submitted[1]["selected_top_n"] == 50
 
-
 def _scored(score, index):
     return {"score": score, "source_index": index}
-
-
-def test_ranked_mode_keeps_the_best_n_of_everything_and_writes_only_at_the_end():
-    from amdockvs.screening.materialize import TopNGate
-
-    gate = TopNGate(cap=3, threshold=-8.0)
-    # Arrives worst-first, in three batches: order must not decide what survives.
-    assert gate.take([_scored(-8.5, 0), _scored(-12.0, 1), _scored(-7.0, 2)]) == []
-    assert gate.take([_scored(-9.0, 3), _scored(-11.0, 4)]) == []
-    assert gate.full is False  # a ranked run only ends when the library does
-    assert [row["source_index"] for row in gate.discarded()] == [0]  # -8.5, pushed out by -9.0
-    assert [row["score"] for row in gate.drain()] == [-12.0, -11.0, -9.0]
-    assert gate.drain() == []
 
 
 def test_the_streaming_gate_still_writes_as_it_goes():

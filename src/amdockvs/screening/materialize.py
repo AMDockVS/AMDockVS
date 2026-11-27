@@ -12,8 +12,7 @@ sorted at the end. Nothing here holds a result set.
 
 from __future__ import annotations
 
-import heapq
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Iterable, Mapping
 
 from sqlmodel import select
@@ -96,55 +95,6 @@ class HitGate:
     def discarded(self) -> list[dict[str, Any]]:
         """Rows that were let in and later dropped. Never happens without ranking."""
         return []
-
-
-@dataclass
-class TopNGate(HitGate):
-    """The best `cap` of the whole campaign, ranked — written only when the campaign ends.
-
-    What it buys over `HitGate`: the rows in the project are the top N, not the first N to beat
-    the threshold. What it costs: the database stays empty until the run finishes, and the run
-    cannot stop early (there is no "enough" before the last ligand is scored).
-
-    It never holds the library: the threshold is still the coarse filter in the worker, and the
-    buffer here is exactly `cap` rows. `discarded()` hands back what got pushed out, so the
-    caller knows what was pushed out.
-    """
-
-    # (rank_key, sequence, row) — a min-heap whose smallest element is the worst kept row, so
-    # one pop per insertion past the cap keeps it at N.
-    _heap: list[tuple[float, int, dict[str, Any]]] = field(default_factory=list, repr=False)
-    _seq: int = 0
-    _evicted: list[dict[str, Any]] = field(default_factory=list, repr=False)
-
-    @property
-    def full(self) -> bool:
-        return False  # a ranked campaign ends when the library does, not when the buffer fills
-
-    def _rank(self, row: Mapping[str, Any]) -> float:
-        value = float(row[self.metric])
-        return -value if self.op == "<=" else value  # bigger rank = better
-
-    def take(self, rows: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
-        for row in rows:
-            if not self.passes(row) or row.get(self.metric) is None:
-                continue
-            self._seq += 1
-            heapq.heappush(self._heap, (self._rank(row), self._seq, dict(row)))
-            if len(self._heap) > int(self.cap):
-                self._evicted.append(heapq.heappop(self._heap)[2])
-        self.kept = len(self._heap)
-        return []  # nothing is written before the ranking is final
-
-    def drain(self) -> list[dict[str, Any]]:
-        rows = [row for _rank, _seq, row in sorted(self._heap, reverse=True)]
-        self._heap.clear()
-        return rows
-
-    def discarded(self) -> list[dict[str, Any]]:
-        evicted, self._evicted = self._evicted, []
-        return evicted
-
 
 def _molecule_row(hit: Mapping[str, Any], *, payload: str, structure_id: int | None) -> dict[str, Any]:
     row: dict[str, Any] = {
@@ -302,7 +252,6 @@ __all__ = [
     "LIGHT_FIELDS",
     "PAYLOAD_FULL",
     "PAYLOAD_LIGHT",
-    "TopNGate",
     "ingest_hits",
     "promote_records",
 ]

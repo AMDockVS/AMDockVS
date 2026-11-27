@@ -324,7 +324,7 @@ def _pose(payload: Mapping[str, Any]) -> tuple[str, str]:
 
 def _top(table: pa.Table, cap: int) -> pa.Table:
     """The best `cap` scored rows with a pose, in Arrow: lowest score first, a tie to the later
-    row (the order `TopNGate` gives)."""
+    row."""
     import numpy as np
     import pyarrow.compute as pc
 

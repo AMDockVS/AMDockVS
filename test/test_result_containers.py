@@ -72,21 +72,20 @@ def test_a_summary_read_opens_no_payload_container(tmp_path, monkeypatch):
         db.disconnect()
 
 
-def test_the_arrow_top_n_keeps_the_order_of_the_python_gate():
+def test_the_arrow_top_n_is_the_best_scores_a_tie_to_the_later_row():
     import random
 
     import pyarrow as pa
 
     from amdockvs.docking.results.dataset import _top
-    from amdockvs.screening.materialize import TopNGate
 
     rng = random.Random(7)
     rows = [{"ligand_id": i, "score": rng.choice([None, -9.0, -8.5, -8.5, -7.0, rng.uniform(-10, -5)]),
              "has_pose": rng.random() > 0.1} for i in range(500)]
-    gate = TopNGate(cap=40, threshold=None)
-    gate.take(row for row in rows if row["score"] is not None and row["has_pose"])
+    best = sorted((row for row in rows if row["score"] is not None and row["has_pose"]),
+                  key=lambda row: (row["score"], -row["ligand_id"]))[:40]
     assert [row["ligand_id"] for row in _top(pa.Table.from_pylist(rows), 40).to_pylist()] == \
-        [row["ligand_id"] for row in gate.drain()]
+        [row["ligand_id"] for row in best]
 
 
 def _project(tmp_path):
