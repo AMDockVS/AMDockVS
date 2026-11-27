@@ -10,7 +10,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QTableWidget, QTableWidgetItem, QToolButton, QWidget
 
-from amdockvs.ui.tools.pymol_ribbon import install_pymol_toolbar
+from amdockvs.ui.tools.pymol_ribbon import install_pymol_toolbar, set_pymol_scene_context
 from amdockvs.ui.viewers import molecular_viewer
 from ms_components.ms_pymol import PymolControlBar
 
@@ -56,6 +56,7 @@ def test_shift_click_accumulates_only_within_the_current_table(viewer_scene, mon
     monkeypatch.setattr(SmartTableView, "refresh", lambda self: None)
     install_pymol_toolbar(window)
     control_bar = window.pymol_dock.control_bar
+    assert "pymol.protein_interface" not in {action.data() for action in control_bar.preset_menu.actions()}
     assert control_bar.toolbar.actions()[-1] is control_bar.export_action
     assert control_bar.toolbar.widgetForAction(control_bar.export_action).popupMode() == QToolButton.InstantPopup
     assert not any("multiple selection" in a.text() for a in window._pymol_overflow_menu.actions())
@@ -159,6 +160,43 @@ def test_multiple_reads_survive_each_other_but_not_a_scene_change(viewer_scene, 
     for work, done in reversed(pending):
         done(work())
     assert shown == ["two", "one", "latest"]
+
+
+@pytest.mark.parametrize("keep_style", [False, True])
+def test_clear_scene_skips_style_replay_until_a_molecule_is_loaded(viewer_scene, keep_style):
+    _viewer, window, cmd = viewer_scene
+    install_pymol_toolbar(window)
+    dock = window.pymol_dock
+    bar = dock.control_bar
+    errors, presets = [], []
+    bar.command_failed.connect(errors.append)
+    bar.preset_applied.connect(presets.append)
+    clear = next(action for action in window._pymol_scene_action.menu().actions()
+                 if action.text() == "Clear Scene")
+    target = "fixture" if keep_style else "all"
+
+    cmd.fragment("gly", "fixture")
+    set_pymol_scene_context(dock, "generic", target=target)
+    bar.apply_preset("pymol.default")
+    bar.apply_representation("spheres")
+    assert presets == ["pymol.default"]
+    assert cmd.count_atoms("fixture and not hydro and rep spheres") > 0
+    dock.scene_memory.keep_style_action.setChecked(keep_style)
+
+    clear.trigger()
+    clear.trigger()
+    assert not errors
+    assert presets == ["pymol.default"]
+    assert not cmd.get_names("objects")
+    assert dock.scene_context.target == "all"
+    assert not dock.scene_context.selections
+    assert dock.scene_memory.keep_style_action.isChecked() == keep_style
+
+    cmd.fragment("gly", "fixture")
+    set_pymol_scene_context(dock, "generic", target=target)
+    assert not errors
+    assert presets == ["pymol.default", "pymol.default"]
+    assert cmd.count_atoms("fixture and not hydro and rep spheres") == cmd.count_atoms("fixture and not hydro")
 
 
 def test_pending_result_hits_accumulate_but_do_not_reappear_after_a_table_change(viewer_scene):

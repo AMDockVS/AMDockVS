@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from functools import partial
 
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QMenu
@@ -261,9 +262,11 @@ def _amdock_binding_surface_preset(cmd, context: PymolSceneContext) -> None:
     cmd.zoom(f"({residues} or {pockets})", 5)
 
 
-def _gridbox_extent(cmd):
-    """((xmin,ymin,zmin),(xmax,ymax,zmax)) of the live 'gridbox' CGO, or None."""
+def _gridbox_extent(cmd, grid_dock):
+    """Extent of the current Grid Box, with support for the legacy PyMOL box."""
     try:
+        if grid_dock is not None and (extent := grid_dock.surface_box_extent(cmd)) is not None:
+            return extent
         if "gridbox" not in (cmd.get_names("objects") or []):
             return None
         return cmd.get_extent("gridbox")
@@ -292,16 +295,17 @@ def _select_residues_in_box(cmd, receptor: str, extent, name: str) -> bool:
     return select_atoms(cmd, name, f"byres (({receptor}) and ({' or '.join(parts)}))")
 
 
-def _pocket_region_selection(cmd, context: PymolSceneContext, name: str) -> tuple[str, str]:
+def _pocket_region_selection(cmd, context: PymolSceneContext, name: str, grid_dock) -> tuple[str, str]:
     """Resolve (receptor, region) where region is the box/pocket residues to highlight.
 
     Prefers the live grid box (the actual search space), then P2Rank pocket points, then a
     reference ligand. Returns an empty region when nothing localizes the site.
     """
     receptor = _context_selection(context, "receptor", str(context.target or "polymer.protein"))
-    extent = _gridbox_extent(cmd)
-    if extent is not None and _select_residues_in_box(cmd, receptor, extent, name):
-        return receptor, name
+    cmd.delete(name)
+    extent = _gridbox_extent(cmd, grid_dock)
+    if extent is not None:
+        return receptor, name if _select_residues_in_box(cmd, receptor, extent, name) else ""
     pockets = context.selection("pockets", "")
     if pockets and select_atoms(cmd, name, f"byres (({receptor}) within 5 of ({pockets}))"):
         return receptor, name
@@ -311,8 +315,8 @@ def _pocket_region_selection(cmd, context: PymolSceneContext, name: str) -> tupl
     return receptor, ""
 
 
-def _amdock_binding_highlight_preset(cmd, context: PymolSceneContext) -> None:
-    receptor, region = _pocket_region_selection(cmd, context, "amdock_preset_pocket_highlight")
+def _amdock_binding_highlight_preset(cmd, context: PymolSceneContext, *, grid_dock=None) -> None:
+    receptor, region = _pocket_region_selection(cmd, context, "amdock_preset_pocket_highlight", grid_dock)
     cmd.hide("everything", "all")
     cmd.show("surface", receptor)
     cmd.color(BINDING_SURFACE_COLOR, receptor)
@@ -324,8 +328,8 @@ def _amdock_binding_highlight_preset(cmd, context: PymolSceneContext) -> None:
         cmd.zoom(receptor, 3)
 
 
-def _amdock_binding_nature_preset(cmd, context: PymolSceneContext) -> None:
-    receptor, region = _pocket_region_selection(cmd, context, "amdock_preset_pocket_nature")
+def _amdock_binding_nature_preset(cmd, context: PymolSceneContext, *, grid_dock=None) -> None:
+    receptor, region = _pocket_region_selection(cmd, context, "amdock_preset_pocket_nature", grid_dock)
     cmd.hide("everything", "all")
     cmd.show("surface", receptor)
     cmd.color(BINDING_SURFACE_COLOR, receptor)
@@ -342,6 +346,7 @@ def install_amdock_pymol_presets(window) -> None:
     register = getattr(dock, "register_preset", None)
     if not callable(register) or getattr(window, "_amdock_pymol_presets_installed", False):
         return
+    grid_dock = getattr(window, "grid_dock", None)
     presets = (
         PymolPresetSpec(
             key="amdockvs.receptor",
@@ -388,16 +393,18 @@ def install_amdock_pymol_presets(window) -> None:
         PymolPresetSpec(
             key="amdockvs.surface_highlight",
             label="Surface · Site highlight",
-            callback=_amdock_binding_highlight_preset,
+            callback=partial(_amdock_binding_highlight_preset, grid_dock=grid_dock),
             contexts=_SURFACE_PRESET_CONTEXTS,
             tooltip="Neutral receptor surface with the search-space residues in a highlight color.",
+            use_comparison_colors=False,
         ),
         PymolPresetSpec(
             key="amdockvs.surface_nature",
             label="Surface · Residue nature",
-            callback=_amdock_binding_nature_preset,
+            callback=partial(_amdock_binding_nature_preset, grid_dock=grid_dock),
             contexts=_SURFACE_PRESET_CONTEXTS,
             tooltip="Receptor surface with search-space residues colored by chemical nature.",
+            use_comparison_colors=False,
         ),
     )
     for preset in presets:
@@ -442,6 +449,8 @@ def install_pymol_toolbar(window) -> None:
     control_bar = getattr(dock, "control_bar", None)
     if control_bar is None or not hasattr(control_bar, "add_menu_action"):
         return
+    # AMDock's preset menu focuses on small-molecule complexes.
+    control_bar.unregister_preset("pymol.protein_interface")
     install_scene_memory(dock)
 
     menu = QMenu(control_bar)

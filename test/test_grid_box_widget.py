@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 pytest.importorskip("PySide6")
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QItemSelectionModel, Qt
 from PySide6.QtWidgets import QAbstractButton, QApplication, QHeaderView
 
 from amdockvs.models import BindingSite, MoleculeRecord
@@ -179,6 +179,71 @@ def test_editing_a_site_keeps_the_original_drawn_as_reference(grid_box_widget):
     assert sorted(drawn) == ["amdock_grid_bs_2", "amdock_grid_working"]
 
 
+@pytest.mark.parametrize("key, color", [
+    ("highlight", ("hotpink", "hotpink")),
+    ("nature", ("red", "gray70")),
+])
+def test_surface_presets_use_the_current_grid_box(grid_box_widget, monkeypatch, key, color):
+    pymol2 = pytest.importorskip("pymol2")
+    from pymol.cgo import BEGIN, END, LINES, VERTEX
+    from ms_components.ms_pymol import PymolControlBar
+    from amdockvs.ui.tools.pymol_ribbon import install_amdock_pymol_presets
+
+    widget = grid_box_widget
+    with pymol2.PyMOL() as session, monkeypatch.context() as patch:
+        cmd = session.cmd
+        # Use PyMOL's actual extents and selections in a separate session from the GUI.
+        def draw_box(*, points, obj_name, **_style):
+            lo, hi = points
+            cmd.load_cgo([BEGIN, LINES, VERTEX, *lo, VERTEX, *hi, END], obj_name)
+
+        cmd.draw_box = draw_box
+        patch.setattr(widget, "pymol_dock", SimpleNamespace(cmd=cmd, isVisible=widget.isVisible), raising=False)
+        bar = PymolControlBar(cmd)
+        install_amdock_pymol_presets(SimpleNamespace(pymol_dock=bar, grid_dock=widget))
+        cmd.pseudoatom("receptor", pos=(14, 5, 6), chain="A", resi="1", resn="ASP")
+        # The second atom of ASP is outside the box and must come along with its residue.
+        cmd.pseudoatom("receptor", pos=(17, 5, 6), chain="A", resi="1", resn="ASP")
+        cmd.pseudoatom("receptor", pos=(-8, 5, 6), chain="A", resi="2", resn="LEU")
+        cmd.pseudoatom("receptor", pos=(40, 5, 6), chain="A", resi="3", resn="GLY")
+        cmd.pseudoatom("ligand", pos=(40, 5, 6))
+        bar.set_scene_context("complex", selections={"receptor": "receptor", "ligand": "ligand"})
+        widget.show()
+        widget.focus_binding_site(widget._current_molecule, site_id=2)
+        # The production window restores box CGOs after every preset.
+        bar.preset_applied.connect(widget.reshow_boxes)
+        region = f"amdock_preset_pocket_{key}"
+
+        def apply_and_check(resi, count, expected_color):
+            bar.apply_preset(f"amdockvs.surface_{key}")
+            assert cmd.count_atoms(region) == cmd.count_atoms(f"{region} and resi {resi}") == count
+            colors = set()
+            cmd.iterate(region, "colors.add(color)", space={"colors": colors})
+            assert colors == {cmd.get_color_index(expected_color)}
+
+        try:
+            apply_and_check("1", 2, color[0])  # Saved box outranks the ligand.
+            # Both saved boxes are now visible. Focus moves to the marked alternative.
+            alternate = widget.site_tree.topLevelItem(0)
+            alternate.setSelected(True)
+            widget.site_tree.setCurrentItem(alternate, 0, QItemSelectionModel.SelectionFlag.NoUpdate)
+            apply_and_check("2", 1, color[1])
+            # An empty working box is authoritative even with the original box still on screen.
+            widget.cx.setValue(100)
+            assert "amdock_grid_working" in cmd.get_names("objects")
+            bar.apply_preset(f"amdockvs.surface_{key}")
+            assert region not in cmd.get_names("selections")
+            widget.show_working_box.setChecked(False)
+            assert "amdock_grid_working" not in cmd.get_names("objects")
+            widget.site_tree.setCurrentItem(alternate, 0, QItemSelectionModel.SelectionFlag.NoUpdate)
+            apply_and_check("2", 1, color[1])
+            widget.hide()
+            apply_and_check("3", 1, color[1])  # The ligand fallback still works with no box.
+        finally:
+            widget.hide()
+            bar.close()
+
+
 class _FakeCmd:
     """count_atoms over a toy receptor: 'sele' = 3 residue atoms, 'lig' = 2 ligand atoms."""
 
@@ -259,19 +324,34 @@ def test_set_active_is_off_for_the_site_that_is_already_active(grid_box_widget):
 
 
 def test_a_new_working_box_can_be_discarded_back_to_the_active_site(grid_box_widget):
+    from PySide6.QtGui import QKeySequence, QShortcut
     from PySide6.QtTest import QTest
 
     widget = grid_box_widget
-    rows = lambda: [widget.site_tree.topLevelItem(r).data(0, Qt.UserRole) for r in range(widget.site_tree.topLevelItemCount())]
+    tree = widget.site_tree
+    window_shortcut_events = []
+    catalog_delete = QShortcut(QKeySequence.StandardKey.Delete, widget)
+    catalog_delete.activated.connect(lambda: window_shortcut_events.append("activated"))
+    catalog_delete.activatedAmbiguously.connect(lambda: window_shortcut_events.append("ambiguous"))
+
     widget._new_working_box()
-    assert ("working", None) in rows()
+    assert tree.currentItem().data(0, Qt.UserRole) == ("working", None)
     widget.show()
     widget.activateWindow()
-    widget.site_tree.setFocus()
-    QTest.qWaitForWindowActive(widget)
-    QTest.keyClick(widget.site_tree, Qt.Key.Key_Delete)
-    assert ("working", None) not in rows() and not widget._working.dirty
-    assert (widget.cx.value(), widget.cy.value(), widget.cz.value()) == (4.0, 5.0, 6.0)  # the active site again
+    tree.setFocus()
+    assert QTest.qWaitForWindowActive(widget)
+    assert tree.hasFocus()
+    QTest.keyClick(tree, Qt.Key.Key_Delete)
+    assert tree.topLevelItemCount() == 2 and not widget._working.dirty
+    assert tree.currentItem().data(0, Qt.UserRole) == ("site", 2)
+    assert (widget.cx.value(), widget.cy.value(), widget.cz.value()) == (4.0, 5.0, 6.0)
+
+    widget._new_working_box()
+    tree.setCurrentItem(tree.topLevelItem(0))
+    QTest.keyClick(tree, Qt.Key.Key_Delete)
+    assert tree.topLevelItemCount() == 3 and widget._working.dirty
+    assert tree.currentItem().data(0, Qt.UserRole) == ("site", 1)
+    assert not window_shortcut_events
 
 
 def test_a_box_from_a_ligand_is_saved_as_that_ligands_site(grid_box_widget, monkeypatch):

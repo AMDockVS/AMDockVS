@@ -138,7 +138,6 @@ class MolecularViewerController(QObject):
             dock._amdock_scene_epoch = getattr(dock, "_amdock_scene_epoch", 0) + 1
             try:
                 clear_scene(dock)
-                set_pymol_scene_context(dock, "generic")
             except Exception as error:
                 _log.warning("PyMOL could not clear its scene: %s", error)
 
