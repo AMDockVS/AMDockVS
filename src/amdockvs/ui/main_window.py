@@ -114,6 +114,7 @@ class AMDockVSMainWindow(QMainWindow):
         self._pymol_sized = False
         self._last_sized_width = 0  # see resizeEvent: breaks the resize/resizeDocks ping-pong
         self._viewer_room_given: set[str] = set()  # views whose spare width PyMOL already took
+        self._viewer_room_base = 0  # PyMOL's width before it took that spare: restored for the tools
         self.dock_manager = DockManager(self)
         self.pymol_dock = None
         self.grid_dock = None
@@ -380,7 +381,24 @@ class AMDockVSMainWindow(QMainWindow):
         spare = page.viewer_spare_width()
         if spare > 0:  # nothing spare yet (e.g. a tool panel is open) is not "given": ask again later
             self._viewer_room_given.add(view_id)
+            self._viewer_room_base = self._viewer_room_base or dock.width()
             self.resizeDocks([dock], [dock.width() + spare], Qt.Horizontal)
+
+    def take_back_viewer_room(self) -> tuple[list, list]:
+        """(docks, widths) that return the spare width PyMOL was given, for the tool panel that
+        is opening to size itself in the same `resizeDocks` call. The spare only exists while the
+        panel is closed (with it open the view has none): kept on reopening, it comes off the panel
+        instead - Docking Studio reopened on Docking Results at 529 px, not 536. Forgotten once
+        handed back, so the view offers it again the next time the panel closes."""
+        dock, base = self.pymol_dock, self._viewer_room_base
+        self._viewer_room_base = 0
+        self._viewer_room_given.clear()
+        if not base or dock is None or not dock.isVisible() or dock.isFloating():
+            return [], []
+        # Back to its width from before, not "minus the spare": showing the panel has already
+        # trimmed PyMOL some, and subtracting on top of that left it short of its third (627 px).
+        # Never wider than it is now: a PyMOL the user narrowed since stays narrow.
+        return [dock], [min(dock.width(), base)]
 
     def _create_menu_bar(self):
         """Plain QMenuBar: File (Projects/Settings/Restart/Exit), View (Catalog Bar), Help.

@@ -130,7 +130,8 @@ class ToolCoordinator:
                     # tall step doesn't scroll sideways; at most half the window.
                     scrollbar = widget.style().pixelMetric(QStyle.PixelMetric.PM_ScrollBarExtent)
                     width = min(window.width() // 2, widget.sizeHint().width() + scrollbar)
-                window.resizeDocks([window.tools_dock], [width], Qt.Horizontal)
+                docks, widths = window.take_back_viewer_room() if hasattr(window, "take_back_viewer_room") else ([], [])
+                window.resizeDocks([window.tools_dock, *docks], [width, *widths], Qt.Horizontal)
             except Exception:
                 pass
         return widget
