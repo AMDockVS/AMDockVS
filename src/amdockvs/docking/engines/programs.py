@@ -96,7 +96,14 @@ class UniDockEngineConfig(BaseModel):
     num_modes: int = Field(default=9, ge=1, le=128)
     energy_range: float = Field(default=3.0, ge=0.0, title="Energy range (kcal/mol)",
                                 json_schema_extra={"decimals": 1})
-    seed: int = _seed_field(zero_is_random=True)
+    seed: int = Field(
+        default=0, ge=SEED_MIN, le=SEED_MAX, title="Random seed",
+        description=(
+            "0 lets Uni-Dock pick its own random seed. A nonzero seed reads the ligands on one "
+            "thread and fixes the pairs per task, so the same ordered scope docks to the same "
+            "poses; Preview & Run shows the task size it resolves to."
+        ),
+    )
 
 
 @dataclass(frozen=True)

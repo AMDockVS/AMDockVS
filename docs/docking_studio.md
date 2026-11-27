@@ -42,6 +42,12 @@ In this section, the users set the docking mode, select the docking programs to 
 
 Available programs include AutoDock Vina, QuickVina 2, gnina, AutoDock-GPU and Uni-Dock. Program-specific settings appear when you select a program. The user can choose to run more than one program in parallel, and the docking results will be organized by program in the results view.
 
+### Reproducing a Uni-Dock run {#unidock-seed}
+
+Uni-Dock docks a task's ligands in GPU batches it fills from the memory free on the card when the process starts, and a ligand's search trajectory depends on its place in its batch. Entering a nonzero **Random seed** therefore switches Uni-Dock to a fixed recipe: the ligands are read on one thread, tasks keep the size they are given, and each task is sized to dock in a single GPU batch. **Preview & Run** shows the resolved pairs per task. Settings > Docking > Uni-Dock holds the two numbers behind it: **Pairs per seeded task** (0 derives it) and **Seeded GPU memory floor**, the free memory a seeded run may count on — raise it for a card nothing else is using, and the tasks grow with it.
+
+Repeat a seeded run with the same inputs, the same ordered scope and the same pairs per task to get the same poses; a partial rerun groups the remaining ligands differently, so clear **Skip pairs already docked** to recompute a whole screen. If a card ends up with less memory free than the floor, Uni-Dock splits a task anyway: those pairs fail with the batch sizes it used instead of returning scores that would not come back.
+
 ![Docking Studio Programs step](images/AMDockVS_docking_studio_programs.png)
 
 ## 2. Prepare ligands {#ligands}

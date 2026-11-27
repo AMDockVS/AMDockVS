@@ -759,10 +759,15 @@ class RunPanel:
     def _show_tasks(self) -> None:
         """Pairs per task and tasks of each program, for the pairs it has to run."""
         lines = []
+        # A seed changes how its program is batched (Uni-Dock fixes the task size for it), so
+        # the preview reads each program's own configuration, not the program alone.
+        configs = {str(protocol.get("program") or ""): dict(protocol.get("config") or {})
+                   for protocol in self._selected_protocols()}
         for program, to_run in self._pairs_by_program:
             spec = self.runtime.docking.get_program_spec(program)
-            per_task = self.runtime.docking.pairs_per_task(spec)
-            if start := self.runtime.docking.autobatch(spec):  # the executor sizes them as they run
+            config = configs.get(program)
+            per_task = self.runtime.docking.pairs_per_task(spec, engine_config=config)
+            if start := self.runtime.docking.autobatch(spec, engine_config=config):  # sized as it runs
                 lines.append(f"{spec.label}: from {start * per_task} pair(s)/task, sized as it runs")
                 continue
             lines.append(f"{spec.label}: {per_task} pair(s)/task · {-(-int(to_run) // per_task):,} task(s)")

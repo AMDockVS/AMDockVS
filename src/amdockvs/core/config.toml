@@ -64,6 +64,8 @@ batch_size = 32
 [docking.unidock]
 path = ""
 batch_size = 32
+seeded_batch_size = 0
+seeded_vram_floor_mib = 4096
 autobatch = 128
 
 [shards]

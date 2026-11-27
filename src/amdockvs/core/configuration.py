@@ -27,6 +27,8 @@ from ms_flow.core.configuration import PydanticConfiguration
 
 from amdockvs.core.constants import MIN_BOX_EDGE
 from amdockvs.core.home import amdock_home
+# Pure sizing arithmetic, no further amdockvs imports: safe to read from the configuration layer.
+from amdockvs.docking.engines.unidock_batches import DEFAULT_VRAM_FLOOR_MIB, MAX_PAIRS_PER_TASK
 
 
 MAX_2D_PREVIEW_HEAVY_ATOMS = "max_2d_preview_heavy_atoms"
@@ -134,17 +136,40 @@ class UniDockSettings(BaseModel):
     batch_size: int = Field(
         32,
         ge=1,
-        le=10_000,
+        le=MAX_PAIRS_PER_TASK,
         title="Pairs per task",
         description=(
             "The fewest pairs one Uni-Dock process docks. Uni-Dock docks them in parallel on the "
-            "GPU, so larger tasks use the card better."
+            "GPU, so larger tasks use the card better. A run with a fixed seed uses the two "
+            "settings below instead."
+        ),
+    )
+    seeded_batch_size: int = Field(
+        0,
+        ge=0,
+        le=MAX_PAIRS_PER_TASK,
+        title="Pairs per seeded task",
+        description=(
+            "Pairs per task for a run with a nonzero seed. 0 derives the largest task Uni-Dock "
+            "still docks in one GPU batch at the memory floor below, which is what makes the seed "
+            "repeat; a task that splits is reported as not reproducible instead of scored."
+        ),
+    )
+    seeded_vram_floor_mib: int = Field(
+        DEFAULT_VRAM_FLOOR_MIB,
+        ge=256,
+        le=1_048_576,
+        title="Seeded GPU memory floor (MiB)",
+        description=(
+            "Free GPU memory a seeded run may count on. Uni-Dock sizes its GPU batches from the "
+            "free memory it reads at start-up, so pairs per seeded task are derived from this "
+            "floor and not from the current reading. Raise it for a card nothing else is using."
         ),
     )
     autobatch: int = Field(
         128,
         ge=0,
-        le=10_000,
+        le=MAX_PAIRS_PER_TASK,
         title="Starting pairs per task",
         description=(
             "Tasks start at this many pairs and grow, in whole multiples of Pairs per task, while "

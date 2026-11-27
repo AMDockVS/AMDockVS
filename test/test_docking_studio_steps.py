@@ -36,6 +36,7 @@ def test_offtarget_requirement_summary_uses_the_current_hit_cap(mode, cap, expec
     panel.req_ligands_count = SimpleNamespace(setText=lambda _text: None)
     panel.req_receptors_count = SimpleNamespace(setText=lambda _text: None)
     panel.req_tasks = SimpleNamespace(setText=lambda _text: None)
+    panel._selected_protocols = lambda: []
     panel._set_offtarget_receptors = lambda _receptors: None
     panel._set_sharded_run_mode = lambda *_args, **_kwargs: None
     panel.step_run = _Step()
@@ -61,20 +62,31 @@ def test_the_preview_says_how_many_tasks_each_program_runs(monkeypatch):
     import amdockvs.docking.api as api
     from amdockvs.docking.engines.programs import get_docking_program
 
-    config = SimpleNamespace(docking=SimpleNamespace(qvina=SimpleNamespace(batch_size=1),
-                                                     unidock=SimpleNamespace(batch_size=32, autobatch=128)))
+    config = SimpleNamespace(docking=SimpleNamespace(
+        qvina=SimpleNamespace(batch_size=1),
+        unidock=SimpleNamespace(batch_size=32, autobatch=128, seeded_batch_size=0,
+                                seeded_vram_floor_mib=4096)))
     monkeypatch.setattr(api, "app_config", lambda _runtime: config)
     docking = SimpleNamespace(runtime=None, get_program_spec=get_docking_program)
-    docking.pairs_per_task = lambda spec, batch_size=None: api.DockingAPI.pairs_per_task(docking, spec, batch_size)
-    docking.autobatch = lambda spec: api.DockingAPI.autobatch(docking, spec)
+    docking.pairs_per_task = lambda spec, batch_size=None, *, engine_config=None: api.DockingAPI.pairs_per_task(
+        docking, spec, batch_size, engine_config=engine_config)
+    docking.autobatch = lambda spec, batch_size=None, *, engine_config=None: api.DockingAPI.autobatch(
+        docking, spec, batch_size, engine_config=engine_config)
     panel = RunPanel()
     shown = []
     panel.runtime = SimpleNamespace(docking=docking)
     panel.req_tasks = SimpleNamespace(setText=shown.append)
     panel._pairs_by_program = [("qvina", 2772), ("unidock", 2772)]
+    panel._selected_protocols = lambda: [{"program": "unidock", "config": {"seed": 0, "search_mode": "fast"}}]
     panel._show_tasks()
     qvina, unidock = get_docking_program("qvina").label, get_docking_program("unidock").label
     assert shown == [f"{qvina}: 1 pair(s)/task · 2,772 task(s)\n{unidock}: from 128 pair(s)/task, sized as it runs"]
+
+    # A seed fixes the task size, so the preview counts the tasks it will really run.
+    shown.clear()
+    panel._selected_protocols = lambda: [{"program": "unidock", "config": {"seed": 261124, "search_mode": "fast"}}]
+    panel._show_tasks()
+    assert shown == [f"{qvina}: 1 pair(s)/task · 2,772 task(s)\n{unidock}: 98 pair(s)/task · 29 task(s)"]
 
 
 def test_a_prepared_selection_leaves_the_step_table_empty():

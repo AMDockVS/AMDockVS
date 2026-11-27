@@ -46,10 +46,12 @@ MISSING_SAMPLE_SIZE = 10
 from amdockvs.docking.engines.programs import (
     DockingEngineConfig,
     DockingProgramSpec,
+    UNIDOCK_PROGRAM,
     VINA_PROGRAM,
     get_docking_program,
     list_docking_programs,
 )
+from amdockvs.docking.engines.unidock_batches import DEFAULT_VRAM_FLOOR_MIB, single_batch_pairs
 from amdockvs.docking.jobs import (
     count_pending_docking_pairs,
     count_pending_redocking_pairs,
@@ -159,6 +161,19 @@ def _requirements_message(program: str, check: Mapping[str, Any]) -> str:
         f"Docking with {program} can't start: " + "; ".join(lines) + ". "
         "Prepare them (the Prep Status tab shows why one failed) or exclude them, and run again."
     )
+
+
+def _seeded_unidock_config(
+        program_spec: DockingProgramSpec,
+        engine_config: Mapping[str, Any] | None,
+) -> Mapping[str, Any] | None:
+    """The engine configuration when it is a Uni-Dock run with a seed to reproduce, else None.
+
+    Only Uni-Dock batches a task on the GPU, so only its seed changes how a task is sized.
+    """
+    if program_spec.key != UNIDOCK_PROGRAM.key or not engine_config:
+        return None
+    return engine_config if int(engine_config.get("seed") or 0) else None
 
 
 @dataclass
@@ -346,15 +361,47 @@ class DockingAPI:
     def get_program_spec(program: str | None = None) -> DockingProgramSpec:
         return get_docking_program(program)
 
-    def pairs_per_task(self, program_spec: DockingProgramSpec, batch_size: int | None = None) -> int:
+    def pairs_per_task(
+            self,
+            program_spec: DockingProgramSpec,
+            batch_size: int | None = None,
+            *,
+            engine_config: Mapping[str, Any] | None = None,
+    ) -> int:
         """Pairs per docking task: `batch_size` when a caller gives one, else the program's own
-        setting (`docking.<engine>.batch_size`)."""
-        config = getattr(app_config(self.runtime).docking, program_spec.docking_engine, None)
-        return max(1, int(batch_size or getattr(config, "batch_size", 0) or DEFAULT_DOCKING_BATCH_SIZE))
+        setting (`docking.<engine>.batch_size`).
 
-    def autobatch(self, program_spec: DockingProgramSpec, batch_size: int | None = None) -> int:
+        A Uni-Dock run with a nonzero seed is sized from `docking.unidock.seeded_batch_size`
+        instead, or, when that is 0, from the largest task Uni-Dock still docks in one GPU batch
+        at `seeded_vram_floor_mib`. Its batch boundaries decide which ligand gets which
+        trajectory, and it draws them from the free VRAM of the moment, so a task that outgrows
+        one batch stops repeating (see `engines/unidock_batches.py`).
+        """
+        config = getattr(app_config(self.runtime).docking, program_spec.docking_engine, None)
+        if batch_size:
+            return max(1, int(batch_size))
+        if (seeded := _seeded_unidock_config(program_spec, engine_config)) is not None:
+            return int(getattr(config, "seeded_batch_size", 0) or 0) or single_batch_pairs(
+                int(getattr(config, "seeded_vram_floor_mib", 0) or DEFAULT_VRAM_FLOOR_MIB),
+                search_mode=seeded.get("search_mode"),
+            )
+        return max(1, int(getattr(config, "batch_size", 0) or DEFAULT_DOCKING_BATCH_SIZE))
+
+    def autobatch(
+            self,
+            program_spec: DockingProgramSpec,
+            batch_size: int | None = None,
+            *,
+            engine_config: Mapping[str, Any] | None = None,
+    ) -> int:
         """Tasks a docking job starts at, in its chunks, when the executor sizes them: the
-        program's `docking.<engine>.autobatch` pairs, never under one chunk; 0 when it has none."""
+        program's `docking.<engine>.autobatch` pairs, never under one chunk; 0 when it has none.
+
+        A seeded Uni-Dock run keeps every task at its resolved size, because a task the executor
+        grew would group the ligands differently from one run to the next.
+        """
+        if _seeded_unidock_config(program_spec, engine_config) is not None:
+            return 0
         config = getattr(app_config(self.runtime).docking, program_spec.docking_engine, None)
         pairs = int(getattr(config, "autobatch", 0) or 0)
         return max(1, pairs // self.pairs_per_task(program_spec, batch_size)) if pairs else 0
@@ -1212,7 +1259,7 @@ class DockingAPI:
         )
         if reset_results and selected_from_receptor_id is not None:
             raise ValueError("Changing docking configuration requires rerunning the reference stage before off-target docking.")
-        resolved_batch_size = self.pairs_per_task(program_spec, batch_size)
+        resolved_batch_size = self.pairs_per_task(program_spec, batch_size, engine_config=resolved_engine_config)
         ligand_set_ref = self._set_ref(ligand_set, name="docking_ligand_input")
         receptor_set_ref = self._set_ref(receptor_set, name="docking_receptor_input")
         ligand_scope = scope_payload(ligand_set) if is_molecule_scope(ligand_set) else {}
@@ -1323,7 +1370,7 @@ class DockingAPI:
             cpu_required=cpu,
             # Declare the real chunk total so progress = processed/total (not processed/emitted).
             total_chunks=total_chunks,
-            autobatch=self.autobatch(program_spec, batch_size),
+            autobatch=self.autobatch(program_spec, batch_size, engine_config=resolved_engine_config),
         )
         if total_chunks:
             single = int(run_counts.get("receptors_ready") or 0) == 1
@@ -1492,7 +1539,7 @@ class DockingAPI:
             box_size=box_size,
             spacing=_engine_fields(resolved_engine_config, knobs)["spacing"],
         )
-        batch_size = self.pairs_per_task(program_spec, batch_size)
+        batch_size = self.pairs_per_task(program_spec, batch_size, engine_config=resolved_engine_config)
         total_chunks = (
             -(-pending_pairs // batch_size) if pending_pairs > 0 else 0
         )
@@ -1521,7 +1568,7 @@ class DockingAPI:
             depends_on=depends_on,
             cpu_required=program_spec.resource_requirements(resolved_engine_config)["cpu_required"],
             total_chunks=total_chunks,
-            autobatch=self.autobatch(program_spec, batch_size),
+            autobatch=self.autobatch(program_spec, batch_size, engine_config=resolved_engine_config),
         )
         if total_chunks:
             self.runtime.track_chunk_items(job_id, pending_pairs, batch_size, unit="complexes")

@@ -9,6 +9,10 @@ Uni-Dock sorts a run's ligands by size into groups and docks each group in GPU b
 large as the card's memory allows; it writes a batch's poses before it says "Batch k running
 time". Each pair is reported as its batch ends, so rows, hits and progress move per GPU batch.
 
+"As large as the card's memory allows" is read from the free VRAM of the moment, and a pose's
+random stream is its place in its batch, so a nonzero seed only repeats while each group of a
+task docks as one batch: `unidock_batches.py` sizes those tasks and checks what Uni-Dock did.
+
 Uni-Dock aborts the whole run on a ligand it cannot read; what a failed run did not dock is
 retried one ligand at a time, so a bad ligand fails only its own pair.
 ponytail: scoring is vina/vinardo; ad4 needs autogrid4 maps passed with --maps, add it the
@@ -27,6 +31,11 @@ from ms_env import READY, Recipe, locate
 
 from amdockvs.core.configuration import app_config
 from amdockvs.core.paths import get_default_project_root, tools_home
+from amdockvs.docking.engines.unidock_batches import (
+    UniDockBatchSplit,
+    groups_that_split,
+    pairs_that_fitted,
+)
 from amdockvs.docking.engines.vina import (
     _convert_vina_pdbqt_to_sdf,
     _parse_vina_pose_energies,
@@ -74,9 +83,14 @@ def _run_unidock(
     work: Path,
     options: list[str],
     batch_done: Callable[[], None],
+    seed: int = 0,
 ) -> dict[str, Path | str]:
     """Dock `ligands` (output name → PDBQT) over one site in one process, calling `batch_done`
-    as each GPU batch has written its poses. Each name maps to its pose PDBQT, or to why it failed."""
+    as each GPU batch has written its poses. Each name maps to its pose PDBQT, or to why it failed.
+
+    A nonzero `seed` is a claim that the run repeats, so this pins the input parser to one thread
+    and raises `UniDockBatchSplit` if Uni-Dock still split a size group over several GPU batches
+    (see `unidock_batches.py`)."""
     receptor_path, center, size, flex_path = site
     work.mkdir(parents=True, exist_ok=True)
     for name, path in ligands.items():  # Uni-Dock names each output after its input file
@@ -104,10 +118,24 @@ def _run_unidock(
         return "".join(lines)
 
     why = "Uni-Dock wrote no poses"
+    # Uni-Dock 1.2.0 parses the index with OpenMP and appends each ligand as its thread finishes
+    # (`#pragma omp critical` in main.cpp), so with several threads the order -- and with it which
+    # ligand gets which trajectory -- changes from run to run. One thread keeps the index order.
+    environment = {**os.environ, "OMP_NUM_THREADS": "1", "OMP_THREAD_LIMIT": "1"} if seed else None
+    printed = ""
     try:
-        _run_vina([*command, *options], follow=follow, cwd=work)
+        printed = _run_vina([*command, *options], follow=follow, cwd=work, env=environment)
     except RuntimeError as exc:
         why = str(exc)[-500:]  # the reason Uni-Dock gives is at the end
+    if seed and (split := groups_that_split(printed)):
+        batches = "; ".join(f"{group} in {sizes}" for group, sizes in split.items())
+        raise UniDockBatchSplit(
+            f"Uni-Dock split this task of {len(ligands)} pair(s) over several GPU batches "
+            f"({batches}), so its scores would not repeat with seed {seed}. The card had less "
+            f"memory free than this seeded run assumed. Close what else is using the GPU, or set "
+            f"Pairs per seeded task to {pairs_that_fitted(split)} or less in Settings > Docking > "
+            "Uni-Dock, and run the failed pairs again."
+        )
     outputs = {name: work / f"{name}_out.pdbqt" for name in ligands}
     return {name: path if path.exists() else why for name, path in outputs.items()}
 
@@ -190,13 +218,15 @@ def unidock_dock_runner(payload: dict) -> list[dict]:
         try:
             executable = executable or unidock_command()
             batch = {item["name"]: item["ligand_path"] for item in group}
+            # A seeded task is only reproducible as a whole, so hold its rows back until the
+            # batch layout is verified; one batch per group writes its poses at the end anyway.
             outcome = _run_unidock(executable=executable, site=site, ligands=batch, work=work, options=options,
-                                   batch_done=collect)
+                                   batch_done=(lambda: None) if seed else collect, seed=seed)
             retry = [name for name, value in outcome.items() if not isinstance(value, Path)]
             if len(batch) > 1:  # one unreadable ligand stops the run: the rest go one by one
                 for name in retry:
                     outcome.update(_run_unidock(executable=executable, site=site, ligands={name: batch[name]},
-                                                work=work, options=options, batch_done=collect))
+                                                work=work, options=options, batch_done=collect, seed=seed))
         except Exception as exc:  # no program, or it did not run: every pair not yet reported fails
             outcome = {item["name"]: str(exc) for item in group}
         for item in group:

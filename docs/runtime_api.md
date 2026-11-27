@@ -232,6 +232,14 @@ job_id = runtime.docking.run(
 `runtime.docking.list_programs()` describes them. A pair already docked with
 the same protocol is skipped unless `skip_existing=False`.
 
+A nonzero `seed` with `unidock` is a request for a reproducible run, so the
+pairs per task are then sized to dock in a single Uni-Dock GPU batch (from
+`docking.unidock.seeded_batch_size`, or the `seeded_vram_floor_mib` floor when
+that is 0) and the executor keeps every task at that size. Pass `batch_size`
+to pin it yourself; `runtime.docking.pairs_per_task(program_spec,
+batch_size, engine_config=...)` returns what a run would resolve to. Repeat a
+run over the same ordered scope with the same size to get the same poses.
+
 ## Complexes
 
 A complex names a receptor-ligand pair explicitly, for redocking or

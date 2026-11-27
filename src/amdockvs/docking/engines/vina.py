@@ -209,10 +209,12 @@ def _vina_args(
 
 def _run_vina(command: list[str], progress: Callable[[float], None] | None = None,
               next_ligand: Callable[[], None] | None = None, *,
-              follow: Callable[[IO[str]], str] | None = None, cwd: Path | str | None = None) -> str:
+              follow: Callable[[IO[str]], str] | None = None, cwd: Path | str | None = None,
+              env: dict[str, str] | None = None) -> str:
     """Run a Vina command line to its end and return what it printed; raise if it failed.
     `follow` reads the program's stdout in place of the Vina progress line (Uni-Dock has its own).
-    `cwd` runs it from there, so a path it is given can be relative (see `unidock._run_unidock`)."""
+    `cwd` runs it from there, so a path it is given can be relative (see `unidock._run_unidock`).
+    `env` replaces the whole environment of the child (see `unidock._run_unidock`)."""
     process: subprocess.Popen[str] | None = None
 
     def _kill_child_process() -> None:
@@ -263,6 +265,7 @@ def _run_vina(command: list[str], progress: Callable[[float], None] | None = Non
                 text=True,
                 start_new_session=(os.name == "posix"),
                 cwd=str(cwd) if cwd is not None else None,
+                env=env,
             )
             try:
                 stdout_text = (follow(process.stdout) if follow is not None

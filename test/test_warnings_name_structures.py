@@ -50,6 +50,7 @@ def test_the_run_preview_names_the_receptor_it_leaves_out():
     panel.req_ligands_count = SimpleNamespace(setText=lambda _text: None)
     panel.req_receptors_count = SimpleNamespace(setText=lambda _text: None)
     panel.req_tasks = SimpleNamespace(setText=lambda _text: None)
+    panel._selected_protocols = lambda: []
     panel._set_offtarget_receptors = lambda _receptors: None
     panel._set_sharded_run_mode = lambda *_args, **_kwargs: None
     panel.step_run = SimpleNamespace(set_done=lambda _value: None)
