@@ -267,6 +267,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     apply_theme(saved_theme_name(), qt_app,
                 base_font_pt=saved_base_font_pt())  # ribbon recolor follows in main_window; live switch via Theme menu
     install_shift_hscroll(qt_app)  # Shift+wheel = horizontal, as in the browser/GTK
+    from amdockvs.ui.common.gui_gc import install as collect_on_gui_thread
+
+    collect_on_gui_thread(qt_app)  # a worker collecting dead widgets deadlocks against the GUI
 
     print("Creating splash...", time.time() - start)
     splash = None
