@@ -283,6 +283,76 @@ class LoaderAPI:
             )
         ]
 
+    # --- Repacking the library (M12b) ------------------------------------------------------
+
+    def repack_offer(self) -> str | None:
+        """None when the library can be repacked into fuller shards now; else why not (a later
+        step works on its generation, or there is none)."""
+        from ms_flow.core.data import repack
+
+        self.runtime._require_active_project()
+        return repack.offer(self.runtime.workspace.project_db)
+
+    def repack_status(self) -> dict[str, Any]:
+        """How much of the library its cuts leave out (`left_out`, 0..1) and why it cannot be
+        repacked now (`reason`, None when it can)."""
+        from ms_flow.core.data import catalog
+
+        self.runtime._require_active_project()
+        db = self.runtime.workspace.project_db
+        whole = catalog.record_count(db, whole=True) or 0
+        left = 1.0 - (catalog.record_count(db) or 0) / whole if whole else 0.0
+        return {"left_out": max(0.0, left), "reason": self.repack_offer()}
+
+    def repack_library(self, *, executor_name: str = "compute", records: int | None = None) -> str:
+        """Repack the library into fuller shards of a new generation (what the cuts leave, every
+        ligand id kept); the job id. The previous generation is kept: going back to it, then
+        undoing a cut, brings its ligands back."""
+        from ms_flow.core.data import repack
+
+        from amdockvs.io.repack import RepackLibraryParams, repack_library_job
+
+        self.runtime._require_active_project()
+        project_db = self.runtime.workspace.project_db
+        folder = Path(self.runtime.get_project_resource_path(RESOURCE_SHARDS))
+        generation_id = repack.start(project_db, folder / f"repack_{uuid4().hex[:8]}")
+        params = RepackLibraryParams(generation_id=generation_id, records=int(records or SHARD_RECORDS))
+        return self._submit_job(repack_library_job, params=params.model_dump(mode="python"),
+                                executor_name=executor_name)
+
+    def library_generations(self) -> list[dict[str, Any]]:
+        """The library's generations, newest first: id, step, active, kept, and its shards and
+        ligands (the whole files, before any cut)."""
+        from sqlmodel import select
+
+        from ms_flow.core.data import catalog
+        from ms_flow.core.database.project_models import ShardGeneration
+
+        self.runtime._require_active_project()
+        db = self.runtime.workspace.project_db
+        with db.get_session() as session:
+            rows = session.exec(select(ShardGeneration).order_by(ShardGeneration.id.desc())).all()
+        return [{"id": int(row.id), "step": row.step, "active": bool(row.is_active), "kept": bool(row.kept),
+                 "created_at": row.created_at,
+                 "shards": catalog.count(db, catalog.shard_spec(generation_id=int(row.id)), whole=True),
+                 "records": catalog.record_count(db, catalog.shard_spec(generation_id=int(row.id)), whole=True)}
+                for row in rows]
+
+    def go_back_generation(self, generation_id: int) -> None:
+        """Make a kept generation the library again; the one left stays kept. Deletes nothing."""
+        from ms_flow.core.data import repack
+
+        self.runtime._require_active_project()
+        repack.go_back(self.runtime.workspace.project_db, int(generation_id))
+
+    def delete_generation(self, generation_id: int) -> None:
+        """Delete a generation that is not the library, with its files. Undoing a cut made before
+        it was repacked needs it: that goes with it."""
+        from ms_flow.core.data import repack
+
+        self.runtime._require_active_project()
+        repack.delete(self.runtime.workspace.project_db, int(generation_id))
+
     def _import_generation_id(self) -> int:
         """The generation an import writes into: the active one, or the first one.
 

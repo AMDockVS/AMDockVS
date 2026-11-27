@@ -160,3 +160,45 @@ def test_compacting_the_project_merges_its_small_containers(tmp_path, monkeypatc
         assert catalog.count(db, catalog.shard_spec(role="prepared:x")) == 3
     finally:
         runtime.shutdown()
+
+
+def test_the_library_generations_are_gone_back_to_and_deleted_from_the_project_dialog(monkeypatch):
+    from amdockvs import AMDockVSRuntime  # noqa: F401  (pydantic before PySide)
+
+    pytest.importorskip("PySide6")
+    from types import SimpleNamespace
+
+    from PySide6.QtWidgets import QApplication, QDialog, QLabel, QPushButton
+
+    from amdockvs.ui.shell import project_summary
+
+    app = QApplication.instance() or QApplication(["amdockvs-generations-test"])
+    calls = []
+    rows = [{"id": 2, "step": "repack", "active": True, "kept": False, "shards": 1, "records": 4},
+            {"id": 1, "step": "import", "active": False, "kept": True, "shards": 3, "records": 12}]
+    loader = SimpleNamespace(library_generations=lambda: rows,
+                             go_back_generation=lambda gen: calls.append(("back", gen)),
+                             delete_generation=lambda gen: calls.append(("delete", gen)))
+    monkeypatch.setattr(project_summary, "_confirm_delete_generation", lambda dlg, row: True)
+    dlg = QDialog()
+    dlg.setLayout(project_summary._generations_section(dlg, SimpleNamespace(loader=loader)))
+
+    def settle(n):
+        deadline = time.monotonic() + 10
+        while len(calls) < n and time.monotonic() < deadline:
+            app.processEvents()
+            time.sleep(0.01)
+
+    deadline = time.monotonic() + 10
+    while not dlg.findChildren(QPushButton) and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+    texts = [w.text() for w in dlg.findChildren(QLabel)]
+    assert any("#2 repack" in t and "active" in t for t in texts) and any("#1 import" in t and "kept" in t for t in texts)
+    buttons = {b.text(): b for b in dlg.findChildren(QPushButton)}
+    assert set(buttons) == {"Go back", "Delete…"}  # only for the one that is not the library
+    buttons["Go back"].click()
+    settle(1)
+    buttons["Delete…"].click()
+    settle(2)
+    assert calls == [("back", 1), ("delete", 1)]

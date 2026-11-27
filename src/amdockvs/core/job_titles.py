@@ -17,6 +17,7 @@ _LABELS = {
     "amdock_prepare_ligands_job": "Prepare ligands",
     "amdock_prepare_receptors_job": "Prepare receptors",
     "amdock_prepare_ligand_shards_job": "Prepare ligands (library)",
+    "amdock_repack_library_job": "Repack library",
     "amdock_load_molecules_file_job": "Import molecules",
     "amdock_load_ligands_file_job": "Import ligands",
     "amdock_load_ligands_multithreaded_sdf_job": "Import ligands",
