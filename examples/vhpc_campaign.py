@@ -19,8 +19,10 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 DATA = REPO / "data" / "docking"
-SMILES = ["CCCCCCO", "c1ccccc1CC", "c1ccc2ccccc2c1", "CC(=O)Nc1ccccc1", "CC(=O)Oc1ccccc1C(=O)O",
-          "CN1C=NC2=C1C(=O)N(C)C(=O)N2C", "c1ccc(cc1)S(=O)(=O)N", "CCOC(=O)c1ccccc1"]
+VINA_URL = "https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.7/vina_1.2.7_linux_x86_64"
+# 10 shards of 10: small, so the lab run is cheap; 100 distinct molecules.
+SMILES = [f"{'C' * (i + 1)}c1ccc({tail})cc1" for i in range(10)
+          for tail in ("O", "N", "F", "Cl", "Br", "C", "CO", "CN", "C(=O)O", "OC")]
 
 
 def _sbatch(host, script: str, seconds: float = 1200, scheduler: str = "slurm") -> str:
@@ -63,7 +65,10 @@ def main() -> None:
     from sqlmodel import func, select
 
     from amdockvs import AMDockVSRuntime
-    from amdockvs.models import DockingResultRecord, ScreeningShard, ScreeningTarget
+    from ms_flow import campaign as flow_campaign
+    from ms_flow.core.data import catalog
+
+    from amdockvs.models import DockingResultRecord, ScreeningTarget
 
     trees = {"amdock": REPO, "flow": args.flow, "env": args.env, "components": args.components,
              "contactmap": args.contactmap}
@@ -79,7 +84,9 @@ def main() -> None:
             f"#SBATCH --output={there}/extra-%j.log\n")
     (local / "extra.sh").write_text(
         f"{head}set -eu\n"
-        f"/opt/venv/bin/python -m pip install -q --target {there}/extra pyarrow rdkit meeko vina scipy pandas gemmi\n"
+        f"/opt/venv/bin/python -m pip install -q --target {there}/extra pyarrow rdkit meeko ms_adtools scipy pandas gemmi\n"
+        f"/opt/venv/bin/python -c \"import urllib.request as u; u.urlretrieve('{VINA_URL}', '{there}/vina')\"\n"
+        f"chmod +x {there}/vina && {there}/vina --version\n"
         f"PYTHONPATH={paths} /opt/venv/bin/python -c 'import amdockvs.docking.shard_tasks'\n")
     print("extra:", _sbatch(host, f"{there}/extra.sh", scheduler=args.scheduler), flush=True)
 
@@ -88,13 +95,12 @@ def main() -> None:
     rt.create_project(name="vhpc-campaign", folder=local / "project")
     try:
         here = "thread"
-        rt.wait_for_jobs(rt.loader.shard_ligands([local / "lib.smi"], shard_size=3, executor_name=here), timeout_s=600)
+        rt.wait_for_jobs(rt.loader.shard_ligands([local / "lib.smi"], shard_size=10, executor_name=here), timeout_s=600)
         for step in ("standardize", "generate_3d"):
             _ok(rt.chemistry.run_shard_pipeline([step], executor_name=here, wait=True))
-        with rt.workspace.project_db.get_session() as session:
-            one = session.exec(select(func.max(ScreeningShard.id))).one()  # of the latest generation
-        # One shard prepared here; the others the campaign prepares there, and they stay there.
-        _ok(rt.wait_for_job(rt.docking.prepare_ligand_shards(shard_ids=[one], executor_name=here)))
+        db = rt.workspace.project_db
+        assert catalog.count(db, catalog.shard_spec()) == 10, catalog.files(db, catalog.shard_spec())
+        # Nothing prepared here: the campaign prepares every shard there, and it stays there.
         loaded = rt.loader.load_receptors([DATA / "1iep_receptorH.pdb", DATA / "1iep_receptor.pdbqt"], executor_name=here)
         assert all(row.status == "completed" for row in rt.wait_for_jobs(loaded, timeout_s=600).values())
         receptors = rt.molecules.select(role="receptor", excluded=False)
@@ -121,11 +127,24 @@ def main() -> None:
 
         on, against = rt.molecules.create_set([target], name="target"), rt.molecules.create_set([off], name="off")
 
-        def dock(run_id):
+        sent = []  # every name a campaign sends (tar or rsync)
+        upload = flow_campaign.Campaign._upload
+
+        def counted(self, names, make=False):
+            sent.extend(name for name in names if name not in ("job.sh", "manifest.sha"))
+            return upload(self, names, make)
+
+        flow_campaign.Campaign._upload = counted
+
+        def remote_rows():
+            return [row for role in catalog.roles(db) for row in catalog.files(db, catalog.shard_spec(role=role))
+                    if row["location"]]
+
+        def dock(run_id, cap=3):
             started = time.monotonic()
             job = rt.docking.run_shards(
                 receptor_set=on, off_target_set=against,
-                hit_threshold=0.0, hit_cap=3, exhaustiveness=1, num_modes=1, vina_backend="python", vina_cpu=1,
+                hit_threshold=0.0, hit_cap=cap, exhaustiveness=1, num_modes=1, vina_command=f"{there}/vina", vina_cpu=1,
                 seed=1, run_id=run_id, executor_name="lab")
             row = rt.wait_for_job(job, poll_s=1)
             _ok(row)
@@ -139,11 +158,34 @@ def main() -> None:
 
         first, hits = dock("vhpc-a")
         assert hits == {target: 3, off: 3}, hits
+        far_rows = remote_rows()
+        print("sent:", len(sent), "prepared there:", [(r["id"], r["role"], r["location"]) for r in far_rows], flush=True)
+        assert far_rows and {r["location"] for r in far_rows} == {"lab"}, far_rows
+        prepared_role = far_rows[0]["role"]
+        assert catalog.count(db, catalog.shard_spec(role=prepared_role)) == 0  # here, nothing to open
         jobs = "qstat -s z | wc -l" if sge else "sacct -n -X -P -o JobID | wc -l"
         jobs_before = host.run(jobs).decode().strip()
         again, hits_again = dock("vhpc-b")  # another run id, the same campaign: found, nothing queued, moved
-        assert again == first and hits_again == hits, (again, first, hits_again)
+        # Found again by its identity (prep included: what the host already prepared it skips there,
+        # so this side's elements never change), and what it did lands in this run too.
+        assert again == first and hits_again == {target: 6, off: 6}, (again, first, hits_again)
         assert host.run(jobs).decode().strip() == jobs_before
+        sent.clear()
+        # Another campaign (another selection, the same protocol): nothing to send, nothing to prepare.
+        third, _ = dock("vhpc-c", cap=2)
+        assert third != first
+        assert remote_rows() == far_rows, remote_rows()
+        print("second campaign sent:", sent, flush=True)
+        assert not [name for name in sent if "shards" in name], sent
+
+        # Adoption (idle): pull one file, checksum checked, and the local reader sees it.
+        row = far_rows[0]
+        sha = host.run(f"sha256sum {row['path']}").decode().split()[0]
+        mine = local / "adopted" / Path(row["path"]).name
+        mine.parent.mkdir()
+        mine.write_bytes(host.run(f"cat {row['path']}"))
+        assert catalog.adopt(db, row["id"], mine, checksum=sha)
+        assert catalog.count(db, catalog.shard_spec(role=prepared_role)) == row["n_shards"]
         print(host.run(f"ls {there}/queue; " + ("qstat -s z | tail -n 3" if sge else
                        "sacct -n -X -P -o JobID,State,NNodes | tail -n 3")).decode())
     finally:

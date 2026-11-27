@@ -152,9 +152,9 @@ class SimpleDockingTutorial(QObject):
             TutorialStep("prepare-ligand", "prepare_ligand", "5. Prepare ligand",
                 "Click Prepare Ligands to convert SAR405 into the format Vina needs. "
                 "Keep the preparation defaults. The tutorial waits for successful preparation.", "ligand_prepared"),
-            TutorialStep("define-box", "box", "6. Define and activate the docking box",
+            TutorialStep("define-box", "box", "6. Define the docking box",
                 "Before preparing the receptor, select Vps34 in Receptors. Create a Grid Box, "
-                "enter the example coordinates, save it and click Set Active.", "box_defined"),
+                "enter the example coordinates, save it and tick its checkbox in the site list.", "box_defined"),
             TutorialStep("run-docking", "run", "7. Prepare receptor and run docking",
                 "Click Prepare Receptors in Docking Studio, keeping a rigid receptor. "
                 "Studio opens Preview & Run while preparation finishes. Run Docking stays disabled "
@@ -393,9 +393,10 @@ class SimpleDockingTutorial(QObject):
                 return grid.box_settings
             if grid._working.dirty:
                 return grid.save_button
-            if grid._selected_site() is None:
-                return grid.site_tree
-            return grid.activate_button if grid.activate_button.isEnabled() else grid
+            site = grid._selected_site()
+            # The site list itself: a site is docked into by checking its box, and several of a
+            # receptor's sites may be checked at once.
+            return grid.site_tree if site is None or not bool(site.is_active) else grid
         if grid is not None and grid._current_molecule is not None and self.window.pymol_dock is not None:
             return self.window.pymol_dock
         return self.window.central_widget
@@ -513,8 +514,8 @@ class SimpleDockingTutorial(QObject):
                 text = "The box values match the example. Click Save to store this docking site."
             elif grid._selected_site() is None:
                 text = "Select the site you just saved in the Grid Box list."
-            elif grid.activate_button.isEnabled():
-                text = "Click Set Active so docking uses the saved box."
+            elif not bool(getattr(grid._selected_site(), "is_active", False)):
+                text = "Tick the checkbox of the saved site in the Grid Box list so docking uses its box."
             else:
                 text = "Checking the saved active box. Then click Prepare Receptors in Docking Studio."
         elif step.id == "run-docking":

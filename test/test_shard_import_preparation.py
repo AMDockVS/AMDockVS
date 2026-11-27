@@ -38,20 +38,18 @@ def _sdf(path, *items):
 
 def _shard(runtime, path, **prefilter):
     """[(format, raw record)] of everything the import stored."""
+    from ms_flow.core.data import catalog
     from ms_flow.core.data.shard import Shard
-    from sqlmodel import select
 
-    from amdockvs.io.shards import FORMAT_FOR_KIND
-    from amdockvs.models import ScreeningShard
+    from amdockvs.io.shards import FORMAT_FOR_KIND, shard_number
 
     jobs = runtime.loader.shard_ligands([str(path)], executor_name="thread", prefilter=prefilter or None)
     states = runtime.wait_for_jobs(list(jobs), timeout_s=60)
     assert all(str(state.status).endswith("completed") for state in states.values()), states
-    with runtime.workspace.project_db.get_session() as session:
-        paths = [row.path for row in session.exec(select(ScreeningShard)).all()]
+    rows = [(row["path"], shard_number(row)) for row in catalog.shards(runtime.workspace.project_db, whole=True)]
     out = []
-    for shard_path in paths:
-        with Shard.open(shard_path) as shard:
+    for shard_path, number in rows:
+        with Shard.open(shard_path, shard=number) as shard:
             out += [(FORMAT_FOR_KIND.get(shard.kind, ""), record.load()) for record in shard]
     return out
 
@@ -97,3 +95,65 @@ def test_without_preparation_the_raw_record_is_kept(runtime, tmp_path):
     source = tmp_path / "lib.smi"
     source.write_text("OCC ethanol\n")
     assert _shard(runtime, source) == [("smiles", "OCC ethanol")]
+
+
+def test_shards_sharing_a_file_prepare_each_into_its_own_shard(runtime, tmp_path):
+    """Three logical shards in one Parquet file: each prepares only its own id range, and the
+    per-task parts are appended to one container as they arrive, no merge pass."""
+    from pathlib import Path
+
+    from ms_flow.core.data import catalog, container
+    from ms_flow.core.data.shard import Shard
+
+    from amdockvs.molecules.storage import iter_prepared_shards
+
+    source = tmp_path / "lib.smi"
+    source.write_text("".join(f"{'C' * (i + 1)}O mol{i}\n" for i in range(10)))
+    jobs = runtime.loader.shard_ligands([str(source)], executor_name="thread", shard_size=4)
+    states = runtime.wait_for_jobs(list(jobs), timeout_s=60)
+    assert all(str(state.status).endswith("completed") for state in states.values()), states
+    rows = sorted(catalog.shards(runtime.workspace.project_db, whole=True), key=lambda row: row["base_id"])
+    assert [row["n_records"] for row in rows] == [4, 4, 2]
+    assert len({row["path"] for row in rows}) == 1
+
+    job = runtime.docking.prepare_ligand_shards(executor_name="thread")
+    state = runtime.wait_for_jobs([job], timeout_s=120)[job]
+    assert str(state.status).endswith("completed"), state
+    prepared = sorted(iter_prepared_shards(runtime.workspace.project_db, engine="ad4"), key=lambda row: row["base_id"])
+    assert [row["id"] for row in prepared] == [row["id"] for row in rows]
+    assert len({row["prepared_path"] for row in prepared}) == 1
+    path = Path(prepared[0]["prepared_path"])
+    assert all(row["part"] for row in container.read_index(path)[1])
+    assert sorted(p.name for p in path.parent.iterdir() if p.suffix != ".lock") == [path.name, path.name + ".index"]
+    seen = []
+    for row, source_row in zip(prepared, rows):
+        assert row["prepared_shard"] is not None
+        with Shard.open(row["prepared_path"], shard=row["prepared_shard"]) as shard:
+            ids = [record.id for record in shard]
+        lo, hi = source_row["base_id"], source_row["base_id"] + source_row["slot_count"]
+        assert ids and all(lo <= i < hi for i in ids)
+        seen += ids
+    assert seen == list(range(10))
+
+
+def test_a_resumed_prep_makes_the_same_part_ids(runtime, tmp_path, monkeypatch):
+    """Trap 17: the part ids come from a token fixed in the params at submit, so a resumed (or
+    replayed) forced run skips what it already committed instead of appending it again."""
+    from amdockvs.docking.preparation import jobs
+
+    source = tmp_path / "lib.smi"
+    source.write_text("".join(f"{'C' * (i + 1)}O mol{i}\n" for i in range(6)))
+    states = runtime.wait_for_jobs(list(runtime.loader.shard_ligands([str(source)], executor_name="thread",
+                                                                     shard_size=4)), timeout_s=60)
+    assert all(str(state.status).endswith("completed") for state in states.values()), states
+
+    submitted = {}
+    monkeypatch.setattr(runtime, "submit_job", lambda job, *, params, **_kw: submitted.update(params) or "job")
+    runtime.docking.prepare_ligand_shards(force=True)
+    assert submitted.get("run")
+
+    config = {"project_db": runtime.workspace.project_db}
+    parts = [[s["part"] for chunk in jobs.PrepareLigandShardsJobSpec.build_chunks(submitted, config)
+              for s in chunk["shards"]] for _ in range(2)]
+    assert parts[0] == parts[1] and len(parts[0]) == 2
+    assert all(part.startswith(f"{submitted['run']}:") for part in parts[0])

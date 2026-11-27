@@ -25,7 +25,7 @@ from amdockvs.core.constants import (
     TABLE_INTERACTION_RESULTS,
     TABLE_SCREENING_TARGETS,
 )
-from amdockvs.models import DockingResultRecord, DockingRun, ScreeningShardRun
+from amdockvs.models import DockingResultRecord, DockingRun
 from amdockvs.core.vocab import TargetState
 from amdockvs.models.codes import code_id, code_name_sql
 from amdockvs.docking.repository import _runs_spec, project_db_path
@@ -101,11 +101,11 @@ def has_docking_results(project_db) -> bool:
     with project_db.get_session() as session:
         if session.exec(select(DockingResultRecord.id).limit(1)).first() is not None:
             return True
+        from ms_flow.core.database.project_models import CatalogFile
+
+        # A campaign's rows live in its keys' files, not in the table.
         return session.exec(
-            select(ScreeningShardRun.id).where(
-                ScreeningShardRun.state == TargetState.DONE,
-                ScreeningShardRun.result_path != "",
-            ).limit(1)
+            select(CatalogFile.id).where(CatalogFile.role.like("table:dock-%")).limit(1)
         ).first() is not None
 
 

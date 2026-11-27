@@ -24,11 +24,7 @@ from amdockvs.models.docking import (
     prep_table,
 )
 from amdockvs.models.screening import (
-    ScreeningShard,
-    ScreeningShardRun,
     ScreeningTarget,
-    ShardPrep,
-    ShardGeneration,
 )
 from amdockvs.models.qsar import QSARModel, QSARModelMember, QSARPrediction, LigandActivity
 from amdockvs.models.sets import MoleculeSet, MoleculeSetMember, SetRecord, SetItemRecord
@@ -65,10 +61,6 @@ __all__ = [
     "SimilarityResult",
     "ClusteringResult",
     "ClusteringRun",
-    "ScreeningShard",
-    "ShardPrep",
-    "ShardGeneration",
-    "ScreeningShardRun",
     "ScreeningTarget",
     "ComplexRecord",
     "MoleculeSet",

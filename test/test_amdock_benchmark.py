@@ -49,6 +49,7 @@ def test_amdock_screening_benchmark_reports_counts_and_throughput(tmp_path, monk
                 receptor_count=1,
                 ligand_file_count=2,
                 policy="balanced",
+                exhaustiveness=1,
                 timeout_s=120.0,
                 poll_s=0.05,
             ),

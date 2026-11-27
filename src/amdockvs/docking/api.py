@@ -50,12 +50,12 @@ from amdockvs.docking.engines.programs import (
     get_docking_program,
     list_docking_programs,
 )
+from amdockvs.docking.pairs import site_targets
 from amdockvs.docking.jobs import (
     count_pending_docking_pairs,
     count_pending_redocking_pairs,
     screening_input_keys,
     DockingJobParams,
-    DockingJobSpec,
     RedockingJobParams,
     docking_job,
     redocking_job,
@@ -67,18 +67,22 @@ from amdockvs.docking.results.jobs import (
     interactions_job,
 )
 from amdockvs.docking.protocols import DockingProtocolMetadata
+from amdockvs.docking.rescore_jobs import RescoreJobParams, rescore_job
 from amdockvs.docking.rerun import (
     check_protocol_conflict, clear_previous_docking, resolved_protocol, stored_protocol_hash)
 from amdockvs.docking.shard_jobs import (
     DockShardsJobParams,
+    TopNJobParams,
     dock_shards_job,
     recover_ranked_hits,
     recoverable_ranked_runs,
     select_hits as select_shard_hits,
+    shard_top_n_job,
 )
 from amdockvs.molecules.storage import has_shards
 from amdockvs.docking.campaign import (
-    DockCampaignParams, dock_rows_campaign, dock_shards_campaign, drop_transport, pack_rows, transport_folder,
+    DockCampaignParams, dock_rows_campaign, dock_shards_campaign, drop_transport, pack_params, pack_rows_job,
+    packed_manifest, transport_folder,
 )
 from amdockvs.screening.materialize import PAYLOAD_LIGHT
 from amdockvs.docking.results.tables import receptor_progress
@@ -91,12 +95,12 @@ from amdockvs.docking.preparation.jobs import (
 )
 from amdockvs.core.normalize import PathLike
 from amdockvs.molecules.scopes import MoleculeScope, is_molecule_scope, scope_payload
-from amdockvs.binding_sites.repository import active_site as _active_site, site_payload
+from amdockvs.binding_sites.repository import active_site as _active_site, active_sites, site_payload
 from amdockvs.docking.residues import residues_in_box
 from amdockvs.core.payloads import molecule_payload_id, read_structure
 from amdockvs.io.formats import as_pdb
 from amdockvs.molecules.api import ensure_molecule_set_ref
-from amdockvs.models import BindingSite, MoleculeRecord, ReceptorPrep, prep_table
+from amdockvs.models import BindingSite, MoleculeRecord, prep_table
 from amdockvs.models.docking import box_error, defined_box_clauses
 from amdockvs.project.sets import ComplexSetRef, MoleculeSetRef, prepared_molecules_spec
 from amdockvs.workflows.rules import apply_workflow_filters
@@ -210,11 +214,8 @@ class DockingAPI:
 
     def recoverable_ranked_runs(self) -> list[dict[str, Any]]:
         """Interrupted top-N campaigns recoverable from completed result shards."""
-        context = self.runtime._require_active_project()
-        return recoverable_ranked_runs(
-            self.runtime.workspace.project_db,
-            project_root=context.path,
-        )
+        self.runtime._require_active_project()
+        return recoverable_ranked_runs(self.runtime.workspace.project_db)
 
     def select_hits(
         self,
@@ -225,12 +226,16 @@ class DockingAPI:
         top_n: int,
     ) -> list[dict[str, Any]]:
         """Select a recomputable Top-N from the durable HTP result dataset."""
-        context = self.runtime._require_active_project()
+        from amdockvs.docking.results.repository import find_docking_run
+        from amdockvs.screening.campaign import target_keys
+
+        self.runtime._require_active_project()
+        project_db = self.runtime.workspace.project_db
+        run = find_docking_run(project_db, run_id=run_id, engine="", run_kind="screening",
+                               protocol_hash=protocol_hash)
         return select_shard_hits(
-            self.runtime.workspace.project_db,
-            project_root=context.path,
-            run_id=run_id,
-            protocol_hash=protocol_hash,
+            project_db,
+            keys=target_keys(project_db, [run or 0]),
             filters=filters,
             top_n=top_n,
         )
@@ -244,10 +249,9 @@ class DockingAPI:
         threshold: float = 0.0,
     ) -> dict[str, int]:
         """Materialize the best available N without submitting docking work."""
-        context = self.runtime._require_active_project()
+        self.runtime._require_active_project()
         return recover_ranked_hits(
-            self.runtime.workspace.project_db,
-            project_root=context.path,
+            self.runtime,
             run_id=run_id,
             protocol_hash=protocol_hash,
             top_n=top_n,
@@ -301,7 +305,8 @@ class DockingAPI:
         model, molecule_column, payload_column = prep_table(role)
         missing = [
             MoleculeRecord.id.not_in(
-                select(molecule_column).where(model.family == engine, payload_column.is_not(None))
+                select(molecule_column).where(model.family == engine, payload_column.is_not(None),
+                                              *([model.binding_site_id == 0] if role == "receptor" else []))
             )
             for engine in normalized_engines
         ]
@@ -533,14 +538,14 @@ class DockingAPI:
             *,
             program: str = VINA_PROGRAM.key,
             force: bool = False,
-            shard_ids: list[int] | None = None,
+            file_ids: list[int] | None = None,
             executor_name: str = DEFAULT_LOCAL_CPU_EXECUTOR,
             depends_on: list[str] | None = None,
     ) -> str:
         """`prepare_ligands` for a sharded library: the unit of work is a shard, not a row.
 
-        `shard_ids` narrows it to those shards (the Shards table selection); None = every
-        shard. One shard is one task.
+        `file_ids` narrows it to the shards of those library files (the Shards table selection);
+        None = every file. One shard is one task.
         """
         self.runtime._require_active_project()
         program_spec = self.get_program_spec(program)
@@ -551,7 +556,8 @@ class DockingAPI:
         params = PrepareLigandShardsJobParams(
             engine=program_spec.preparation_engine,
             force=force,
-            shard_ids=None if shard_ids is None else [int(value) for value in shard_ids],
+            file_ids=None if file_ids is None else [int(value) for value in file_ids],
+            run=uuid4().hex[:12],
         )
         return self.runtime.submit_job(
             prepare_ligand_shards_job,
@@ -685,10 +691,11 @@ class DockingAPI:
                 off_receptor_filters=self._program_scope_filters(off_scope, role="receptor", program=program_spec)
                 if off_target_set is not None else {},
                 cpu_required=cpu,
+                executor=str(executor_name),
             )
             return self.runtime.submit_campaign(dock_shards_campaign, params=campaign_params.model_dump(mode="python"),
                                                 executor_name=executor_name, priority=SHARDS_PRIORITY)
-        return self.runtime.submit_job(
+        docking = self.runtime.submit_job(
             dock_shards_job,
             queue_behind="docking",
             params=params.model_dump(mode="python"),
@@ -696,6 +703,19 @@ class DockingAPI:
             depends_on=depends_on,
             priority=SHARDS_PRIORITY,
             cpu_required=cpu,
+        )
+        if selected_from_receptor_id is not None:  # an off-target stage streams its hits
+            return docking
+        # The Top-N, chained: it starts once the docking completed, and its end is the run's. Its
+        # id is the run's, so whoever waits for it waits for the hits.
+        return self.runtime.submit_job(
+            shard_top_n_job,
+            params=TopNJobParams(run_id=params.run_id, engine=params.engine,
+                                 protocol_hash=str(params.protocol_metadata.hash or ""), hit_cap=params.hit_cap,
+                                 hit_threshold=params.hit_threshold, payload=params.payload).model_dump(mode="python"),
+            executor_name=DEFAULT_LOCAL_CPU_EXECUTOR,
+            depends_on=[docking],
+            priority=SHARDS_PRIORITY,
         )
 
     def prepare_receptors(
@@ -784,14 +804,17 @@ class DockingAPI:
             "spacing": float((site.extra_data or {}).get("spacing") or spacing),
         }
 
-    def get_grid(self, *, receptor_id: int, engine: str = "vina") -> dict[str, Any] | None:
+    def get_grid(self, *, receptor_id: int, engine: str = "vina",
+                 binding_site_id: int | None = None) -> dict[str, Any] | None:
+        """The box of one of the receptor's sites: `binding_site_id` picks it, else the first
+        active one (a receptor may have several)."""
         self.runtime._require_active_project()
         engine_name = str(engine or "vina")
         with self.runtime.workspace.project_db.get_session() as session:
             receptor = session.get(MoleculeRecord, int(receptor_id))
             if receptor is None or not bool(getattr(receptor, "is_receptor", False)):
                 return None
-            site = _active_site(session, receptor)
+            site = self._flex_site(session, int(receptor_id), binding_site_id)
         if site is None or not bool(site.is_defined):
             return None
         extra_data = dict(site.extra_data or {})
@@ -948,13 +971,14 @@ class DockingAPI:
             },
         }
 
-    def list_box_residues(self, *, receptor_id: int, engine: str = "vina") -> list[dict[str, Any]]:
-        """Residues with at least one atom inside the receptor's active binding-site box.
+    def list_box_residues(self, *, receptor_id: int, engine: str = "vina",
+                          binding_site_id: int | None = None) -> list[dict[str, Any]]:
+        """Residues with at least one atom inside one binding-site box of the receptor.
 
         Candidate set for flexible-residue selection — short because the box filters it.
         Returns [] when there's no active grid or the structure file is unavailable.
         """
-        grid = self.get_grid(receptor_id=int(receptor_id), engine=engine)
+        grid = self.get_grid(receptor_id=int(receptor_id), engine=engine, binding_site_id=binding_site_id)
         if grid is None:
             return []
         center = tuple(float(v) for v in grid.get("center") or [])
@@ -979,27 +1003,35 @@ class DockingAPI:
             for r in residues
         ]
 
-    def get_flexible_residues(self, *, receptor_id: int) -> list[str]:
-        # Flexible residues belong to the receptor (what gets passed to prep), not to any
-        # binding site — the box is only a candidate filter, not the owner of the selection.
+    def get_flexible_residues(self, *, receptor_id: int, binding_site_id: int | None = None) -> list[str]:
+        """The flexible side chains of one site: a residue is flexible because it lines *this*
+        pocket, so the pick belongs to the site, not to the receptor. Defaults to its first
+        active site."""
         with self.runtime.workspace.project_db.get_session() as session:
-            prep = self._ad4_receptor_prep(session, receptor_id)
-            return [str(k) for k in (prep.flex_residues if prep else [])]
+            site = self._flex_site(session, receptor_id, binding_site_id)
+            return [str(k) for k in (site.flex_residues if site else [])]
 
     @staticmethod
-    def _ad4_receptor_prep(session, receptor_id: int):
-        # ponytail: flexible side chains are an ad4 (Vina family) concept; key by family if another engine docks flexibly.
-        return session.exec(select(ReceptorPrep).where(
-            ReceptorPrep.receptor_molecule_id == int(receptor_id), ReceptorPrep.family == "ad4")).first()
+    def _flex_site(session, receptor_id: int, binding_site_id: int | None):
+        if binding_site_id:
+            site = session.get(BindingSite, int(binding_site_id))
+            if site is None or int(site.molecule_id) != int(receptor_id):
+                raise ValueError(f"Binding site {binding_site_id} does not belong to receptor {receptor_id}.")
+            return site
+        sites = active_sites(session, int(receptor_id))
+        return sites[0] if sites else None
 
-    def set_flexible_residues(self, *, receptor_id: int, residue_keys: list[str]) -> list[str]:
+    def set_flexible_residues(self, *, receptor_id: int, residue_keys: list[str],
+                              binding_site_id: int | None = None) -> list[str]:
         keys = [str(k) for k in residue_keys]
         with self.runtime.workspace.project_db.get_session() as session:
             if session.get(MoleculeRecord, receptor_id) is None:
                 raise ValueError(f"No receptor with id {receptor_id}.")
-            prep = self._ad4_receptor_prep(session, receptor_id) or ReceptorPrep(receptor_molecule_id=receptor_id)
-            prep.flex_residues = keys
-            session.add(prep)
+            site = self._flex_site(session, receptor_id, binding_site_id)
+            if site is None:
+                raise ValueError(f"Receptor {receptor_id} has no binding site to make flexible.")
+            site.flex_residues = keys
+            session.add(site)
             session.commit()
         return keys
 
@@ -1338,11 +1370,16 @@ class DockingAPI:
         prepared when it is submitted."""
         self._check_queue(params, depends_on)
         project_db = self.runtime.workspace.project_db
-        config = self.runtime._job_config()
         if reset_results:
             clear_previous_docking(project_db, program=program_spec)
         values = params.model_dump(mode="python")
-        manifest = pack_rows(DockingJobSpec.build_chunks(values, config), transport_folder(project_db), cpu)
+        # Packed by workers; the campaign is submitted once its manifest exists.
+        packing = pack_params(values, transport_folder(project_db), cpu=cpu)
+        job_id = self.runtime.submit_job(pack_rows_job, params=packing, executor_name=DEFAULT_LOCAL_CPU_EXECUTOR)
+        status = self.runtime.wait_for_job(job_id, poll_s=0.1)
+        if not str(status.status).lower().endswith("completed"):
+            raise RuntimeError(f"Packing the run for the queue ended {status.status}: {status.error or ''}")
+        manifest = packed_manifest(packing)
         if not json.loads(manifest.read_text(encoding="utf-8"))["elements"]:
             drop_transport(manifest)
             raise RuntimeError("Nothing to dock: every pair in scope already has a result.")
@@ -1689,6 +1726,43 @@ class DockingAPI:
             depends_on=depends_on,
         )
 
+    def rescore_results(
+            self,
+            *,
+            function: str = "vinardo",
+            result_ids: list[int] | None = None,
+            run_id: str = "",
+            receptor_id: int | None = None,
+            score_lte: float | None = None,
+            pose_rank: int | None = None,
+            chunk_size: int = 32,
+            executor_name: str = DEFAULT_LOCAL_CPU_EXECUTOR,
+            depends_on: list[str] | None = None,
+    ) -> str:
+        """Rescore poses the project already has with another scoring function.
+
+        The rows the job writes are a protocol of their own — the docking program plus
+        `function` — so the docking results stay where they are and both can be compared.
+        Rescoring applied *with* a docking is not this: it is `rescoring` in the protocol of
+        the docking job, and then only the rescored value is recorded.
+        """
+        self.runtime._require_active_project()
+        params = RescoreJobParams(
+            function=str(function or "vinardo"),
+            result_ids=[int(value) for value in (result_ids or []) if int(value) > 0],
+            run_id=str(run_id or ""),
+            receptor_id=receptor_id,
+            score_lte=score_lte,
+            pose_rank=pose_rank,
+            chunk_size=max(1, int(chunk_size)),
+        )
+        return self.runtime.submit_job(
+            rescore_job,
+            params=params.model_dump(mode="python"),
+            executor_name=executor_name,
+            depends_on=depends_on,
+        )
+
     def diagram_path(self, *, pose_path: str, pose_rank: int = 1, fmt: str = "png") -> str:
         """Convention path for a pose's diagram (may not exist yet)."""
         from amdockvs.docking.results.diagram import diagram_path_for
@@ -1721,9 +1795,16 @@ class DockingAPI:
         if program and receptor_ids is not None:
             spec = self.get_program_spec(program)
             rows = get_molecule_rows_by_ids(self._project_db(), list(receptor_ids), engine=spec.preparation_engine)
-            input_keys = screening_input_keys(rows.values(), box_center=None, box_size=None, spacing=0.375,
-                                              preparation_engine=spec.preparation_engine,
-                                              requires_binding_site=spec.requires_binding_site)
+            # Every site of every receptor, merged back per receptor: this counts distinct
+            # (receptor, ligand) pairs, so a ligand docked into two sites is one docked pair.
+            per_target = screening_input_keys(
+                [target for row in rows.values() for target in site_targets(row)],
+                box_center=None, box_size=None, spacing=0.375,
+                preparation_engine=spec.preparation_engine,
+                requires_binding_site=spec.requires_binding_site)
+            input_keys = {}
+            for (receptor_id, _site_id), keys in per_target.items():
+                input_keys.setdefault(receptor_id, []).extend(keys)
         return results_repo.count_docked_pairs(
             self._project_db(),
             engine=engine,

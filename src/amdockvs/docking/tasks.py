@@ -9,7 +9,7 @@ from __future__ import annotations
 from contextlib import ExitStack, suppress
 from pathlib import Path
 
-from ms_flow.core.data.shard import Shard
+from ms_flow.core.data.shard import PartWriter, PayloadKind, Serializer, Shard
 from ms_flow.engine import chain, report, task
 from ms_flow.payloads import PayloadGroup, PayloadPart, scratch_file
 
@@ -18,17 +18,11 @@ from amdockvs.core.paths import get_default_project_root
 from amdockvs.core.rows import interaction_rows
 from amdockvs.docking.results.tasks import detect_interactions
 from amdockvs.docking.engines.registry import run_docking_chunk
-
-
-def _sdf_records(text: str) -> list[str]:
-    """The molecules of an SDF, each with its own terminator. Split on the terminator line only:
-    a molecule's first line (its name) may be blank."""
-    text = text if text.endswith("\n") else text + "\n"
-    return [record + "$$$$\n" for record in text.split("$$$$\n") if record.strip()]
+from amdockvs.docking.rescoring import rescore_rows, sdf_records as _sdf_records
 
 
 def _poses_as_payloads(rows: list[dict]) -> list[dict]:
-    """Each row's pose, the record of its rank in the engine's SDF, as a part of one payload group
+    """Each row's pose, its original record in the engine's SDF, as a part of one payload group
     per file (the poses of a pair are one needle, each with its own id); the pose files are deleted."""
     root = get_default_project_root()
     groups: dict[str, tuple[list[str], PayloadGroup]] = {}
@@ -42,7 +36,7 @@ def _poses_as_payloads(rows: list[dict]) -> list[dict]:
             records = _sdf_records(path.read_text(encoding="utf-8", errors="replace")) if path.is_file() else []
             groups[str(path)] = records, PayloadGroup(kind="sdf", series=SERIES_POSES)
         records, group = groups[str(path)]
-        index = int(row.get("pose_rank") or 1) - 1
+        index = int((row.get("extra") or {}).get("pose_index", int(row.get("pose_rank") or 1) - 1))
         if 0 <= index < len(records):
             row["pose_payload_id"] = group.add(records[index].encode())
     for path in groups:
@@ -68,7 +62,16 @@ def dock_pairs(payload: dict, progress_cb=None):
                 scratch.callback(_unlink, rigid / f"{path.stem}.rigid.pdbqt")
                 pair["ligand_path"] = str(path)
             pairs.append(pair)
-        rows = _poses_as_payloads(run_docking_chunk({**payload, "pairs": pairs}, progress_cb))
+        rows = run_docking_chunk({**payload, "pairs": pairs}, progress_cb)
+        # Rescoring applied with the docking: the pose files are still here, and only the
+        # rescored value is kept — the search score it replaces is recorded nowhere.
+        # ponytail: the first function of the list; a chain of them has no caller yet.
+        rescoring = [str(item.get("program") or "")
+                     for item in (payload.get("protocol_metadata") or {}).get("rescoring") or ()]
+        if rescoring and rescoring[0]:
+            rows = rescore_rows(rows, function=rescoring[0], pairs=pairs,
+                                config=payload.get("engine_config"))
+        rows = _poses_as_payloads(rows)
     # The receptor the pose was docked into, for what is computed from the pose later.
     receptors = {pair.get("receptor_id"): pair.get("receptor_payload_id") for pair in pairs}
     # And what it was docked against (`docking_input_key`), which skip_existing compares.
@@ -141,6 +144,36 @@ def dock_together(payloads: list[dict], run) -> list:
 
 
 @task()
+def pack_transport(payload: dict, progress_cb=None) -> dict:
+    """One transport shard of a run over rows (`amdockvs.docking.campaign.PackRowsJobSpec`): its
+    ligands, in the order planned, written under `folder` and named by the sha256 of the file, so
+    the same ligands make the same file. {"index", "path", "sha"}; nothing for an empty chunk."""
+    import hashlib
+    from uuid import uuid4
+
+    from ms_flow.core.data import container
+
+    from amdockvs.io.shards import SHARD_SUFFIX
+
+    records = payload.get("records") or []
+    if not records:
+        return {}
+    folder = Path(payload["folder"])
+    folder.mkdir(parents=True, exist_ok=True)
+    with PartWriter(folder / f".packing-{uuid4().hex}{SHARD_SUFFIX}", kind=PayloadKind.GENERIC_BYTES,
+                    serializer=Serializer.RAW) as writer:
+        for ligand_id, data in records:
+            writer.add(int(ligand_id), bytes(data))
+    digest = hashlib.sha256()
+    with open(writer.path, "rb") as file:
+        for block in iter(lambda: file.read(1 << 20), b""):
+            digest.update(block)
+    sha = digest.hexdigest()
+    path = folder / f"{sha[:16]}{SHARD_SUFFIX}"  # a name; the manifest's `digests` keep the whole sha
+    container.move(writer.path, path)  # its index goes with it
+    return {"index": int(payload["index"]), "path": str(path), "sha": sha}
+
+
 def dock_rows(element: dict) -> dict:
     """A chunk of `docking_job` on a cluster's queue (`amdockvs.docking.campaign.dock_rows_campaign`):
     what its pairs share said once (`common`), and their ligands read from the transport shard

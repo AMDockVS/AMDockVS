@@ -16,50 +16,53 @@ cannot afford to keep.
 
 from __future__ import annotations
 
-from contextlib import suppress
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Mapping
 
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlmodel import select
 
+from ms_flow.core.data.exclusions import active_exclusions
+
 from amdockvs.core.jobs import JobSpec
-from amdockvs.docking.shard_tasks import HIT_MODE_TOP_N, dock_shards
+from amdockvs.docking.shard_tasks import HIT_MODE_TOP_N, dock_shards, top_n_hits
 
 from amdockvs.core.worker_io import worker_file, worker_output_dir
-from amdockvs.core.constants import (
-    AMDOCKVS_OFFLOADABLE_EXECUTORS, DEFAULT_VINA_COMMAND, SERIES_POSES,
-)
-from amdockvs.core.payloads import structure_payload
+from amdockvs.core.constants import AMDOCKVS_OFFLOADABLE_EXECUTORS, DEFAULT_LOCAL_CPU_EXECUTOR, DEFAULT_VINA_COMMAND
 from amdockvs.docking.engines.programs import chunk_resources
 from amdockvs.docking.protocols import DockingProtocolMetadata
 from amdockvs.docking.repository import inputs_dir, list_entity_rows, resolve_docking_output_dir, with_input_files
 from amdockvs.docking.results.repository import docking_run_id, find_docking_run, runs_where
 from amdockvs.docking.results.dataset import (
-    completed_result_receipts,
+    UNIQUE_BY,
+    docked_pairs,
+    hit_refs,
+    key_files,
+    off_target_selection,
     result_fragment_path,
     result_metadata,
+    result_roles,
+    run_counts,
     select_hit_refs,
     select_hits,
-    shard_selection,
+    state_key,
 )
 from amdockvs.docking.methods import excludes
-from amdockvs.docking.pairs import docking_input_key
+from amdockvs.docking.pairs import docking_input_key, site_targets
 from amdockvs.docking.preparation.state import grid_from_row
 from amdockvs.docking.rerun import supersede_shard_runs
 from amdockvs.screening.campaign import (
-    advance_shard_run,
     advance_target,
-    completed_protocol_targets,
-    completed_shard_targets,
+    done_shards,
     finish_run,
     plan_targets,
+    record_docked,
     stop_run,
+    target_keys,
 )
 from amdockvs.screening.materialize import HitGate, PAYLOAD_LIGHT, ingest_hits
-from amdockvs.models import DockingResultRecord, DockingRun, ScreeningShardRun, ScreeningTarget
-from amdockvs.core.paths import get_default_project_root
+from amdockvs.models import DockingResultRecord, DockingRun, ScreeningTarget
 from amdockvs.molecules.storage import ShardStore, iter_prepared_shards
 from amdockvs.core.vocab import TargetState
 
@@ -79,20 +82,10 @@ def result_shard_path(output_dir: str | Path, payload: dict, shard: dict) -> Pat
     return result_fragment_path(output_dir, payload, shard)
 
 
-def _with_poses(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """The rows the hit gate selected, each with its pose as a payload (series `poses`) and
-    without the keys that located it in its result shard."""
-    selected: list[dict[str, Any]] = []
-    for original in rows:
-        row = {key: value for key, value in original.items() if not key.startswith("_")}
-        if "_pose_text" in original:
-            if not original["_pose_text"]:
-                raise ValueError(f"Result shard {original.get('_result_shard')} record "
-                                 f"{original.get('_result_record_id')} has no embedded pose.")
-            row["pose"] = structure_payload(original["_pose_text"], original.get("_pose_suffix") or ".pose",
-                                            SERIES_POSES)
-        selected.append(row)
-    return selected
+def _public(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The hits as `ingest_hits` takes them: without the keys that located them in their result
+    shard. Each already carries its pose, compressed where it was read (a worker)."""
+    return [{key: value for key, value in row.items() if not key.startswith("_")} for row in rows]
 
 
 def _count_imported(project_db, docking_run_id: int | None, rows: list[dict[str, Any]]) -> None:
@@ -110,11 +103,6 @@ def _count_imported(project_db, docking_run_id: int | None, rows: list[dict[str,
         session.commit()
 
 
-def _project_path(project_root: str | Path, value: str) -> Path:
-    path = Path(str(value or ""))
-    return path if path.is_absolute() else Path(project_root) / path
-
-
 def _materialized_count(project_db, *, run_id: str, protocol_hash: str) -> int:
     with project_db.get_session() as session:
         statement = select(func.count()).select_from(DockingResultRecord).where(
@@ -123,45 +111,39 @@ def _materialized_count(project_db, *, run_id: str, protocol_hash: str) -> int:
         return int(session.exec(statement).one())
 
 
-def recoverable_ranked_runs(project_db, *, project_root: str | Path) -> list[dict[str, Any]]:
+def recoverable_ranked_runs(project_db, *, project_root: str | Path | None = None) -> list[dict[str, Any]]:
     """Terminal ranked campaigns whose completed result shards have not been materialized."""
     with project_db.get_session() as session:
-        receipts = session.exec(
-            select(ScreeningShardRun)
-            .where(ScreeningShardRun.state == TargetState.DONE, ScreeningShardRun.result_path != "")
-            .order_by(ScreeningShardRun.id.desc())
-        ).all()
+        targets = session.exec(select(ScreeningTarget).where(ScreeningTarget.state_keys != "")).all()
         target_states: dict[int, set[str]] = {}
         for target in session.exec(select(ScreeningTarget)).all():
             target_states.setdefault(int(target.docking_run_id), set()).add(str(target.state))
-        submit_ids = dict(session.exec(select(DockingRun.id, DockingRun.run_id)).all())
+        submit_ids = {int(row.id): (str(row.run_id or ""), str(row.protocol_hash or ""))
+                      for row in session.exec(select(DockingRun)).all()}
 
-    groups: dict[int, list[ScreeningShardRun]] = {}
-    for receipt in receipts:
-        groups.setdefault(int(receipt.docking_run_id), []).append(receipt)
+    groups: dict[int, list[ScreeningTarget]] = {}
+    for target in targets:
+        groups.setdefault(int(target.docking_run_id), []).append(target)
 
     candidates: list[dict[str, Any]] = []
     active = {TargetState.SCHEDULED, TargetState.RUNNING}
     for run, rows in groups.items():
-        run_id, protocol_hash = str(submit_ids.get(run) or ""), str(rows[0].protocol_hash or "")
+        run_id, protocol_hash = submit_ids.get(run, ("", ""))
         if target_states.get(run, set()) & active:
             continue
         if _materialized_count(project_db, run_id=run_id, protocol_hash=protocol_hash):
             continue
-        metadata: dict[str, Any] = {}
-        paths = [_project_path(project_root, row.result_path) for row in rows]
-        for path in paths:
-            if not path.is_file():
-                continue
-            metadata = result_metadata(path)
-            break
-        if not metadata:
+        keys = target_keys(project_db, [run])
+        paths = key_files(project_db, keys)
+        if not paths:
             continue
+        metadata = result_metadata(paths[0])
         selection = dict(metadata.get("selection") or {})
         mode = str(selection.get("mode") or "unknown")
-        if mode not in {HIT_MODE_TOP_N, "unknown"}:
-            continue
+        if mode not in {HIT_MODE_TOP_N, "unknown"} or selection.get("selected_from_receptor_id"):
+            continue  # an off-target stage streams its hits: nothing to recover
         protocol = dict(metadata.get("protocol") or {})
+        shards, scored = run_counts(project_db, keys, run)
         candidates.append({
             "run_id": run_id,
             "protocol_hash": protocol_hash,
@@ -169,63 +151,46 @@ def recoverable_ranked_runs(project_db, *, project_root: str | Path) -> list[dic
             "status": ", ".join(sorted(target_states.get(run, {"terminal"}))),
             "top_n": max(0, int(selection.get("cap") or 0)),
             "threshold": float(selection.get("threshold", RANKED_PREFILTER_SCORE)),
-            "shards": sum(path.is_file() for path in paths),
-            "scored": sum(max(0, int(row.ligands_scored or 0)) for row in rows),
-            "last_receipt_id": max(int(row.id) for row in rows),
+            "shards": shards,
+            "scored": scored,
+            "docking_run_id": run,
         })
-    return sorted(candidates, key=lambda row: row["last_receipt_id"], reverse=True)
+    return sorted(candidates, key=lambda row: row["docking_run_id"], reverse=True)
 
 
 def recover_ranked_hits(
-    project_db,
+    runtime,
     *,
-    project_root: str | Path,
     run_id: str,
     protocol_hash: str,
     top_n: int,
     threshold: float = RANKED_PREFILTER_SCORE,
 ) -> dict[str, int]:
-    """Rebuild a partial top-N from completed result shards, without rerunning docking."""
+    """Rebuild a partial top-N from completed result shards, without rerunning docking: the Top-N
+    job (`shard_top_n_job`), waited for, leaving the run's state as it is. Not from a thread that
+    cannot wait."""
+    project_db = runtime.workspace.project_db
     cap = int(top_n)
     if cap <= 0:
         raise ValueError("top_n must be greater than zero.")
     if _materialized_count(project_db, run_id=run_id, protocol_hash=protocol_hash):
         raise ValueError("This run/protocol already has materialized docking results.")
 
-    receipts = completed_result_receipts(
-        project_db, run_id=run_id, protocol_hash=protocol_hash
-    )
-    readable_shards = sum(
-        _project_path(project_root, receipt.result_path).is_file() for receipt in receipts
-    )
-    scanned = sum(max(0, int(receipt.ligands_scored or 0)) for receipt in receipts)
-    receptor_ids = sorted({int(receipt.receptor_molecule_id) for receipt in receipts})
-    selected = _with_poses([
-        hit
-        for receptor_id in receptor_ids
-        for hit in select_hits(
-            project_db,
-            project_root=project_root,
-            run_id=run_id,
-            protocol_hash=protocol_hash,
-            filters={"score__lte": float(threshold), "receptor_id": receptor_id},
-            top_n=cap,
-        )
-    ])
-
-    materialized = ingest_hits(
-        project_db,
-        selected,
-        gate=HitGate(cap=max(1, len(selected))),
-        payload=PAYLOAD_LIGHT,
-        reuse_existing=True,
-    ) if selected else []
-    if receipts:
-        _count_imported(project_db, receipts[0].docking_run_id, materialized)
+    with project_db.get_session() as session:
+        # Whatever engine it ran under: the recovery dialog knows the run and its protocol only.
+        run = session.exec(runs_where(run_id=run_id, run_kind="screening",
+                                      protocol_hash=protocol_hash)).first()
+    readable_shards, scanned = run_counts(project_db, target_keys(project_db, [run or 0]), run or 0)
+    job = runtime.submit_job(shard_top_n_job, executor_name=DEFAULT_LOCAL_CPU_EXECUTOR, params=TopNJobParams(
+        run_id=run_id, protocol_hash=protocol_hash, hit_cap=cap, hit_threshold=float(threshold),
+        finish=False).model_dump(mode="python"))
+    ended = runtime.wait_for_job(job)
+    if ended.status != "completed":
+        raise RuntimeError(f"The Top-N of run {run_id} ended {ended.status}: {ended.error or ''}".strip())
     return {
         "shards": readable_shards,
         "scored": scanned,
-        "selected": len(materialized),
+        "selected": _materialized_count(project_db, run_id=run_id, protocol_hash=protocol_hash),
     }
 
 
@@ -269,7 +234,7 @@ class DockShardsJobParams(BaseModel):
 
 
 class ShardHitWriter:
-    """Parent-side sink: promote hits and write campaign-scoped shard receipts.
+    """Parent-side sink: promote hits and mark the shards of each key done.
 
     Not an `output_spec` because both halves need the parent — the gate counts across chunks
     (§4) and the shard's state row is not a result row.
@@ -300,6 +265,7 @@ class ShardHitWriter:
             int(selected_from_receptor_id) if selected_from_receptor_id else None
         )
         self.terminal_status = "completed"
+        self._writers: dict[tuple[str, Any], Any] = {}  # (key, generation): its PairWriter, open over the run
         self.store = ShardStore(
             project_db,
             gate=HitGate(cap=self.hit_cap, threshold=self.hit_threshold),
@@ -321,7 +287,7 @@ class ShardHitWriter:
             return []
         materialized = ingest_hits(
             self.project_db,
-            _with_poses(rows),
+            _public(rows),
             gate=HitGate(cap=len(rows)),
             payload=self.store.payload,
             reuse_existing=True,
@@ -336,19 +302,24 @@ class ShardHitWriter:
             if hits and self.selected_from_receptor_id:  # only an off-target stage streams hits
                 self._materialize_selected(hits)
             hit_count = int(envelope.get("hits_found", len(hits)) or 0)
-            if shard_id > 0:
-                recorded = advance_shard_run(
+            if shard_id > 0 and envelope.get("state_key"):
+                key, generation = str(envelope["state_key"]), envelope.get("generation_id")
+                result_path = str(envelope.get("result_shard") or "")
+                recorded = record_docked(
                     self.project_db,
-                    docking_run_id=int(envelope.get("docking_run_id") or self.docking_run_id or 0),
+                    key=key,
                     shard_id=shard_id,
-                    receptor_id=int(envelope.get("receptor_id") or 0),
-                    engine=self.engine,
-                    protocol_hash=self.protocol_hash,
-                    scored=int(envelope.get("scored") or 0),
-                    hits=hit_count,
-                    result_path=_project_relative(str(envelope.get("result_shard") or "")),
-                    selection=str(envelope.get("selection") or ""),
-                    input_key=str(envelope.get("input_key") or ""),
+                    result_path=result_path,
+                    # The task's id in this run: a replay of it is committed once.
+                    part=f"{self.run_id}:{shard_id}" if self.run_id else "",
+                    narrowed_by=str(envelope.get("narrowed_by") or ""),
+                    generation_id=generation,
+                    # A forced campaign docks what is already done: its rows must be stored, and
+                    # a read keeps the newest per (shard, ligand).
+                    force=not self.skip_existing,
+                    writer=self._writer(key, generation, result_path) if result_path else None,
+                    done_ids=envelope.get("done_ids"),
+                    failed_ids=envelope.get("failed_ids"),
                 )
                 if recorded:
                     advance_target(
@@ -359,54 +330,49 @@ class ShardHitWriter:
                         hits=hit_count,
                     )
 
+    def _writer(self, key: str, generation: Any, result_path: str):
+        """The key's `PairWriter`, opened at its first part (the parts' folder's parent)."""
+        from ms_flow.core.data.catalog import PairWriter
+
+        if (key, generation) not in self._writers:
+            self._writers[key, generation] = PairWriter(
+                self.project_db, Path(result_path).parent.parent, generation_id=generation,
+                roles=result_roles(key), prefix=f"{self.run_id}:" if self.run_id else "")
+        return self._writers[key, generation]
+
     def on_error(self, chunk_id: str, error: str) -> None:
-        """MF owns the failure; without a completed receipt a resubmission runs it again."""
+        """MF owns the failure; undone in the key's set, a resubmission runs it again."""
 
     def flush(self) -> None:
         """Nothing to flush mid-run: the top-N is picked when the run ends."""
 
     def close(self) -> None:
-        """Finalize hits on success; expose cancellation/failure without promoting partial top-N."""
-        if self.terminal_status == "completed":
-            if not self.selected_from_receptor_id:
-                root = get_default_project_root()
-                if root is None:
-                    root = getattr(self.project_db, "project_dir", None)
-                if root is None:
-                    raise RuntimeError("Cannot resolve the project root for ranked result selection.")
-                receptor_ids = sorted({
-                    int(receipt.receptor_molecule_id)
-                    for receipt in completed_result_receipts(
-                        self.project_db, run_id=self.run_id, protocol_hash=self.protocol_hash
-                    )
-                })
-                selected = [
-                    hit
-                    for receptor_id in receptor_ids
-                    for hit in select_hits(
-                        self.project_db,
-                        project_root=root,
-                        run_id=self.run_id,
-                        protocol_hash=self.protocol_hash,
-                        filters={
-                            "score__lte": self.hit_threshold,
-                            "receptor_id": receptor_id,
-                        },
-                        top_n=self.hit_cap,
-                    )
-                ]
-                self._materialize_selected(selected)
-            if not self.skip_existing:
-                # Forced: now that this run's results are stored, what it docked again
-                # replaces what older runs of the same protocol held for those pairs.
-                supersede_shard_runs(self.project_db, docking_run_id=self.docking_run_id)
+        """On success, supersede then retire; the run is finished by the Top-N job after it
+        (`shard_top_n_job`), or here for an off-target stage, whose hits came as it went. Stopped,
+        its receptors say so, and no partial Top-N is promoted."""
+        completed = self.terminal_status == "completed"
+        try:
+            if completed:
+                run = self.docking_run_id or 0
+                keys = target_keys(self.project_db, [run])
+                if not self.skip_existing:
+                    # Forced: what this run docked again replaces what older runs held for those
+                    # pairs. It reads that history, so it comes before the retire.
+                    supersede_shard_runs(self.project_db, docking_run_id=run, keys=keys)
+                for writer in self._writers.values():  # an older shard this run covers leaves the reads
+                    writer.retire_covered(UNIQUE_BY[-1])
+        finally:
+            for writer in self._writers.values():  # no part comes after the last chunk: their locks go
+                writer.close()
+            self._writers.clear()
+        if not completed:
+            stop_run(
+                self.project_db,
+                docking_run_id=self.docking_run_id,
+                state=TargetState.CANCELED if self.terminal_status == "canceled" else TargetState.FAILED,
+            )
+        elif self.selected_from_receptor_id:  # its hits came as it went: nothing comes after it
             finish_run(self.project_db, docking_run_id=self.docking_run_id)
-            return
-        stop_run(
-            self.project_db,
-            docking_run_id=self.docking_run_id,
-            state=TargetState.CANCELED if self.terminal_status == "canceled" else TargetState.FAILED,
-        )
 
     def on_job_terminal(self, status: str) -> None:
         self.terminal_status = str(status or "failed")
@@ -423,19 +389,18 @@ def shard_hit_writer(params: dict, config: dict) -> ShardHitWriter:
     )
 
 
-def _project_relative(path: str) -> str:
-    text = str(path or "")
-    root = get_default_project_root()
-    if not text or root is None or not Path(text).is_absolute():
-        return text
-    with suppress(ValueError):
-        return str(Path(text).relative_to(root))
-    return text
+def target_pair(shard_id: Any, target: Mapping[str, Any]) -> tuple[int, int, int]:
+    """One piece of work: a shard, a receptor, and the receptor's site."""
+    return (int(shard_id or 0), int(target.get("receptor_id") or 0),
+            int(target.get("binding_site_id") or 0))
 
 
 def receptor_targets(project_db, parsed: DockShardsJobParams, output_dir: Path) -> list[dict[str, Any]]:
     """The prepared receptors with a grid, as everything a chunk needs to dock against one: their
-    files written once under the run's `output_dir`."""
+    files written once under the run's `output_dir`.
+
+    One target per active binding site: a receptor with three of them is three targets, each
+    with its own box, its own inputs and its own key. An explicit box overrides them."""
     rows = list_entity_rows(
         project_db,
         entity_kind="receptor",
@@ -444,11 +409,12 @@ def receptor_targets(project_db, parsed: DockShardsJobParams, output_dir: Path) 
         filters={**dict(parsed.receptor_filters or {}), "prepared_engine": True},
         fields=(
             "id", "name", "stored_payload_id", "current_payload_id", "metadata_json",
-            "prepared_payload_id", "flex_payload_id", "grid_engine_payload",
+            "prepared_payload_id", "flex_payload_id", "grid_engine_payload", "binding_sites",
         ),
     )
+    explicit_box = bool(parsed.box_center) and bool(parsed.box_size)
     targets: list[dict[str, Any]] = []
-    for row in rows:
+    for row in (rows if explicit_box else [t for row in rows for t in site_targets(row)]):
         row = dict(row)
         grid = grid_from_row(row, engine=parsed.preparation_engine) or {}
         center = [float(v) for v in (parsed.box_center or grid.get("center") or ())]
@@ -462,6 +428,7 @@ def receptor_targets(project_db, parsed: DockShardsJobParams, output_dir: Path) 
         spacing = float(grid.get("spacing") or parsed.spacing)
         targets.append({
             "receptor_id": int(row.get("id") or 0),
+            "binding_site_id": int(row.get("binding_site_id") or 0),
             "receptor_name": str(row.get("name") or ""),
             "receptor_path": receptor_path,
             "flex_receptor_path": files["flex_path"],
@@ -483,8 +450,28 @@ def _shard_docking_scope(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], set[tuple[int, int]]]:
     """Resolve the immutable shard/receptor pairs shared by counting and dispatch. With
     `unprepared` (a campaign that prepares them there), a shard not prepared here is in it too."""
-    targets = receptor_targets(project_db, parsed, output_dir)
+    protocol_hash = str(parsed.protocol_metadata.hash or "")
+    selection = off_target_selection(parsed.selected_from_receptor_id, parsed.run_id)
+    targets = [
+        {**target, "state_key": state_key(
+            engine=parsed.engine, protocol_hash=protocol_hash, receptor_id=target["receptor_id"],
+            binding_site_id=target.get("binding_site_id") or 0,
+            input_key=str(target.get("input_key") or ""), selection=selection,
+        )}
+        for target in receptor_targets(project_db, parsed, output_dir)
+    ]
+    reference_keys: set[str] = set()
     if parsed.selected_from_receptor_id:
+        # Its library keys (selection ""), named before it leaves: an off-target stage ranks
+        # what the reference receptor holds, and does not dock it again.
+        reference_keys = {
+            state_key(engine=parsed.engine, protocol_hash=protocol_hash,
+                      receptor_id=target["receptor_id"],
+                      binding_site_id=target.get("binding_site_id") or 0,
+                      input_key=str(target.get("input_key") or ""))
+            for target in targets
+            if int(target.get("receptor_id") or 0) == int(parsed.selected_from_receptor_id)
+        }
         targets = [
             target for target in targets
             if int(target.get("receptor_id") or 0) != int(parsed.selected_from_receptor_id)
@@ -496,29 +483,17 @@ def _shard_docking_scope(
         and (not row["prepared_path"] or Path(row["prepared_path"]).is_file())
     ]
     if parsed.selected_from_receptor_id:
-        db_path = getattr(project_db, "db_path", None)
-        root = (
-            get_default_project_root()
-            or getattr(project_db, "project_dir", None)
-            or (Path(db_path).parent if db_path else None)
-        )
-        if root is None:
-            raise RuntimeError("Cannot resolve the project root for off-target Top-N selection.")
         selected = select_hit_refs(
             project_db,
-            project_root=root,
-            run_id=parsed.run_id,
-            protocol_hash=str(parsed.protocol_metadata.hash or ""),
+            # The reference receptor's library keys, over every run that filled them: the stage
+            # ahead of this one skips what another run already docked, so ranking only what this
+            # submission redid would select nothing.
+            keys=reference_keys,
             filters={
                 "receptor_id": int(parsed.selected_from_receptor_id),
                 "score__lte": float(parsed.hit_threshold),
             },
             top_n=int(parsed.selected_top_n or parsed.hit_cap),
-            # The reference stage ahead of this one skips what another run of the protocol
-            # already docked, and then writes no receipt of its own: rank what the library
-            # holds, not what this submission happened to redo, or nothing is selected.
-            engine=parsed.engine,
-            across_runs=True,
         )
         record_ids_by_shard: dict[int, list[int]] = {}
         for row in selected:
@@ -532,26 +507,26 @@ def _shard_docking_scope(
             for row in shards
             if int(row.get("id") or 0) in record_ids_by_shard
         ]
-    protocol_hash = str(parsed.protocol_metadata.hash or "")
-    selection = shard_selection(parsed.selected_from_receptor_id)
-    if not parsed.skip_existing:
-        completed: set[tuple[int, int]] = set()
-    elif parsed.selected_from_receptor_id:
-        # The off-target stage docks one reference run's Top-N, not the library: what another
-        # run docked against an off-target was a different selection, so only this run skips.
-        completed = completed_shard_targets(project_db, docking_run_id=find_docking_run(
-            project_db, run_id=parsed.run_id, engine=parsed.engine, run_kind="screening",
-            protocol_hash=protocol_hash,
-        ), selection=selection) if parsed.run_id else set()
-    else:
-        # Every run of this engine and protocol, not this submission alone: a campaign gets a
-        # fresh `run_id` each time it is submitted, so a skip keyed by it skips nothing and the
-        # library is docked again beside its own results. Only whole-shard receipts count: a
-        # subset docked by an off-target stage leaves the rest of its shard undocked.
-        completed = completed_protocol_targets(
-            project_db, engine=parsed.engine, protocol_hash=protocol_hash, selection=selection,
-            input_keys={int(t["receptor_id"]): str(t.get("input_key") or "") for t in targets},
-        )
+    # A shard the exclusions left partial is docked partially, and its done-set entry says so,
+    # or undoing the cut would skip the rest of it as already docked.
+    narrowed = {
+        int(row.get("id") or 0) for row in shards
+        if row.get("record_ids") is not None and not parsed.selected_from_receptor_id
+    }
+    exclusion_key = active_exclusions(project_db).key if narrowed else ""
+    for row in shards:
+        row["narrowed_by"] = exclusion_key if int(row.get("id") or 0) in narrowed else ""
+    completed: set[tuple[int, int, int]] = set()
+    if parsed.skip_existing:
+        # The key spans every run of this engine, protocol, receptor site and input: a campaign
+        # gets a fresh `run_id` each time it is submitted, so skipping by run would skip nothing
+        # and dock the library again beside its own results. Whole shards only — a subset docked
+        # under the exclusions leaves the rest of its shard undocked, and comes back with them.
+        for target in targets:
+            done = done_shards(project_db, target["state_key"])
+            if narrowed:
+                done |= done_shards(project_db, target["state_key"], narrowed_by=exclusion_key) & narrowed
+            completed |= {target_pair(shard, target) for shard in done}
     if parsed.check_required and not shards and not parsed.selected_from_receptor_id:
         raise RuntimeError(
             "docking.run found no prepared shard artifacts for engine family "
@@ -586,7 +561,7 @@ class DockShardsJobSpec(JobSpec):
         output_dir = resolve_docking_output_dir(params, dict(config or {})) / SCREENING_SUBDIR
         targets, shards, completed = _shard_docking_scope(project_db, parsed, output_dir)
         pending = sum(
-            (int(shard.get("id") or 0), int(target["receptor_id"])) not in completed
+            target_pair(shard.get("id"), target) not in completed
             for shard in shards
             for target in targets
         )
@@ -612,7 +587,7 @@ class DockShardsJobSpec(JobSpec):
             (row, target)
             for row in prepared_rows
             for target in targets
-            if (int(row.get("id") or 0), int(target["receptor_id"])) not in completed
+            if target_pair(row.get("id"), target) not in completed
         ]
         # Chunk construction is deferred by MF while preparation is active. Resolve and plan
         # here, not in the public API, so totals describe the completed preparation snapshot.
@@ -632,8 +607,10 @@ class DockShardsJobSpec(JobSpec):
                     {**target, "ligands_done": sum(
                         int(row.get("n_records") or 0)
                         for row in prepared_rows
-                        if (int(row.get("id") or 0), int(target["receptor_id"])) in completed
-                    )}
+                        if target_pair(row.get("id"), target) in completed
+                    ), "ligands_total": prepared_records * sum(
+                        1 for other in targets
+                        if int(other["receptor_id"]) == int(target["receptor_id"]))}
                     for target in targets
                 ],
                 ligands_total=prepared_records,
@@ -644,17 +621,23 @@ class DockShardsJobSpec(JobSpec):
             shard = {
                 "shard_id": int(row.get("id") or 0),
                 "shard_path": worker_file(row["prepared_path"]) if row["prepared_path"] else "",
-                **({} if row["prepared_path"] else {"molecules": worker_file(row["path"])}),
-                "import_batch_id": row.get("import_batch_id"),
+                # A prepared file holds many shards: `prepared_shard` is this one's number in it.
+                **({"prepared_shard": row.get("prepared_shard")} if row["prepared_path"]
+                   else {"molecules": worker_file(row["path"]), "shard": row.get("shard")}),
+                "import_batch_id": row.get("scope"),
                 "library": str(row.get("library") or ""),
                 "shard_index": int(row.get("shard_index") or 0),
                 "n_records": int(row.get("n_records") or 0),
                 **({"record_ids": list(row.get("record_ids") or ())} if row.get("record_ids") is not None else {}),
+                # What the parent records when it comes back: under which cuts it was docked,
+                # and of which generation its id is.
+                "narrowed_by": str(row.get("narrowed_by") or ""),
+                "generation_id": row.get("generation_id"),
             }
             if not targets:
                 break
             for target in targets:
-                if (int(shard.get("shard_id") or 0), int(target["receptor_id"])) in completed:
+                if target_pair(shard.get("shard_id"), target) in completed:
                     continue
                 emitted = True
                 yield {
@@ -664,12 +647,15 @@ class DockShardsJobSpec(JobSpec):
                     "chunks_total": len(targets),
                     "output_dir": worker_output_dir(output_dir),
                     "receptor_id": target["receptor_id"],
+                    "binding_site_id": target.get("binding_site_id") or 0,
                     "receptor_path": target["receptor_path"],
                     **({"flex_receptor_path": target["flex_receptor_path"]} if target.get("flex_receptor_path") else {}),
                     "box_center": target["box_center"],
                     "box_size": target["box_size"],
                     "spacing": target["spacing"],
                     "input_key": target.get("input_key", ""),
+                    # Where this piece of work's results live and what it marks done.
+                    "state_key": target["state_key"],
                     "engine": parsed.engine,
                     "exhaustiveness": parsed.exhaustiveness,
                     "num_modes": parsed.num_modes,
@@ -696,15 +682,116 @@ class DockShardsJobSpec(JobSpec):
 dock_shards_job = DockShardsJobSpec.to_job_definition()
 
 
+class TopNJobParams(BaseModel):
+    """The run whose Top-N becomes rows, and its gate. `finish`: the run is finished when this
+    ends (False for a recovery, which leaves the run's state as it is)."""
+
+    run_id: str
+    engine: str = ""
+    protocol_hash: str = ""
+    hit_cap: int = Field(ge=1)
+    hit_threshold: float = RANKED_PREFILTER_SCORE
+    payload: str = PAYLOAD_LIGHT
+    finish: bool = True
+
+
+def _top_n_run(project_db, params: TopNJobParams) -> int | None:
+    """The run of `params`, under whichever engine when it names none (a recovery knows the run
+    and its protocol only)."""
+    with project_db.get_session() as session:
+        return session.exec(runs_where(run_id=params.run_id, engine=params.engine or None, run_kind="screening",
+                                       protocol_hash=params.protocol_hash or None)).first()
+
+
+class TopNWriter:
+    """Parent-side sink of `shard_top_n_job`: the hits it gets, poses already compressed, become
+    rows (once each: a redo reuses what it finds), and the run is finished when the job ends."""
+
+    def __init__(self, *, project_db: Any, params: TopNJobParams) -> None:
+        self.project_db, self.params, self.terminal_status = project_db, params, "completed"
+
+    @property
+    def docking_run_id(self) -> int | None:
+        return _top_n_run(self.project_db, self.params)
+
+    def handle(self, chunk_id: str, result: Any) -> None:
+        hits = _public(list((result or {}).get("hits") or []))
+        if hits:
+            materialized = ingest_hits(self.project_db, hits, gate=HitGate(cap=len(hits)),
+                                       payload=self.params.payload, reuse_existing=True)
+            _count_imported(self.project_db, self.docking_run_id, materialized)
+
+    def flush(self) -> None:
+        """Every chunk wrote what it brought."""
+
+    def on_job_terminal(self, status: str) -> None:
+        self.terminal_status = str(status or "failed")
+
+    def close(self) -> None:
+        if not self.params.finish:
+            return
+        if self.terminal_status == "completed":
+            finish_run(self.project_db, docking_run_id=self.docking_run_id)
+            return
+        stop_run(self.project_db, docking_run_id=self.docking_run_id,
+                 state=TargetState.CANCELED if self.terminal_status == "canceled" else TargetState.FAILED)
+
+
+def top_n_writer(params: dict, config: dict) -> TopNWriter:
+    return TopNWriter(project_db=config["project_db"], params=TopNJobParams(**params))
+
+
+class TopNJobSpec(JobSpec):
+    """The final Top-N of a ranked run, after its docking job: the parent ranks the summaries (refs,
+    one chunk per receptor), a worker reads the poses of those and compresses them, the parent
+    inserts. A killed one is done again whole: what it inserted is found, not duplicated."""
+
+    name = "amdock_shard_top_n_job"
+    task_name = "amdock_shard_top_n"
+    description = "Turn the best docked ligands of a ranked run into result rows."
+    params_model = TopNJobParams
+    executor = "compute"
+    result_handler_factory = top_n_writer
+    store_results = False
+    required = ()
+    produces = ()
+    run_chunk = staticmethod(top_n_hits)
+
+    @staticmethod
+    def build_chunks(params: dict, config: dict | None = None) -> Iterator[dict]:
+        parsed = TopNJobParams(**params)
+        project_db = dict(config or {})["project_db"]
+        run = _top_n_run(project_db, parsed) or 0
+        with project_db.get_session() as session:
+            receptor_ids = sorted({int(row) for row in session.exec(select(ScreeningTarget.receptor_molecule_id).where(
+                ScreeningTarget.docking_run_id == run, ScreeningTarget.state_keys != "")).all()})
+        emitted = False
+        for receptor_id in receptor_ids:
+            refs = hit_refs(project_db, keys=target_keys(project_db, [run], receptor_id=receptor_id),
+                            filters={"score__lte": parsed.hit_threshold, "receptor_id": receptor_id},
+                            top_n=parsed.hit_cap)
+            if refs["hits"]:
+                emitted = True
+                yield refs
+        if not emitted:  # MF needs one chunk to close the job out
+            yield {"hits": [], "payloads": []}
+
+
+shard_top_n_job = TopNJobSpec.to_job_definition()
+
+
 __all__ = [
     "DockShardsJobParams",
     "DockShardsJobSpec",
     "SCREENING_SUBDIR",
     "ShardHitWriter",
+    "TopNJobParams",
+    "TopNJobSpec",
     "dock_shards_job",
     "recover_ranked_hits",
     "recoverable_ranked_runs",
     "result_shard_path",
     "select_hits",
     "shard_hit_writer",
+    "shard_top_n_job",
 ]

@@ -17,20 +17,17 @@ from amdockvs.core.vocab import (
 
 
 def prep_row(*, role_type: str, molecule_id: int, family: str, payload_id: Any = None,
-             flex_payload_id: Any = None, error: str | None = None,
+             flex_payload_id: Any = None, binding_site_id: int = 0, error: str | None = None,
              warnings: str | None = None) -> dict[str, Any]:
     """A `receptor_preps` or `ligand_preps` row. No `payload_id` = it failed, `error` says why.
-    `warnings` (receptors only) is what a successful preparation could not put in the file."""
+    `warnings` (receptors only) is what a successful preparation could not put in the file.
+    `binding_site_id` (receptors) is 0 for the plain rigid receptor, the site's id for a
+    preparation that carved that site's flexible side chains out of it."""
     if role_type == "receptor":
         return {"receptor_molecule_id": molecule_id, "family": family, "rigid_payload_id": payload_id,
-                "flex_payload_id": flex_payload_id, "error": error, "warnings": warnings}
+                "flex_payload_id": flex_payload_id, "binding_site_id": int(binding_site_id or 0),
+                "error": error, "warnings": warnings}
     return {"molecule_id": molecule_id, "family": family, "payload_id": payload_id, "error": error}
-
-
-def shard_prep_row(*, shard_id: int, family: str, n_records: int = 0, n_failed: int = 0,
-                   sha256: str = "") -> dict[str, Any]:
-    return {"shard_id": int(shard_id), "family": str(family), "n_records": int(n_records), "n_failed": int(n_failed),
-            "sha256": str(sha256)}
 
 
 def interaction_rows(receptor_payload_id: Any, pose_payload_id: Any, interactions: list[dict]) -> list[dict[str, Any]]:

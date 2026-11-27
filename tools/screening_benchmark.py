@@ -108,6 +108,7 @@ class BenchmarkConfig:
     import_executor_name: str = "thread"
     descriptor_executor_name: str = "thread"
     docking_executor_name: str = "thread"
+    exhaustiveness: int = 8
     timeout_s: float = 240.0
     poll_s: float = 0.05
 
@@ -214,6 +215,7 @@ def run_screening_benchmark(runtime, *, config: BenchmarkConfig, workdir: str | 
         box_center=(12.0, 13.0, 10.0),
         box_size=(20.0, 20.0, 20.0),
         executor_name=config.docking_executor_name,
+        exhaustiveness=config.exhaustiveness,
         depends_on=[descriptor_job_id, *preparation_job_ids],
     )
     docking_status = _wait_bounded(runtime, docking_job_id, config)

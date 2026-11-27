@@ -1,0 +1,4 @@
+{"lines": 1001600, "killed_after_s": 10.0, "interrupted": ["running"], "resumed": ["completed"], "resume_s": 15.0, "records": 1001600, "shards": 3913, "shards_twice": 0, "peak_rss_mb": 2809, "lost": 0}
+{"lines": 1001600, "killed_after_s": 10.0, "interrupted": ["running"], "resumed": ["completed"], "resume_s": 15.1, "records": 1001600, "shards": 3913, "shards_twice": 0, "peak_rss_mb": 2789, "lost": 0}
+{"lines": 10016000, "killed_after_s": 100.0, "interrupted": ["running"], "resumed": ["completed"], "resume_s": 72.7, "records": 10016000, "shards": 39125, "shards_twice": 0, "peak_rss_mb": 2817, "lost": 0}
+{"lines": 10016000, "killed_after_s": 100.0, "interrupted": ["running"], "resumed": ["completed"], "resume_s": 71.5, "records": 10016000, "shards": 39125, "shards_twice": 0, "peak_rss_mb": 2820, "lost": 0}

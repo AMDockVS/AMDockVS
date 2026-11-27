@@ -7,10 +7,10 @@ A sharded library (`dock_shards_campaign`):
     hits  the poses of the best `hit_cap` of each receptor, read from those fragments
     off   with off-targets: the reference receptor's best against each of them
 
-What comes back is the receipts of `vs` (the progress), the hits and the off-target hits: what
+What comes back is what `vs` docked (the progress), the hits and the off-target hits: what
 `dock_shards_job` would have written here, without a fragment travelling. The campaign is an
 ms_flow job (`ms_flow.campaign`): submitted again, with another run id too, it is found where it
-is by its identity, and what comes again is written once — receipts and hits are upserts, the
+is by its identity, and what comes again is written once — done-sets and hits are upserts, the
 counters are counted again, not added to, and under a new run id the hits move to that run.
 
 Ligand rows (`dock_rows_campaign`): the chunks `docking_job` would run here, their ligands packed
@@ -20,19 +20,21 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 from functools import partial
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator
 from uuid import uuid4
 
-from pydantic import Field
+from pydantic import BaseModel, Field
 from ms_flow.campaign import From, Stage, campaign
-from ms_flow.core.data.shard import MAX_RECORDS, PayloadKind, Serializer, ShardWriter
+from ms_flow.core.data import catalog
+from ms_flow.core.data.catalog import active_generation_id
+from ms_flow.core.data.shard import MAX_RECORDS
 from ms_flow.engine import File
+from ms_flow.engine.files import Dir, KeptDir
 from ms_flow.runner import plain, unplain
 
-from amdockvs.core.jobs import configs
+from amdockvs.core.jobs import JobSpec, configs
 from amdockvs.core.vocab import TargetState
 from amdockvs.core.worker_io import worker_file, worker_output_dir
 from amdockvs.docking.jobs import DockingJobParams, DockingJobSpec, _supersede
@@ -42,12 +44,11 @@ from amdockvs.docking.rerun import supersede_shard_runs
 from amdockvs.docking.shard_jobs import (
     SCREENING_SUBDIR, DockShardsJobParams, DockShardsJobSpec, ShardHitWriter, receptor_targets,
 )
-from amdockvs.docking.tasks import dock_rows
+from amdockvs.docking.tasks import dock_rows, pack_transport
 from amdockvs.docking.shard_tasks import (
-    by_fragment, dock_stage, hit_poses, off_target_elements, prepare_stage, prepared_elements, rank,
+    by_fragment, campaign_receipts, dock_stage, hit_poses, off_target_elements, prepare_stage, prepared_elements, rank,
 )
-from amdockvs.io.shards import SHARD_SUFFIX
-from amdockvs.molecules.storage import iter_prepared_shards, prepared_shard_path
+from amdockvs.molecules.storage import prepared_dir, prepared_role
 from amdockvs.screening.campaign import finish_run, plan_targets, reopen_run, stop_run
 
 # What a chunk of `vs` says about one receptor, which an off-target says for itself.
@@ -61,6 +62,9 @@ class DockCampaignParams(DockShardsJobParams):
     off_receptor_set_id: int | None = Field(default=None, ge=1)
     off_receptor_filters: dict[str, Any] = Field(default_factory=dict)
     cpu_required: int = Field(default=1, ge=1)  # of one chunk: one shard against one receptor
+    # The queue it goes to, as this project names it: where the files it prepares there stay.
+    # Not its identity — the same campaign is the same campaign, whichever queue it is sent to.
+    executor: str = ""
 
     @property
     def has_off_targets(self) -> bool:
@@ -68,11 +72,17 @@ class DockCampaignParams(DockShardsJobParams):
 
 
 class CampaignWriter(ShardHitWriter):
-    """What comes back, here: receipts without a fragment path (the fragments stay there, so
-    nothing here ranks again), and the hits, which come ranked."""
+    """What comes back, here: the shards marked done without a result file (the files stay
+    there, so nothing here ranks again), and the hits, which come ranked."""
+
+    def __init__(self, *, executor: str = "", preparation_engine: str = "", **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.executor, self.preparation_engine = str(executor), str(preparation_engine)
 
     def write(self, results: list) -> None:
         for result in results:
+            if result["stage"] == "prep":  # its container is registered as being there, by the campaign
+                continue
             if result["stage"] == "hits":
                 self._materialize_selected(self._of_run(result["hits"]))
                 continue
@@ -85,7 +95,7 @@ class CampaignWriter(ShardHitWriter):
 
     def finish(self) -> None:
         # Submitted again under another run id, it is that run's now: moved, not copied —
-        # with the receipts and result fragments the pairs it docked again had there.
+        # with whatever the pairs it docked again had there.
         supersede_shard_runs(self.project_db, docking_run_id=self.docking_run_id)
         finish_run(self.project_db, docking_run_id=self.docking_run_id)
 
@@ -93,7 +103,8 @@ class CampaignWriter(ShardHitWriter):
 def _writer(params: DockCampaignParams, project) -> CampaignWriter:
     return CampaignWriter(project_db=configs[project]["project_db"], hit_cap=params.hit_cap,
                           hit_threshold=params.hit_threshold, run_id=params.run_id, engine=params.engine,
-                          protocol_hash=str(params.protocol_metadata.hash or ""))
+                          protocol_hash=str(params.protocol_metadata.hash or ""), executor=params.executor,
+                          preparation_engine=params.preparation_engine)
 
 
 def _ended(params: DockCampaignParams, project, snapshot) -> None:
@@ -116,23 +127,30 @@ def _there(chunk: dict, cpu: int) -> dict:
 
 
 def _unprepared(elements: list[dict], engine: str) -> list[dict]:
-    """The `prep` elements of a campaign: a shard not prepared here, once, and where `located`
-    finds it there; its chunks in `elements` are told so (an element of `vs` waits for them)."""
+    """The `prep` elements of a campaign: a shard not prepared here, once; its chunks in `elements`
+    are told its part (an element of `vs` waits for it and is told where it went). Its part is
+    written in the campaign's folder there and committed into the containers of a folder the
+    project keeps there (`kept_in`), so the next campaign to that host docks it as is: one the host
+    already holds is not prepared again — that `prepare_stage` sees, not this side, so the
+    campaign is the same campaign however much of it that host has done."""
     prep = {}
     for element in elements:
         for place, shard in enumerate(element["shards"]):
             if shard["shard_path"]:
                 continue
-            twin = prepared_shard_path(shard["molecules"], engine)
-            where = {"prepared_in": worker_output_dir(twin.parent), "prepared_as": twin.name}
-            element["shards"][place] = {**{k: v for k, v in shard.items() if k != "molecules"}, **where}
-            prep.setdefault(shard["shard_id"], {"engine": engine, "shards": [{
-                "shard_id": shard["shard_id"], "shard_path": shard["molecules"], "output_dir": where["prepared_in"]}]})
+            part = f"prep:{engine}:{int(shard['shard_id'])}"
+            element["shards"][place] = {**{k: v for k, v in shard.items() if k not in ("molecules", "shard")},
+                                        "prepared_part": part}
+            kept = worker_output_dir(prepared_dir(shard["molecules"], engine))
+            prep.setdefault(shard["shard_id"], {"engine": engine, "role": prepared_role(engine), "shards": [{
+                "shard_id": shard["shard_id"], "shard_path": shard["molecules"], "shard": shard.get("shard"),
+                "import_batch_id": shard.get("import_batch_id"), "generation_id": shard.get("generation_id"),
+                "part": part, "output_dir": Dir(str(Path(kept) / "parts")), "kept_in": KeptDir(kept)}]})
     return list(prep.values())
 
 
 @campaign(name="amdock_dock_shards_campaign", params_model=DockCampaignParams, output=_writer,
-          volatile=("run_id",), finalize=_ended)
+          volatile=("run_id", "executor"), finalize=_ended)
 def dock_shards_campaign(params: DockCampaignParams, project) -> list[Stage]:
     config = configs[project]
     project_db = config["project_db"]
@@ -144,13 +162,13 @@ def dock_shards_campaign(params: DockCampaignParams, project) -> list[Stage]:
         raise RuntimeError("Nothing to dock: no shard against a prepared receptor with a binding site.")
     run = chunks[0]["docking_run_id"]
     elements = [_there(chunk, params.cpu_required) for chunk in chunks]
-    digests = {worker_file(row["prepared_path"]): row["sha256"]
-               for row in iter_prepared_shards(project_db, engine=params.preparation_engine) if row["sha256"]}
     ranked = partial(rank, cap=params.hit_cap, threshold=params.hit_threshold)
     prep = _unprepared(elements, params.preparation_engine)
-    stages = [Stage("prep", prepare_stage, prep, deliver="none"),
-              Stage("vs", dock_stage, From("prep", prepared_elements, (elements,)), reduce=ranked)] if prep else [
-              Stage("vs", dock_stage, elements, reduce=ranked, digests=digests)]
+    # What each docking leaves there goes into its key's containers there, not a file per shard.
+    stages = [Stage("prep", prepare_stage, prep, commit=campaign_receipts),
+              Stage("vs", dock_stage, From("prep", prepared_elements, (elements,)), reduce=ranked,
+                    commit=campaign_receipts)] if prep else [
+              Stage("vs", dock_stage, elements, reduce=ranked, commit=campaign_receipts)]
     stages.append(Stage("hits", hit_poses, From("vs", by_fragment)))
     if not params.has_off_targets:
         return stages
@@ -172,7 +190,8 @@ def dock_shards_campaign(params: DockCampaignParams, project) -> list[Stage]:
                 for key, value in target.items() if value or key != "flex_receptor_path"} for target in targets]
     template = {key: value for key, value in elements[0].items() if key not in _RECEPTOR_KEYS}
     shards = {shard["shard_id"]: shard for element in elements for shard in element["shards"]}
-    stages.append(Stage("off", dock_stage, From("vs", off_target_elements, (template, targets, shards, reference, top))))
+    stages.append(Stage("off", dock_stage, From("vs", off_target_elements, (template, targets, shards, reference, top)),
+                        commit=campaign_receipts))
     return stages
 
 
@@ -182,82 +201,161 @@ def dock_shards_campaign(params: DockCampaignParams, project) -> list[Stage]:
 TRANSPORT_RECORDS = 1000  # ligands of a transport shard: how many files travel, not how many tasks run
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with open(path, "rb") as file:
-        for block in iter(lambda: file.read(1 << 20), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
-class _Packer:
-    """Ligands, once each, into transport shards under `folder` in the order they come; a shard
-    is named by its sha256, so the same ligands make the same file."""
-
-    def __init__(self, folder: Path):
-        self.folder, self.where, self.shards = folder, {}, []
-        self._writer, self._last, self._count = None, -1, 0
-
-    def put(self, ligand_id: int, data: bytes) -> int:
-        """The index of the shard `ligand_id` is in: a new one when it can not follow the last
-        (the ids of a shard only increase, within `MAX_RECORDS` of its first)."""
-        if ligand_id in self.where:
-            return self.where[ligand_id]
-        writer = self._writer
-        if (writer is None or ligand_id <= self._last or ligand_id - writer.base_id >= MAX_RECORDS
-                or self._count >= TRANSPORT_RECORDS):
-            self._close()
-            self._writer = ShardWriter(self.folder / f".packing-{uuid4().hex}{SHARD_SUFFIX}", dataset_id=None,
-                                       shard_id=0, base_id=ligand_id, kind=PayloadKind.GENERIC_BYTES,
-                                       serializer=Serializer.RAW, slot_count=MAX_RECORDS)
-            self._count = 0
-        self._writer.add(ligand_id, data)
-        self._last, self._count = ligand_id, self._count + 1
-        self.where[ligand_id] = len(self.shards)
-        return len(self.shards)
-
-    def _close(self) -> None:
-        if self._writer is None:
-            return
-        self._writer.close()
-        sha = _sha256(self._writer.path)
-        path = self.folder / f"{sha[:16]}{SHARD_SUFFIX}"  # a name; `digests` keep the whole sha
-        os.replace(self._writer.path, path)
-        self.shards.append((path, sha))
-        self._writer = None
-
-    def close(self) -> list[tuple[Path, str]]:
-        self._close()
-        return self.shards
-
-
-def pack_rows(chunks: Iterable[dict], folder: Path, cpu: int) -> Path:
-    """The chunks of `docking_job` as the elements of `dock_rows`, written to a manifest under
-    `folder` (returned), named by its sha256: their ligands moved into transport shards there,
-    and what the pairs of a chunk share (its receptor, its box) said once.
-
-    Read by the campaign each time it is submitted, so it is the same campaign however many of
-    its pairs came back since. Nothing registers the shards: they are not a library, and the
-    project stays one of rows (`screening_shards` is what makes it one of shards).
-    Removed when the campaign completes (`drop_transport`); a stopped one keeps them for Resume.
-    """
-    folder.mkdir(parents=True, exist_ok=True)
-    packer, elements = _Packer(folder), []
+def _plan(chunks: Iterable[dict], cpu: int, elements: list[dict]) -> Iterator[list[tuple[int, bytes]]]:
+    """The chunks of `docking_job` as the elements of `dock_rows`, appended to `elements`: their
+    ligands, once each, planned into transport shards in the order they come (yielded as each
+    closes: a new one when an id can not follow the last, the ids of a shard only increase within
+    `MAX_RECORDS` of its first, or it holds `TRANSPORT_RECORDS`), and what the pairs of a chunk
+    share (its receptor, its box) said once. An element's `ligands` are indexes of those shards."""
+    where: dict[int, int] = {}
+    records: list[tuple[int, bytes]] = []
+    index = 0
     for chunk in chunks:
         pairs = [dict(pair) for pair in chunk["pairs"]]
-        shards = sorted({packer.put(int(pair["ligand_id"]), bytes(pair.pop("ligand"))) for pair in pairs
-                         if "ligand" in pair})
+        mine = set()
+        for pair in pairs:
+            if "ligand" not in pair:
+                continue
+            ligand_id, data = int(pair["ligand_id"]), bytes(pair.pop("ligand"))
+            if ligand_id not in where:
+                if records and (ligand_id <= records[-1][0] or ligand_id - records[0][0] >= MAX_RECORDS
+                                or len(records) >= TRANSPORT_RECORDS):
+                    yield records
+                    records, index = [], index + 1
+                records.append((ligand_id, data))
+                where[ligand_id] = index
+            mine.add(where[ligand_id])
         common = {key: value for key, value in pairs[0].items()
                   if all(key in pair and pair[key] == value for pair in pairs[1:])}
-        elements.append({**chunk, "_cpu_required": cpu, "ligands": shards, "common": common,
+        elements.append({**chunk, "_cpu_required": cpu, "ligands": sorted(mine), "common": common,
                          "pairs": [{key: value for key, value in pair.items() if key not in common} for pair in pairs]})
-    shards = packer.close()
+    if records:
+        yield records
+
+
+def _write_manifest(folder: Path, elements: list[dict], shards: list[tuple[str, str]]) -> Path:
+    """The manifest of `elements`, their shard indexes now the files `shards` ([(path, sha)], in
+    index order), named by its sha256: the same ligands, the same name."""
     for element in elements:
         element["ligands"] = [File(str(shards[index][0])) for index in element["ligands"]]
     text = json.dumps({"elements": plain(elements, "a docking chunk"),
                        "digests": {str(path): sha for path, sha in shards}}, sort_keys=True)
     manifest = folder / f"{hashlib.sha256(text.encode()).hexdigest()[:16]}.json"
     manifest.write_text(text, encoding="utf-8")
+    return manifest
+
+
+def pack_rows(chunks: Iterable[dict], folder: Path, cpu: int) -> Path:
+    """The chunks of `docking_job` as the elements of `dock_rows`, written to a manifest under
+    `folder` (returned), their ligands moved into transport shards there. In process: what
+    `PackRowsJobSpec` does with workers, the same files and the same manifest.
+
+    Read by the campaign each time it is submitted, so it is the same campaign however many of
+    its pairs came back since. Nothing registers the shards: they are not a library, and the
+    project stays one of rows (`ms_shard_files` is what makes it one of shards).
+    Removed when the campaign completes (`drop_transport`); a stopped one keeps them for Resume.
+    """
+    folder.mkdir(parents=True, exist_ok=True)
+    elements: list[dict] = []
+    shards = [pack_transport({"folder": str(folder), "index": index, "records": records})
+              for index, records in enumerate(_plan(chunks, cpu, elements))]
+    return _write_manifest(folder, elements, [(shard["path"], shard["sha"]) for shard in shards])
+
+
+class PackRowsParams(BaseModel):
+    """A run over rows to pack for a queue: its `docking_job` params, where, and `key`, what
+    names the job's own files there until the manifest is written (`packed_manifest`)."""
+
+    docking: dict[str, Any] = Field(default_factory=dict)
+    folder: str
+    cpu: int = 1
+    key: str
+
+
+def pack_params(docking: dict, folder: Path, *, cpu: int) -> dict:
+    return PackRowsParams(docking=dict(docking), folder=str(folder), cpu=int(cpu), key=uuid4().hex).model_dump()
+
+
+def _job_files(params: PackRowsParams) -> tuple[Path, Path]:
+    """(the planned elements, the names of the shards written): the job's, until the manifest."""
+    folder = Path(params.folder)
+    return folder / f".plan-{params.key}.json", folder / f".plan-{params.key}.names"
+
+
+class PackNames:
+    """Parent-side sink of `PackRowsJobSpec`: the name of each shard a worker wrote, one line each."""
+
+    def __init__(self, params: PackRowsParams) -> None:
+        self.path = _job_files(params)[1]
+
+    def handle(self, chunk_id: str, result: Any) -> None:
+        if result:
+            with open(self.path, "a", encoding="utf-8") as file:
+                file.write(json.dumps([int(result["index"]), str(result["path"]), str(result["sha"])]) + "\n")
+
+    def flush(self) -> None:
+        """Every chunk wrote what it brought."""
+
+    def on_job_terminal(self, status: str) -> None:
+        """What is left for the manifest is the caller's (`packed_manifest`)."""
+
+    def close(self) -> None:
+        """Nothing held open."""
+
+
+def pack_names(params: dict, config: dict) -> PackNames:
+    return PackNames(PackRowsParams(**params))
+
+
+class PackRowsJobSpec(JobSpec):
+    """The ligands of a run over rows into transport shards: the parent plans (one chunk per
+    shard, its ligands' bytes as the database holds them), a worker writes and names the file,
+    the parent keeps the names. The manifest is written after it (`packed_manifest`)."""
+
+    name = "amdock_pack_rows_job"
+    task_name = "amdock_pack_rows"
+    description = "Pack the ligands of a docking run over rows for a cluster's queue."
+    params_model = PackRowsParams
+    executor = "compute"
+    result_handler_factory = pack_names
+    store_results = False
+    required = ()
+    produces = ()
+    run_chunk = staticmethod(pack_transport)
+
+    @staticmethod
+    def build_chunks(params: dict, config: dict | None = None) -> Iterator[dict]:
+        parsed = PackRowsParams(**params)
+        plan, names = _job_files(parsed)
+        plan.parent.mkdir(parents=True, exist_ok=True)
+        names.unlink(missing_ok=True)
+        elements: list[dict] = []
+        emitted = False
+        for index, records in enumerate(_plan(DockingJobSpec.build_chunks(parsed.docking, config), parsed.cpu,
+                                              elements)):
+            emitted = True
+            yield {"folder": parsed.folder, "index": index, "records": records}
+        plan.write_text(json.dumps(plain(elements, "a docking chunk")), encoding="utf-8")
+        if not emitted:  # MF needs one chunk to close the job out
+            yield {"records": []}
+
+
+pack_rows_job = PackRowsJobSpec.to_job_definition()
+
+
+def packed_manifest(params: dict) -> Path:
+    """The manifest of a finished `PackRowsJobSpec`, written from its plan and the names of what
+    its workers wrote; the job's own files go."""
+    parsed = PackRowsParams(**params)
+    plan, names = _job_files(parsed)
+    if not plan.exists():
+        raise RuntimeError(f"Packing {parsed.key} left no plan: it did not finish.")
+    elements = unplain(json.loads(plan.read_text(encoding="utf-8")))
+    lines = names.read_text(encoding="utf-8").splitlines() if names.exists() else []
+    shards = [(path, sha) for _index, path, sha in sorted(json.loads(line) for line in lines)]
+    manifest = _write_manifest(Path(parsed.folder), elements, shards)
+    plan.unlink(missing_ok=True)
+    names.unlink(missing_ok=True)
     return manifest
 
 
@@ -278,9 +376,12 @@ def drop_transport(manifest: Path) -> None:
         except (OSError, ValueError, KeyError):
             return set()
 
+    from ms_flow.core.data.companions import whole
+
     others = set().union(*(named(path) for path in manifest.parent.glob("*.json") if path != manifest))
     for shard in named(manifest) - others:
-        Path(shard).unlink(missing_ok=True)
+        for path in whole(shard):  # its index goes with it
+            Path(path).unlink(missing_ok=True)
     manifest.unlink(missing_ok=True)
 
 
@@ -331,4 +432,5 @@ def dock_rows_campaign(params: DockRowsCampaignParams, project) -> list[Stage]:
 
 
 __all__ = ["CampaignWriter", "clear_transport", "DockCampaignParams", "DockRowsCampaignParams", "dock_rows_campaign",
-           "dock_shards_campaign", "drop_transport", "pack_rows", "transport_folder"]
+           "dock_shards_campaign", "drop_transport", "pack_params", "pack_rows", "pack_rows_job",
+           "packed_manifest", "PackRowsJobSpec", "PackRowsParams", "transport_folder"]

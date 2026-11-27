@@ -20,7 +20,7 @@ def _shard_rows(tmp_path, count, *, fmt="smi"):
         path = tmp_path / f"shard_{index:05d}.{fmt}"
         path.write_text("x")
         rows.append({
-            "id": index + 1, "source": str(tmp_path / "lib.smi"), "shard_index": index, "path": str(path),
+            "id": index + 1, "file_id": index + 1, "source": str(tmp_path / "lib.smi"), "shard_index": index, "path": str(path),
             "prepared_path": str(path),
             "input_format": fmt, "n_records": 1000, "state": "prepared",
         })
@@ -38,40 +38,29 @@ class _Store:
         yield from self._rows
 
 
-class _EmptySession:
-    def __enter__(self):
-        return self
+def _pending(monkeypatch, rows):
+    """The catalog as the prep feed reads it: these source shards not prepared yet."""
+    from ms_flow.core.data import catalog
 
-    def __exit__(self, *_args):
-        return None
-
-    def exec(self, _statement):
-        return self
-
-    def all(self):
-        return []
-
-
-class _ProjectDB:
-    def get_session(self):
-        return _EmptySession()
+    rows = [{**row, "base_id": None, "slot_count": None, "generation_id": 1, "scope": 1} for row in rows]
+    monkeypatch.setattr(catalog, "underived", lambda *_a, **_k: iter(rows))
+    monkeypatch.setattr(catalog, "sweep", lambda *_a, **_k: 0)
 
 
 def test_preparation_sends_one_whole_shard_per_task(tmp_path, monkeypatch):
-    monkeypatch.setattr(preparation_jobs, "ShardStore", _Store(_shard_rows(tmp_path, 5)))
-    chunks = list(preparation_jobs.PrepareLigandShardsJobSpec.build_chunks(
-        {"engine": "ad4"}, {"project_db": _ProjectDB()}
-    ))
+    _pending(monkeypatch, _shard_rows(tmp_path, 5))
+    chunks = list(preparation_jobs.PrepareLigandShardsJobSpec.build_chunks({"engine": "ad4"}, {"project_db": object()}))
     assert [len(chunk["shards"]) for chunk in chunks] == [1, 1, 1, 1, 1]
     assert [s["shard_index"] for chunk in chunks for s in chunk["shards"]] == [0, 1, 2, 3, 4]
+    assert {chunk["role"] for chunk in chunks} == {"prepared:ad4"}
     picked = list(preparation_jobs.PrepareLigandShardsJobSpec.build_chunks(
-        {"engine": "ad4", "shard_ids": [2, 5]}, {"project_db": _ProjectDB()}
+        {"engine": "ad4", "file_ids": [2, 5]}, {"project_db": object()}
     ))
     assert [s["shard_id"] for chunk in picked for s in chunk["shards"]] == [2, 5]  # the Shards selection
     # Nothing pending still yields one chunk so the job can close; it does no work.
-    monkeypatch.setattr(preparation_jobs, "ShardStore", _Store([]))
-    empty = list(preparation_jobs.PrepareLigandShardsJobSpec.build_chunks({}, {"project_db": _ProjectDB()}))
-    assert empty == [{"shards": [], "engine": "ad4"}]
+    _pending(monkeypatch, [])
+    empty = list(preparation_jobs.PrepareLigandShardsJobSpec.build_chunks({}, {"project_db": object()}))
+    assert empty == [{"shards": [], "engine": "ad4", "role": "prepared:ad4"}]
     assert preparation_jobs.PrepareLigandShardsJobSpec.run_chunk(empty[0]) == []
 
 
@@ -81,9 +70,8 @@ def test_docking_sends_one_whole_shard_per_receptor(tmp_path, monkeypatch):
         "iter_prepared_shards",
         lambda *_a, **_kw: iter(_shard_rows(tmp_path, 3, fmt="pdbqt")),
     )
-    monkeypatch.setattr(shard_jobs, "completed_shard_targets", lambda *a, **k: set())
     # A full-library run asks what every run of the protocol docked, not this submission alone.
-    monkeypatch.setattr(shard_jobs, "completed_protocol_targets", lambda *a, **k: set())
+    monkeypatch.setattr(shard_jobs, "done_shards", lambda *a, **k: set())
     monkeypatch.setattr(shard_jobs, "docking_run_id", lambda *a, **k: 1)
     monkeypatch.setattr(shard_jobs, "find_docking_run", lambda *a, **k: 1)
     monkeypatch.setattr(shard_jobs, "plan_targets", lambda *a, **k: None)
@@ -104,9 +92,11 @@ def test_docking_sends_one_whole_shard_per_receptor(tmp_path, monkeypatch):
     # No slice bounds travel any more: the shard is the slice.
     assert not any("start" in chunk or "count" in chunk for chunk in chunks)
 
-    # Resuming the same run skips only the completed shard/receptor pair, not the shard in every
-    # receptor or an unrelated campaign.
-    monkeypatch.setattr(shard_jobs, "completed_protocol_targets", lambda *a, **k: {(1, 7)})
+    # Resuming the same run skips only the completed (shard, receptor, site) target, not the shard
+    # in every receptor or an unrelated campaign.
+    seven = shard_jobs.state_key(engine="vina", protocol_hash="", receptor_id=7)
+    monkeypatch.setattr(shard_jobs, "done_shards",
+                        lambda _db, key, **k: {1} if key == seven else set())
     assert shard_jobs.DockShardsJobSpec.count_chunks(params, {"project_db": object()}) == 5
     resumed = list(shard_jobs.DockShardsJobSpec.build_chunks(params, {"project_db": object()}))
     pairs = [
@@ -124,8 +114,7 @@ def test_off_target_scope_uses_only_reference_top_n_records(tmp_path, monkeypatc
         "iter_prepared_shards",
         lambda *_a, **_kw: iter(_shard_rows(tmp_path, 3, fmt="pdbqt")),
     )
-    monkeypatch.setattr(shard_jobs, "get_default_project_root", lambda: tmp_path)
-    monkeypatch.setattr(shard_jobs, "completed_shard_targets", lambda *a, **k: set())
+    monkeypatch.setattr(shard_jobs, "done_shards", lambda *a, **k: set())
     monkeypatch.setattr(shard_jobs, "plan_targets", lambda *a, **k: None)
     monkeypatch.setattr(shard_jobs, "docking_run_id", lambda *a, **k: 1)
     monkeypatch.setattr(shard_jobs, "find_docking_run", lambda *a, **k: None)

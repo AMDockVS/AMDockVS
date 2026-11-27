@@ -81,7 +81,7 @@ def test_grid_box_site_list_uses_compact_indicator_and_two_data_columns(grid_box
     assert tree.columnCount() == 3
     assert [tree.headerItem().text(column) for column in range(3)] == ["", "Name", "Source"]
     assert tree.header().stretchLastSection() is False
-    assert tree.columnWidth(0) == 15
+    assert tree.columnWidth(0) == 24
     assert tree.header().sectionResizeMode(0) == QHeaderView.Fixed
     assert tree.header().sectionResizeMode(1) == QHeaderView.Stretch
     assert tree.header().sectionResizeMode(2) == QHeaderView.ResizeToContents
@@ -97,8 +97,9 @@ def test_grid_box_name_cell_carries_color_and_active_state(grid_box_widget):
     assert saved.data(1, SITE_COLOR_ROLE) == saved.background(1).color().name()
     assert saved.data(0, ACTIVE_SITE_ROLE) is False
     assert active.data(0, ACTIVE_SITE_ROLE) is True
-    assert not active.icon(0).isNull()
-    assert active.toolTip(0) == "Active docking site"
+    # A checkbox, not an icon: several sites of a receptor can be docked into at once.
+    assert saved.checkState(0) == Qt.Unchecked and active.checkState(0) == Qt.Checked
+    assert active.toolTip(0) == "Checked: this site is docked into"
 
 
 def test_grid_box_unsaved_working_box_uses_asterisk_and_tooltip(grid_box_widget):
@@ -125,7 +126,7 @@ def test_grid_box_receptor_row_exposes_legend(grid_box_widget):
     assert grid_box_widget.legend_icon.accessibleName() == "Grid box legend"
     assert "Unsaved working box" in tooltip
     assert "Colored name" in tooltip
-    assert "Active docking site" in tooltip
+    assert "Docked into" in tooltip
 
 
 def test_grid_box_actions_are_visible_above_the_editor_and_save_without_a_site_saves_as_new(
@@ -134,8 +135,7 @@ def test_grid_box_actions_are_visible_above_the_editor_and_save_without_a_site_s
     widget = grid_box_widget
     create = [widget.new_button, widget.ligand_button, widget.selection_button, widget.predict_button]
     assert [b.text() for b in create] == ["New", "Ligand", "Selection", "Prediction"]
-    assert [b.text() for b in (widget.save_button, widget.save_as_button, widget.activate_button)] == [
-        "Save", "Save as new", "Set Active"]
+    assert [b.text() for b in (widget.save_button, widget.save_as_button)] == ["Save", "Save as new"]
     assert all(b.menu() is None for b in create)
     layout = widget.layout()
     assert layout.indexOf(widget.save_row) < layout.indexOf(widget.show_working_box)
@@ -248,14 +248,22 @@ def test_selection_editor_validates_live_and_builds_on_approval(grid_box_widget,
     assert widget.selection_row.isHidden() and not widget.selection_button.isEnabled()
 
 
-def test_set_active_is_off_for_the_site_that_is_already_active(grid_box_widget):
+def test_checking_a_site_docks_into_it_without_turning_the_others_off(grid_box_widget):
+    """Multisite: the docking unit is (receptor, site, ligand), so a receptor may have more than
+    one site checked — the checkbox is not a radio button."""
     widget = grid_box_widget
     item = lambda site_id: next(widget.site_tree.topLevelItem(r) for r in range(widget.site_tree.topLevelItemCount())
                                 if widget.site_tree.topLevelItem(r).data(0, Qt.UserRole) == ("site", site_id))
-    widget.site_tree.setCurrentItem(item(2))  # the active one
-    assert not widget.activate_button.isEnabled()
-    widget.site_tree.setCurrentItem(item(1))
-    assert widget.activate_button.isEnabled()
+    calls = []
+    widget.runtime.binding_sites.set_site_active = lambda *, binding_site_id, active: calls.append(
+        (binding_site_id, active))
+
+    item(1).setCheckState(0, Qt.Checked)
+    assert calls == [(1, True)]
+    assert item(2).checkState(0) == Qt.Checked  # the one already docked into stays on
+
+    item(2).setCheckState(0, Qt.Unchecked)
+    assert calls[-1] == (2, False)
 
 
 def test_a_new_working_box_can_be_discarded_back_to_the_active_site(grid_box_widget):

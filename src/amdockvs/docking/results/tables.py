@@ -25,10 +25,10 @@ from ms_components.ms_table.table_config import (
 
 from amdockvs.core.vocab import TargetState
 from amdockvs.models import (
+    BindingSite,
     DockingResultRecord,
     DockingRun,
     MoleculeRecord,
-    ScreeningShardRun,
     ScreeningTarget,
 )
 
@@ -56,6 +56,18 @@ def _molecule_name(molecule_id):
     return (
         select(molecule.name)
         .where(molecule.id == molecule_id)
+        .correlate(DockingResultRecord)
+        .scalar_subquery()
+    )
+
+
+def _site_name():
+    """The site the pose was docked into: a receptor may be docked in several at once, so two
+    poses of the same ligand can differ only by this."""
+    site = aliased(BindingSite)
+    return (
+        select(func.coalesce(func.nullif(site.name, ""), literal("BS ") + cast(site.id, String)))
+        .where(site.id == DockingResultRecord.binding_site_id)
         .correlate(DockingResultRecord)
         .scalar_subquery()
     )
@@ -142,11 +154,12 @@ def _plan_docked(target, run):
 
     A run by shards writes no row per pair (only the few hits it imports), so the parent counts
     its ligands into `ligands_done` as its chunks land: there, the plan is the whole count."""
-    result, shard_run = aliased(DockingResultRecord), aliased(ScreeningShardRun)
+    result = aliased(DockingResultRecord)
     own = (select(func.count(distinct(result.ligand_molecule_id)))
            .where(result.receptor_molecule_id == target.receptor_molecule_id, result.docking_run_id == run.id)
            .scalar_subquery())
-    by_shards = exists(select(shard_run.id).where(shard_run.docking_run_id == run.id))
+    # A campaign is a run whose targets name the keys their results are under.
+    by_shards = target.state_keys != ""
     return case((by_shards, target.ligands_done), else_=target.ligands_done + own)
 
 
@@ -468,6 +481,7 @@ def results_pose_config() -> TableConfig:
                       formatter=fmt_float, sortable=False, width=75),
             ColumnDef("rmsd_vs_reference", label="RMSD ref", kind=ColumnKind.NUMBER,
                       align=AlignHint.RIGHT, formatter=fmt_float, width=65),
+            ColumnDef("binding_site", label="Site", expr=_site_name(), sortable=False, width=90),
             ColumnDef("ligand_efficiency", label="LE", visible=False, kind=ColumnKind.NUMBER,
                       align=AlignHint.RIGHT, formatter=fmt_float, width=65),
             ColumnDef("predicted_pki", label="pKi", visible=False, kind=ColumnKind.NUMBER,

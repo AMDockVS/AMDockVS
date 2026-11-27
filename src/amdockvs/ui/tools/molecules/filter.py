@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
@@ -29,6 +30,8 @@ from amdockvs.models.molecules import MoleculeType, MoleculeUsageClass
 from amdockvs.ui.common.async_query import run_async
 from amdockvs.ui.view_ids import FILTER_ID, LIGANDS_VIEW_ID, MOLECULES_VIEW_ID
 
+
+REPACK_FROM = 0.30  # left out of the library from which a repack is offered
 
 # Exclusions written by this tool carry this reason prefix so Recover can tell "excluded by the
 # filter" from exclusions owned by other tools (manual, diversity, ...) and never touch those.
@@ -280,6 +283,13 @@ class MoleculeFilterWidget(QWidget):
         self.summary_label = QLabel("Ready.", self)
         self.summary_label.setWordWrap(True)
         self._body_layout.addWidget(self.summary_label)
+
+        # A sharded library is never rewritten by a selection: each step that left records out
+        # (QSAR, clustering...) is a cut ms_flow keeps beside the shards, undone by unticking it.
+        self.cuts_box = QGroupBox("Cuts", self)
+        self._cuts_layout = QVBoxLayout(self.cuts_box)
+        self.cuts_box.setVisible(False)
+        self._body_layout.addWidget(self.cuts_box)
         self._body_layout.addStretch(1)
 
         # Every control that changes what Apply would touch re-pushes the scope, so the table
@@ -576,6 +586,73 @@ class MoleculeFilterWidget(QWidget):
         self._sync_action_controls()
         self._sync_filter_stack()
         self.summary_label.setText("Ready.")
+        self._refresh_cuts()
+
+    # --- cuts over a sharded library ------------------------------------------
+    def _refresh_cuts(self) -> None:
+        molecules, runtime = self.runtime.molecules, self.runtime
+
+        def read():
+            if not runtime.has_shards():
+                return None, None
+            return molecules.shard_exclusions(), runtime.loader.repack_status()
+
+        run_async(read, lambda said: self._show_cuts(*said), lambda _error: self.cuts_box.setVisible(False),
+                  owner=self)
+
+    def _show_cuts(self, cuts, repack: dict | None = None) -> None:
+        while self._cuts_layout.count():
+            gone = self._cuts_layout.takeAt(0).widget()
+            gone.setParent(None)  # out of the box now, not at the next turn of the loop
+            gone.deleteLater()
+        self.cuts_box.setVisible(cuts is not None)
+        if not cuts:
+            self._cuts_layout.addWidget(QLabel("Nothing has been left out of the library.", self.cuts_box))
+            return
+        for cut in cuts:
+            box = QCheckBox(f"{cut.get('reason') or 'cut'} - {int(cut.get('n') or 0):,} records", self.cuts_box)
+            box.setChecked(bool(cut["active"]))
+            box.setToolTip("Untick to bring these records back; tick to leave them out again.")
+            box.toggled.connect(lambda active, cut_id=int(cut["id"]): self._set_cut_active(cut_id, active))
+            self._cuts_layout.addWidget(box)
+        if repack and float(repack.get("left_out") or 0) >= REPACK_FROM:
+            self._offer_repack(repack)
+
+    def _offer_repack(self, repack: dict) -> None:
+        """Most of the library left out: its shards are mostly holes. Repacking makes fuller ones
+        (fewer tasks, quicker reads) in a new generation; the library as it is now stays kept, so
+        going back and unticking a cut brings its records back."""
+        reason = repack.get("reason")
+        said = f"{float(repack['left_out']):.0%} of the library is left out."
+        label = QLabel(f"{said} Not repacked now: {reason}." if reason else
+                       f"{said} Repacking gives fuller shards; the library as it is now is kept.", self.cuts_box)
+        label.setWordWrap(True)
+        button = QPushButton("Repack library…", self.cuts_box)
+        button.setEnabled(not reason)
+        button.clicked.connect(self._repack)
+        self._cuts_layout.addWidget(label)
+        self._cuts_layout.addWidget(button)
+
+    def _repack(self) -> None:
+        answer = QMessageBox.question(
+            self, "Repack library",
+            "Write what the cuts leave into fuller shards of a new generation? Every ligand keeps its id; "
+            "the library as it is now is kept, to go back to (Project > library).")
+        if answer != QMessageBox.Yes:
+            return
+        try:
+            job = self.runtime.loader.repack_library()
+        except Exception as exc:  # noqa: BLE001 - shown: a later step may have started since
+            QMessageBox.warning(self, "Repack library", str(exc))
+            return
+        QMessageBox.information(self, "Repack library", f"Repacking the library (job {job}).")
+
+    def _set_cut_active(self, cut_id: int, active: bool) -> None:
+        try:
+            self.runtime.molecules.set_shard_exclusion_active(cut_id, active)
+        except Exception as exc:  # noqa: BLE001 - shown, and the list re-read to match the data
+            QMessageBox.warning(self, "Cuts", str(exc))
+            self._refresh_cuts()
 
 
 def register_filter_workspace(window) -> None:

@@ -22,8 +22,6 @@ from amdockvs.core.constants import (
     TABLE_QSAR_MODELS,
     TABLE_QSAR_PREDICTIONS,
     TABLE_RECEPTOR_PREPS,
-    TABLE_SCREENING_SHARD_RUNS,
-    TABLE_SHARD_PREPS,
 )
 from amdockvs.manifest import AMDOCKVS_PROJECT_RESOURCES
 from amdockvs.core.configuration import (
@@ -377,19 +375,12 @@ class AMDockVSRuntime(AppRuntime):
         InteractionsResult.__table__.create(db.engine)
 
     def _add_columns(self) -> None:
-        """Columns a project made before them lacks: `shard_preps.sha256` (2026-11, empty: a campaign
-        hashes those files itself) and `docking_results.input_key` (2026-11). The box of an older
+        """Columns a project made before them lacks: `docking_results.input_key` (2026-11). The box of an older
         result is unknown; its key is its receptor payload (`legacy_input_key`), so skip_existing
-        still docks again a receptor prepared since, without docking the whole library again.
-        `screening_shard_runs.selection` (2026-11, empty: every receipt written before it stood
-        for a whole shard)."""
+        still docks again a receptor prepared since, without docking the whole library again."""
         added = (
-            (TABLE_SHARD_PREPS, "sha256", "VARCHAR NOT NULL DEFAULT ''", None),
             (TABLE_DOCKING_RESULTS, "input_key", "VARCHAR NOT NULL DEFAULT ''",
              "UPDATE {table} SET input_key = 'legacy:' || COALESCE(receptor_payload_id, 0)"),
-            (TABLE_SCREENING_SHARD_RUNS, "selection", "VARCHAR NOT NULL DEFAULT ''", None),
-            # Empty on an older receipt: it never matches, so its pair is docked again.
-            (TABLE_SCREENING_SHARD_RUNS, "input_key", "VARCHAR NOT NULL DEFAULT ''", None),
             # NULL on an older row: it was prepared before preparation had anything to report.
             (TABLE_RECEPTOR_PREPS, "warnings", "VARCHAR", None),
         )
@@ -458,6 +449,49 @@ class AMDockVSRuntime(AppRuntime):
         return repair_if_idle(
             self.workspace.project_db, busy=bool(self.list_jobs(statuses=NON_TERMINAL_JOB_STATUSES))
         )
+
+    def merge_containers(self) -> int:
+        """The project's small containers (and those with retired shards) merged into few, role by
+        role, their shards copied as bytes (`catalog.merge`); how many went. Refused while a job is
+        active: a merge changes shard ids under whatever reads them."""
+        from sqlmodel import select
+
+        from ms_flow.core.data import catalog
+        from ms_flow.core.database.project_models import CatalogFile
+
+        self._require_active_project()
+        if self.list_jobs(statuses=NON_TERMINAL_JOB_STATUSES):
+            raise RuntimeError("Jobs are running; merge the containers once they end.")
+        db = self.workspace.project_db
+        with db.get_session() as session:
+            pairs = session.exec(select(CatalogFile.generation_id, CatalogFile.role)
+                                 .where(CatalogFile.location == "").distinct()).all()
+        return sum(catalog.merge(db, generation_id, role) for generation_id, role in pairs)
+
+    def queue_copies(self) -> dict[str, dict[str, int]]:
+        """By executor, the project's containers only on its queue and those here with a copy there."""
+        from ms_flow import locations
+
+        self._require_active_project()
+        return locations.copies(self.workspace.project_db)
+
+    def bring_from(self, executor: str) -> list[int]:
+        """Every container the project has only on the queue `executor`, brought here as far as it is
+        made; the catalog ids brought. The executor must be active."""
+        from sqlmodel import select
+
+        from ms_flow.core.database.project_models import CatalogFile
+
+        self._require_active_project()
+        with self.workspace.project_db.get_session() as session:
+            ids = [int(i) for i in session.exec(select(CatalogFile.id).where(CatalogFile.location == str(executor)))]
+        return self.workspace.bring_there(str(executor), ids) if ids else []
+
+    def clean_host(self, executor: str, *, dry: bool = False, confirm: bool = False) -> list[dict]:
+        """The copies on the queue `executor` that have the same copy here removed there; with
+        `confirm` the others too; with `dry` only said. The executor must be active."""
+        self._require_active_project()
+        return self.workspace.clean_host(str(executor), dry=dry, confirm=confirm)
 
     def clear_transport(self) -> int:
         """Delete the files campaigns of rows packed for a queue (see `clear_transport`); the bytes

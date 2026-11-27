@@ -13,7 +13,6 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from amdockvs.core.constants import TABLE_SCREENING_SHARDS
 from amdockvs.runtime import AMDockVSRuntime
 
 
@@ -26,15 +25,15 @@ def runtime(tmp_path):
 
 
 def _add_shard(runtime, tmp_path):
-
-    from amdockvs.models.screening import ScreeningShard
+    from ms_flow.core.database.project_models import CatalogFile
 
     with runtime.workspace.project_db.get_session() as session:
         session.add(
-            ScreeningShard(
-                shard_index=0,
+            CatalogFile(
                 path=str(tmp_path / "shard_00000.smi"),
+                n_shards=1,
                 n_records=10,
+                n_active=10,
             )
         )
         session.commit()
@@ -56,7 +55,9 @@ def test_mode_is_not_stored_anywhere(runtime, tmp_path):
 
 
 def test_shard_table_is_the_only_source_of_truth():
-    assert TABLE_SCREENING_SHARDS == "screening_shards"
+    from ms_flow.core.data.catalog import TABLE
+
+    assert TABLE == "ms_shard_files"  # ms_flow's catalog: a row per file, since 2026-11
 
 
 def test_the_import_dialog_routes_the_library_to_the_chosen_store(runtime, tmp_path, monkeypatch):

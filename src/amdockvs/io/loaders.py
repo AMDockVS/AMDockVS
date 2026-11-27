@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Iterator, Mapping
 
 from amdockvs.io._common import normalize_context, normalize_kind, normalize_molecule_kind, normalize_role
-from amdockvs.io.parsers import iter_record_spans
+from amdockvs.io.parsers import iter_record_offsets, iter_record_spans
 from amdockvs.io.payloads import ImportBatchPayload, ImportPrefilterPolicy
 
 # Byte-based chunking: each chunk carries ~this many bytes of RAW input. Because
@@ -73,10 +73,9 @@ def stream_import_payload_batches(
     normalized_binding_site_specs = [dict(item) for item in list(binding_site_specs or [])]
     # Only a cheap byte-level split here — RDKit parsing happens in the worker. And only the
     # offsets survive the split: the text is re-read from the file in the worker.
-    input_format, parse_config, record_iter = iter_record_spans(kind=normalized_kind, file_path=source_path)
+    input_format, parse_config, blocks = iter_record_offsets(kind=normalized_kind, file_path=source_path)
 
-    def _payload(records: list[dict[str, Any]]) -> dict[str, Any]:
-        spanned = [record for record in records if "offset" in record]
+    def _span(first: int, count: int, offset: int, end: int, records: list) -> dict[str, Any]:
         return ImportBatchPayload(
             kind=normalized_kind,
             file_path=source_path,
@@ -89,15 +88,31 @@ def stream_import_payload_batches(
             extra_data_patch=normalized_extra_data_patch,
             binding_site_specs=normalized_binding_site_specs,
             import_batch_id=import_batch_id,
-            span_offset=int(spanned[0]["offset"]) if spanned else -1,
-            span_end=int(spanned[-1]["end"]) if spanned else -1,
-            span_first_index=int(spanned[0]["source_index"]) if spanned else 0,
-            span_count=len(spanned),
-            records=[] if spanned else list(records),
+            span_offset=offset,
+            span_end=end,
+            span_first_index=first,
+            span_count=count,
+            records=records,
             parse_config=dict(parse_config),
         ).model_dump(mode="json")
 
+    def _payload(records: list[dict[str, Any]]) -> dict[str, Any]:
+        spanned = [record for record in records if "offset" in record]
+        if spanned:
+            return _span(int(spanned[0]["source_index"]), len(spanned), int(spanned[0]["offset"]),
+                         int(spanned[-1]["end"]), [])
+        return _span(0, 0, -1, -1, list(records))
+
+    def _cap(emitted: int) -> int:
+        ramp_size = IMPORT_RAMP_UP_SIZES[emitted] if ramp and emitted < len(IMPORT_RAMP_UP_SIZES) else normalized_batch_size
+        return min(normalized_batch_size, ramp_size)
+
     normalized_chunk_bytes = max(1, int(chunk_bytes))
+    if blocks is not None:
+        for first, count, offset, end in _grouped(blocks, _cap, normalized_chunk_bytes):
+            yield _span(first, count, offset, end, [])
+        return
+    _fmt, _cfg, record_iter = iter_record_spans(kind=normalized_kind, file_path=source_path)
     batch: list[dict[str, Any]] = []
     batch_bytes = 0
     emitted = 0
@@ -107,12 +122,7 @@ def stream_import_payload_batches(
             if "offset" in record
             else len(str(record.get("raw") or ""))
         )
-        ramp_size = (
-            IMPORT_RAMP_UP_SIZES[emitted]
-            if ramp and emitted < len(IMPORT_RAMP_UP_SIZES)
-            else normalized_batch_size
-        )
-        record_cap = min(normalized_batch_size, ramp_size)
+        record_cap = _cap(emitted)
         # Whichever cap hits first closes the chunk. Which of the two is the *intended* one is
         # the caller's choice of values: the row import sizes by bytes (a chunk is a parse
         # task), a shard import sizes by records (a shard is a batch, and a batch must not be
@@ -126,6 +136,33 @@ def stream_import_payload_batches(
         batch_bytes += record_bytes
     if batch:
         yield _payload(batch)
+
+
+def _grouped(blocks, cap, chunk_bytes: int) -> Iterator[tuple[int, int, int, int]]:
+    """(first index, count, offset, end) of each chunk from blocks of record (starts, ends): the
+    caps of the per-record loop above (``cap(emitted)`` records, ``chunk_bytes`` of records, at
+    least one), with a numpy step per chunk instead of a Python step per record."""
+    import numpy as np
+
+    starts = ends = np.empty(0, np.int64)
+    index = emitted = 0
+    blocks = iter(blocks)
+    more = True
+    while True:
+        limit = cap(emitted)
+        while more and len(starts) < limit:
+            block = next(blocks, None)
+            if block is None:
+                more = False
+            else:
+                starts, ends = np.concatenate((starts, block[0])), np.concatenate((ends, block[1]))
+        if not len(starts):
+            return
+        sizes = np.cumsum(ends[:limit] - starts[:limit])
+        count = max(1, int(np.searchsorted(sizes, chunk_bytes, side="right")))
+        yield index, count, int(starts[0]), int(ends[count - 1])
+        starts, ends = starts[count:], ends[count:]
+        index, emitted = index + count, emitted + 1
 
 
 __all__ = [

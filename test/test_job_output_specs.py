@@ -16,9 +16,9 @@ from amdockvs.core.jobs import JobDefinition
 WITHOUT_SINK = {
     "amdock_diagram_job": "writes no rows: it leaves PNG/SVG on disk.",
     "amdock_shard_ligands_job": (
-        "declares a result_handler_factory instead: ShardQueueWriter writes the shard file and "
-        "its screening_shards row together, because only the parent process knows which records "
-        "share a shard. A table sink cannot write the file."
+        "declares a result_handler_factory instead: ShardImportWriter commits the parts workers "
+        "wrote to the shard catalog, then counts each batch from it. A table sink cannot commit "
+        "a container part."
     ),
     "amdock_shard_chemistry_job": (
         "declares a result_handler_factory instead: ShardGenerationWriter writes the rows into "
@@ -34,6 +34,18 @@ WITHOUT_SINK = {
     "amdock_shard_fingerprints_job": (
         "writes no rows: each shard's fingerprints go to .npy files the clustering job that "
         "depends on it reads and deletes."
+    ),
+    "amdock_shard_top_n_job": (
+        "declares a result_handler_factory instead: TopNWriter ingests the ranked hits a worker "
+        "read and compressed; the rows go through the docking ingest, not a table sink."
+    ),
+    "amdock_promote_records_job": (
+        "declares a result_handler_factory instead: PromotionWriter inserts the molecules a worker "
+        "parsed, once each by (batch, record id), and the clustering rows of the ones a run lacks."
+    ),
+    "amdock_pack_rows_job": (
+        "writes no rows: workers pack transport shards on disk; the handler only lists their "
+        "names for the campaign manifest."
     ),
     "amdock_qsar_predict_shards_job": (
         "writes no rows: the scores stay in a parquet per shard, by reference, until "

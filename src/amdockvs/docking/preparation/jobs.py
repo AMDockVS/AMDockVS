@@ -1,26 +1,26 @@
 from __future__ import annotations
 
 from itertools import batched
-from pathlib import Path
 from typing import Any, Iterator, Mapping
 
 from pydantic import BaseModel, Field
 
 from ms_flow.query import QuerySpec
-from ms_flow.sinks import graph_sink, table_sink
+from ms_flow.sinks import catalog_sink, graph_sink
 from amdockvs.core.jobs import JobSpec
 from amdockvs.docking.preparation.tasks import prepare_entities, prepare_ligand_shards
 
 from amdockvs.core.configuration import DEFAULT_OUTPUT_FLUSH_EVERY, batch_size_for
 from amdockvs.core.payloads import molecule_payload_id, payload_store
 from amdockvs.core.worker_io import worker_file, worker_output_dir
+from amdockvs.io.shards import shard_number
 from amdockvs.core.constants import AMDOCKVS_OFFLOADABLE_EXECUTORS
 from amdockvs.docking.repository import (
     iter_entity_rows,
     molecule_scope_spec,
 )
-from amdockvs.models import LigandPrep, MoleculeRecord, ReceptorPrep, ShardPrep
-from amdockvs.molecules.storage import PREPARED_DIR, ShardStore, prepared_shard_path, shard_scope_spec
+from amdockvs.models import LigandPrep, MoleculeRecord, ReceptorPrep
+from amdockvs.molecules.storage import prepared_dir, prepared_role
 
 
 # A molecule the engine can't prepare is excluded with the reason (docking skips it, Filter's
@@ -40,12 +40,11 @@ PREP_UPSERT = graph_sink(
         {
             "name": "receptor_preps",
             "model": ReceptorPrep,
-            # Every column but `flex_residues`: the user's pick outlives a re-preparation.
             # `warnings` is written NULL too, so a re-preparation clears what the last one said.
-            "columns": ["receptor_molecule_id", "family", "rigid_payload_id", "flex_payload_id", "error",
-                        "warnings"],
+            "columns": ["receptor_molecule_id", "family", "binding_site_id", "rigid_payload_id",
+                        "flex_payload_id", "error", "warnings"],
             "write_mode": "upsert",
-            "conflict_keys": ["receptor_molecule_id", "family"],
+            "conflict_keys": ["receptor_molecule_id", "family", "binding_site_id"],
             "validate_model": False,
         },
         {
@@ -113,25 +112,55 @@ def _rows_for_preparation(
         order=("id",),
         batch_size=batch_size,
     )
-    if force:
+    if force or entity_kind == "receptor":
+        # Receptors: `_expand_receptor_sites` decides what is missing, since a receptor whose
+        # rigid row is ready can still be missing a site's flexible preparation.
         return rows
 
     return (row for row in rows if not row.get("prepared_payload_id"))
 
 
-def _attach_flexible_residues(project_db, rows: list[dict[str, Any]], *, family: str) -> None:
+def _expand_receptor_sites(project_db, rows: list[dict[str, Any]], *, family: str,
+                           force: bool) -> list[dict[str, Any]]:
+    """`rows` plus one extra row per active site that picked flexible side chains, minus the
+    preparations already done (unless `force`).
+
+    Carving a side chain out rewrites the rigid receptor too, so a site with flexible residues
+    needs a preparation of its own (`binding_site_id`); the plain rigid row stays, and it is
+    what every other site docks against.
+    """
     from sqlmodel import select
+
+    from amdockvs.models import BindingSite
 
     ids = [int(row.get("id") or 0) for row in rows]
     with project_db.get_session() as session:
-        picks = dict(session.exec(
-            select(ReceptorPrep.receptor_molecule_id, ReceptorPrep.flex_residues)
-            .where(ReceptorPrep.receptor_molecule_id.in_(ids), ReceptorPrep.family == family)
-        ).all())
+        picks: dict[int, list[tuple[int, list]]] = {}
+        for site_id, molecule_id, keys in session.exec(
+            select(BindingSite.id, BindingSite.molecule_id, BindingSite.flex_residues)
+            .where(BindingSite.molecule_id.in_(ids))
+            .where(BindingSite.is_active == True)  # noqa: E712 - SQL expression
+            .order_by(BindingSite.id)
+        ).all():
+            if keys:
+                picks.setdefault(int(molecule_id), []).append((int(site_id), list(keys)))
+        done: set[tuple[int, int]] = set() if force else {
+            (int(molecule_id), int(site_id)) for molecule_id, site_id in session.exec(
+                select(ReceptorPrep.receptor_molecule_id, ReceptorPrep.binding_site_id)
+                .where(ReceptorPrep.receptor_molecule_id.in_(ids))
+                .where(ReceptorPrep.family == str(family), ReceptorPrep.rigid_payload_id.is_not(None))
+            ).all()
+        }
+    expanded: list[dict[str, Any]] = []
     for row in rows:
-        keys = picks.get(int(row.get("id") or 0))
-        if keys:
-            row["flexible_residues"] = [str(k) for k in keys]
+        molecule_id = int(row.get("id") or 0)
+        if (molecule_id, 0) not in done:
+            expanded.append(row)
+        for site_id, keys in picks.get(molecule_id, []):
+            if (molecule_id, site_id) not in done:
+                expanded.append({**row, "binding_site_id": site_id,
+                                 "flexible_residues": [str(k) for k in keys]})
+    return expanded
 
 
 def _with_structures(project_db, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -180,8 +209,10 @@ def _iter_preparation_batches(
     for batch in batched(rows_iter, batch_size):
         rows = list(batch)
         if entity_kind == "receptor":
-            # Flexible residues live on the receptor's preparation row; carry them into the worker payload.
-            _attach_flexible_residues(project_db, rows, family=params.engine)
+            # Flexible side chains belong to a binding site: one extra preparation per site
+            # that picked some, carrying its residues into the worker payload.
+            rows = _expand_receptor_sites(project_db, rows, family=params.engine,
+                                          force=bool(params.force))
         emitted = True
         yield chunk(rows)
     if not emitted:
@@ -246,11 +277,16 @@ class PrepareLigandShardsJobParams(BaseModel):
 
     engine: str = "ad4"
     force: bool = False
-    shard_ids: list[int] | None = None  # None = every shard
+    file_ids: list[int] | None = None  # the library files to prepare; None = every file
+    # The part ids' prefix, fixed at submit: a resume makes the same ids and skips what it
+    # committed (trap 17); a new submission is a new run, so a forced redo is no replay.
+    run: str = ""
 
 
 class PrepareLigandShardsJobSpec(JobSpec):
-    """Whole shards per chunk: molecules in, PDBQT text out, both inside shard containers."""
+    """Whole shards per chunk: molecules in, PDBQT text out, a part per shard, appended to the
+    containers of role `prepared:<family>` as it arrives (`catalog_sink`): what a canceled job
+    made is kept, and its shards are not made again. The catalog is the state: no table of its own."""
 
     name = "amdock_prepare_ligand_shards_job"
     task_name = "amdock_prepare_ligand_shards_task"
@@ -258,11 +294,7 @@ class PrepareLigandShardsJobSpec(JobSpec):
     params_model = PrepareLigandShardsJobParams
     executor = "compute"
     supported_executors = AMDOCKVS_OFFLOADABLE_EXECUTORS
-    # The key columns are listed: the model default leaves primary keys out of an upsert.
-    output_spec = table_sink(
-        model=ShardPrep, columns=("shard_id", "family", "n_records", "n_failed", "sha256"),
-        write_mode="upsert", conflict_keys=("shard_id", "family"),
-    )
+    output_spec = catalog_sink()
     output_flush_every = DEFAULT_OUTPUT_FLUSH_EVERY
     store_results = False
     required = ()
@@ -270,47 +302,41 @@ class PrepareLigandShardsJobSpec(JobSpec):
 
     @staticmethod
     def build_chunks(params: dict, config: dict | None = None) -> Iterator[dict[str, Any]]:
+        from uuid import uuid4
+
+        from ms_flow.core.data import catalog
+
         parsed = PrepareLigandShardsJobParams(**params)
-        config_map = dict(config or {})
-        project_db = config_map.get("project_db")
+        project_db = dict(config or {}).get("project_db")
         if project_db is None:
             raise ValueError("prepare_ligand_shards_job requires project_db in config.")
-
-        from sqlmodel import select
-
-        with project_db.get_session() as session:
-            prepared_ids = set(session.exec(select(ShardPrep.shard_id).where(ShardPrep.family == parsed.engine)).all())
-
-        picked = None if parsed.shard_ids is None else {int(value) for value in parsed.shard_ids}
-
-        def pending() -> Iterator[dict[str, Any]]:
-            for row in ShardStore(project_db).iter_rows(shard_scope_spec()):
-                shard_path = Path(str(row.get("path") or ""))
-                shard_id = int(row.get("id") or 0)
-                if picked is not None and shard_id not in picked:
-                    continue  # ponytail: filtered here, the shard table is small
-                prepared = shard_id in prepared_ids and prepared_shard_path(shard_path, parsed.engine).is_file()
-                if prepared and not parsed.force:
-                    continue
-                yield {
-                    "shard_id": shard_id,
-                    "shard_path": worker_file(shard_path),
-                    # Beside the input, in a folder named after the engine — same shape as the
-                    # chemistry pass, so a campaign's stages read as a chain of folders.
-                    "output_dir": worker_output_dir(
-                        shard_path.parent / PREPARED_DIR.format(engine=parsed.engine)
-                    ),
-                    "import_batch_id": row.get("import_batch_id"),
-                    "shard_index": int(row.get("shard_index") or 0),
-                }
-
-        emitted = False
-        for shard in pending():
+        role = prepared_role(parsed.engine)
+        picked = None if parsed.file_ids is None else {int(value) for value in parsed.file_ids}
+        # whole: prepared once for everything, so undoing an exclusion needs no re-prep.
+        todo = [row for row in (catalog.shards(project_db, whole=True) if parsed.force
+                                else catalog.underived(project_db, role))
+                if picked is None or int(row["file_id"]) in picked]  # ponytail: the files table is small
+        # What a dead run published but never registered goes first. ponytail: a second prep job
+        # of the same family running now would lose its unregistered files; the UI runs one.
+        for folder in {prepared_dir(row["path"], parsed.engine) for row in todo}:
+            catalog.sweep(project_db, folder)
+        emitted, run = False, parsed.run or uuid4().hex[:12]  # no run: a caller that is not the API
+        for row in todo:
             emitted = True
-            yield {"shards": [shard], "engine": parsed.engine}
+            yield {"engine": parsed.engine, "role": role, "shards": [{
+                "shard_id": int(row["id"]),
+                "shard_path": worker_file(row["path"]),
+                "shard": shard_number(row),
+                "generation_id": row["generation_id"],
+                # Beside the input, in a folder named after the engine.
+                "output_dir": worker_output_dir(prepared_dir(row["path"], parsed.engine)),
+                "import_batch_id": row["scope"],
+                "shard_index": int(row["shard_index"]),
+                "part": f"{run}:{int(row['id'])}",
+            }]}
         if not emitted:
             # MF still needs one chunk to close the job out cleanly when nothing is pending.
-            yield {"shards": [], "engine": parsed.engine}
+            yield {"shards": [], "engine": parsed.engine, "role": role}
 
     run_chunk = staticmethod(prepare_ligand_shards)
 

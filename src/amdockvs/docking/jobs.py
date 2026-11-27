@@ -30,6 +30,7 @@ from amdockvs.docking.pairs import (
     iter_docking_batches_from_rows,
     matching_input_keys,
     receptor_box,
+    site_targets,
 )
 from amdockvs.docking.preparation.state import grid_from_row
 from amdockvs.docking.methods import excludes
@@ -80,20 +81,27 @@ def _transport_docking_chunk(chunk: dict[str, Any]) -> dict[str, Any]:
 
 
 _RECEPTOR_FIELDS = ("id", "stored_payload_id", "current_payload_id", "metadata_json",
-                    "prepared_payload_id", "flex_payload_id", "grid_engine_payload")
+                    "prepared_payload_id", "flex_payload_id", "grid_engine_payload", "binding_sites")
 
 
 def screening_input_keys(receptor_rows, *, box_center, box_size, spacing, preparation_engine,
                          requires_binding_site) -> dict[int, list[str]]:
-    """Per receptor, the stored `input_key`s that mean "docked against what it would dock now"."""
-    keys: dict[int, list[str]] = {}
+    """Per target (receptor, site), the stored `input_key`s that mean "docked against what it
+    would dock now"."""
+    keys: dict[tuple[int, int], list[str]] = {}
     for row in receptor_rows:
         center, size, grid_spacing = receptor_box(
             row, box_center=box_center, box_size=box_size, spacing=spacing,
             preparation_engine=preparation_engine, requires_binding_site=requires_binding_site,
         )
-        keys[int(row.get("id") or 0)] = matching_input_keys(row, docking_input_key(row, center, size, grid_spacing))
+        keys[target_key(row)] = matching_input_keys(row, docking_input_key(row, center, size, grid_spacing))
     return keys
+
+
+def target_key(row: Mapping[str, Any]) -> tuple[int, int]:
+    """A target is a receptor *and* one of its sites: a receptor with three active sites is
+    three of them, each docked and counted on its own."""
+    return int(row.get("id") or 0), int(row.get("binding_site_id") or 0)
 
 
 def _complex_box(receptor_row, *, box_center, box_size, spacing, preparation_engine):
@@ -153,6 +161,11 @@ def count_pending_docking_pairs(
     )
     if not receptor_rows:
         return 0
+    # One target per active site, exactly as the feed expands them (an explicit box overrides
+    # the sites): a receptor with three of them is three counted targets.
+    explicit_box = box_center is not None and box_size is not None
+    targets = [target for row in receptor_rows
+               for target in ([{**row, "binding_site_id": 0}] if explicit_box else site_targets(row))]
 
     def _count(extra_filters: Mapping[str, Any] | None = None) -> int:
         return db_count(
@@ -168,12 +181,12 @@ def count_pending_docking_pairs(
         )
 
     if not skip_existing:
-        return _count() * len(receptor_rows)
+        return _count() * len(targets)
 
     protocol_hash = str(
         DockingProtocolMetadata.from_mapping(protocol_metadata).as_metrics_payload().get("hash") or ""
     ).strip()
-    keys = screening_input_keys(receptor_rows, box_center=box_center, box_size=box_size, spacing=spacing,
+    keys = screening_input_keys(targets, box_center=box_center, box_size=box_size, spacing=spacing,
                                 preparation_engine=preparation_engine,
                                 requires_binding_site=requires_binding_site)
     return sum(
@@ -183,10 +196,10 @@ def count_pending_docking_pairs(
                 engine=engine,
                 run_kind="screening",
                 protocol_hash=protocol_hash or None,
-                input_keys=receptor_keys,
+                input_keys=target_keys,
             )
         })
-        for receptor_id, receptor_keys in keys.items()
+        for (receptor_id, _site_id), target_keys in keys.items()
     )
 
 
@@ -365,7 +378,15 @@ def iter_docking_batches(
     )
     if selected_from_receptor_id:
         receptor_rows = [row for row in receptor_rows if int(row.get("id") or 0) != int(selected_from_receptor_id)]
-    receptors = [with_input_files(project_db, row, inputs_dir(project_db)) for row in receptor_rows]
+    # One target per active binding site, expanded before the files are written: a site that
+    # carved out flexible side chains docks against its own rigid receptor. An explicit box
+    # overrides the sites — it is one box for every receptor of the run, so one target each.
+    explicit_box = box_center is not None and box_size is not None
+    receptors = [with_input_files(project_db, target, inputs_dir(project_db))
+                 for row in receptor_rows
+                 # binding_site_id 0, not absent: that is what makes the expansion downstream a
+                 # no-op, so the explicit box stays one target per receptor.
+                 for target in ([{**row, "binding_site_id": 0}] if explicit_box else site_targets(row))]
     if not receptors:
         return
     # What each receptor would dock against now: a result counts as already docked only if it
@@ -409,19 +430,20 @@ def iter_docking_batches(
             )
         # Docked counts inside the selection: each receptor starts from the ligands of this run
         # that other runs of the program had already docked — none, after a forced re-dock.
-        def already_docked(receptor_id: int) -> int:
+        def already_docked(target: Mapping[str, Any]) -> int:
+            receptor_id, site_id = target_key(target)
             return count_entity_rows(
                 project_db, entity_kind="ligand", engine=prep_engine, set_id=ligand_set_id,
                 filters=normalized_ligand_filters, extra_filters={**selection, "id__in_subquery":
-                    docked_ligands_spec(receptor_id=int(receptor_id), engine=engine, run_kind="screening",
+                    docked_ligands_spec(receptor_id=receptor_id, engine=engine, run_kind="screening",
                                         protocol_hash=protocol_hash or None, except_run=run,
-                                        input_keys=input_keys.get(int(receptor_id), []))},
+                                        input_keys=input_keys.get((receptor_id, site_id), []))},
             ) if protocol_hash else 0
 
         plan_targets(
             project_db,
             docking_run_id=run,
-            receptors=[{"receptor_id": row.get("id"), "ligands_done": already_docked(row.get("id"))}
+            receptors=[{"receptor_id": row.get("id"), "ligands_done": already_docked(row)}
                        for row in receptors],
             ligands_total=count_entity_rows(
                 project_db, entity_kind="ligand", engine=prep_engine,
@@ -430,20 +452,22 @@ def iter_docking_batches(
             engine=engine,
         )
 
-    def ligands_for(receptor_id: int):
-        """A fresh ligand stream per receptor, with the already-docked guard in the query.
+    def ligands_for(target: Mapping[str, Any]):
+        """A fresh ligand stream per target (receptor and site), with the already-docked guard
+        in the query.
 
         The skip used to be a set of every (receptor, ligand) pair already computed, held in
         memory for the whole job. Now the database answers it: `id NOT IN (docked for R)`.
         """
+        receptor_id, site_id = target_key(target)
         extra_filters = dict(selection)
         if skip_existing:
             extra_filters["id__not_in_subquery"] = docked_ligands_spec(
-                receptor_id=int(receptor_id),
+                receptor_id=receptor_id,
                 engine=engine,
                 run_kind="screening",
                 protocol_hash=protocol_hash or None,
-                input_keys=input_keys.get(int(receptor_id), []),
+                input_keys=input_keys.get((receptor_id, site_id), []),
             )
         return with_input_bytes(project_db, iter_entity_rows(
             project_db,
@@ -564,6 +588,8 @@ def iter_redocking_batches(
         ligand_row = molecule_rows.get(int(complex_row.get("ligand_molecule_id") or 0))
         if complex_id <= 0 or receptor_row is None or ligand_row is None:
             continue
+        # A complex is one pose in one pocket: its first active site, not every one of them.
+        receptor_row = site_targets(receptor_row)[0]
         effective_center, effective_size, effective_spacing = _complex_box(
             receptor_row, box_center=box_center, box_size=box_size, spacing=spacing, preparation_engine=prep_engine)
         input_key = docking_input_key(receptor_row, effective_center, effective_size, effective_spacing)

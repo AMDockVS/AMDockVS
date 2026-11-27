@@ -40,6 +40,7 @@ from amdockvs.models import (
     QSARPredictionRecord,
 )
 from amdockvs.core.worker_io import worker_file, worker_output_dir
+from amdockvs.io.shards import shard_number
 from amdockvs.molecules.storage import ShardStore, as_store, store_from_config
 from amdockvs.models.descriptors import FingerprintType
 from amdockvs.project.sets import molecule_set_spec, prepared_molecules_spec
@@ -247,8 +248,10 @@ def predict_shards_job(params: dict, config: dict | None = None) -> Iterator[dic
     for row in ShardStore(project_db).iter_rows():
         yield {
             "shard_path": worker_file(row["path"]),
+            "shard": shard_number(row),
+            "record_ids": row.get("record_ids"),  # what the exclusions left of it
             "shard_id": int(row["id"]),
-            "import_batch_id": row.get("import_batch_id"),
+            "import_batch_id": row.get("scope"),
             "model_path": worker_file(parsed.model_path),
             "output_dir": worker_output_dir(parsed.output_dir),
         }

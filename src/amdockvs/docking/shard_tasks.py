@@ -11,16 +11,18 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from ms_flow.core.data.shard import Shard
 from ms_flow.engine import task
 
 from amdockvs.core.constants import SERIES_POSES
 from amdockvs.core.payloads import structure_payload
 from amdockvs.docking.engines.registry import run_docking_chunk
+from amdockvs.docking.rescoring import rescore_rows
 from amdockvs.docking.preparation.shards import extract_ligands
 from amdockvs.docking.results.dataset import (
-    ResultFragmentWriter, _pose, _selected_payloads, _summary_rows, local_pose_path, result_fragment_path,
-    result_metadata, result_row, shard_selection,
+    ResultFragmentWriter, _pose, _selected_payloads, _summary_table, _top, load_hits, local_pose_path, payload_part,
+    payload_role, result_fragment_path, result_metadata, result_row, summary_role,
 )
 
 # How the cap is spent: the best `cap` of everything scored per receptor, picked from the result
@@ -95,13 +97,23 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
         "shard_index": shard_index,
         "chunks_total": int(payload.get("chunks_total") or 1),
         "receptor_id": int(payload.get("receptor_id") or 0),
+        # Which of the receptor's sites this piece of work docked into (0: none).
+        "binding_site_id": int(payload.get("binding_site_id") or 0),
         # What the campaign progress counts: dockings finished, hit or not.
         "scored": 0,
         "hits": [],
         "hits_found": 0,
         "result_shard": "",
-        # What this receipt will stand for: the whole shard, or the Top-N of an off-target stage.
-        "selection": shard_selection(payload.get("selected_from_receptor_id")),
+        # The shard's ligands docked (a score and a pose) and failed (the rest, also those the
+        # engine never returned): the parent's done-set lists the fewer of the two.
+        "done_ids": [],
+        "failed_ids": [],
+        # Where the parent files this: the target's key, under which cuts this shard was docked
+        # (the exclusions may have left this one partial) and the generation of its id.
+        "state_key": str(payload.get("state_key") or ""),
+        "narrowed_by": str(shard.get("narrowed_by") or ""),
+        "generation_id": shard.get("generation_id"),
+        "docking_run_id": payload.get("docking_run_id"),
         "input_key": str(payload.get("input_key") or ""),
     }
     shard_path = str(shard.get("shard_path") or "")
@@ -117,6 +129,7 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
             shard_path,
             staging,
             record_ids=shard.get("record_ids"),
+            shard=shard.get("prepared_shard"),
         )
         smiles = {int(ligand["id"]): str(ligand["smiles"]) for ligand in ligands}
         pairs = [
@@ -124,6 +137,7 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
                 "run_kind": "screening",
                 "ligand_id": int(ligand["id"]),
                 "receptor_id": int(payload["receptor_id"]),
+                "binding_site_id": int(payload.get("binding_site_id") or 0) or None,
                 "ligand_path": ligand["path"],
                 "receptor_path": str(payload["receptor_path"]),
                 "exhaustiveness": int(payload.get("exhaustiveness") or 8),
@@ -134,7 +148,7 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
             }
             for ligand in ligands
         ]
-        with Shard.open(shard_path) as source_shard:
+        with Shard.open(shard_path, shard=shard.get("prepared_shard")) as source_shard:
             header = {
                 "dataset_id": source_shard.dataset_id,
                 "shard_id": source_shard.shard_id,
@@ -142,8 +156,12 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
                 "slot_count": source_shard.slot_count,
             }
         processed = 0
+        done: list[int] = []
         hits: list[dict] = []
         hits_found = 0
+        # ponytail: the first rescoring function of the protocol, as in `docking.tasks`.
+        rescoring = next((str(item.get("program") or "")
+                          for item in (payload.get("protocol_metadata") or {}).get("rescoring") or ()), "")
         with ResultFragmentWriter(
             result_path,
             metadata={
@@ -156,6 +174,7 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
                 "input_key": str(payload.get("input_key") or ""),
                 "protocol": dict(payload.get("protocol_metadata") or {}),
                 "receptor_id": envelope["receptor_id"],
+                "binding_site_id": envelope["binding_site_id"],
                 "selection": {
                     "mode": HIT_MODE_TOP_N,
                     "cap": int(payload.get("hit_cap") or 0),
@@ -166,18 +185,28 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
                     ),
                 },
             },
+            # The library shard docked: a newer result of it replaces this one's rows.
+            origin=int(shard.get("shard_id") or 0), base_id=header["base_id"], slot_count=header["slot_count"],
         ) as writer:
             def consume_pair(pair_rows: list[dict]) -> None:
                 nonlocal hits_found, processed
                 if not pair_rows:
                     return
+                if rescoring:
+                    # Rescored where the pose was made: the stored score is the rescoring's,
+                    # and the hit test below reads it, so hits are hits of the new function.
+                    pair_rows = rescore_rows(pair_rows, function=rescoring, pairs=pairs,
+                                             config=payload.get("engine_config"))
                 row = next(
                     (item for item in pair_rows if int(item.get("pose_rank") or 1) == 1),
                     pair_rows[0],
                 )
                 ligand_id = int(row.get("ligand_molecule_id") or 0)
-                stored = result_row(row, smiles=smiles.get(ligand_id, ""), engine=str(payload.get("engine") or ""))
+                stored = result_row(row, smiles=smiles.get(ligand_id, ""), engine=str(payload.get("engine") or ""),
+                                    shard_id=envelope["shard_id"], docking_run_id=payload.get("docking_run_id"))
                 writer.add(stored)
+                if row.get("score") is not None and stored.get("has_pose"):
+                    done.append(ligand_id)
                 is_hit = (
                     row.get("score") is not None
                     and bool(stored.get("has_pose"))
@@ -197,7 +226,7 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
                         )
                         hit["input_key"] = str(payload.get("input_key") or "")
                         # Compressed when pickled, so in the worker: the parent only appends it.
-                        hit["pose"] = structure_payload(stored["pose_text"], stored["pose_suffix"], SERIES_POSES)
+                        hit["pose"] = structure_payload(stored["pose_text"], stored["pose_suffix"], SERIES_POSES).packed()
                         hits.append(hit)
                 # The result shard is now the durable copy. No engine-specific loose pose
                 # survives the callback; a hit carries its pose as a payload.
@@ -222,6 +251,8 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
                 for pair_rows in by_ligand.values():
                     consume_pair(pair_rows)
     envelope["scored"] = processed
+    envelope["done_ids"] = np.unique(done).astype(int).tolist()
+    envelope["failed_ids"] = np.setdiff1d([pair["ligand_id"] for pair in pairs], done).astype(int).tolist()
     envelope["hits"] = hits
     envelope["hits_found"] = hits_found
     envelope["result_shard"] = str(result_path)
@@ -233,59 +264,105 @@ def dock_one_shard(payload: dict, shard: dict, progress_cb=None) -> dict:
 
 @task()
 def prepare_stage(element: dict) -> dict:
-    """A shard of a library prepared there, by a campaign that found it unprepared here: left
-    where `located` finds it, and not sent back (what is docked is what comes)."""
-    from amdockvs.docking.preparation.tasks import prepare_ligand_shards
+    """A shard of a library prepared there, by a campaign that found it unprepared here, into the
+    containers of a folder the project keeps there (`kept_in`): its part is committed by the runner
+    (`campaign_receipts`). One an earlier campaign of the project already left there is found by
+    its part id and not made again."""
+    from ms_flow.runner import found_there
 
-    if not prepare_ligand_shards(element):
-        raise RuntimeError(f"shard {element['shards'][0]['shard_id']}: nothing of it could be prepared")
-    return {"shard_id": element["shards"][0]["shard_id"]}
+    from amdockvs.docking.preparation import tasks
+
+    shard = element["shards"][0]
+    there = found_there(shard["kept_in"], shard["part"])
+    if there is not None:
+        return {"stage": "prep", "shard_id": shard["shard_id"], "there": there}
+    rows = tasks.prepare_ligand_shards(element)
+    if not any(row.get("n_records") for row in rows):  # else it would count as prepared there
+        raise RuntimeError(f"shard {shard['shard_id']}: nothing of it could be prepared")
+    return {"stage": "prep", "shard_id": shard["shard_id"], "receipts": [
+        {"part": row["part"], "path": row["path"], "role": row["role"], "generation_id": row["generation_id"],
+         "folder": str(shard["kept_in"])} for row in rows]}
 
 
-def located(shard: dict) -> dict:
-    """A shard as `dock_shards` reads it: one the campaign prepared there is where it left it."""
-    if shard.get("shard_path") or not shard.get("prepared_in"):
-        return shard
-    return {**shard, "shard_path": os.path.join(shard["prepared_in"], shard["prepared_as"])}
-
-
-def prepared_elements(_prepared, elements: list[dict]):
-    """The elements of `vs` after `prep`: those whose shards are all there. A shard that could not
-    be prepared failed its own element of `prep`; its chunks are not docked."""
+def prepared_elements(prepared, elements: list[dict]):
+    """The elements of `vs` after `prep`: each shard prepared there named where it is (its
+    container and its shard number in it). A shard that could not be prepared failed its own
+    element of `prep`; its chunks are not docked."""
+    where = {}
+    for result in prepared:
+        found = result.get("there") or next(iter(result.get("_committed") or ()), None)
+        if found:
+            where[found["part"]] = found
     for element in elements:
-        shards = [located(shard) for shard in element["shards"]]
-        if all(os.path.isfile(shard["shard_path"]) for shard in shards):
+        shards = []
+        for shard in element["shards"]:
+            part = shard.get("prepared_part")
+            if part:
+                if part not in where:
+                    break
+                shard = {**{k: v for k, v in shard.items() if k != "prepared_part"},
+                         "shard_path": where[part]["path"], "prepared_shard": where[part]["shards"][0]}
+            shards.append(shard)
+        else:
             yield {**element, "shards": shards}
 
 
 @task()
 def dock_stage(element: dict) -> dict:
-    """`dock_shards` as a stage's task: its envelopes, said which stage and which library they are of."""
+    """`dock_shards` as a stage's task: its envelopes, said which stage and which library they are of,
+    and where the shard docked is there (an off-target stage docks its best from it again)."""
     envelopes = dock_shards(element)
     for envelope, shard in zip(envelopes, element["shards"]):
-        envelope.update(library=str(shard.get("library") or "library"), import_batch_id=shard.get("import_batch_id"))
+        envelope.update(library=str(shard.get("library") or "library"), import_batch_id=shard.get("import_batch_id"),
+                        shard_path=str(shard.get("shard_path") or ""), prepared_shard=shard.get("prepared_shard"))
     return {"stage": element["stage"], "envelopes": envelopes}
+
+
+def campaign_receipts(result: dict) -> list[dict]:
+    """The receipts of a `dock_stage` result: each docked shard's two parts, committed there into
+    its key's containers (`Stage.commit`), payload and summary as one, as `ShardHitWriter` does here."""
+    if result["stage"] == "prep":  # a shard prepared there: its part, into the folder the project keeps
+        return list(result.get("receipts") or ())
+    receipts = []
+    for envelope in result["envelopes"]:
+        path = str(envelope.get("result_shard") or "")
+        if path:
+            key = str(envelope["state_key"])
+            receipts.append({"part": f"{key}:{int(envelope['shard_id'])}", "path": path, "role": summary_role(key),
+                             "bulk": str(payload_part(path)), "bulk_role": payload_role(key),
+                             "generation_id": envelope.get("generation_id"), "folder": str(Path(path).parent.parent)})
+    return receipts
 
 
 def rank(results, *, cap: int, threshold: float) -> list[dict]:
     """The best `cap` of each receptor below `threshold`, over every fragment the stage wrote
-    there: as references into them, which is what `hit_poses` and `off_target_elements` read."""
-    from amdockvs.screening.materialize import TopNGate
+    there (in the containers they were committed to, `_committed`): as references into them,
+    which is what `hit_poses` and `off_target_elements` read."""
+    import numpy as np
+    import pyarrow as pa
+    import pyarrow.compute as pc
 
-    gates: dict[int, TopNGate] = {}
+    tables, tags = [], []
     for result in results:
+        committed = iter(result.get("_committed") or ())
         for envelope in result["envelopes"]:
             path = str(envelope.get("result_shard") or "")
             if not path:
                 continue
-            for row in _summary_rows(Path(path), {"status": "done", "score__lte": float(threshold)}):
-                if row.get("score") is None or not row.get("has_pose"):
-                    continue
-                gate = gates.setdefault(int(row["receptor_id"]), TopNGate(cap=int(cap), threshold=None))
-                gate.take([{**row, "_result_shard": path, "_shard_id": int(envelope["shard_id"]),
-                            "_library": envelope["library"], "_import_batch_id": envelope["import_batch_id"]}])
-                gate.discarded()  # what fell out is not kept
-    return [row for gate in gates.values() for row in gate.drain()]
+            where = next(committed, None) or {"path": path, "shards": None}  # a part not committed: itself
+            table = _summary_table(Path(where["path"]), {"status": "done", "score__lte": float(threshold)},
+                                   where["shards"])
+            tables.append(table.append_column("_tag", pa.array(np.full(table.num_rows, len(tags)))))
+            tags.append({"_result_shard": where["path"], "_shard_id": int(envelope["shard_id"]),
+                         "_library": envelope["library"], "_import_batch_id": envelope["import_batch_id"],
+                         "_shard_path": envelope.get("shard_path") or "", "_prepared_shard": envelope.get("prepared_shard"),
+                         "_payload": where.get("bulk") or {"path": str(payload_part(path)), "shards": None}})
+    if not tables:
+        return []
+    table = pa.concat_tables(tables)
+    return [{**row, **tags[row.pop("_tag")]}
+            for receptor in pc.unique(table["receptor_id"]).to_pylist()
+            for row in _top(table.filter(pc.equal(table["receptor_id"], receptor)), int(cap)).to_pylist()]
 
 
 def by_fragment(refs: list[dict]) -> list[dict]:
@@ -296,19 +373,39 @@ def by_fragment(refs: list[dict]) -> list[dict]:
     return [{"fragment": path, "refs": rows} for path, rows in fragments.items()]
 
 
+def top_n_hits(refs: dict, progress_cb=None) -> dict:
+    """A chunk of `shard_top_n_job` (`hit_refs` of one receptor): its hits, each with its pose
+    read and compressed here, so the parent only inserts them."""
+    return {"hits": load_hits(refs)}
+
+
 @task()
 def hit_poses(element: dict) -> dict:
-    """The ranked of one fragment as hits (the rows `ingest_hits` takes), each with its pose."""
+    """The ranked of one fragment as hits (the rows `ingest_hits` takes), each with its pose (the
+    payload part beside the fragment), compressed here."""
     refs = element["refs"]
-    payloads = _selected_payloads(Path(element["fragment"]), {(int(r["ligand_id"]), int(r["receptor_id"])) for r in refs})
+    keys = {(int(r["_shard_id"]), int(r["ligand_id"]), int(r["receptor_id"])) for r in refs}
+    bulks: dict[str, set | None] = {}  # the payload containers of these refs, and which of their shards
+    for ref in refs:
+        bulk = ref.get("_payload") or {"path": str(payload_part(element["fragment"])), "shards": None}
+        if bulk["shards"] is None or bulks.get(bulk["path"], set()) is None:
+            bulks[bulk["path"]] = None
+        else:
+            bulks.setdefault(bulk["path"], set()).update(bulk["shards"])
+    payloads = {}
+    for path, shards in bulks.items():
+        payloads.update(_selected_payloads(Path(path), None if shards is None else sorted(shards), keys))
     input_key = str(result_metadata(element["fragment"]).get("input_key") or "")
     hits = []
     for ref in refs:
-        payload = payloads.get((int(ref["ligand_id"]), int(ref["receptor_id"])))
+        payload = payloads.get((int(ref["_shard_id"]), int(ref["ligand_id"]), int(ref["receptor_id"])))
+        payload = None if payload is None else {**ref, **payload}
         if payload is None:
             raise ValueError(f"{element['fragment']}: ligand {ref['ligand_id']} is ranked but not in it")
         pose_text, pose_suffix = _pose(payload)
         ligand_id = int(payload["ligand_id"])
+        if not pose_text:
+            raise ValueError(f"{element['fragment']}: ligand {ligand_id} has no embedded pose")
         hits.append({
             **json.loads(payload.get("metrics_json") or "{}"),
             "name": f"{ref['_library']}:{ligand_id}",
@@ -319,9 +416,9 @@ def hit_poses(element: dict) -> dict:
             "score_type": str(payload.get("score_type") or ""),
             "pose_rank": 1,
             "receptor_molecule_id": int(payload["receptor_id"]),
+            "binding_site_id": int(payload.get("binding_site_id") or 0) or None,
             "input_key": input_key,
-            "_pose_text": pose_text,
-            "_pose_suffix": pose_suffix,
+            "pose": structure_payload(pose_text, pose_suffix, SERIES_POSES).packed(),  # compressed here
             "_result_shard": element["fragment"],
             "_result_record_id": ligand_id,
         })
@@ -333,10 +430,15 @@ def off_target_elements(refs: list[dict], template: dict, targets: list[dict], s
     """The best `top` of the `reference` receptor docked against each off-target: only their
     records are taken out of their shards. `refs` are what `rank` made, the best first."""
     picked: dict[int, set[int]] = {}
+    docked_from: dict[int, dict] = {}  # where the reference docked it from, there
     for ref in [ref for ref in refs if int(ref["receptor_id"]) == int(reference)][:int(top)]:
         picked.setdefault(int(ref["_shard_id"]), set()).add(int(ref["ligand_id"]))
+        if ref.get("_shard_path"):
+            docked_from[int(ref["_shard_id"])] = {"shard_path": ref["_shard_path"],
+                                                  "prepared_shard": ref.get("_prepared_shard")}
     for shard_id, ids in sorted(picked.items()):
-        shard = {**located(shards[shard_id]), "record_ids": sorted(ids), "n_records": len(ids)}
+        shard = {**{k: v for k, v in shards[shard_id].items() if k != "prepared_part"},
+                 **docked_from.get(shard_id, {}), "record_ids": sorted(ids), "n_records": len(ids)}
         for target in targets:
             yield {**template, **target, "stage": "off", "shards": [shard], "chunks_total": len(targets),
                    "selected_from_receptor_id": int(reference)}

@@ -20,10 +20,11 @@ from pydantic import BaseModel, Field
 from ms_flow.engine import writer
 from ms_flow.query import QuerySpec, db_rows
 from ms_flow.sinks import table_sink
-from amdockvs.core.jobs import configs, job
+from amdockvs.core.jobs import job
 from amdockvs.diversity.tasks import cluster_molecules_task, shard_fingerprints_task
 
 from amdockvs.core.configuration import DEFAULT_LIGAND_BATCH_SIZE
+from amdockvs.io.shards import shard_number
 from amdockvs.molecules.storage import ShardStore, as_store, store_from_config
 from amdockvs.core.worker_io import worker_file, worker_output_dir
 from amdockvs.core.constants import (
@@ -227,18 +228,13 @@ def _concat_shard_fingerprints(src: Path, *, out_dir: Path, nbits: int) -> tuple
 
 def _assignments(params, project):
     """The sink of the job, for chunks that return their rows beside the sidecar they wrote.
-    A run over shards returns its representatives by `shard_key`: they are promoted first."""
+    A run over shards writes none here: its representatives are library records, and the
+    promotion job chained after this one makes them rows (`DiversityAPI.cluster_job`)."""
     sink = writer(table_sink(model=ClusteringResult, write_mode="bulk"), project)
     shards = bool(dict(params).get("shards"))
 
     def write(results) -> None:
-        batches = [result["rows"] for result in results]
-        if shards:
-            store = ShardStore(configs[project]["project_db"])
-            promoted = [store.promote(row["molecule_id"] for row in rows) for rows in batches]
-            batches = [[{**row, "molecule_id": ids[row["molecule_id"]]} for row in rows if row["molecule_id"] in ids]
-                       for rows, ids in zip(batches, promoted)]
-        sink.write(batches)
+        sink.write([] if shards else [result["rows"] for result in results])
 
     return SimpleNamespace(tables=sink.tables, write=write)
 
@@ -276,8 +272,10 @@ def shard_fingerprints_job(params: dict, config: dict | None = None) -> Iterator
     for row in ShardStore(project_db).iter_rows():
         yield {
             "shard_path": worker_file(row["path"]),
+            "shard": shard_number(row),
+            "record_ids": row.get("record_ids"),  # what the exclusions left of it
             "shard_id": int(row["id"]),
-            "import_batch_id": row.get("import_batch_id"),
+            "import_batch_id": row.get("scope"),
             "radius": int(parsed.fp_radius),
             "nbits": int(parsed.fp_nbits),
             "output_dir": worker_output_dir(out_dir),

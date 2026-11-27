@@ -128,11 +128,14 @@ def _storage_section(dlg: QDialog, runtime) -> QVBoxLayout:
     def compacted() -> tuple:
         before = storage_stats(store)
         report = compact_storage(store) or {}
+        merged = runtime.merge_containers()  # the small shard containers too, as bytes
         stats = storage_stats(store)
         rewritten = int(report.get("volumes") or 0)
         freed = max(0, before.size - stats.size)
-        return stats, (f"Compact: rewrote {rewritten:,} volume(s), freed {freed / 1e6:,.1f} MB."
-                       if rewritten else "Compact: nothing to reclaim.")
+        said = [f"rewrote {rewritten:,} volume(s), freed {freed / 1e6:,.1f} MB" if rewritten else "",
+                f"merged {merged:,} container(s)" if merged else ""]
+        return stats, ("Compact: " + "; ".join(part for part in said if part) + "."
+                       if any(said) else "Compact: nothing to reclaim.")
 
     def cleared() -> tuple:
         freed = runtime.clear_transport()
@@ -145,6 +148,141 @@ def _storage_section(dlg: QDialog, runtime) -> QVBoxLayout:
     compact.clicked.connect(lambda: run(compacted, "Compacting…"))
     transport.clicked.connect(lambda: run(cleared, "Clearing queue files…"))
     run(lambda: storage_stats(store), "Reading…")
+    return layout
+
+
+def _confirm_clean(dlg: QDialog, name: str, plan: list[dict]) -> tuple[bool, bool]:
+    """What cleaning `name` would do, asked: whether to go, and whether to remove too what has no
+    copy here (its data is then lost)."""
+    from PySide6.QtWidgets import QCheckBox, QMessageBox
+
+    verified = sum(1 for row in plan if row["verified"])
+    alone = len(plan) - verified
+    box = QMessageBox(QMessageBox.Question, f"Clean {name}",
+                      f"{verified:,} container(s) on {name} have the same copy here: they are removed there.\n"
+                      f"{alone:,} have no copy here and stay there.", QMessageBox.Ok | QMessageBox.Cancel, dlg)
+    also = QCheckBox(f"Remove those {alone:,} too (their data is lost)")
+    if alone:
+        box.setCheckBox(also)
+    return box.exec() == QMessageBox.Ok, also.isChecked()
+
+
+def _queues_section(dlg: QDialog, runtime) -> QVBoxLayout:
+    """What the project has on clusters' queues, by executor: containers only there and those here
+    with a copy there, with Bring here (all of it, as far as it is made) and Clean (the copies there
+    that have one here; asked first). Off the GUI thread."""
+    layout = QVBoxLayout()
+    layout.addWidget(QLabel("On cluster queues"))
+    result = _muted_label()
+    open_ = [True]
+    dlg.finished.connect(lambda _code: open_.__setitem__(0, False))
+
+    def said(text: str) -> None:
+        if open_[0]:
+            result.setText(f"{datetime.now():%H:%M:%S}  {text}")
+            result.show()
+
+    def failed(exc) -> None:
+        said(f"Failed: {exc}")
+
+    def bring(name: str) -> None:
+        said(f"Bringing from {name}…")
+        run_async(lambda: runtime.bring_from(name), lambda ids: said(f"Brought {len(ids):,} container(s) from {name}."),
+                  on_error=failed)
+
+    def clean(name: str) -> None:
+        def planned(plan: list[dict]) -> None:
+            if not open_[0] or not plan:
+                said(f"{name}: nothing to clean.")
+                return
+            go, also = _confirm_clean(dlg, name, plan)
+            if go:
+                run_async(lambda: runtime.clean_host(name, confirm=also),
+                          lambda rows: said(f"{name}: removed {sum(r['removed'] for r in rows):,} copy(ies) there."),
+                          on_error=failed)
+
+        run_async(lambda: runtime.clean_host(name, dry=True), planned, on_error=failed)
+
+    for name, counts in sorted(runtime.queue_copies().items()):
+        row = QHBoxLayout()
+        row.addWidget(_muted_label(f"{name}: {counts['there']:,} only there, {counts['here_too']:,} here too"), 1)
+        here, gone = QPushButton("Bring here"), QPushButton(f"Clean {name}…")
+        here.setToolTip("Copy here what is only there, as far as it is made. Needs the executor active.")
+        gone.setToolTip("Remove the copies there that have the same copy here; asks first.")
+        here.clicked.connect(lambda _=False, n=name: bring(n))
+        gone.clicked.connect(lambda _=False, n=name: clean(n))
+        row.addWidget(here)
+        row.addWidget(gone)
+        layout.addLayout(row)
+    layout.addWidget(result)
+    result.hide()
+    return layout
+
+
+def _confirm_delete_generation(dlg: QDialog, row: dict) -> bool:
+    from PySide6.QtWidgets import QMessageBox
+
+    return QMessageBox.warning(
+        dlg, "Delete generation",
+        f"Delete generation #{row['id']} ({row['step']}) and its files? A cut made before the library "
+        "was repacked can then no longer be undone: its ligands are only in this generation.",
+        QMessageBox.Ok | QMessageBox.Cancel) == QMessageBox.Ok
+
+
+def _generations_section(dlg: QDialog, runtime) -> QVBoxLayout:
+    """The library's generations (a repack writes a new one and keeps the old): Go back makes a kept
+    one the library again, deleting nothing; Delete removes one that is not the library, asked
+    first. Read and changed off the GUI thread."""
+    layout = QVBoxLayout()
+    layout.addWidget(QLabel("Library generations"))
+    rows_layout = QVBoxLayout()
+    layout.addLayout(rows_layout)
+    result = _muted_label()
+    layout.addWidget(result)
+    result.hide()
+    open_ = [True]
+    dlg.finished.connect(lambda _code: open_.__setitem__(0, False))
+    loader = runtime.loader
+
+    def said(text: str) -> None:
+        if open_[0]:
+            result.setText(f"{datetime.now():%H:%M:%S}  {text}")
+            result.show()
+
+    def act(work, text: str) -> None:
+        run_async(work, lambda _r: (said(text), reload()), on_error=lambda exc: said(f"Failed: {exc}"))
+
+    def show(rows: list[dict]) -> None:
+        if not open_[0]:
+            return
+        while rows_layout.count():
+            item = rows_layout.takeAt(0)
+            for i in reversed(range(item.layout().count() if item.layout() else 0)):
+                gone = item.layout().itemAt(i).widget()
+                gone.setParent(None)
+                gone.deleteLater()
+        for row in rows:
+            line = QHBoxLayout()
+            state = "active" if row["active"] else ("kept" if row["kept"] else "")
+            line.addWidget(_muted_label(f"#{row['id']} {row['step']}: {row['shards']:,} shards, "
+                                        f"{row['records']:,} ligands{' · ' + state if state else ''}"), 1)
+            if not row["active"]:
+                if row["kept"]:
+                    back = QPushButton("Go back")
+                    back.setToolTip("Make this the library again. Deletes nothing.")
+                    back.clicked.connect(lambda _=False, r=row: act(lambda: loader.go_back_generation(r["id"]),
+                                                                    f"Generation #{r['id']} is the library again."))
+                    line.addWidget(back)
+                gone = QPushButton("Delete…")
+                gone.clicked.connect(lambda _=False, r=row: _confirm_delete_generation(dlg, r) and act(
+                    lambda: loader.delete_generation(r["id"]), f"Generation #{r['id']} deleted."))
+                line.addWidget(gone)
+            rows_layout.addLayout(line)
+
+    def reload() -> None:
+        run_async(loader.library_generations, show, on_error=lambda exc: said(f"Failed: {exc}"))
+
+    reload()
     return layout
 
 
@@ -269,6 +407,12 @@ def show_project_summary(window) -> None:
     if sharded:
         root.addSpacing(6)
         root.addLayout(_library_section(dlg, runtime))
+        if (_safe_count(lambda: len(runtime.loader.library_generations())) or 0) > 1:
+            root.addSpacing(6)
+            root.addLayout(_generations_section(dlg, runtime))
+    if _safe_count(lambda: len(runtime.queue_copies())):
+        root.addSpacing(6)
+        root.addLayout(_queues_section(dlg, runtime))
     root.addSpacing(6)
     root.addLayout(_storage_section(dlg, runtime))
 

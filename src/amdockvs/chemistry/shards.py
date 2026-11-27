@@ -17,20 +17,23 @@ import io
 from pathlib import Path
 from typing import Any, Sequence
 
-from ms_flow.core.data.shard import PayloadKind, Serializer, Shard, ShardWriter
+from ms_flow.core.data.shard import Group, PartWriter, Shard
+from amdockvs.core.constants import ShardKind
 
 from amdockvs.chemistry.pipeline import normalize_steps, run_pipeline
 from amdockvs.io.shards import FORMAT_FOR_KIND, mol_from_record
 
 
-def read_shard(shard_path: str | Path) -> tuple[list[int], list[Any]]:
+def read_shard(shard_path: str | Path, shard=None, record_ids=None) -> tuple[list[int], list[Any]]:
     """`(ids, molecules)`, positionally aligned. Unreadable records come back as `None`,
-    which `run_pipeline` carries through untouched — the id is what carries identity."""
+    which `run_pipeline` carries through untouched — the id is what carries identity.
+    `shard`: the shard's number inside the file (`amdockvs.shards.shard_number`), None = all;
+    `record_ids`: only those (what the exclusions left), None = all."""
     ids: list[int] = []
     mols: list[Any] = []
-    with Shard.open(Path(shard_path).expanduser().resolve()) as shard:
-        input_format = FORMAT_FOR_KIND.get(shard.kind, "")
-        for record in shard:
+    with Shard.open(Path(shard_path).expanduser().resolve(), shard=shard, record_ids=record_ids) as opened:
+        input_format = FORMAT_FOR_KIND.get(opened.kind, "")
+        for record in opened:
             ids.append(record.id)
             mols.append(mol_from_record(record.load(), input_format))
     return ids, mols
@@ -53,29 +56,22 @@ def write_shard(
     ids: Sequence[int],
     mols: Sequence[Any],
     *,
-    base_id: int,
-    slot_count: int,
-    shard_id: int = 0,
+    like: Any,
     metadata: dict[str, Any] | None = None,
+    scope: int | None = None,
 ) -> int:
-    """Write the molecules that survived, each at its own id. Returns how many were written.
+    """Write the molecules that survived, each at its own id, over ``like``'s range (the source
+    shard). Returns how many were written.
 
     Failures are dropped here, not earlier: `run_pipeline` keeps them in place so the caller
-    can count them, and this is the caller. Dropped means *absent*, not renumbered.
+    can count them, and this is the caller. Dropped means *absent*, not renumbered. ``scope``:
+    the source's (ids restart per source, so a shard is named by scope and id).
     """
     path = Path(shard_path).expanduser().resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
     written = 0
-    with ShardWriter(
-        path,
-        dataset_id=None,
-        shard_id=shard_id,
-        base_id=base_id,
-        kind=PayloadKind.SDF,  # whatever came in, what a pipeline emits is a molecule
-        serializer=Serializer.UTF8,
-        slot_count=slot_count,
-        metadata=dict(metadata or {}),
-    ) as writer:
+    # whatever came in, what a pipeline emits is a molecule
+    with PartWriter(path, kind=ShardKind.SDF, like=like, meta=metadata, scope=scope) as writer:
         for id_, mol in zip(ids, mols):
             if mol is None or isinstance(mol, Exception):
                 continue
@@ -84,30 +80,45 @@ def write_shard(
     return written
 
 
-def transform_ligand_shard(shard_in: str | Path, shard_out: str | Path, steps,
-                           progress=None) -> dict[str, int]:
+def transform_ligand_shard(shard_in: str | Path, shard_out: str | Path, steps, shard=None, *,
+                           scope: int | None = None, progress=None) -> dict[str, int]:
     """Run the step list over a whole shard. One file/CPU, no database in sight.
     `progress` takes a percentage, like a task's `progress_cb`; the chemistry is all of it."""
-    with Shard.open(Path(shard_in).expanduser().resolve()) as shard:
-        header = {
-            "base_id": shard.base_id,
-            "slot_count": shard.slot_count,
-            "shard_id": shard.shard_id,
-            "metadata": dict(shard.metadata),
-        }
-    ids, mols = read_shard(shard_in)
+    with Shard.open(Path(shard_in).expanduser().resolve(), shard=shard) as opened:
+        like, metadata = Group(opened.base_id, opened.slot_count, 0, None), dict(opened.metadata)
+        ids = [record.id for record in opened]
+        mols = [mol_from_record(record.load(), FORMAT_FOR_KIND.get(opened.kind, "")) for record in opened]
     results = run_pipeline(mols, normalize_steps(steps),
                            progress=None if progress is None else (lambda done: progress(done * 100.0)))
     written = write_shard(
         shard_out,
         ids,
         results,
-        base_id=header["base_id"],
-        slot_count=header["slot_count"],
-        shard_id=header["shard_id"],
-        metadata=header["metadata"],
+        like=like,
+        metadata=metadata,
+        scope=scope,
     )
     return {"n_input": len(mols), "n_records": written, "n_failed": len(mols) - written}
 
 
-__all__ = ["read_shard", "transform_ligand_shard", "write_shard"]
+def promotion_records(payload: dict, progress_cb=None) -> dict:
+    """The worker side of a promotion: the records named, out of one shard, as `promote_records`
+    takes them (the structure already compressed). A record that no longer parses is left out."""
+    from amdockvs.chemistry.descriptors import canonical_smiles
+    from amdockvs.core.payloads import structure_payload
+
+    wanted = [int(i) for i in payload.get("record_ids") or ()]
+    if not wanted:
+        return {"records": []}
+    cluster_of = dict(zip(wanted, payload.get("cluster_ids") or ()))
+    batch, library = payload.get("import_batch_id"), payload.get("library") or "library"
+    ids, mols = read_shard(payload["shard_path"], payload.get("shard"), wanted)
+    return {"records": [
+        {"name": f"{library}:{record_id}", "import_batch_id": batch, "source_index": record_id,
+         "smiles": canonical_smiles(mol), "structure": structure_payload(_molblock(mol), "sdf").packed(),
+         "cluster_id": cluster_of.get(record_id)}
+        for record_id, mol in zip(ids, mols) if mol is not None
+    ]}
+
+
+__all__ = ["promotion_records", "read_shard", "transform_ligand_shard", "write_shard"]

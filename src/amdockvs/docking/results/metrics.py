@@ -146,6 +146,7 @@ def docking_row(
     row = {
         "receptor_molecule_id": int(pair.get("receptor_id") or 0),
         "ligand_molecule_id": int(pair.get("ligand_id") or 0),
+        "binding_site_id": int(pair.get("binding_site_id") or 0) or None,
         "complex_id": int(pair.get("complex_id") or 0) or None,
         "pose_rank": int(pose_rank),
         "score": None if score is None else float(score),

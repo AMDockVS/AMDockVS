@@ -4,11 +4,10 @@ No SQL and no job declaration here: a worker loads this module and nothing of `j
 """
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 from typing import Any
 
-from amdockvs.core.rows import prep_row, shard_prep_row
+from amdockvs.core.rows import prep_row
 from amdockvs.docking.preparation.profiles import get_preparation_profile
 
 
@@ -31,6 +30,7 @@ def _prep_rows_from_summary(summary: dict, *, entity_kind: str) -> list[dict[str
                 family=str(update.get("engine") or "ad4"),
                 payload_id=update["prepared"],
                 flex_payload_id=update.get("flex"),
+                binding_site_id=int(update.get("binding_site_id") or 0),
                 # Stored on the row: it is the only place the Preparation table can show them.
                 warnings="\n".join(update.get("warnings") or []) or None,
             )
@@ -44,6 +44,7 @@ def _prep_rows_from_summary(summary: dict, *, entity_kind: str) -> list[dict[str
                 role_type=role_type,
                 molecule_id=molecule_id,
                 family=str(failure.get("engine") or summary.get("engine") or "ad4"),
+                binding_site_id=int(failure.get("binding_site_id") or 0),
                 error=str(failure.get("error") or "Preparation failed."),
             )
         )
@@ -77,28 +78,28 @@ def prepare_entities(payload: dict, progress_cb=None):
     return {f"{entity_kind}_preps": preps, "molecule_failures": failures}
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
 def prepare_ligand_shards(payload: dict, progress_cb=None):
+    """Each shard into a part of its own, whose receipt (`part`) is appended to the containers of
+    the role (by `catalog_sink` here, by the runner there). The name is new per run, so a redo never
+    overwrites a part not yet committed."""
+    from uuid import uuid4
+
+    from ms_flow.core.data.catalog import file_row
+
     engine = str(payload.get("engine") or "ad4")
+    profile = get_preparation_profile(engine)
+    if profile.prepare_shard is None:
+        raise ValueError(f"Preparation profile '{engine}' does not support sharded libraries.")
     rows: list[dict[str, Any]] = []
     for index, shard in enumerate(list(payload.get("shards") or [])):
         source = Path(str(shard["shard_path"])).expanduser().resolve()
-        output_path = Path(str(shard["output_dir"])).expanduser().resolve() / source.name
-        profile = get_preparation_profile(engine)
-        if profile.prepare_shard is None:
-            raise ValueError(f"Preparation profile '{engine}' does not support sharded libraries.")
-        stats = profile.prepare_shard(source, output_path, engine=engine)
-        if output_path.is_file():  # the row exists = prepared
-            rows.append(shard_prep_row(shard_id=int(shard["shard_id"]), family=engine,
-                                       n_records=int(stats["n_records"]), n_failed=int(stats["n_failed"]),
-                                       sha256=_sha256(output_path)))
+        name = f"{int(shard['shard_id'])}-{uuid4().hex[:8]}{source.suffix}"
+        output_path = Path(str(shard["output_dir"])).expanduser().resolve() / name
+        profile.prepare_shard(source, output_path, engine=engine, shard=shard.get("shard"),
+                              scope=shard.get("import_batch_id"), origin=int(shard["shard_id"]))
+        if output_path.is_file():
+            rows.append(file_row(output_path, role=str(payload["role"]),
+                                 generation_id=shard.get("generation_id"), part=shard.get("part")))
         if progress_cb is not None:
             progress_cb(((index + 1) / max(1, len(payload["shards"]))) * 100.0)
     return rows

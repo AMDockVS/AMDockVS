@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from amdockvs.core.constants import AMDOCKVS_LOCAL_EXECUTORS, AMDOCKVS_PROCESS_EXECUTORS
 from amdockvs.core.jobs import task
-from amdockvs.io.shards import filter_ligand_span
+from amdockvs.io.shards import write_ligand_span
 from amdockvs.io.transformers import (
     build_import_graph_payload,
     materialize_import_batch,
@@ -46,10 +46,10 @@ def materialize_multithreaded_sdf_rows(payload: dict, progress_cb=None):
 
 
 @task(
-    name="amdock_filter_ligand_span",
-    description="Filter one span of a source library; the survivors go back to the shard queue.",
+    name="amdock_write_ligand_span",
+    description="Filter one span of a source library and write it as a part; the parent commits it.",
     executor="compute",
     supported_executors=AMDOCKVS_LOCAL_EXECUTORS,
 )
-def filter_ligand_span_task(payload: dict, progress_cb=None) -> list[dict]:
-    return filter_ligand_span(payload)
+def write_ligand_span_task(payload: dict, progress_cb=None) -> list[dict]:
+    return write_ligand_span(payload)

@@ -505,6 +505,23 @@ class MoleculeAPI:
             "prepared_records": sum(int(row.get("n_records") or 0) for row in prepared),
         }
 
+    def shard_exclusions(self) -> list[dict[str, Any]]:
+        """The cuts over the sharded library, newest first: [{id, active, reason, n, ...}].
+        What a step left out is a sidecar of ids, not a rewrite, so every cut is undoable."""
+        from ms_flow.core.data.exclusions import list_exclusions
+
+        self.runtime._require_active_project()
+        return list_exclusions(self.runtime.workspace.project_db)
+
+    def set_shard_exclusion_active(self, exclusion_id: int, active: bool) -> None:
+        """Undo (or re-apply) one cut: the records come back to every step that reads the
+        library. They come back *unscored* — what was computed over them was never deleted,
+        but a step that ran while they were out never saw them."""
+        from ms_flow.core.data.exclusions import set_exclusion_active
+
+        self.runtime._require_active_project()
+        set_exclusion_active(self.runtime.workspace.project_db, int(exclusion_id), bool(active))
+
     def library_stats(self):
         """What the Project dialog shows of a sharded library: see `molecules.library_stats`."""
         from amdockvs.core.constants import RESOURCE_SHARDS
@@ -517,16 +534,25 @@ class MoleculeAPI:
             shards_root = None
         return library_stats(self.runtime.workspace.project_db, shards_root)
 
-    def shard_preps(self, shard_id: int) -> dict[str, tuple[int, int]]:
-        """One shard's preparations: family -> (prepared records, failed records)."""
-        from sqlmodel import select
+    def file_preps(self, file_id: int) -> dict[str, tuple[int, int]]:
+        """One catalog file's preparations: family -> (prepared records, failed records), over the
+        shards of it that are prepared."""
+        from ms_flow.core.data.catalog import shard_spec
 
-        from amdockvs.models import ShardPrep
+        from amdockvs.molecules.storage import prepared_counts
 
         self.runtime._require_active_project()
-        with self.runtime.workspace.project_db.get_session() as session:
-            rows = session.exec(select(ShardPrep).where(ShardPrep.shard_id == int(shard_id))).all()
-        return {str(row.family): (int(row.n_records), int(row.n_failed)) for row in rows}
+        return {family: (done, failed) for family, (_n, done, failed) in
+                prepared_counts(self.runtime.workspace.project_db, shard_spec(id=int(file_id))).items()}
+
+    def file_prep_failures(self, file_id: int) -> dict[str, int]:
+        """reason -> how many records of one catalog file a preparation dropped."""
+        from ms_flow.core.data.catalog import shard_spec
+
+        from amdockvs.molecules.storage import prepared_failures
+
+        self.runtime._require_active_project()
+        return prepared_failures(self.runtime.workspace.project_db, shard_spec(id=int(file_id)))
 
     def list_fragments(self, molecule_id: int) -> list[dict[str, Any]]:
         self.runtime._require_active_project()

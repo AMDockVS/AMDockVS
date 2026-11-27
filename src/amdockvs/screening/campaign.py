@@ -10,9 +10,15 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Mapping
 
+from pathlib import Path
+
+import numpy as np
+
+from ms_flow.core.data import catalog, states
 from sqlmodel import select
 
-from amdockvs.models import DockingRun, ScreeningShardRun, ScreeningTarget
+from amdockvs.docking.results.dataset import DONE_KIND, payload_part, result_roles
+from amdockvs.models import DockingRun, ScreeningTarget
 from amdockvs.core.vocab import TargetState
 
 
@@ -28,13 +34,27 @@ def plan_targets(
 
     A receptor may bring `ligands_done`: how many of the run's OWN ligands were already docked
     when it was planned (what "Skip pairs already docked" takes out of its work). Docked counts
-    from there, so it speaks of the selection and of nothing else."""
-    rows = list(receptors)
+    from there, so it speaks of the selection and of nothing else. It may also bring its own
+    `ligands_total`, which is what a receptor docked in several of its sites needs: its work is
+    the library once per site.
+
+    One row per receptor, whatever its sites: progress is the receptor's, summed over them, and
+    `state_keys` names the key of each of them (`state_key`), which is where its results are."""
+    rows: dict[int, dict[str, Any]] = {}
+    for receptor in receptors:
+        receptor_id = int(receptor.get("receptor_id") or 0)
+        merged = rows.setdefault(receptor_id, {})
+        for key in ("receptor_name", "ligands_total"):
+            if receptor.get(key) is not None:
+                merged[key] = receptor[key]
+        if receptor.get("ligands_done") is not None:
+            merged["ligands_done"] = int(merged.get("ligands_done") or 0) + int(receptor["ligands_done"])
+        if receptor.get("state_key"):
+            merged.setdefault("state_keys", set()).add(str(receptor["state_key"]))
     if not rows:
         return 0
     with project_db.get_session() as session:
-        for receptor in rows:
-            receptor_id = int(receptor.get("receptor_id") or 0)
+        for receptor_id, receptor in rows.items():
             existing = session.exec(
                 select(ScreeningTarget).where(
                     ScreeningTarget.docking_run_id == int(docking_run_id),
@@ -43,9 +63,11 @@ def plan_targets(
             ).first() or ScreeningTarget(docking_run_id=int(docking_run_id), receptor_molecule_id=receptor_id)
             existing.receptor_name = str(receptor.get("receptor_name") or existing.receptor_name)
             existing.engine = str(engine or existing.engine)
-            existing.ligands_total = int(ligands_total)
+            existing.ligands_total = int(receptor.get("ligands_total") or ligands_total)
             if receptor.get("ligands_done") is not None:
                 existing.ligands_done = int(receptor["ligands_done"])
+            if receptor.get("state_keys"):
+                existing.state_keys = ",".join(sorted(receptor["state_keys"] | set(filter(None, existing.state_keys.split(",")))))
             existing.state = TargetState.SCHEDULED
             session.add(existing)
         session.commit()
@@ -106,100 +128,65 @@ def stop_run(project_db, *, docking_run_id: int | None, state: str) -> None:
         session.commit()
 
 
-def advance_shard_run(
-    project_db,
-    *,
-    docking_run_id: int,
-    shard_id: int,
-    receptor_id: int,
-    engine: str,
-    protocol_hash: str,
-    scored: int,
-    hits: int,
-    result_path: str = "",
-    selection: str = "",
-    input_key: str = "",
-) -> bool:
-    """Persist one pair receipt. Returns false when that exact result was already recorded.
+def done_shards(project_db, key: str, *, narrowed_by: str = "") -> set[int]:
+    """The shards docked for `key`: whole, or — with `narrowed_by` (`Exclusions.key`) — under
+    those cuts too, which is what a shard the same cuts leave partial may skip."""
+    return {int(s) for s in states.done(project_db, DONE_KIND, key, narrowed_by=narrowed_by or None)}
 
-    `selection` records which ligands of the shard the receipt stands for (empty: all of them),
-    so a forced re-dock replaces only the receipts its own selection covers."""
+
+def record_docked(project_db, *, key: str, shard_id: int, result_path: str = "", part: str = "",
+                  narrowed_by: str = "", generation_id: int | None = None, force: bool = False,
+                  writer=None, done_ids=None, failed_ids=None) -> bool:
+    """One shard docked for `key`: its two result parts (`result_path`, the summary, and the payload
+    beside it) committed into the key's containers, then the shard into the done-set (that order: a
+    crash in between docks it again, and `part` — the run's id of this task — makes the commit of a
+    replay a no-op). False when it was already recorded — a replay — and nothing is written; `force`
+    (a forced re-dock, whose shards are done already) records it anyway. `writer`: the parent's
+    `PairWriter` of the key, kept open over a run; one of its own (the parts' folder's parent) without.
+    `done_ids`/`failed_ids`: the shard's ligands docked and not, as the worker named them; without
+    them the shard counts done with unknown ligand counts.
+
+    The done-set is held per process by `states` (read whole once, then its new pieces)."""
+    from uuid import uuid4
+
+    path = Path(str(result_path or ""))
+    done = states.done(project_db, DONE_KIND, key, narrowed_by=narrowed_by or None)  # sorted
+    at = int(np.searchsorted(done, np.uint64(shard_id)))
+    if not force and at < len(done) and int(done[at]) == int(shard_id):
+        if str(result_path or ""):  # a replay's parts: never committed, never read
+            from ms_flow.core.data.companions import whole
+
+            for name in [*whole(path), *whole(payload_part(path))]:
+                Path(name).unlink(missing_ok=True)
+        return False
+    if str(result_path or "") and path.is_file():
+        part = str(part or uuid4().hex)
+        own = writer is None
+        if own:
+            writer = catalog.PairWriter(project_db, path.parent.parent, generation_id=generation_id,
+                                        roles=result_roles(key), prefix=part)
+        try:
+            (receipt,) = writer.commit_parts([{"part": part, "path": str(path), "bulk": str(payload_part(path))}])
+        finally:
+            if own:
+                writer.close()
+        if "error" in receipt:
+            raise RuntimeError(receipt["error"])
+    records = None if done_ids is None and failed_ids is None else {
+        int(shard_id): (list(done_ids or ()), list(failed_ids or ()))}
+    states.mark_done(project_db, DONE_KIND, key, [int(shard_id)], narrowed_by=str(narrowed_by or ""),
+                     generation_id=generation_id, records=records)
+    return True
+
+
+def target_keys(project_db, docking_run_ids: Iterable[int], *, receptor_id: int | None = None) -> set[str]:
+    """The keys the targets of these runs docked under (of one receptor, with `receptor_id`)."""
+    statement = select(ScreeningTarget.state_keys).where(
+        ScreeningTarget.docking_run_id.in_([int(run) for run in docking_run_ids]))
+    if receptor_id is not None:
+        statement = statement.where(ScreeningTarget.receptor_molecule_id == int(receptor_id))
     with project_db.get_session() as session:
-        row = session.exec(
-            select(ScreeningShardRun).where(
-                ScreeningShardRun.docking_run_id == int(docking_run_id),
-                ScreeningShardRun.shard_id == int(shard_id),
-                ScreeningShardRun.receptor_molecule_id == int(receptor_id),
-            )
-        ).first()
-        if row is not None and row.state == TargetState.DONE:
-            return False
-        row = row or ScreeningShardRun(
-            docking_run_id=int(docking_run_id),
-            shard_id=int(shard_id),
-            receptor_molecule_id=int(receptor_id),
-            engine=str(engine),
-            protocol_hash=str(protocol_hash or ""),
-        )
-        row.ligands_scored = max(0, int(scored))
-        row.hits = max(0, int(hits))
-        row.result_path = str(result_path or "")
-        row.selection = str(selection or "")
-        row.input_key = str(input_key or "")
-        row.state = TargetState.DONE
-        session.add(row)
-        session.commit()
-        return True
-
-
-def completed_shard_targets(project_db, *, docking_run_id: int | None,
-                            selection: str = "") -> set[tuple[int, int]]:
-    """Completed ``(shard_id, receptor_id)`` pairs of one docking run (one engine and protocol),
-    among the receipts docked under `selection` (empty: the whole shard)."""
-    if not docking_run_id:
-        return set()
-    with project_db.get_session() as session:
-        return {
-            (int(shard_id), int(receptor_id))
-            for shard_id, receptor_id in session.exec(
-                select(ScreeningShardRun.shard_id, ScreeningShardRun.receptor_molecule_id).where(
-                    ScreeningShardRun.docking_run_id == int(docking_run_id),
-                    ScreeningShardRun.selection == str(selection or ""),
-                    ScreeningShardRun.state == TargetState.DONE,
-                )
-            ).all()
-        }
-
-
-def completed_protocol_targets(project_db, *, engine: str, protocol_hash: str, selection: str = "",
-                               input_keys: Mapping[int, str] | None = None) -> set[tuple[int, int]]:
-    """Completed ``(shard_id, receptor_id)`` pairs of every screening run of this engine and
-    protocol: what "skip pairs already docked" leaves out, whichever run docked them. A
-    campaign's run id is new on every submission, so a skip keyed by it skips nothing.
-
-    Only the receipts docked under `selection` count. A receipt of an off-target stage stands
-    for one reference receptor's Top-N inside the shard, not the shard: counting it would make
-    a full-library run skip the records it never docked.
-
-    With `input_keys` (receptor id -> its current `docking_input_key`), only receipts docked
-    against those inputs count: a receptor prepared again or given a new box is docked again."""
-    with project_db.get_session() as session:
-        return {
-            (int(shard_id), int(receptor_id))
-            for shard_id, receptor_id, key in session.exec(
-                select(ScreeningShardRun.shard_id, ScreeningShardRun.receptor_molecule_id,
-                       ScreeningShardRun.input_key)
-                .join(DockingRun, DockingRun.id == ScreeningShardRun.docking_run_id)
-                .where(
-                    DockingRun.engine == str(engine).strip().lower(),
-                    DockingRun.run_kind == "screening",
-                    DockingRun.protocol_hash == str(protocol_hash or ""),
-                    ScreeningShardRun.selection == str(selection or ""),
-                    ScreeningShardRun.state == TargetState.DONE,
-                )
-            ).all()
-            if input_keys is None or key == input_keys.get(int(receptor_id))
-        }
+        return {key for keys in session.exec(statement).all() for key in str(keys or "").split(",") if key}
 
 
 def list_targets(project_db, *, run_id: str | None = None, active_only: bool = False) -> list[dict[str, Any]]:
@@ -225,18 +212,19 @@ def list_targets(project_db, *, run_id: str | None = None, active_only: bool = F
                 "hits": row.hits,
                 "imported": row.imported,
                 "state": row.state,
+                "state_keys": row.state_keys,
             }
             for row, submit_id in rows
         ]
 
 
 __all__ = [
-    "advance_shard_run",
     "advance_target",
-    "completed_protocol_targets",
-    "completed_shard_targets",
+    "done_shards",
     "finish_run",
     "list_targets",
     "plan_targets",
+    "record_docked",
     "stop_run",
+    "target_keys",
 ]

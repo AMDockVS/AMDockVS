@@ -67,7 +67,6 @@ batch_size = 32
 autobatch = 128
 
 [shards]
-records_per_shard = 1000
 keep_history = false
 max_bytes = 268435456
 suggest_records = 500000

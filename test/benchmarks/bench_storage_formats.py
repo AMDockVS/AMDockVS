@@ -248,6 +248,19 @@ def molecule_row(r: dict, payload_id: int, slim: bool) -> dict:
             "usage_class": "general"}
 
 
+def insertable(row: dict) -> dict:
+    """`molecule_row` against today's schema: columns dropped or made generated since are left out."""
+    global _INSERTABLE
+    if _INSERTABLE is None:
+        from amdockvs.models import MoleculeRecord
+
+        _INSERTABLE = {c.name for c in MoleculeRecord.__table__.columns if c.computed is None}
+    return {k: v for k, v in row.items() if k in _INSERTABLE}
+
+
+_INSERTABLE = None
+
+
 def write_rows_volumes(rows: list[dict], work: Path, mode: str) -> tuple[Path, object]:
     """mode: indexes (today) | late (drop, load, rebuild) | slim (6 descriptors, no secondary index)."""
     from sqlalchemy import insert, text
@@ -317,7 +330,8 @@ def read_rows_volumes(project: Path, rt, ids: list[int]) -> None:
 
 
 def write_mshard(rows: list[dict], work: Path, per_shard: int) -> Path:
-    from ms_flow.core.data.shard import PayloadKind, Serializer, ShardWriter
+    from ms_flow.core.data.shard import Serializer, ShardWriter
+    from amdockvs.core.constants import ShardKind
 
     out = work / f"st_mshard_{per_shard}"
     out.mkdir()
@@ -325,7 +339,7 @@ def write_mshard(rows: list[dict], work: Path, per_shard: int) -> Path:
         for shard_id, lo in enumerate(range(0, len(rows), per_shard)):
             part = rows[lo:lo + per_shard]
             with ShardWriter(out / f"shard_{shard_id:05d}.mshard", dataset_id=None, shard_id=shard_id,
-                             base_id=part[0]["id"], kind=PayloadKind.SDF, serializer=Serializer.RAW,
+                             base_id=part[0]["id"], kind=ShardKind.SDF, serializer=Serializer.RAW,
                              slot_count=len(part)) as w:
                 for r in part:
                     w.add(r["id"], r["sdf"].encode())
@@ -664,6 +678,91 @@ def stage_point(library: Path, work: Path, copies: int = 40) -> None:
     shutil.rmtree(small, ignore_errors=True)
 
 
+# -- 1M ligands written: SQLite / SQLite+volumes / SQLite+Parquet shards (2026-11-18) ---------
+
+def stage_write1m(library: Path, work: Path, n: int = 1_000_000) -> None:
+    """Storage only: records arrive parsed, with descriptors and zstd-packed payloads (the
+    workers do that in a real import). Variants:
+      sqlite_blob        molecules rows + SDF blobs in a table of project.db
+      sqlite_volumes     molecules rows + ms_flow volumes (today's rows import)
+      shards_big         screening_shards rows + one Parquet, row group = shard (proposed)
+      sqlite_shards_big  molecules rows + shards_big (descriptors queryable in SQL)
+    """
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    from sqlalchemy import insert, text
+    from sqlmodel import Session
+
+    from amdockvs import AMDockVSRuntime
+    from amdockvs.core.payloads import payload_store, structure_payload
+    from amdockvs.models import MoleculeRecord
+    from ms_flow.core.database.project_models import CatalogFile
+
+    base = prepare(library)
+    packed = [structure_payload(r["sdf"], "sdf").packed() for r in base]
+    rows = []
+    for k in range(n):  # the library cycled; unique names/keys so indexes pay their real cost
+        b, cycle = k % len(base), k // len(base)
+        rows.append({**base[b], "id": k + 1, "name": f"{base[b]['name']}_{cycle}",
+                     "inchikey": f"{base[b]['inchikey']}{cycle}", "payload": packed[b]})
+    step, per_shard = 10_000, 1000
+    schema = pa.schema([("id", pa.uint64()), ("source_index", pa.uint64()), ("record", pa.string())])
+
+    def molecules(s, part, pids):
+        s.execute(insert(MoleculeRecord.__table__), [insertable(molecule_row(r, p, False)) for r, p in zip(part, pids)])
+
+    def big_shards(project, store_db):
+        path = project / "shards" / "vol_000000.parquet"
+        path.parent.mkdir(exist_ok=True)
+        with open(path, "wb") as fh:
+            w = pq.ParquetWriter(fh, schema, compression="zstd", write_statistics=["id"])
+            for lo in range(0, n, per_shard):
+                part = rows[lo:lo + per_shard]
+                w.write_table(pa.table({"id": [r["id"] for r in part], "source_index": [r["id"] for r in part],
+                                        "record": [r["sdf"] for r in part]}, schema=schema), row_group_size=per_shard)
+            w.close()
+            fh.flush()
+            os.fsync(fh.fileno())
+        with Session(store_db.engine) as s:  # committed once the file is durable
+            s.add(CatalogFile(path=str(path), n_shards=n // per_shard, n_records=n, n_active=n))
+            s.commit()
+
+    for variant in ("sqlite_blob", "sqlite_volumes", "shards_big", "sqlite_shards_big"):
+        rt = AMDockVSRuntime()
+        project = work / f"w1m_{variant}"
+        rt.create_project(name=f"w1m_{variant}", folder=project)
+        store_db = rt.workspace.project_db
+        if variant == "sqlite_blob":
+            with store_db.engine.begin() as con:
+                con.exec_driver_sql("CREATE TABLE structures (id INTEGER PRIMARY KEY, codec TEXT, data BLOB)")
+        os.sync()
+        with meter() as m:
+            if variant in ("sqlite_blob", "sqlite_volumes", "sqlite_shards_big"):
+                payloads = payload_store(store_db)
+                for lo in range(0, n, step):  # one transaction per 10k (the import flush)
+                    part = rows[lo:lo + step]
+                    with Session(store_db.engine) as s:
+                        if variant == "sqlite_blob":
+                            s.execute(text("INSERT INTO structures (id, codec, data) VALUES (:id, 'zstd', :data)"),
+                                      [{"id": r["id"], "data": r["payload"].data} for r in part])
+                            molecules(s, part, [None] * len(part))
+                        elif variant == "sqlite_volumes":
+                            molecules(s, part, payloads.put(s, [r["payload"] for r in part]))
+                        else:
+                            molecules(s, part, [None] * len(part))
+                        s.commit()
+            if variant in ("shards_big", "sqlite_shards_big"):
+                big_shards(project, store_db)
+            with store_db.engine.begin() as con:
+                con.exec_driver_sql("PRAGMA wal_checkpoint(TRUNCATE)")
+            os.sync()
+        files, size = tree(project)
+        emit("write1m", variant, n=n, **m.stats("write"), files=files, mb=round(size / 1e6, 1),
+             project_db_mb=round((project / "project.db").stat().st_size / 1e6, 1))
+        store_db.engine.dispose()
+        shutil.rmtree(project, ignore_errors=True)
+
+
 def prepare_descriptors(library: Path) -> list[dict]:
     rows = prepare(library)
     for r in rows:
@@ -676,6 +775,7 @@ def main() -> int:
     ap.add_argument("library", type=Path, nargs="?", default=LIBRARY)
     ap.add_argument("--stages", default="compute")
     ap.add_argument("--workdir", type=Path, default=Path(tempfile.gettempdir()))
+    ap.add_argument("--n", type=int, default=1_000_000, help="records of the write1m stage")
     args = ap.parse_args()
     work = Path(tempfile.mkdtemp(prefix="bench_storage_", dir=args.workdir))
     os.environ["HOME"] = str(work / "home")  # projects register here, not in the real ~/.molsuite
@@ -685,7 +785,8 @@ def main() -> int:
               "app_mshard": lambda: stage_app(args.library.resolve(), work, "mshard"),
               "storage": lambda: stage_storage(args.library.resolve(), work),
               "scale": lambda: stage_scale(args.library.resolve(), work),
-              "point": lambda: stage_point(args.library.resolve(), work)}
+              "point": lambda: stage_point(args.library.resolve(), work),
+              "write1m": lambda: stage_write1m(args.library.resolve(), work, args.n)}
     try:
         for name in args.stages.split(","):
             stages[name]()

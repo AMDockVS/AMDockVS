@@ -22,6 +22,7 @@ from amdockvs.ui.common.naming import NAMED, about
 from amdockvs.ui.common.widgets import LigandSources, add_run_on, gate_workflow_save, split_button
 from ms_components.tool_panel import ToolPanel
 from amdockvs.ui.catalog.common import BoundTableWidget
+from amdockvs.binding_sites.repository import site_name_expr
 from amdockvs.docking.api import MissingLigand3DError
 from amdockvs.docking.engines.programs import list_docking_programs
 from amdockvs.models import prep_table
@@ -66,11 +67,18 @@ def _prep_table_config(*, role_type: str) -> TableConfig:
             tooltip=lambda row: row.get("warnings") or None,
         ),
     ] if hasattr(model, "warnings") else []
+    # Receptors only: one is prepared once per site with flexible side chains (carving them
+    # rewrites the rigid file), so the same molecule shows up in several rows.
+    site_column = [
+        ColumnDef("binding_site_id", label="Site", width=90, filterable=False, expr=site_name_expr(model),
+                  formatter=lambda value: str(value or "") or "rigid"),
+    ] if hasattr(model, "binding_site_id") else []
     return TableConfig(
         model_class=model,
         columns=[
             ColumnDef(molecule_column.key, label="Molecule", width=90, sortable=True, filterable=True,
                       align=AlignHint.RIGHT),
+            *site_column,
             # Known families derived from the program registry — no static list to fall out of sync.
             ColumnDef("family", label="Family", width=120, sortable=True, filterable=True,
                       kind=ColumnKind.CHOICE,
@@ -105,22 +113,25 @@ def _prep_table_config(*, role_type: str) -> TableConfig:
 
 
 def _shard_prep_table_config() -> TableConfig:
-    """Per-(shard, family) preparation, from `shard_preps`: a row = that shard is prepared."""
-    from amdockvs.models import ShardPrep
+    """The prepared files (catalog role `prepared:<family>`): a shard in one is prepared. A file
+    holds many shards; what failed in them is in the Shards view's details."""
+    from ms_flow.core.database.project_models import CatalogFile
 
     return TableConfig(
-        model_class=ShardPrep,
+        model_class=CatalogFile,
         columns=[
-            ColumnDef("shard_id", label="Shard", width=90, sortable=True, filterable=True, align=AlignHint.RIGHT),
-            ColumnDef("family", label="Family", width=120, sortable=True, filterable=True,
-                      kind=ColumnKind.CHOICE,
-                      choices=tuple(sorted({spec.preparation_engine for spec in list_docking_programs()}))),
+            ColumnDef("id", label="File", width=70, sortable=True, align=AlignHint.RIGHT, kind=ColumnKind.INTEGER),
+            ColumnDef("role", label="Family", width=130, sortable=True, filterable=True),
+            ColumnDef("n_shards", label="Shards", width=90, sortable=True, align=AlignHint.RIGHT,
+                      kind=ColumnKind.INTEGER),
             ColumnDef("n_records", label="Prepared", width=90, sortable=True, align=AlignHint.RIGHT,
                       kind=ColumnKind.INTEGER),
-            ColumnDef("n_failed", label="Failed", width=90, sortable=True, align=AlignHint.RIGHT,
-                      kind=ColumnKind.INTEGER),
+            ColumnDef("path", label="Path", width=320, sortable=True),
+            ColumnDef("generation_id", label="Generation", width=90, sortable=True, align=AlignHint.RIGHT,
+                      kind=ColumnKind.INTEGER, visible=False),
         ],
-        default_sort=[SortSpec("shard_id", descending=False)],
+        default_filters=[FilterSpec("role", FilterOperator.LIKE, "prepared:%", label="prepared")],
+        default_sort=[SortSpec("id", descending=False)],
         page_size=20,
         page_size_options=[10, 20, 50, 100],
         load_mode=TableLoadMode.INFINITE,
@@ -270,8 +281,8 @@ class PreparationPanel:
         if callable(opener):
             opener(view_id)
 
-    def _selected_shard_ids(self) -> list[int] | None:
-        """The shards picked in the Shards table (right-click > Select); None = every shard."""
+    def _selected_file_ids(self) -> list[int] | None:
+        """The files picked in the Shards table (right-click > Select); None = every file."""
         store = getattr(self.window(), "selection", None)
         return store.get("shard") if store is not None else None
 
@@ -850,7 +861,7 @@ class PreparationPanel:
         jobs: list[tuple[str, str, str]] = []
         options = dict(
             force=self.force_prepare_ligands.isChecked(),
-            shard_ids=self._selected_shard_ids(),
+            file_ids=self._selected_file_ids(),
             executor_name=self.ligand_prep_destination.executor_name(),
         )
 
@@ -1033,7 +1044,7 @@ class PreparationPanel:
         # The "Ligands from" boxes too: a step saved with only Shards ticked prepares only shards.
         sources = self._ligand_sources()
         scope = self._prep_ligand_scope() if "rows" in sources else None
-        shard_ids = self._selected_shard_ids() if "shards" in sources else None
+        file_ids = self._selected_file_ids() if "shards" in sources else None
         target = self._selected_prep_target()
         programs = self._distinct_prep_programs() if target is None else [target]
         batch = max(1, int(self.prepare_ligand_batch_size.value()))
@@ -1041,7 +1052,7 @@ class PreparationPanel:
         # Captured now, not at run time: a workflow step keeps the destination it was saved with.
         executor = self.ligand_prep_destination.executor_name()
 
-        def submit(rt, programs=programs, sources=sources, scope=scope, shard_ids=shard_ids,
+        def submit(rt, programs=programs, sources=sources, scope=scope, file_ids=file_ids,
                    batch=batch, force=force, executor=executor):
             jobs = []
             if "rows" in sources:
@@ -1054,7 +1065,7 @@ class PreparationPanel:
                 ]
             if "shards" in sources:  # beside the table's, at a lower priority, as from the button
                 jobs += [
-                    rt.docking.prepare_ligand_shards(program=p, force=force, shard_ids=shard_ids,
+                    rt.docking.prepare_ligand_shards(program=p, force=force, file_ids=file_ids,
                                                      executor_name=executor)
                     for p in programs
                 ]

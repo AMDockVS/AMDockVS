@@ -25,7 +25,7 @@ from amdockvs.chemistry.descriptors import BASIC_DESCRIPTOR_FIELDS
 from amdockvs.chemistry.pipeline import normalize_steps
 from amdockvs.chemistry.structures import with_structures
 from amdockvs.chemistry.tools.esmfold import FAST_MODEL
-from amdockvs.io.shards import shard_generation_writer
+from amdockvs.io.shards import shard_generation_writer, shard_number
 from amdockvs.models import MoleculeModel, MoleculeRecord
 
 
@@ -318,7 +318,7 @@ def count_shard_chemistry_chunks(params: dict, config: dict | None = None) -> in
     project_db = dict(config or {}).get("project_db")
     if project_db is None:
         raise ValueError("shard_chemistry_job requires project_db in config.")
-    return ShardStore(project_db).count(shard_scope_spec())
+    return ShardStore(project_db).count(shard_scope_spec(), whole=True)
 
 
 @job(
@@ -350,12 +350,14 @@ def shard_chemistry_job(params: dict, config: dict | None = None) -> Iterator[di
         raise ValueError("shard_chemistry_job requires a generation to write into.")
     # One directory per generation, so forgetting a generation is deleting a directory.
     output_dir = worker_output_dir(parsed.output_dir)
-    for row in ShardStore(project_db).iter_rows(shard_scope_spec()):
+    # whole: a rewrite keeps every record (ids survive it), so the exclusions still apply after.
+    for row in ShardStore(project_db).iter_rows(shard_scope_spec(), whole=True):
         shard_path = Path(str(row.get("path") or ""))
         yield {
             "shard_path": worker_file(shard_path),
+            "shard": shard_number(row),
             "output_dir": output_dir,
-            "import_batch_id": row.get("import_batch_id"),
+            "import_batch_id": row.get("scope"),
             "shard_index": int(row.get("shard_index") or 0),
             "steps": resolved_steps,
         }

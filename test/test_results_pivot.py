@@ -804,6 +804,16 @@ def test_the_program_filter_fits_labels_that_arrive_after_it_is_shown():
     widget.close()
 
 
+def test_recover_top_n_waits_for_the_docking_to_stop():
+    """Recovering a Top-N is for a run that was cut: while one docks, its results are still coming."""
+    widget = _widget(hits=True)
+    widget._on_monitor_snapshot(SimpleNamespace(jobs=[_job("amdock_dock_shards_campaign", done=2, total=10)]))
+    assert not widget.recover_button.isEnabled()
+    widget._on_monitor_snapshot(SimpleNamespace(jobs=[
+        _job("amdock_dock_shards_campaign", done=4, total=10, status="canceled")]))
+    assert widget.recover_button.isEnabled()
+
+
 def test_a_program_with_no_ligand_yet_leaves_no_poses_of_another_one_listed():
     """A rerun under new settings starts with no results: the ligand table said so, but the pose
     table kept the filters of the last ligand shown and went on listing that ligand's poses."""

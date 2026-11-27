@@ -37,8 +37,11 @@ def batch_columns(model, *, source_width: int = 360, format_width: int = 115) ->
                   expr=batch_field(model, "source")),
         ColumnDef("format", label="Format", width=format_width, sortable=True, filterable=False,
                   expr=batch_field(model, "format")),
-        ColumnDef("import_batch_id", label="Import", width=70, sortable=True, visible=False,
-                  kind=ColumnKind.INTEGER),
+        # A catalog file holds the shards of many import batches: their ids, as the file lists them.
+        *([ColumnDef("scopes", label="Imports", width=70, sortable=True, visible=False)]
+          if model.__tablename__ == "ms_shard_files" else
+          [ColumnDef("import_batch_id", label="Import", width=70, sortable=True, visible=False,
+                     kind=ColumnKind.INTEGER)]),
     ]
 
 
@@ -198,6 +201,9 @@ class BoundTableWidget(QWidget):
     selectable: bool = False
     # Subclasses set this to True to offer "Edit…" on small molecules (Ketcher, ui/viewers/ketcher_editor).
     editable: bool = False
+    # Subclasses set this (ms) to re-read the table while the jobs it follows run: a view of what
+    # a job is writing, like the files of an import filling up.
+    live_refresh_ms: int = 0
 
     # Re-emits the embedded table count in case a host needs it; the visible counter is the
     # one in the ms_table toolbar (show_record_count).
@@ -215,6 +221,7 @@ class BoundTableWidget(QWidget):
         self._scopes: dict[str, set[str]] = {}
         self._job_bar: ActionBar | None = None
         self._jobs: JobFollower | None = None
+        self._live: QTimer | None = None
         self._selection_store: SelectionStore | None = None
         self._selection_adopted = False
         self._mirrored_ids: list[int] | None = None  # what this table and the store last agreed on
@@ -283,9 +290,16 @@ class BoundTableWidget(QWidget):
             self.layout().addWidget(self._job_bar)
             self._jobs = JobFollower(self, self._job_bar, noun=noun)
             self._jobs.finished.connect(lambda _status: QTimer.singleShot(_JOB_BAR_LINGER_MS, self._hide_job_bar))
+            if self.live_refresh_ms:
+                self._live = QTimer(self)
+                self._live.setInterval(self.live_refresh_ms)
+                self._live.timeout.connect(self.refresh)
+                self._jobs.finished.connect(lambda _status: (self._live.stop(), self.refresh()))
         self._jobs.noun = noun
         self._jobs.follow([(stage, job_id) for job_id in job_ids])
         self._job_bar.show()
+        if self._live is not None:
+            self._live.start()
 
     def _hide_job_bar(self) -> None:
         if self._job_bar is not None and not self._job_bar.is_running:  # a newer run keeps it

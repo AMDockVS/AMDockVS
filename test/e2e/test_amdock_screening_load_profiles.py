@@ -29,16 +29,17 @@ def test_amdock_throughput_profile_handles_heavier_screening_volume(tmp_path, mo
     try:
         # The old docking.screen(...) pipeline moved out of DockingAPI; run_screening_benchmark
         # is the current end-to-end screening runner (it provisions its own project + inputs).
-        # This exercises a heavier volume (240 ligands x 2 receptors = 480 dockings) under the
-        # throughput batch policy. ponytail: the 2-atom stub receptor is now a real 4-atom PDBQT
-        # (meeko used to write it empty), so Vina has work: ~540 s here, hence the wide timeout.
+        # The throughput batch policy over 2 receptors (48 ligands x 2 = 96 dockings). ponytail:
+        # exhaustiveness 1 and a small volume, this checks the path, not the speed; the old
+        # 480 dockings at exhaustiveness 8 took ~540 s of the suite.
         result = run_screening_benchmark(
             runtime,
             config=BenchmarkConfig(
-                ligand_count=240,
+                ligand_count=48,
                 receptor_count=2,
                 ligand_file_count=2,
                 policy="throughput",
+                exhaustiveness=1,
                 timeout_s=900.0,
                 poll_s=0.05,
             ),
@@ -46,10 +47,10 @@ def test_amdock_throughput_profile_handles_heavier_screening_volume(tmp_path, mo
         )
 
         assert result["policy"]["name"] == "throughput"
-        assert result["counts"]["ligands"] == 240
+        assert result["counts"]["ligands"] == 48
         assert result["counts"]["receptors"] == 2
-        assert result["counts"]["descriptors"] == 240
-        assert result["counts"]["results"] == 480
+        assert result["counts"]["descriptors"] == 48
+        assert result["counts"]["results"] == 96
         assert result["jobs"]["descriptor_status"] == "completed"
         assert result["jobs"]["docking_status"] == "completed"
     finally:

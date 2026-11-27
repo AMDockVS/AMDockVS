@@ -460,7 +460,14 @@ def main(root, *, cancel_during_preview=False, native=False, slow_submission=Fal
                     click(grid.save_button, "box-saved")
                 elif not tutorial._grid_ready:
                     if "box-active" not in clicked:
-                        click(grid.activate_button, "box-active")
+                        # Multisite: a site is docked into by checking its row, not by a button.
+                        clicked.add("box-active")
+                        window.grab().save(str(root / "guidance-box-active.png"))
+                        rows = [grid.site_tree.topLevelItem(index)
+                                for index in range(grid.site_tree.topLevelItemCount())]
+                        sites = [row for row in rows if (row.data(0, Qt.UserRole) or ("",))[0] == "site"]
+                        if sites:
+                            sites[-1].setCheckState(0, Qt.Checked)
             elif index == 6:
                 assert tutorial.controller.current_step.id == "run-docking"
                 assert "Prepare receptor and run docking" in tutorial.controller.current_step.title

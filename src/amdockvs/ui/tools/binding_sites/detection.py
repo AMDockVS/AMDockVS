@@ -125,7 +125,7 @@ class BindingSitesWidget(QWidget):
 
         actions = QHBoxLayout()
         actions.setContentsMargins(4, 0, 4, 4)
-        self.activate_button = QPushButton("Use as Active Docking Site", self)
+        self.activate_button = QPushButton("Dock Into This Site", self)
         self.activate_button.clicked.connect(self._activate_selected)
         self.activate_button.setEnabled(False)
         actions.addWidget(self.activate_button)
@@ -421,16 +421,14 @@ class BindingSitesWidget(QWidget):
         if site is None:
             return
         try:
-            self.runtime.binding_sites.set_active_site(
-                molecule_id=int(site.molecule_id),
-                binding_site_id=int(site.id or 0),
-            )
+            # Additive: a receptor may be docked into several of its pockets at once.
+            self.runtime.binding_sites.set_site_active(binding_site_id=int(site.id or 0), active=True)
             receptor = self.runtime.binding_sites.get_receptor(int(site.molecule_id))
             handler = getattr(self.window(), "_show_binding_site_from_details", None)
             if callable(handler):
                 handler(receptor, site)
             self.status_label.setText(
-                f"Binding site #{int(site.id or 0)} is now active for docking."
+                f"Binding site #{int(site.id or 0)} is now docked into."
             )
         except Exception as exc:
             self._show_error("Could not activate binding site", exc)

@@ -65,8 +65,8 @@ def test_a_sharded_project_shows_its_library_in_the_project_dialog(tmp_path, mon
     pytest.importorskip("PySide6")
     from PySide6.QtWidgets import QApplication, QDialog, QLabel
 
-    from amdockvs.models.screening import ScreeningShard
-    from amdockvs.molecules.storage import activate_generation, create_generation
+    from ms_flow.core.database.project_models import CatalogFile
+    from ms_flow.core.data.catalog import activate_generation, create_generation
     from amdockvs.ui.shell.project_summary import _library_section
 
     app = QApplication.instance() or QApplication(["amdockvs-library-section-test"])
@@ -75,13 +75,11 @@ def test_a_sharded_project_shows_its_library_in_the_project_dialog(tmp_path, mon
     try:
         runtime.create_project(name="library", folder=tmp_path / "library", description="")
         project_db = runtime.workspace.project_db
-        generation = create_generation(project_db, step="import", shard_dir=tmp_path)
+        generation = create_generation(project_db, step="import", folder=tmp_path)
         activate_generation(project_db, generation)
         with project_db.get_session() as session:
-            for index in range(2):
-                session.add(ScreeningShard(generation_id=generation, source="lib.smi", shard_index=index,
-                                           path=str(tmp_path / f"s_{index}.parquet"), input_format="smi",
-                                           n_records=1500))
+            session.add(CatalogFile(generation_id=generation, path=str(tmp_path / "lib.parquet"),
+                                    n_shards=2, n_records=3000, n_active=3000))
             session.commit()
         dlg = QDialog()
         dlg.setLayout(_library_section(dlg, runtime))
@@ -94,3 +92,113 @@ def test_a_sharded_project_shows_its_library_in_the_project_dialog(tmp_path, mon
         assert any(label.text().startswith("Last step: import") for label in dlg.findChildren(QLabel))
     finally:
         runtime.shutdown()
+
+
+def test_the_copies_on_queues_are_brought_and_cleaned_from_the_project_dialog(monkeypatch):
+    from amdockvs import AMDockVSRuntime  # noqa: F401  (pydantic before PySide)
+
+    pytest.importorskip("PySide6")
+    from types import SimpleNamespace
+
+    from PySide6.QtWidgets import QApplication, QDialog, QLabel, QPushButton
+
+    from amdockvs.ui.shell import project_summary
+
+    app = QApplication.instance() or QApplication(["amdockvs-queues-test"])
+    calls = []
+    runtime = SimpleNamespace(
+        queue_copies=lambda: {"vhpc": {"there": 3, "here_too": 2}},
+        bring_from=lambda name: calls.append(("bring", name)) or [1, 2, 3],
+        clean_host=lambda name, dry=False, confirm=False: calls.append(("clean", name, dry, confirm)) or [
+            {"path": "/w/a.arrows", "verified": True, "removed": not dry},
+            {"path": "/w/b.arrows", "verified": False, "removed": not dry and confirm}])
+    asked = []
+    monkeypatch.setattr(project_summary, "_confirm_clean",
+                        lambda dlg, name, plan: asked.append((name, len(plan))) or (True, False))
+    dlg = QDialog()
+    dlg.setLayout(project_summary._queues_section(dlg, runtime))
+    buttons = {b.text(): b for b in dlg.findChildren(QPushButton)}
+
+    def settle(n):
+        deadline = time.monotonic() + 10
+        while len(calls) < n and time.monotonic() < deadline:
+            app.processEvents()
+            time.sleep(0.01)
+        for _ in range(20):
+            app.processEvents()
+
+    assert any("3 only there, 2 here too" in w.text() for w in dlg.findChildren(QLabel))
+    buttons["Bring here"].click()
+    settle(1)
+    buttons["Clean vhpc…"].click()
+    settle(3)
+    assert calls == [("bring", "vhpc"), ("clean", "vhpc", True, False), ("clean", "vhpc", False, False)]
+    assert asked == [("vhpc", 2)]
+
+
+def test_compacting_the_project_merges_its_small_containers(tmp_path, monkeypatch):
+    """What campaigns sealed one by one (each small) becomes one container again, off the jobs."""
+    from amdockvs import AMDockVSRuntime
+    from ms_flow.core.data import catalog
+    from container_parts import part, receipt
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    runtime = AMDockVSRuntime()
+    try:
+        runtime.create_project(name="merge", folder=tmp_path / "merge", description="")
+        db = runtime.workspace.project_db
+        gen = catalog.create_generation(db, step="import")
+        catalog.activate_generation(db, gen)
+        with catalog.ContainerWriter(db, tmp_path / "merge" / "made", generation_id=gen, role="prepared:x",
+                                     prefix="s:") as writer:
+            for i in range(3):
+                writer.commit_parts([receipt(part(tmp_path / "parts" / f"{i}.arrows", 8 * i), f"s:{i}")])
+                writer.seal()
+        assert len(list(catalog.files(db, catalog.shard_spec(role="prepared:x")))) == 3
+        assert runtime.merge_containers() == 3
+        assert len(list(catalog.files(db, catalog.shard_spec(role="prepared:x")))) == 1
+        assert catalog.count(db, catalog.shard_spec(role="prepared:x")) == 3
+    finally:
+        runtime.shutdown()
+
+
+def test_the_library_generations_are_gone_back_to_and_deleted_from_the_project_dialog(monkeypatch):
+    from amdockvs import AMDockVSRuntime  # noqa: F401  (pydantic before PySide)
+
+    pytest.importorskip("PySide6")
+    from types import SimpleNamespace
+
+    from PySide6.QtWidgets import QApplication, QDialog, QLabel, QPushButton
+
+    from amdockvs.ui.shell import project_summary
+
+    app = QApplication.instance() or QApplication(["amdockvs-generations-test"])
+    calls = []
+    rows = [{"id": 2, "step": "repack", "active": True, "kept": False, "shards": 1, "records": 4},
+            {"id": 1, "step": "import", "active": False, "kept": True, "shards": 3, "records": 12}]
+    loader = SimpleNamespace(library_generations=lambda: rows,
+                             go_back_generation=lambda gen: calls.append(("back", gen)),
+                             delete_generation=lambda gen: calls.append(("delete", gen)))
+    monkeypatch.setattr(project_summary, "_confirm_delete_generation", lambda dlg, row: True)
+    dlg = QDialog()
+    dlg.setLayout(project_summary._generations_section(dlg, SimpleNamespace(loader=loader)))
+
+    def settle(n):
+        deadline = time.monotonic() + 10
+        while len(calls) < n and time.monotonic() < deadline:
+            app.processEvents()
+            time.sleep(0.01)
+
+    deadline = time.monotonic() + 10
+    while not dlg.findChildren(QPushButton) and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+    texts = [w.text() for w in dlg.findChildren(QLabel)]
+    assert any("#2 repack" in t and "active" in t for t in texts) and any("#1 import" in t and "kept" in t for t in texts)
+    buttons = {b.text(): b for b in dlg.findChildren(QPushButton)}
+    assert set(buttons) == {"Go back", "Delete…"}  # only for the one that is not the library
+    buttons["Go back"].click()
+    settle(1)
+    buttons["Delete…"].click()
+    settle(2)
+    assert calls == [("back", 1), ("delete", 1)]

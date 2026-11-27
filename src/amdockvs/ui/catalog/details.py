@@ -205,9 +205,9 @@ class CatalogDetailsView(QWidget):
         self._sync_actions()
 
     def show_shard(self, shard) -> None:
-        """A shard is inventory, not a molecule: its own row plus what the file's header says.
+        """A catalog file is inventory, not a molecule: its own row plus what its header says.
 
-        Metadata only, by decision — a shard holds thousands of records and listing them here
+        Metadata only, by decision — a file holds millions of records and listing them here
         would be the library walk that `htpvs` exists to avoid.
         """
         self._current_kind = "shard"
@@ -217,13 +217,14 @@ class CatalogDetailsView(QWidget):
         self.summary_tree.clear()
         path = Path(str(getattr(shard, "path", "") or ""))
         self._add_section(
-            "Shard",
+            "File",
             {
                 "ID": getattr(shard, "id", None),
-                "Index": getattr(shard, "shard_index", None),
-                "Records": getattr(shard, "n_records", None),
-                "State": getattr(shard, "state", None),
-                "Import batch": getattr(shard, "import_batch_id", None),
+                "Status": getattr(shard, "status", None),
+                "Shards": getattr(shard, "n_shards", None),
+                "Total": getattr(shard, "n_records", None),
+                "Active": getattr(shard, "n_active", None),
+                "Import batches": getattr(shard, "scopes", None),
                 "Path": str(path),
                 "Size": f"{path.stat().st_size:,} bytes" if path.is_file() else "missing",
             },
@@ -231,22 +232,18 @@ class CatalogDetailsView(QWidget):
         error = str(getattr(shard, "error", "") or "")
         if error:
             self._add_section("Error", {"Message": error})
-        preps = self.runtime.molecules.shard_preps(int(getattr(shard, "id", 0) or 0))
+        preps = self.runtime.molecules.file_preps(int(getattr(shard, "id", 0) or 0))
         self._add_section("Prepared", {
             family: f"{prepared:,} record(s)" + (f" · {failed:,} failed" if failed else "")
             for family, (prepared, failed) in sorted(preps.items())
         } or {"Status": "not prepared"})
         header = _shard_header(path)
-        # The one per-molecule thing worth surfacing: which ligands the last stage dropped and
-        # why. A sharded library has no per-molecule row to carry an error, so the header holds
-        # the tally and the `.failures.jsonl` beside the shard holds every id.
-        failures = dict((header.get("metadata") or {}).get("prep_failures") or {})
-        reasons = dict(failures.get("reasons") or {})
+        # The one per-molecule thing worth surfacing: why the last preparation dropped ligands.
+        # A sharded library has no per-molecule row to carry an error: the prepared file's
+        # dropped rows hold every id with its reason.
+        reasons = self.runtime.molecules.file_prep_failures(int(getattr(shard, "id", 0) or 0))
         if reasons:
-            section = {reason: str(count) for reason, count in reasons.items()}
-            if failures.get("log"):
-                section["Log"] = str(failures["log"])
-            self._add_section("Preparation failures", section)
+            self._add_section("Preparation failures", {reason: str(n) for reason, n in sorted(reasons.items())})
         self.json_text.setPlainText(json.dumps(header, indent=2, ensure_ascii=False, default=str))
         self._sync_actions()
 
@@ -364,19 +361,20 @@ __all__ = ["CatalogDetailsView"]
 
 
 def _shard_header(path: Path) -> dict:
-    """What the shard file itself declares. Opening it is a header read, not a library walk."""
+    """What the shard file itself declares: its counts from the header, the rest from its first
+    shard (every shard of a file shares them), so no library walk."""
     if not path.is_file():
         return {"error": "shard file not found"}
     try:
-        from ms_flow.core.data.shard import Shard
+        from ms_flow.core.data.shard import Shard, file_groups
 
-        with Shard.open(path) as shard_file:
+        groups = [group for group in file_groups(path) if not group.retired]
+        with Shard.open(path, shard=groups[0].shard if groups else None) as shard_file:
             return {
                 "dataset_id": str(shard_file.dataset_id),
                 "shard_id": shard_file.shard_id,
-                "base_id": shard_file.base_id,
-                "slot_count": shard_file.slot_count,
-                "record_count": shard_file.record_count,
+                "shards": len(groups),
+                "record_count": sum(group.n_records for group in groups),
                 "kind": shard_file.kind,
                 "serializer": shard_file.serializer,
                 "metadata": shard_file.metadata,
