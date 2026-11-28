@@ -283,6 +283,22 @@ class PrepareLigandShardsJobParams(BaseModel):
     run: str = ""
 
 
+def _shards_to_prepare(parsed: PrepareLigandShardsJobParams, config: dict | None) -> Iterator[dict[str, Any]]:
+    """The source shards the job prepares: those of the picked files (all without a pick) that
+    have no prepared twin yet, or every one with `force`."""
+    from ms_flow.core.data import catalog
+
+    project_db = dict(config or {}).get("project_db")
+    if project_db is None:
+        raise ValueError("prepare_ligand_shards_job requires project_db in config.")
+    picked = None if parsed.file_ids is None else {int(value) for value in parsed.file_ids}
+    # whole: prepared once for everything, so undoing an exclusion needs no re-prep.
+    rows = (catalog.shards(project_db, whole=True) if parsed.force
+            else catalog.underived(project_db, prepared_role(parsed.engine)))
+    # ponytail: filtered here, the files table is small
+    return (row for row in rows if picked is None or int(row["file_id"]) in picked)
+
+
 class PrepareLigandShardsJobSpec(JobSpec):
     """Whole shards per chunk: molecules in, PDBQT text out, a part per shard, appended to the
     containers of role `prepared:<family>` as it arrives (`catalog_sink`): what a canceled job
@@ -301,6 +317,11 @@ class PrepareLigandShardsJobSpec(JobSpec):
     produces = ()
 
     @staticmethod
+    def count_chunks(params: dict, config: dict | None = None) -> int:
+        """A chunk per shard to prepare, or the one that closes an empty job: the job's total."""
+        return max(1, sum(1 for _ in _shards_to_prepare(PrepareLigandShardsJobParams(**params), config)))
+
+    @staticmethod
     def build_chunks(params: dict, config: dict | None = None) -> Iterator[dict[str, Any]]:
         from uuid import uuid4
 
@@ -308,14 +329,8 @@ class PrepareLigandShardsJobSpec(JobSpec):
 
         parsed = PrepareLigandShardsJobParams(**params)
         project_db = dict(config or {}).get("project_db")
-        if project_db is None:
-            raise ValueError("prepare_ligand_shards_job requires project_db in config.")
         role = prepared_role(parsed.engine)
-        picked = None if parsed.file_ids is None else {int(value) for value in parsed.file_ids}
-        # whole: prepared once for everything, so undoing an exclusion needs no re-prep.
-        todo = [row for row in (catalog.shards(project_db, whole=True) if parsed.force
-                                else catalog.underived(project_db, role))
-                if picked is None or int(row["file_id"]) in picked]  # ponytail: the files table is small
+        todo = list(_shards_to_prepare(parsed, config))
         # What a dead run published but never registered goes first. ponytail: a second prep job
         # of the same family running now would lose its unregistered files; the UI runs one.
         for folder in {prepared_dir(row["path"], parsed.engine) for row in todo}:
