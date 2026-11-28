@@ -224,6 +224,10 @@ class PrepareLigandsJobSpec(_PrepareEntitiesJobSpec):
     task_name = "amdock_prepare_ligands_task"
     required = ()
     produces = ()
+    steps = ("read the ligands (a PDBQT one is kept as it is)",
+             "check each has 3D coordinates: none is an error, run Generate 3D first",
+             "PDBQT: prepare_ligand_vina_pdbqt_from_mol (ms_adtools)",
+             "store a preparation row per ligand")
 
     @staticmethod
     def build_chunks(params: dict, config: dict | None = None) -> Iterator[dict[str, Any]]:
@@ -235,6 +239,9 @@ class PrepareReceptorsJobSpec(_PrepareEntitiesJobSpec):
     task_name = "amdock_prepare_receptors_task"
     required = ()
     produces = ()
+    steps = ("read the receptors (a PDBQT one is kept as it is)",
+             "PDBQT: prepare_receptor_vina_pdbqt (ms_adtools), its flexible residues apart",
+             "store a preparation row per receptor")
 
     @staticmethod
     def build_chunks(params: dict, config: dict | None = None) -> Iterator[dict[str, Any]]:
@@ -265,6 +272,10 @@ class PrepareLigandShardsJobSpec(JobSpec):
     )
     output_flush_every = DEFAULT_OUTPUT_FLUSH_EVERY
     store_results = False
+    steps = ("read the shard's molecules",
+             "3D for the ones without coordinates: generate_ligand_3d (RDKit ETKDGv3, one embedding, not optimized)",
+             "PDBQT: prepare_ligand_vina_pdbqt_from_mol (ms_adtools); a molecule that fails is dropped",
+             "write a part per shard")
     required = ()
     produces = ()
 

@@ -166,4 +166,31 @@ def normalize_steps(operations) -> list[tuple[str, dict]]:
     return steps
 
 
-__all__ = ["LIGAND_STEPS", "kwargs_for", "normalize_steps", "run_pipeline"]
+def describe_step(name: str, params) -> str:
+    """One line on what a step runs, with the settings it was given (or its defaults)."""
+    p = dict(params or {})
+    if name == "standardize":
+        return "standardize: standardize_ligand_molecule (RDKit MolStandardize)"
+    if name == "protonate":
+        return f"protonate: protonate_molecule_batch ({p.get('method') or 'dimorphite'}, pH {p.get('ph', 7.4)})"
+    if name == "generate_3d":
+        attempts = int(p.get("attempts") or 1)
+        kept = f"best of {attempts} by MMFF energy (UFF if MMFF lacks parameters)" if attempts > 1 else "one embedding, not optimized"
+        return f"generate_3d: generate_ligand_3d (RDKit {str(p.get('method') or 'etkdgv3').upper()}, {kept})"
+    if name == "conformers":
+        return f"conformers: generate_conformer_ensemble ({p.get('num_conformers', 20)} conformers)"
+    if name == "minimize":
+        return f"minimize: minimize_ligand_molecule ({str(p.get('forcefield') or 'mmff').upper()})"
+    return name
+
+
+def describe_chemistry(params) -> list[str]:
+    """The lines a chemistry job's chunk goes through, for the job monitor: `params` is the
+    job's (a dict or its model), with `operation` and the shared `params` every step gets."""
+    given = params.model_dump() if hasattr(params, "model_dump") else dict(params or {})
+    shared = dict(given.get("params") or {})
+    return [describe_step(name, {**shared, **step}) for name, step in normalize_steps(given.get("operation"))]
+
+
+__all__ = ["LIGAND_STEPS", "describe_chemistry", "describe_step", "kwargs_for", "normalize_steps",
+           "run_pipeline"]
