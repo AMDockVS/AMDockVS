@@ -350,17 +350,18 @@ def _pose(payload: Mapping[str, Any]) -> tuple[str, str]:
     return str(payload.get("pose_text") or ""), suffix
 
 
-_ORDER = [("score", "ascending"), ("_at", "descending")]  # `_at`: a row's place, a tie to the later
-
-
 def _best(table: pa.Table, cap: int) -> pa.Table:
-    """The best `cap` scored rows with a pose of `table` (an `_at` column), by `_ORDER`."""
+    """The best `cap` scored rows with a pose of `table` (an `_at` column: a row's place): lowest
+    score first, a tie to the later row. In NumPy: a partition, then a sort of what is left."""
+    import numpy as np
     import pyarrow.compute as pc
 
     table = table.filter(pc.and_(pc.is_valid(table["score"]), pc.fill_null(table["has_pose"], False)))
-    if table.num_rows > cap:
-        table = table.take(pc.select_k_unstable(table, k=cap, sort_keys=_ORDER))
-    return table.take(pc.sort_indices(table, sort_keys=_ORDER))
+    if table.num_rows > cap:  # better than the cap-th score, and every tie with it: the place decides
+        scores = table["score"].to_numpy()
+        table = table.take(np.flatnonzero(scores <= np.partition(scores, cap - 1)[cap - 1]))
+    order = np.lexsort((-table["_at"].to_numpy(), table["score"].to_numpy()))[:cap]
+    return table.take(order)
 
 
 def _top(table: pa.Table, cap: int) -> pa.Table:
