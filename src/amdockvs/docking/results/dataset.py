@@ -228,45 +228,73 @@ def _newest(table: pa.Table) -> pa.Table:
     return table.take(np.sort(last.to_numpy()))
 
 
-def _summaries(project_db, keys: Iterable[str], columns: Iterable[str] = SUMMARY_COLUMNS, *,
-               newest: bool = True) -> tuple[pa.Table, dict[int, dict[str, Any]]]:
-    """The summary rows of `keys` as one table, `_result_shard` (the shard id of each) beside them,
-    and the meta of every shard read. `newest`: one row per (shard, ligand) of a key, the last
-    committed; only the shards of a library shard docked twice (an origin repeated) are deduplicated."""
-    from collections import Counter
-
+def _rows(file_id: int, path: Path, groups: list, names: list[str]) -> pa.Table:
+    """The rows `names` of shards `groups` of one container, `_result_shard` (the shard id of each) beside."""
     import numpy as np
-    import pyarrow.compute as pc
 
     from ms_flow.core.data.catalog import shard_id
-    from ms_flow.core.data.shard import file_groups, read_rows
+    from ms_flow.core.data.shard import read_rows
 
+    ids = [shard_id(file_id, group.shard) for group in groups]
+    sizes = [group.n_records + group.n_dropped for group in groups]
+    table = read_rows(path, [group.shard for group in groups], names)
+    return table.append_column("_result_shard", pa.array(np.repeat(ids, sizes), pa.int64()))
+
+
+def _key_parts(containers: list[tuple[str, int, Path]], names: list[str], *,
+               newest: bool = True) -> Iterable[pa.Table]:
+    """The summary rows of `containers` (`_key_containers`), a table at a time: each container's,
+    then each key's deduplicated repeats. `newest`: one row per (shard, ligand) of a key, the last
+    committed. The indexes alone tell which origins repeat across a key's containers (a sealed one
+    keeps a shard a later redo replaces), so only those rows are held together for `_newest`; the
+    rest stream a container at a time. ponytail: a key past 256 containers reads each index twice
+    (`_INDEXES` keeps 256); its rows still dominate."""
+    from collections import Counter
+
+    from ms_flow.core.data.shard import file_groups
+
+    by_key: dict[str, list[tuple[int, Path]]] = {}
+    for key, file_id, path in containers:
+        by_key.setdefault(key, []).append((file_id, path))
+    for files in by_key.values():
+        live = [(file_id, path, [group for group in file_groups(path) if not group.retired])
+                for file_id, path in files]
+        counts = Counter(group.origin for _id, _path, groups in live for group in groups)
+        again = []
+        for file_id, path, groups in live:
+            once = [group for group in groups if not newest or counts[group.origin] < 2]
+            if once:
+                yield _rows(file_id, path, once, names)
+            twice = [group for group in groups if newest and counts[group.origin] > 1]
+            if twice:
+                again.append(_rows(file_id, path, twice, names))
+        if again:
+            yield _newest(pa.concat_tables(again))
+
+
+def _summaries(project_db, keys: Iterable[str], columns: Iterable[str] = SUMMARY_COLUMNS, *,
+               newest: bool = True) -> pa.Table:
+    """The summary rows of `keys` as one table, `_result_shard` beside them (`_key_parts`)."""
     names = list(dict.fromkeys([*columns, *UNIQUE_BY]))
-    metas: dict[int, dict[str, Any]] = {}
-    by_key: dict[str, list[tuple[pa.Table, list]]] = {}
-    for key, file_id, path in _key_containers(project_db, keys):
-        groups = [group for group in file_groups(path) if not group.retired]
-        if not groups:
-            continue
-        ids = [shard_id(file_id, group.shard) for group in groups]
-        metas.update(zip(ids, (dict(json.loads(group.meta or "{}")) for group in groups)))
-        sizes = [group.n_records + group.n_dropped for group in groups]
-        table = read_rows(path, [group.shard for group in groups], names)
-        by_key.setdefault(key, []).append((table.append_column(
-            "_result_shard", pa.array(np.repeat(ids, sizes), pa.int64())), list(zip(ids, (g.origin for g in groups)))))
-    tables = []
-    for parts in by_key.values():
-        table = pa.concat_tables([table for table, _shards in parts])
-        counts = Counter(origin for _table, shards in parts for _id, origin in shards)
-        twice = [shard for _table, shards in parts for shard, origin in shards if counts[origin] > 1]
-        if newest and twice:  # the index alone tells which origins repeat: only their rows are deduped
-            again = pc.is_in(table["_result_shard"], pa.array(twice, pa.int64()))
-            table = pa.concat_tables([table.filter(pc.invert(again)), _newest(table.filter(again))])
-        tables.append(table)
+    tables = list(_key_parts(_key_containers(project_db, keys), names, newest=newest))
     if not tables:
         empty = pa.schema([RESULT_SCHEMA.field(name) for name in names]).empty_table()
-        return empty.append_column("_result_shard", pa.array([], pa.int64())), metas
-    return pa.concat_tables(tables), metas
+        return empty.append_column("_result_shard", pa.array([], pa.int64()))
+    return pa.concat_tables(tables)
+
+
+def _metas(paths: Mapping[int, Path], ids: Iterable[int]) -> dict[int, dict[str, Any]]:
+    """The meta of summary shards `ids`, files `paths` by id: parsed for these alone."""
+    from ms_flow.core.data.catalog import shard_id, split_shard_id
+    from ms_flow.core.data.shard import file_groups
+
+    numbers: dict[int, set[int]] = {}
+    for value in ids:
+        file_id, number = split_shard_id(int(value))
+        numbers.setdefault(file_id, set()).add(number)
+    return {shard_id(file_id, group.shard): dict(json.loads(group.meta or "{}"))
+            for file_id, wanted in numbers.items()
+            for group in file_groups(paths[file_id]) if group.shard in wanted}
 
 
 def _arrow_filters(filters: Mapping[str, Any]) -> list[tuple[str, str, Any]]:
@@ -322,16 +350,25 @@ def _pose(payload: Mapping[str, Any]) -> tuple[str, str]:
     return str(payload.get("pose_text") or ""), suffix
 
 
+_ORDER = [("score", "ascending"), ("_at", "descending")]  # `_at`: a row's place, a tie to the later
+
+
+def _best(table: pa.Table, cap: int) -> pa.Table:
+    """The best `cap` scored rows with a pose of `table` (an `_at` column), by `_ORDER`."""
+    import pyarrow.compute as pc
+
+    table = table.filter(pc.and_(pc.is_valid(table["score"]), pc.fill_null(table["has_pose"], False)))
+    if table.num_rows > cap:
+        table = table.take(pc.select_k_unstable(table, k=cap, sort_keys=_ORDER))
+    return table.take(pc.sort_indices(table, sort_keys=_ORDER))
+
+
 def _top(table: pa.Table, cap: int) -> pa.Table:
     """The best `cap` scored rows with a pose, in Arrow: lowest score first, a tie to the later
     row."""
     import numpy as np
-    import pyarrow.compute as pc
 
-    table = table.filter(pc.and_(pc.is_valid(table["score"]), pc.fill_null(table["has_pose"], False)))
-    at = table.append_column("_at", pa.array(np.arange(table.num_rows)))
-    order = pc.sort_indices(at, sort_keys=[("score", "ascending"), ("_at", "descending")])
-    return table.take(order[:cap])
+    return _best(table.append_column("_at", pa.array(np.arange(table.num_rows))), cap).drop_columns(["_at"])
 
 
 def _ranked(project_db, *, keys: Iterable[str], filters: Mapping[str, Any] | None,
@@ -344,9 +381,22 @@ def _ranked(project_db, *, keys: Iterable[str], filters: Mapping[str, Any] | Non
     if unsupported:
         raise ValueError(f"Unsupported result filters: {', '.join(sorted(unsupported))}.")
 
-    table, metas = _summaries(project_db, keys)  # newest first, then the filters (a redo hides the old row)
+    import numpy as np
+
+    # A part at a time, its best `cap` kept: the top of the whole is in the tops of its parts. Newest
+    # first, then the filters (a redo hides the old row): `_key_parts` dedups before they apply.
+    containers = _key_containers(project_db, keys)
+    names = list(dict.fromkeys([*SUMMARY_COLUMNS, *UNIQUE_BY]))
+    best, seen = None, 0
+    for part in _key_parts(containers, names):
+        part = part.append_column("_at", pa.array(np.arange(seen, seen + part.num_rows), pa.int64()))
+        seen += part.num_rows
+        part = _best(_filtered(part, normalized_filters), cap)
+        best = part if best is None else _best(pa.concat_tables([best, part]), cap)
+    rows = [] if best is None else best.drop_columns(["_at"]).to_pylist()
+    metas = _metas({file_id: path for _key, file_id, path in containers}, {row["_result_shard"] for row in rows})
     return [{**row, "_result_record_id": int(row.get("ligand_id") or 0), "_shard_id": int(row.get("shard_id") or 0)}
-            for row in _top(_filtered(table, normalized_filters), cap).to_pylist()], metas
+            for row in rows], metas
 
 
 def select_hit_refs(
@@ -467,7 +517,7 @@ def select_hits(
 def docked_pairs(project_db, keys: Iterable[str]) -> set[tuple[int, int]]:
     """(docking run id, shard id) of every row the summaries of `keys` hold, older copies too:
     which run docked what."""
-    table, _metas = _summaries(project_db, keys, ("docking_run_id", "shard_id"), newest=False)
+    table = _summaries(project_db, keys, ("docking_run_id", "shard_id"), newest=False)
     table = table.group_by(["docking_run_id", "shard_id"]).aggregate([])
     return set(zip(map(int, table["docking_run_id"].to_pylist()), map(int, table["shard_id"].to_pylist())))
 
@@ -476,7 +526,7 @@ def run_counts(project_db, keys: Iterable[str], run: int) -> tuple[int, int]:
     """(shards, rows) that `run` holds in the summaries of `keys`, the newest row of each pair."""
     import pyarrow.compute as pc
 
-    table, _metas = _summaries(project_db, keys, ("docking_run_id", "shard_id"))
+    table = _summaries(project_db, keys, ("docking_run_id", "shard_id"))
     table = table.filter(pc.equal(table["docking_run_id"], int(run)))
     return len(set(table["shard_id"].to_pylist())), table.num_rows
 
