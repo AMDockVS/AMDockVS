@@ -179,3 +179,33 @@ def test_only_origins_docked_twice_are_deduplicated(tmp_path, monkeypatch):
         assert seen == [3]  # a's two shards, not b's
     finally:
         db.disconnect()
+
+
+def test_the_top_n_streams_containers_and_dedups_a_redo_across_sealed_ones(tmp_path, monkeypatch):
+    """Each container's best are kept as it is read; a pair docked again in a later container
+    still hides its old row there."""
+    import random
+
+    from ms_flow.core.data import catalog
+
+    from amdockvs.docking.results import dataset
+
+    monkeypatch.setattr(catalog, "MAX_SHARDS", 1)  # a container per docked shard
+    rng = random.Random(3)
+    db = _project(tmp_path)
+    try:
+        a, b = _library(db, tmp_path / "library")
+        newest = {}
+        for run in (1, 2, 3):
+            for shard in (a, b):
+                # each run scores worse than the one before: an old row that leaks ranks first
+                scores = {ligand: rng.uniform(-10, -9) + 1.5 * run for ligand in rng.sample(range(6), 3)}
+                _docked(db, tmp_path / "results", key="k", shard_id=shard, run=run, scores=scores)
+                newest.update({(shard, ligand): score for ligand, score in scores.items()})
+        assert len(dataset.key_files(db, ["k"])) > 2
+        best = sorted(((shard, ligand, score) for (shard, ligand), score in newest.items()), key=lambda r: r[2])
+        assert [(r["_shard_id"], r["ligand_id"], r["score"])
+                for r in dataset.select_hit_refs(db, keys=["k"], top_n=4)] == best[:4]
+        assert len(dataset.hit_refs(db, keys=["k"], top_n=4)["payloads"]) <= 4  # metas of the winners only
+    finally:
+        db.disconnect()

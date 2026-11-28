@@ -1331,7 +1331,7 @@ def test_a_partial_replacement_retires_the_hits_of_the_shard_it_replaced(tmp_pat
             results = sorted((int(row.docking_run_id), int(row.ligand_molecule_id))
                              for row in session.exec(select(DockingResultRecord)).all())
             targets = [int(row.docking_run_id) for row in session.exec(select(ScreeningTarget)).all()]
-        rows = _summaries(project_db, [key], ("shard_id", "ligand_id", "docking_run_id"))[0].select(
+        rows = _summaries(project_db, [key], ("shard_id", "ligand_id", "docking_run_id")).select(
             ["shard_id", "ligand_id", "docking_run_id"]).to_pylist()
         # What a read sees: the replaced shard's rows are the new run's; the untouched shard keeps the old run's.
         assert sorted(tuple(row.values()) for row in rows) == sorted([
