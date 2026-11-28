@@ -146,6 +146,8 @@ class JobDefinition:
     # of ms_flow's helper process, and no worker of the pool is kept for them.
     on_thread: Optional[Callable[[dict], bool]] = None
     where: str = ""  # `module:qualname` of this declaration
+    # What a chunk goes through, in order, a line each, or `(params) -> lines`: the monitor shows them.
+    steps: Any = ()
 
     def with_options(self, **changes) -> "JobDefinition":
         known = {field.name for field in fields(self)}
@@ -183,7 +185,7 @@ class JobDefinition:
         run = functools.partial(_run_chunk, run=self.run_chunk, together=self.run_chunks)
         # `batched` and `autobatch` are said by whoever submits (`runtime.submit_job`).
         run.__task__ = {"cpu": max(1, int(self.cpu_required or 1)), "gpu": 0, "mem_mb": 0, "retries": 0,
-                        "batch": None, "label": self.task_label}
+                        "batch": None, "label": self.task_label, "steps": self.steps}
 
         def source(params, project) -> Iterable[dict]:
             yield from self.build_chunks(params, config=configs[project])
@@ -265,6 +267,7 @@ class JobSpec:
     cpu_required: int | None = 1
     output_spec: Any = None
     task_label: Any = None
+    steps: Any = ()  # what a chunk goes through, in order, or `staticmethod((params) -> lines)`: the monitor shows them
 
     @staticmethod
     def build_chunks(params: dict, config: dict | None = None) -> Iterable[dict]:
@@ -297,6 +300,7 @@ class JobSpec:
             cpu_required=cls.cpu_required or 1,
             on_thread=cls._own("on_thread"),
             run_chunks=cls._own("run_chunks"),
+            steps=cls.steps if callable(cls.steps) else tuple(cls.steps),
         )
         return cls.definition
 
@@ -314,8 +318,9 @@ def task(*, name: Optional[str] = None, executor: str = "compute", supported_exe
 def job(*, task, name: Optional[str] = None, params_model: Any = None, executor: str = "",
         supported_executors: Iterable[str] = (), cpu_required: Optional[int] = None, finalize=None,
         output_spec: Any = None, result_handler_factory=None, task_label: Any = None,
-        relative_paths: bool = False, count_chunks=None, **_described):
-    """Declare the job a chunker feeds: its payloads go to `task`."""
+        relative_paths: bool = False, count_chunks=None, steps: Any = (), **_described):
+    """Declare the job a chunker feeds: its payloads go to `task`. `steps`: what a chunk goes through,
+    a line each, or `(params) -> lines`."""
     def declare(chunker) -> JobDefinition:
         return JobDefinition(
             name=name or chunker.__name__,
@@ -332,6 +337,7 @@ def job(*, task, name: Optional[str] = None, params_model: Any = None, executor:
             cpu_required=cpu_required or getattr(task, "cpu_required", 1),
             relative_paths=relative_paths,
             where=f"{chunker.__module__}:{chunker.__qualname__}",
+            steps=steps if callable(steps) else tuple(steps),
         )
     return declare
 

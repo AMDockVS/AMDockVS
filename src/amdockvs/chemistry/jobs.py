@@ -22,7 +22,7 @@ from amdockvs.chemistry.repository import (
     sequences_by_molecule_ids,
 )
 from amdockvs.chemistry.descriptors import BASIC_DESCRIPTOR_FIELDS
-from amdockvs.chemistry.pipeline import normalize_steps
+from amdockvs.chemistry.pipeline import describe_chemistry, normalize_steps
 from amdockvs.chemistry.structures import with_structures
 from amdockvs.chemistry.tools.esmfold import FAST_MODEL
 from amdockvs.io.shards import shard_generation_writer
@@ -73,6 +73,21 @@ class LigandChemistryJobParams(BaseModel):
     ligand_set_id: int | None = Field(default=None, ge=1)
     ligand_filters: dict[str, Any] = Field(default_factory=dict)
     params: dict[str, Any] = Field(default_factory=dict)
+
+
+def describe_receptor_chemistry(params) -> list[str]:
+    """What a receptor chemistry chunk runs, for the job monitor (see `service.transform_receptor_rows`)."""
+    given = params.model_dump() if hasattr(params, "model_dump") else dict(params or {})
+    p, operation = dict(given.get("params") or {}), str(given.get("operation") or "").strip().lower()
+    if operation == "fix":
+        line = "fix: fix_receptor_pdb_file (PDBFixer)"
+    elif operation == "protonate" and str(p.get("method") or "reduce").lower() == "pdb2pqr":
+        line = f"protonate: protonate_receptor_pdb2pqr_file (pdb2pqr, {p.get('forcefield', 'AMBER')}, pH {p.get('ph', 7.0)})"
+    elif operation == "protonate":
+        line = "protonate: protonate_receptor_reduce_file (reduce)"
+    else:
+        line = f"minimize: minimize_receptor_openmm_file (OpenMM, {', '.join(p.get('forcefields') or ('amber14-all.xml',))})"
+    return ["read the receptor's structure", line, "store the new structure"]
 
 
 class ReceptorChemistryJobParams(BaseModel):
@@ -183,6 +198,7 @@ def _iter_receptor_chemistry_batches(
 @job(
     task=ligand_chemistry_task,
     name="amdock_ligand_chemistry_job",
+    steps=lambda params: ["read the molecules", *describe_chemistry(params), "store them"],
     params_model=LigandChemistryJobParams,
     executor="compute",
     supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
@@ -206,6 +222,7 @@ def ligand_chemistry_job(params: dict, config: dict | None = None) -> Iterator[d
 @job(
     task=receptor_chemistry_task,
     name="amdock_receptor_chemistry_job",
+    steps=describe_receptor_chemistry,
     params_model=ReceptorChemistryJobParams,
     executor="compute",
     supported_executors=AMDOCKVS_OFFLOADABLE_EXECUTORS,
@@ -324,6 +341,7 @@ def count_shard_chemistry_chunks(params: dict, config: dict | None = None) -> in
 @job(
     task=shard_chemistry_task,
     name="amdock_shard_chemistry_job",
+    steps=lambda params: ["read the shard", *describe_chemistry(params), "write the shard of the new generation"],
     count_chunks=count_shard_chemistry_chunks,
     params_model=ShardChemistryJobParams,
     executor="compute",
