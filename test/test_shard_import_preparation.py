@@ -157,3 +157,23 @@ def test_a_resumed_prep_makes_the_same_part_ids(runtime, tmp_path, monkeypatch):
               for s in chunk["shards"]] for _ in range(2)]
     assert parts[0] == parts[1] and len(parts[0]) == 2
     assert all(part.startswith(f"{submitted['run']}:") for part in parts[0])
+
+
+def test_the_prep_job_counts_the_shards_it_prepares(runtime, tmp_path):
+    """Its total is a chunk per shard of the picked files left to prepare: the monitor shows how
+    far it is, not '?'. Nothing to prepare is the one chunk that closes the job."""
+    from catalog_seed import seed_library
+
+    from amdockvs.docking.preparation.jobs import PrepareLigandShardsJobSpec
+
+    db = runtime.workspace.project_db
+    first, _ = seed_library(db, tmp_path, scope=1, shards=3, name="a")
+    seed_library(db, tmp_path, scope=2, shards=2, name="b")
+    config = {"project_db": db}
+
+    def count(**params):
+        return PrepareLigandShardsJobSpec.count_chunks({"engine": "ad4", **params}, config)
+
+    assert (count(), count(file_ids=[first]), count(file_ids=[])) == (5, 3, 1)
+    chunks = list(PrepareLigandShardsJobSpec.build_chunks({"engine": "ad4", "file_ids": [first]}, config))
+    assert len(chunks) == count(file_ids=[first])
